@@ -5,6 +5,8 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "duckduckgo-search>=7.1.1",
+    "fire>=0.7.0",
     "funcdesc>=0.1.5.1",
     "loguru>=0.7.3",
     "openai>=1.58.1",
@@ -28,3 +30,9 @@ dev = [
     "pytest>=8.3.4",
     "pytest-asyncio>=0.25.0",
 ]
+
+[tool.setuptools]
+packages = {find = {}}
+
+[tool.setuptools.dynamic]
+version = {attr = "funcdesc.__version__"} 
