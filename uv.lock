@@ -1113,6 +1113,59 @@ wheels = [
 ]
 
 [[package]]
+name = "pantheum"
+version = "0.0.1"
+source = { virtual = "." }
+dependencies = [
+    { name = "fire" },
+    { name = "funcdesc" },
+    { name = "litellm" },
+    { name = "loguru" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+tool = [
+    { name = "crawl4ai" },
+    { name = "duckduckgo-search" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "crawl4ai" },
+    { name = "duckduckgo-search" },
+    { name = "ipdb" },
+    { name = "ipython" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "crawl4ai", marker = "extra == 'tool'", specifier = ">=0.4.23" },
+    { name = "duckduckgo-search", marker = "extra == 'tool'", specifier = ">=7.1.1" },
+    { name = "fire", specifier = ">=0.7.0" },
+    { name = "funcdesc", specifier = ">=0.1.5.1" },
+    { name = "litellm", specifier = ">=1.56.4" },
+    { name = "loguru", specifier = ">=0.7.3" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.4" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.25.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "crawl4ai", specifier = ">=0.4.23" },
+    { name = "duckduckgo-search", specifier = ">=7.1.1" },
+    { name = "ipdb", specifier = ">=0.13.13" },
+    { name = "ipython", specifier = ">=8.30.0" },
+    { name = "pytest", specifier = ">=8.3.4" },
+    { name = "pytest-asyncio", specifier = ">=0.25.0" },
+]
+
+[[package]]
 name = "parso"
 version = "0.8.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1773,59 +1826,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/28/e3/55dcc2cfbc3ca9c29519eb6884dd1415ecb53b0e934862d3559ddcb7e20b/stack_data-0.6.3.tar.gz", hash = "sha256:836a778de4fec4dcd1dcd89ed8abff8a221f58308462e1c4aa2a3cf30148f0b9", size = 44707 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f1/7b/ce1eafaf1a76852e2ec9b22edecf1daa58175c090266e9f6c64afcd81d91/stack_data-0.6.3-py3-none-any.whl", hash = "sha256:d5558e0c25a4cb0853cddad3d77da9891a08cb85dd9f9f91b9f8cd66e511e695", size = 24521 },
-]
-
-[[package]]
-name = "synago"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "fire" },
-    { name = "funcdesc" },
-    { name = "loguru" },
-    { name = "openai" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-tool = [
-    { name = "crawl4ai" },
-    { name = "duckduckgo-search" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "crawl4ai" },
-    { name = "duckduckgo-search" },
-    { name = "ipdb" },
-    { name = "ipython" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "crawl4ai", marker = "extra == 'tool'", specifier = ">=0.4.23" },
-    { name = "duckduckgo-search", marker = "extra == 'tool'", specifier = ">=7.1.1" },
-    { name = "fire", specifier = ">=0.7.0" },
-    { name = "funcdesc", specifier = ">=0.1.5.1" },
-    { name = "loguru", specifier = ">=0.7.3" },
-    { name = "openai", specifier = ">=1.58.1" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.4" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.25.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "crawl4ai", specifier = ">=0.4.23" },
-    { name = "duckduckgo-search", specifier = ">=7.1.1" },
-    { name = "ipdb", specifier = ">=0.13.13" },
-    { name = "ipython", specifier = ">=8.30.0" },
-    { name = "pytest", specifier = ">=8.3.4" },
-    { name = "pytest-asyncio", specifier = ">=0.25.0" },
 ]
 
 [[package]]

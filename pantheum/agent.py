@@ -1,12 +1,12 @@
 import copy
 import json
 import inspect
-from typing import Optional, List, Callable, AsyncGenerator, Union
+from typing import Optional, List, Callable, Union
 
 from funcdesc.parse import parse_func
 from pydantic import BaseModel
+from litellm import acompletion, stream_chunk_builder
 
-from .utils.llm import LLM, get_model
 from .utils.misc import desc_to_openai_function
 
 
@@ -28,16 +28,12 @@ class Agent:
         self,
         name: str,
         instructions: str,
-        model: Optional[Union[LLM, str]] = None,
+        model: str = "gpt-4o-mini",
         functions: Optional[List[Callable]] = None,
         response_format: Optional[BaseModel] = None,
     ):
         self.name = name
         self.instructions = instructions
-        if model is None:
-            model = get_model()
-        elif isinstance(model, str):
-            model = get_model(model)
         self.model = model
         self.functions = {}
         if functions:
@@ -86,9 +82,10 @@ class Agent:
             })
         return messages
 
-    async def get_stream(
+    async def run_stream(
         self,
         messages: List,
+        process_chunk: Optional[Callable] = None,
         max_turns: Union[int, float] = float("inf"),
         context_variables: Optional[dict] = None,
         response_format: Optional[BaseModel] = None,
@@ -107,17 +104,21 @@ class Agent:
             for msg in history_clear_parsed:
                 if "parsed" in msg:
                     del msg["parsed"]
-            stream = await self.model.get_stream(
+            response = await acompletion(
+                model=self.model,
                 messages=history_clear_parsed,
                 tools=self._convert_functions() or None,
-                sender=self.name,
                 response_format=response_format,
+                stream=True,
             )
-            async for chunk in stream:
-                if chunk.get("delim") == "end":
-                    message = chunk["complete"]
-                    break
-                yield chunk
+            async for chunk in response:
+                if process_chunk:
+                    choice = chunk.choices[0]
+                    if choice.finish_reason == "stop":
+                        break
+                    process_chunk(choice.delta.model_dump())
+            complete_resp = stream_chunk_builder(response.chunks)
+            message = complete_resp.choices[0].message.model_dump()
 
             if response_format is not None:
                 content = message.get("content")
@@ -136,20 +137,10 @@ class Agent:
             )
             history.extend(tool_messages)
 
-        yield AgentResponse(
+        return AgentResponse(
             messages=history[init_len:],
             context_variables=context_variables,
         )
-
-    async def run_stream(
-            self, stream: AsyncGenerator,
-            process_chunk: Optional[Callable] = None) -> AgentResponse:
-        async for chunk in stream:
-            if isinstance(chunk, dict):
-                if process_chunk:
-                    process_chunk(chunk)
-            else:
-                return chunk
 
     async def run(
             self, msg: List | str | BaseModel | AgentAnswer,
@@ -182,12 +173,12 @@ class Agent:
                         "Message must be a string, BaseModel or dict"
                     new_messages.append(m)
             messages = new_messages
-        stream = self.get_stream(
+        details = await self.run_stream(
             messages=messages,
             response_format=response_format,
             context_variables=context_variables,
+            process_chunk=process_chunk,
         )
-        details = await self.run_stream(stream, process_chunk)
         final_msg = details.messages[-1]
         if response_format:
             content = final_msg.get("parsed")

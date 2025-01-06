@@ -16,9 +16,9 @@ from pprint import pprint
 import asyncio
 
 import fire
-from synago.agent import Agent
-from synago.tools.duckduckgo import duckduckgo_search
-from synago.tools.web_crawl import web_crawl
+from pantheum.agent import Agent
+from pantheum.tools.duckduckgo import duckduckgo_search
+from pantheum.tools.web_crawl import web_crawl
 from loguru import logger
 from pydantic import BaseModel, Field
 

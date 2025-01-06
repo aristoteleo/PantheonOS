@@ -7,16 +7,15 @@ import random
 async def test_stream():
     agent = Agent(
         name="test",
-        instructions="You are a sci-fi fan, you can answer any sci-fi related questions.",
+        instructions="You are a sci-fi fan, you can answer any sci-fi related questions. Just give me a number without any other words and symbols.",
         model="gpt-4o-mini",
     )
-    msgs = [{"role": "user", "content": "What is the meaning of life? Just give me a number without any other words and symbols."}]
-    stream = agent.get_stream(msgs)
-    print("")
-    print("answer:")
+    msgs = [{"role": "user", "content": "What is the meaning of life?"}]
     resp = await agent.run_stream(
-        stream,
-        lambda chunk: print(chunk.get("content", "") or "", end="", flush=True))
+        msgs,
+        process_chunk=lambda chunk: print(chunk.get("content", ""), end="", flush=True),
+    )
+    print("\n", resp)
     assert len(resp.messages) == 1
 
 
@@ -33,8 +32,7 @@ async def test_tool_use():
         return {"weather": "sunny"}
 
     msgs = [{"role": "user", "content": "What is the weather in Palo Alto?"}]
-    stream = agent.get_stream(msgs)
-    resp = await agent.run_stream(stream)
+    resp = await agent.run_stream(msgs)
     print()
     print(resp)
     call_id = resp.messages[0]["tool_calls"][0]["id"]
@@ -56,18 +54,18 @@ async def test_structured_output():
     class SciFiBookList(BaseModel):
         books: List[SciFiBook]
 
-    stream = agent.get_stream(
-        messages=[{"role": "user", "content": "Recommend me 5 sci-fi books."}],
-        response_format=SciFiBookList,
-    )
-
     def assert_chunk(chunk):
         assert isinstance(chunk, dict)
 
-    resp = await agent.run_stream(stream, assert_chunk)
+    resp = await agent.run(
+        [{"role": "user", "content": "Recommend me 5 sci-fi books."}],
+        response_format=SciFiBookList,
+        process_chunk=assert_chunk,
+    )
+
     print(resp)
-    assert isinstance(resp.messages[0]["parsed"], SciFiBookList)
-    assert len(resp.messages[0]["parsed"].books) == 5
+    assert isinstance(resp.details.messages[0]["parsed"], SciFiBookList)
+    assert len(resp.details.messages[0]["parsed"].books) == 5
 
 
 async def test_structured_output_with_tool_use():

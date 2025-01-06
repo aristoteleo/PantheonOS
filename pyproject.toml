@@ -6,8 +6,8 @@ requires-python = ">=3.10"
 dependencies = [
     "fire>=0.7.0",
     "funcdesc>=0.1.5.1",
+    "litellm>=1.56.4",
     "loguru>=0.7.3",
-    "openai>=1.58.1",
 ]
 dynamic = ["version"]
 
