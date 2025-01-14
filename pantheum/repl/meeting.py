@@ -6,8 +6,10 @@ from textual.widgets import Header, Static, Input, Button, Markdown
 from textual.containers import Vertical, Horizontal, VerticalScroll
 
 from ..agent import Agent
-from ..meeting import Meeting, Message, message_to_record
-
+from ..meeting import (
+    Meeting, Message, message_to_record,
+    ToolEvent, ToolResponseEvent, AgentBeginEvent, Record
+)
 
 
 class Repl(App):
@@ -95,18 +97,43 @@ class Repl(App):
 
     async def process_messages(self):
         while True:
-            record = await self.meeting.stream_queue.get()
-            new_item = Static(
-                "[bold]"
-                f"[blue]{record.source}[/blue] "
-                f"[yellow]({record.timestamp})[/yellow] "
-                f"[bold]{record.targets}[/bold] "
-                "[/bold]:"
-            )
-            self.msg_container.mount(new_item)
-            content = Markdown(record.content)
-            self.call_after_refresh(self.msg_container.mount, content)
-            self.msg_container.scroll_end()
+            event = await self.meeting.stream_queue.get()
+            if isinstance(event, Record):
+                new_item = Static(
+                    "[bold]"
+                    f"[blue]{event.source}[/blue] "
+                    f"[yellow]({event.timestamp})[/yellow] "
+                    f"{event.targets} "
+                    "[/bold]:"
+                )
+                self.msg_container.mount(new_item)
+                content = Markdown(event.content)
+                self.call_after_refresh(self.msg_container.mount, content)
+                self.msg_container.scroll_end()
+            elif isinstance(event, ToolEvent):
+                new_item = Static(
+                    f"[bold][red]INFO:[/red][/bold] "
+                    f"Agent [blue]{event.agent_name}[/blue] is using tool "
+                    f"[green]{event.tool_name}[/green] with arguments "
+                    f"[yellow]{event.tool_args_info}[/yellow]"
+                )
+                self.msg_container.mount(new_item)
+            elif isinstance(event, ToolResponseEvent):
+                new_item = Static(
+                    f"[bold][red]INFO:[/red][/bold] "
+                    f"Agent [blue]{event.agent_name}[/blue] got result from tool "
+                    f"[green]{event.tool_name}[/green]: "
+                    f"[yellow]{event.tool_response}[/yellow]\n"
+                )
+                self.msg_container.mount(new_item)
+                self.msg_container.scroll_end()
+            elif isinstance(event, AgentBeginEvent):
+                new_item = Static(
+                    f"[bold][red]INFO:[/red][/bold] "
+                    f"Agent [blue]{event.agent_name}[/blue] is thinking...\n"
+                )
+                self.msg_container.mount(new_item)
+                self.msg_container.scroll_end()
 
     async def run(self):
         import logging

@@ -65,10 +65,13 @@ class Agent:
             func = self.functions[func_name]
             if __CTX_VARS_NAME__ in func.__code__.co_varnames:
                 params[__CTX_VARS_NAME__] = context_variables
-            if inspect.iscoroutinefunction(func):
-                result = await func(**params)
-            else:
-                result = func(**params)
+            try:
+                if inspect.iscoroutinefunction(func):
+                    result = await func(**params)
+                else:
+                    result = func(**params)
+            except Exception as e:
+                result = str(e)
             context_variables[call["id"]] = result
             messages.append({
                 "role": "tool",
@@ -118,7 +121,10 @@ class Agent:
                     choice = chunk.choices[0]
                     if choice.finish_reason == "stop":
                         break
-                    process_chunk(choice.delta.model_dump())
+                    if inspect.iscoroutinefunction(process_chunk):
+                        await process_chunk(choice.delta.model_dump())
+                    else:
+                        process_chunk(choice.delta.model_dump())
             complete_resp = stream_chunk_builder(response.chunks)
             message = complete_resp.choices[0].message.model_dump()
 
@@ -130,7 +136,10 @@ class Agent:
 
             history.append(message)
             if process_step_message:
-                process_step_message(message)
+                if inspect.iscoroutinefunction(process_step_message):
+                    await process_step_message(message)
+                else:
+                    process_step_message(message)
 
             if not message["tool_calls"]:
                 break

@@ -26,7 +26,7 @@ search_engine_expert = Agent(
 
 
 async def main():
-    repl = Repl([scifi_fan, search_engine_expert])
+    repl = Repl([search_engine_expert])
     await repl.run()
 
 
