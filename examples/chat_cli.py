@@ -2,7 +2,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import asyncio
-from pantheum.repl import Repl
+from pantheum.repl.meeting import Repl
 from pantheum.agent import Agent
 from pantheum.tools.duckduckgo import duckduckgo_search
 from pantheum.tools.web_crawl import web_crawl
@@ -27,7 +27,7 @@ search_engine_expert = Agent(
 
 async def main():
     repl = Repl([scifi_fan, search_engine_expert])
-    await repl.run("Hi")
+    await repl.run()
 
 
 if __name__ == "__main__":

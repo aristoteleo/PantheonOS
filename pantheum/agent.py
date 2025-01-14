@@ -149,7 +149,11 @@ class Agent:
             context_variables=context_variables,
         )
 
-    def input_to_openai_messages(self, msg: AgentInput) -> List[dict]:
+    def input_to_openai_messages(
+            self,
+            msg: AgentInput,
+            use_short_term_memory: bool,
+            ) -> List[dict]:
         assert isinstance(msg, (list, str, BaseModel, AgentResponse)), \
             "Message must be a list, string, BaseModel or AgentResponse"
         if isinstance(msg, AgentResponse):
@@ -174,7 +178,7 @@ class Agent:
                         "Message must be a string, BaseModel or dict"
                     new_messages.append(m)
             messages = new_messages
-        if self.use_short_term_memory:
+        if use_short_term_memory:
             messages = self.short_term_memory + messages
         return messages
 
@@ -185,6 +189,7 @@ class Agent:
             context_variables: Optional[dict] = None,
             process_chunk: Optional[Callable] = None,
             process_step_message: Optional[Callable] = None,
+            use_short_term_memory: bool | None = None,
             ) -> AgentResponse:
         """Run the agent.
 
@@ -195,8 +200,12 @@ class Agent:
             context_variables: The context variables to use.
             process_chunk: The function to process the chunk.
             process_step_message: The function to process the step message.
+            use_short_term_memory: Whether to use short term memory.
         """
-        messages = self.input_to_openai_messages(msg)
+        _use_sm = self.use_short_term_memory
+        if use_short_term_memory is not None:
+            _use_sm = use_short_term_memory
+        messages = self.input_to_openai_messages(msg, _use_sm)
         response_format = response_format or self.response_format
         details = await self.run_stream(
             messages=messages,
@@ -218,3 +227,9 @@ class Agent:
             content=content,
             details=details,
         )
+
+    async def chat(self, message: str | dict | None = None):
+        """Chat with the agent with a REPL interface."""
+        from .repl.single import Repl
+        repl = Repl(self)
+        await repl.run(message)

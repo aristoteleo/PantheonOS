@@ -29,6 +29,7 @@ default_theme = "The applications of LLM-based agents in biology and medicine."
 async def main(
     theme: str = default_theme,
     output: str | None = None,
+    model: str = "gpt-4o-mini",
     results_per_keyword: int = 5,
 ):
     """This program will generate a markdown report of papers about the theme.
@@ -44,7 +45,7 @@ async def main(
         results_per_keyword (int): The number of results per keyword.
     """
 
-    @smart_func(model="gpt-4o-mini")
+    @smart_func(model=model)
     async def gen_query_keywords(theme: str) -> list[str]:
         """You are a search engine expert,
         you can generate a list of query keywords for a search engine to find the most relevant papers.
@@ -77,19 +78,19 @@ async def main(
         journal: str = Field(description="The journal name of the paper")
         time: str = Field(description="The time of the paper")
 
-    @smart_func(model="gpt-4o-mini")
+    @smart_func(model=model)
     async def check_content_is_paper(content: str) -> bool:
         """You should check if the content is a journal or preprint paper."""
 
-    @smart_func(model="gpt-4o-mini")
+    @smart_func(model=model)
     async def extract_paper_info(content: str) -> ContentInfo:
         """You should extract the paper title, summary, journal, time from the page content."""
 
-    @smart_func(model="gpt-4o-mini")
+    @smart_func(model=model)
     async def check_paper_relation(info: ContentInfo, theme: str) -> bool:
         """You should check if the paper is related to the theme. """
 
-    @smart_func(model="gpt-4o-mini")
+    @smart_func(model=model)
     async def format_paper_info(info: list[ContentInfo]) -> str:
         """You should format the answer of other agent give a markdown format.
         List all the papers to markdown points.

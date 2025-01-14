@@ -10,6 +10,7 @@ dependencies = [
     "loguru>=0.7.3",
     "openai>=1.58.1",
     "rich>=13.9.4",
+    "textual>=1.0.0",
 ]
 dynamic = ["version"]
 

@@ -6,11 +6,12 @@ from rich.markdown import Markdown
 from rich.live import Live
 from rich.panel import Panel
 
-from .agent import Agent
+from ..agent import Agent
 
 
 class Repl:
     def __init__(self, agent: Agent):
+        """REPL for a single agent."""
         self.agent = agent
         self.console = Console()
 
@@ -97,6 +98,7 @@ class Repl:
                 markdown = Markdown(content)
                 live.update(markdown)
                 continue
+
 
 if __name__ == "__main__":
     agent = Agent(
