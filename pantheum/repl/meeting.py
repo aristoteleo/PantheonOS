@@ -112,7 +112,7 @@ class Repl(App):
                 agents_str += f"    - [green]Tools:[/green]\n"
                 for func in agent.functions.values():
                     agents_str += f"      - {func.__name__}\n"
-            agents_str += "\n"
+        agents_str += "\n"
 
         self.msg_container.mount(Static(
             "[bold]Welcome to the Pantheum Meeting![/bold]\n" +
