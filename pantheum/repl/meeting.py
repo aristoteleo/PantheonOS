@@ -6,7 +6,8 @@ from textual.containers import Vertical, Horizontal, VerticalScroll
 
 from ..meeting import (
     Meeting, Message, message_to_record,
-    ToolEvent, ToolResponseEvent, ThinkingEvent, Record
+    ToolEvent, ToolResponseEvent, ThinkingEvent, Record,
+    TeamMeeting,
 )
 
 
@@ -48,12 +49,25 @@ class Repl(App):
     }
     """
 
-    def __init__(self, meeting: Meeting):
+    BINDINGS = [
+        ("ctrl+q", "quit", "Quit"),
+        ("ctrl+d", "stop", "Stop"),
+    ]
+
+    def __init__(
+            self,
+            meeting: Meeting,
+            default_message_to: str | list[str] = "all",
+    ):
         super().__init__()
         self.meeting = meeting
         self._meeting_task = None
         self._process_messages_task = None
         self._ui_task = None
+        if isinstance(meeting, TeamMeeting):
+            self.default_message_to = [meeting.leader.name]
+        else:
+            self.default_message_to = default_message_to
 
     def compose(self) -> ComposeResult:
         yield Vertical(
@@ -75,6 +89,20 @@ class Repl(App):
         if self._ui_task:
             self._ui_task.cancel()
 
+    async def action_stop(self) -> None:
+        print("Stopping...")
+        msg = Static(
+            "Stopping...",
+            classes="message-item"
+        )
+        self.msg_container.mount(msg)
+        await self.meeting.stop()
+        msg = Static(
+            "Stopped. Press [bold]'ctrl+q'[/bold] to exit.",
+            classes="message-item"
+        )
+        self.msg_container.mount(msg)
+
     async def on_mount(self) -> None:
         self.msg_container = self.query_one("#messages", VerticalScroll)
         self.message_input = self.query_one("#message_input", Input)
@@ -89,7 +117,7 @@ class Repl(App):
                 content = message[len(target)+1:].strip()
                 msg = Message(content=content, targets=[target])
             else:
-                msg = Message(content=message, targets="all")
+                msg = Message(content=message, targets=self.default_message_to)
             self.meeting.public_queue.put_nowait(
                 message_to_record(msg, "user")
             )
@@ -119,7 +147,7 @@ class Repl(App):
             "You can start by typing a message or 'ctrl+q' to exit.\n\n" +
             "[bold]Current agents:[/bold]\n" +
             agents_str +
-            "You will send messages to all agents by default. " +
+            f"You will send messages to {self.default_message_to} by default. " +
             "If you want to send a message to a specific agent, " +
             "you can @ the target agent's name at the beginning of your message.\n"
         ))
@@ -137,11 +165,14 @@ class Repl(App):
                     "[/bold]:",
                     classes="message-item",
                 )
-                self.msg_container.mount(mesg_head)
+                #self.msg_container.mount(mesg_head)
                 content = Markdown(event.content)
-                self.call_after_refresh(self.msg_container.mount, content)
+                self.call_after_refresh(self.msg_container.mount, mesg_head, content)
                 self.call_after_refresh(self.msg_container.scroll_end)
+                self.refresh()
             elif isinstance(event, ToolEvent):
+                if event.tool_name == "send_message":
+                    continue
                 new_item = Static(
                     f"[bold][red]INFO:[/red][/bold] "
                     f"Agent [blue]{event.agent_name}[/blue] is using tool "
@@ -152,6 +183,8 @@ class Repl(App):
                 self.msg_container.mount(new_item)
                 self.msg_container.scroll_end()
             elif isinstance(event, ToolResponseEvent):
+                if event.tool_name == "send_message":
+                    continue
                 new_item = Static(
                     f"[bold][red]INFO:[/red][/bold] "
                     f"Agent [blue]{event.agent_name}[/blue] got result from tool "

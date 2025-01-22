@@ -56,12 +56,17 @@ class AgentRunner:
             self,
             agent: Agent,
             meeting: "Meeting",
-            message_time_threshold: float = 1.5):
+            message_time_threshold: float = 2.0,
+            receive_message_time_threshold: float = 0.5,
+            ):
         self.status = "running"
+        if 'send_message' not in agent.functions:
+            agent.tool(self.send_message)
         self.agent = agent
         self.meeting = meeting
         self.queue = asyncio.Queue()
         self.message_time_threshold = message_time_threshold
+        self.receive_message_time_threshold = receive_message_time_threshold
         self.run_start_time = None
 
     async def process_step_message(self, message: dict):
@@ -80,6 +85,8 @@ class AgentRunner:
                 tool_response=message.get("content"),
             )
             self.meeting._stream.put_nowait(event)
+            if event.tool_name == "send_message":
+                self.run_start_time = None
 
     async def process_chunk(self, _):
         if self.run_start_time is not None:
@@ -90,8 +97,9 @@ class AgentRunner:
                 )
                 self.run_start_time = None
 
-    async def get_events(self, timeout: float = 0.5):
+    async def get_events(self, timeout: float | None = None):
         events = []
+        timeout = timeout or self.receive_message_time_threshold
         while True:
             try:
                 event = await asyncio.wait_for(self.queue.get(), timeout=timeout)
@@ -99,6 +107,14 @@ class AgentRunner:
             except asyncio.TimeoutError:
                 break
         return events
+    
+    async def send_message(self, content: str, targets: List[str]):
+        message = Message(content=content, targets=targets)
+        if self.agent.message_to is not None:
+            message.targets = self.agent.message_to
+        record = message_to_record(message, self.agent.name)
+        if content:
+            self.meeting.public_queue.put_nowait(record)
 
     async def run(self):
         while True:
@@ -113,26 +129,11 @@ class AgentRunner:
 
             prompt = self.meeting.records_to_prompt(events, self.agent)
             self.run_start_time = time.time()
-            if self.agent.message_to is None:
-                resp = await self.agent.run(
-                    prompt,
-                    response_format=Message,
-                    process_step_message=self.process_step_message,
-                    process_chunk=self.process_chunk,
-                )
-                record = message_to_record(resp.content, self.agent.name)
-            else:
-                resp = await self.agent.run(
-                    prompt,
-                    process_step_message=self.process_step_message,
-                    process_chunk=self.process_chunk,
-                )
-                record = message_to_record(
-                    Message(content=resp.content, targets=self.agent.message_to),
-                    self.agent.name,
-                )
-            if record.content:
-                self.meeting.public_queue.put_nowait(record)
+            await self.agent.run(
+                prompt,
+                process_step_message=self.process_step_message,
+                process_chunk=self.process_chunk,
+            )
             self.run_start_time = None
 
 
@@ -210,8 +211,12 @@ class Meeting():
             print(f"Round: {self.round}")
             print(self.format_record(event))
         elif isinstance(event, ToolEvent):
+            if event.tool_name == "send_message":
+                return
             print(f"Tool call: {event.tool_name} with args: {event.tool_args_info}\n")
         elif isinstance(event, ToolResponseEvent):
+            if event.tool_name == "send_message":
+                return
             print(f"Tool response: {event.tool_response}\n")
 
     def format_record(self, record: Record) -> str:
@@ -222,7 +227,12 @@ class Meeting():
             f"Content:\n{record.content}\n"
         )
 
-    def records_to_prompt(self, records: list[Record], agent: Agent) -> str:
+    def records_to_prompt(
+            self,
+            records: list[Record],
+            agent: Agent,
+            inject_instructions: str = "",
+            ) -> str:
         if agent.message_to is None:
             participants_str = (
                 f"## Current participants\n" +
@@ -256,10 +266,12 @@ class Meeting():
             f"# Meeting message\n"
             f"You are a meeting participant, your name is {agent.name}\n"
             f"Don't repeat the input message in your response.\n"
-            f"Don't send message to 'all', when it's not necessary.\n"
             f"Don't be too modest and polite, be creative and think deeply.\n"
             f"You can ask questions to other participants.\n"
-            f"You can use your tools to get more information.\n"
+            f"You should use your functions to get more information, before you reply.\n"
+            f"You should think step by step, and your answer should be structured and in detail.\n"
+            f"You can send message to other participants by calling the function 'send_message'.\n"
+            f"{inject_instructions}\n"
             f"{rounds_str}"
             f"{participants_str}\n"
             f"{history_str}\n"
@@ -316,3 +328,52 @@ class UserCentricMeeting(Meeting):
         super().__init__(agents, shared_memory=shared_memory)
         for agent in self.agents.values():
             agent.message_to = "user"
+
+    def records_to_prompt(
+            self,
+            records: list[Record],
+            agent: Agent,
+            ) -> str:
+        inject_instructions = (
+            "You only need to reply to the user's message. "
+            "And only need call send_message once when you have finished your thinking."
+            "And you should reply every message you received with the function 'send_message'.\n"
+        )
+        return super().records_to_prompt(records, agent, inject_instructions)
+
+
+class TeamMeeting(Meeting):
+    def __init__(self, leader: Agent, members: List[Agent]):
+        super().__init__([leader, *members])
+        self.leader = leader
+        self.members = members
+        self.leader.message_to = None
+        for member in self.members:
+            member.message_to = [self.leader.name]
+
+    def records_to_prompt(
+            self,
+            records: list[Record],
+            agent: Agent,
+            ) -> str:
+        inject_instructions = ""
+        if agent.name == self.leader.name:
+            members_str = "\n".join(
+                f"- {m.name}: {m.instructions}"
+                for m in self.members
+            )
+            inject_instructions = (
+                "You are the leader of the team,"
+                f"Your team members are:\n{members_str}\n"
+                "You should listen to user's message, and assign tasks to most related members "
+                "to solve user's problem.\n"
+                "You should call send_message to reply user's message.\n"
+            )
+        else:
+            inject_instructions = (
+                f"You are a team member, your leader is {self.leader.name}."
+                "You should follow the leader's instructions to complete the task"
+                " and reply the leader's message with the function 'send_message'."
+            )
+        prompt = super().records_to_prompt(records, agent, inject_instructions)
+        return prompt

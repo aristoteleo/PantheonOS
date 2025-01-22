@@ -14,6 +14,12 @@ from .types import AgentResponse, ResponseDetails, AgentInput
 __CTX_VARS_NAME__ = "context_variables"
 
 
+async def run_func(func: Callable, *args, **kwargs):
+    if inspect.iscoroutinefunction(func):
+        return await func(*args, **kwargs)
+    return func(*args, **kwargs)
+
+
 class Agent:
     def __init__(
         self,
@@ -62,18 +68,19 @@ class Agent:
             self, tool_calls: List, context_variables: dict):
         messages = []
         for call in tool_calls:
-            func_name = call["function"]["name"]
-            params = json.loads(call["function"]["arguments"])
-            func = self.functions[func_name]
-            if __CTX_VARS_NAME__ in func.__code__.co_varnames:
-                params[__CTX_VARS_NAME__] = context_variables
             try:
-                if inspect.iscoroutinefunction(func):
-                    result = await func(**params)
-                else:
-                    result = func(**params)
+                func_name = call["function"]["name"]
+                params = json.loads(call["function"]["arguments"])
+                func = self.functions[func_name]
+                if __CTX_VARS_NAME__ in func.__code__.co_varnames:
+                    params[__CTX_VARS_NAME__] = context_variables
+                result = await run_func(func, **params)
             except Exception as e:
                 result = str(e)
+
+            if isinstance(result, Agent):
+                return result
+
             context_variables[call["id"]] = result
             messages.append({
                 "role": "tool",
@@ -123,10 +130,7 @@ class Agent:
                     choice = chunk.choices[0]
                     if choice.finish_reason == "stop":
                         break
-                    if inspect.iscoroutinefunction(process_chunk):
-                        await process_chunk(choice.delta.model_dump())
-                    else:
-                        process_chunk(choice.delta.model_dump())
+                    await run_func(process_chunk, choice.delta.model_dump())
             complete_resp = stream_chunk_builder(response.chunks)
             message = complete_resp.choices[0].message.model_dump()
 
@@ -138,10 +142,7 @@ class Agent:
 
             history.append(message)
             if process_step_message:
-                if inspect.iscoroutinefunction(process_step_message):
-                    await process_step_message(message)
-                else:
-                    process_step_message(message)
+                await run_func(process_step_message, message)
 
             if not message["tool_calls"]:
                 break
@@ -153,10 +154,7 @@ class Agent:
             history.extend(tool_messages)
             if process_step_message:
                 for msg in tool_messages:
-                    if inspect.iscoroutinefunction(process_step_message):
-                        await process_step_message(msg)
-                    else:
-                        process_step_message(msg)
+                    await run_func(process_step_message, msg)
 
         return ResponseDetails(
             messages=history[init_len:],
