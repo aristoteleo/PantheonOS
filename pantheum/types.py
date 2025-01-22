@@ -15,8 +15,3 @@ class AgentResponse(BaseModel):
 
 AgentInput = str | BaseModel | AgentResponse | List[str | BaseModel | dict]
 
-
-class Task(BaseModel):
-    name: str
-    context: str
-    goal: str

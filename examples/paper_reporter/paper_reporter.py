@@ -1,9 +1,9 @@
 """
-This is an example of using synago to build a multi-agent system to generate a markdown report of papers about a theme.
+This is an example of using pantheum to build an agentic pipeline to generate a markdown report of papers about a theme.
 
 # Install the dependencies
 ```bash
-pip install synago[tool]
+pip install pantheum
 python -m playwright install --with-deps chromium
 ```
 
