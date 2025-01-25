@@ -1,9 +1,9 @@
 """
-This is an example of using pantheum to build an agentic pipeline to generate a markdown report of papers about a theme.
+This is an example of using pantheon to build an agentic pipeline to generate a markdown report of papers about a theme.
 
 # Install the dependencies
 ```bash
-pip install pantheum
+pip install pantheon
 python -m playwright install --with-deps chromium
 ```
 

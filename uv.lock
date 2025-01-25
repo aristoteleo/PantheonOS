@@ -1449,8 +1449,8 @@ wheels = [
 ]
 
 [[package]]
-name = "pantheum"
-version = "0.0.1"
+name = "pantheon-agents"
+version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "executor-engine" },

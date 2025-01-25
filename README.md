@@ -1,5 +1,5 @@
 <div align="center">
-  <h1> Pantheum </h1>
+  <h1> Pantheon </h1>
 
   <p> A framework for building distributed LLM based multi-agent system. </p>
 

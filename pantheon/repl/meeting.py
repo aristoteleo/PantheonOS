@@ -11,7 +11,7 @@ from ..meeting import (
 
 
 class Repl(App):
-    TITLE = "Pantheum Meeting"
+    TITLE = "Pantheon Meeting"
 
     CSS = """
     Screen {
@@ -67,7 +67,7 @@ class Repl(App):
 
     def compose(self) -> ComposeResult:
         yield Vertical(
-            Header(name="Pantheum Meeting", id="header"),
+            Header(name="Pantheon Meeting", id="header"),
             VerticalScroll(id="messages", classes="message-display"),
             Horizontal(
                 Input(placeholder="Type your message here...", id="message_input"),
@@ -139,7 +139,7 @@ class Repl(App):
         agents_str += "\n"
 
         self.msg_container.mount(Static(
-            "[bold]Welcome to the Pantheum Meeting![/bold]\n" +
+            "[bold]Welcome to the Pantheon Meeting![/bold]\n" +
             "You can start by typing a message or 'ctrl+q' to exit.\n\n" +
             "[bold]Current agents:[/bold]\n" +
             agents_str +

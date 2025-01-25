@@ -47,4 +47,4 @@ dev = [
 packages = {find = {}}
 
 [tool.setuptools.dynamic]
-version = {attr = "pantheum.__version__"} 
+version = {attr = "pantheon.__version__"} 

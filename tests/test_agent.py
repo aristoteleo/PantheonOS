@@ -88,7 +88,7 @@ async def test_structured_output_with_tool_use():
 
     class SciFiBookList(BaseModel):
         books: List[SciFiBook]
-        ratings: List[float] = Field(description="Use tool calls to get the rating of each book.")
+        ratings: List[float] = Field(description="Use function call to get the rating of each book.")
 
     @agent.tool
     def get_book_rating(title: str) -> float:

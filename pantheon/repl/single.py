@@ -17,7 +17,7 @@ class Repl:
 
     def print_greeting(self):
         self.console.print(
-            "[bold]Welcome to the Pantheum REPL![/bold]\n" +
+            "[bold]Welcome to the Pantheon REPL![/bold]\n" +
             "You can start by typing a message or type 'exit' to exit.\n"
         )
         # print current agent
