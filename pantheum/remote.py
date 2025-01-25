@@ -2,8 +2,12 @@ from typing import Callable
 from functools import partial
 import inspect
 import asyncio
+import sys
 from abc import ABC
+from contextlib import asynccontextmanager
 
+
+from executor.engine import Engine, ProcessJob
 from magique.worker import MagiqueWorker
 from magique.client import connect_to_server, ServiceProxy
 
@@ -60,7 +64,10 @@ class ToolSet(ABC):
         """Setup the toolset before running it."""
         pass
 
-    async def run(self):
+    async def run(self, log_level: str = "WARNING"):
+        from loguru import logger
+        logger.remove()
+        logger.add(sys.stderr, level=log_level)
         await self.run_setup()
         logger.info(f"Remote Server: {self.worker.server_uri}")
         logger.info(f"Service Name: {self.worker.service_name}")
@@ -92,3 +99,34 @@ async def connect_remote(
     await asyncio.wait_for(_retry(), timeout)
 
     return service
+
+
+async def _run_toolset(toolset: ToolSet, log_level: str = "WARNING"):
+    await toolset.run(log_level)
+
+
+@asynccontextmanager
+async def run_toolsets(
+        toolsets: list[ToolSet],
+        engine: Engine | None = None,
+        log_level: str = "WARNING",
+        ):
+    logger.remove()
+    logger.add(sys.stderr, level=log_level)
+    if engine is None:
+        engine = Engine()
+    jobs = []
+    for toolset in toolsets:
+        job = ProcessJob(
+            _run_toolset,
+            args=(toolset, log_level),
+        )
+        jobs.append(job)
+    await engine.submit_async(*jobs)
+    for job in jobs:
+        await job.wait_until_status("running")
+    yield
+    for job in jobs:
+        await job.cancel()
+    await engine.wait_async()
+

@@ -30,6 +30,10 @@ class Repl:
             self.console.print("    - [green]Tools:[/green]")
             for func in self.agent.functions.values():
                 self.console.print(f"      - {func.__name__}")
+        if self.agent.toolset_proxies:
+            self.console.print("    - [green]Remote ToolSets:[/green]")
+            for proxy in self.agent.toolset_proxies.values():
+                self.console.print(f"      - {proxy.service_info.service_name}")
 
         self.console.print()
 

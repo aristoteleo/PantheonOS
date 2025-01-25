@@ -15,15 +15,21 @@ class PythonInterpreterToolSet(ToolSet):
         super().__init__(name, worker_params)
         self.interpreters = {}
         self.jobs = {}
-        if engine is None:
-            self.engine = Engine()
-        else:
-            self.engine = engine
+        self._engine = engine
+        self.engine = None
+    
+    def _init_engine(self):
+        if self.engine is None:
+            if self._engine is None:
+                self.engine = Engine()
+            else:
+                self.engine = self._engine
 
     @tool
     async def run_code(self, code: str, result_var_name: str | None = None):
         """Run Python code in a new interpreter and return the result.
-        
+        If you use this function, don't need to use `new_interpreter` and `delete_interpreter`.
+
         Args:
             code: The Python code to run.
             result_var_name: The name of the variable you want to get the result from.
@@ -36,7 +42,11 @@ class PythonInterpreterToolSet(ToolSet):
 
     @tool
     async def new_interpreter(self) -> str:
-        """Create a new Python interpreter and return its id."""
+        """Create a new Python interpreter and return its id.
+        You can use `run_code_in_interpreter` to run code in the interpreter,
+        by providing the interpreter id. """
+        self._init_engine()
+
         def interpreter():
             __res = None
             while True:

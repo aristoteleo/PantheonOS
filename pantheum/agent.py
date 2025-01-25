@@ -45,7 +45,7 @@ class Agent:
         self._func_to_proxy: dict[str, str] = {}
         if tools:
             for func in tools:
-                self.functions[func.__name__] = func
+                self.tool(func)
         self.response_format = response_format
         self.use_short_term_memory = use_short_term_memory
         self.short_term_memory = short_term_memory or []
