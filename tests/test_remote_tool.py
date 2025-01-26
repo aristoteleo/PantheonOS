@@ -84,7 +84,7 @@ async def test_python_interpreter_toolset():
         await engine.submit_async(job)
         await job.wait_until_status("running")
         s = await connect_remote(toolset.service_id)
-        res = await s.invoke("run_code", {"code": "res = 1 + 1", "result_var_name": "res"})
-        assert res == 2
+        resp = await s.invoke("run_code", {"code": "res = 1 + 1", "result_var_name": "res"})
+        assert resp["result"] == 2
         await job.cancel()
         await engine.wait_async()
