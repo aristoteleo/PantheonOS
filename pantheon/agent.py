@@ -8,7 +8,7 @@ from pydantic import BaseModel, create_model
 from funcdesc import parse_func
 
 from .utils.misc import desc_to_openai_dict
-from .utils.llm import litellm
+from .utils.llm import litellm, process_messages
 from .types import AgentResponse, ResponseDetails, AgentInput
 from .remote import (
     ServiceProxy,
@@ -159,17 +159,14 @@ class Agent:
         while len(history) - init_len < max_turns:
 
             message = {}
-            history_clear_parsed = copy.deepcopy(history)
-            for msg in history_clear_parsed:
-                if "parsed" in msg:
-                    del msg["parsed"]
+            processed_messages = process_messages(history, self.model)
             if tool_use:
                 tools = self._convert_functions() or None
             else:
                 tools = None
             response = await litellm.acompletion(
                 model=self.model,
-                messages=history_clear_parsed,
+                messages=processed_messages,
                 tools=tools,
                 response_format=Response,
                 stream=True,
