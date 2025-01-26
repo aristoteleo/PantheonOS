@@ -1,8 +1,13 @@
+import traceback
 from executor.engine import Engine, ProcessJob
 from typing import Any
 
 from ...remote import tool, ToolSet
 from ...utils.log import logger
+
+
+class PythonInterpreterError(Exception):
+    pass
 
 
 class PythonInterpreterToolSet(ToolSet):
@@ -51,7 +56,12 @@ class PythonInterpreterToolSet(ToolSet):
             __res = None
             while True:
                 code, var_name = yield __res
-                exec(code)
+                try:
+                    exec(code)
+                except Exception as e:
+                    traceback_str = traceback.format_exc()
+                    __res = PythonInterpreterError(traceback_str)
+                    continue
                 if var_name is None:
                     __res = None
                 else:
@@ -100,6 +110,8 @@ class PythonInterpreterToolSet(ToolSet):
             raise ValueError(f"Interpreter {interpreter_id} not found")
         g = self.interpreters[interpreter_id]
         result = g.send((code, result_var_name))
+        if isinstance(result, PythonInterpreterError):
+            raise result
         return result
 
     async def run_setup(self):

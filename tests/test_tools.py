@@ -1,5 +1,10 @@
+import pytest
+
 from pantheon.tools.web_browse.duckduckgo import duckduckgo_search
 from pantheon.tools.web_browse.web_crawl import web_crawl
+from pantheon.tools.code_execution.python_interpreter import (
+    PythonInterpreterToolSet, PythonInterpreterError
+)
 
 
 def test_duckduckgo_search():
@@ -19,3 +24,15 @@ async def test_web_crawl():
     assert isinstance(result, list)
     assert len(result) == 1
     assert isinstance(result[0], str)
+
+
+async def test_python_interpreter_toolset():
+    toolset = PythonInterpreterToolSet("python_interpreter")
+    res = await toolset.run_code("res = 1 + 1", "res")
+    assert res == 2
+    with pytest.raises(PythonInterpreterError):
+        try:
+            await toolset.run_code("xxxxx")
+        except PythonInterpreterError as e:
+            print(e)
+            raise e
