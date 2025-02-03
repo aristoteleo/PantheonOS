@@ -1,7 +1,6 @@
 import io
 import traceback
 from executor.engine import Engine, ProcessJob
-from typing import Any
 from contextlib import redirect_stdout, redirect_stderr
 
 from ...remote import tool, ToolSet

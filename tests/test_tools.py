@@ -2,7 +2,7 @@ import pytest
 
 from pantheon.tools.web_browse.duckduckgo import duckduckgo_search
 from pantheon.tools.web_browse.web_crawl import web_crawl
-from pantheon.tools.code_execution.python_interpreter import (
+from pantheon.tools.python.python_interpreter import (
     PythonInterpreterToolSet, PythonInterpreterError
 )
 

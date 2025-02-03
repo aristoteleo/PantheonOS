@@ -1,7 +1,7 @@
 from magique.client import MagiqueError
 from pantheon.remote import tool, ToolSet, connect_remote
 from pantheon.tools.web_browse import WebBrowseToolSet
-from pantheon.tools.code_execution.python_interpreter import PythonInterpreterToolSet, PythonInterpreterError
+from pantheon.tools.python.python_interpreter import PythonInterpreterToolSet, PythonInterpreterError
 
 from executor.engine import Engine, LocalJob, ProcessJob
 import pytest
