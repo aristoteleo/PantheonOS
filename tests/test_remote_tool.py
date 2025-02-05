@@ -109,12 +109,8 @@ async def test_agent_call_toolset_with_timeout():
         )
         await agent.remote_toolset(toolset.service_id)
 
-
-        class RunResult(BaseModel):
-            success: bool
-
-        resp = await agent.run("Call function `print_hello`", response_format=RunResult)
-        assert resp.content.success is False
+        resp = await agent.run("Call function `print_hello`")
+        assert "TimeoutError" in resp.details.messages[1]['content']
 
         await job.cancel()
         await engine.wait_async()
