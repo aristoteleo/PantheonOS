@@ -52,6 +52,7 @@ class Agent:
         self.use_short_term_memory = use_short_term_memory
         self.short_term_memory = short_term_memory or []
         self.tool_timeout = tool_timeout
+        self.events_queue: asyncio.Queue = asyncio.Queue()
         # Restrict message targets in meeting
         self.message_to: None | list[str] = None
 
@@ -203,6 +204,7 @@ class Agent:
                     message["parsed"] = parsed.result
 
             history.append(message)
+            self.events_queue.put_nowait(message)
             if process_step_message:
                 await run_func(process_step_message, message)
 
@@ -215,6 +217,8 @@ class Agent:
                 timeout=tool_timeout,
             )
             history.extend(tool_messages)
+            for msg in tool_messages:
+                self.events_queue.put_nowait(msg)
             if process_step_message:
                 for msg in tool_messages:
                     await run_func(process_step_message, msg)

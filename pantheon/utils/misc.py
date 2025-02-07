@@ -3,6 +3,8 @@ from typing import List
 from funcdesc.desc import NotDef
 from funcdesc.pydantic import desc_to_pydantic, Description
 from openai import pydantic_function_tool
+from rich.console import Console
+from rich.panel import Panel
 
 
 def desc_to_openai_dict(
@@ -56,3 +58,36 @@ def desc_to_openai_dict(
     }
 
     return func_dict
+
+
+def print_agent_message(agent_name: str, message: dict, console: Console | None = None):
+    if console is None:
+        def _print(msg: str, title: str):
+            print(msg)
+    else:
+        def _print(msg: str, title: str):
+            panel = Panel(msg, title=title)
+            console.print(panel)
+
+    if tool_calls := message.get("tool_calls"):
+        for call in tool_calls:
+            _print(
+                f"[bold]Agent [blue]{agent_name}[/blue] is using tool "
+                f"[green]{call.get('function', {}).get('name')}[/green]:[/bold] "
+                f"[yellow]{call.get('function', {}).get('arguments')}[/yellow]",
+                "Tool Call"
+            )
+    if message.get("role") == "tool":
+        _print(
+            f"[bold]Agent [blue]{agent_name}[/blue] is using tool "
+            f"[green]{message.get('tool_name')}[/green]:[/bold] "
+            f"[yellow]{message.get('content')}[/yellow]",
+            "Tool Response"
+        )
+    elif message.get("role") == "assistant":
+        if message.get("content"):
+            _print(
+                f"[bold]Agent [blue]{agent_name}[/blue]'s message:[/bold]\n"
+                f"[yellow]{message.get('content')}[/yellow]",
+                "Agent Message"
+            )
