@@ -1,6 +1,5 @@
 import copy
 import json
-import inspect
 import asyncio
 from typing import Callable, Any
 from uuid import uuid4
@@ -8,8 +7,8 @@ from uuid import uuid4
 from pydantic import BaseModel, create_model
 from funcdesc import parse_func
 
-from .utils.misc import desc_to_openai_dict
-from .utils.llm import litellm, process_messages, process_messages_for_save
+from .utils.misc import desc_to_openai_dict, run_func
+from .utils.llm import acompletion_openai, process_messages, process_messages_for_save, acompletion_openai, acompletion_litellm
 from .types import AgentResponse, ResponseDetails, AgentInput, AgentTransfer
 from .remote import (
     ServiceProxy,
@@ -18,12 +17,6 @@ from .remote import (
 
 
 __CTX_VARS_NAME__ = "context_variables"
-
-
-async def run_func(func: Callable, *args, **kwargs):
-    if inspect.iscoroutinefunction(func):
-        return await func(*args, **kwargs)
-    return func(*args, **kwargs)
 
 
 class Agent:
@@ -80,7 +73,7 @@ class Agent:
         self.toolset_proxies[s.service_info.service_id] = s
         return self
 
-    def _convert_functions(self) -> list[dict]:
+    def _convert_functions(self, litellm_mode: bool) -> list[dict]:
         """Convert function to the format that the model can understand."""
         functions = []
 
@@ -88,6 +81,7 @@ class Agent:
             func_dict = desc_to_openai_dict(
                 parse_func(func),
                 skip_params=[__CTX_VARS_NAME__, "__client_id__"],
+                litellm_mode=litellm_mode,
             )
             functions.append(func_dict)
 
@@ -97,6 +91,7 @@ class Agent:
                 func_dict = desc_to_openai_dict(
                     desc,
                     skip_params=[__CTX_VARS_NAME__, "__client_id__"],
+                    litellm_mode=litellm_mode,
                 )
                 functions.append(func_dict)
         return functions
@@ -155,25 +150,44 @@ class Agent:
             self,
             messages: list[dict],
             model: str,
-            tools: list[dict] | None = None,
+            tool_use: bool = True,
             response_format: Any | None = None,
             process_chunk: Callable | None = None,
+            force_litellm: bool = False,
             ) -> dict:
-        response = await litellm.acompletion(
-            model=model,
-            messages=messages,
-            tools=tools,
-            response_format=response_format,
-            stream=True,
-        )
-        async for chunk in response:
-            if process_chunk:
-                choice = chunk.choices[0]
-                await run_func(process_chunk, choice.delta.model_dump())
-                if choice.finish_reason == "stop":
-                    break
-        complete_resp = litellm.stream_chunk_builder(response.chunks)
-        message = complete_resp.choices[0].message.model_dump()
+        messages = process_messages(messages, model)
+        provider = "openai"
+        if "/" in model:
+            provider = model.split("/")[0]
+        litellm_mode = (provider != "openai") or force_litellm
+
+        tools = None
+        if tool_use:
+            tools = self._convert_functions(litellm_mode) or None
+
+        if not litellm_mode:
+            complete_resp = await acompletion_openai(
+                messages=messages,
+                model=model,
+                tools=tools,
+                response_format=response_format,
+                process_chunk=process_chunk,
+            )
+            message = complete_resp.choices[0].message.model_dump()
+            if "parsed" in message:
+                message.pop("parsed")
+            if "tool_calls" in message:
+                if message["tool_calls"] == []:
+                    message['tool_calls'] = None
+        else:
+            complete_resp = await acompletion_litellm(
+                messages=messages,
+                model=model,
+                tools=tools,
+                response_format=response_format,
+                process_chunk=process_chunk,
+            )
+            message = complete_resp.choices[0].message.model_dump()
         return message
 
     async def run_stream(
@@ -206,16 +220,11 @@ class Agent:
 
         while len(history) - init_len < max_turns:
             message = {}
-            processed_messages = process_messages(history, model)
-            if tool_use:
-                tools = self._convert_functions() or None
-            else:
-                tools = None
 
             message = await self.acompletion(
-                processed_messages,
+                history,
                 model=model,
-                tools=tools,
+                tool_use=tool_use,
                 response_format=Response,
                 process_chunk=process_chunk,
             )
