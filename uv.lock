@@ -703,11 +703,11 @@ wheels = [
 
 [[package]]
 name = "funcdesc"
-version = "0.1.7.2"
+version = "0.1.8"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ad/76/a13a1ea8b4ba7df9c69760f2452944f3486f50b7e16827a51b9b935e1be1/funcdesc-0.1.7.2.tar.gz", hash = "sha256:9fec7d89a94ae898a3b178cfaa25b6b116c568541e53e68dd85010137779fd89", size = 17965 }
+sdist = { url = "https://files.pythonhosted.org/packages/ac/07/5904a0aadc91af67c68c44cd08e1b81f9b0f63d523248839de4352ddfb9a/funcdesc-0.1.8.tar.gz", hash = "sha256:778f6f7653b1076ef2b39b9eeb643cf6c6423fdb20c2218439fb7e1c4952ce31", size = 17987 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fa/51/8bbc15bfcee7c87c7f325feb9d769b8280cb537fd073714fdae95bde90fd/funcdesc-0.1.7.2-py3-none-any.whl", hash = "sha256:f81e88f8b2161cea98aa6d2ad1a619c16c09dd8a5b74277e55a1816bd3ebfc38", size = 19371 },
+    { url = "https://files.pythonhosted.org/packages/91/2d/5fce24230585604fee6105e49d19d6d35c5b4a18f7ab181ed21e7d847ba0/funcdesc-0.1.8-py3-none-any.whl", hash = "sha256:45cccb0eda02fa6be026a614440bb71f9aad4eee03044938d5d2b82bd097e04d", size = 19411 },
 ]
 
 [[package]]
@@ -1509,7 +1509,7 @@ wheels = [
 
 [[package]]
 name = "pantheon-agents"
-version = "0.1.4"
+version = "0.1.7"
 source = { virtual = "." }
 dependencies = [
     { name = "executor-engine" },
@@ -1552,7 +1552,7 @@ requires-dist = [
     { name = "duckduckgo-search", marker = "extra == 'tool'", specifier = ">=7.1.1" },
     { name = "executor-engine", specifier = ">=0.3.1" },
     { name = "fire", specifier = ">=0.7.0" },
-    { name = "funcdesc", specifier = ">=0.1.7.2" },
+    { name = "funcdesc", specifier = ">=0.1.8" },
     { name = "litellm", specifier = ">=1.56.4" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "magique", specifier = ">=0.1.5" },

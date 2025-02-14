@@ -222,3 +222,22 @@ async def test_agent_transfer():
     assert isinstance(resp, AgentTransfer)
     assert resp.from_agent == scifi_fan.name
     assert resp.to_agent == classic_literature_fan.name
+
+
+async def test_agent_force_litellm():
+    agent = Agent(
+        name="test",
+        instructions="",
+        model="gpt-4o-mini",
+        force_litellm=True,
+    )
+
+    resp = await agent.run("What is the weather in Palo Alto?")
+    print(resp.content)
+
+    class Book(BaseModel):
+        title: str
+        author: str
+
+    resp = await agent.run("Recommend me 5 sci-fi books.", response_format=list[Book])
+    print(resp.content)

@@ -55,11 +55,17 @@ class Repl:
         while True:
             self.console.print(f"[blue][bold]{self.agent.name}[/bold][/blue]: ")
 
+            _pflag = False
             def process_chunk(chunk: dict):
+                nonlocal _pflag
                 content = chunk.get("content")
                 if content is not None:
                     self.console.print(content, end="")
-        
+                    _pflag = True
+                if chunk.get("tool_calls") and _pflag:
+                    self.console.print()
+                    _pflag = False
+
             await self.agent.run(
                 message,
                 process_chunk=process_chunk,
