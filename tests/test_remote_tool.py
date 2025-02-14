@@ -1,14 +1,12 @@
 import sys
 import time
 
-from pydantic import BaseModel
 from magique.client import MagiqueError
-from pantheon.remote import tool, ToolSet, connect_remote
+from pantheon.remote.toolset import tool, ToolSet, connect_remote, run_toolsets
 from pantheon.tools.web_browse import WebBrowseToolSet
 from pantheon.tools.python.python_interpreter import PythonInterpreterToolSet, PythonInterpreterError
 from pantheon.tools.r import RInterpreterToolSet
 from pantheon.tools.shell import ShellToolSet
-from pantheon.remote import run_toolsets
 from executor.engine import Engine, LocalJob, ProcessJob
 
 import pytest

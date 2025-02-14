@@ -1,7 +1,7 @@
 import uuid
 
 from ._rinter import AsyncRInterpreter
-from ...remote import ToolSet, tool
+from ...remote.toolset import ToolSet, tool
 from ...utils.log import logger
 
 

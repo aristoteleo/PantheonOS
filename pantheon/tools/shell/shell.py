@@ -1,7 +1,7 @@
 import uuid
 
 from ._shell import AsyncShell
-from ...remote import ToolSet, tool
+from ...remote.toolset import ToolSet, tool
 from ...utils.log import logger
 
 

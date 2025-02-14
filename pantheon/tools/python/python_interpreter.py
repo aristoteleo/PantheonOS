@@ -3,7 +3,7 @@ import traceback
 from executor.engine import Engine, ProcessJob
 from contextlib import redirect_stdout, redirect_stderr
 
-from ...remote import tool, ToolSet
+from ...remote.toolset import tool, ToolSet
 from ...utils.log import logger
 
 

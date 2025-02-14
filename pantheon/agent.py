@@ -10,7 +10,7 @@ from funcdesc import parse_func
 from .utils.misc import desc_to_openai_dict, run_func
 from .utils.llm import acompletion_openai, process_messages, process_messages_for_save, acompletion_openai, acompletion_litellm
 from .types import AgentResponse, ResponseDetails, AgentInput, AgentTransfer
-from .remote import (
+from .remote.toolset import (
     ServiceProxy,
     connect_remote, DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
 )

@@ -1,7 +1,7 @@
 import asyncio
 from pantheon.agent import Agent
 from pantheon.tools.python import PythonInterpreterToolSet
-from pantheon.remote import run_toolsets
+from pantheon.remote.toolset import run_toolsets
 
 
 async def main():

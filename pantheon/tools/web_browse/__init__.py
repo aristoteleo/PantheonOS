@@ -3,7 +3,7 @@ from functools import wraps
 from .duckduckgo import duckduckgo_search
 from .web_crawl import web_crawl
 
-from ...remote import ToolSet, tool
+from ...remote.toolset import ToolSet, tool
 
 
 class WebBrowseToolSet(ToolSet):

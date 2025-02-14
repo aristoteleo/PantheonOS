@@ -6,12 +6,11 @@ import sys
 from abc import ABC
 from contextlib import asynccontextmanager
 
-
 from executor.engine import Engine, ProcessJob
 from magique.worker import MagiqueWorker
 from magique.client import connect_to_server, ServiceProxy
 
-from .utils.log import logger
+from ..utils.log import logger
 
 
 DEFAULT_SERVER_HOST = "magique.spateo.aristoteleo.com"
