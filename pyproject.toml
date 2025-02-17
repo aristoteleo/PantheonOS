@@ -30,6 +30,10 @@ tool = [
     "crawl4ai>=0.4.23",
     "duckduckgo-search>=7.1.1",
 ]
+slack = [
+    "slack-sdk",
+    "slack-bolt",
+]
 
 [dependency-groups]
 dev = [
@@ -42,6 +46,8 @@ dev = [
     "pip>=24.3.1",
     "textual-dev>=1.7.0",
     "build>=1.2.2.post1",
+    "slack-sdk",
+    "slack-bolt",
 ]
 
 [tool.setuptools]

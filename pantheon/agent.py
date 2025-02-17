@@ -9,7 +9,13 @@ from funcdesc import parse_func
 from magique.client import ServiceProxy
 
 from .utils.misc import desc_to_openai_dict, run_func
-from .utils.llm import acompletion_openai, process_messages, process_messages_for_save, acompletion_openai, acompletion_litellm
+from .utils.llm import (
+    acompletion_openai,
+    process_messages,
+    process_messages_for_save,
+    acompletion_openai,
+    acompletion_litellm,
+)
 from .types import AgentResponse, ResponseDetails, AgentInput, AgentTransfer
 from .remote.utils import connect_remote
 from .remote.constant import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
@@ -363,7 +369,7 @@ class Agent:
             else:
                 content = final_msg.get("content")
             if self.use_memory and update_memory:
-                self.memory.extend(details.messages)
+                self.memory = messages + details.messages
             return AgentResponse(
                 agent_name=self.name,
                 content=content,
