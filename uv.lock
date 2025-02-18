@@ -1509,7 +1509,7 @@ wheels = [
 
 [[package]]
 name = "pantheon-agents"
-version = "0.1.9"
+version = "0.1.9.1"
 source = { virtual = "." }
 dependencies = [
     { name = "executor-engine" },
@@ -1519,6 +1519,7 @@ dependencies = [
     { name = "loguru" },
     { name = "magique" },
     { name = "openai" },
+    { name = "pillow" },
     { name = "rich" },
     { name = "textual" },
 ]
@@ -1563,6 +1564,7 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "magique", specifier = ">=0.1.5" },
     { name = "openai", specifier = ">=1.58.1" },
+    { name = "pillow", specifier = ">=10.4.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.4" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.25.0" },
     { name = "rich", specifier = ">=13.9.4" },

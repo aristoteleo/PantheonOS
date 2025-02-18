@@ -11,6 +11,7 @@ dependencies = [
     "loguru>=0.7.3",
     "magique>=0.1.5",
     "openai>=1.58.1",
+    "pillow>=10.4.0",
     "rich>=13.9.4",
     "textual>=1.0.0",
 ]

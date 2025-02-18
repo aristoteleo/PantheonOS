@@ -1,9 +1,14 @@
+from pathlib import Path
 import asyncio
 
 from pantheon.agent import Agent, AgentTransfer
+from pantheon.utils.vision import vision_input
 from pydantic import BaseModel, Field
 from typing import List
 import random
+
+
+HERE = Path(__file__).parent
 
 
 async def test_stream():
@@ -241,3 +246,19 @@ async def test_agent_force_litellm():
 
     resp = await agent.run("Recommend me 5 sci-fi books.", response_format=list[Book])
     print(resp.content)
+
+
+async def test_vision():
+    agent = Agent(
+        name="test",
+        instructions="You are a vision agent, you can answer any vision related questions.",
+        model="gpt-4o-mini",
+    )
+
+    resp = await agent.run(
+        vision_input("Is there a dog in the image?", HERE / "data/animal.png", from_path=True),
+        response_format=bool,
+    )
+    print(resp.content)
+    assert resp.content is True
+

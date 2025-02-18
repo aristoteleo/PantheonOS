@@ -1,13 +1,16 @@
 import os
 import asyncio
+import tempfile
 from typing import Callable
 
+import aiohttp
 from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
 
 from ..agent import Agent
 from ..team import Team
 from ..utils.log import logger
+from ..utils.vision import vision_input
 
 
 async def run_app(
@@ -40,6 +43,20 @@ async def run_app(
     agents = {}
 
     app = AsyncApp(token=bot_token)
+
+    async def download_file(url, filename):
+        headers = {"Authorization": f"Bearer {bot_token}"}
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status == 200:
+                    with open(filename, "wb") as f:
+                        f.write(await resp.read())
+                    print(f"✅ download file: {filename}")
+                    return filename
+                else:
+                    print(f"❌ download file failed, status: {resp.status}")
+                    return None
 
     def is_direct_message(body):
         return body["event"]["channel"].startswith("D")
@@ -108,6 +125,15 @@ Current version: {__version__}
         if user_message_count[user_id] > daily_message_limit_per_user:
             return "You have reached the daily message limit."
 
+        images = []
+        if files := body["event"].get("files"):
+            for file in files:
+                url = file.get("url_private")
+                if file.get("mimetype").startswith("image/"):
+                    filename = await download_file(url, tempfile.NamedTemporaryFile().name)
+                    images.append(filename)
+        if images:
+            content = vision_input(content, images, from_path=True)
         res = await agent.run(content)
         logger.info(res.content)
         return res.content

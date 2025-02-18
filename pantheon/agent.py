@@ -16,7 +16,8 @@ from .utils.llm import (
     acompletion_openai,
     acompletion_litellm,
 )
-from .types import AgentResponse, ResponseDetails, AgentInput, AgentTransfer
+from .utils.vision import vision_to_openai
+from .types import AgentResponse, ResponseDetails, AgentInput, AgentTransfer, VisionInput
 from .remote.utils import connect_remote
 from .remote.constant import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
 
@@ -282,8 +283,8 @@ class Agent:
             msg: AgentInput,
             use_memory: bool,
             ) -> list[dict]:
-        assert isinstance(msg, (list, str, BaseModel, AgentResponse, AgentTransfer)), \
-            "Message must be a list, string, BaseModel or AgentResponse, AgentTransfer"
+        assert isinstance(msg, (list, str, BaseModel, AgentResponse, AgentTransfer, VisionInput)), \
+            "Message must be a list, string, BaseModel or AgentResponse, AgentTransfer, VisionInput"
         if isinstance(msg, AgentResponse):
             # For acceping the result of previous run or other agent
             msg = msg.content
@@ -291,6 +292,8 @@ class Agent:
         # Convert message to the openai message format
         if isinstance(msg, AgentTransfer):
             messages = msg.history
+        elif isinstance(msg, VisionInput):
+            messages = vision_to_openai(msg)
         elif isinstance(msg, BaseModel):
             messages = [{"role": "user", "content": msg.model_dump_json()}]
         elif isinstance(msg, str):
@@ -298,11 +301,13 @@ class Agent:
         elif isinstance(msg, list):
             new_messages = []
             for m in msg:
-                if isinstance(m, BaseModel):
+                if isinstance(m, str):
+                    new_messages.append({"role": "user", "content": m})
+                elif isinstance(m, VisionInput):
+                    new_messages.extend(vision_to_openai(m))
+                elif isinstance(m, BaseModel):
                     new_messages.append(
                         {"role": "user", "content": m.model_dump_json()})
-                elif isinstance(m, str):
-                    new_messages.append({"role": "user", "content": m})
                 else:
                     assert isinstance(m, dict), \
                         "Message must be a string, BaseModel or dict"

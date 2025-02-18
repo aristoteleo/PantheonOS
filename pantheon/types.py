@@ -20,4 +20,9 @@ class AgentTransfer(BaseModel):
     context_variables: dict
 
 
-AgentInput = str | BaseModel | AgentResponse | List[str | BaseModel | dict] | AgentTransfer
+class VisionInput(BaseModel):
+    images: list[str]
+    prompt: str
+
+
+AgentInput = str | BaseModel | AgentResponse | List[str | BaseModel | dict] | AgentTransfer | VisionInput
