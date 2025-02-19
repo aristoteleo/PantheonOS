@@ -4,6 +4,7 @@ import tempfile
 from typing import Callable
 
 import aiohttp
+from rich.console import Console
 from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
 
@@ -11,6 +12,7 @@ from ..agent import Agent
 from ..team import Team
 from ..utils.log import logger
 from ..utils.vision import vision_input
+from ..utils.misc import print_agent_message
 
 
 async def run_app(
@@ -40,7 +42,9 @@ async def run_app(
         return
 
     user_message_count = {}
+    console = Console()
     agents = {}
+    events_queue = asyncio.Queue()
 
     app = AsyncApp(token=bot_token)
 
@@ -58,21 +62,32 @@ async def run_app(
                     print(f"❌ download file failed, status: {resp.status}")
                     return None
 
+    async def collect_events(agent_id):
+        while True:
+            msg = await agents[agent_id].events_queue.get()
+            events_queue.put_nowait((agent_id, msg))
+
+    async def create_agent(id):
+        agent = agent_factory()
+        agents[id] = agent
+        loop = asyncio.get_event_loop()
+        loop.create_task(collect_events(id))
+        return agent
+
     def is_direct_message(body):
         return body["event"]["channel"].startswith("D")
 
-    def get_agent(body):
+    async def get_agent(body):
         user_id = body["event"]["user"]
         if is_direct_message(body):
             agent = agents.get(user_id)
             if agent is None:
-                agent = agent_factory()
-                agents[user_id] = agent
+                agent = await create_agent(user_id)
             return agent
         else:
             channel_id = body["event"]["channel"]
             if channel_id not in agents:
-                agents[channel_id] = agent_factory()
+                agents[channel_id] = await create_agent(channel_id)
             return agents[channel_id]
     
     def reset_agent(body):
@@ -87,7 +102,7 @@ async def run_app(
         content = body["event"]["text"]
         user_id = body["event"]["user"]
 
-        agent = get_agent(body)
+        agent = await get_agent(body)
         if content.startswith("!toolset"):
             await agent.remote_toolset(content.split(" ")[1])
             return "Toolset successfully loaded."
@@ -166,7 +181,14 @@ Current version: {__version__}
                 )
             return resp
 
-        task = asyncio.create_task(get_reply(body))
+        async def _get_reply():
+            try:
+                return await get_reply(body)
+            except Exception as e:
+                logger.error(f"Error getting reply: {e}")
+                return "Sorry, I encountered an error. Please try again later."
+
+        task = asyncio.create_task(_get_reply())
         done, _ = await asyncio.wait({task}, timeout=thinking_timeout)
         if task in done:
             res = await task
@@ -215,8 +237,14 @@ Current version: {__version__}
             await asyncio.sleep(86400)
             user_message_count.clear()
 
+    async def print_tool_messages():
+        while True:
+            id, event = await events_queue.get()
+            print_agent_message(f"agent({id})", event, console=console)
+
     handler = AsyncSocketModeHandler(app, app_token)
     await asyncio.gather(
         handler.start_async(),
         reset_user_message_count(),
+        print_tool_messages(),
     )

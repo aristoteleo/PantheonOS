@@ -3,6 +3,7 @@ import warnings
 from typing import Any, Callable
 
 from .misc import run_func
+from .log import logger
 
 
 async def acompletion_openai(
@@ -11,8 +12,9 @@ async def acompletion_openai(
         tools: list[dict] | None = None,
         response_format: Any | None = None,
         process_chunk: Callable | None = None,
+        retry_times: int = 3,
         ) -> dict:
-    from openai import AsyncOpenAI, NOT_GIVEN
+    from openai import AsyncOpenAI, NOT_GIVEN, APIConnectionError
 
     client = AsyncOpenAI()
     chunks = []
@@ -26,17 +28,23 @@ async def acompletion_openai(
         response_format=response_format or {"type": "text"},
     )
 
-    async with stream_manager as stream:
-        async for event in stream:
-            if event.type == "chunk":
-                chunk = event.chunk
-                chunks.append(chunk.model_dump())
-                if process_chunk:
-                    delta = chunk.choices[0].delta.model_dump()
-                    await run_func(process_chunk, delta)
-                    if chunk.choices[0].finish_reason == "stop":
-                        await run_func(process_chunk, {"stop": True})
-        final_message = await stream.get_final_completion()
+    while retry_times > 0:
+        try:
+            async with stream_manager as stream:
+                async for event in stream:
+                    if event.type == "chunk":
+                        chunk = event.chunk
+                        chunks.append(chunk.model_dump())
+                        if process_chunk:
+                            delta = chunk.choices[0].delta.model_dump()
+                            await run_func(process_chunk, delta)
+                            if chunk.choices[0].finish_reason == "stop":
+                                await run_func(process_chunk, {"stop": True})
+                final_message = await stream.get_final_completion()
+                break
+        except APIConnectionError as e:
+            logger.error(f"OpenAI API connection error: {e}")
+            retry_times -= 1
     return final_message
 
 

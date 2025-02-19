@@ -88,7 +88,7 @@ def print_agent_message(
         print_markdown: bool = True,
     ):
     if console is None:
-        def _print(msg: str, title: str):
+        def _print(msg: str, title: str | None = None):
             print(msg)
 
         def _print_markdown(msg: str):
