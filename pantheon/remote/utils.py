@@ -11,7 +11,7 @@ async def connect_remote(
         server_timeout: float = 5.0,
         service_timeout: float = 10.0,
         time_delta: float = 0.5,
-        try_direct_connection: bool = False,
+        try_direct_connection: bool = True,
         ) -> ServiceProxy:
     server = None
     async def _get_server():

@@ -150,7 +150,6 @@ Current version: {__version__}
         if images:
             content = vision_input(content, images, from_path=True)
         res = await agent.run(content)
-        logger.info(res.content)
         return res.content
 
     async def get_user_name(user):

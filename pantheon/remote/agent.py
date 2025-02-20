@@ -27,7 +27,8 @@ class AgentService:
         self.setup_worker()
 
     async def response(self, msg, **kwargs):
-        return await self.agent.run(msg, **kwargs)
+        resp = await self.agent.run(msg, **kwargs)
+        return resp
 
     def setup_worker(self):
         self.worker.register(self.response)
