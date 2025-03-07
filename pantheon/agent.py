@@ -151,6 +151,7 @@ class Agent:
                     "tool_call_id": call["id"],
                     "tool_name": func_name,
                     "content": repr(result),
+                    "raw_content": result,
                 })
         return messages
 

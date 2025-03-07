@@ -1,3 +1,4 @@
+import json
 from typing import List, TYPE_CHECKING, Callable
 import inspect
 
@@ -116,10 +117,14 @@ def print_agent_message(
                 "Tool Call"
             )
     if print_tool_response and message.get("role") == "tool":
+        try:
+            formatted_content = json.dumps(message["raw_content"], indent=2)
+        except Exception:
+            formatted_content = message.get("content")
         _print(
             f"[bold]Agent [blue]{agent_name}[/blue] is using tool "
             f"[green]{message.get('tool_name')}[/green]:[/bold] "
-            f"[yellow]{message.get('content')}[/yellow]",
+            f"[yellow]{formatted_content}[/yellow]",
             "Tool Response"
         )
     elif print_assistant_message and message.get("role") == "assistant":

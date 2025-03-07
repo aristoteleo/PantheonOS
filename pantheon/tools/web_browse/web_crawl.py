@@ -1,6 +1,8 @@
 from crawl4ai import AsyncWebCrawler
 import asyncio
 
+from ...utils.log import logger
+
 
 async def web_crawl(urls: list[str], timeout: float = 20.0) -> list[str]:
     """
@@ -26,8 +28,8 @@ async def web_crawl(urls: list[str], timeout: float = 20.0) -> list[str]:
     contents = []
     for result in results:
         try:
-            contents.append(result.markdown_v2.raw_markdown)
+            contents.append(result.markdown.raw_markdown)
         except Exception as e:
-            print(e)
+            logger.error(e)
             contents.append("")
     return contents

@@ -104,7 +104,7 @@ def toolset_cli(toolset_type: type[ToolSet], default_service_name: str):
     import fire
 
     async def main(service_name: str = default_service_name, **kwargs):
-        toolset = toolset_type(service_name, worker_params=kwargs)
+        toolset = toolset_type(service_name, **kwargs)
         await toolset.run()
 
     fire.Fire(main)

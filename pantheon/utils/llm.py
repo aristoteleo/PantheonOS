@@ -120,3 +120,10 @@ def process_messages(messages: list[dict], model: str) -> list[dict]:
 
 def process_messages_for_save(messages: list[dict]) -> list[dict]:
     return remove_parsed(messages)
+
+
+async def openai_embedding(texts: list[str], model: str = "text-embedding-3-large") -> list[list[float]]:
+    import openai
+    client = openai.AsyncOpenAI()
+    resp = await client.embeddings.create(input=texts, model=model)
+    return [d.embedding for d in resp.data]
