@@ -37,7 +37,7 @@ See the [examples](examples) folder for more details.
 - [x] Distributed
   + [x] Tools
   + [x] Agents
-    * [ ] Support streaming response
+    * [x] Support streaming response
 - [x] Toolsets
   + [x] Python
   + [x] R
@@ -45,7 +45,10 @@ See the [examples](examples) folder for more details.
   + [x] Web Browse
   + [ ] Jupyter
   + [ ] RAG
-    * [ ] Document
+    * [x] VectorRAG
+    * [ ] GraphRAG
+    * [x] Package Document
+    * [ ] PDF(paper)
     * [ ] Code
 - [x] Agent team
   + [x] Sequential Team
@@ -58,6 +61,4 @@ See the [examples](examples) folder for more details.
   + [ ] Web UI
   + [x] Slack
   + [ ] WeChat
-  + [ ] VSCode plugin
-  + [ ] PyCharm plugin
 - [ ] Documentation
