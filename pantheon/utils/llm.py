@@ -118,7 +118,8 @@ def process_messages(messages: list[dict], model: str) -> list[dict]:
     return messages
 
 
-def process_messages_for_save(messages: list[dict]) -> list[dict]:
+def process_messages_for_store(messages: list[dict]) -> list[dict]:
+    messages = deepcopy(messages)
     return remove_parsed(messages)
 
 

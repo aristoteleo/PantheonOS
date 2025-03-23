@@ -14,12 +14,12 @@ from .utils.misc import desc_to_openai_dict, run_func
 from .utils.llm import (
     acompletion_openai,
     process_messages,
-    process_messages_for_save,
     acompletion_openai,
     acompletion_litellm,
 )
 from .utils.vision import vision_to_openai
 from .types import AgentResponse, ResponseDetails, AgentInput, AgentTransfer, VisionInput
+from .memory import Memory
 
 
 __CTX_VARS_NAME__ = "context_variables"
@@ -34,7 +34,7 @@ class Agent:
         tools: list[Callable] | None = None,
         response_format: Any | None = None,
         use_memory: bool = True,
-        memory: list[dict] | None = None,
+        memory: Memory | None = None,
         tool_timeout: int | None = 10 * 60,
         force_litellm: bool = False,
     ):
@@ -50,7 +50,7 @@ class Agent:
                 self.tool(func)
         self.response_format = response_format
         self.use_memory = use_memory
-        self.memory = memory or []
+        self.memory = memory or Memory(str(uuid4()))
         self.tool_timeout = tool_timeout
         self.events_queue: asyncio.Queue = asyncio.Queue()
         self.force_litellm = force_litellm
@@ -282,7 +282,6 @@ class Agent:
     def input_to_openai_messages(
             self,
             msg: AgentInput,
-            use_memory: bool,
             ) -> list[dict]:
         assert isinstance(msg, (list, str, BaseModel, AgentResponse, AgentTransfer, VisionInput)), \
             "Message must be a list, string, BaseModel or AgentResponse, AgentTransfer, VisionInput"
@@ -315,10 +314,7 @@ class Agent:
                     new_messages.append(m)
             messages = new_messages
 
-        if use_memory:
-            messages = self.memory + messages
         return messages
-
 
     async def run(
             self, msg: AgentInput,
@@ -349,7 +345,12 @@ class Agent:
         _use_m = self.use_memory
         if use_memory is not None:
             _use_m = use_memory
-        messages = self.input_to_openai_messages(msg, _use_m)
+        new_input_messages = self.input_to_openai_messages(msg)
+        if _use_m:
+            old_messages = await run_func(self.memory.get_messages)
+            messages = old_messages + new_input_messages
+        else:
+            messages = new_input_messages
         response_format = response_format or self.response_format
         context_variables = context_variables or {}
         if isinstance(msg, AgentTransfer):
@@ -375,7 +376,8 @@ class Agent:
             else:
                 content = final_msg.get("content")
             if self.use_memory and update_memory:
-                self.memory = messages + details.messages
+                await run_func(self.memory.add_messages, new_input_messages)
+                await run_func(self.memory.add_messages, details.messages)
             return AgentResponse(
                 agent_name=self.name,
                 content=content,
@@ -387,17 +389,6 @@ class Agent:
         from .repl.single import Repl
         repl = Repl(self)
         await repl.run(message)
-
-    def save_memory(self, file_path: str):
-        """Save the memory to a file."""
-        with open(file_path, "w") as f:
-            processed_memory = process_messages_for_save(self.memory)
-            json.dump(processed_memory, f)
-
-    def load_memory(self, file_path: str):
-        """Load the memory from a file."""
-        with open(file_path, "r") as f:
-            self.memory = json.load(f)
 
     async def serve(self, **kwargs):
         """Serve the agent to a remote server."""
