@@ -1,5 +1,5 @@
 from tempfile import TemporaryDirectory
-from pantheon.remote.memory import RemoteMemoryManager, RemoteMemory, start_memory_service
+from pantheon.remote.memory import RemoteMemoryManager, start_memory_service
 from pantheon.agent import Agent
 from executor.engine import Engine, LocalJob
 
@@ -35,8 +35,7 @@ async def test_remote_memory_agent():
             "You are a helpful assistant.",
             memory=memory,
             )
-        resp = await agent.run("Hi")
+        await agent.run("Hi")
         messages = await memory.get_messages()
-        print(messages)
         assert len(messages) == 2
         await job.cancel()
