@@ -1235,7 +1235,7 @@ wheels = [
 
 [[package]]
 name = "magique"
-version = "0.2.4"
+version = "0.2.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "authlib" },
@@ -1254,7 +1254,7 @@ dependencies = [
     { name = "websockets" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9b/e3/7c119f266d3fef94f21dd5008fba90fb580790a6b72d37ec2fb4da44848e/magique-0.2.4-py3-none-any.whl", hash = "sha256:a83ab8f992ea8f44588bddc32fcce33e6bdbf645c8f1854ec2778fb8489d1807", size = 16977 },
+    { url = "https://files.pythonhosted.org/packages/52/3b/4c07ad9d611fb7afdbfd4f0900237284104a847bb4027402066b7ffb0733/magique-0.2.5-py3-none-any.whl", hash = "sha256:b7aab124f7a59389582404d440e5c75d63ca2e7ed603e1caaa1e1da6e8214eea", size = 17043 },
 ]
 
 [[package]]
@@ -1644,7 +1644,7 @@ requires-dist = [
     { name = "funcdesc", specifier = ">=0.1.8" },
     { name = "litellm", specifier = ">=1.56.4" },
     { name = "loguru", specifier = ">=0.7.3" },
-    { name = "magique", specifier = ">=0.2.4" },
+    { name = "magique", specifier = ">=0.2.5" },
     { name = "magique-ai", specifier = ">=0.2.1" },
     { name = "openai", specifier = ">=1.58.1" },
     { name = "pillow", specifier = ">=10.4.0" },

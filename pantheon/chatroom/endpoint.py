@@ -71,6 +71,7 @@ class Endpoint:
             data_uri = f"data:image/{format};base64,{b64}"
         return {
             "success": True,
+            "image_path": image_path,
             "data_uri": data_uri,
         }
 
