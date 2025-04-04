@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 import base64
@@ -17,27 +18,26 @@ class PythonInterpreterToolSetPatchMatplotlib(PythonInterpreterToolSet):
         super().__init__(*args, **kwargs)
         self.init_code = """import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import io
-import base64
+import os
+import uuid
 
-GLOBAL_PLOT_BASE64 = None
+GLOBAL_FIG_PATH = None
+GLOBAL_FIG_DIR = ".matplotlib_figs"
 
 original_show = plt.show
 
 def __custom_plt_show(*args, **kwargs):
-    global GLOBAL_PLOT_BASE64
+    global GLOBAL_FIG_PATH
     fig = plt.gcf()
     if not fig.get_axes():
         print("No active figure to save.")
         plt.close(fig)
         return
 
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png')
-    buf.seek(0)
-    image_bytes = buf.read()
-    GLOBAL_PLOT_BASE64 = base64.b64encode(image_bytes).decode('utf-8')
-    buf.close()
+    fig_uuid = str(uuid.uuid4())
+    os.makedirs(GLOBAL_FIG_DIR, exist_ok=True)
+    GLOBAL_FIG_PATH = os.path.join(GLOBAL_FIG_DIR, fig_uuid + ".png")
+    fig.savefig(GLOBAL_FIG_PATH, format='png')
     plt.close(fig)
 
 __plt_show = plt.show
@@ -62,7 +62,7 @@ plt.show = __custom_plt_show
         Returns:
             A dictionary with the result, stdout, and stderr.
         """
-        code = "GLOBAL_PLOT_BASE64 = None\n" + code
+        code = "GLOBAL_FIG_PATH = None\n" + code
         res = await super().run_code_in_interpreter(
             code,
             interpreter_id,
@@ -71,10 +71,16 @@ plt.show = __custom_plt_show
         res2 = await super().run_code_in_interpreter(
             "None",
             interpreter_id,
-            "GLOBAL_PLOT_BASE64",
+            "GLOBAL_FIG_PATH",
         )
-        base64_img = res2["result"]
-        if base64_img is not None:
+        fig_path = res2["result"]
+        if fig_path is not None:
+            res["fig_storage_path"] = fig_path
+            open_path = fig_path
+            if self.workdir:
+                open_path = os.path.join(self.workdir, fig_path)
+            with open(open_path, "rb") as f:
+                base64_img = base64.b64encode(f.read()).decode("utf-8")
             base64_uri = f"data:image/png;base64,{base64_img}"
             res["plt_show_base64_uri"] = base64_uri
             res["hidden_to_model"] = ["plt_show_base64_uri"]
@@ -183,7 +189,6 @@ class Endpoint:
         toolset = PythonInterpreterToolSetPatchMatplotlib(
             name="python_interpreter",
             workdir=str(self.workspace_path),
-            init_code="import matplotlib; matplotlib.use('Agg')"
         )
         self.services.append(toolset)
         toolset = FileManagerToolSet(
