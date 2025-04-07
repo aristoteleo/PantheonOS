@@ -5,8 +5,9 @@ from typing import Callable, Any
 from uuid import uuid4
 
 from pydantic import BaseModel, create_model
-from funcdesc import parse_func
+from funcdesc import parse_func, Description
 from magique.client import ServiceProxy
+from magique.worker import ReverseCallable
 from magique.ai.constant import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
 from magique.ai.utils.remote import connect_remote
 
@@ -61,7 +62,13 @@ class Agent:
         """
         Add a tool to the agent.
         """
-        self.functions[func.__name__] = func
+        if hasattr(func, "__name__"):
+            key = func.__name__
+        elif hasattr(func, "name"):
+            key = func.name
+        else:
+            raise ValueError(f"Invalid tool: {func}")
+        self.functions[key] = func
         return self
 
     async def remote_toolset(
@@ -86,8 +93,12 @@ class Agent:
         functions = []
 
         for func in self.functions.values():
+            if isinstance(func, ReverseCallable):
+                desc = Description(name=func.name)
+            else:
+                desc = parse_func(func)
             func_dict = desc_to_openai_dict(
-                parse_func(func),
+                desc,
                 skip_params=[__CTX_VARS_NAME__, "__client_id__"],
                 litellm_mode=litellm_mode,
             )
@@ -110,6 +121,7 @@ class Agent:
             context_variables: dict,
             timeout: int,
             ) -> list[dict]:
+        from .remote.agent import RemoteAgent
         messages = []
         for call in tool_calls:
             try:
@@ -118,7 +130,11 @@ class Agent:
                 if func_name in self.functions:
                     # call local functions
                     func = self.functions[func_name]
-                    if __CTX_VARS_NAME__ in func.__code__.co_varnames:
+                    if isinstance(func, ReverseCallable):
+                        var_names = func.parameters
+                    else:
+                        var_names = func.__code__.co_varnames
+                    if __CTX_VARS_NAME__ in var_names:
                         params[__CTX_VARS_NAME__] = context_variables
                     result = await asyncio.wait_for(
                         run_func(func, **params),
@@ -137,7 +153,7 @@ class Agent:
                 result = repr(e)
 
             context_variables[call["id"]] = result
-            if isinstance(result, Agent):
+            if isinstance(result, (Agent, RemoteAgent)):
                 messages.append({
                     "role": "tool",
                     "tool_call_id": call["id"],

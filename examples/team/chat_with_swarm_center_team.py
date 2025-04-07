@@ -1,16 +1,13 @@
 import asyncio
 
 from pantheon.agent import Agent
+from pantheon.remote.agent import RemoteAgent
 from pantheon.team import SwarmCenterTeam
 from pantheon.repl.team import Repl
 
 
 async def main():
-    scifi_fan = Agent(
-        name="Scifi Fan",
-        instructions="You are a scifi fan.",
-        model="gpt-4o-mini",
-    )
+    scifi_fan = RemoteAgent("remote_agent_scifi_fan")
 
     romance_fan = Agent(
         name="Romance Fan",

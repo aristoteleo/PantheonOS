@@ -1,4 +1,6 @@
 import asyncio
+import sys
+from concurrent.futures import ThreadPoolExecutor
 
 from rich.console import Console
 from rich.prompt import Prompt
@@ -37,10 +39,17 @@ class Repl:
     async def run(self, message: str | dict | None = None):
         import logging
         logging.getLogger().setLevel(logging.WARNING)
+        import loguru
+        loguru.logger.remove()
+        loguru.logger.add(sys.stdout, level="WARNING")
 
+        await self.team.async_setup()
         await self.print_greeting()
+        await asyncio.sleep(0.1)
+
         gather_task = asyncio.create_task(self.team.gather_events())
         print_task = asyncio.create_task(self.print_message())
+        await asyncio.sleep(0.1)
 
         def ask_user():
             message = Prompt.ask("[red][bold]User[/bold][/red]")
@@ -56,11 +65,11 @@ class Repl:
 
         while True:
             await self.team.run(message)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.5)
             self.console.print()
             message = ask_user()
             if message == "exit":
                 break
 
-        print_task.cancel()
         gather_task.cancel()
+        print_task.cancel()

@@ -1,4 +1,6 @@
 import sys
+import asyncio
+from typing import Callable
 
 from magique.worker import MagiqueWorker
 from magique.ai.constant import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
@@ -42,10 +44,19 @@ class AgentService:
     async def get_message_queue(self):
         return await self.agent.events_queue.get()
 
+    async def check_message_queue(self):
+        # check if there is a message in the queue
+        return not self.agent.events_queue.empty()
+
+    async def add_tool(self, func: Callable):
+        self.agent.tool(func)
+
     def setup_worker(self):
         self.worker.register(self.response)
         self.worker.register(self.get_info)
         self.worker.register(self.get_message_queue)
+        self.worker.register(self.check_message_queue)
+        self.worker.register(self.add_tool)
 
     async def run(self, log_level: str = "INFO"):
         from loguru import logger
@@ -72,7 +83,7 @@ class RemoteAgent:
         self.name = None
         self.instructions = None
         self.model = None
-        self.message_queue = RemoteAgentMessageQueue(self)
+        self.events_queue = RemoteAgentMessageQueue(self)
 
     async def _connect(self):
         return await connect_remote(
@@ -97,6 +108,10 @@ class RemoteAgent:
         s = await self._connect()
         return await s.invoke("response", {"msg": msg, **kwargs})
 
+    async def tool(self, func: Callable):
+        s = await self._connect()
+        await s.invoke("add_tool", {"func": func})
+
     async def chat(self, message: str | dict | None = None):
         """Chat with the agent with a REPL interface."""
         await self.fetch_info()
@@ -109,6 +124,10 @@ class RemoteAgentMessageQueue:
     def __init__(self, agent: "RemoteAgent"):
         self.agent = agent
 
-    async def get(self):
+    async def get(self, interval: float = 0.1):
         s = await self.agent._connect()
-        return await s.invoke("get_message_queue")
+        while True:
+            res = await s.invoke("check_message_queue")
+            if res:
+                return await s.invoke("get_message_queue")
+            await asyncio.sleep(interval)

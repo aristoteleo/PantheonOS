@@ -2,18 +2,23 @@ import asyncio
 from abc import ABC
 
 from .agent import Agent, AgentTransfer, AgentInput, AgentResponse
+from .remote.agent import RemoteAgent
+from .utils.misc import run_func
 
 
 class Team(ABC):
 
-    def __init__(self, agents: list[Agent]):
+    def __init__(self, agents: list[Agent | RemoteAgent]):
         self.agents = {}
         for agent in agents:
             self.agents[agent.name] = agent
         self.events_queue = asyncio.Queue()
 
+    async def async_setup(self):
+        pass
+
     async def gather_events(self):
-        async def _gather_agent_events(agent: Agent):
+        async def _gather_agent_events(agent: Agent | RemoteAgent):
             while True:
                 event = await agent.events_queue.get()
                 new_event = {
@@ -41,7 +46,7 @@ class SwarmTeam(Team):
     """Team that run agents in handoff & routines patterns like
     OpenAI's [Swarm framework](https://github.com/openai/swarm).
     """
-    def __init__(self, agents: list[Agent]):
+    def __init__(self, agents: list[Agent | RemoteAgent]):
         super().__init__(agents)
         self.active_agent = agents[0]
 
@@ -57,28 +62,38 @@ class SwarmTeam(Team):
 
 class SwarmCenterTeam(SwarmTeam):
     """Swarm team that has a central triage agent that decides which agent to handoff to."""
-    def __init__(self, triage: Agent, agents: list[Agent]):
+    def __init__(self, triage: Agent, agents: list[Agent | RemoteAgent]):
         super().__init__([triage])
         self.triage = triage
-        for agent in agents:
-            self.add_agent(agent)
+        self._agents_to_add = agents
 
-    def add_agent(self, agent: Agent):
+    async def add_agent(self, agent: Agent | RemoteAgent):
+        if isinstance(agent, RemoteAgent):
+            await agent.fetch_info()
         agent_func_name = agent.name.replace(" ", "_").lower()
         func_name = f"transfer_to_{agent_func_name}"
         exec(f"def {func_name}(): return self.agents['{agent.name}']", locals())
         transfer_func = eval(func_name)
-        self.triage.tool(transfer_func)
+        await run_func(self.triage.tool, transfer_func)
 
         def transfer_back_to_triage():
             return self.triage
 
-        agent.tool(transfer_back_to_triage)
+        await run_func(agent.tool, transfer_back_to_triage)
         self.agents[agent.name] = agent
 
-    def remove_agent(self, agent: Agent):
+    async def remove_agent(self, agent: Agent | RemoteAgent):
         del self.agents[agent.name]
         self.triage.functions.pop(f"transfer_to_{agent.name.replace(' ', '_').lower()}")
+
+    async def async_setup(self):
+        while self._agents_to_add:
+            agent = self._agents_to_add.pop(0)
+            await self.add_agent(agent)
+
+    async def run(self, msg: AgentInput, **kwargs):
+        await self.async_setup()
+        return await super().run(msg, **kwargs)
 
 
 class SequentialTeam(Team):
@@ -183,7 +198,7 @@ Please carefully analyze these responses and generate a final answer that is:
             proposer_kwargs: dict = {},
             **aggregator_kwargs,
             ) -> AgentResponse:
-        history = self.aggregator.input_to_openai_messages(msg, False)
+        history = self.aggregator.input_to_openai_messages(msg)
         for i in range(self.layers):
             if i == 0:
                 responses = await self.run_proposers(history, **proposer_kwargs)

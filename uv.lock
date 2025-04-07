@@ -1609,7 +1609,6 @@ dependencies = [
     { name = "openai" },
     { name = "pillow" },
     { name = "rich" },
-    { name = "textual" },
 ]
 
 [package.optional-dependencies]
@@ -1653,7 +1652,6 @@ requires-dist = [
     { name = "rich", specifier = ">=13.9.4" },
     { name = "slack-bolt", marker = "extra == 'slack'" },
     { name = "slack-sdk", marker = "extra == 'slack'" },
-    { name = "textual", specifier = ">=1.0.0" },
 ]
 provides-extras = ["dev", "slack"]
 

@@ -2,6 +2,8 @@ import os
 import sys
 from pathlib import Path
 import base64
+import shutil
+import uuid
 
 from magique.ai.constant import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
 from magique.worker import MagiqueWorker
@@ -107,15 +109,24 @@ class Endpoint:
         self.services: list[ToolSet] = []
         self.outer_services: list[dict] = []
         self.setup_handlers()
-        self.workspace_path = Path(workspace_path)
-        self.workspace_path.mkdir(parents=True, exist_ok=True)
+        self.path = Path(workspace_path)
+        self.path.mkdir(parents=True, exist_ok=True)
         self.create_services()
+        self._handles = {}
 
     def setup_handlers(self):
         self.worker.register(self.list_services)
         self.worker.register(self.add_service)
         self.worker.register(self.get_service)
+        # File management
         self.worker.register(self.fetch_image_base64)
+        self.worker.register(self.list_files)
+        self.worker.register(self.create_directory)
+        self.worker.register(self.delete_directory)
+        self.worker.register(self.delete_file)
+        self.worker.register(self.open_file_for_write)
+        self.worker.register(self.write_chunk)
+        self.worker.register(self.close_file)
 
     async def list_services(self) -> list[dict]:
         res = []
@@ -135,7 +146,7 @@ class Endpoint:
         """Fetch an image and return the base64 encoded image."""
         if '..' in image_path:
             return {"success": False, "error": "Image path cannot contain '..'"}
-        i_path = self.workspace_path / image_path
+        i_path = self.path / image_path
         if not i_path.exists():
             return {"success": False, "error": "Image does not exist"}
         format = i_path.suffix.lower()
@@ -149,6 +160,102 @@ class Endpoint:
             "image_path": image_path,
             "data_uri": data_uri,
         }
+
+    async def list_files(self, sub_dir: str | None = None) -> dict:
+        """List all files in the directory."""
+        if not self.path.exists():
+            return {"success": False, "error": "Directory does not exist"}
+        if (sub_dir is not None) and ('..' in sub_dir):
+            return {"success": False, "error": "Sub directory cannot contain '..'"}
+        if sub_dir is None:
+            files = list(self.path.glob("*"))
+        else:
+            files = list(self.path.glob(f"{sub_dir}/*"))
+        return {
+            "success": True,
+            "files": [
+                {
+                    "name": file.name,
+                    "size": file.stat().st_size if file.is_file() else 0,
+                    "type": "file" if file.is_file() else "directory",
+                }
+                for file in files
+            ],
+        }
+
+    async def create_directory(self, sub_dir: str):
+        """Create a new directory."""
+        if '..' in sub_dir:
+            return {"success": False, "error": "Sub directory cannot contain '..'"}
+        new_dir = self.path / sub_dir
+        new_dir.mkdir(parents=True, exist_ok=True)
+        return {"success": True}
+
+    async def delete_directory(self, sub_dir: str):
+        """Delete a directory and all its contents recursively."""
+        if '..' in sub_dir:
+            return {"success": False, "error": "Sub directory cannot contain '..'"}
+        dir_path = self.path / sub_dir
+        if not dir_path.exists():
+            return {"success": False, "error": "Directory does not exist"}
+        
+        shutil.rmtree(dir_path)
+        return {"success": True}
+
+    async def delete_file(self, file_name: str):
+        """Delete a file."""
+        if '..' in file_name:
+            return {"success": False, "error": "File name cannot contain '..'"}
+        file_path = self.path / file_name
+        if not file_path.exists():
+            return {"success": False, "error": "File does not exist"}
+        file_path.unlink()
+        return {"success": True}
+
+    async def open_file_for_write(self, file_name: str):
+        """Open a file for writing."""
+        if '..' in file_name:
+            return {"error": "File name cannot contain '..'"}
+        file_path = self.path / file_name
+        handle_id = str(uuid.uuid4())
+        try:
+            handle = open(file_path, "wb")
+            self._handles[handle_id] = handle
+            return {"success": True, "handle_id": handle_id}
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def write_chunk(self, handle_id: str, data: bytes):
+        """Write a chunk to a file."""
+        if handle_id not in self._handles:
+            return {"error": "Handle not found"}
+        handle = self._handles[handle_id]
+        handle.write(data)
+        return {"success": True}
+
+    async def close_file(self, handle_id: str):
+        """Close a file."""
+        if handle_id not in self._handles:
+            return {"error": "Handle not found"}
+        handle = self._handles[handle_id]
+        handle.close()
+        del self._handles[handle_id]
+        return {"success": True}
+
+    async def read_file(self, file_name: str, receive_chunk, chunk_size: int = 1024):
+        """Read a file."""
+        if '..' in file_name:
+            return {"error": "File name cannot contain '..'"}
+        file_path = self.path / file_name
+        if not file_path.exists():
+            return {"error": "File does not exist"}
+        with open(file_path, "rb") as f:
+            while True:
+                data = f.read(chunk_size)
+                if not data:
+                    break
+                await receive_chunk(data)
+        return {"success": True}
 
     async def add_service(self, service_id: str):
         """Add a service to the endpoint."""
@@ -188,17 +295,17 @@ class Endpoint:
     def create_services(self):
         toolset = PythonInterpreterToolSetPatchMatplotlib(
             name="python_interpreter",
-            workdir=str(self.workspace_path),
+            workdir=str(self.path),
         )
         self.services.append(toolset)
         toolset = FileManagerToolSet(
             name="file_manager",
-            path=str(self.workspace_path),
+            path=str(self.path),
         )
         self.services.append(toolset)
         toolset = FileTransferToolSet(
             name="file_transfer",
-            path=str(self.workspace_path),
+            path=str(self.path),
         )
         self.services.append(toolset)
         toolset = WebBrowseToolSet(
