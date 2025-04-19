@@ -38,6 +38,8 @@ class ChatRoom:
             agents=agents,
         )
         self.endpoint_service_id = endpoint_service_id
+        if memory_manager is None:
+            memory_manager = MemoryManager("./.pantheon-chatroom")
         self.memory_manager = memory_manager
         self.name = name
         self.description = description
@@ -76,19 +78,13 @@ class ChatRoom:
             return {
                 "name": agent.name,
                 "instructions": agent.instructions,
-                "tools": [t.__name__ for t in agent.functions.keys()],
+                "tools": [t for t in agent.functions.keys()],
                 "toolsets": [s.service_info.service_id for s in agent.toolset_proxies.values()],
             }
-        if isinstance(self.agent, Team):
-            return {
-                "success": True,
-                "agents": [get_agent_info(a) for a in self.agent.agents],
-            }
-        else:
-            return {
-                "success": True,
-                "agents": [get_agent_info(self.agent)],
-            }
+        return {
+            "success": True,
+            "agents": [get_agent_info(a) for a in self.team.agents],
+        }
 
     async def create_chat(self, chat_name: str | None = None) -> dict:
         memory = await run_func(self.memory_manager.new_memory, chat_name)
@@ -156,7 +152,7 @@ class ChatRoom:
         process_step_message=None,
     ):
         memory = await run_func(self.memory_manager.get_memory, chat_id)
-        resp = await self.agent.run(
+        resp = await self.team.run(
             message,
             memory=memory,
             process_chunk=process_chunk,
