@@ -1235,7 +1235,7 @@ wheels = [
 
 [[package]]
 name = "magique"
-version = "0.2.7"
+version = "0.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "authlib" },
@@ -1254,12 +1254,12 @@ dependencies = [
     { name = "websockets" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/95/fd/ebb833418c34da4684463f7795d54b77b6a66e2ea898655717f853b4c806/magique-0.2.7-py3-none-any.whl", hash = "sha256:165f6fac581f8543d85580fe681419ae6ca4fb6b3a64a338aadb32d226cb3ad6", size = 17148 },
+    { url = "https://files.pythonhosted.org/packages/1d/ce/01d8ddd7ea7ad38a697ae0812c6d50db822bb1148b700ddccd76078fac44/magique-0.3.1-py3-none-any.whl", hash = "sha256:d48826c000a79a38924005fc9a3c6a68dd47c9c2d40115f46cf55f055e5d810a", size = 17384 },
 ]
 
 [[package]]
 name = "magique-ai"
-version = "0.2.1"
+version = "0.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "crawl4ai" },
@@ -1273,7 +1273,7 @@ dependencies = [
     { name = "openai" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bc/6c/984442c09971748bde0433a2d19c4e53a66e81e7286e913dea129ba1ab5f/magique_ai-0.2.1-py3-none-any.whl", hash = "sha256:375fd6b3d1fb869d64131230d30742b97855ddccdc03cd26a922d99fa5a97b6f", size = 29661 },
+    { url = "https://files.pythonhosted.org/packages/f1/8a/5009818545907b5fa77946293aa9fcaf44e5f02c24cc31f1198a19d9da74/magique_ai-0.2.2-py3-none-any.whl", hash = "sha256:feeaf1fc325b4fea8172faba6bcaff71d0960b4ccd10aa5d2d9b1cfe7471b145", size = 29583 },
 ]
 
 [[package]]
@@ -1643,8 +1643,8 @@ requires-dist = [
     { name = "funcdesc", specifier = ">=0.1.8" },
     { name = "litellm", specifier = ">=1.56.4" },
     { name = "loguru", specifier = ">=0.7.3" },
-    { name = "magique", specifier = ">=0.2.7" },
-    { name = "magique-ai", specifier = ">=0.2.1" },
+    { name = "magique", specifier = ">=0.3.1" },
+    { name = "magique-ai", specifier = ">=0.2.2" },
     { name = "openai", specifier = ">=1.58.1" },
     { name = "pillow", specifier = ">=10.4.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.4" },

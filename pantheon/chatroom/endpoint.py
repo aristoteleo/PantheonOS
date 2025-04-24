@@ -5,12 +5,12 @@ import base64
 import shutil
 import uuid
 
-from magique.ai.constant import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
 from magique.worker import MagiqueWorker
 from magique.ai.toolset import run_toolsets, ToolSet
 from magique.ai.tools.file_manager import FileManagerToolSet
 from magique.ai.tools.web_browse import WebBrowseToolSet
 from magique.ai import connect_remote
+from magique.ai.constant import DEFAULT_SERVER_URL
 
 from .python_interpreter import ScientificPythonInterpreterToolSet
 
@@ -25,8 +25,7 @@ class Endpoint:
         self.name = name
         _worker_params = {
             "service_name": name,
-            "server_host": DEFAULT_SERVER_HOST,
-            "server_port": DEFAULT_SERVER_PORT,
+            "server_url": DEFAULT_SERVER_URL,
             "need_auth": False,
         }
         if worker_params is not None:
@@ -194,7 +193,7 @@ class Endpoint:
             if s.worker.service_id == service_id:
                 return {"success": False, "error": "Service already exists"}
         try:
-            s = await connect_remote(service_id, self.worker.server_host, self.worker.server_port)
+            s = await connect_remote(service_id, DEFAULT_SERVER_URL)
             info = await s.fetch_service_info()
             self.outer_services.append({
                 "id": service_id,
@@ -244,7 +243,7 @@ class Endpoint:
         logger.remove()
         logger.add(sys.stderr, level=log_level)
         async with run_toolsets(self.services, log_level=log_level):
-            logger.info(f"Remote Server: {self.worker.server_uri}")
+            logger.info(f"Remote Server: {self.worker.server_url}")
             logger.info(f"Service Name: {self.worker.service_name}")
             logger.info(f"Service ID: {self.worker.service_id}")
             return await self.worker.run()

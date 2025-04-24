@@ -8,7 +8,7 @@ from pydantic import BaseModel, create_model
 from funcdesc import parse_func, Description, Value
 from magique.client import ServiceProxy
 from magique.worker import ReverseCallable
-from magique.ai.constant import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
+from magique.ai.constant import DEFAULT_SERVER_URL
 from magique.ai.utils.remote import connect_remote
 
 from .utils.misc import desc_to_openai_dict, run_func
@@ -77,15 +77,13 @@ class Agent:
     async def remote_toolset(
             self,
             service_id_or_name: str,
-            server_host: str = DEFAULT_SERVER_HOST,
-            server_port: int = DEFAULT_SERVER_PORT,
+            server_url: str = DEFAULT_SERVER_URL,
             **kwargs,
             ):
         """Add a remote toolset to the agent."""
         s = await connect_remote(
             service_id_or_name,
-            server_host,
-            server_port,
+            server_url,
             **kwargs,
         )
         self.toolset_proxies[s.service_info.service_id] = s

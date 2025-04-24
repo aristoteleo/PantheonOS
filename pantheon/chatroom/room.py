@@ -1,8 +1,8 @@
 import sys
 
-from magique.ai.constant import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
 from magique.worker import MagiqueWorker
 from magique.ai import connect_remote
+from magique.ai.constant import DEFAULT_SERVER_URL
 
 from ..agent import Agent
 from ..team import SwarmCenterTeam
@@ -31,6 +31,7 @@ class ChatRoom:
         name: str = "pantheon-chatroom",
         description: str = "Chatroom for Pantheon agents",
         worker_params: dict | None = None,
+        server_url: str = DEFAULT_SERVER_URL,
     ):
         if isinstance(agents, Agent | RemoteAgent):
             agents = [agents]
@@ -45,10 +46,10 @@ class ChatRoom:
         self.memory_manager = memory_manager
         self.name = name
         self.description = description
+        self.server_url = server_url
         _worker_params = {
             "service_name": name,
-            "server_host": DEFAULT_SERVER_HOST,
-            "server_port": DEFAULT_SERVER_PORT,
+            "server_url": server_url,
             "need_auth": False,
         }
         if worker_params is not None:
@@ -69,7 +70,7 @@ class ChatRoom:
         self.worker.register(self.get_active_agent)
 
     async def get_endpoint(self) -> dict:
-        s = await connect_remote(self.endpoint_service_id)
+        s = await connect_remote(self.endpoint_service_id, self.server_url)
         info = await s.fetch_service_info()
         return {
             "success": True,
@@ -190,7 +191,7 @@ class ChatRoom:
         from loguru import logger
         logger.remove()
         logger.add(sys.stderr, level=log_level)
-        logger.info(f"Remote Server: {self.worker.server_uri}")
+        logger.info(f"Remote Server: {self.worker.server_url}")
         logger.info(f"Service Name: {self.worker.service_name}")
         logger.info(f"Service ID: {self.worker.service_id}")
         await self.team.async_setup()

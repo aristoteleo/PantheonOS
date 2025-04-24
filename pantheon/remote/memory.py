@@ -1,7 +1,7 @@
 import sys
 
 from magique.worker import MagiqueWorker
-from magique.ai.constant import DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
+from magique.ai.constant import DEFAULT_SERVER_URL
 from magique.ai.utils.remote import connect_remote
 
 from ..memory import MemoryManager
@@ -13,12 +13,13 @@ class MemoryManagerService:
             memory_dir: str,
             name: str = "pantheon-memory",
             worker_params: dict | None = None,
+            server_url: str = DEFAULT_SERVER_URL,
             ):
         self.memory_manager = MemoryManager(memory_dir)
+        self.server_url = server_url
         _worker_params = {
             "service_name": name,
-            "server_host": DEFAULT_SERVER_HOST,
-            "server_port": DEFAULT_SERVER_PORT,
+            "server_url": server_url,
             "need_auth": False,
         }
         if worker_params is not None:
@@ -72,7 +73,7 @@ class MemoryManagerService:
         from loguru import logger
         logger.remove()
         logger.add(sys.stderr, level=log_level)
-        logger.info(f"Remote Server: {self.worker.server_uri}")
+        logger.info(f"Remote Server: {self.worker.server_url}")
         logger.info(f"Service Name: {self.worker.service_name}")
         logger.info(f"Service ID: {self.worker.service_id}")
         return await self.worker.run()
@@ -103,20 +104,17 @@ class RemoteMemoryManager:
     def __init__(
             self,
             service_id_or_name: str,
-            server_host: str = DEFAULT_SERVER_HOST,
-            server_port: int = DEFAULT_SERVER_PORT,
+            server_url: str = DEFAULT_SERVER_URL,
             ):
         self.service_id_or_name = service_id_or_name
-        self.server_host = server_host
-        self.server_port = server_port
+        self.server_url = server_url
         self.service = None
 
     async def connect(self):
         if self.service is None:
             self.service = await connect_remote(
                 self.service_id_or_name,
-                self.server_host,
-                self.server_port,
+                self.server_url,
                 )
 
     async def new_memory(self, name: str | None = None) -> RemoteMemory:
