@@ -40,6 +40,9 @@ class Memory:
         return self._messages
 
 
+DEFAULT_CHAT_NAME = "New Chat"
+
+
 class MemoryManager:
     def __init__(self, path: str | Path):
         self.path = Path(path)
@@ -48,12 +51,7 @@ class MemoryManager:
 
     def new_memory(self, name: str | None = None) -> Memory:
         if name is None:
-            base_name = "New Chat"
-            i = 0
-            name = f"{base_name} {i}"
-            while name in self.memory_store:
-                i += 1
-                name = f"{base_name} {i}"
+            name = DEFAULT_CHAT_NAME
         memory = Memory(name)
         self.memory_store[memory.id] = memory
         return memory

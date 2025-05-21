@@ -1,4 +1,5 @@
 import sys
+from datetime import datetime
 
 from magique.worker import MagiqueWorker
 from magique.ai import connect_remote
@@ -115,6 +116,7 @@ class ChatRoom:
 
     async def create_chat(self, chat_name: str | None = None) -> dict:
         memory = await run_func(self.memory_manager.new_memory, chat_name)
+        memory.extra_data["last_activity_date"] = datetime.now().isoformat()
         return {
             "success": True,
             "message": "Chat created successfully",
@@ -133,11 +135,27 @@ class ChatRoom:
     async def list_chats(self) -> dict:
         try:
             ids = await run_func(self.memory_manager.list_memories)
-            names = []
+            chats = []
             for id in ids:
                 memory = await run_func(self.memory_manager.get_memory, id)
-                names.append(memory.name)
-            return {"success": True, "chat_ids": ids, "chat_names": names}
+                chats.append({
+                    "id": id,
+                    "name": memory.name,
+                    "running": memory.extra_data.get("running", False),
+                    "last_activity_date": memory.extra_data.get("last_activity_date", None),
+                })
+
+            chats.sort(
+                key=lambda x: datetime.fromisoformat(x["last_activity_date"]) 
+                              if x["last_activity_date"] 
+                              else datetime.min,
+                reverse=True
+            )
+
+            return {
+                "success": True,
+                "chats": chats,
+            }
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -180,19 +198,33 @@ class ChatRoom:
     ):
         try:
             memory = await run_func(self.memory_manager.get_memory, chat_id)
+            memory.extra_data["running"] = True
+            memory.extra_data["last_activity_date"] = datetime.now().isoformat()
+
+            if len(memory.get_messages()) == 0:
+                # summary to get new name using LLM
+                prompt = "Please summarize the question to get a name for the chat: \n"
+                prompt += str(message)
+                prompt += "\n\nPlease directly return the name, no other text or explanation."
+                new_name = await self.team.run(prompt, use_memory=False, update_memory=False)
+                memory.name = new_name.content
+
             resp = await self.team.run(
                 message,
                 memory=memory,
                 process_chunk=process_chunk,
                 process_step_message=process_step_message,
             )
-            await run_func(self.memory_manager.save)
             return {"success": True, "response": resp.content}
         except Exception as e:
             logger.error(f"Error chatting: {e}")
             import traceback
             traceback.print_exc()
             return {"success": False, "message": str(e)}
+        finally:
+            memory.extra_data["running"] = False
+            memory.extra_data["last_activity_date"] = datetime.now().isoformat()
+            await run_func(self.memory_manager.save)
 
     async def run(self, log_level: str = "INFO"):
         from loguru import logger
