@@ -133,6 +133,7 @@ class ChatRoom:
     async def delete_chat(self, chat_id: str):
         try:
             await run_func(self.memory_manager.delete_memory, chat_id)
+            await run_func(self.memory_manager.save)
             return {"success": True, "message": "Chat deleted successfully"}
         except Exception as e:
             logger.error(f"Error deleting chat: {e}")
