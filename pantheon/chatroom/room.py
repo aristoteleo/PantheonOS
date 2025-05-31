@@ -1,4 +1,5 @@
 import sys
+import uuid
 import asyncio
 from datetime import datetime
 from typing import Callable
@@ -32,6 +33,7 @@ class Thread:
             message: list[dict],
             run_hook_timeout: int = 5,
             ):
+        self.id = str(uuid.uuid4())
         self.team = team
         self.memory = memory
         self.message = message
