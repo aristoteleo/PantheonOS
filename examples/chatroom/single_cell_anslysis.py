@@ -43,12 +43,13 @@ to support your analysis. And when you meet some error, you should try to query 
 to find the related package information to support your analysis.
 
 When you visualize the data, you should produce the publication level high-quality figures.
-You can display the figures with it's path in markdown format.
+You should display the figures with it's path in markdown format.
 
 After you ploted some figure, you should using view_image function to check the figure,
 then according to the figure decide what you should do next.
 
 After you finished the task, you should display the final result for user.
+Include the code, the result, and the figure in the result.
 
 NOTE: Don't need to confirm with user at most time, just do the task.
 """
@@ -56,7 +57,7 @@ NOTE: Don't need to confirm with user at most time, just do the task.
     single_cell_expert = Agent(
         name="Single cell expert",
         instructions=instructions,
-        model=["anthropic/claude-sonnet-4-20250514", "gpt-4.1"],
+        model=["anthropic/claude-sonnet-4-20250514", "anthropic/claude-3-7-sonnet-20250219", "anthropic/claude-3-5-sonnet-20240620", "gpt-4.1"],
         icon="🧬",
     )
     await add_toolsets(single_cell_expert, endpoint, ["single_cell_python_env", "file_manager", "web_browse", "single-cell-python-packages-rag"])

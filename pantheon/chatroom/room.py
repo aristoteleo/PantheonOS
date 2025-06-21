@@ -10,127 +10,32 @@ from magique.ai.constant import SERVER_URLS
 
 from ..agent import Agent
 from ..team import SwarmCenterTeam
-from ..memory import MemoryManager, Memory
+from ..memory import MemoryManager
 from ..remote.memory import RemoteMemoryManager
 from ..remote.agent import RemoteAgent
 from ..utils.misc import run_func
 from ..utils.log import logger
-
-
-def default_triage_agent():
-    return Agent(
-        name="Triage",
-        instructions="You are a helpful assistant that can answer questions and help with tasks.",
-        model="gpt-4.1",
-    )
-
-
-class Thread:
-    def __init__(
-            self,
-            team: SwarmCenterTeam,
-            memory: Memory,
-            message: list[dict],
-            run_hook_timeout: int = 5,
-            ):
-        self.id = str(uuid.uuid4())
-        self.team = team
-        self.memory = memory
-        self.message = message
-        self._process_chunk_hooks: list[Callable] = []
-        self._process_step_message_hooks: list[Callable] = []
-        self.response = None
-        self.run_hook_timeout = run_hook_timeout
-
-    def add_chunk_hook(self, hook: Callable):
-        self._process_chunk_hooks.append(hook)
-
-    def add_step_message_hook(self, hook: Callable):
-        self._process_step_message_hooks.append(hook)
-
-    async def process_chunk(self, chunk: dict):
-        chunk["chat_id"] = self.memory.id
-        _coros = []
-        for hook in self._process_chunk_hooks:
-            async def _run_hook(hook: Callable, chunk: dict):
-                res = None
-                try:
-                    res = await asyncio.wait_for(
-                        run_func(hook, chunk),
-                        timeout=self.run_hook_timeout
-                    )
-                except Exception as e:
-                    logger.error(f"Error running process_chunk hook: {str(e)}")
-                    self._process_chunk_hooks.remove(hook)
-                return res
-            _coros.append(_run_hook(hook, chunk))
-        await asyncio.gather(*_coros)
-
-    async def process_step_message(self, step_message: dict):
-        step_message["chat_id"] = self.memory.id
-        _coros = []
-        for hook in self._process_step_message_hooks:
-            async def _run_hook(hook: Callable, step_message: dict):
-                res = None
-                try:
-                    res = await asyncio.wait_for(
-                        run_func(hook, step_message),
-                        timeout=self.run_hook_timeout
-                    )
-                except Exception as e:
-                    logger.error(f"Error running process_step_message hook: {str(e)}")
-                    self._process_step_message_hooks.remove(hook)
-                return res
-            _coros.append(_run_hook(hook, step_message))
-        await asyncio.gather(*_coros)
-
-    async def run(self):
-        try:
-            if len(self.memory.get_messages()) == 0:
-                # summary to get new name using LLM
-                prompt = "Please summarize the question to get a name for the chat: \n"
-                prompt += str(self.message)
-                prompt += "\n\nPlease directly return the name, no other text or explanation."
-                new_name = await self.team.run(prompt, use_memory=False, update_memory=False)
-                self.memory.name = new_name.content
-
-            resp = await self.team.run(
-                self.message,
-                memory=self.memory,
-                process_chunk=self.process_chunk,
-                process_step_message=self.process_step_message,
-            )
-            self.response = {"success": True, "response": resp.content, "chat_id": self.memory.id}
-        except Exception as e:
-            logger.error(f"Error chatting: {e}")
-            import traceback
-            traceback.print_exc()
-            self.response = {"success": False, "message": str(e), "chat_id": self.memory.id}
+from .thread import Thread
+from .factory import default_agents_factory
 
 
 class ChatRoom:
     def __init__(
         self,
-        agents: list[Agent | RemoteAgent] | Agent | RemoteAgent,
         endpoint_service_id: str,
-        triage_agent: Agent | None = None,
+        agent_factory: Callable = default_agents_factory,
         memory_manager: MemoryManager | RemoteMemoryManager | None = None,
+        default_memory_dir: str = "./.pantheon-chatroom",
         name: str = "pantheon-chatroom",
         description: str = "Chatroom for Pantheon agents",
         worker_params: dict | None = None,
         server_url: str | list[str] | None = None,
         endpoint_connect_params: dict | None = None,
     ):
-        if isinstance(agents, Agent | RemoteAgent):
-            agents = [agents]
-        self.triage_agent = triage_agent or default_triage_agent()
-        self.team = SwarmCenterTeam(
-            triage=self.triage_agent,
-            agents=agents,
-        )
+        self.agent_factory = agent_factory
         self.endpoint_service_id = endpoint_service_id
         if memory_manager is None:
-            memory_manager = MemoryManager("./.pantheon-chatroom")
+            memory_manager = MemoryManager(default_memory_dir)
         self.memory_manager = memory_manager
         self.name = name
         self.description = description
@@ -153,6 +58,21 @@ class ChatRoom:
         self.endpoint_connect_params = endpoint_connect_params or {}
         self.threads: dict[str, Thread] = {}
 
+    async def setup_agents(self):
+        endpoint = await connect_remote(
+            self.endpoint_service_id,
+            self.server_urls,
+            **self.endpoint_connect_params,
+        )
+        agents = await self.agent_factory(endpoint)
+        triage_agent = agents["triage"]
+        agents = agents["other"]
+        self.team = SwarmCenterTeam(
+            triage=triage_agent,
+            agents=agents,
+        )
+        await self.team.async_setup()
+
     def setup_handlers(self):
         self.worker.register(self.create_chat)
         self.worker.register(self.delete_chat)
@@ -161,6 +81,7 @@ class ChatRoom:
         self.worker.register(self.get_chat_messages)
         self.worker.register(self.update_chat_name)
         self.worker.register(self.get_endpoint)
+        self.worker.register(self.set_endpoint)
         self.worker.register(self.get_agents)
         self.worker.register(self.set_active_agent)
         self.worker.register(self.get_active_agent)
@@ -178,6 +99,20 @@ class ChatRoom:
             "service_name": info.service_name,
             "service_id": info.service_id,
         }
+
+    async def set_endpoint(self, endpoint_service_id: str) -> dict:
+        try:
+            await connect_remote(
+                endpoint_service_id,
+                self.server_urls,
+                **self.endpoint_connect_params,
+            )
+            self.endpoint_service_id = endpoint_service_id
+            await self.setup_agents()
+            return {"success": True, "message": "Endpoint set successfully"}
+        except Exception as e:
+            logger.error(f"Error setting endpoint: {e}")
+            return {"success": False, "message": str(e)}
 
     async def get_agents(self) -> dict:
         def get_agent_info(agent: Agent | RemoteAgent):
@@ -350,5 +285,5 @@ class ChatRoom:
         logger.info(f"Remote Servers: {self.worker.servers}")
         logger.info(f"Service Name: {self.worker.service_name}")
         logger.info(f"Service ID: {self.worker.service_id}")
-        await self.team.async_setup()
+        await self.setup_agents()
         return await self.worker.run()

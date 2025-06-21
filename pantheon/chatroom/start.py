@@ -3,46 +3,10 @@ from pathlib import Path
 from typing import Callable, Awaitable
 
 from .room import ChatRoom
-from ..agent import Agent
-from ..team import Team
 from ..memory import MemoryManager
+from .factory import default_agents_factory
 
 from magique.ai import connect_remote
-
-
-async def default_agents_factory(endpoint) -> dict:
-    assistant_agent = Agent(
-        name="Assistant",
-        instructions="You are a helpful assistant that can answer questions and help with tasks.",
-        model="gpt-4.1",
-        icon="🤖",
-    )
-    s = await endpoint.invoke("get_service", {"service_id_or_name": "python_interpreter"})
-    if s is None:
-        raise ValueError("Python interpreter service not found")
-    await assistant_agent.remote_toolset(s["id"])
-
-    s = await endpoint.invoke("get_service", {"service_id_or_name": "file_manager"})
-    if s is None:
-        raise ValueError("File manager service not found")
-    await assistant_agent.remote_toolset(s["id"])
-
-    web_search_agent = Agent(
-        name="Web search",
-        instructions="You are a web search agent that can search the web for information.",
-        model="gpt-4.1",
-        icon="🔍",
-    )
-
-    s = await endpoint.invoke("get_service", {"service_id_or_name": "web_browse"})
-    if s is None:
-        raise ValueError("Web browser service not found")
-    await web_search_agent.remote_toolset(s["id"])
-
-    return {
-        "triage": assistant_agent,
-        "other": [web_search_agent],
-    }
 
 
 async def start_services(
@@ -50,7 +14,7 @@ async def start_services(
     memory_path: str = "./.pantheon-chatroom",
     endpoint_service_id: str | None = None,
     workspace_path: str = "./.pantheon-chatroom-workspace",
-    agents_factory: Callable[[], Awaitable[list[Agent | Team]]] = default_agents_factory,
+    agents_factory: Callable[[], Awaitable[dict]] = default_agents_factory,
     log_level: str = "INFO",
     endpoint_wait_time: int = 5,
     worker_params: dict | None = None,
@@ -73,13 +37,11 @@ async def start_services(
     endpoint_connect_params = endpoint_connect_params or {}
     endpoint = await connect_remote(endpoint_service_id, **endpoint_connect_params)
 
-    agents = await agents_factory(endpoint)
     memory_manager = MemoryManager(memory_path)
 
     chat_room = ChatRoom(
-        triage_agent=agents["triage"],
-        agents=agents["other"],
         endpoint_service_id=endpoint_service_id,
+        agent_factory=agents_factory,
         memory_manager=memory_manager,
         name=service_name,
         worker_params=worker_params,
