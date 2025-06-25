@@ -1,36 +1,48 @@
+import os
+
 from ..agent import Agent
+from ..utils.log import logger
 
 
-async def default_agents_factory(endpoint) -> dict:
-    assistant_agent = Agent(
-        name="Assistant",
-        instructions="You are a helpful assistant that can answer questions and help with tasks.",
-        model="gpt-4.1",
-        icon="🤖",
+DEFAULT_AGENTS_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "default_agents_templates.yaml")
+
+
+async def create_agent(
+        endpoint,
+        name: str,
+        instructions: str,
+        model: str,
+        icon: str,
+        toolsets: list[str],
+) -> Agent:
+    agent = Agent(
+        name=name,
+        instructions=instructions,
+        model=model,
+        icon=icon,
     )
-    s = await endpoint.invoke("get_service", {"service_id_or_name": "python_interpreter"})
-    if s is None:
-        raise ValueError("Python interpreter service not found")
-    await assistant_agent.remote_toolset(s["id"])
+    for toolset in toolsets:
+        try:
+            s = await endpoint.invoke("get_service", {"service_id_or_name": toolset})
+            if s is None:
+                raise ValueError(f"{toolset} service not found")
+            await agent.remote_toolset(s["id"])
+        except Exception as e:
+            logger.error(f"Failed to add toolset {toolset} to agent {name}: {e}")
+    return agent
 
-    s = await endpoint.invoke("get_service", {"service_id_or_name": "file_manager"})
-    if s is None:
-        raise ValueError("File manager service not found")
-    await assistant_agent.remote_toolset(s["id"])
 
-    web_search_agent = Agent(
-        name="Web search",
-        instructions="You are a web search agent that can search the web for information.",
-        model="gpt-4.1",
-        icon="🔍",
-    )
-
-    s = await endpoint.invoke("get_service", {"service_id_or_name": "web_browse"})
-    if s is None:
-        raise ValueError("Web browser service not found")
-    await web_search_agent.remote_toolset(s["id"])
-
+async def create_agents_from_template(endpoint, template: dict) -> dict:
+    agents = []
+    triage_agent = None
+    for name, agent_template in template.items():
+        if name == "triage":
+            triage_agent = await create_agent(endpoint, **agent_template)
+        else:
+            agents.append(await create_agent(endpoint, **agent_template))
+    if triage_agent is None:
+        raise ValueError("Triage agent not found")
     return {
-        "triage": assistant_agent,
-        "other": [web_search_agent],
+        "triage": triage_agent,
+        "other": agents,
     }

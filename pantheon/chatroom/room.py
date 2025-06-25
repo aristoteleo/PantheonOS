@@ -1,9 +1,9 @@
 import sys
-import uuid
 import asyncio
 from datetime import datetime
 from typing import Callable
 
+import yaml
 from magique.worker import MagiqueWorker
 from magique.ai import connect_remote
 from magique.ai.constant import SERVER_URLS
@@ -16,14 +16,14 @@ from ..remote.agent import RemoteAgent
 from ..utils.misc import run_func
 from ..utils.log import logger
 from .thread import Thread
-from .factory import default_agents_factory
+from .factory import create_agents_from_template, DEFAULT_AGENTS_TEMPLATE_PATH
 
 
 class ChatRoom:
     def __init__(
         self,
         endpoint_service_id: str,
-        agent_factory: Callable = default_agents_factory,
+        agents_template: dict | str | None = None,
         memory_manager: MemoryManager | RemoteMemoryManager | None = None,
         default_memory_dir: str = "./.pantheon-chatroom",
         name: str = "pantheon-chatroom",
@@ -32,7 +32,14 @@ class ChatRoom:
         server_url: str | list[str] | None = None,
         endpoint_connect_params: dict | None = None,
     ):
-        self.agent_factory = agent_factory
+        if agents_template is None:
+            with open(DEFAULT_AGENTS_TEMPLATE_PATH, "r") as f:
+                agents_template = yaml.safe_load(f)
+        elif isinstance(agents_template, str):
+            with open(agents_template, "r") as f:
+                agents_template = yaml.safe_load(f)
+        self.agents_template = agents_template
+
         self.endpoint_service_id = endpoint_service_id
         if memory_manager is None:
             memory_manager = MemoryManager(default_memory_dir)
@@ -64,7 +71,7 @@ class ChatRoom:
             self.server_urls,
             **self.endpoint_connect_params,
         )
-        agents = await self.agent_factory(endpoint)
+        agents = await create_agents_from_template(endpoint, self.agents_template)
         triage_agent = agents["triage"]
         agents = agents["other"]
         self.team = SwarmCenterTeam(

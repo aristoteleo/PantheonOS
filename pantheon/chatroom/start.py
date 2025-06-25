@@ -1,10 +1,8 @@
 import asyncio
 from pathlib import Path
-from typing import Callable, Awaitable
 
 from .room import ChatRoom
 from ..memory import MemoryManager
-from .factory import default_agents_factory
 
 from magique.ai import connect_remote
 
@@ -14,7 +12,7 @@ async def start_services(
     memory_path: str = "./.pantheon-chatroom",
     endpoint_service_id: str | None = None,
     workspace_path: str = "./.pantheon-chatroom-workspace",
-    agents_factory: Callable[[], Awaitable[dict]] = default_agents_factory,
+    agents_template: dict | str | None = None,
     log_level: str = "INFO",
     endpoint_wait_time: int = 5,
     worker_params: dict | None = None,
@@ -41,7 +39,7 @@ async def start_services(
 
     chat_room = ChatRoom(
         endpoint_service_id=endpoint_service_id,
-        agent_factory=agents_factory,
+        agents_template=agents_template,
         memory_manager=memory_manager,
         name=service_name,
         worker_params=worker_params,
