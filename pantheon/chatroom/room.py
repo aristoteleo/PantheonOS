@@ -114,6 +114,7 @@ class ChatRoom:
         self.worker.register(self.get_active_agent)
         self.worker.register(self.attach_hooks)
         self.worker.register(self.speech_to_text)
+        self.worker.register(self.get_db_info)
 
     async def get_db_info(self) -> dict:
         if self.get_db_info is not None:
