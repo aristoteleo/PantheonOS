@@ -1,44 +1,23 @@
 .. Pantheon Agents documentation master file
 
-Welcome to Pantheon Agents
-==========================
+Welcome to Pantheon
+===================
 
-.. image:: https://img.shields.io/badge/python-3.8+-blue.svg
-   :target: https://www.python.org/downloads/
-   :alt: Python Version
+.. image:: https://github.com/aristoteleo/pantheon-agents/actions/workflows/test.yml/badge.svg
+   :target: https://github.com/aristoteleo/pantheon-agents/actions/workflows/test.yml
+   :alt: Build Status
 
-.. image:: https://img.shields.io/badge/license-MIT-green.svg
-   :target: https://opensource.org/licenses/MIT
+.. image:: https://img.shields.io/pypi/v/pantheon-agents.svg
+   :target: https://pypi.org/project/pantheon-agents/
+   :alt: PyPI Version
+
+.. image:: https://img.shields.io/github/license/aristoteleo/pantheon-agents
+   :target: https://github.com/aristoteleo/pantheon-agents/blob/master/LICENSE
    :alt: License
 
-**Pantheon Agents** is a distributed, multi-agent collaboration framework that enables AI agents with various toolsets to work together across different machines. Built for scalability and flexibility, it provides a robust foundation for creating complex multi-agent systems.
+**Pantheon** is a framework for building distributed LLM-based multi-agent systems.
 
-.. grid:: 1 1 2 2
-   :gutter: 2
-
-   .. grid-item-card:: 🚀 Quick Start
-      :link: quickstart
-      :link-type: doc
-
-      Get up and running with Pantheon Agents in minutes. Learn the basics and create your first agent team.
-
-   .. grid-item-card:: 📖 User Guide
-      :link: guides/index
-      :link-type: doc
-
-      Comprehensive guides covering all aspects of the framework, from basic concepts to advanced features.
-
-   .. grid-item-card:: 🔧 API Reference
-      :link: api/index
-      :link-type: doc
-
-      Complete API documentation with detailed descriptions of all classes, methods, and functions.
-
-   .. grid-item-card:: 💡 Examples
-      :link: examples/index
-      :link-type: doc
-
-      Practical examples and tutorials demonstrating real-world use cases and best practices.
+**Work In Progress** - This project is actively under development.
 
 Key Features
 ------------
@@ -48,98 +27,75 @@ Key Features
 
    .. grid-item::
 
-      **🤖 Distributed Agents**
+      **🤖 Multiple Agent Types**
       
-      Deploy agents across multiple machines with seamless communication and coordination.
+      Sequential, Swarm, and MoA (Mixture-of-Agents) team collaboration patterns.
 
    .. grid-item::
 
-      **🛠️ Extensible Toolsets**
+      **🛠️ Built-in Toolsets**
       
-      Rich set of built-in tools (Python, R, Shell, Web, Files) with easy extension support.
+      Python, R, Shell, and Web browsing capabilities for agents.
 
    .. grid-item::
 
-      **🧠 Persistent Memory**
+      **🧠 Memory Persistence**
       
-      File-based memory system for maintaining agent state and context across sessions.
-
-   .. grid-item::
-
-      **👥 Team Collaboration**
-      
-      Multiple collaboration patterns: Sequential, Swarm, SwarmCenter, and Mixture of Agents (MoA).
+      Maintain context and state across agent conversations.
 
    .. grid-item::
 
       **💬 ChatRoom Service**
       
-      Host agent interactions with built-in conversation management and history tracking.
+      Interactive chat interface with Web UI support.
 
    .. grid-item::
 
-      **🔌 Easy Integration**
+      **🚀 Distributed Support**
       
-      Simple API for integrating with existing systems and creating custom agent behaviors.
+      Run tools and agents across multiple machines.
 
-Architecture Overview
+   .. grid-item::
+
+      **🎯 Reasoning Models**
+      
+      Support for O1, Gemini Flash Thinking, and Deepseek-R1.
+
+Quick Start
+-----------
+
+Install from PyPI:
+
+.. code-block:: bash
+
+   pip install pantheon-agents
+
+Start a ChatRoom:
+
+.. code-block:: bash
+
+   export OPENAI_API_KEY=your_openai_api_key
+   python -m pantheon.chatroom
+
+Then connect via the Web UI at https://pantheon-ui.vercel.app/
+
+Simple Agent Example
 --------------------
-
-.. code-block:: text
-
-   ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-   │   Agent A   │     │   Agent B   │     │   Agent C   │
-   │  (Machine 1)│     │  (Machine 2)│     │  (Machine 3)│
-   └──────┬──────┘     └──────┬──────┘     └──────┬──────┘
-          │                    │                    │
-          └────────────────────┴────────────────────┘
-                              │
-                    ┌─────────▼─────────┐
-                    │   Team Manager    │
-                    │  (Coordination)   │
-                    └─────────┬─────────┘
-                              │
-                    ┌─────────▼─────────┐
-                    │  ChatRoom Service │
-                    │  (Conversation)   │
-                    └─────────┬─────────┘
-                              │
-                    ┌─────────▼─────────┐
-                    │  Memory System    │
-                    │  (Persistence)    │
-                    └───────────────────┘
-
-Quick Example
--------------
 
 .. code-block:: python
 
-   from pantheon import Agent, Team
-   from pantheon.tools import PythonTools, WebTools
+   import asyncio
+   from pantheon.agent import Agent
 
-   # Create agents with different capabilities
-   coder = Agent(
-       name="Coder",
-       instructions="You are an expert Python developer",
-       tools=[PythonTools()]
+   # Create a simple agent
+   agent = Agent(
+       name="assistant",
+       instructions="You are a helpful assistant.",
+       model="gpt-4o-mini"
    )
 
-   researcher = Agent(
-       name="Researcher", 
-       instructions="You research information from the web",
-       tools=[WebTools()]
-   )
-
-   # Create a team with Sequential collaboration
-   team = Team(
-       agents=[researcher, coder],
-       pattern="sequential"
-   )
-
-   # Execute a task
-   result = await team.execute(
-       "Research the latest AI trends and create a summary script"
-   )
+   # Chat with the agent
+   asyncio.run(agent.chat())
 
 .. toctree::
    :hidden:
@@ -148,7 +104,6 @@ Quick Example
 
    installation
    quickstart
-   concepts
 
 .. toctree::
    :hidden:
@@ -158,33 +113,14 @@ Quick Example
    guides/index
    guides/agents
    guides/teams
-   guides/tools
-   guides/memory
    guides/chatroom
-   guides/distributed
 
 .. toctree::
    :hidden:
    :maxdepth: 2
-   :caption: API Reference
-
-   api/index
-   api/agent
-   api/team
-   api/tools
-   api/memory
-   api/chatroom
-
-.. toctree::
-   :hidden:
-   :maxdepth: 2
-   :caption: Examples & Tutorials
+   :caption: Examples
 
    examples/index
-   examples/basic_agent
-   examples/team_collaboration
-   examples/custom_tools
-   examples/distributed_setup
 
 .. toctree::
    :hidden:
@@ -192,8 +128,6 @@ Quick Example
    :caption: Development
 
    contributing
-   changelog
-   license
 
 Indices and tables
 ==================

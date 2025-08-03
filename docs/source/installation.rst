@@ -1,15 +1,7 @@
 Installation
 ============
 
-This guide will help you install Pantheon Agents and set up your development environment.
-
-Requirements
-------------
-
-- Python 3.8 or higher
-- pip package manager
-- conda (recommended for environment management)
-- Git
+This guide will help you install Pantheon and set up your environment.
 
 Basic Installation
 ------------------
@@ -28,27 +20,9 @@ For the latest development version:
 
 .. code-block:: bash
 
-   git clone https://github.com/your-org/pantheon-agents.git
+   git clone https://github.com/aristoteleo/pantheon-agents.git
    cd pantheon-agents
    pip install -e .
-
-Development Installation
-------------------------
-
-If you're planning to contribute or need development tools:
-
-.. code-block:: bash
-
-   # Clone the repository
-   git clone https://github.com/your-org/pantheon-agents.git
-   cd pantheon-agents
-
-   # Create conda environment
-   conda create -n pantheon python=3.9
-   conda activate pantheon
-
-   # Install with development dependencies
-   pip install -e ".[dev]"
 
 Environment Setup
 -----------------
@@ -56,147 +30,70 @@ Environment Setup
 API Keys
 ~~~~~~~~
 
-Pantheon Agents requires API keys for LLM providers:
+Pantheon requires API keys for LLM providers. Set up at least one:
 
 .. code-block:: bash
 
-   # OpenAI
+   # OpenAI (most commonly used)
    export OPENAI_API_KEY="your-openai-api-key"
 
-   # Anthropic (optional)
-   export ANTHROPIC_API_KEY="your-anthropic-api-key"
+Quick Test
+----------
 
-   # Google (optional)
-   export GOOGLE_API_KEY="your-google-api-key"
+Start the ChatRoom Service
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Configuration File
-~~~~~~~~~~~~~~~~~~
+.. code-block:: bash
 
-Create a configuration file at ``~/.pantheon/config.yaml``:
-
-.. code-block:: yaml
-
-   # Default LLM provider
-   default_provider: openai
+   # Make sure your API key is set
+   export OPENAI_API_KEY=your_openai_api_key
    
-   # Model settings
-   models:
-     openai:
-       model: gpt-4
-       temperature: 0.7
-     anthropic:
-       model: claude-3-opus-20240229
-       temperature: 0.7
-   
-   # Memory settings
-   memory:
-     storage_path: ~/.pantheon/memory
-     max_history: 100
-   
-   # Tool settings
-   tools:
-     python:
-       timeout: 300
-     shell:
-       allowed_commands:
-         - ls
-         - cat
-         - grep
-         - find
+   # Start the chatroom
+   python -m pantheon.chatroom
 
-Verify Installation
--------------------
+You'll see output like:
 
-To verify your installation:
+.. code-block:: text
+
+   Service started with id: <service-id>
+   Copy this ID and connect via https://pantheon-ui.vercel.app/
+
+Test with a Simple Agent
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
-   import pantheon
-   from pantheon import Agent
+   import asyncio
+   from pantheon.agent import Agent
 
-   # Check version
-   print(pantheon.__version__)
+   async def main():
+       agent = Agent(
+           name="test_agent",
+           instructions="You are a helpful assistant.",
+           model="gpt-4o-mini"  # or "gpt-4.1-mini" 
+       )
+       await agent.chat()
 
-   # Create a simple agent
-   agent = Agent(
-       name="TestAgent",
-       instructions="You are a helpful assistant"
-   )
+   if __name__ == "__main__":
+       asyncio.run(main())
 
-   # Test the agent
-   response = await agent.execute("Hello!")
-   print(response)
+Dependencies
+------------
 
-Docker Installation
--------------------
+Core dependencies are automatically installed with the package:
 
-For containerized deployment:
+- Python 3.8+
+- asyncio support
+- Various LLM client libraries
 
-.. code-block:: dockerfile
+Optional dependencies for specific toolsets:
 
-   FROM python:3.9-slim
-
-   WORKDIR /app
-
-   # Install system dependencies
-   RUN apt-get update && apt-get install -y \
-       git \
-       build-essential \
-       && rm -rf /var/lib/apt/lists/*
-
-   # Install Pantheon Agents
-   COPY requirements.txt .
-   RUN pip install --no-cache-dir -r requirements.txt
-   RUN pip install pantheon-agents
-
-   # Copy application code
-   COPY . .
-
-   # Set environment variables
-   ENV PYTHONUNBUFFERED=1
-
-   CMD ["python", "-m", "pantheon.chatroom"]
-
-Build and run:
-
-.. code-block:: bash
-
-   docker build -t pantheon-agents .
-   docker run -e OPENAI_API_KEY=$OPENAI_API_KEY -p 8000:8000 pantheon-agents
-
-Troubleshooting
----------------
-
-Common Issues
-~~~~~~~~~~~~~
-
-**Import Error**: "No module named 'pantheon'"
-   Make sure you've activated the correct conda environment:
-   
-   .. code-block:: bash
-   
-      conda activate pantheon
-
-**API Key Error**: "OpenAI API key not found"
-   Ensure your API key is set:
-   
-   .. code-block:: bash
-   
-      echo $OPENAI_API_KEY  # Should show your key
-      export OPENAI_API_KEY="sk-..."
-
-**Permission Error**: When accessing memory files
-   Check permissions on the memory directory:
-   
-   .. code-block:: bash
-   
-      chmod -R 755 ~/.pantheon/memory
+- **Python code execution**: Installed by default
+- **R support**: Requires R installation
+- **Web browsing**: Included via magique tools
 
 Next Steps
 ----------
 
-After installation, proceed to:
-
-- :doc:`quickstart` - Learn the basics
-- :doc:`concepts` - Understand core concepts
-- :doc:`guides/agents` - Create your first agent
+- :doc:`quickstart` - Create your first agent
+- :doc:`examples/index` - Explore example implementations

@@ -4,6 +4,8 @@ This guide helps you develop and maintain the Pantheon Agents documentation with
 
 ## 🚀 Quick Start - Development Mode
 
+All methods use your current Python environment (no virtual environment created).
+
 ### Option 1: Using Make (Recommended)
 ```bash
 cd docs
@@ -11,17 +13,39 @@ make dev
 # Opens http://localhost:8080 with live reload
 ```
 
-### Option 2: Using Shell Script
+### Option 2: Quick Script (Simplest)
+```bash
+cd docs
+./quick_dev.sh
+# Minimal setup, starts server immediately
+```
+
+### Option 3: Shell Script with Full Setup
 ```bash
 cd docs
 ./dev_server.sh
-# Customizable with environment variables
+# Shows environment info and installs dependencies
 ```
 
-### Option 3: Direct Command
+### Option 4: Direct Command
 ```bash
 cd docs
-sphinx-autobuild source build/html --host 0.0.0.0 --port 8080
+sphinx-autobuild source build/html --host 127.0.0.1 --port 8080
+```
+
+## 📦 First Time Setup
+
+If you haven't installed the documentation dependencies:
+
+```bash
+cd docs
+make install  # or pip install -r requirements.txt
+make dev
+```
+
+Or use the combined command:
+```bash
+make dev-install  # Installs deps and starts server
 ```
 
 ## 📝 Development Workflow

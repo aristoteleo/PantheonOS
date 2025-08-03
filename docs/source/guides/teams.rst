@@ -1,598 +1,239 @@
 Teams Guide
 ===========
 
-Teams in Pantheon enable multiple agents to collaborate on complex tasks. This guide covers team patterns, configuration, and best practices.
+Teams enable multiple agents to collaborate on tasks. Pantheon supports several team patterns.
 
-Team Fundamentals
------------------
+Team Types
+----------
 
-A team consists of:
+Sequential Team
+~~~~~~~~~~~~~~~
 
-- **Agents**: Individual AI entities with specific roles
-- **Pattern**: The collaboration strategy
-- **Coordinator**: Manages agent interactions
-- **Communication**: How agents share information
-
-Basic Team Creation
-~~~~~~~~~~~~~~~~~~~
+Agents execute one after another, passing results forward:
 
 .. code-block:: python
 
-   from pantheon import Agent, Team
-   from pantheon.tools import PythonTools, WebTools
+   from pantheon.agent import Agent
+   from pantheon.team import SequentialTeam
 
-   # Create specialized agents
+   # Create agents
    researcher = Agent(
-       name="Researcher",
-       instructions="Research topics using web search",
-       tools=[WebTools()]
+       name="researcher",
+       instructions="Research the topic thoroughly."
    )
-
-   analyst = Agent(
-       name="Analyst",
-       instructions="Analyze data and create insights",
-       tools=[PythonTools()]
+   
+   writer = Agent(
+       name="writer", 
+       instructions="Write based on the research."
    )
+   
+   # Create sequential team
+   team = SequentialTeam([researcher, writer])
+   
+   # Run the team
+   await team.chat("Write about AI trends")
 
-   # Create a team
-   team = Team(
-       agents=[researcher, analyst],
-       pattern="sequential",
-       name="ResearchTeam"
-   )
+Swarm Team
+~~~~~~~~~~
 
-   # Execute team task
-   result = await team.execute(
-       "Research Python market trends and analyze the data"
-   )
-
-Collaboration Patterns
-----------------------
-
-Sequential Pattern
-~~~~~~~~~~~~~~~~~~
-
-Agents work in a defined order, each building on previous outputs.
-
-**Use Cases**:
-- Research → Analysis → Report
-- Design → Implementation → Testing
-- Data Collection → Processing → Visualization
+Agents can dynamically transfer control to each other:
 
 .. code-block:: python
 
-   from pantheon import Team
+   from pantheon.team import SwarmTeam
+   from pantheon.repl.team import Repl
 
-   # Create a sequential pipeline
-   pipeline = Team(
-       agents=[
-           data_collector,
-           data_cleaner,
-           data_analyzer,
-           report_generator
-       ],
-       pattern="sequential"
-   )
+   # Create agents with transfer capabilities
+   agent1 = Agent(name="Agent1", instructions="First agent")
+   agent2 = Agent(name="Agent2", instructions="Second agent")
 
-   # Each agent receives the previous agent's output
-   result = await pipeline.execute("Process sales data")
+   @agent1.tool
+   def transfer_to_agent2():
+       """Transfer to Agent2 when needed."""
+       return agent2
 
-**Configuration Options**:
+   @agent2.tool  
+   def transfer_to_agent1():
+       """Transfer back to Agent1."""
+       return agent1
 
-.. code-block:: python
+   # Create swarm
+   team = SwarmTeam([agent1, agent2])
+   
+   # Interactive chat
+   repl = Repl(team)
+   await repl.run()
 
-   sequential_team = Team(
-       agents=[agent1, agent2, agent3],
-       pattern="sequential",
-       config={
-           "pass_full_history": True,  # Pass all previous outputs
-           "allow_skip": True,  # Skip agents based on conditions
-           "timeout_per_agent": 300,  # 5 minutes per agent
-           "retry_failed_agents": True
-       }
-   )
+SwarmCenter Team
+~~~~~~~~~~~~~~~~
 
-Swarm Pattern
-~~~~~~~~~~~~~
-
-Agents work in parallel with dynamic coordination.
-
-**Use Cases**:
-- Parallel research on multiple topics
-- Distributed problem solving
-- Creative brainstorming
+A central coordinator manages multiple worker agents:
 
 .. code-block:: python
 
-   # Create a swarm for parallel processing
-   swarm = Team(
-       agents=[
-           Agent(name="Researcher1", tools=[WebTools()]),
-           Agent(name="Researcher2", tools=[WebTools()]),
-           Agent(name="Researcher3", tools=[WebTools()])
-       ],
-       pattern="swarm"
+   from pantheon.team import SwarmCenterTeam
+
+   # Coordinator (first agent)
+   coordinator = Agent(
+       name="coordinator",
+       instructions="Coordinate tasks between workers."
    )
 
-   # Agents work simultaneously
-   result = await swarm.execute(
-       "Research AI, blockchain, and quantum computing trends"
-   )
+   # Worker agents
+   worker1 = Agent(name="worker1", instructions="Handle task type A")
+   worker2 = Agent(name="worker2", instructions="Handle task type B")
 
-**Swarm Configuration**:
+   # Create team with coordinator first
+   team = SwarmCenterTeam([coordinator, worker1, worker2])
+
+MoA (Mixture of Agents) Team
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Multiple agents provide solutions, then a final agent synthesizes:
 
 .. code-block:: python
 
-   swarm_team = Team(
-       agents=agents,
-       pattern="swarm",
-       config={
-           "coordination_method": "emergent",  # or "directed"
-           "communication_rounds": 3,
-           "consensus_threshold": 0.8,
-           "max_parallel_agents": 5
-       }
+   from pantheon.team import MoATeam
+
+   # Expert agents
+   expert1 = Agent(name="expert1", instructions="Provide solution approach 1")
+   expert2 = Agent(name="expert2", instructions="Provide solution approach 2")
+   
+   # Synthesizer (last agent)
+   synthesizer = Agent(
+       name="synthesizer",
+       instructions="Combine the best ideas from all experts."
    )
-
-SwarmCenter Pattern
-~~~~~~~~~~~~~~~~~~~
-
-A central coordinator manages distributed worker agents.
-
-**Use Cases**:
-- Task distribution systems
-- Quality control workflows
-- Hierarchical organizations
-
-.. code-block:: python
-
-   # Create center-coordinated team
-   center_team = Team(
-       agents=[
-           coordinator,  # First agent is the center
-           worker1,
-           worker2,
-           worker3
-       ],
-       pattern="swarmcenter"
-   )
-
-   # Center distributes and aggregates work
-   result = await center_team.execute(
-       "Analyze customer feedback across all channels"
-   )
-
-**Center Configuration**:
-
-.. code-block:: python
-
-   center_config = {
-       "distribution_strategy": "load_balanced",  # or "round_robin", "capability_based"
-       "aggregation_method": "synthesis",  # or "voting", "best_result"
-       "worker_timeout": 180,
-       "require_all_workers": False
-   }
-
-Mixture of Agents (MoA)
-~~~~~~~~~~~~~~~~~~~~~~~
-
-Multiple agents propose solutions, then synthesize the best approach.
-
-**Use Cases**:
-- Complex decision making
-- Creative problem solving
-- Consensus building
-
-.. code-block:: python
 
    # Create MoA team
-   moa_team = Team(
-       agents=[
-           expert1,
-           expert2,
-           expert3,
-           synthesizer  # Last agent synthesizes
-       ],
-       pattern="moa"
-   )
+   team = MoATeam([expert1, expert2, synthesizer])
 
-   # Experts propose, synthesizer combines
-   result = await moa_team.execute(
-       "Design a scalable microservices architecture"
-   )
+Using Teams
+-----------
 
-**MoA Configuration**:
+Interactive Chat
+~~~~~~~~~~~~~~~~
+
+All teams support interactive chat:
 
 .. code-block:: python
 
-   moa_config = {
-       "proposal_method": "independent",  # or "iterative"
-       "synthesis_strategy": "best_of",  # or "combine_all", "weighted"
-       "quality_threshold": 0.7,
-       "require_consensus": False
-   }
+   # Any team type
+   await team.chat()
+   
+   # With initial message
+   await team.chat("Hello team!")
 
-Advanced Team Configuration
----------------------------
+Programmatic Execution
+~~~~~~~~~~~~~~~~~~~~~~
 
-Team Initialization
-~~~~~~~~~~~~~~~~~~~
+For programmatic use:
 
 .. code-block:: python
 
-   from pantheon import Team
-   from pantheon.coordinators import CustomCoordinator
+   # Run with a specific message
+   result = await team.run("Solve this problem")
+   
+   # Access individual agent responses
+   print(result)
 
-   team = Team(
-       agents=agents,
-       pattern="sequential",
-       name="AdvancedTeam",
-       
-       # Coordination
-       coordinator=CustomCoordinator(),
-       
-       # Communication
-       communication_protocol="structured",  # or "natural", "hybrid"
-       
-       # Memory
-       shared_memory=TeamMemory(path="./team_memory"),
-       
-       # Error handling
-       error_strategy="continue_on_error",  # or "halt_on_error", "retry"
-       
-       # Performance
-       max_concurrent_executions=3,
-       timeout=3600,  # 1 hour
-       
-       # Monitoring
-       enable_metrics=True,
-       log_level="INFO"
-   )
+Team Events
+~~~~~~~~~~~
 
-Dynamic Team Composition
+Teams emit events during execution:
+
+.. code-block:: python
+
+   # Access team event queue
+   while not team.events_queue.empty():
+       event = await team.events_queue.get()
+       print(f"Agent: {event['agent_name']}, Event: {event['event']}")
+
+Practical Examples
+------------------
+
+Book Recommendation Team
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
-   from pantheon import DynamicTeam
+   import asyncio
+   from pantheon.agent import Agent
+   from pantheon.team import SequentialTeam
 
-   # Team that adjusts based on task
-   dynamic_team = DynamicTeam(
-       agent_pool=[
-           coder, tester, reviewer,
-           designer, architect, devops
-       ],
-       selection_strategy="task_based"
+   # Specialized agents
+   scifi_expert = Agent(
+       name="scifi_expert",
+       instructions="You are a science fiction expert. Recommend scifi books."
    )
 
-   # Team composition chosen per task
-   result = await dynamic_team.execute(
-       "Create a REST API with tests and deployment"
+   romance_expert = Agent(
+       name="romance_expert", 
+       instructions="You are a romance expert. Recommend romance books."
    )
 
-Team Communication
-------------------
-
-Message Passing
-~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   # Configure how agents communicate
-   team = Team(
-       agents=agents,
-       communication={
-           "protocol": "structured",
-           "format": "json",
-           "include_metadata": True,
-           "message_history_limit": 50
-       }
-   )
-
-Shared Context
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   from pantheon.memory import SharedContext
-
-   # Shared context for all agents
-   context = SharedContext(
-       initial_state={"project": "webapp", "stage": "development"}
-   )
-
-   team = Team(
-       agents=agents,
-       shared_context=context
-   )
-
-Inter-Agent Messaging
-~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   # Enable direct agent communication
-   team = Team(
-       agents=agents,
-       config={
-           "enable_direct_messaging": True,
-           "message_queue_size": 100,
-           "message_ttl": 300  # 5 minutes
-       }
-   )
-
-Team Patterns and Strategies
-----------------------------
-
-Pipeline Pattern
-~~~~~~~~~~~~~~~~
-
-Sequential processing with transformations:
-
-.. code-block:: python
-
-   # Data processing pipeline
-   etl_pipeline = Team(
-       agents=[
-           Agent(name="Extractor", tools=[DatabaseTools()]),
-           Agent(name="Transformer", tools=[PythonTools()]),
-           Agent(name="Loader", tools=[DatabaseTools()])
-       ],
-       pattern="sequential",
-       config={"pipeline_mode": True}
-   )
-
-Map-Reduce Pattern
-~~~~~~~~~~~~~~~~~~
-
-Parallel processing with aggregation:
-
-.. code-block:: python
-
-   # Map-reduce for distributed analysis
-   mapreduce_team = Team(
-       agents=[
-           coordinator,
-           *[Agent(f"Mapper{i}") for i in range(4)],
-           reducer
-       ],
-       pattern="swarmcenter",
-       config={
-           "operation": "mapreduce",
-           "partition_strategy": "hash"
-       }
-   )
-
-Hierarchical Pattern
-~~~~~~~~~~~~~~~~~~~~
-
-Multi-level team structure:
-
-.. code-block:: python
-
-   # Hierarchical organization
-   org_team = Team(
-       agents=[ceo],
-       sub_teams=[
-           Team("Engineering", [cto, developers]),
-           Team("Marketing", [cmo, marketers]),
-           Team("Sales", [cso, sales_reps])
-       ],
-       pattern="hierarchical"
-   )
-
-Error Handling and Recovery
----------------------------
-
-Team-Level Error Handling
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   def team_error_handler(error, agent, task):
-       if isinstance(error, TimeoutError):
-           return {"action": "retry", "delay": 60}
-       elif isinstance(error, AgentError):
-           return {"action": "skip", "fallback": default_response}
-       else:
-           return {"action": "halt"}
-
-   team = Team(
-       agents=agents,
-       error_handler=team_error_handler
-   )
-
-Fault Tolerance
-~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   # Resilient team configuration
-   resilient_team = Team(
-       agents=agents,
-       config={
-           "retry_policy": {
-               "max_retries": 3,
-               "backoff": "exponential",
-               "retry_on": [TimeoutError, ConnectionError]
-           },
-           "fallback_agents": {
-               "Analyst": "BackupAnalyst",
-               "Coder": "BackupCoder"
-           },
-           "health_check_interval": 60,
-           "circuit_breaker": {
-               "threshold": 5,
-               "timeout": 300
-           }
-       }
-   )
-
-Performance Optimization
-------------------------
-
-Caching and Memoization
-~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   from pantheon.cache import TeamCache
-
-   # Team-level caching
-   team = Team(
-       agents=agents,
-       cache=TeamCache(
-           strategy="lru",
-           max_size=1000,
-           ttl=3600
-       )
-   )
-
-Parallel Execution
-~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   # Optimize parallel execution
-   parallel_team = Team(
-       agents=agents,
-       pattern="swarm",
-       config={
-           "executor": "thread",  # or "process", "async"
-           "max_workers": 10,
-           "batch_size": 5,
-           "queue_size": 100
-       }
-   )
-
-Resource Management
-~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   # Control resource usage
-   team = Team(
-       agents=agents,
-       resource_limits={
-           "max_total_memory": "4GB",
-           "max_total_cpu": 8,
-           "max_concurrent_tools": 10,
-           "rate_limits": {
-               "api_calls": "100/minute",
-               "tokens": "1000000/hour"
-           }
-       }
-   )
-
-Monitoring and Observability
-----------------------------
-
-Team Metrics
-~~~~~~~~~~~~
-
-.. code-block:: python
-
-   from pantheon.metrics import TeamMetrics
-
-   metrics = TeamMetrics()
-   team = Team(
-       agents=agents,
-       metrics=metrics
-   )
-
-   # Access metrics
-   print(f"Total tasks: {metrics.total_tasks}")
-   print(f"Success rate: {metrics.success_rate}")
-   print(f"Avg completion time: {metrics.avg_completion_time}")
-   print(f"Agent utilization: {metrics.agent_utilization}")
-
-Distributed Tracing
-~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   from pantheon.tracing import DistributedTracer
-
-   tracer = DistributedTracer(
-       service_name="pantheon-team",
-       export_to="jaeger"
-   )
-
-   team = Team(
-       agents=agents,
-       tracer=tracer
-   )
-
-Real-World Examples
--------------------
-
-Software Development Team
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   # Complete software development team
-   dev_team = Team(
-       agents=[
-           Agent("ProductManager", instructions="Define requirements"),
-           Agent("Architect", instructions="Design system architecture"),
-           Agent("Developer", tools=[PythonTools()]),
-           Agent("Tester", tools=[TestingTools()]),
-           Agent("Reviewer", instructions="Review code quality")
-       ],
-       pattern="sequential",
-       config={
-           "checkpoints": True,  # Save progress
-           "rollback_on_failure": True
-       }
-   )
-
-Research and Analysis Team
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   # Multi-source research team
-   research_team = Team(
-       agents=[
-           Agent("WebResearcher", tools=[WebTools()]),
-           Agent("DataAnalyst", tools=[PythonTools()]),
-           Agent("Visualizer", tools=[VisualizationTools()]),
-           Agent("ReportWriter", tools=[DocumentTools()])
-       ],
-       pattern="sequential"
-   )
+   # Sequential team for diverse recommendations
+   team = SequentialTeam([scifi_expert, romance_expert])
+   
+   asyncio.run(team.chat("I want book recommendations"))
 
 Customer Support Team
 ~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
-   # Hierarchical support team
-   support_team = Team(
-       agents=[
-           Agent("Dispatcher", instructions="Route queries"),
-           Agent("TechSupport", tools=[DatabaseTools()]),
-           Agent("BillingSupport", tools=[BillingTools()]),
-           Agent("Escalation", instructions="Handle complex cases")
-       ],
-       pattern="swarmcenter"
+   from pantheon.team import SwarmTeam
+
+   # Support agents with specializations
+   general_support = Agent(
+       name="general_support",
+       instructions="Handle general inquiries. Transfer to specialists when needed."
    )
+
+   technical_support = Agent(
+       name="technical_support",
+       instructions="Handle technical issues."
+   )
+
+   billing_support = Agent(
+       name="billing_support",
+       instructions="Handle billing questions."
+   )
+
+   # Add transfer functions
+   @general_support.tool
+   def transfer_to_technical():
+       """Transfer to technical support."""
+       return technical_support
+
+   @general_support.tool
+   def transfer_to_billing():
+       """Transfer to billing support."""
+       return billing_support
+
+   # Create support team
+   team = SwarmTeam([general_support, technical_support, billing_support])
 
 Best Practices
 --------------
 
-1. **Clear Roles**: Define specific responsibilities for each agent
-2. **Appropriate Patterns**: Choose patterns that match your workflow
-3. **Error Planning**: Implement comprehensive error handling
-4. **Performance Monitoring**: Track metrics and optimize
-5. **Testing**: Test team configurations thoroughly
-6. **Documentation**: Document team structures and workflows
+1. **Choose the Right Pattern**:
+   - Sequential: For pipeline workflows
+   - Swarm: For dynamic handoffs
+   - SwarmCenter: For task distribution
+   - MoA: For consensus/synthesis
+
+2. **Clear Agent Roles**: Each agent should have a specific purpose
+
+3. **Transfer Logic**: In Swarm teams, make transfer conditions explicit
+
+4. **Error Handling**: Consider what happens if an agent fails
+
+5. **Testing**: Test teams with various inputs before production use
 
 Next Steps
 ----------
 
-- Explore :doc:`tools` to enhance agent capabilities
-- Learn about :doc:`memory` for team persistence
-- Set up :doc:`distributed` for scaling teams
-- Review :doc:`chatroom` for interactive team services
+- Explore :doc:`chatroom` for web interfaces
+- Check :doc:`../examples/index` for more team examples
+- Read about :doc:`agents` for agent configuration

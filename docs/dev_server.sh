@@ -8,19 +8,23 @@ echo "🚀 Starting Pantheon Agents documentation development server..."
 # Colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Check if virtual environment exists
-if [ ! -d "venv" ]; then
-    echo "📦 Creating virtual environment..."
-    python -m venv venv
+# Check if we're in the docs directory
+if [ ! -f "requirements.txt" ]; then
+    echo "Error: Please run this script from the docs directory"
+    exit 1
 fi
 
-# Activate virtual environment
-source venv/bin/activate
+# Show current Python environment
+echo -e "${YELLOW}Using Python environment:${NC}"
+which python
+python --version
+echo ""
 
-# Install/upgrade dependencies
-echo "📚 Installing documentation dependencies..."
+# Install/upgrade dependencies in current environment
+echo "📚 Installing documentation dependencies in current environment..."
 pip install -U -r requirements.txt
 
 # Clean previous builds (optional)

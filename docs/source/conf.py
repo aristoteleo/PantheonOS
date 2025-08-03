@@ -29,6 +29,9 @@ extensions = [
     'myst_parser',
 ]
 
+# Generate autosummary pages
+autosummary_generate = True
+
 templates_path = ['_templates']
 exclude_patterns = []
 

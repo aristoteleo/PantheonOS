@@ -4,17 +4,14 @@
 
 echo "Building Pantheon Agents documentation..."
 
-# Create virtual environment if it doesn't exist
-if [ ! -d "venv" ]; then
-    echo "Creating virtual environment..."
-    python -m venv venv
+# Check if we're in the docs directory
+if [ ! -f "requirements.txt" ]; then
+    echo "Error: Please run this script from the docs directory"
+    exit 1
 fi
 
-# Activate virtual environment
-source venv/bin/activate
-
-# Install documentation dependencies
-echo "Installing dependencies..."
+# Install documentation dependencies in current environment
+echo "Installing dependencies in current environment..."
 pip install -r requirements.txt
 
 # Clean previous builds

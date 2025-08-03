@@ -36,5 +36,16 @@ linkcheck:
 	      "or in $(BUILDDIR)/linkcheck/output.txt."
 
 .PHONY: dev
-dev: livehtml
-	@echo "Development server started with live reload"
+dev:
+	@echo "Starting development server with current Python environment..."
+	@echo "Python: $$(which python)"
+	sphinx-autobuild --host 127.0.0.1 --port 8080 "$(SOURCEDIR)" "$(BUILDDIR)/html" $(SPHINXOPTS) $(O)
+
+.PHONY: install
+install:
+	@echo "Installing documentation dependencies..."
+	pip install -r requirements.txt
+
+.PHONY: dev-install
+dev-install: install dev
+	@echo "Dependencies installed and development server started"

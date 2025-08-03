@@ -1,268 +1,205 @@
 Quick Start
 ===========
 
-This guide will help you create your first Pantheon agent and team in just a few minutes.
-
-.. note::
-   
-   Make sure you have completed the :doc:`installation` before proceeding.
+This guide will help you create your first Pantheon agents and teams.
 
 Your First Agent
 ----------------
 
-Let's create a simple agent that can help with Python programming:
-
-.. code-block:: python
-
-   from pantheon import Agent
-   from pantheon.tools import PythonTools
-
-   # Create an agent with Python capabilities
-   coder = Agent(
-       name="PythonExpert",
-       instructions="""You are an expert Python developer. 
-       Help users write clean, efficient Python code.""",
-       tools=[PythonTools()]
-   )
-
-   # Execute a task
-   response = await coder.execute(
-       "Write a function to calculate fibonacci numbers"
-   )
-   print(response)
-
-Working with Tools
-------------------
-
-Agents become powerful when equipped with tools. Here's an example with multiple tools:
-
-.. code-block:: python
-
-   from pantheon import Agent
-   from pantheon.tools import PythonTools, ShellTools, FileTools
-
-   # Create a versatile agent
-   assistant = Agent(
-       name="DevAssistant",
-       instructions="You help with development tasks",
-       tools=[
-           PythonTools(),
-           ShellTools(allowed_commands=["ls", "grep", "find"]),
-           FileTools(allowed_paths=["./workspace"])
-       ]
-   )
-
-   # Complex task involving multiple tools
-   result = await assistant.execute("""
-   1. List all Python files in the current directory
-   2. Find files containing 'TODO' comments
-   3. Create a summary report
-   """)
-
-Creating a Team
----------------
-
-Teams enable multiple agents to collaborate:
-
-Sequential Team
-~~~~~~~~~~~~~~~
-
-Agents work one after another, passing results forward:
-
-.. code-block:: python
-
-   from pantheon import Team
-   from pantheon.tools import WebTools, PythonTools
-
-   # Create specialized agents
-   researcher = Agent(
-       name="Researcher",
-       instructions="Research topics using web search",
-       tools=[WebTools()]
-   )
-
-   analyst = Agent(
-       name="Analyst",
-       instructions="Analyze data and create visualizations",
-       tools=[PythonTools()]
-   )
-
-   # Create a sequential team
-   team = Team(
-       agents=[researcher, analyst],
-       pattern="sequential"
-   )
-
-   # Execute team task
-   result = await team.execute(
-       "Research Python trends and create a visualization"
-   )
-
-Swarm Team
-~~~~~~~~~~
-
-Agents work in parallel and coordinate dynamically:
-
-.. code-block:: python
-
-   # Create a swarm team for collaborative problem-solving
-   swarm = Team(
-       agents=[
-           Agent(name="Planner", instructions="Create project plans"),
-           Agent(name="Coder", instructions="Write code", tools=[PythonTools()]),
-           Agent(name="Tester", instructions="Test and validate code")
-       ],
-       pattern="swarm"
-   )
-
-   result = await swarm.execute(
-       "Create a web scraping tool with tests"
-   )
-
-Using Memory
-------------
-
-Enable persistent memory for context retention:
-
-.. code-block:: python
-
-   from pantheon import Agent
-   from pantheon.memory import FileMemory
-
-   # Create agent with memory
-   agent = Agent(
-       name="MemoryBot",
-       instructions="Remember user preferences and past conversations",
-       memory=FileMemory(path="./agent_memory")
-   )
-
-   # First interaction
-   await agent.execute("My favorite color is blue")
-
-   # Later interaction (remembers context)
-   response = await agent.execute("What's my favorite color?")
-   # Output: "Your favorite color is blue"
-
-ChatRoom Service
-----------------
-
-For interactive conversations, use the ChatRoom service:
-
-.. code-block:: python
-
-   from pantheon.chatroom import ChatRoom
-   from pantheon import Agent
-
-   # Create a chatroom with agents
-   chatroom = ChatRoom(
-       name="DevHelper",
-       agents=[
-           Agent(name="Coder", tools=[PythonTools()]),
-           Agent(name="Reviewer", instructions="Review code quality")
-       ]
-   )
-
-   # Start the service
-   await chatroom.start(port=8000)
-
-   # Interact via API
-   # POST http://localhost:8000/chat
-   # {"message": "Help me write a REST API"}
-
-Complete Example
-----------------
-
-Here's a complete example combining multiple concepts:
+The simplest way to create an agent:
 
 .. code-block:: python
 
    import asyncio
-   from pantheon import Agent, Team
-   from pantheon.tools import PythonTools, WebTools, FileTools
-   from pantheon.memory import FileMemory
+   from pantheon.agent import Agent
 
    async def main():
-       # Create specialized agents with memory
-       researcher = Agent(
-           name="WebResearcher",
-           instructions="Research technical topics thoroughly",
-           tools=[WebTools()],
-           memory=FileMemory(path="./memory/researcher")
+       # Create a basic agent
+       agent = Agent(
+           name="assistant",
+           instructions="You are a helpful assistant.",
+           model="gpt-4o-mini"
        )
        
-       developer = Agent(
-           name="Developer",
-           instructions="Write high-quality Python code with tests",
-           tools=[PythonTools(), FileTools()],
-           memory=FileMemory(path="./memory/developer")
-       )
-       
-       # Create a team
-       team = Team(
-           agents=[researcher, developer],
-           pattern="sequential",
-           name="ResearchAndDevelop"
-       )
-       
-       # Execute a complex task
-       result = await team.execute("""
-       Research best practices for Python async programming and 
-       create a demonstration script showing proper usage of 
-       asyncio with error handling and performance optimization.
-       """)
-       
-       print(result)
+       # Chat interactively
+       await agent.chat()
 
-   # Run the example
    if __name__ == "__main__":
        asyncio.run(main())
 
-Running the Examples
+Adding Tools to Agents
+----------------------
+
+Agents become more powerful with tools. Here's an example with web search:
+
+.. code-block:: python
+
+   import asyncio
+   from pantheon.agent import Agent
+   from magique.ai.tools.web_browse.duckduckgo import duckduckgo_search
+   from magique.ai.tools.web_browse.web_crawl import web_crawl
+
+   async def main():
+       # Create an agent with web search capabilities
+       search_agent = Agent(
+           name="search_expert",
+           instructions="You are an expert in search engines. "
+                       "You can search the web and crawl websites.",
+           model="gpt-4o-mini",
+           tools=[duckduckgo_search, web_crawl]
+       )
+       
+       await search_agent.chat()
+
+   if __name__ == "__main__":
+       asyncio.run(main())
+
+Code Execution Agent
 --------------------
 
-Save any example to a file (e.g., ``example.py``) and run:
+Create an agent that can run Python code:
+
+.. code-block:: python
+
+   import asyncio
+   from pantheon.agent import Agent
+   from magique.ai.tools.python import PythonInterpreterToolSet
+   from magique.ai.toolset import run_toolsets
+
+   async def main():
+       toolset = PythonInterpreterToolSet("python_interpreter")
+       
+       async with run_toolsets([toolset], log_level="WARNING"):
+           agent = Agent(
+               name="coderun_bot",
+               instructions="You are an AI assistant that can run Python code.",
+               model="gpt-4o-mini"
+           )
+           await agent.remote_toolset(toolset.service_id)
+           await agent.chat()
+
+   if __name__ == "__main__":
+       asyncio.run(main())
+
+Creating Agent Teams
+--------------------
+
+Sequential Team
+~~~~~~~~~~~~~~~
+
+Agents work one after another:
+
+.. code-block:: python
+
+   import asyncio
+   from pantheon.agent import Agent
+   from pantheon.team import SequentialTeam
+
+   # Create specialized agents
+   scifi_fan = Agent(
+       name="scifi_fan",
+       instructions="You are a scifi fan. You like to read scifi books."
+   )
+
+   romance_fan = Agent(
+       name="romance_fan", 
+       instructions="You are a romance fan. You like to read romance books."
+   )
+
+   # Create a sequential team
+   team = SequentialTeam([scifi_fan, romance_fan])
+
+   # Run the team
+   asyncio.run(team.chat("Recommend me some books."))
+
+Swarm Team
+~~~~~~~~~~
+
+Agents can transfer control to each other:
+
+.. code-block:: python
+
+   import asyncio
+   from pantheon.agent import Agent
+   from pantheon.team import SwarmTeam
+
+   async def main():
+       # Create agents
+       scifi_fan = Agent(
+           name="Scifi Fan",
+           instructions="You are a scifi fan.",
+           model="gpt-4o-mini"
+       )
+       
+       romance_fan = Agent(
+           name="Romance Fan",
+           instructions="You are a romance fan.",
+           model="gpt-4o-mini"
+       )
+       
+       # Add transfer functions
+       @scifi_fan.tool
+       def transfer_to_romance_fan():
+           return romance_fan
+       
+       @romance_fan.tool
+       def transfer_to_scifi_fan():
+           return scifi_fan
+       
+       # Create swarm team
+       team = SwarmTeam([scifi_fan, romance_fan])
+       await team.chat()
+
+   if __name__ == "__main__":
+       asyncio.run(main())
+
+Using the ChatRoom Service
+--------------------------
+
+The ChatRoom service provides a web interface:
 
 .. code-block:: bash
 
-   # Make sure environment is activated
-   conda activate pantheon
+   # Start the chatroom
+   export OPENAI_API_KEY=your_key
+   python -m pantheon.chatroom
 
-   # Set API key
-   export OPENAI_API_KEY="your-key"
+Then:
 
-   # Run the example
-   python example.py
+1. Copy the service ID from the output
+2. Go to https://pantheon-ui.vercel.app/
+3. Paste the service ID and click "Connect"
+4. Start chatting with your agents!
 
-What's Next?
+Custom Tools
 ------------
 
-Now that you've created your first agents and teams:
+You can create custom tools for agents:
 
-- Explore :doc:`concepts` to understand the framework better
-- Check :doc:`guides/agents` for advanced agent configuration
-- Learn about :doc:`guides/teams` for complex collaboration patterns
-- Create :doc:`guides/tools` to extend agent capabilities
-- Set up :doc:`guides/distributed` for multi-machine deployments
+.. code-block:: python
 
-Tips for Success
-----------------
+   from pantheon.agent import Agent
 
-.. tip::
+   agent = Agent(
+       name="CustomAgent",
+       instructions="You can use custom tools."
+   )
 
-   **Start Simple**: Begin with single agents before moving to teams.
+   @agent.tool
+   def calculate_sum(a: int, b: int) -> int:
+       """Calculate the sum of two numbers."""
+       return a + b
 
-.. tip::
+   @agent.tool 
+   def get_current_time() -> str:
+       """Get the current time."""
+       from datetime import datetime
+       return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-   **Use Clear Instructions**: Well-written agent instructions lead to better results.
+Next Steps
+----------
 
-.. tip::
-
-   **Choose Tools Wisely**: Only give agents the tools they need for their role.
-
-.. tip::
-
-   **Test Incrementally**: Test each agent individually before combining them.
-
-.. warning::
-
-   **API Costs**: Be mindful of API usage, especially with large teams or long-running tasks.
+- Explore more :doc:`examples/index`
+- Learn about :doc:`guides/teams` patterns
+- Understand :doc:`guides/agents` in depth
+- Check out available :doc:`guides/tools`
