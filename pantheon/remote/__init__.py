@@ -1,4 +1,4 @@
-from magique.ai.utils.remote import connect_remote
+from pantheon.toolsets.utils.remote import connect_remote
 from .agent import AgentService, RemoteAgent
 
 

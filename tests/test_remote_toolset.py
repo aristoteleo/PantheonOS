@@ -1,10 +1,10 @@
 import time
 
-from magique.ai.toolset import tool, ToolSet
+from pantheon.toolsets.utils.toolset import tool, ToolSet
 from executor.engine import Engine, LocalJob
 
 
-async def test_agent_call_toolset():
+async def test_agent_call_remote_toolset():
     from pantheon.agent import Agent
 
     a = False
@@ -41,7 +41,7 @@ async def test_agent_call_toolset():
         await engine.wait_async()
 
 
-async def test_agent_call_toolset_with_timeout():
+async def test_agent_call_remote_toolset_with_timeout():
     from pantheon.agent import Agent
 
     class MyToolSet(ToolSet):

@@ -9,7 +9,8 @@ from pydantic import BaseModel, create_model
 from funcdesc import parse_func, Description, Value
 from magique.client import ServiceProxy
 from magique.worker import ReverseCallable
-from magique.ai.utils.remote import connect_remote
+from pantheon.toolsets.utils.toolset import ToolSet
+from pantheon.toolsets.utils.remote import connect_remote
 
 from .utils.misc import desc_to_openai_dict, run_func
 from .utils.llm import (
@@ -96,16 +97,17 @@ class Agent:
         self.icon = icon
         self.max_tool_content_length = max_tool_content_length
 
-    def tool(self, func: Callable):
+    def tool(self, func: Callable, key: str | None = None):
         """
         Add a tool to the agent.
         """
-        if hasattr(func, "__name__"):
-            key = func.__name__
-        elif hasattr(func, "name"):
-            key = func.name
-        else:
-            raise ValueError(f"Invalid tool: {func}")
+        if key is None:
+            if hasattr(func, "__name__"):
+                key = func.__name__
+            elif hasattr(func, "name"):
+                key = func.name
+            else:
+                raise ValueError(f"Invalid tool: {func}")
         self.functions[key] = func
         return self
 
@@ -122,6 +124,12 @@ class Agent:
             **kwargs,
         )
         self.toolset_proxies[s.service_info.service_id] = s
+        return self
+
+    def toolset(self, toolset: ToolSet):
+        """Add a toolset to the agent."""
+        for name, (func, _) in toolset.worker.functions.items():
+            self.tool(func, key=name)
         return self
 
     def _convert_functions(self, litellm_mode: bool, allow_transfer: bool) -> list[dict]:
@@ -225,7 +233,7 @@ class Agent:
                         result = task.result()
                         break
                     else:
-                        logger.info("Check stop when tool calling")
+                        logger.debug("Check stop when tool calling")
                         if timeout is not None:
                             if time.time() - start_time > timeout:
                                 raise asyncio.TimeoutError()

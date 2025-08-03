@@ -4,8 +4,8 @@ from typing import Callable
 
 from magique.worker import MagiqueWorker
 from magique.client import PyFunction
-from magique.ai.utils.remote import connect_remote
-from magique.ai.constant import SERVER_URLS
+from pantheon.toolsets.utils.remote import connect_remote
+from pantheon.toolsets.utils.constant import SERVER_URLS
 
 from ..agent import Agent, AgentInput
 
