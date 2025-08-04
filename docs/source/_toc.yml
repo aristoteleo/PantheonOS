@@ -24,14 +24,18 @@ chapters:
     - file: team/pantheon_team
   - file: toolsets/index
     sections:
-    - file: toolsets/python_interpreter
-    - file: toolsets/r_interpreter
-    - file: toolsets/shell
-    - file: toolsets/web_browse
-    - file: toolsets/scraper_api
-    - file: toolsets/file_editor
-    - file: toolsets/vector_rag
+    - file: toolsets/builtin_toolsets
+      sections:
+      - file: toolsets/python_interpreter
+      - file: toolsets/r_interpreter
+      - file: toolsets/shell
+      - file: toolsets/web_browse
+      - file: toolsets/scraper_api
+      - file: toolsets/file_editor
     - file: toolsets/rag_system
+      sections:
+      - file: toolsets/vector_rag
+    - file: toolsets/custom_toolsets
   - file: endpoint_chatroom/index
     sections:
     - file: endpoint_chatroom/architecture
@@ -39,6 +43,5 @@ chapters:
 - title: Reference
   entries:
   - file: api/index
-  - file: guides/index
   - file: examples/index
   - file: contributing

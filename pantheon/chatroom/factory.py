@@ -16,6 +16,17 @@ async def create_agent(
         toolsets: list[str] | None = None,
         toolful: bool = False,
 ) -> Agent:
+    """Create an agent from a template.
+
+    Args:
+        endpoint: The endpoint to use for the agent.
+        name: The name of the agent.
+        instructions: The instructions for the agent.
+        model: The model to use for the agent.
+        icon: The icon to use for the agent.
+        toolsets: The toolsets to use for the agent.
+        toolful: Whether the agent is toolful.
+    """
     agent = Agent(
         name=name,
         instructions=instructions,
@@ -39,6 +50,17 @@ async def create_agent(
 
 
 async def create_agents_from_template(endpoint, template: dict) -> dict:
+    """Create agents from a template.
+
+    Args:
+        endpoint: The endpoint to use for the agents.
+        template: The template of the agents.
+
+    Returns:
+        A dictionary with the following keys:
+        - triage: The triage agent.
+        - other: The other agents.
+    """
     agents = []
     triage_agent = None
     for name, agent_template in template.items():

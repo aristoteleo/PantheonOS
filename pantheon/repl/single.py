@@ -10,8 +10,12 @@ from ..utils.misc import print_agent_message, print_agent, print_banner
 
 
 class Repl:
+    """REPL for a single agent.
+
+    Args:
+        agent: The agent to use for the REPL.
+    """
     def __init__(self, agent: Agent | RemoteAgent):
-        """REPL for a single agent."""
         self.agent = agent
         self.console = Console()
 

@@ -106,10 +106,11 @@ h1, h2, h3, h4, h5, h6 {
 
 /* ===== Code Blocks - Light Mode ===== */
 .highlight {
-    border: 1px solid var(--pantheon-code-border);
+    border: none;
     border-radius: 0.5rem;
     overflow: hidden;
     margin: 0.5rem 0;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
 }
 
 .highlight pre {
@@ -130,6 +131,10 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Dark mode code text color */
 @media (prefers-color-scheme: dark) {
+    .highlight {
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 1px 2px 0 rgba(0, 0, 0, 0.2);
+    }
+    
     .highlight pre {
         color: #e5e7eb !important;  /* Light gray text for dark background */
     }
@@ -142,11 +147,17 @@ h1, h2, h3, h4, h5, h6 {
 /* Line numbers styling */
 .highlight .linenos {
     background-color: var(--pantheon-code-bg) !important;
-    border-right: 1px solid var(--pantheon-code-border);
+    border-right: 1px solid rgba(0, 0, 0, 0.05);
     padding-right: 0.75rem;
     margin-right: 0.75rem;
     color: #94a3b8;
     user-select: none;
+}
+
+@media (prefers-color-scheme: dark) {
+    .highlight .linenos {
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
 }
 
 /* Default text color for code blocks */
@@ -238,7 +249,7 @@ code.literal {
     border-radius: 0.25rem;
     font-size: 0.875em;
     font-weight: 500;
-    border: 1px solid var(--pantheon-code-border);
+    border: none;
 }
 
 /* Literal blocks and code-block directives */
@@ -271,17 +282,101 @@ li > .highlight:last-child {
 
 .highlight button.copybtn {
     opacity: 0;
-    transition: opacity 0.2s;
-    background-color: var(--pantheon-primary);
-    color: white;
-    border: none;
-    padding: 0.25rem 0.5rem;
+    transition: all 0.2s ease;
+    background-color: rgba(0, 0, 0, 0.05);
+    color: #333;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    padding: 0.4rem 0.6rem;
     border-radius: 0.25rem;
-    font-size: 0.75rem;
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
 }
 
 .highlight button.copybtn:hover {
-    background-color: var(--pantheon-primary-hover);
+    background-color: #e5e7eb !important;
+    border-color: #d1d5db !important;
+}
+
+/* Dark mode copy button */
+@media (prefers-color-scheme: dark) {
+    .highlight button.copybtn {
+        background-color: rgba(255, 255, 255, 0.1);
+        color: #f0f0f0;
+        border-color: rgba(255, 255, 255, 0.2);
+    }
+    
+    .highlight button.copybtn:hover {
+        background-color: #4b5563 !important;
+        border-color: #6b7280 !important;
+    }
+}
+
+/* Remove any default icons */
+.highlight button.copybtn::before {
+    content: none !important;
+}
+
+/* Override sphinx-copybutton default styles */
+button.copybtn {
+    position: absolute !important;
+    top: 0.5rem !important;
+    right: 0.5rem !important;
+    width: auto !important;
+    height: auto !important;
+    min-width: unset !important;
+    min-height: unset !important;
+}
+
+/* Ensure icon is visible and properly styled */
+button.copybtn svg {
+    width: 1rem !important;
+    height: 1rem !important;
+    fill: currentColor !important;
+}
+
+/* If no SVG icon exists, show text */
+button.copybtn:not(:has(svg))::after {
+    content: "Copy";
+    font-size: 0.875rem;
+}
+
+/* Success state */
+.highlight button.copybtn.success {
+    background-color: rgba(16, 185, 129, 0.1) !important;
+    border-color: rgba(16, 185, 129, 0.3) !important;
+    color: #059669 !important;
+}
+
+/* Success state for dark mode */
+@media (prefers-color-scheme: dark) {
+    .highlight button.copybtn.success {
+        background-color: rgba(16, 185, 129, 0.2) !important;
+        border-color: rgba(16, 185, 129, 0.4) !important;
+        color: #34d399 !important;
+    }
+}
+
+/* Show checkmark for success if no SVG */
+.highlight button.copybtn.success:not(:has(svg))::after {
+    content: "✓ Copied";
+}
+
+/* Remove tooltip as we're showing text/icon in button */
+.highlight button.copybtn[title] {
+    cursor: pointer;
+}
+
+/* Ensure proper icon spacing and no text decoration */
+button.copybtn {
+    text-decoration: none !important;
+    line-height: 1 !important;
+}
+
+/* Hide any span text inside button if SVG exists */
+button.copybtn:has(svg) span {
+    display: none !important;
 }
 
 /* ===== Enhanced Components ===== */
@@ -441,19 +536,19 @@ table tr:hover {
 
 /* Logo adjustments */
 .sidebar-logo {
-    max-width: 40px;
+    max-width: 80px;
     margin: 0 auto;
 }
 
 .sidebar-brand img {
-    max-width: 40px;
+    max-width: 80px;
     height: auto;
-    margin-bottom: 0.0rem;
+    margin-bottom: 0.5rem;
 }
 
 .sidebar-brand {
     text-align: center;
-    margin-bottom: 0.5rem;
+    margin-bottom: 1rem;
 }
 
 .sidebar-brand-text {
@@ -464,17 +559,17 @@ table tr:hover {
 }
 
 .sidebar-logo-container {
-    margin-bottom: 0.0rem;
+    margin-bottom: 0.5rem;
 }
 
 /* Additional logo size control for sphinx-book-theme */
 .bd-sidebar .navbar-brand-box .navbar-brand img {
-    max-width: 40px !important;
+    max-width: 80px !important;
     height: auto !important;
 }
 
 .navbar-brand img {
-    max-width: 40px !important;
+    max-width: 80px !important;
 }
 
 .bd-sidebar .navbar-brand-box {

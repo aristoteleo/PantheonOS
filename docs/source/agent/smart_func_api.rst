@@ -1,71 +1,95 @@
 Smart Function API
 ==================
 
-The Smart Function API allows you to convert agents into callable functions, making it easy to integrate AI capabilities into existing codebases without explicit agent management.
+The ``@smart_func`` decorator converts a function signature and docstring into an AI agent that implements the function's behavior. The function body can be empty (``pass``) as the implementation is handled by the LLM.
 
-Overview
---------
-
-Smart functions wrap agents to provide a simple function interface while maintaining all agent capabilities including tools, memory, and context management.
+For simple LLM calls with fixed input/output types, smart functions provide a more convenient interface. However, for most use cases, you should prefer using the Agent API directly as it offers more control and flexibility.
 
 Basic Usage
 -----------
 
-Creating Smart Functions
-~~~~~~~~~~~~~~~~~~~~~~~~
+Simple Example
+~~~~~~~~~~~~~~
 
 .. code-block:: python
 
-   from pantheon.agent import smart_func
+   from pantheon.smart_func import smart_func
    
+   @smart_func(model="gpt-4.1-mini")
+   async def summarize(text: str) -> str:
+       """Summarize the given text into key points."""
+       pass  # Implementation handled by LLM
+   
+   # Use as a regular async function
+   summary = await summarize("Long article text here...")
+   print(summary)
+
+The decorator uses:
+- The function's docstring as instructions for the agent
+- The function's type hints to structure inputs and outputs
+- The specified model to process requests
+
+Configuration Options
+~~~~~~~~~~~~~~~~~~~~~
+
+The ``@smart_func`` decorator accepts the following parameters:
+
+.. code-block:: python
+
    @smart_func(
-       instructions="You are a text analyzer. Analyze the sentiment and key themes.",
-       model="gpt-4o-mini"
+       func=None,                    # The function to decorate (automatic)
+       model="gpt-4.1-nano",        # LLM model to use
+       tools=None,                  # List of tool functions
+       use_memory=False,            # Enable conversation memory
+       memory=None,                 # Custom memory instance or initial messages
    )
-   async def analyze_text(text: str) -> dict:
-       """Analyze text for sentiment and themes."""
-       pass  # Implementation handled by agent
 
-   # Use as a regular function
-   result = await analyze_text("I love using Pantheon! It makes AI development so easy.")
-   print(result)
-   # Output: {"sentiment": "positive", "themes": ["satisfaction", "ease of use"]}
+Parameters:
 
-With Type Hints
-~~~~~~~~~~~~~~~~
+* **model**: The LLM model to use. Defaults to "gpt-4.1-nano" for efficiency
+* **tools**: List of functions the smart function can call during execution
+* **use_memory**: Whether to maintain conversation context between calls
+* **memory**: Either a Memory instance or a list of initial messages
 
-Leverage type hints for structured outputs:
+Type Support
+~~~~~~~~~~~~
+
+Smart functions leverage Python type hints for structured I/O:
 
 .. code-block:: python
 
    from pydantic import BaseModel
    from typing import List
    
-   class EmailAnalysis(BaseModel):
-       is_spam: bool
-       confidence: float
-       reasons: List[str]
-       category: str
+   class Analysis(BaseModel):
+       summary: str
+       key_points: List[str]
+       sentiment: str
+       score: float
    
-   @smart_func(
-       instructions="You are an email classifier. Analyze emails for spam detection.",
-       model="gpt-4o-mini"
-   )
-   async def classify_email(
-       subject: str,
-       body: str,
-       sender: str
-   ) -> EmailAnalysis:
-       """Classify an email as spam or legitimate."""
+   @smart_func(model="gpt-4.1")
+   async def analyze_feedback(feedback: str) -> Analysis:
+       """Analyze customer feedback and return structured insights."""
        pass
    
-   # Returns typed response
-   analysis = await classify_email(
-       subject="You've won $1,000,000!!!",
-       body="Click here to claim your prize...",
-       sender="unknown@suspicious.com"
-   )
-   print(f"Spam: {analysis.is_spam} (Confidence: {analysis.confidence})")
+   # Returns a properly typed Analysis instance
+   result = await analyze_feedback("Great product, highly recommend!")
+   print(f"Sentiment: {result.sentiment}, Score: {result.score}")
+
+Synchronous Wrapper
+~~~~~~~~~~~~~~~~~~~
+
+Smart functions can be used in synchronous code:
+
+.. code-block:: python
+
+   @smart_func(model="gpt-4.1-mini")
+   def classify_sync(text: str) -> str:
+       """Classify the sentiment of the text."""
+       pass
+   
+   # Synchronous function automatically runs async code
+   result = classify_sync("I love this!")  # Works without await
 
 Advanced Features
 -----------------
@@ -73,333 +97,191 @@ Advanced Features
 Adding Tools
 ~~~~~~~~~~~~
 
-Enhance smart functions with tools:
+Enhance smart functions with callable tools:
 
 .. code-block:: python
 
-   def search_database(query: str) -> List[dict]:
-       """Search the product database."""
-       # Database search implementation
-       return results
+   import requests
+   from pantheon.smart_func import smart_func
    
-   def calculate_price(base_price: float, discount: float) -> float:
-       """Calculate final price with discount."""
-       return base_price * (1 - discount / 100)
+   def fetch_weather(city: str) -> dict:
+       """Fetch current weather data for a city."""
+       response = requests.get(f"https://api.weather.com/{city}")
+       return response.json()
+   
+   def calculate_comfort_index(temp: float, humidity: float) -> float:
+       """Calculate comfort index from temperature and humidity."""
+       return temp - 0.55 * (1 - humidity/100) * (temp - 14)
    
    @smart_func(
-       instructions="You are a shopping assistant. Help users find products and calculate prices.",
-       model="gpt-4o-mini",
-       tools=[search_database, calculate_price]
+       model="gpt-4.1-mini",
+       tools=[fetch_weather, calculate_comfort_index]
    )
-   async def shopping_assistant(user_query: str) -> str:
-       """Assist users with shopping queries."""
+   async def weather_advisor(city: str, activity: str) -> str:
+       """Provide weather-based activity recommendations using current data."""
        pass
    
-   response = await shopping_assistant(
-       "Find me laptops under $1000 with 20% discount"
-   )
+   advice = await weather_advisor("Tokyo", "jogging")
 
-Context Management
-~~~~~~~~~~~~~~~~~~
+Memory Support
+~~~~~~~~~~~~~~
 
-Pass context to smart functions:
+Enable context retention across function calls:
 
 .. code-block:: python
 
-   @smart_func(
-       instructions="You are a personalized assistant. Use context to provide relevant help.",
-       model="gpt-4o-mini"
-   )
-   async def personalized_help(
-       query: str,
-       user_id: str = None,
-       preferences: dict = None
-   ) -> str:
-       """Provide personalized assistance based on user context."""
+   from pantheon.smart_func import smart_func
+   from pantheon.memory import Memory
+   
+   # With simple memory flag
+   @smart_func(model="gpt-4.1-mini", use_memory=True)
+   async def chat_assistant(message: str) -> str:
+       """A helpful assistant that remembers the conversation."""
        pass
    
-   # Context is automatically passed to the agent
-   response = await personalized_help(
-       query="Recommend a restaurant",
-       user_id="user123",
-       preferences={"cuisine": "Italian", "budget": "moderate"}
-   )
-
-Memory-Enabled Functions
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-Smart functions with persistent memory:
-
-.. code-block:: python
-
-   from pantheon.memory import LongTermMemory
+   # First call
+   await chat_assistant("My name is Alice")
+   
+   # Second call - remembers context
+   response = await chat_assistant("What's my name?")
+   # Returns: "Your name is Alice"
+   
+   # With custom memory instance
+   custom_memory = Memory("assistant_memory")
    
    @smart_func(
-       instructions="You are a learning assistant that remembers user preferences.",
-       model="gpt-4o-mini",
-       memory=LongTermMemory("./assistant_memory")
+       model="gpt-4.1-mini",
+       memory=custom_memory
    )
-   async def learning_assistant(
-       user_id: str,
-       message: str
-   ) -> str:
-       """An assistant that learns and remembers user preferences."""
-       pass
-   
-   # First interaction
-   await learning_assistant("user123", "I prefer Python over Java")
-   
-   # Later interaction - remembers preference
-   response = await learning_assistant(
-       "user123", 
-       "What programming language should I use for this project?"
-   )
-
-Streaming Responses
-~~~~~~~~~~~~~~~~~~~
-
-Enable streaming for long responses:
-
-.. code-block:: python
-
-   @smart_func(
-       instructions="You are a story writer. Create engaging stories.",
-       model="gpt-4o",
-       stream=True
-   )
-   async def write_story(
-       prompt: str,
-       genre: str,
-       length: str = "short"
-   ) -> AsyncIterator[str]:
-       """Write a story based on the prompt."""
-       pass
-   
-   # Stream the response
-   async for chunk in write_story(
-       prompt="A robot discovers emotions",
-       genre="sci-fi"
-   ):
-       print(chunk, end="", flush=True)
-
-Complex Examples
-----------------
-
-Data Processing Pipeline
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   from typing import List, Dict, Any
-   import pandas as pd
-   
-   @smart_func(
-       instructions="""You are a data analyst. Analyze datasets and provide insights.
-       Focus on finding patterns, anomalies, and actionable recommendations.""",
-       model="gpt-4o",
-       tools=[pd.read_csv, pd.DataFrame.describe]
-   )
-   async def analyze_dataset(
-       file_path: str,
-       analysis_type: str = "general"
-   ) -> Dict[str, Any]:
-       """Analyze a dataset and return insights."""
-       pass
-   
-   insights = await analyze_dataset(
-       "sales_data.csv",
-       analysis_type="trend_analysis"
-   )
-
-Multi-Step Workflow
-~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   class ResearchReport(BaseModel):
-       title: str
-       summary: str
-       key_findings: List[str]
-       recommendations: List[str]
-       sources: List[str]
-   
-   @smart_func(
-       instructions="""You are a research analyst. Conduct thorough research and 
-       create comprehensive reports. Always cite your sources.""",
-       model="gpt-4o",
-       tools=[search_web, analyze_document, create_chart]
-   )
-   async def create_research_report(
-       topic: str,
-       focus_areas: List[str],
-       max_sources: int = 10
-   ) -> ResearchReport:
-       """Create a comprehensive research report on the given topic."""
-       pass
-   
-   report = await create_research_report(
-       topic="AI in Healthcare",
-       focus_areas=["diagnosis", "treatment", "ethics"],
-       max_sources=15
-   )
-
-API Integration
-~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   import aiohttp
-   
-   async def fetch_weather_api(city: str) -> dict:
-       """Fetch weather data from API."""
-       async with aiohttp.ClientSession() as session:
-           async with session.get(f"https://api.weather.com/{city}") as resp:
-               return await resp.json()
-   
-   @smart_func(
-       instructions="You are a weather assistant. Provide weather information and advice.",
-       model="gpt-4o-mini",
-       tools=[fetch_weather_api]
-   )
-   async def weather_advisor(
-       location: str,
-       activity: str = None
-   ) -> str:
-       """Provide weather information and activity recommendations."""
-       pass
-   
-   advice = await weather_advisor(
-       location="San Francisco",
-       activity="hiking"
-   )
-
-Error Handling
---------------
-
-Graceful error handling in smart functions:
-
-.. code-block:: python
-
-   @smart_func(
-       instructions="You are a calculator. Perform mathematical operations safely.",
-       model="gpt-4o-mini",
-       error_handling="graceful"
-   )
-   async def safe_calculate(expression: str) -> Union[float, str]:
-       """Safely evaluate mathematical expressions."""
-       pass
-   
-   # Handles errors gracefully
-   result = await safe_calculate("10 / 0")
-   # Returns: "Error: Division by zero is undefined"
-   
-   # Custom error handler
-   async def custom_error_handler(error: Exception, context: dict) -> str:
-       if isinstance(error, ValueError):
-           return f"Invalid input: {context.get('expression')}"
-       return f"An error occurred: {str(error)}"
-   
-   @smart_func(
-       instructions="Calculate with custom error handling.",
-       model="gpt-4o-mini",
-       error_handler=custom_error_handler
-   )
-   async def calculate_custom(expression: str) -> float:
+   async def persistent_assistant(query: str) -> str:
+       """Assistant with persistent memory across sessions."""
        pass
 
-Configuration Options
----------------------
 
-All smart function parameters:
-
-.. code-block:: python
-
-   @smart_func(
-       instructions="Agent instructions",          # Required
-       model="gpt-4o-mini",                       # Model selection
-       temperature=0.7,                           # Creativity level
-       max_tokens=1000,                           # Response limit
-       tools=[],                                  # Available tools
-       memory=None,                               # Memory instance
-       stream=False,                              # Enable streaming
-       parallel_tools=True,                       # Parallel execution
-       error_handling="raise",                    # Error strategy
-       timeout=30,                                # Timeout in seconds
-       retry_attempts=3,                          # Retry on failure
-       cache_responses=True,                      # Cache results
-       cache_ttl=3600,                           # Cache duration
-   )
-   async def configured_function(...) -> ...:
-       pass
 
 Best Practices
 --------------
 
-1. **Clear Function Names**: Use descriptive names that indicate purpose
-2. **Type Annotations**: Always include type hints for clarity
-3. **Docstrings**: Document function purpose and parameters
-4. **Error Handling**: Implement appropriate error strategies
-5. **Tool Selection**: Only include necessary tools
-6. **Response Types**: Use structured types when possible
-
-Performance Optimization
-------------------------
-
-Caching
-~~~~~~~
-
-.. code-block:: python
-
-   from functools import lru_cache
-   
-   @smart_func(
-       instructions="Expensive analysis function",
-       model="gpt-4o",
-       cache_responses=True,
-       cache_ttl=3600  # 1 hour
-   )
-   @lru_cache(maxsize=100)
-   async def expensive_analysis(data: str) -> dict:
-       """Perform expensive analysis with caching."""
-       pass
-
-Batch Processing
+Clear Docstrings
 ~~~~~~~~~~~~~~~~
 
+The docstring becomes the agent's instructions, so be specific:
+
 .. code-block:: python
 
-   @smart_func(
-       instructions="Process multiple items efficiently",
-       model="gpt-4o-mini"
-   )
-   async def batch_process(items: List[str]) -> List[dict]:
-       """Process multiple items in a single call."""
+   @smart_func(model="gpt-4.1-mini")
+   async def good_example(text: str) -> str:
+       """Extract all email addresses from the text.
+       Return them as a comma-separated string.
+       Handle invalid formats gracefully."""
        pass
    
-   # More efficient than individual calls
-   results = await batch_process(["item1", "item2", "item3"])
+   # Avoid vague instructions
+   @smart_func(model="gpt-4.1-mini")
+   async def bad_example(text: str) -> str:
+       """Process the text."""  # Too vague
+       pass
 
-Testing Smart Functions
------------------------
+Type Annotations
+~~~~~~~~~~~~~~~~
+
+Always use type hints for better structure:
 
 .. code-block:: python
 
-   import pytest
-   from unittest.mock import Mock
+   # Good - clear types
+   @smart_func(model="gpt-4.1-mini")
+   async def process(data: list[dict], threshold: float = 0.5) -> dict:
+       """Process data items with threshold filtering."""
+       pass
    
-   @pytest.mark.asyncio
-   async def test_smart_function():
-       # Test with mocked agent
-       with mock_smart_func() as mocked:
-           mocked.return_value = {"result": "test"}
+   # Avoid - ambiguous types
+   async def process(data, threshold=None):
+       pass
+
+
+Tool Design
+~~~~~~~~~~~
+
+Keep tools focused and well-documented:
+
+.. code-block:: python
+
+   def fetch_data(query: str, limit: int = 10) -> list[dict]:
+       """Fetch data from database matching query.
+       
+       Args:
+           query: SQL-like query string
+           limit: Maximum results to return
            
-           result = await my_smart_function("input")
-           assert result["result"] == "test"
+       Returns:
+           List of matching records
+       """
+       # Implementation
    
-   # Integration test
-   @pytest.mark.asyncio
-   @pytest.mark.integration
-   async def test_real_smart_function():
-       result = await analyze_text("Test text")
-       assert "sentiment" in result
-       assert isinstance(result["sentiment"], str)
+   @smart_func(
+       model="gpt-4.1-mini",
+       tools=[fetch_data]
+   )
+   async def data_analyst(request: str) -> str:
+       """Analyze data based on user request using database queries."""
+       pass
+
+Real-World Example
+~~~~~~~~~~~~~~~~~~
+
+From the paper reporter example:
+
+.. code-block:: python
+
+   from pantheon.smart_func import smart_func
+   from pantheon.agent import Agent
+   from pantheon.toolsets.web_browse import duckduckgo_search, web_crawl
+   
+   @smart_func(model="gpt-4.1-mini")
+   async def extract_content(content: str) -> str:
+       """Extract the most important content from the text. 
+       For example, if the text is a paper, extract the
+       authors, title, journal, publication date,
+       abstract, introduction, methods, results, and discussion.
+       """
+       pass
+   
+   async def crawl_and_extract(urls: list[str]) -> list[str]:
+       """Crawl provided urls and extract the most important content."""
+       contents = await web_crawl(urls)
+       extracted_contents = []
+       
+       for content in contents:
+           try:
+               extracted = await extract_content(content)
+               extracted_contents.append(extracted)
+           except Exception as e:
+               print(f"Error: {e}")
+               extracted_contents.append("")
+       
+       return extracted_contents
+   
+   # Use with an agent for more complex tasks
+   search_agent = Agent(
+       name="Search Agent",
+       instructions="You are a search engine expert.",
+       model="gpt-4.1",
+       tools=[duckduckgo_search, crawl_and_extract]
+   )
+
+When to Use Smart Functions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use smart functions when:
+
+* You need simple, fixed input/output transformations
+* The task can be clearly defined in a docstring
+* You want minimal boilerplate for LLM calls
+
+Use the Agent API directly when:
+
+* You need fine-grained control over the conversation
+* You want to manage complex multi-turn interactions
+* You need custom error handling or response processing
+* You're building production systems requiring flexibility

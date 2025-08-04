@@ -22,6 +22,27 @@ from .factory import create_agents_from_template, DEFAULT_AGENTS_TEMPLATE_PATH
 
 
 class ChatRoom:
+    """
+    ChatRoom is a service that allow user to interact with a team of agents.
+    It can connect to a remote endpoint to get the agents and tools,
+    and be connected with Pantheon-UI to provide a user-friendly interface.
+
+    A chatroom contains a series of chats, which are identified by a chat_id.
+    Each chats will be associated with a memory, which is a file in the memory_dir.
+
+    Args:
+        endpoint_service_id: The service ID of the remote endpoint.
+        agents_template: The template of the agents.
+        memory_dir: The directory to store the memory.
+        name: The name of the chatroom.
+        description: The description of the chatroom.
+        worker_params: The parameters for the worker.
+        server_url: The URL of the magique server.
+        endpoint_connect_params: The parameters for the endpoint connection.
+        speech_to_text_model: The model to use for speech to text.
+        check_before_chat: The function to check before chat.
+        get_db_info: The function to get the database info.
+    """
     def __init__(
         self,
         endpoint_service_id: str,
@@ -81,6 +102,11 @@ class ChatRoom:
         self.get_db_info = get_db_info
 
     async def setup_agents(self):
+        """Setup the agents from the template.
+        The template is a dictionary with the following keys:
+        - triage: The triage agent.
+        - other: The other agents.
+        """
         endpoint = await connect_remote(
             self.endpoint_service_id,
             self.server_urls,
@@ -96,10 +122,14 @@ class ChatRoom:
         await self.team.async_setup()
 
     def save_agents_template(self):
+        """Save the agents template to the memory_dir."""
         with open(self.memory_dir / "agents_template.yaml", "w") as f:
             yaml.dump(self.agents_template, f)
 
     def setup_handlers(self):
+        """Setup the handlers for the worker.
+        To expose the chatroom interfaces to the Pantheon-UI.
+        """
         self.worker.register(self.create_chat)
         self.worker.register(self.delete_chat)
         self.worker.register(self.chat)
@@ -117,6 +147,7 @@ class ChatRoom:
         self.worker.register(self.get_db_info)
 
     async def get_db_info(self) -> dict:
+        """Get the database info."""
         if self.get_db_info is not None:
             return {
                 "success": True,
@@ -125,6 +156,7 @@ class ChatRoom:
         return {"success": False, "message": "Not implemented"}
 
     async def get_endpoint(self) -> dict:
+        """Get the endpoint info."""
         s = await connect_remote(
             self.endpoint_service_id,
             self.server_urls,
@@ -138,6 +170,11 @@ class ChatRoom:
         }
 
     async def set_endpoint(self, endpoint_service_id: str) -> dict:
+        """Set the endpoint service ID.
+
+        Args:
+            endpoint_service_id: The service ID of the remote endpoint.
+        """
         try:
             self.endpoint_service_id = endpoint_service_id
             await self.setup_agents()
@@ -147,6 +184,13 @@ class ChatRoom:
             return {"success": False, "message": str(e)}
 
     async def get_agents(self) -> dict:
+        """Get the agents info.
+        
+        Returns:
+            A dictionary with the following keys:
+            - success: Whether the operation was successful.
+            - agents: A list of dictionaries, each containing the info of an agent.
+        """
         def get_agent_info(agent: Agent | RemoteAgent):
             if hasattr(agent, "not_loaded_toolsets"):
                 not_loaded_toolsets = agent.not_loaded_toolsets
@@ -172,6 +216,12 @@ class ChatRoom:
         }
 
     async def set_active_agent(self, chat_name: str, agent_name: str):
+        """Set the active agent for a chat.
+
+        Args:
+            chat_name: The name of the chat.
+            agent_name: The name of the agent.
+        """
         memory = await run_func(self.memory_manager.get_memory, chat_name)
         agent = next((a for a in self.team.agents.values() if a.name == agent_name), None)
         if agent is None:
@@ -180,6 +230,11 @@ class ChatRoom:
         return {"success": True, "message": "Agent set as active"}
 
     async def get_active_agent(self, chat_name: str) -> dict:
+        """Get the active agent for a chat.
+
+        Args:
+            chat_name: The name of the chat.
+        """
         memory = await run_func(self.memory_manager.get_memory, chat_name)
         active_agent = self.team.get_active_agent(memory)
         return {
@@ -188,6 +243,11 @@ class ChatRoom:
         }
 
     async def create_chat(self, chat_name: str | None = None) -> dict:
+        """Create a new chat.
+
+        Args:
+            chat_name: The name of the chat.
+        """
         memory = await run_func(self.memory_manager.new_memory, chat_name)
         memory.extra_data["last_activity_date"] = datetime.now().isoformat()
         return {
@@ -198,6 +258,11 @@ class ChatRoom:
         }
 
     async def delete_chat(self, chat_id: str):
+        """Delete a chat.
+
+        Args:
+            chat_id: The ID of the chat.
+        """
         try:
             await run_func(self.memory_manager.delete_memory, chat_id)
             await run_func(self.memory_manager.save)
@@ -207,6 +272,13 @@ class ChatRoom:
             return {"success": False, "message": str(e)}
 
     async def list_chats(self) -> dict:
+        """List all the chats.
+
+        Returns:
+            A dictionary with the following keys:
+            - success: Whether the operation was successful.
+            - chats: A list of dictionaries, each containing the info of a chat.
+        """
         try:
             ids = await run_func(self.memory_manager.list_memories)
             chats = []
@@ -237,6 +309,12 @@ class ChatRoom:
             return {"success": False, "message": str(e)}
 
     async def get_chat_messages(self, chat_id: str, filter_out_images: bool = False):
+        """Get the messages of a chat.
+
+        Args:
+            chat_id: The ID of the chat.
+            filter_out_images: Whether to filter out the images.
+        """
         try:
             memory = await run_func(self.memory_manager.get_memory, chat_id)
             messages = await run_func(memory.get_messages)
@@ -259,6 +337,12 @@ class ChatRoom:
             return {"success": False, "message": str(e)}
 
     async def update_chat_name(self, chat_id: str, chat_name: str):
+        """Update the name of a chat.
+
+        Args:
+            chat_id: The ID of the chat.
+            chat_name: The new name of the chat.
+        """
         try:
             await run_func(
                 self.memory_manager.update_memory_name,
@@ -283,6 +367,15 @@ class ChatRoom:
             wait: bool = True,
             time_delta: int = 0.1,
             ):
+        """Attach hooks to a chat. Hooks are used to process the messages of the chat.
+
+        Args:
+            chat_id: The ID of the chat.
+            process_chunk: The function to process the chunk.
+            process_step_message: The function to process the step message.
+            wait: Whether to wait for the thread to end.
+            time_delta: The time delta to wait for the thread to end.
+        """
         thread = self.threads.get(chat_id, None)
         if thread is None:
             return {"success": False, "message": "Chat doesn't have a thread"}
@@ -303,6 +396,14 @@ class ChatRoom:
         process_chunk=None,
         process_step_message=None,
     ):
+        """Start a chat, send a message to the chat.
+
+        Args:
+            chat_id: The ID of the chat.
+            message: The messages to send to the chat.
+            process_chunk: The function to process the chunk.
+            process_step_message: The function to process the step message.
+        """
         if self.check_before_chat is not None:
             try:
                 await self.check_before_chat(chat_id, message)
@@ -328,6 +429,11 @@ class ChatRoom:
         return thread.response
 
     async def stop_chat(self, chat_id: str):
+        """Stop a chat.
+
+        Args:
+            chat_id: The ID of the chat.
+        """
         thread = self.threads.get(chat_id, None)
         if thread is None:
             return {"success": False, "message": "Chat doesn't have a thread"}
@@ -335,6 +441,11 @@ class ChatRoom:
         return {"success": True, "message": "Chat stopped successfully"}
 
     async def speech_to_text(self, bytes_data: bytes):
+        """Convert speech to text.
+
+        Args:
+            bytes_data: The bytes data of the audio.
+        """
         try:
             client = openai.OpenAI()
             
@@ -373,6 +484,11 @@ class ChatRoom:
             }
 
     async def run(self, log_level: str = "INFO"):
+        """Run the chatroom service.
+
+        Args:
+            log_level: The level of the log.
+        """
         from loguru import logger
         logger.remove()
         logger.add(sys.stderr, level=log_level)

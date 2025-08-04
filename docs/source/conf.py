@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.abspath('../../'))
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'Pantheon Agents'
-copyright = '2024, Pantheon Team'
+copyright = '2025, Pantheon Team'
 author = 'Pantheon Team'
 release = '0.1.0'
 
@@ -69,6 +69,7 @@ html_theme_options = {
     "repository_branch": "main",
     "home_page_in_toc": True,
     "show_navbar_depth": 2,
+    "collapse_navigation": True,  # Collapse navigation by default
     "logo": {
         "image_light": "_static/pantheon.png",
         "image_dark": "_static/pantheon.png",

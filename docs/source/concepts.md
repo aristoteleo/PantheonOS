@@ -30,74 +30,27 @@ An agent in Pantheon is:
 
 ### Core Components
 
+![Agent Architecture](_static/Agent%20Loop.png)
+
+The diagram above illustrates the core agent architecture:
+- **Input/Output Flow**: Agents process input messages and generate outputs
+- **Memory Integration**: Optional memory system for context persistence
+- **Tool Execution**: Agents can invoke tools in parallel for enhanced capabilities
+- **Results Processing**: Tool results are integrated back into the agent's reasoning
+
 #### Instructions
-Every agent has instructions that define its behavior and personality:
-
-```python
-agent = Agent(
-    name="researcher",
-    instructions="You are an expert researcher. You excel at finding and analyzing information from various sources. Always cite your sources."
-)
-```
-
+Every agent has instructions that define its behavior and personality. These instructions serve as the agent's core directive, guiding its responses, approach, and interaction style. Well-crafted instructions are crucial for creating agents that behave consistently and effectively.
 
 #### Tools and Capabilities
-Agents become powerful through tools:
-
-```python
-from pantheon.agent import Agent
-
-agent = Agent(name="assistant", instructions="You are helpful.")
-
-# Add custom tools
-@agent.tool
-def calculate(expression: str) -> float:
-    """Evaluate a mathematical expression."""
-    return eval(expression)  # In production, use safe evaluation
-
-# Add pre-built toolsets
-from pantheon.toolsets.web_browse import duckduckgo_search
-agent.tools.append(duckduckgo_search)
-```
+Agents become powerful through tools - functions that extend their abilities beyond pure conversation. Tools allow agents to interact with external systems, perform calculations, access databases, browse the web, execute code, and much more. The tool system is extensible, allowing you to add custom capabilities tailored to your specific needs.
 
 ### Advanced Features
 
 #### Structured Output
-Agents can return structured data:
-
-```python
-from pydantic import BaseModel
-
-class Analysis(BaseModel):
-    summary: str
-    sentiment: str
-    key_points: list[str]
-
-agent = Agent(
-    name="analyzer",
-    instructions="Analyze text and return structured data."
-)
-
-result = await agent.run(
-    messages=[{"role": "user", "content": "Analyze this text..."}],
-    response_format=Analysis
-)
-# result is an Analysis instance
-```
+Agents can return structured data in predefined formats rather than free-form text. This capability is essential for building reliable systems where agents need to produce consistent, parseable outputs. By defining schemas for responses, you ensure that agent outputs can be directly integrated into your application logic without complex parsing.
 
 #### Remote Agents
-Agents can run on remote machines:
-
-```python
-# On remote machine
-agent = Agent(name="remote_expert", instructions="...")
-await agent.serve()  # will print the service id
-
-# On local machine
-from pantheon.agent import RemoteAgent
-remote_agent = RemoteAgent("your-service-id")
-response = await remote_agent.run(messages)
-```
+Agents can run on remote machines and be accessed over the network. This distributed architecture enables you to deploy resource-intensive agents on powerful servers, share agents across multiple applications, and build scalable multi-agent systems. Remote agents maintain all the capabilities of local agents while providing network accessibility.
 
 ---
 
@@ -117,96 +70,36 @@ A team is a coordinated group of agents that:
 ### Team Types
 
 #### Sequential Team
-Agents process tasks in a predefined order, with each agent building on the previous one's output.
+Agents process tasks in a predefined order, with each agent building on the previous one's output. This creates a pipeline where each agent specializes in one stage of a multi-step process.
 
 **Use Cases:**
 - Multi-step workflows
 - Progressive refinement
 - Pipeline processing
 
-```python
-from pantheon.team import SequentialTeam
-from pantheon.agent import Agent
-
-researcher = Agent(name="researcher", instructions="Research the topic")
-writer = Agent(name="writer", instructions="Write based on research")
-editor = Agent(name="editor", instructions="Edit and polish the text")
-
-team = SequentialTeam([researcher, writer, editor])
-result = await team.run("Write an article about AI")
-```
-
 #### Swarm Team
-Agents can dynamically transfer control to each other based on the task requirements.
+Agents can dynamically transfer control to each other based on the task requirements. This creates a flexible system where the conversation flow adapts based on the specific needs of each interaction.
 
 **Use Cases:**
 - Dynamic routing
 - Specialized handling
 - Flexible workflows
 
-```python
-from pantheon.team import SwarmTeam
-
-generalist = Agent(name="generalist", instructions="Handle general queries")
-specialist = Agent(name="specialist", instructions="Handle technical queries")
-
-@generalist.tool
-def transfer_to_specialist():
-    """Transfer complex technical questions to specialist."""
-    return specialist
-
-team = SwarmTeam([generalist, specialist])
-```
-
 #### SwarmCenter Team
-A central coordinator agent manages and delegates tasks to worker agents.
+A central coordinator agent manages and delegates tasks to worker agents. The coordinator analyzes incoming requests and intelligently distributes work to the most appropriate specialists.
 
 **Use Cases:**
 - Task distribution
 - Centralized management
 - Load balancing
 
-```python
-from pantheon.team import SwarmCenterTeam
-
-coordinator = Agent(
-    name="coordinator",
-    instructions="Analyze tasks and delegate to appropriate workers"
-)
-
-workers = [
-    Agent(name="analyst", instructions="Perform data analysis"),
-    Agent(name="researcher", instructions="Conduct research"),
-    Agent(name="writer", instructions="Create content")
-]
-
-team = SwarmCenterTeam(coordinator, workers)
-```
-
 #### Mixture of Agents (MoA) Team
-Multiple agents work on the same problem independently, then their outputs are synthesized.
+Multiple agents work on the same problem independently, then their outputs are synthesized. This ensemble approach leverages diverse perspectives and reasoning strategies to produce more robust and comprehensive solutions.
 
 **Use Cases:**
 - Ensemble reasoning
 - Diverse perspectives
 - Robust solutions
-
-```python
-from pantheon.team import MoATeam
-
-agents = [
-    Agent(name="expert1", instructions="Approach from perspective A"),
-    Agent(name="expert2", instructions="Approach from perspective B"),
-    Agent(name="expert3", instructions="Approach from perspective C")
-]
-
-aggregator = Agent(
-    name="aggregator",
-    instructions="Synthesize all responses into the best solution"
-)
-
-team = MoATeam(agents, aggregator)
-```
 
 ### Team Coordination
 
@@ -247,25 +140,7 @@ graph LR
 ```
 
 #### Context Sharing
-Teams share context between agents:
-
-```python
-class ContextSharingTeam(SequentialTeam):
-    async def run(self, messages, context_variables=None):
-        # Context is passed between agents
-        shared_context = context_variables or {}
-        
-        for agent in self.agents:
-            response = await agent.run(
-                messages,
-                context_variables=shared_context
-            )
-            # Update shared context
-            shared_context.update(response.context_variables)
-            messages = response.messages
-        
-        return response
-```
+Teams share context between agents to maintain continuity and accumulate knowledge throughout the collaboration. This enables agents to build upon each other's work, share discovered information, and maintain a coherent understanding of the task at hand. Context sharing is crucial for complex tasks that require multiple agents to work together effectively.
 
 ---
 
@@ -302,90 +177,18 @@ A toolset is a collection of functions that agents can use to:
 ### Built-in Toolsets
 
 #### Python Interpreter
-Execute Python code in a sandboxed environment:
-
-```python
-from pantheon.toolsets.python import PythonInterpreterToolSet
-from pantheon.toolsets.utils.toolset import run_toolsets
-
-async def create_python_agent():
-    toolset = PythonInterpreterToolSet("python_tool")
-    
-    async with run_toolsets([toolset]):
-        agent = Agent(
-            name="data_scientist",
-            instructions="You can analyze data with Python."
-        )
-        await agent.remote_toolset(toolset.service_id)
-        
-        # Agent can now execute Python code
-        await agent.run([{
-            "role": "user",
-            "content": "Calculate the mean of [1, 2, 3, 4, 5]"
-        }])
-```
+Execute Python code in a sandboxed environment. This toolset provides agents with the ability to perform data analysis, numerical computations, and general-purpose programming tasks in a secure, isolated environment.
 
 #### Web Browsing
-Search and fetch web content:
-
-```python
-from pantheon.toolsets.web_browse import (
-    duckduckgo_search,
-    web_crawl
-)
-
-agent = Agent(
-    name="researcher",
-    instructions="Research topics using web search.",
-    tools=[duckduckgo_search, web_crawl]
-)
-```
+Search and fetch web content. This toolset enables agents to access current information from the internet, conduct research, and gather data from web sources.
 
 ### Creating Custom Tools
 
 #### Simple Function Tools
-Convert any Python function into a tool:
-
-```python
-from pantheon.agent import Agent
-
-agent = Agent(name="calculator", instructions="...")
-
-@agent.tool
-def calculate_compound_interest(
-    principal: float,
-    rate: float,
-    time: int,
-    n: int = 1
-) -> float:
-    """Calculate compound interest.
-    
-    Args:
-        principal: Initial amount
-        rate: Annual interest rate (as decimal)
-        time: Time period in years
-        n: Compounding frequency per year
-        
-    Returns:
-        Final amount after compound interest
-    """
-    return principal * (1 + rate/n) ** (n * time)
-```
+Convert any Python function into a tool that agents can use. Functions are automatically introspected to understand their parameters and return types, making them immediately accessible to agents. The function's docstring serves as the tool's description, helping agents understand when and how to use it.
 
 #### Async Tools
-Support for asynchronous operations:
-
-```python
-@agent.tool
-async def fetch_weather(city: str) -> dict:
-    """Fetch current weather for a city."""
-    import aiohttp
-    
-    async with aiohttp.ClientSession() as session:
-        url = f"https://api.weather.com/v1/location/{city}"
-        async with session.get(url) as response:
-            return await response.json()
-```
+Support for asynchronous operations allows tools to perform network requests, database queries, and other I/O-bound operations efficiently. Async tools enable agents to handle time-consuming operations without blocking, making them ideal for integrating with external services and APIs.
 
 ---
 
@@ -405,91 +208,15 @@ An endpoint is a network-accessible service that:
 ### Types of Endpoints
 
 #### Agent Endpoints
-Deploy agents as standalone services:
-
-```python
-from pantheon.agent import Agent
-
-# Create and configure agent
-agent = Agent(
-    name="expert_agent",
-    instructions="You are a domain expert.",
-    model="gpt-4o"
-)
-
-# Start as endpoint service
-await agent.start_service(
-    host="0.0.0.0",
-    port=8000,
-    auth_token="secret_token"  # Optional authentication
-)
-
-# Access from another machine
-from pantheon.remote import RemoteAgent
-
-remote_agent = RemoteAgent(
-    "http://agent-server:8000",
-    auth_token="secret_token"
-)
-
-response = await remote_agent.run(messages)
-```
+Deploy agents as standalone services that can be accessed remotely. Agent endpoints make it possible to run specialized agents on dedicated hardware, share agents across multiple applications, and build distributed multi-agent systems where agents communicate across network boundaries.
 
 #### Toolset Endpoints
-Expose toolsets as services:
-
-```python
-from pantheon.toolsets.python import PythonInterpreterToolSet
-from pantheon.toolsets.utils.toolset import run_toolset_service
-
-# Create toolset
-toolset = PythonInterpreterToolSet("python_service")
-
-# Start as endpoint
-await run_toolset_service(
-    toolset,
-    host="0.0.0.0",
-    port=8001
-)
-
-# Agent connects to remote toolset
-agent = Agent(name="compute_agent", instructions="...")
-await agent.remote_toolset("http://toolset-server:8001")
-```
+Expose toolsets as services that agents can connect to remotely. This separation allows resource-intensive tools (like code execution environments) to run on specialized infrastructure while keeping agents lightweight. Toolset endpoints enable secure, scalable deployment of potentially dangerous operations.
 
 ### Deployment Patterns
 
 #### Microservices Architecture
-Deploy each component as a separate service:
-
-```yaml
-# docker-compose.yml
-version: '3.8'
-
-services:
-  research-agent:
-    image: pantheon-agent
-    environment:
-      AGENT_NAME: researcher
-      MODEL: gpt-4o
-    ports:
-      - "8001:8000"
-  
-  python-tools:
-    image: pantheon-toolset
-    environment:
-      TOOLSET: python_interpreter
-    ports:
-      - "8002:8000"
-  
-  chatroom:
-    image: pantheon-chatroom
-    environment:
-      AGENTS: http://research-agent:8000
-      TOOLSETS: http://python-tools:8000
-    ports:
-      - "8080:8000"
-```
+Deploy each component as a separate service in a microservices architecture. This pattern enables independent scaling, isolated failures, and flexible deployment strategies. Each agent, toolset, and service can be updated, scaled, and managed independently, providing maximum flexibility for complex systems.
 
 ---
 
@@ -510,113 +237,15 @@ A ChatRoom is a service layer that:
 ### Core Features
 
 #### Session Management
-ChatRooms manage user sessions automatically:
-
-```python
-from pantheon.chatroom import ChatRoom
-from pantheon.agent import Agent
-
-# Create ChatRoom with an agent
-agent = Agent(
-    name="assistant",
-    instructions="You are a helpful assistant."
-)
-
-chatroom = ChatRoom(
-    name="Support ChatRoom",
-    agents=[agent],
-    max_sessions=100,
-    session_timeout=3600  # 1 hour
-)
-
-# Start the service
-await chatroom.start(port=8000)
-```
+ChatRooms manage user sessions automatically, handling multiple concurrent conversations while maintaining isolation between users. Each session maintains its own conversation history, context, and state, ensuring privacy and coherent interactions.
 
 #### Web UI Integration
-Connect to Pantheon's web interface:
-
-```bash
-# Start ChatRoom
-python -m pantheon.chatroom
-
-# Output shows:
-# ChatRoom started with ID: abc123...
-# Connect at: https://pantheon-ui.vercel.app/
-
-# Users can then:
-# 1. Visit the web UI
-# 2. Enter the ChatRoom ID
-# 3. Start chatting
-```
+Connect to Pantheon's web interface for a rich, interactive chat experience. The web UI provides real-time messaging, conversation history, and a polished interface that makes it easy for users to interact with your agents and teams.
 
 ### Creating ChatRooms
 
 #### Team ChatRoom
-ChatRoom with a team of agents:
-
-```python
-from pantheon.team import SequentialTeam
-
-# Create specialized agents
-researcher = Agent(
-    name="researcher",
-    instructions="Research and gather information."
-)
-
-writer = Agent(
-    name="writer",
-    instructions="Write clear, engaging content."
-)
-
-editor = Agent(
-    name="editor",
-    instructions="Edit and improve text."
-)
-
-# Create team
-team = SequentialTeam([researcher, writer, editor])
-
-# Create ChatRoom with team
-chatroom = ChatRoom(
-    name="Content Creation ChatRoom",
-    team=team,
-    description="Create high-quality content"
-)
-```
+ChatRooms can host teams of agents working together. This enables sophisticated multi-agent interactions where users can benefit from the combined expertise of multiple specialized agents, all through a single conversational interface.
 
 #### Configuration-based ChatRoom
-Create from YAML configuration:
-
-```yaml
-# chatroom_config.yaml
-name: "Customer Support ChatRoom"
-description: "24/7 AI customer support"
-
-agents:
-  - name: "greeter"
-    instructions: "Greet customers warmly and understand their needs."
-    model: "gpt-4o-mini"
-    
-  - name: "technical_support"
-    instructions: "Provide technical assistance and troubleshooting."
-    model: "gpt-4o"
-    tools:
-      - "search_knowledge_base"
-      - "create_ticket"
-
-team:
-  type: "swarm"
-  transfer_functions: true
-
-settings:
-  welcome_message: "Welcome! How can I help you today?"
-  session_timeout: 1800
-  max_message_length: 1000
-```
-
-```python
-# Load from configuration
-chatroom = ChatRoom.from_config("chatroom_config.yaml")
-await chatroom.start()
-```
+Create ChatRooms from configuration files for easy deployment and management. Configuration-based setup allows you to define complex agent systems declaratively, making it simple to version control, share, and deploy your ChatRoom configurations across different environments.

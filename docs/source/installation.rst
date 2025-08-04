@@ -11,21 +11,29 @@ Install from PyPI
 
 .. note::
 
-   Pantheon is not yet available on PyPI. Please use the source installation method below.
+   pantheon-agents is not yet available on PyPI. Please use the source installation method below.
 
 .. code-block:: bash
 
    pip install pantheon-agents  # Coming soon!
+   pip install pantheon-toolsets
 
 Install from Source
 ~~~~~~~~~~~~~~~~~~~
 
-For the latest development version:
+For the latest development version, install both pantheon-agents and pantheon-toolsets:
 
 .. code-block:: bash
 
+   # Install pantheon-agents
    git clone https://github.com/aristoteleo/pantheon-agents.git
    cd pantheon-agents
+   pip install -e .
+   cd ..
+   
+   # Install pantheon-toolsets
+   git clone https://github.com/aristoteleo/pantheon-toolsets.git
+   cd pantheon-toolsets
    pip install -e .
 
 Dependencies

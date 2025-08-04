@@ -2,6 +2,10 @@
 
 Pantheon is a distributed LLM-based multi-agent system framework that enables developers to build sophisticated AI applications with multiple collaborating agents. It provides a comprehensive set of tools and abstractions for creating, managing, and orchestrating AI agents in both local and distributed environments.
 
+:::{warning}
+**Development Status**: Pantheon is currently in active development. While it's functional and being used in research projects, please use caution when deploying to production environments. APIs may change in future releases.
+:::
+
 ---
 
 ## Quick Access

@@ -9,6 +9,15 @@ from ..utils.log import logger
 
 
 class Thread:
+    """A thread is a single chat in a chatroom.
+
+    Args:
+        team: The team to use for the thread.
+        memory: The memory to use for the thread.
+        message: The message to send to the thread.
+        run_hook_timeout: The timeout for the hook.
+        hook_retry_times: The number of times to retry the hook.
+    """
     def __init__(
             self,
             team: PantheonTeam,
@@ -29,12 +38,27 @@ class Thread:
         self._stop_flag = False
 
     def add_chunk_hook(self, hook: Callable):
+        """Add a chunk hook to the thread.
+
+        Args:
+            hook: The hook to add.
+        """
         self._process_chunk_hooks.append(hook)
 
     def add_step_message_hook(self, hook: Callable):
+        """Add a step message hook to the thread.
+
+        Args:
+            hook: The hook to add.
+        """
         self._process_step_message_hooks.append(hook)
 
     async def process_chunk(self, chunk: dict):
+        """Process a chunk of the thread.
+
+        Args:
+            chunk: The chunk to process.
+        """
         chunk["chat_id"] = self.memory.id
         _coros = []
         for hook in self._process_chunk_hooks:
@@ -59,6 +83,11 @@ class Thread:
         await asyncio.gather(*_coros)
 
     async def process_step_message(self, step_message: dict):
+        """Process a step message of the thread.
+
+        Args:
+            step_message: The step message to process.
+        """
         step_message["chat_id"] = self.memory.id
         _coros = []
         for hook in self._process_step_message_hooks:
@@ -77,6 +106,11 @@ class Thread:
         await asyncio.gather(*_coros)
 
     async def run(self):
+        """Run the thread.
+
+        Returns:
+            The response of the thread.
+        """
         try:
             if len(self.memory.get_messages()) == 0:
                 # summary to get new name using LLM
@@ -101,8 +135,18 @@ class Thread:
             self.response = {"success": False, "message": str(e), "chat_id": self.memory.id}
 
     def _check_stop(self, *args, **kwargs):
+        """Check if the thread should be stopped.
+
+        Returns:
+            Whether the thread should be stopped.
+        """
         return self._stop_flag
 
     async def stop(self):
+        """Stop the thread.
+
+        Returns:
+            The response of the thread.
+        """
         self._stop_flag = True
         

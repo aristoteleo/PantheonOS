@@ -32,18 +32,44 @@ __SKIP_PARAMS__ = [__CTX_VARS_NAME__, "__client_id__", "__agent_run__"]
 
 
 class ResponseDetails(BaseModel):
+    """
+    The ResponseDetails class is used to store the details of the agent response.
+
+    Args:
+        messages: The messages of the agent response.
+        context_variables: The context variables of the agent response.
+    """
     messages: list[dict]
     context_variables: dict
 
 
 class AgentResponse(BaseModel):
+    """
+    The AgentResponse class is used to store the agent response.
+
+    Args:
+        agent_name: The name of the agent.
+        content: The main final content of the agent response.
+        details: The details of the agent response, which contains the history of the agent response.
+        interrupt: Whether the agent is interrupted.
+    """
     agent_name: str
     content: Any
-    details: Any
+    details: ResponseDetails | None
     interrupt: bool = False
 
 
 class AgentTransfer(BaseModel):
+    """
+    The AgentTransfer class is used to transfer the agent response to another agent.
+
+    Args:
+        from_agent: The name of the agent that is transferring.
+        to_agent: The name of the agent that is receiving the transfer.
+        history: The history of the agent response.
+        context_variables: The context variables of the agent response.
+        init_message_length: The length of the initial message.
+    """
     from_agent: str
     to_agent: str
     history: list[dict]
@@ -552,6 +578,11 @@ class Agent:
             update_memory: Whether to update the short term memory.
             tool_timeout: The timeout for the tool.
             model: The model to use.
+
+        Returns:
+            The agent response. Either an AgentResponse or an AgentTransfer.
+            If the agent is interrupted, the AgentResponse will have the interrupt flag set to True.
+            If the agent is transferring to another agent, the AgentTransfer will be returned.
         """
         _use_m = self.use_memory
         if use_memory is not None:
