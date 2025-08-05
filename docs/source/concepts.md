@@ -28,29 +28,15 @@ An agent in Pantheon is:
 - **Stateful**: Maintains context and memory across interactions
 - **Collaborative**: Can work with other agents in teams
 
-### Core Components
-
 ![Agent Architecture](_static/Agent%20Loop.png)
 
-The diagram above illustrates the core agent architecture:
-- **Input/Output Flow**: Agents process input messages and generate outputs
-- **Memory Integration**: Optional memory system for context persistence
-- **Tool Execution**: Agents can invoke tools in parallel for enhanced capabilities
-- **Results Processing**: Tool results are integrated back into the agent's reasoning
+**Essentially, an Agent program is a loop that calls an LLM. In this loop, tool invocation is involved to interact with the external environment, and memory management is involved to save the results into the context.**
 
 #### Instructions
 Every agent has instructions that define its behavior and personality. These instructions serve as the agent's core directive, guiding its responses, approach, and interaction style. Well-crafted instructions are crucial for creating agents that behave consistently and effectively.
 
 #### Tools and Capabilities
 Agents become powerful through tools - functions that extend their abilities beyond pure conversation. Tools allow agents to interact with external systems, perform calculations, access databases, browse the web, execute code, and much more. The tool system is extensible, allowing you to add custom capabilities tailored to your specific needs.
-
-### Advanced Features
-
-#### Structured Output
-Agents can return structured data in predefined formats rather than free-form text. This capability is essential for building reliable systems where agents need to produce consistent, parseable outputs. By defining schemas for responses, you ensure that agent outputs can be directly integrated into your application logic without complex parsing.
-
-#### Remote Agents
-Agents can run on remote machines and be accessed over the network. This distributed architecture enables you to deploy resource-intensive agents on powerful servers, share agents across multiple applications, and build scalable multi-agent systems. Remote agents maintain all the capabilities of local agents while providing network accessibility.
 
 ---
 
@@ -157,8 +143,7 @@ Memory in Pantheon provides:
 - **Learning**: Agents can accumulate knowledge over time
 - **Sharing**: Multiple agents can access common information
 
-TODO
-
+---
 
 ## Toolset
 

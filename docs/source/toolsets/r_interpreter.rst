@@ -7,11 +7,12 @@ Overview
 --------
 
 Key features:
-- **Statistical Computing**: Full R environment for statistics
-- **Advanced Visualization**: ggplot2 and other R plotting libraries
-- **Package Ecosystem**: Access to CRAN packages
-- **Data Manipulation**: tidyverse tools for data wrangling
-- **Scientific Computing**: Specialized statistical methods
+
+* **Statistical Computing**: Full R environment for statistics
+* **Advanced Visualization**: ggplot2 and other R plotting libraries
+* **Package Ecosystem**: Access to CRAN packages
+* **Data Manipulation**: tidyverse tools for data wrangling
+* **Scientific Computing**: Specialized statistical methods
 
 Basic Usage
 -----------

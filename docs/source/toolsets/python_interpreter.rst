@@ -1,18 +1,25 @@
 Python Interpreter
 ==================
 
-The Python Interpreter toolset provides agents with the ability to execute Python code in a secure, sandboxed environment. This enables data analysis, computation, visualization, and complex problem-solving capabilities.
+The Python Interpreter toolset provides agents with the ability to execute Python code in isolated interpreter sessions. It supports both stateless execution and persistent sessions with state management.
 
 Overview
 --------
 
-Key features:
-- **Sandboxed Execution**: Safe, isolated Python environment
-- **Persistent Sessions**: Maintain state between executions
-- **Package Support**: Access to common data science libraries
-- **File I/O**: Read and write files within the sandbox
-- **Visualization**: Generate plots and charts
-- **Error Handling**: Graceful error recovery and reporting
+The ``PythonInterpreterToolSet`` provides three main tools:
+
+- **run_code**: Execute code in a new interpreter (stateless)
+- **run_code_in_interpreter**: Execute code in a specific interpreter session
+- **new_interpreter/delete_interpreter**: Manage interpreter lifecycle
+
+Key Features:
+
+- **Process Isolation**: Each interpreter runs in a separate process
+- **Session Management**: Maintain state across multiple executions
+- **Matplotlib Support**: Automatic plot capture and base64 encoding
+- **Error Handling**: Graceful error recovery with full tracebacks
+- **Echo Mode**: Expressions are automatically printed
+- **Working Directory**: Configurable working directory for file operations
 
 Basic Usage
 -----------
@@ -343,32 +350,3 @@ Performance Tips
 - Cache intermediate results
 - Use appropriate data structures
 - Profile code for bottlenecks
-
-Integration Examples
---------------------
-
-With File Tools
-~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   # Combine Python with file operations
-   analysis_agent = Agent(
-       name="file_analyst",
-       instructions="Analyze files using Python",
-       tools=[read_file, write_file]
-   )
-   await analysis_agent.remote_toolset(python_tools.service_id)
-
-With Web Tools
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   # Combine Python with web data
-   web_analyst = Agent(
-       name="web_analyst",
-       instructions="Fetch web data and analyze with Python",
-       tools=[fetch_url, parse_html]
-   )
-   await web_analyst.remote_toolset(python_tools.service_id)

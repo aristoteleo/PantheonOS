@@ -1,443 +1,319 @@
 RAG System (Auto-Build)
 =======================
 
-The RAG System provides a complete, automated solution for building retrieval-augmented generation systems. It handles document ingestion, processing, indexing, and intelligent retrieval with minimal configuration.
+The RAG System provides tools for automatically building vector databases from various sources including documentation websites, GitHub repositories, and local files. It features web crawling, document processing, and integration with Hugging Face for database distribution.
 
 Overview
 --------
 
-Key features:
-- **Auto-Configuration**: Automatically configures optimal settings
-- **Multi-Format Support**: Process PDFs, docs, web pages, and more
-- **Smart Chunking**: Intelligent document segmentation
-- **Auto-Indexing**: Automatic index building and optimization
-- **Query Understanding**: Advanced query preprocessing
-- **Source Tracking**: Maintain provenance for all information
+The RAG auto-build system (``pantheon.toolsets.utils.rag``) provides:
 
-Basic Usage
------------
+- **Automated Web Crawling**: Deep crawl documentation sites and extract content
+- **Multi-Source Support**: Build from websites, GitHub READMEs, and local files
+- **Vector Database Creation**: Automatic chunking and embedding with LanceDB
+- **Hugging Face Integration**: Upload and download pre-built databases
+- **Caching System**: Intelligent caching for embeddings and build progress
+- **YAML Configuration**: Define sources and parameters in YAML files
 
-Quick Start
-~~~~~~~~~~~
+Command Line Usage
+------------------
 
-.. code-block:: python
+Build from YAML Configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   from pantheon.toolsets.rag import AutoRAGSystem
-   from pantheon.agent import Agent
-   
-   # Initialize auto-build RAG system
-   rag_system = AutoRAGSystem(
-       name="auto_knowledge_base",
-       auto_configure=True
-   )
-   
-   # Create RAG agent
-   rag_agent = Agent(
-       name="auto_rag_assistant",
-       instructions="Use the automated RAG system to answer questions.",
-       model="gpt-4o"
-   )
-   await rag_agent.remote_toolset(rag_system.service_id)
-   
-   # Add documents automatically
-   await rag_agent.run([{
-       "role": "user",
-       "content": "Build a knowledge base from all documents in ./documents/"
-   }])
+Create a YAML file defining your sources::
 
-Auto Document Processing
-~~~~~~~~~~~~~~~~~~~~~~~~
+    # rag_config.yaml
+    python_docs:
+      type: vector_db
+      parameters:
+        embedding_model: text-embedding-3-large
+        chunk_size: 4000
+        chunk_overlap: 200
+      items:
+        python_official:
+          type: package documentation
+          url: https://docs.python.org/3/
+        numpy_docs:
+          type: package documentation  
+          url: https://numpy.org/doc/stable/
+        pandas_github:
+          type: github readme
+          url: https://raw.githubusercontent.com/pandas-dev/pandas/main/README.md
 
-.. code-block:: python
+Build the database::
 
-   # System automatically handles:
-   # 1. File type detection
-   # 2. Optimal chunking strategy
-   # 3. Metadata extraction
-   # 4. Embedding generation
-   # 5. Index optimization
-   
-   response = await rag_agent.run([{
-       "role": "user",
-       "content": "Index this collection of research papers, websites, and PDFs"
-   }])
+    python -m pantheon.toolsets.utils.rag build rag_config.yaml ./output_dir
 
-Advanced Features
------------------
-
-Intelligent Configuration
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   # Auto-configure based on use case
-   domain_rag = AutoRAGSystem(
-       name="domain_specific",
-       domain="medical",  # or "legal", "technical", "general"
-       auto_optimize=True
-   )
-   
-   # System automatically selects:
-   # - Appropriate embedding model
-   # - Optimal chunk size
-   # - Best retrieval strategy
-   # - Domain-specific preprocessing
-
-Multi-Source Integration
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   multi_source_rag = AutoRAGSystem(
-       name="unified_kb",
-       sources=[
-           {"type": "directory", "path": "./docs"},
-           {"type": "urls", "list": ["https://example.com/docs"]},
-           {"type": "database", "connection": "postgresql://..."},
-           {"type": "api", "endpoint": "https://api.example.com"}
-       ],
-       sync_interval=3600  # Auto-sync every hour
-   )
-
-Adaptive Learning
-~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   learning_rag = AutoRAGSystem(
-       name="adaptive_kb",
-       enable_learning=True,
-       feedback_loop=True
-   )
-   
-   adaptive_agent = Agent(
-       name="learning_assistant",
-       instructions="""Answer questions and learn from feedback:
-       1. Retrieve relevant information
-       2. Generate response
-       3. Collect user feedback
-       4. Update retrieval patterns"""
-   )
-
-Common Patterns
----------------
-
-Enterprise Knowledge Base
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   enterprise_rag = AutoRAGSystem(
-       name="company_kb",
-       sources=[
-           {"type": "sharepoint", "site": "https://company.sharepoint.com"},
-           {"type": "confluence", "space": "DOCS"},
-           {"type": "drive", "folder": "Company Docs"},
-           {"type": "slack", "channels": ["general", "engineering"]}
-       ],
-       security={
-           "authentication": "oauth",
-           "access_control": True,
-           "user_permissions": True
-       }
-   )
-   
-   corp_assistant = Agent(
-       name="corporate_assistant",
-       instructions="Answer questions using company knowledge base."
-   )
-
-Research Assistant
-~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   research_rag = AutoRAGSystem(
-       name="research_kb",
-       sources=[
-           {"type": "arxiv", "categories": ["cs.AI", "cs.LG"]},
-           {"type": "pubmed", "keywords": ["machine learning"]},
-           {"type": "directory", "path": "./papers"}
-       ],
-       features={
-           "citation_tracking": True,
-           "version_control": True,
-           "duplicate_detection": True
-       }
-   )
-
-Customer Support System
-~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   support_rag = AutoRAGSystem(
-       name="support_kb",
-       sources=[
-           {"type": "docs", "path": "./product_docs"},
-           {"type": "tickets", "system": "zendesk"},
-           {"type": "faqs", "url": "https://example.com/faq"}
-       ],
-       optimization="response_time",  # Optimize for quick answers
-       cache_popular=True
-   )
-
-Auto-Build Features
--------------------
-
-Smart Document Analysis
-~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   class SmartDocumentAnalyzer:
-       async def analyze_collection(self, documents):
-           """Analyze document collection for optimal configuration."""
-           analysis = {
-               "document_types": self.detect_types(documents),
-               "average_length": self.calculate_avg_length(documents),
-               "language": self.detect_languages(documents),
-               "complexity": self.assess_complexity(documents),
-               "topics": self.extract_topics(documents)
-           }
-           
-           # Generate optimal configuration
-           config = self.generate_config(analysis)
-           return config
-       
-       def generate_config(self, analysis):
-           """Generate optimal RAG configuration."""
-           if analysis["complexity"] == "high":
-               chunk_size = 300
-               overlap = 50
-               model = "text-embedding-3-large"
-           else:
-               chunk_size = 500
-               overlap = 25
-               model = "text-embedding-3-small"
-           
-           return {
-               "chunk_size": chunk_size,
-               "chunk_overlap": overlap,
-               "embedding_model": model,
-               "retrieval_strategy": self.select_strategy(analysis)
-           }
-
-Automatic Index Optimization
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   class AutoIndexOptimizer:
-       async def optimize(self, index, usage_patterns):
-           """Automatically optimize index based on usage."""
-           # Analyze query patterns
-           common_queries = self.analyze_queries(usage_patterns)
-           
-           # Optimize for common access patterns
-           if common_queries["type"] == "similarity":
-               await self.optimize_for_similarity(index)
-           elif common_queries["type"] == "exact":
-               await self.optimize_for_exact_match(index)
-           
-           # Adjust parameters
-           await self.tune_parameters(index, usage_patterns)
-
-Query Enhancement
-~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   query_enhancer = Agent(
-       name="query_enhancer",
-       instructions="""Enhance queries automatically:
-       1. Expand abbreviations
-       2. Add synonyms
-       3. Correct typos
-       4. Identify intent
-       5. Extract entities"""
-   )
-   
-   # Enhanced query processing
-   original_query = "ML perf in prod"
-   enhanced_queries = [
-       "machine learning performance in production",
-       "ML model performance production environment",
-       "machine learning production metrics"
-   ]
-
-Advanced Techniques
--------------------
-
-Hierarchical RAG
-~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   hierarchical_rag = AutoRAGSystem(
-       name="hierarchical_kb",
-       structure="hierarchical",
-       levels=[
-           {"name": "summary", "chunk_size": 1000},
-           {"name": "detailed", "chunk_size": 300},
-           {"name": "atomic", "chunk_size": 100}
-       ]
-   )
-   
-   # Multi-level retrieval
-   # 1. Search summaries for overview
-   # 2. Dive into detailed chunks
-   # 3. Extract atomic facts
-
-Graph-Enhanced RAG
-~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   graph_rag = AutoRAGSystem(
-       name="graph_kb",
-       enable_knowledge_graph=True,
-       graph_config={
-           "extract_entities": True,
-           "extract_relations": True,
-           "link_documents": True
-       }
-   )
-   
-   # Graph-aware retrieval
-   # - Follow entity relationships
-   # - Traverse document links
-   # - Aggregate connected information
-
-Time-Aware RAG
-~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   temporal_rag = AutoRAGSystem(
-       name="temporal_kb",
-       time_aware=True,
-       features={
-           "version_tracking": True,
-           "temporal_search": True,
-           "obsolescence_detection": True
-       }
-   )
-   
-   # Time-based queries
-   await agent.run([{
-       "role": "user",
-       "content": "What was our pricing strategy in Q2 2023?"
-   }])
-
-Performance & Monitoring
-------------------------
-
-Auto-Scaling
-~~~~~~~~~~~~
-
-.. code-block:: python
-
-   scalable_rag = AutoRAGSystem(
-       name="scalable_kb",
-       auto_scale={
-           "enabled": True,
-           "min_replicas": 1,
-           "max_replicas": 10,
-           "scale_metric": "query_latency",
-           "target_value": 100  # ms
-       }
-   )
-
-Quality Monitoring
-~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   monitored_rag = AutoRAGSystem(
-       name="monitored_kb",
-       monitoring={
-           "track_metrics": True,
-           "quality_checks": True,
-           "user_satisfaction": True
-       }
-   )
-   
-   # Automatic quality reports
-   quality_report = await monitored_rag.get_quality_metrics()
-   # - Retrieval accuracy
-   # - Response relevance
-   # - Coverage gaps
-   # - User feedback
-
-Continuous Improvement
+Upload to Hugging Face
 ~~~~~~~~~~~~~~~~~~~~~~
 
-.. code-block:: python
+Share your built database::
 
-   class ContinuousImprovementRAG:
-       async def improve_cycle(self):
-           """Continuous improvement loop."""
-           while True:
-               # Collect metrics
-               metrics = await self.collect_performance_metrics()
-               
-               # Identify improvements
-               improvements = await self.analyze_metrics(metrics)
-               
-               # Apply optimizations
-               for improvement in improvements:
-                   await self.apply_improvement(improvement)
-               
-               # A/B test changes
-               await self.ab_test_improvements()
-               
-               # Wait for next cycle
-               await asyncio.sleep(86400)  # Daily
+    # Set your Hugging Face token
+    export HUGGINGFACE_TOKEN=your_token_here
+    
+    # Upload to default repo (NaNg/pantheon_rag_db)
+    python -m pantheon.toolsets.utils.rag upload ./output_dir
+    
+    # Or specify custom repo
+    python -m pantheon.toolsets.utils.rag upload ./output_dir --repo-id your-username/your-repo
+
+Download Pre-built Database
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Download existing databases::
+
+    # Download from default repo
+    python -m pantheon.toolsets.utils.rag download ./local_dir
+    
+    # Download from custom repo
+    python -m pantheon.toolsets.utils.rag download ./local_dir --repo-id username/repo --filename custom.zip
+
+Programmatic Usage
+------------------
+
+Using VectorDB Class
+~~~~~~~~~~~~~~~~~~~~
+
+The ``VectorDB`` class provides direct access to vector database operations::
+
+    from pantheon.toolsets.utils.rag.vectordb import VectorDB
+    
+    # Load existing database
+    db = VectorDB("./output_dir/python_docs")
+    
+    # Query the database
+    results = await db.query(
+        query="How to use async functions in Python?",
+        top_k=5,
+        source="python_official"  # Optional: filter by source
+    )
+    
+    # Insert new content
+    await db.insert(
+        text="Your new content here",
+        metadata={"source": "custom", "date": "2024-01-01"}
+    )
+    
+    # Insert from file with automatic chunking
+    await db.insert_from_file(
+        file_path="./new_doc.md",
+        metadata={"source": "local_docs"}
+    )
+
+Building Programmatically
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Build databases from Python code::
+
+    from pantheon.toolsets.utils.rag.build import build_vector_db
+    
+    db_config = {
+        "type": "vector_db",
+        "parameters": {
+            "embedding_model": "text-embedding-3-large",
+            "chunk_size": 4000,
+            "chunk_overlap": 200
+        },
+        "items": {
+            "my_docs": {
+                "type": "package documentation",
+                "url": "https://mydocs.example.com"
+            }
+        }
+    }
+    
+    await build_vector_db("my_knowledge_base", db_config, "./output")
+
+Architecture Details
+--------------------
+
+Document Processing
+~~~~~~~~~~~~~~~~~~~
+
+The system supports three types of sources:
+
+1. **Package Documentation**: Deep crawls documentation websites
+2. **GitHub README**: Fetches README files from GitHub repositories  
+3. **Tutorial/Local Files**: Processes local markdown files
+
+Web Crawling
+~~~~~~~~~~~~
+
+Uses ``crawl4ai`` for intelligent web crawling::
+
+    - BFS (Breadth-First Search) strategy for deep crawling
+    - Configurable max depth and external link inclusion
+    - Automatic markdown extraction from HTML
+    - Duplicate detection via content hashing
+
+Text Processing
+~~~~~~~~~~~~~~~
+
+Smart text splitting with configurable parameters::
+
+    - Default chunk size: 4000 characters
+    - Default overlap: 200 characters
+    - Preserves context across chunks
+    - Handles markdown formatting
+
+Embedding and Storage
+~~~~~~~~~~~~~~~~~~~~~
+
+Efficient vector storage with LanceDB::
+
+    - Supports multiple embedding models (OpenAI text-embedding-3-*)
+    - Disk-based caching for embeddings
+    - PyArrow schema for structured storage
+    - Metadata tracking for each chunk
+
+Key Features
+------------
+
+Progress Tracking
+~~~~~~~~~~~~~~~~~
+
+The build system maintains progress state::
+
+    {
+        "item_name": {
+            "success": true,
+            "created_at": "2024-01-01T12:00:00",
+            "download_success": true
+        }
+    }
+
+Failed items can be retried without re-processing successful ones.
+
+Caching System
+~~~~~~~~~~~~~~
+
+Two-level caching for efficiency:
+
+1. **Embedding Cache**: Prevents redundant API calls
+2. **Build Cache**: Tracks processing status per source
+
+Source Types
+~~~~~~~~~~~~
+
+Supported source types in YAML configuration:
+
+- ``package documentation``: For documentation websites
+- ``github readme``: For GitHub repository READMEs
+- ``tutorial``: For collections of tutorial pages
+
+Example: Multi-Source Knowledge Base
+------------------------------------
+
+Create a comprehensive knowledge base::
+
+    # ml_knowledge.yaml
+    ml_frameworks:
+      type: vector_db
+      parameters:
+        embedding_model: text-embedding-3-large
+        chunk_size: 3000
+        chunk_overlap: 300
+      items:
+        pytorch_docs:
+          type: package documentation
+          url: https://pytorch.org/docs/stable/
+        tensorflow_docs:
+          type: package documentation
+          url: https://www.tensorflow.org/api_docs
+        scikit_learn:
+          type: package documentation
+          url: https://scikit-learn.org/stable/
+        transformers_github:
+          type: github readme
+          url: https://raw.githubusercontent.com/huggingface/transformers/main/README.md
+
+Build and use::
+
+    # Build the database
+    python -m pantheon.toolsets.utils.rag build ml_knowledge.yaml ./ml_db
+    
+    # Use in your application
+    from pantheon.toolsets.utils.rag.vectordb import VectorDB
+    
+    db = VectorDB("./ml_db/ml_frameworks")
+    results = await db.query("How to fine-tune BERT?", top_k=10)
+
+Integration with Vector RAG Toolset
+-----------------------------------
+
+Using with Agents
+~~~~~~~~~~~~~~~~~
+
+Combine the auto-built database with the Vector RAG toolset::
+
+    from pantheon.toolsets.vector_rag import VectorRAGToolSet
+    from pantheon.agent import Agent
+    
+    # Point to your built database
+    rag_toolset = VectorRAGToolSet(
+        name="ml_assistant",
+        db_path="./ml_db/ml_frameworks"
+    )
+    
+    # Create agent with RAG capabilities
+    agent = Agent(
+        name="ml_expert",
+        instructions="You are an ML expert. Use the knowledge base to answer questions.",
+        model="gpt-4.1"
+    )
+    
+    # Connect to toolset
+    await agent.remote_toolset(rag_toolset.service_id)
 
 Best Practices
 --------------
 
-1. **Start Simple**: Let auto-configuration handle initial setup
-2. **Monitor Usage**: Track what users search for
-3. **Regular Updates**: Keep knowledge base current
-4. **Quality Checks**: Periodically verify retrieval quality
-5. **User Feedback**: Incorporate user feedback for improvements
-6. **Security**: Implement appropriate access controls
+1. **Choose Appropriate Chunk Sizes**: 
+   - Larger chunks (3000-5000) for narrative content
+   - Smaller chunks (500-1500) for technical references
 
-Integration Examples
---------------------
+2. **Select Embedding Models Wisely**:
+   - ``text-embedding-3-large``: Best quality, higher cost
+   - ``text-embedding-3-small``: Good balance for most use cases
 
-Full-Stack Application
-~~~~~~~~~~~~~~~~~~~~~~
+3. **Organize Sources Logically**: Group related documentation in the same database
 
-.. code-block:: python
+4. **Monitor Build Progress**: Check ``info_cache.json`` for build status
 
-   # Complete RAG application
-   app_rag = AutoRAGSystem(
-       name="app_kb",
-       api_endpoint="/api/rag",
-       ui_enabled=True,
-       features={
-           "user_auth": True,
-           "rate_limiting": True,
-           "analytics": True
-       }
-   )
+5. **Use Hugging Face for Distribution**: Share pre-built databases to save compute
 
-Multi-Tenant System
-~~~~~~~~~~~~~~~~~~~
+6. **Regular Updates**: Rebuild databases periodically for fresh content
 
-.. code-block:: python
+Troubleshooting
+---------------
 
-   # Multi-tenant RAG
-   tenant_rag = AutoRAGSystem(
-       name="multitenant_kb",
-       multi_tenant=True,
-       isolation="strict",
-       tenant_config={
-           "separate_indices": True,
-           "shared_model": True,
-           "quota_management": True
-       }
-   )
+Common Issues
+~~~~~~~~~~~~~
+
+**Build Failures**::
+
+    - Check network connectivity for web crawling
+    - Verify URLs are accessible
+    - Review error messages in info_cache.json
+
+**Embedding Errors**::
+
+    - Ensure OPENAI_API_KEY is set
+    - Check API rate limits
+    - Verify model availability
+
+**Storage Issues**::
+
+    - Ensure sufficient disk space
+    - Check write permissions
+    - Clean old cache files if needed
+
+Performance Tips
+~~~~~~~~~~~~~~~~
+
+- Use embedding cache to avoid redundant API calls
+- Enable progress tracking to resume interrupted builds
+- Process multiple sources in parallel when possible
+- Consider using smaller embedding models for large datasets

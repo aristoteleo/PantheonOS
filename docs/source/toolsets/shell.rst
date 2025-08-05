@@ -7,11 +7,12 @@ Overview
 --------
 
 Key features:
-- **Command Execution**: Run shell commands safely
-- **File Operations**: Navigate and manipulate the file system
-- **Process Management**: Start, stop, and monitor processes
-- **Environment Control**: Manage environment variables
-- **Security**: Sandboxed execution with restrictions
+
+* **Command Execution**: Run shell commands safely
+* **File Operations**: Navigate and manipulate the file system
+* **Process Management**: Start, stop, and monitor processes
+* **Environment Control**: Manage environment variables
+* **Security**: Sandboxed execution with restrictions
 
 Basic Usage
 -----------

@@ -215,24 +215,38 @@ Create a YAML configuration file to define your ChatRoom:
 .. code-block:: yaml
 
    # chatroom_config.yaml
-   name: "Research Assistant ChatRoom"
-   description: "A chatroom with specialized research agents"
-   
-   agents:
-     - name: "researcher"
-       instructions: "You are an expert researcher who can search and analyze information."
-       model: "gpt-4.1"
-       tools:
-         - "web_search"
-         - "web_crawl"
-   
-     - name: "writer"
-       instructions: "You are a technical writer who creates clear documentation."
-       model: "gpt-4.1-mini"
-   
-   team:
-     type: "sequential"
-     agents: ["researcher", "writer"]
+   triage:
+      name: Triage Agent
+      instructions: |
+        You are the triage agent,
+        you should decide which agent to use based on the user's request.
+        If no related agent, you can do the task by yourself.
+      model: openai/gpt-4.1
+      icon: 🤖
+    
+    data_analysis:
+      name: Data Analysis Agent
+      instructions: |
+        You are a data analysis agent that can analyze data.
+        You can use the python_interpreter to analyze the data.
+        You can use the file_manager to manage the data and write code.
+        Give a task please list your plan with check points first,
+        then execute the plan step by step,
+        and give the summary in the end.
+      model: openai/gpt-4.1
+      icon: 📊
+      toolsets:
+        - python_interpreter
+        - file_manager
+    
+    web_search:
+      name: Web search
+      instructions: You are a web search agent that can search the web for information.
+      model: openai/gpt-4.1
+      icon: 🔍
+      toolsets:
+        - web_browse
+    
 
 Then start the ChatRoom with your configuration:
 

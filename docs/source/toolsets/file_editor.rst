@@ -7,11 +7,12 @@ Overview
 --------
 
 Key features:
-- **File Operations**: Read, write, append, and delete files
-- **Directory Management**: Create and navigate directories
-- **Safe Access**: Sandboxed to specific directories
-- **Format Support**: Handle various file formats
-- **Atomic Operations**: Ensure data integrity
+
+* **File Operations**: Read, write, append, and delete files
+* **Directory Management**: Create and navigate directories
+* **Safe Access**: Sandboxed to specific directories
+* **Format Support**: Handle various file formats
+* **Atomic Operations**: Ensure data integrity
 
 Basic Usage
 -----------

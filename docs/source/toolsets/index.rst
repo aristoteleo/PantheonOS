@@ -1,7 +1,7 @@
 Toolsets
 ========
 
-Toolsets extend agent capabilities by providing access to external functions, APIs, and services. They bridge the gap between AI reasoning and real-world actions, enabling agents to execute code, browse the web, manipulate files, and integrate with external systems.
+Toolsets extend agent capabilities by providing access to external functions, APIs, and services. They are provided by the ``pantheon-toolsets`` package and built on the Magique framework, running as independent services that agents can connect to remotely.
 
 .. toctree::
    :maxdepth: 2
@@ -9,22 +9,42 @@ Toolsets extend agent capabilities by providing access to external functions, AP
    builtin_toolsets
    rag_system
    custom_toolsets
+   magique_infrastructure
+
+Installation
+------------
+
+Toolsets are provided by the ``pantheon-toolsets`` package::
+
+    pip install pantheon-toolsets
+
+This package includes all built-in toolsets and the framework for creating custom toolsets.
 
 Overview
 --------
 
-Pantheon provides a comprehensive toolset ecosystem:
+Pantheon's toolset system is designed around a service-oriented architecture:
 
-- **Built-in Toolsets**: Production-ready tools for common tasks
-- **RAG System**: Advanced retrieval-augmented generation capabilities
-- **Custom Toolsets**: Framework for building domain-specific tools
+- **Service Model**: Each toolset runs as an independent service with its own process
+- **Remote Access**: Agents connect to toolsets via WebSocket using service IDs
+- **Tool Registration**: Methods decorated with ``@tool`` are automatically exposed
+- **Process Isolation**: Tools run in separate processes for security and stability
+
+Architecture
+------------
+
+The toolset system consists of three main components:
+
+1. **ToolSet Base Class**: Abstract base class that all toolsets inherit from
+2. **Tool Decorator**: Marks methods as tools with execution parameters
+3. **Service Infrastructure**: Handles registration, communication, and lifecycle
 
 Key Features
 ------------
 
-- **Async-First Design**: All operations are asynchronous for optimal performance
-- **Security**: Sandboxed execution environments protect your system
-- **Type Safety**: Full type hints and validation ensure reliability
-- **Remote Deployment**: Deploy toolsets as services for distributed architectures
-- **Composability**: Combine multiple toolsets for complex workflows
+- **Automatic Tool Discovery**: Methods with ``@tool`` decorator are automatically registered
+- **Flexible Execution**: Tools can run as local, thread, or process jobs
+- **Built-in Security**: Process isolation and sandboxed environments
+- **MCP Support**: Toolsets can be exposed as Model Context Protocol servers
+- **Lifecycle Management**: Proper setup and cleanup hooks for resource management
 

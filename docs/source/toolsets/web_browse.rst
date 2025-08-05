@@ -1,96 +1,74 @@
 Web Browse
 ==========
 
-The Web Browse toolset enables agents to search the web, fetch content from URLs, and extract information from web pages. This provides access to current information and online resources.
+The Web Browse toolset provides web search and content retrieval capabilities through the ``WebBrowseToolSet`` class. It includes DuckDuckGo search and web crawling functionality.
 
 Overview
 --------
 
-Key features:
-- **Web Search**: Search using DuckDuckGo and other engines
-- **Content Fetching**: Retrieve and parse web pages
-- **HTML Parsing**: Extract structured data from HTML
-- **Link Following**: Navigate through web pages
-- **Content Extraction**: Get clean text from web pages
+The ``WebBrowseToolSet`` provides two main tools:
 
-Basic Usage
------------
+- **duckduckgo_search**: Search the web using DuckDuckGo
+- **web_crawl**: Fetch and extract content from URLs
 
-Using Web Search
-~~~~~~~~~~~~~~~~
+Both tools run in thread mode for efficient I/O operations.
 
-.. code-block:: python
+Available as Standalone Functions
+---------------------------------
 
-   from pantheon.toolsets.web_browse import duckduckgo_search, web_crawl
-   from pantheon.agent import Agent
-   
-   # Create agent with web browsing capabilities
-   web_agent = Agent(
-       name="web_researcher",
-       instructions="You are a web researcher. Search for information and analyze web content.",
-       model="gpt-4o-mini",
-       tools=[duckduckgo_search, web_crawl]
-   )
-   
-   # Search the web
-   response = await web_agent.run([{
-       "role": "user",
-       "content": "Search for recent developments in quantum computing"
-   }])
+The web browse tools can also be used directly without a toolset::
 
-Fetching Web Content
-~~~~~~~~~~~~~~~~~~~~
+    from pantheon.toolsets.web_browse import duckduckgo_search, web_crawl
+    from pantheon.agent import Agent
+    
+    # Add as individual tools to an agent
+    agent = Agent(
+        name="researcher",
+        instructions="You can search the web and analyze content.",
+        tools=[duckduckgo_search, web_crawl]
+    )
 
-.. code-block:: python
+Running as a Service
+--------------------
 
-   # Fetch and analyze specific URL
-   response = await web_agent.run([{
-       "role": "user",
-       "content": "Analyze the content at https://example.com/article"
-   }])
-   
-   # Agent will:
-   # 1. Fetch the URL using web_crawl
-   # 2. Parse the HTML content
-   # 3. Extract relevant information
-   # 4. Provide analysis
+Deploy the toolset as a service::
+
+    # Command line
+    python -m pantheon.toolsets.web_browse --service-name web_tools
+    
+    # Programmatic
+    from pantheon.toolsets.web_browse import WebBrowseToolSet
+    
+    toolset = WebBrowseToolSet("web_browse")
+    await toolset.run()
 
 Available Tools
 ---------------
 
-DuckDuckGo Search
+duckduckgo_search
 ~~~~~~~~~~~~~~~~~
 
-.. code-block:: python
+Search the web using DuckDuckGo::
 
-   async def duckduckgo_search(
-       query: str,
-       max_results: int = 5,
-       region: str = "us-en"
-   ) -> List[Dict[str, str]]:
-       """
-       Search DuckDuckGo for information.
-       
-       Returns:
-           List of search results with title, url, and snippet
-       """
+    Parameters:
+        query (str): The search query
+        max_results (int): Maximum number of results (default: 10)
+        time_limit (str | None): Time limit - "d" (day), "w" (week), "m" (month), "y" (year)
+    
+    Returns:
+        List of search results with title, href, and body
 
-Web Crawl
+web_crawl
 ~~~~~~~~~
 
-.. code-block:: python
+Fetch and extract content from URLs::
 
-   async def web_crawl(
-       url: str,
-       max_depth: int = 0,
-       extract_links: bool = False
-   ) -> Dict[str, Any]:
-       """
-       Fetch and parse web page content.
-       
-       Returns:
-           Dictionary with content, title, links, and metadata
-       """
+    Parameters:
+        urls (list[str]): List of URLs to crawl
+        timeout (float): Request timeout in seconds (default: 20.0)
+    
+    Returns:
+        List of extracted content from each URL
 
 Advanced Features
 -----------------
