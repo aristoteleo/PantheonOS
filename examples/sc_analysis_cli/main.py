@@ -7,11 +7,12 @@ from pantheon.toolsets.python import PythonInterpreterToolSet
 from pantheon.toolsets.file_editor import FileEditorToolSet
 from pantheon.toolsets.code_search import CodeSearchToolSet
 from pantheon.toolsets.notebook import NotebookToolSet
+from pantheon.toolsets.web import WebToolSet
 from pantheon.agent import Agent
 
 
 async def main(path_to_rag_db: str):
-    scraper_toolset = ScraperToolSet("scraper")
+    #scraper_toolset = ScraperToolSet("scraper")
     shell_toolset = ShellToolSet("shell")
     python_toolset = PythonInterpreterToolSet("python")
     vector_rag_toolset = VectorRAGToolSet(
@@ -22,6 +23,7 @@ async def main(path_to_rag_db: str):
     file_editor = FileEditorToolSet("file_editor", workspace_path=workspace)
     code_search = CodeSearchToolSet("code_search", workspace_path=workspace)
     notebook = NotebookToolSet("notebook", workspace_path=workspace)
+    web = WebToolSet("web")
 
     instructions = """
     You are a CLI assistant for Single-Cell/Spatial genomics analysis with multiple tool capabilities.
@@ -58,6 +60,10 @@ async def main(path_to_rag_db: str):
     - delete_notebook_cell: Remove cells from notebook
     - create_notebook: Create new Jupyter notebooks
     
+    Use WEB operations for online content:
+    - web_fetch: Fetch and display web page content (like Claude Code's WebFetch)
+    - web_search: Search the web using DuckDuckGo (like Claude Code's WebSearch)
+    
     SEARCH PRIORITY RULES:
     - Use "grep" for ANY content search (even in single files)
     - Use "search_in_file" ONLY when specifically asked to search within one known file
@@ -80,6 +86,8 @@ async def main(path_to_rag_db: str):
     - "create a plot" → Use Python: run_code tool
     - "run STAR alignment" → Use shell commands
     - "analyze expression data" → Use Python: run_code tool
+    - "查询网页内容" → Use web: web_fetch tool
+    - "搜索相关信息" → Use web: web_search tool
     
     Workflow:
     1. Understand the request type
@@ -98,13 +106,14 @@ async def main(path_to_rag_db: str):
         model="gpt-4.1",
     )
     #general tools
-    agent.toolset(scraper_toolset)
+    #agent.toolset(scraper_toolset)
     agent.toolset(shell_toolset)
     agent.toolset(python_toolset)
     agent.toolset(vector_rag_toolset)
     agent.toolset(file_editor)
     agent.toolset(code_search)
     agent.toolset(notebook)
+    agent.toolset(web)
 
     await agent.chat()
 
