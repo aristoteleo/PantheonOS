@@ -2,6 +2,7 @@ import asyncio
 import sys
 import time
 import json
+import signal
 from datetime import datetime
 import os
 from pathlib import Path
@@ -61,6 +62,7 @@ class Repl:
         # Processing status tracking
         self._current_live_display = None
         self._tools_executing = False
+        self._current_agent_task = None
         
         # Setup history file
         self.history_file = Path.home() / ".pantheon_history"
@@ -75,6 +77,9 @@ class Repl:
         # Setup input system
         self._setup_input_system()
         self._load_history()
+        
+        # Setup signal handlers for better interrupt handling
+        self._setup_signal_handlers()
         
         # Simple fixed input panel at bottom
         self.input_panel = Panel(
@@ -98,6 +103,43 @@ class Repl:
     def _setup_shell_toolset_callback(self):
         """Setup shell toolset callback - simplified"""
         pass
+        
+    def _setup_signal_handlers(self):
+        """Setup signal handlers for better interrupt management"""
+        self._interrupt_count = 0
+        self._last_interrupt_time = 0
+        
+        def signal_handler(signum, frame):
+            import time
+            current_time = time.time()
+            
+            # If interrupts come within 2 seconds of each other, count them
+            if current_time - self._last_interrupt_time < 2.0:
+                self._interrupt_count += 1
+            else:
+                self._interrupt_count = 1
+                
+            self._last_interrupt_time = current_time
+            
+            # Show cancellation message for first interrupt
+            if self._interrupt_count == 1:
+                self.console.print("\n[yellow]Operation interrupted - press Ctrl+C again within 2 seconds to force exit[/yellow]")
+                # Try to cancel the current agent task if it exists
+                if hasattr(self, '_current_agent_task') and self._current_agent_task and not self._current_agent_task.done():
+                    try:
+                        self._current_agent_task.cancel()
+                    except Exception:
+                        pass  # Ignore errors during cancellation
+            elif self._interrupt_count >= 2:
+                self.console.print("\n[red]Force exit requested[/red]")
+                sys.exit(1)
+            
+            # For first interrupt, let KeyboardInterrupt be raised normally
+            # This allows the normal interrupt handling to work
+        
+        # Only set up signal handler on Unix-like systems
+        if hasattr(signal, 'SIGINT'):
+            signal.signal(signal.SIGINT, signal_handler)
 
     async def print_greeting(self):
         await print_banner(self.console)
@@ -188,6 +230,17 @@ class Repl:
         
     def print_tool_result(self, tool_name: str, result: dict):
         """Print tool result in Claude Code style with diff support"""
+        
+        # Mark that tool execution is complete
+        self._tools_executing = False
+        
+        # Special handling for toolsets that print their own output - skip normal output box
+        skip_tools = ['edit', 'write', 'read', 'file', 'glob', 'grep', 'ls', 'notebook']
+        if any(tool in tool_name.lower() for tool in skip_tools) and isinstance(result, dict):
+            if result.get('success'):
+                # For successful operations, don't show any output box
+                # The content was already printed by the toolset
+                return
 
         # Show tool output in Claude Code style
         if isinstance(result, dict) and 'output' in result:
@@ -203,7 +256,7 @@ class Repl:
             max_width = min(79, max(len(line) for line in lines) + 4)
             
             self.console.print("╭" + "─" * (max_width - 2) + "╮")
-            self.console.print("│ [bold]Output[/bold]" + " " * (max_width - 11) + "│")
+            self.console.print("│ [bold]Output[/bold]" + " " * (max_width - 9) + "│")
             self.console.print("├" + "─" * (max_width - 2) + "┤")
             
             for line in lines:
@@ -330,7 +383,13 @@ class Repl:
                 user_input = input()
             
             return user_input.strip()
-        except (KeyboardInterrupt, EOFError):
+            
+        except KeyboardInterrupt:
+            # Show feedback and return empty string so REPL continues instead of exiting
+            self.console.print("\n[dim]Ctrl+C pressed - operation cancelled[/dim]")
+            return ""
+        except EOFError:
+            # EOF should still exit the program
             raise
     
     def _estimate_tokens(self, text: str) -> int:
@@ -480,10 +539,24 @@ class Repl:
                     self._current_live_display = processing_live
                     
                     # Process with agent - tool outputs will display independently
-                    await self.agent.run(
-                        current_message,
-                        process_chunk=smart_process_chunk,
+                    # Create a cancellable task for the agent processing
+                    agent_task = asyncio.create_task(
+                        self.agent.run(
+                            current_message,
+                            process_chunk=smart_process_chunk,
+                        )
                     )
+                    
+                    # Store the task so it can be cancelled on interrupt
+                    self._current_agent_task = agent_task
+                    
+                    try:
+                        await agent_task
+                    except asyncio.CancelledError:
+                        self.console.print("\n[yellow]Operation was cancelled[/yellow]")
+                        raise KeyboardInterrupt
+                    finally:
+                        self._current_agent_task = None
                     
                     # Final output token calculation
                     if content_buffer:
@@ -496,7 +569,16 @@ class Repl:
                     self.message_count += 1
                     
                 except KeyboardInterrupt:
-                    self.console.print("\n[yellow]Interrupted by user[/yellow]")
+                    #self.console.print("\n[yellow]Operation cancelled by user[/yellow]")
+                    # Reset interrupt counter since we handled it gracefully
+                    self._interrupt_count = 0
+                    # Cancel any running agent task
+                    if self._current_agent_task and not self._current_agent_task.done():
+                        self._current_agent_task.cancel()
+                        try:
+                            await self._current_agent_task
+                        except asyncio.CancelledError:
+                            pass
                     current_message = None  # Reset to get new input
                     continue
                 except Exception as e:
@@ -507,6 +589,10 @@ class Repl:
                     processing_live.stop()
                     self._tools_executing = False
                     self._current_live_display = None
+                    # Clean up agent task reference
+                    if self._current_agent_task and not self._current_agent_task.done():
+                        self._current_agent_task.cancel()
+                    self._current_agent_task = None
             finally:
                 # Ensure processing is stopped
                 if 'processing_live' in locals():
@@ -538,8 +624,9 @@ class Repl:
         self.console.print("[dim]/history[/dim] - Show command history")
         self.console.print("[dim]/tokens[/dim] - Token usage analysis")  
         self.console.print("[dim]/clear[/dim] - Clear screen")
-        self.console.print("[dim]/exit[/dim] - Exit")
-        self.console.print("[dim]Ctrl+C[/dim] - Interrupt/Exit")
+        self.console.print("[dim]/exit[/dim] - Exit cleanly")
+        self.console.print("[dim]Ctrl+C[/dim] - Cancel current operation")
+        self.console.print("[dim]Ctrl+C x2[/dim] - Force exit (within 2 seconds)")
         
         if READLINE_AVAILABLE:
             self.console.print("\n[bold]Navigation:[/bold]")
