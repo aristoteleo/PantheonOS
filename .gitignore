@@ -173,3 +173,4 @@ try/
 .pantheon-chatroom*/
 .pantheon-chatroom-workspace*/
 tmp/
+test*
