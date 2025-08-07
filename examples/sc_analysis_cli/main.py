@@ -1,6 +1,6 @@
 import fire
 from pathlib import Path
-from pantheon.toolsets.scraper import ScraperToolSet
+#from pantheon.toolsets.scraper import ScraperToolSet
 from pantheon.toolsets.shell import ShellToolSet
 from pantheon.toolsets.vector_rag import VectorRAGToolSet
 from pantheon.toolsets.python import PythonInterpreterToolSet
