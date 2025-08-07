@@ -81,6 +81,52 @@ def desc_to_openai_dict(
     return func_dict
 
 
+def print_agent_message_modern_style(
+        agent_name: str,
+        message: dict,
+        console: Console | None = None,
+        show_tool_details: bool = False,
+        max_content_length: int | None = 800,
+    ):
+    
+    if console is None:
+        console = Console()
+    
+    # Handle tool calls with minimal visual noise
+    if tool_calls := message.get("tool_calls"):
+        for call in tool_calls:
+            tool_name = call.get('function', {}).get('name')
+            if tool_name:
+                console.print(f"[dim]\u25b6 Using {tool_name}[/dim]")
+                if show_tool_details:
+                    args = call.get('function', {}).get('arguments', '')
+                    if args:
+                        console.print(f"[dim]  {args[:200]}{'...' if len(args) > 200 else ''}[/dim]")
+    
+    # Handle tool responses with clean formatting  
+    elif message.get("role") == "tool":
+        content = message.get("content", "")
+        if max_content_length and len(content) > max_content_length:
+            content = content[:max_content_length] + "..."
+        
+        # Try to format nicely based on content type
+        try:
+            import json
+            parsed = json.loads(content)
+            from rich.syntax import Syntax
+            formatted = json.dumps(parsed, indent=2)
+            console.print(Syntax(formatted, "json", theme="monokai", line_numbers=False))
+        except:
+            console.print(f"[dim]{content}[/dim]")
+    
+    # Handle assistant messages with markdown
+    elif message.get("role") == "assistant" and message.get("content"):
+        content = message.get("content")
+        if content.strip():
+            markdown = Markdown(content)
+            console.print(markdown)
+
+
 def print_agent_message(
         agent_name: str,
         message: dict,
