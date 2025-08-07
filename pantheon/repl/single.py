@@ -190,7 +190,7 @@ class Repl:
         """Print tool result in Claude Code style with diff support"""
         
         # Special handling for toolsets that print their own output - skip normal output box
-        skip_tools = ['edit', 'write', 'read', 'file', 'glob', 'grep', 'ls']
+        skip_tools = ['edit', 'write', 'read', 'file', 'glob', 'grep', 'ls', 'notebook']
         if any(tool in tool_name.lower() for tool in skip_tools) and isinstance(result, dict):
             if result.get('success'):
                 # For successful operations, don't show any output box
