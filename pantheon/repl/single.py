@@ -120,33 +120,104 @@ class Repl:
         self.console.print()
 
     def print_tool_call(self, tool_name: str, args: dict = None):
-        """Print tool call in simple style (toolsets handle their own display)"""
+        """Print tool call in Claude Code style with fancy boxes"""
         # Mark that tools are executing
         self._tools_executing = True
         
-        # Python and Shell toolsets now handle their own Claude Code style display
-        # Shell tools: run_command, run_command_in_shell, new_shell, close_shell, get_shell_output
-        # Python tools: run_code, run_code_in_interpreter
-        shell_tools = ["run_command", "run_command_in_shell", "new_shell", "close_shell", "get_shell_output"]
-        python_tools = ["run_code", "run_code_in_interpreter"]
+        self.console.print()  # Add some space
         
-        if tool_name not in shell_tools + python_tools:
-            self.console.print(f"[dim]▶ Using {tool_name}[/dim]")
+        # Claude Code style tool call display
+        if tool_name in ["run_code", "run_code_in_interpreter"] and args and 'code' in args:
+            # Special handling for Python code execution (native Python toolset)
+            self.console.print("⏺ [bold]Python[/bold]")
+            
+            # Create a fancy code block
+            code = args['code']
+            lines = code.split('\n')
+            
+            # Create the box
+            self.console.print("╭" + "─" * 79 + "╮")
+            self.console.print("│ [bold]Run Python code[/bold]" + " " * 58 + "│")
+            self.console.print("│ ╭" + "─" * 75 + "╮ │")
+
+            # Limit display lines (show first 10 + last 10 if > 20 lines)
+            max_display_lines = 20
+            if len(lines) <= max_display_lines:
+                # Show all lines
+                display_lines = lines
+            else:
+                # Show first 10, ellipsis, last 10
+                first_lines = lines[:10]
+                last_lines = lines[-10:]
+                display_lines = first_lines + [f"... (showing 20 of {len(lines)} lines) ..."] + last_lines
+            
+            for line in display_lines:
+                # Truncate long lines and pad short ones
+                display_line = line[:75] if len(line) <= 75 else line[:72] + "..."
+                padded_line = display_line.ljust(75)
+                self.console.print(f"│ │ {padded_line} │ │")
+            
+            self.console.print("│ ╰" + "─" * 75 + "╯ │")
+            self.console.print("╰" + "─" * 79 + "╯")
+            
+        elif tool_name in ["run_command", "run_command_in_shell"] and args and 'command' in args:
+            # Shell command execution
+            command = args['command']
+            self.console.print(f"⏺ [bold]Bash[/bold]({command})")
+            
+        else:
+            # Generic tool call
+            if args:
+                # Try to show the most relevant argument
+                key_arg = None
+                if 'file_path' in args:
+                    key_arg = f"file_path='{args['file_path']}'"
+                elif 'pattern' in args:
+                    key_arg = f"pattern='{args['pattern']}'"
+                elif 'query' in args:
+                    key_arg = f"query='{args['query'][:50]}...'" if len(str(args['query'])) > 50 else f"query='{args['query']}'"
+                
+                if key_arg:
+                    self.console.print(f"⏺ [bold]{tool_name}[/bold]({key_arg})")
+                else:
+                    self.console.print(f"⏺ [bold]{tool_name}[/bold](...)")
+            else:
+                self.console.print(f"⏺ [bold]{tool_name}[/bold]()")
+        
+        self.console.print()  # Add space after tool call
         
     def print_tool_result(self, tool_name: str, result: dict):
-        """Print tool result (toolsets handle their own display)"""
-        # Python and Shell toolsets now handle their own results display
-        # Shell tools: run_command, run_command_in_shell, new_shell, close_shell, get_shell_output
-        # Python tools: run_code, run_code_in_interpreter
-        shell_tools = ["run_command", "run_command_in_shell", "new_shell", "close_shell", "get_shell_output"]
-        python_tools = ["run_code", "run_code_in_interpreter"]
+        """Print tool result in Claude Code style with diff support"""
+
+        # Show tool output in Claude Code style
+        if isinstance(result, dict) and 'output' in result:
+            output = result['output']
+        elif isinstance(result, dict) and 'result' in result:
+            output = result['result']
+        else:
+            output = str(result)
         
-        if tool_name not in shell_tools + python_tools:
-            # Generic tool result handling for other tools
-            result_str = str(result)
-            if len(result_str) > 1000:
-                result_str = result_str[:1000] + "..."
-            self.console.print(f"[dim]{result_str}[/dim]")
+        if output and output.strip():
+            # Create a Claude Code style output box
+            lines = output.strip().split('\n')
+            max_width = min(79, max(len(line) for line in lines) + 4)
+            
+            self.console.print("╭" + "─" * (max_width - 2) + "╮")
+            self.console.print("│ [bold]Output[/bold]" + " " * (max_width - 11) + "│")
+            self.console.print("├" + "─" * (max_width - 2) + "┤")
+            
+            for line in lines:
+                # Handle long lines
+                if len(line) > max_width - 4:
+                    padded_line = line[:max_width - 7] + "..."
+                else:
+                    padded_line = line
+                
+                padding = max_width - len(padded_line) - 4
+                self.console.print(f"│ {padded_line}" + " " * padding + " │")
+            
+            self.console.print("╰" + "─" * (max_width - 2) + "╯")
+            self.console.print()  # Add space after output
 
     async def print_message(self):
         """Enhanced message handler with Claude Code style formatting"""
@@ -170,22 +241,16 @@ class Repl:
                 tool_name = message.get("tool_name", "")
                 content = message.get("content", "")
                 
-                # Shell and Python tools handle their own display, skip raw output
-                shell_tools = ["run_command", "run_command_in_shell", "new_shell", "close_shell", "get_shell_output"]
-                python_tools = ["run_code", "run_code_in_interpreter"]
-                
-                if tool_name in shell_tools + python_tools:
-                    # Skip displaying results for shell/python tools - they handle their own display
-                    pass
-                else:
-                    try:
-                        # Try to parse as JSON for structured results
-                        result = json.loads(content)
-                        self.print_tool_result(tool_name, result)
-                    except:
-                        # Fallback to raw content for other tools
-                        if content.strip():
-                            self.console.print(f"[dim]{content}[/dim]")
+                # Show tool results in Claude Code style
+                try:
+                    # Try to parse as JSON for structured results
+                    result = json.loads(content)
+                    self.print_tool_result(tool_name, result)
+                except:
+                    # Fallback for plain text results
+                    if content.strip():
+                        # Create a simple output display for non-JSON results
+                        self.print_tool_result(tool_name, {"output": content})
                 continue
                 
             # Skip assistant messages - we handle them in main loop via content_buffer
@@ -212,6 +277,14 @@ class Repl:
             # Simple readline configuration for better user experience
             readline.parse_and_bind("tab: complete")
             readline.parse_and_bind("set completion-ignore-case on")
+            
+            # Configure readline to prevent prompt corruption
+            readline.set_startup_hook(None)
+            readline.set_pre_input_hook(None)
+            
+            # Ensure proper history navigation
+            readline.parse_and_bind("\"\\e[A\": previous-history")
+            readline.parse_and_bind("\"\\e[B\": next-history")
     
     def _load_history(self):
         """Load command history from file"""
@@ -247,11 +320,14 @@ class Repl:
     def ask_user_input(self) -> str:
         """Get user input with simple input panel"""
         try:
-            # Show input panel
-            self.show_input_panel()
-            
-            # Get input from user
-            user_input = Prompt.ask("[bright_blue]>[/bright_blue]", console=self.console)
+            if READLINE_AVAILABLE:
+                # Use simple prompt without ANSI codes that might confuse readline
+                prompt_text = "> "
+                user_input = input(prompt_text)
+            else:
+                # Fallback for systems without readline
+                self.console.print("[bright_blue]>[/bright_blue]", end=" ")
+                user_input = input()
             
             return user_input.strip()
         except (KeyboardInterrupt, EOFError):
@@ -400,6 +476,9 @@ class Repl:
                         if not self._tools_executing:
                             update_processing_status()
                     
+                    # Store processing_live reference for tool calls
+                    self._current_live_display = processing_live
+                    
                     # Process with agent - tool outputs will display independently
                     await self.agent.run(
                         current_message,
@@ -427,6 +506,7 @@ class Repl:
                     # Stop processing display
                     processing_live.stop()
                     self._tools_executing = False
+                    self._current_live_display = None
             finally:
                 # Ensure processing is stopped
                 if 'processing_live' in locals():
