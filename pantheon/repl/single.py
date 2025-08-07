@@ -187,7 +187,8 @@ class Repl:
         self.console.print()  # Add space after tool call
         
     def print_tool_result(self, tool_name: str, result: dict):
-        """Print tool result in Claude Code style"""
+        """Print tool result in Claude Code style with diff support"""
+
         # Show tool output in Claude Code style
         if isinstance(result, dict) and 'output' in result:
             output = result['output']
@@ -276,6 +277,14 @@ class Repl:
             # Simple readline configuration for better user experience
             readline.parse_and_bind("tab: complete")
             readline.parse_and_bind("set completion-ignore-case on")
+            
+            # Configure readline to prevent prompt corruption
+            readline.set_startup_hook(None)
+            readline.set_pre_input_hook(None)
+            
+            # Ensure proper history navigation
+            readline.parse_and_bind("\"\\e[A\": previous-history")
+            readline.parse_and_bind("\"\\e[B\": next-history")
     
     def _load_history(self):
         """Load command history from file"""
@@ -311,16 +320,12 @@ class Repl:
     def ask_user_input(self) -> str:
         """Get user input with simple input panel"""
         try:
-            # Show input panel
-            #self.show_input_panel()
-            
             if READLINE_AVAILABLE:
-                # Use readline with proper prompt that won't be deleted
-                prompt_text = "\033[94m>\033[0m "  # Blue prompt with ANSI codes
+                # Use simple prompt without ANSI codes that might confuse readline
+                prompt_text = "> "
                 user_input = input(prompt_text)
             else:
                 # Fallback for systems without readline
-                # Use Rich console but protect the prompt
                 self.console.print("[bright_blue]>[/bright_blue]", end=" ")
                 user_input = input()
             

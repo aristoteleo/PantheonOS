@@ -1,8 +1,10 @@
 import fire
+from pathlib import Path
 from pantheon.toolsets.scraper import ScraperToolSet
 from pantheon.toolsets.shell import ShellToolSet
 from pantheon.toolsets.vector_rag import VectorRAGToolSet
 from pantheon.toolsets.python import PythonInterpreterToolSet
+from pantheon.toolsets.file_editor import FileEditorToolSet
 from pantheon.agent import Agent
 
 
@@ -14,6 +16,8 @@ async def main(path_to_rag_db: str):
         "vector_rag",
         db_path=path_to_rag_db,
     )
+    workspace = Path.cwd()  # Use current directory as workspace
+    file_editor = FileEditorToolSet("file_editor", workspace_path=workspace)
 
     instructions = """
     You are a CLI assistant for Single-Cell/Spatial genomics analysis with multiple tool capabilities.
@@ -63,6 +67,7 @@ async def main(path_to_rag_db: str):
     agent.toolset(shell_toolset)
     agent.toolset(python_toolset)
     agent.toolset(vector_rag_toolset)
+    agent.toolset(file_editor)
 
     await agent.chat()
 
