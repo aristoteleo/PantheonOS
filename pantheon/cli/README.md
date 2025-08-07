@@ -30,11 +30,24 @@ python -m pantheon.cli --rag-db path/to/rag/database
 
 Default RAG database location: `tmp/sc_cli_tools_rag/single-cell-cli-tools`
 
+## RAG System Setup
+
+To use the RAG knowledge base, build it from the provided configuration:
+
+```bash
+python -m pantheon.toolsets.utils.rag build \
+    pantheon/cli/rag_system_config.yaml \
+    tmp/pantheon_cli_tools_rag
+```
+
+This creates a vector database at `tmp/pantheon_cli_tools_rag/pantheon-cli-tools` with genomics tools documentation.
+
+
 ### Command Line Options
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--rag-db` | Path to RAG database | `tmp/sc_cli_tools_rag/single-cell-cli-tools` |
+| `--rag-db` | Path to RAG database | `tmp/pantheon_cli_tools_rag/pantheon-cli-tools` |
 | `--model` | AI model to use | `gpt-4.1` |
 | `--agent-name` | Name of the agent | `sc_cli_bot` |
 | `--workspace` | Working directory | Current directory |
@@ -73,19 +86,12 @@ python -m pantheon.cli --rag-db /path/to/rag/db
 python -m pantheon.cli --instructions "You are a specialized bioinformatics assistant..."
 ```
 
-## Features
 
-- 🚀 Fast startup with sensible defaults
-- 🔧 Modular toolset architecture
-- 📊 Single-cell genomics specialized
-- 🌐 Web search and fetch capabilities
-- 📓 Jupyter notebook support
-- 🔍 Advanced code search
-- 💾 RAG knowledge base integration
+
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - Required packages: `fire`, `pantheon-toolsets`, `pantheon-agents`
 - Optional: `ddgs` for web search, `nbformat` for notebooks
 
@@ -95,3 +101,4 @@ python -m pantheon.cli --instructions "You are a specialized bioinformatics assi
 2. Use `--disable-*` flags to reduce memory usage if you don't need certain tools
 3. The workspace defaults to current directory but can be changed with `--workspace`
 4. Custom instructions can completely change the agent's behavior
+

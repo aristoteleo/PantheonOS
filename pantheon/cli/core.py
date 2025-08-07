@@ -107,7 +107,7 @@ async def main(
     Start the Pantheon CLI assistant.
     
     Args:
-        rag_db: Path to RAG database (default: tmp/sc_cli_tools_rag/single-cell-cli-tools)
+        rag_db: Path to RAG database (default: tmp/pantheon_cli_tools_rag/pantheon-cli-tools)
         model: Model to use (default: gpt-4.1)
         agent_name: Name of the agent (default: sc_cli_bot)
         workspace: Workspace directory (default: current directory)
@@ -118,11 +118,12 @@ async def main(
     """
     # Set default RAG database path if not provided
     if rag_db is None and not disable_rag:
-        default_rag = Path("tmp/sc_cli_tools_rag/single-cell-cli-tools")
+        default_rag = Path("tmp/pantheon_cli_tools_rag/pantheon-cli-tools")
         if default_rag.exists():
             rag_db = str(default_rag)
         else:
             print(f"[Warning] Default RAG database not found at {default_rag}")
+            print("Run: python -m pantheon.toolsets.utils.rag build pantheon/cli/rag_system_config.yaml tmp/pantheon_cli_tools_rag")
             print("RAG toolset will be disabled. To enable, provide --rag-db path")
             disable_rag = True
     
