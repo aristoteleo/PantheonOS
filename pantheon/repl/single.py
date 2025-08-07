@@ -139,8 +139,19 @@ class Repl:
             self.console.print("╭" + "─" * 79 + "╮")
             self.console.print("│ [bold]Run Python code[/bold]" + " " * 58 + "│")
             self.console.print("│ ╭" + "─" * 75 + "╮ │")
+
+            # Limit display lines (show first 10 + last 10 if > 20 lines)
+            max_display_lines = 20
+            if len(lines) <= max_display_lines:
+                # Show all lines
+                display_lines = lines
+            else:
+                # Show first 10, ellipsis, last 10
+                first_lines = lines[:10]
+                last_lines = lines[-10:]
+                display_lines = first_lines + [f"... (showing 20 of {len(lines)} lines) ..."] + last_lines
             
-            for line in lines:
+            for line in display_lines:
                 # Truncate long lines and pad short ones
                 display_line = line[:75] if len(line) <= 75 else line[:72] + "..."
                 padded_line = display_line.ljust(75)
