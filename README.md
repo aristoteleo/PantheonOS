@@ -26,7 +26,38 @@
 pip install pantheon-agents
 ```
 
-See the [examples](examples) folder for more details.
+## Quick Start - Pantheon CLI
+
+The easiest way to start using Pantheon is through the CLI interface:
+
+```bash
+# Start with default settings
+python -m pantheon.cli
+
+# Start without RAG database
+python -m pantheon.cli --disable-rag
+
+# Start with custom model
+python -m pantheon.cli --model gpt-4o
+
+# See all options
+python -m pantheon.cli --help
+```
+
+The CLI provides a powerful assistant for Single-Cell/Spatial genomics analysis with:
+- Shell commands and genomics tools
+- Python interpreter for data analysis
+- File editing with diffs
+- Code search (glob, grep, ls)
+- Web search and fetch
+- Jupyter notebook editing
+- RAG knowledge base (optional)
+
+See [pantheon/cli/README.md](pantheon/cli/README.md) for detailed documentation.
+
+## Examples
+
+See the [examples](examples) folder for more advanced usage patterns and custom implementations.
 
 
 ## TODO
