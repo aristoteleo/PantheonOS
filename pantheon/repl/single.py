@@ -188,6 +188,14 @@ class Repl:
         
     def print_tool_result(self, tool_name: str, result: dict):
         """Print tool result in Claude Code style with diff support"""
+        
+        # Special handling for toolsets that print their own output - skip normal output box
+        skip_tools = ['edit', 'write', 'read', 'file', 'glob', 'grep', 'ls']
+        if any(tool in tool_name.lower() for tool in skip_tools) and isinstance(result, dict):
+            if result.get('success'):
+                # For successful operations, don't show any output box
+                # The content was already printed by the toolset
+                return
 
         # Show tool output in Claude Code style
         if isinstance(result, dict) and 'output' in result:
@@ -203,7 +211,7 @@ class Repl:
             max_width = min(79, max(len(line) for line in lines) + 4)
             
             self.console.print("╭" + "─" * (max_width - 2) + "╮")
-            self.console.print("│ [bold]Output[/bold]" + " " * (max_width - 11) + "│")
+            self.console.print("│ [bold]Output[/bold]" + " " * (max_width - 9) + "│")
             self.console.print("├" + "─" * (max_width - 2) + "┤")
             
             for line in lines:

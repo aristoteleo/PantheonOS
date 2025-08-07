@@ -5,6 +5,7 @@ from pantheon.toolsets.shell import ShellToolSet
 from pantheon.toolsets.vector_rag import VectorRAGToolSet
 from pantheon.toolsets.python import PythonInterpreterToolSet
 from pantheon.toolsets.file_editor import FileEditorToolSet
+from pantheon.toolsets.code_search import CodeSearchToolSet
 from pantheon.agent import Agent
 
 
@@ -18,6 +19,7 @@ async def main(path_to_rag_db: str):
     )
     workspace = Path.cwd()  # Use current directory as workspace
     file_editor = FileEditorToolSet("file_editor", workspace_path=workspace)
+    code_search = CodeSearchToolSet("code_search", workspace_path=workspace)
 
     instructions = """
     You are a CLI assistant for Single-Cell/Spatial genomics analysis with multiple tool capabilities.
@@ -25,9 +27,8 @@ async def main(path_to_rag_db: str):
     TOOL SELECTION RULES:
     
     Use SHELL commands for:
-    - File/directory operations: ls, mkdir, cp, mv, rm
+    - System operations: mkdir, cp, mv, rm  
     - System information: pwd, whoami, df, ps
-    - Text processing: cat, grep, head, tail, wc
     - Genomics command-line tools: STAR, kallisto, bustools, etc.
     
     Use PYTHON (run_code tool) for:
@@ -37,11 +38,31 @@ async def main(path_to_rag_db: str):
     - Programming scripts
     - Processing data files (CSV, JSON, etc.)
     
+    Use FILE OPERATIONS for:
+    - read_file: Read file contents with line numbers
+    - edit_file: Edit files by replacing text (shows diff)
+    - write_file: Create new files
+    - search_in_file: Search within ONE specific file (when you already know the exact file)
+    
+    Use CODE SEARCH for (PREFERRED for search operations):
+    - glob: Find files by pattern (e.g., "*.py", "**/*.js")
+    - grep: Search for text across multiple files or in specific file patterns
+    - ls: List directory contents with details
+    
+    SEARCH PRIORITY RULES:
+    - Use "grep" for ANY content search (even in single files)
+    - Use "search_in_file" ONLY when specifically asked to search within one known file
+    - Use "glob" to find files first, then "grep" to search their contents
+    
     CRITICAL PYTHON RULE: When using Python, you MUST execute code with run_code tool - never just show code!
     
     Examples:
-    - "查看当前目录" → Use shell: ls or pwd
-    - "list files" → Use shell: ls -la
+    - "查看当前目录" → Use code_search: ls tool
+    - "find all Python files" → Use code_search: glob with "*.py"
+    - "search for 'import' in code" → Use code_search: grep tool
+    - "search for TODO in main.py" → Use code_search: grep tool (NOT search_in_file)
+    - "read config.py" → Use file_editor: read_file tool
+    - "search within config.py only" → Use code_search: grep with file_pattern="config.py"
     - "calculate fibonacci" → Use Python: run_code tool
     - "create a plot" → Use Python: run_code tool
     - "run STAR alignment" → Use shell commands
@@ -68,6 +89,7 @@ async def main(path_to_rag_db: str):
     agent.toolset(python_toolset)
     agent.toolset(vector_rag_toolset)
     agent.toolset(file_editor)
+    agent.toolset(code_search)
 
     await agent.chat()
 
