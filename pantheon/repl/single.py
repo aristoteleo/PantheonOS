@@ -169,9 +169,14 @@ class Repl:
         self.console.print()  # Add some space
         
         # Claude Code style tool call display
-        if tool_name in ["run_code", "run_code_in_interpreter"] and args and 'code' in args:
-            # Special handling for Python code execution (native Python toolset)
-            self.console.print("⏺ [bold]Python[/bold]")
+        if tool_name in ["run_code", "run_code_in_interpreter", "run_python", "run_r"] and args and 'code' in args:
+            # Special handling for code execution
+            if tool_name in ["run_python", "run_code", "run_code_in_interpreter"]:
+                self.console.print("⏺ [bold]Python[/bold]")
+                header_title = "Run Python code"
+            elif tool_name == "run_r":
+                self.console.print("⏺ [bold]R[/bold]")
+                header_title = "Run R code"
             
             # Create a fancy code block
             code = args['code']
@@ -179,7 +184,8 @@ class Repl:
             
             # Create the box
             self.console.print("╭" + "─" * 79 + "╮")
-            self.console.print("│ [bold]Run Python code[/bold]" + " " * 58 + "│")
+            title_padding = " " * (79 - len(header_title) - 4)
+            self.console.print(f"│ [bold]{header_title}[/bold]{title_padding}│")
             self.console.print("│ ╭" + "─" * 75 + "╮ │")
 
             # Limit display lines (show first 10 + last 10 if > 20 lines)
@@ -218,6 +224,17 @@ class Repl:
                     key_arg = f"pattern='{args['pattern']}'"
                 elif 'query' in args:
                     key_arg = f"query='{args['query'][:50]}...'" if len(str(args['query'])) > 50 else f"query='{args['query']}'"
+                elif 'code' in args:
+                    # Display code for run_python and run_r tools
+                    code_lines = str(args['code']).strip().split('\n')
+                    if len(code_lines) == 1 and len(code_lines[0]) <= 60:
+                        key_arg = f"code='{code_lines[0]}'"
+                    elif len(code_lines) <= 3 and all(len(line) <= 50 for line in code_lines):
+                        code_preview = '; '.join(line.strip() for line in code_lines)
+                        key_arg = f"code='{code_preview[:70]}...'" if len(code_preview) > 70 else f"code='{code_preview}'"
+                    else:
+                        first_line = code_lines[0][:50]
+                        key_arg = f"code='{first_line}... ({len(code_lines)} lines)'"
                 
                 if key_arg:
                     self.console.print(f"⏺ [bold]{tool_name}[/bold]({key_arg})")
