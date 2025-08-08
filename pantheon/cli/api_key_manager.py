@@ -14,14 +14,41 @@ except ImportError:
 
 # Provider-specific API key mappings
 PROVIDER_API_KEYS = {
-    # OpenAI Models
-    "gpt-4o": "OPENAI_API_KEY",
+    # OpenAI Models - GPT-5 Series (Latest)
+    "gpt-5": "OPENAI_API_KEY",
+    "gpt-5-mini": "OPENAI_API_KEY",
+    "gpt-5-nano": "OPENAI_API_KEY",
+    "gpt-5-chat-latest": "OPENAI_API_KEY",
+    # OpenAI Models - GPT-4 Series
     "gpt-4.1": "OPENAI_API_KEY", 
     "gpt-4.1-mini": "OPENAI_API_KEY",
+    "gpt-4.1-nano": "OPENAI_API_KEY",
+    "gpt-4o": "OPENAI_API_KEY",
+    "gpt-4o-2024-05-13": "OPENAI_API_KEY",
+    "gpt-4o-audio-preview": "OPENAI_API_KEY",
+    "gpt-4o-realtime-preview": "OPENAI_API_KEY",
     "gpt-4o-mini": "OPENAI_API_KEY",
+    "gpt-4o-mini-audio-preview": "OPENAI_API_KEY",
+    "gpt-4o-mini-realtime-preview": "OPENAI_API_KEY",
+    # OpenAI Models - o-Series (Reasoning)
+    "o1": "OPENAI_API_KEY",
+    "o1-pro": "OPENAI_API_KEY",
+    "o3-pro": "OPENAI_API_KEY",
     "o3": "OPENAI_API_KEY",
+    "o3-deep-research": "OPENAI_API_KEY",
+    "o4-mini": "OPENAI_API_KEY",
+    "o4-mini-deep-research": "OPENAI_API_KEY",
     "o3-mini": "OPENAI_API_KEY",
-    # Anthropic Models
+    "o1-mini": "OPENAI_API_KEY",
+    # OpenAI Models - Codex Series
+    "codex-mini-latest": "OPENAI_API_KEY",
+    # Anthropic Models - Claude 4 Series (Latest)
+    "anthropic/claude-opus-4-1-20250805": "ANTHROPIC_API_KEY",
+    "anthropic/claude-opus-4-20250514": "ANTHROPIC_API_KEY",
+    "anthropic/claude-sonnet-4-20250514": "ANTHROPIC_API_KEY",
+    "anthropic/claude-3-7-sonnet-20250219": "ANTHROPIC_API_KEY",
+    "anthropic/claude-3-5-haiku-20241022": "ANTHROPIC_API_KEY",
+    # Anthropic Models - Claude 3 Series (Legacy)
     "anthropic/claude-3-opus-20240229": "ANTHROPIC_API_KEY",
     "anthropic/claude-3-sonnet-20240229": "ANTHROPIC_API_KEY", 
     "anthropic/claude-3-haiku-20240307": "ANTHROPIC_API_KEY",
@@ -31,6 +58,48 @@ PROVIDER_API_KEYS = {
     # DeepSeek Models
     "deepseek/deepseek-chat": "DEEPSEEK_API_KEY",
     "deepseek/deepseek-reasoner": "DEEPSEEK_API_KEY",
+    # Qwen/Alibaba Models - Latest 2025 Series
+    "qwq-plus": "QWEN_API_KEY",
+    "qwen-max": "QWEN_API_KEY",
+    "qwen-max-latest": "QWEN_API_KEY",
+    "qwen-max-2025-01-25": "QWEN_API_KEY",
+    "qwen-plus": "QWEN_API_KEY",
+    "qwen-plus-latest": "QWEN_API_KEY", 
+    "qwen-plus-2025-04-28": "QWEN_API_KEY",
+    "qwen-plus-2025-01-25": "QWEN_API_KEY",
+    "qwen-turbo": "QWEN_API_KEY",
+    "qwen-turbo-latest": "QWEN_API_KEY",
+    "qwen-turbo-2025-04-28": "QWEN_API_KEY", 
+    "qwen-turbo-2024-11-01": "QWEN_API_KEY",
+    "qvq-max": "QWEN_API_KEY",
+    "qvq-max-latest": "QWEN_API_KEY",
+    "qvq-max-2025-03-25": "QWEN_API_KEY",
+    # Qwen/Alibaba Models - Legacy
+    "qwen/qwen-2.5-72b-instruct": "QWEN_API_KEY",
+    # Kimi/Moonshot Models - Latest K2 Series
+    "kimi-k2-0711-preview": "MOONSHOT_API_KEY",
+    "kimi-k2-turbo-preview": "MOONSHOT_API_KEY",
+    # Kimi/Moonshot Models - Latest Series
+    "kimi-latest": "MOONSHOT_API_KEY",
+    "kimi-latest-8k": "MOONSHOT_API_KEY",
+    "kimi-latest-32k": "MOONSHOT_API_KEY",
+    "kimi-latest-128k": "MOONSHOT_API_KEY",
+    # Kimi/Moonshot Models - Moonshot V1 Series
+    "moonshot-v1-8k": "MOONSHOT_API_KEY",
+    "moonshot-v1-32k": "MOONSHOT_API_KEY",
+    "moonshot-v1-128k": "MOONSHOT_API_KEY",
+    "moonshot-v1-8k-vision-preview": "MOONSHOT_API_KEY",
+    "moonshot-v1-32k-vision-preview": "MOONSHOT_API_KEY",
+    "moonshot-v1-128k-vision-preview": "MOONSHOT_API_KEY",
+    # Kimi/Moonshot Models - Thinking Series
+    "kimi-thinking-preview": "MOONSHOT_API_KEY",
+    # Kimi/Moonshot Models - Legacy
+    "moonshot/moonshot-v1-8k": "MOONSHOT_API_KEY",
+    "moonshot/moonshot-v1-32k": "MOONSHOT_API_KEY",
+    "moonshot/moonshot-v1-128k": "MOONSHOT_API_KEY",
+    # Grok/xAI Models
+    "grok/grok-beta": "GROK_API_KEY", 
+    "grok/grok-2": "GROK_API_KEY",
     # Local/Other Models (no key needed)
     "ollama/llama3.2": None,
 }
@@ -41,6 +110,9 @@ PROVIDER_NAMES = {
     "ANTHROPIC_API_KEY": "Anthropic", 
     "GOOGLE_API_KEY": "Google",
     "DEEPSEEK_API_KEY": "DeepSeek",
+    "QWEN_API_KEY": "Qwen (Alibaba)",
+    "MOONSHOT_API_KEY": "Kimi (Moonshot)",
+    "GROK_API_KEY": "Grok (xAI)",
 }
 
 
@@ -208,6 +280,9 @@ class APIKeyManager:
         result += "    /api-key anthropic sk-... - Set Anthropic key\n"
         result += "    /api-key google ai... - Set Google key\n"
         result += "    /api-key deepseek sk-... - Set DeepSeek key\n"
+        result += "    /api-key qwen sk-... - Set Qwen key\n"
+        result += "    /api-key kimi sk-... - Set Kimi key\n"
+        result += "    /api-key grok sk-... - Set Grok key\n"
         
         return result
     
@@ -254,11 +329,15 @@ class APIKeyManager:
             return self.list_api_keys()
         elif subcommand == "status":
             return self.show_api_key_status()
-        elif subcommand in ['openai', 'anthropic', 'google', 'deepseek']:
+        elif subcommand in ['openai', 'anthropic', 'google', 'deepseek', 'qwen', 'kimi', 'moonshot', 'grok']:
             if len(parts) < 3:
                 return f"❌ Please provide the API key: `/api-key {subcommand} <your-key>`"
             
-            provider_key = f"{subcommand.upper()}_API_KEY"
+            # Handle provider key mapping
+            if subcommand in ['kimi', 'moonshot']:
+                provider_key = "MOONSHOT_API_KEY"
+            else:
+                provider_key = f"{subcommand.upper()}_API_KEY"
             api_key = parts[2]
             
             if len(api_key) < 10:  # Basic validation
@@ -269,4 +348,4 @@ class APIKeyManager:
             else:
                 return f"❌ Failed to save {PROVIDER_NAMES[provider_key]} API key. Check file permissions."
         else:
-            return f"❌ Unknown provider '{subcommand}'. Available: openai, anthropic, google, deepseek"
+            return f"❌ Unknown provider '{subcommand}'. Available: openai, anthropic, google, deepseek, qwen, kimi, grok"

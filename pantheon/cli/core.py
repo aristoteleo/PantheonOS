@@ -266,8 +266,8 @@ async def main(
     
 
     
-    # Use custom instructions or default, enhanced with model management info
-    agent_instructions = (instructions or DEFAULT_INSTRUCTIONS)
+    # Use custom instructions or default (no need to add model management info to prompt)
+    agent_instructions = instructions or DEFAULT_INSTRUCTIONS
     
     # Initialize toolsets
     shell_toolset = ShellToolSet("shell")
