@@ -49,7 +49,7 @@ This creates a vector database at `tmp/pantheon_cli_tools_rag/pantheon-cli-tools
 |--------|-------------|---------|
 | `--rag-db` | Path to RAG database | `tmp/pantheon_cli_tools_rag/pantheon-cli-tools` |
 | `--model` | AI model to use | `gpt-4.1` |
-| `--agent-name` | Name of the agent | `sc_cli_bot` |
+| `--agent-name` | Name of the agent | `general_bot` |
 | `--workspace` | Working directory | Current directory |
 | `--instructions` | Custom instructions | Built-in instructions |
 | `--disable-rag` | Disable RAG toolset | `False` |

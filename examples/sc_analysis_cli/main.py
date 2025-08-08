@@ -101,9 +101,9 @@ async def main(path_to_rag_db: str):
     """
 
     agent = Agent(
-        "sc_cli_bot",
+        "general_bot",
         instructions,
-        model="gpt-4.1",
+        model="gpt-4.1-mini",
     )
     #general tools
     #agent.toolset(scraper_toolset)

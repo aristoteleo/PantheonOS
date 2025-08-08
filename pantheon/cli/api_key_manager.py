@@ -53,6 +53,9 @@ PROVIDER_API_KEYS = {
     "anthropic/claude-3-sonnet-20240229": "ANTHROPIC_API_KEY", 
     "anthropic/claude-3-haiku-20240307": "ANTHROPIC_API_KEY",
     # Google Models
+    "gemini/gemini-2.5-pro": "GOOGLE_API_KEY",
+    "gemini/gemini-2.5-flash": "GOOGLE_API_KEY",
+    "gemini/gemini-2.0-pro": "GOOGLE_API_KEY",
     "gemini/gemini-2.0-flash": "GOOGLE_API_KEY",
     "gemini/gemini-pro": "GOOGLE_API_KEY",
     # DeepSeek Models
@@ -221,6 +224,7 @@ class APIKeyManager:
         self.api_keys_cache[provider] = api_key
         
         # Set environment variable for immediate use
+        # provider parameter is already the full env var name (e.g. "OPENAI_API_KEY")
         os.environ[provider] = api_key
         
         try:

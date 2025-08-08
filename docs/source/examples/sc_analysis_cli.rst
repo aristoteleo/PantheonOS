@@ -159,9 +159,9 @@ Here's the complete ``main.py`` file that creates the Single-Cell Analysis CLI B
        """
 
        agent = Agent(
-           "sc_cli_bot",
+           "general_bot",
            instructions,
-           model="gpt-4.1",
+           model="gpt-4.1-mini",
        )
        agent.toolset(scraper_toolset)
        agent.toolset(shell_toolset)
