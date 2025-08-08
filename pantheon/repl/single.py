@@ -388,26 +388,35 @@ class Repl:
         self.console.print(self.input_panel)
 
     def ask_user_input(self) -> str:
-        """Get user input with simple input panel"""
+        """Get user input with multi-line support and readline history."""
         try:
-            if READLINE_AVAILABLE:
-                # Use simple prompt without ANSI codes that might confuse readline
-                prompt_text = "> "
-                user_input = input(prompt_text)
-            else:
-                # Fallback for systems without readline
-                self.console.print("[bright_blue]>[/bright_blue]", end=" ")
-                user_input = input()
-            
-            return user_input.strip()
-            
+            self.console.print("[dim]Enter your message (press Enter twice to finish)[/dim]")
+            lines = []
+            while True:
+                # 第一次输入用 "> " 提示，后续行用 "... "
+                prompt_text = "... " if lines else ">   "
+
+                if READLINE_AVAILABLE:
+                    line = input(prompt_text)
+                else:
+                    self.console.print(f"[bright_blue]{prompt_text}[/bright_blue]", end=" ")
+                    line = input()
+
+                # 空行结束
+                if line.strip() == "":
+                    break
+
+                lines.append(line)
+
+            # 返回多行合并的字符串
+            return "\n".join(lines).strip()
+
         except KeyboardInterrupt:
-            # Show feedback and return empty string so REPL continues instead of exiting
             self.console.print("\n[dim]Ctrl+C pressed - operation cancelled[/dim]")
             return ""
         except EOFError:
-            # EOF should still exit the program
             raise
+
     
     def _estimate_tokens(self, text: str) -> int:
         """Estimate token count using rough approximation (4 chars ≈ 1 token)"""
