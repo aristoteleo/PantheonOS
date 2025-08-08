@@ -65,6 +65,7 @@ This creates a vector database at `tmp/pantheon_cli_tools_rag/pantheon-cli-tools
 - **R**: Statistical analysis and Seurat single-cell workflows
 - **File Editor**: Read, edit, and create files with diffs
 - **Code Search**: Find files (glob), search content (grep), list directories (ls)
+- **Todo**: Claude Code-style task management with checkboxes and status tracking
 
 ### Optional Tools
 - **RAG**: Vector-based knowledge search (requires database)
@@ -113,6 +114,7 @@ python -m pantheon.cli --instructions "You are a specialized bioinformatics assi
 - 🔍 Advanced code search
 - 💾 RAG knowledge base integration
 - 🔧 Universal software auto-installer
+- ✅ Claude Code-style todo management with status tracking
 
 ## Requirements
 
