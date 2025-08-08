@@ -515,6 +515,16 @@ class Repl:
                 self._handle_api_key_command(current_message.strip())
                 current_message = None  # Reset to get new input
                 continue
+            elif current_message.strip().startswith("/atac"):
+                await self._handle_atac_command(current_message.strip())
+                # Check if there's a pending ATAC message to process
+                if hasattr(self, '_pending_atac_message'):
+                    current_message = self._pending_atac_message
+                    del self._pending_atac_message
+                    # Continue to process this message
+                else:
+                    current_message = None  # Reset to get new input
+                    continue
             
             # If not a special command, process with agent
             start_time = time.time()
@@ -658,6 +668,7 @@ class Repl:
         self.console.print("[dim]/history[/dim] - Show command history")
         self.console.print("[dim]/tokens[/dim] - Token usage analysis")  
         self.console.print("[dim]/clear[/dim] - Clear screen")
+        self.console.print("[dim]/atac init[/dim] - ATAC-seq analysis helper 🧬")
         self.console.print("[dim]/exit[/dim] - Exit cleanly")
         self.console.print("[dim]Ctrl+C[/dim] - Cancel current operation")
         self.console.print("[dim]Ctrl+C x2[/dim] - Force exit (within 2 seconds)")
@@ -812,6 +823,51 @@ class Repl:
                 self.console.print("[red]API key management not available. Please restart with the CLI.[/red]")
         except Exception as e:
             self.console.print(f"[red]Error handling API key command: {str(e)}[/red]")
+        self.console.print()  # Add spacing
+
+    async def _handle_atac_command(self, command: str):
+        """Handle /atac commands for ATAC-seq analysis"""
+        parts = command.split(maxsplit=2)
+        
+        if len(parts) == 1:
+            # Just /atac - show help
+            self.console.print("\n[bold]🧬 ATAC-seq Analysis Helper[/bold]")
+            self.console.print("[dim]/atac init[/dim] - Start ATAC-seq analysis assistance")
+            self.console.print("[dim]/atac init <folder>[/dim] - Analyze ATAC-seq data in folder")
+            self.console.print("\n[dim]Example: /atac init ./fastq_data[/dim]")
+            self.console.print()
+            return
+        
+        if parts[1] == "init":
+            # Generate ATAC analysis message
+            try:
+                from ..cli.atac_simple import generate_atac_analysis_message
+                
+                self.console.print("\n[bold cyan]🧬 Starting ATAC-seq Analysis Assistant[/bold cyan]")
+                self.console.print("[dim]Preparing analysis prompt...[/dim]\n")
+                
+                # Get folder path if provided
+                folder_path = parts[2] if len(parts) > 2 else None
+                
+                # Generate the analysis message
+                atac_message = generate_atac_analysis_message(folder_path)
+                
+                # Set this as the next message to process
+                self._pending_atac_message = atac_message
+                
+                if folder_path:
+                    self.console.print(f"[dim]Analyzing folder: {folder_path}[/dim]")
+                self.console.print("[dim]Sending ATAC-seq analysis request...[/dim]\n")
+                
+            except ImportError as e:
+                self.console.print(f"[red]Error: ATAC module not available: {e}[/red]")
+            except Exception as e:
+                self.console.print(f"[red]Error preparing ATAC analysis: {str(e)}[/red]")
+        
+        else:
+            self.console.print(f"[red]Unknown ATAC command: {parts[1]}[/red]")
+            self.console.print("[dim]Use '/atac init' to start ATAC analysis[/dim]")
+        
         self.console.print()  # Add spacing
 
 
