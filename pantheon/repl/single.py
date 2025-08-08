@@ -832,41 +832,75 @@ class Repl:
         if len(parts) == 1:
             # Just /atac - show help
             self.console.print("\n[bold]🧬 ATAC-seq Analysis Helper[/bold]")
-            self.console.print("[dim]/atac init[/dim] - Start ATAC-seq analysis assistance")
-            self.console.print("[dim]/atac init <folder>[/dim] - Analyze ATAC-seq data in folder")
-            self.console.print("\n[dim]Example: /atac init ./fastq_data[/dim]")
+            self.console.print("[dim]/atac init[/dim] - Enter ATAC-seq analysis mode")
+            self.console.print("[dim]/atac upstream <folder>[/dim] - Run upstream ATAC-seq analysis on folder")
+            self.console.print("\n[dim]Examples:[/dim]")
+            self.console.print("[dim]  /atac init                     # Enter ATAC mode[/dim]")
+            self.console.print("[dim]  /atac upstream ./fastq_data    # Analyze FASTQ data[/dim]")
             self.console.print()
             return
         
         if parts[1] == "init":
-            # Generate ATAC analysis message
+            # Enter ATAC mode - simple mode activation without automation
+            self.console.print("\n[bold cyan]🧬 Entering ATAC-seq Analysis Mode[/bold cyan]")
+            
+            # Clear all existing todos when entering ATAC mode
+            clear_message = "Clearing existing todos and entering fresh ATAC-seq analysis mode."
+            self._pending_atac_message = clear_message
+            
+            self.console.print("[dim]Clearing existing todos and preparing ATAC environment...[/dim]")
+            self.console.print("[dim]Ready for ATAC-seq analysis assistance...[/dim]")
+            self.console.print("[dim]ATAC-seq mode activated. You can now use ATAC tools directly.[/dim]")
+            self.console.print()
+            self.console.print("[dim]Available ATAC tools:[/dim]")
+            self.console.print("[dim]  - atac.scan_folder() - to scan data folders[/dim]")
+            self.console.print("[dim]  - atac.auto_detect_species() - for species detection[/dim]")
+            self.console.print("[dim]  - atac.setup_genome_resources() - for reference setup[/dim]")
+            self.console.print("[dim]  - atac.run_fastqc(), atac.align_bowtie2(), etc. - for analysis steps[/dim]")
+            self.console.print("[dim]  - atac.generate_atac_qc_report() - for QC reports with MultiQC integration[/dim]")
+            self.console.print("[dim]  - Todo management tools for tracking progress[/dim]")
+            self.console.print()
+            self.console.print("[dim]The command structure is now clean:[/dim]")
+            self.console.print("[dim]  - /atac init - Enter ATAC mode (simple prompt loading)[/dim]")
+            self.console.print("[dim]  - /atac upstream <folder> - Run upstream analysis on specific folder[/dim]")
+            self.console.print()
+            
+            # Set a simple message to clear todos without automation
+        
+        elif parts[1] == "upstream":
+            # Run upstream analysis on specific folder
+            if len(parts) < 3:
+                self.console.print("[red]Error: Please specify a folder path[/red]")
+                self.console.print("[dim]Usage: /atac upstream <folder_path>[/dim]")
+                self.console.print("[dim]Example: /atac upstream ./fastq_data[/dim]")
+                return
+                
             try:
                 from ..cli.atac_simple import generate_atac_analysis_message
                 
-                self.console.print("\n[bold cyan]🧬 Starting ATAC-seq Analysis Assistant[/bold cyan]")
-                self.console.print("[dim]Preparing analysis prompt...[/dim]\n")
+                folder_path = parts[2]
+                self.console.print(f"\n[bold cyan]🧬 Starting Upstream ATAC-seq Analysis[/bold cyan]")
+                self.console.print(f"[dim]Target folder: {folder_path}[/dim]")
+                self.console.print("[dim]Preparing upstream analysis pipeline...[/dim]\n")
                 
-                # Get folder path if provided
-                folder_path = parts[2] if len(parts) > 2 else None
-                
-                # Generate the analysis message
-                atac_message = generate_atac_analysis_message(folder_path)
+                # Generate the analysis message with folder
+                atac_message = generate_atac_analysis_message(folder_path=folder_path)
                 
                 # Set this as the next message to process
                 self._pending_atac_message = atac_message
                 
-                if folder_path:
-                    self.console.print(f"[dim]Analyzing folder: {folder_path}[/dim]")
-                self.console.print("[dim]Sending ATAC-seq analysis request...[/dim]\n")
+                self.console.print("[dim]Sending upstream ATAC-seq analysis request...[/dim]\n")
                 
             except ImportError as e:
                 self.console.print(f"[red]Error: ATAC module not available: {e}[/red]")
             except Exception as e:
-                self.console.print(f"[red]Error preparing ATAC analysis: {str(e)}[/red]")
+                self.console.print(f"[red]Error preparing upstream analysis: {str(e)}[/red]")
         
         else:
             self.console.print(f"[red]Unknown ATAC command: {parts[1]}[/red]")
-            self.console.print("[dim]Use '/atac init' to start ATAC analysis[/dim]")
+            self.console.print("[dim]Available commands:[/dim]")
+            self.console.print("[dim]  /atac init - Enter ATAC mode[/dim]")
+            self.console.print("[dim]  /atac upstream <folder> - Run upstream analysis[/dim]")
         
         self.console.print()  # Add spacing
 
