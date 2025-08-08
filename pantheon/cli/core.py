@@ -1,4 +1,4 @@
-"""Pantheon CLI Core - Main entry point for the CLI assistant"""
+"""Pantheon CLI Core - Main entry point for the CLI assistant (Refactored)"""
 
 import asyncio
 import os
@@ -19,6 +19,11 @@ from pantheon.toolsets.todo import TodoToolSet
 from pantheon.toolsets.code_validator import CodeValidatorToolSet
 from pantheon.agent import Agent
 
+# Import management modules
+from .api_key_manager import APIKeyManager
+from .model_manager import ModelManager
+
+# Note: Model and API key commands are handled directly by REPL interface
 
 DEFAULT_INSTRUCTIONS = """
 You are a CLI assistant for Single-Cell/Spatial genomics analysis with multiple tool capabilities.
@@ -191,7 +196,7 @@ CRITICAL: Todo system should make you MORE productive, not just a list maker!
 
 async def main(
     rag_db: Optional[str] = None,
-    model: str = "gpt-4.1",
+    model: str = None,
     agent_name: str = "sc_cli_bot",
     workspace: Optional[str] = None,
     instructions: Optional[str] = None,
@@ -206,7 +211,7 @@ async def main(
     
     Args:
         rag_db: Path to RAG database (default: tmp/pantheon_cli_tools_rag/pantheon-cli-tools)
-        model: Model to use (default: gpt-4.1)
+        model: Model to use (default: loads from config or gpt-4.1, requires API key)
         agent_name: Name of the agent (default: sc_cli_bot)
         workspace: Workspace directory (default: current directory)
         instructions: Custom instructions for the agent (default: built-in instructions)
@@ -216,6 +221,8 @@ async def main(
         disable_r: Disable R interpreter toolset
         disable_code_validator: Disable code validator toolset
     """
+    # Initialize managers locally
+    
     # Set default RAG database path if not provided
     if rag_db is None and not disable_rag:
         default_rag = Path("tmp/pantheon_cli_tools_rag/pantheon-cli-tools")
@@ -230,8 +237,37 @@ async def main(
     # Set workspace
     workspace_path = Path(workspace) if workspace else Path.cwd()
     
-    # Use custom instructions or default
-    agent_instructions = instructions or DEFAULT_INSTRUCTIONS
+    # Initialize managers
+    config_file_path = workspace_path / ".pantheon_config.json"
+    api_key_manager = APIKeyManager(config_file_path)
+    model_manager = ModelManager(config_file_path, api_key_manager)
+    
+    # Ensure API keys are synced to environment variables
+    api_key_manager.sync_environment_variables()
+    
+    # Set model if provided
+    if model is not None:
+        model_manager.current_model = model
+        model_manager.save_model_config(model)
+    
+    # Check API key for current model
+    key_available, key_message = api_key_manager.check_api_key_for_model(model_manager.current_model)
+    key_status_icon = "✅" if key_available else "⚠️"
+    
+    print(f"🤖 Starting Pantheon CLI with model: {model_manager.current_model}")
+    print(f"{key_status_icon} {key_message}")
+    if not key_available:
+        from .api_key_manager import PROVIDER_API_KEYS, PROVIDER_NAMES
+        required_key = PROVIDER_API_KEYS.get(model_manager.current_model)
+        if required_key:
+            provider_cmd = required_key.lower().replace('_api_key', '')
+            print(f"💡 Set your API key: /api-key {provider_cmd} <your-key>")
+    print(f"💡 Commands: '/model list' | '/api-key list' | '/help'")
+    
+
+    
+    # Use custom instructions or default, enhanced with model management info
+    agent_instructions = (instructions or DEFAULT_INSTRUCTIONS)
     
     # Initialize toolsets
     shell_toolset = ShellToolSet("shell")
@@ -264,12 +300,19 @@ async def main(
     if not disable_code_validator:
         code_validator = CodeValidatorToolSet("code_validator")
     
-    # Create agent
+    # Create agent with complete instructions
     agent = Agent(
         agent_name,
         agent_instructions,
-        model=model,
+        model=model_manager.current_model,
     )
+    
+    # Set agent reference in model manager
+    model_manager.set_agent(agent)
+    
+    # Attach managers to agent for REPL access
+    agent._model_manager = model_manager
+    agent._api_key_manager = api_key_manager
     
     # Add toolsets to agent
     agent.toolset(shell_toolset)
@@ -289,6 +332,8 @@ async def main(
     if code_validator:
         agent.toolset(code_validator)
     
+    # Note: Model and API key commands are handled directly by REPL interface
+    # No need to register them as tools
     
     await agent.chat()
 
