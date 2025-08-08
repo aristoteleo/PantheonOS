@@ -116,12 +116,13 @@ GENOME RESOURCE MANAGEMENT (New Organized Structure):
 
 LEGACY GENOME METHODS (For compatibility):  
 - quick_genome_setup: Fast test setup with single chromosome
-- setup_reference_genome: Basic genome setup (use setup_genome_resources instead)
-- setup_reference_genome_from_source: Manual source selection
+- setup_genome_resources: Comprehensive genome resource setup (genome+GTF+blacklist)
+- setup_reference_genome_from_source: Manual source selection (legacy compatibility)
 
 ANALYSIS TOOLS:
 - check_dependencies: Check which ATAC-seq tools are installed and show install commands
 - install_missing_tools: Automatically install missing ATAC-seq analysis tools
+- auto_align_fastq: Fully automated alignment pipeline (auto-detects files, installs tools, runs alignment)
 - validate_fastq: Validate FASTQ files and get basic stats
 - run_fastqc: Run FastQC quality control on FASTQ files
 - trim_adapters: Trim adapters using Trim Galore
@@ -253,7 +254,7 @@ CRITICAL: Todo system should make you MORE productive, not just a list maker!
 async def main(
     rag_db: Optional[str] = None,
     model: str = None,
-    agent_name: str = "sc_cli_bot",
+    agent_name: str = "general_bot",
     workspace: Optional[str] = None,
     instructions: Optional[str] = None,
     disable_rag: bool = False,
@@ -269,7 +270,7 @@ async def main(
     Args:
         rag_db: Path to RAG database (default: tmp/pantheon_cli_tools_rag/pantheon-cli-tools)
         model: Model to use (default: loads from config or gpt-4.1, requires API key)
-        agent_name: Name of the agent (default: sc_cli_bot)
+        agent_name: Name of the agent (default: general_bot)
         workspace: Workspace directory (default: current directory)
         instructions: Custom instructions for the agent (default: built-in instructions)
         disable_rag: Disable RAG toolset

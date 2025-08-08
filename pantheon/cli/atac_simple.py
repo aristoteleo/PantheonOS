@@ -28,7 +28,7 @@ Smart species detection and resource management workflow:
 
 3. Then set up ALL genome resources with organized structure:
    - COMPREHENSIVE: atac.setup_genome_resources(species, genome_version, include_gtf=True, include_blacklist=True)
-     * Downloads genome FASTA + BWA index
+     * Downloads genome FASTA + Bowtie2 index (ATAC-seq optimized)
      * Downloads GTF annotations (GENCODE/ENSEMBL)  
      * Downloads ENCODE blacklist regions
      * Organizes in: reference/genome/species/, reference/gtf/species/, reference/blacklist/species/
@@ -43,38 +43,41 @@ Smart species detection and resource management workflow:
    - atac.clean_incomplete_downloads() - Clean up corrupted files
    - atac.get_resource_info(species, genome_version) - Detailed resource info
 
-📋 PHASE 1: SMART TODO CREATION BASED ON DATA SCAN
+📋 PHASE 1: INTELLIGENT TODO CREATION (STRICT DUPLICATE PREVENTION)
 
-Second, scan the data to understand what we have:
-1. Call: atac.scan_folder("{folder_path}")
-2. Based on scan results, create specific ATAC-seq todos using add_todo():
+MANDATORY STEPS - NO EXCEPTIONS:
+1. FIRST: Call show_todos() to see existing todos
+2. SECOND: Call atac.scan_folder("{folder_path}")
+3. THIRD: Check if ANY ATAC-seq todos already exist
 
-IF scan shows RAW FASTQ files:
-- add_todo("ATAC-seq Quality Control with FastQC")  
-- add_todo("ATAC-seq Adapter Trimming with Trim Galore")
-- add_todo("ATAC-seq Genome Alignment with Bowtie2")  # Optimized for ATAC-seq
-- add_todo("ATAC-seq BAM Filtering and Duplicate Removal")
-- add_todo("ATAC-seq Peak Calling with MACS2")
-- add_todo("ATAC-seq Coverage Track Generation") 
-- add_todo("ATAC-seq QC Report Generation")
+DUPLICATE PREVENTION LOGIC:
+- If show_todos() shows ANY todo containing "ATAC-seq", "FastQC", "Alignment", "Peak" -> SKIP creation completely
+- If todo list is NOT EMPTY -> SKIP todo creation, work with existing todos instead
+- ONLY create todos if the todo list is COMPLETELY EMPTY
 
-IF scan shows BAM files:
-- add_todo("ATAC-seq BAM Quality Assessment")
-- add_todo("ATAC-seq Peak Calling with MACS2")
-- add_todo("ATAC-seq Coverage Track Generation")
-- add_todo("ATAC-seq QC Report Generation")
+TODO CREATION (ONLY IF LIST IS EMPTY):
+If show_todos() returns empty list, create this set ONCE:
+  0. add_todo("Setup reference genome automatically for Bowtie2 indexing")
+  1. add_todo("ATAC-seq Quality Control with FastQC")  
+  2. add_todo("ATAC-seq Adapter Trimming with Trim Galore") 
+  3. add_todo("ATAC-seq Genome Alignment with Bowtie2")
+  4. add_todo("ATAC-seq BAM Filtering (no duplicate removal)")
+  5. add_todo("ATAC-seq Peak Calling with MACS2")
+  6. add_todo("ATAC-seq Coverage Track Generation") 
+  7. add_todo("ATAC-seq QC Report Generation")
 
-IF scan shows PEAK files:
-- add_todo("ATAC-seq Peak Annotation and Analysis")
-- add_todo("ATAC-seq Motif Enrichment Analysis") 
-- add_todo("ATAC-seq Final Report Generation")
+🚨 ABSOLUTE RULE: If todo list has ANY items, DO NOT CREATE NEW TODOS!
 
 📊 PHASE 2: EXECUTE WITH TODO TRACKING
 
 For each TODO task:
 1. Use execute_current_task() to get smart guidance
 2. Run the appropriate ATAC tool (with rich console output)
-3. **AUTO-HANDLE DEPENDENCIES**: If BWA alignment fails due to missing reference genome, automatically call atac.setup_reference_genome("hg38") first
+3. **AUTO-HANDLE EVERYTHING**: Fully automated pipeline:
+   - Auto-install missing tools (bowtie2, samtools, etc.)
+   - Auto-detect FASTQ files for alignment (R1/R2 pairs)
+   - Auto-generate appropriate output names
+   - Auto-proceed without manual input
 4. Call mark_task_done("detailed description of what was completed")
 5. Use show_todos() to display progress
 
@@ -86,16 +89,22 @@ As analysis progresses:
 - If additional analysis needed → add_todo("Additional analysis task")
 - Update todos based on results from each step
 
-🎯 EXECUTION STRATEGY:
+🎯 EXECUTION STRATEGY (FULLY AUTOMATED):
 
 1. START: atac.scan_folder("{folder_path}") 
-2. CREATE todos based on scan results
-3. BEGIN todo execution loop:
-   - show_todos() to see current status
-   - execute_current_task() for guidance
-   - Run ATAC tool with rich output
+2. CHECK: show_todos() - avoid creating duplicates
+3. CREATE todos ONCE based on scan results (if not already exist)
+4. AUTOMATED EXECUTION:
+   - For alignment tasks: Use atac.auto_align_fastq() - fully automated!
+   - For BAM processing: Use atac.process_bam_smart() - filters BAM, skips duplicate removal by default
+   - For other tasks: execute_current_task() for guidance
+   - All tools auto-install dependencies as needed
    - mark_task_done() with detailed completion notes
    - Repeat until all todos complete
+
+💡 KEY AUTOMATION TOOLS:
+- atac.auto_align_fastq() - Auto-detects FASTQ, installs tools, runs alignment
+- atac.install_missing_tools() - Auto-installs any missing dependencies
 
 💡 KEY BENEFITS:
 - TodoList adapts to your specific data
