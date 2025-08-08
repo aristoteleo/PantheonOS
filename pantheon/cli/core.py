@@ -1,4 +1,4 @@
-"""Pantheon CLI Core - Main entry point for the CLI assistant"""
+"""Pantheon CLI Core - Main entry point for the CLI assistant (Refactored)"""
 
 import asyncio
 import os
@@ -16,8 +16,14 @@ from pantheon.toolsets.code_search import CodeSearchToolSet
 from pantheon.toolsets.notebook import NotebookToolSet
 from pantheon.toolsets.web import WebToolSet
 from pantheon.toolsets.todo import TodoToolSet
+from pantheon.toolsets.code_validator import CodeValidatorToolSet
 from pantheon.agent import Agent
 
+# Import management modules
+from .api_key_manager import APIKeyManager
+from .model_manager import ModelManager
+
+# Note: Model and API key commands are handled directly by REPL interface
 
 DEFAULT_INSTRUCTIONS = """
 You are a CLI assistant for Single-Cell/Spatial genomics analysis with multiple tool capabilities.
@@ -60,6 +66,15 @@ Use CODE SEARCH for (PREFERRED for search operations):
 - glob: Find files by pattern (e.g., "*.py", "**/*.js")
 - grep: Search for text across multiple files or in specific file patterns
 - ls: List directory contents with details
+
+Use CODE VALIDATION for verifying generated code:
+- validate_python_code: Check Python code syntax, imports, and functions
+- validate_command: Verify shell commands and parameters using help
+- validate_function_call: Check if functions exist and have correct signatures (with auto-suggestions)
+- validate_imports: Test import statements and suggest alternatives
+- check_code_style: Analyze code style and provide improvement suggestions
+- detect_common_errors: Find common coding errors like redundant parameters, AnnData method mistakes, self parameter errors
+- suggest_function_alternatives: Find similar functions when a function doesn't exist, using help() and module inspection
 
 Use NOTEBOOK operations for Jupyter notebooks:
 - read_notebook: Display notebook contents with beautiful formatting
@@ -111,6 +126,15 @@ Examples:
 - "edit cell 3 in notebook" → Use notebook: edit_notebook_cell tool
 - "add code cell to notebook" → Use notebook: add_notebook_cell tool
 - "create new notebook" → Use notebook: create_notebook tool
+- "validate this Python code" → Use validate_python_code tool
+- "check if this command is valid" → Use validate_command tool
+- "verify numpy.array function" → Use validate_function_call tool
+- "check these imports" → Use validate_imports tool
+- "analyze code style" → Use check_code_style tool
+- "find errors in this code" → Use detect_common_errors tool
+- "check for common mistakes" → Use detect_common_errors tool
+- "suggest alternatives for this function" → Use suggest_function_alternatives tool
+- "what functions are available in this module" → Use suggest_function_alternatives tool
 - "calculate fibonacci" → Use run_python tool
 - "create a plot" → Use run_python tool (matplotlib) or run_r tool (ggplot2)
 - "run STAR alignment" → Use shell commands
@@ -172,21 +196,22 @@ CRITICAL: Todo system should make you MORE productive, not just a list maker!
 
 async def main(
     rag_db: Optional[str] = None,
-    model: str = "gpt-4.1",
+    model: str = None,
     agent_name: str = "sc_cli_bot",
     workspace: Optional[str] = None,
     instructions: Optional[str] = None,
     disable_rag: bool = False,
     disable_web: bool = False,
     disable_notebook: bool = False,
-    disable_r: bool = False
+    disable_r: bool = False,
+    disable_code_validator: bool = False
 ):
     """
     Start the Pantheon CLI assistant.
     
     Args:
         rag_db: Path to RAG database (default: tmp/pantheon_cli_tools_rag/pantheon-cli-tools)
-        model: Model to use (default: gpt-4.1)
+        model: Model to use (default: loads from config or gpt-4.1, requires API key)
         agent_name: Name of the agent (default: sc_cli_bot)
         workspace: Workspace directory (default: current directory)
         instructions: Custom instructions for the agent (default: built-in instructions)
@@ -194,7 +219,10 @@ async def main(
         disable_web: Disable web toolset
         disable_notebook: Disable notebook toolset
         disable_r: Disable R interpreter toolset
+        disable_code_validator: Disable code validator toolset
     """
+    # Initialize managers locally
+    
     # Set default RAG database path if not provided
     if rag_db is None and not disable_rag:
         default_rag = Path("tmp/pantheon_cli_tools_rag/pantheon-cli-tools")
@@ -209,7 +237,36 @@ async def main(
     # Set workspace
     workspace_path = Path(workspace) if workspace else Path.cwd()
     
-    # Use custom instructions or default
+    # Initialize managers
+    config_file_path = workspace_path / ".pantheon_config.json"
+    api_key_manager = APIKeyManager(config_file_path)
+    model_manager = ModelManager(config_file_path, api_key_manager)
+    
+    # Ensure API keys are synced to environment variables
+    api_key_manager.sync_environment_variables()
+    
+    # Set model if provided
+    if model is not None:
+        model_manager.current_model = model
+        model_manager.save_model_config(model)
+    
+    # Check API key for current model
+    key_available, key_message = api_key_manager.check_api_key_for_model(model_manager.current_model)
+    key_status_icon = "✅" if key_available else "⚠️"
+    
+    print(f"🤖 Starting Pantheon CLI with model: {model_manager.current_model}")
+    print(f"{key_status_icon} {key_message}")
+    if not key_available:
+        from .api_key_manager import PROVIDER_API_KEYS, PROVIDER_NAMES
+        required_key = PROVIDER_API_KEYS.get(model_manager.current_model)
+        if required_key:
+            provider_cmd = required_key.lower().replace('_api_key', '')
+            print(f"💡 Set your API key: /api-key {provider_cmd} <your-key>")
+    print(f"💡 Commands: '/model list' | '/api-key list' | '/help'")
+    
+
+    
+    # Use custom instructions or default (no need to add model management info to prompt)
     agent_instructions = instructions or DEFAULT_INSTRUCTIONS
     
     # Initialize toolsets
@@ -239,12 +296,23 @@ async def main(
     if not disable_r:
         r_interpreter = RInterpreterToolSet("r_interpreter", workdir=str(workspace_path))
     
-    # Create agent
+    code_validator = None
+    if not disable_code_validator:
+        code_validator = CodeValidatorToolSet("code_validator")
+    
+    # Create agent with complete instructions
     agent = Agent(
         agent_name,
         agent_instructions,
-        model=model,
+        model=model_manager.current_model,
     )
+    
+    # Set agent reference in model manager
+    model_manager.set_agent(agent)
+    
+    # Attach managers to agent for REPL access
+    agent._model_manager = model_manager
+    agent._api_key_manager = api_key_manager
     
     # Add toolsets to agent
     agent.toolset(shell_toolset)
@@ -261,7 +329,11 @@ async def main(
         agent.toolset(web)
     if r_interpreter:
         agent.toolset(r_interpreter)
+    if code_validator:
+        agent.toolset(code_validator)
     
+    # Note: Model and API key commands are handled directly by REPL interface
+    # No need to register them as tools
     
     await agent.chat()
 

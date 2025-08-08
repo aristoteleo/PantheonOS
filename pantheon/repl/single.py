@@ -185,7 +185,7 @@ class Repl:
             # Create the box
             self.console.print("╭" + "─" * 79 + "╮")
             title_padding = " " * (79 - len(header_title) - 4)
-            self.console.print(f"│ [bold]{header_title}[/bold]{title_padding}│")
+            self.console.print(f"│ [bold]{header_title}[/bold]{title_padding}   │")
             self.console.print("│ ╭" + "─" * 75 + "╮ │")
 
             # Limit display lines (show first 10 + last 10 if > 20 lines)
@@ -203,7 +203,7 @@ class Repl:
                 # Truncate long lines and pad short ones
                 display_line = line[:75] if len(line) <= 75 else line[:72] + "..."
                 padded_line = display_line.ljust(75)
-                self.console.print(f"│ │ {padded_line} │ │")
+                self.console.print(f"│ │ {padded_line[:71]}   │ │")
             
             self.console.print("│ ╰" + "─" * 75 + "╯ │")
             self.console.print("╰" + "─" * 79 + "╯")
@@ -388,26 +388,35 @@ class Repl:
         self.console.print(self.input_panel)
 
     def ask_user_input(self) -> str:
-        """Get user input with simple input panel"""
+        """Get user input with multi-line support and readline history."""
         try:
-            if READLINE_AVAILABLE:
-                # Use simple prompt without ANSI codes that might confuse readline
-                prompt_text = "> "
-                user_input = input(prompt_text)
-            else:
-                # Fallback for systems without readline
-                self.console.print("[bright_blue]>[/bright_blue]", end=" ")
-                user_input = input()
-            
-            return user_input.strip()
-            
+            self.console.print("[dim]Enter your message (press Enter twice to finish)[/dim]")
+            lines = []
+            while True:
+                # 第一次输入用 "> " 提示，后续行用 "... "
+                prompt_text = "... " if lines else ">   "
+
+                if READLINE_AVAILABLE:
+                    line = input(prompt_text)
+                else:
+                    self.console.print(f"[bright_blue]{prompt_text}[/bright_blue]", end=" ")
+                    line = input()
+
+                # 空行结束
+                if line.strip() == "":
+                    break
+
+                lines.append(line)
+
+            # 返回多行合并的字符串
+            return "\n".join(lines).strip()
+
         except KeyboardInterrupt:
-            # Show feedback and return empty string so REPL continues instead of exiting
             self.console.print("\n[dim]Ctrl+C pressed - operation cancelled[/dim]")
             return ""
         except EOFError:
-            # EOF should still exit the program
             raise
+
     
     def _estimate_tokens(self, text: str) -> int:
         """Estimate token count using rough approximation (4 chars ≈ 1 token)"""
@@ -496,6 +505,14 @@ class Repl:
                 continue
             elif cmd in ["tokens", "/tokens"]:
                 self._print_token_analysis()
+                current_message = None  # Reset to get new input
+                continue
+            elif current_message.strip().startswith("/model"):
+                self._handle_model_command(current_message.strip())
+                current_message = None  # Reset to get new input
+                continue
+            elif current_message.strip().startswith("/api-key"):
+                self._handle_api_key_command(current_message.strip())
                 current_message = None  # Reset to get new input
                 continue
             
@@ -645,6 +662,17 @@ class Repl:
         self.console.print("[dim]Ctrl+C[/dim] - Cancel current operation")
         self.console.print("[dim]Ctrl+C x2[/dim] - Force exit (within 2 seconds)")
         
+        # Check if model/API key management is available
+        if hasattr(self.agent, '_model_manager') or hasattr(self.agent, '_api_key_manager'):
+            self.console.print("\n[bold]Model & API Management:[/bold]")
+            if hasattr(self.agent, '_model_manager'):
+                self.console.print("[dim]/model list[/dim] - List available models")
+                self.console.print("[dim]/model current[/dim] - Show current model")  
+                self.console.print("[dim]/model <id>[/dim] - Switch to model")
+            if hasattr(self.agent, '_api_key_manager'):
+                self.console.print("[dim]/api-key list[/dim] - Show API key status")
+                self.console.print("[dim]/api-key <provider> <key>[/dim] - Set API key")
+        
         if READLINE_AVAILABLE:
             self.console.print("\n[bold]Navigation:[/bold]")
             self.console.print("[dim]↑/↓[/dim] - Browse command history")
@@ -655,6 +683,9 @@ class Repl:
         self.console.print("[dim]create UMAP plot[/dim]")
         if self.python_enabled:
             self.console.print("[dim]write python script to calculate statistics[/dim]")
+        if hasattr(self.agent, '_model_manager'):
+            self.console.print("[dim]/model gpt-4o[/dim] - Switch to GPT-4o")
+            self.console.print("[dim]/api-key openai sk-...[/dim] - Set OpenAI key")
         self.console.print()
     
     def _print_history(self):
@@ -756,6 +787,32 @@ class Repl:
                 summary += f" • {self._format_token_count(total_tokens)} tokens"
             self.console.print(f"\n[dim]{summary}[/dim]")
         self.console.print("[dim]Goodbye![/dim]")
+
+    def _handle_model_command(self, command: str):
+        """Handle /model commands in REPL"""
+        try:
+            if hasattr(self.agent, '_model_manager') and self.agent._model_manager:
+                result = self.agent._model_manager.handle_model_command(command)
+                # Print result as plain text to avoid formatting issues
+                self.console.print(result)
+            else:
+                self.console.print("[red]Model management not available. Please restart with the CLI.[/red]")
+        except Exception as e:
+            self.console.print(f"[red]Error handling model command: {str(e)}[/red]")
+        self.console.print()  # Add spacing
+
+    def _handle_api_key_command(self, command: str):
+        """Handle /api-key commands in REPL"""
+        try:
+            if hasattr(self.agent, '_api_key_manager') and self.agent._api_key_manager:
+                result = self.agent._api_key_manager.handle_api_key_command(command)
+                # Print result as plain text to avoid formatting issues
+                self.console.print(result)
+            else:
+                self.console.print("[red]API key management not available. Please restart with the CLI.[/red]")
+        except Exception as e:
+            self.console.print(f"[red]Error handling API key command: {str(e)}[/red]")
+        self.console.print()  # Add spacing
 
 
 if __name__ == "__main__":
