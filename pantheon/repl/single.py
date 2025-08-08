@@ -185,7 +185,7 @@ class Repl:
             # Create the box
             self.console.print("╭" + "─" * 79 + "╮")
             title_padding = " " * (79 - len(header_title) - 4)
-            self.console.print(f"│ [bold]{header_title}[/bold]{title_padding}│")
+            self.console.print(f"│ [bold]{header_title}[/bold]{title_padding}   │")
             self.console.print("│ ╭" + "─" * 75 + "╮ │")
 
             # Limit display lines (show first 10 + last 10 if > 20 lines)
@@ -203,7 +203,7 @@ class Repl:
                 # Truncate long lines and pad short ones
                 display_line = line[:75] if len(line) <= 75 else line[:72] + "..."
                 padded_line = display_line.ljust(75)
-                self.console.print(f"│ │ {padded_line} │ │")
+                self.console.print(f"│ │ {padded_line[:71]}   │ │")
             
             self.console.print("│ ╰" + "─" * 75 + "╯ │")
             self.console.print("╰" + "─" * 79 + "╯")
