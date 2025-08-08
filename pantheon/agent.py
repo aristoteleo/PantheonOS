@@ -262,6 +262,9 @@ class Agent:
                         var_names = func.__code__.co_varnames
                     if __CTX_VARS_NAME__ in var_names:
                         params[__CTX_VARS_NAME__] = context_variables
+                    # Handle client_id for local functions too
+                    if ("__client_id__" in var_names) and (client_id is not None):
+                        params["__client_id__"] = client_id
                     _func = func
                 else:
                     # remote toolset
@@ -625,7 +628,7 @@ class Agent:
                 tool_timeout=tool_timeout,
                 model=model,
                 allow_transfer=allow_transfer,
-                client_id=memory.id,
+                client_id=memory.id,  # Keep original memory.id logic
             )
         except StopRunning:
             logger.info("StopRunning")
