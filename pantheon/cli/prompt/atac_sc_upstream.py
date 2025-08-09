@@ -48,10 +48,28 @@ PHASE 0 — SMART CELLRANGER-ATAC DETECTION & SETUP (AI-DRIVEN)
    - Execute: install_cellranger_atac(install_dir=chosen_path)
    
 
-2) Reference genome setup:
-   You can ask the user for the species and genome version if you detect it failed.
-   - setup_reference(species="human", auto_detect=True)  # Auto-detect from data
-   - For mouse data: setup_reference(species="mouse")
+2) Reference genome setup (AI-driven priority detection):
+   
+   PRIORITY 1 - Check for existing references:
+   - Run: scatac.check_reference_status(species="human")
+   - Run: scatac.check_reference_status(species="mouse") 
+   - If recommendation="ready": ✅ Reference already available - skip download
+   
+   PRIORITY 2 - Search reference directories:
+   - shell.run_command("find ./references -name 'refdata-*' 2>/dev/null")
+   - shell.run_command("find ~/references -name 'refdata-*' 2>/dev/null")
+   - Test found references for completeness (genome.fa, genes.gtf files)
+   - If complete reference found: skip download
+   
+   PRIORITY 3 - Check for existing downloads:
+   - Look for downloaded reference archives (*.tar.gz)
+   - If found: extract and verify
+   
+   PRIORITY 4 - Download if needed:
+   - Analyze environment and choose optimal reference path
+   - Consider: ./references vs ~/references vs workspace/references
+   - Execute: setup_reference(species=detected_species)
+   - You can ask the user for the species and genome version if auto-detection fails
 
 PHASE 1 — TODO CREATION (STRICT DE-DUP)
 Mandatory order:
@@ -133,19 +151,21 @@ PHASE 3 — ADAPTIVE TODO REFINEMENT
 
 EXECUTION STRATEGY (MUST FOLLOW THIS ORDER)
   1) SMART DETECTION: Execute PRIORITY 1-4 cellranger-atac detection workflow
-  2) show_todos() → check current todo status
-  3) scan_folder("{folder_path}") → detect 10X format and samples
-  4) TODO CREATION: Apply smart creation rules based on current todo state:
+  2) REFERENCE DETECTION: Execute PRIORITY 1-4 reference genome detection workflow
+  3) show_todos() → check current todo status
+  4) scan_folder("{folder_path}") → detect 10X format and samples
+  5) TODO CREATION: Apply smart creation rules based on current todo state:
      - If only setup/installation todos exist → create analysis pipeline todos
      - If completely empty → create full todo set
      - If analysis todos exist → skip creation (work with existing)
-  5) FASTQ VALIDATION: When current todo contains "Validate and rename 10X" → 
+  6) FASTQ VALIDATION: When current todo contains "Validate and rename 10X" → 
      ⚠️ IMMEDIATELY execute 10X_FASTQ_CHECKER_AND_RENAMER protocol (ALL 5 STEPS)
      ⚠️ DO NOT skip Step 4 renaming - it is MANDATORY for cellranger-atac
-  6) Loop Phase 2 until all todos completed; refine with Phase 3 when needed
+  7) Loop Phase 2 until all todos completed; refine with Phase 3 when needed
 
 BEGIN NOW:
 - Start with SMART DETECTION: execute Priority 1-4 cellranger-atac detection workflow
+- Then execute REFERENCE DETECTION: execute Priority 1-4 reference detection workflow
 - Then execute PHASE 0 → PHASE 1 → PHASE 2 loop  
 - Output should clearly show: detection results at each priority level, installation status,
   reference setup summary, todo status, and then progress through Phase 2 loop.
@@ -168,14 +188,23 @@ INSTALLATION & SETUP (SMART DETECTION):
 ⭐ PRIORITY 1: Test system command directly
    - shell.run_command("cellranger-atac --version")
 ⭐ PRIORITY 2: Search and configure existing installations  
-   - shell.run_command("find / -name 'cellranger-atac' 2>/dev/null | head -5")
+   - shell.run_command("find ./software -name 'cellranger-atac*' 2>/dev/null")
    - Test found paths and configure PATH if working
 ⭐ PRIORITY 3: Install only if no working version found
    - Analyze environment and choose installation path
    - scatac.install_cellranger_atac(install_dir=chosen_path) - Download and install
 ⭐ PRIORITY 4: Final verification
-   - scatac.test_cellranger_functionality() - Confirm working state  
-- scatac.setup_reference() - Download reference genomes (human/mouse)
+   - scatac.test_cellranger_functionality() - Confirm working state
+
+REFERENCE SETUP (SMART DETECTION):
+⭐ PRIORITY 1: Check existing references
+   - scatac.check_reference_status(species="human")
+   - scatac.check_reference_status(species="mouse")
+⭐ PRIORITY 2: Search reference directories
+   - shell.run_command("find ./references -name 'refdata-*' 2>/dev/null")
+⭐ PRIORITY 3: Check downloads and extract if needed
+⭐ PRIORITY 4: Download if needed
+   - scatac.setup_reference(species=species) - Download reference genomes
 
 SCANNING & PROJECT SETUP:
 - scatac.scan_folder() - Comprehensive 10X data analysis
@@ -200,6 +229,7 @@ GUIDANCE:
 - scatac.suggest_next_step() - Smart recommendations
 
 🚀 WORKFLOW: Start with SMART DETECTION (Priority 1-4) to find or install cellranger-atac,
+then execute REFERENCE DETECTION (Priority 1-4) to find or download reference genomes,
 then add todos for your scATAC-seq analysis task and use the appropriate scATAC tools!"""
     
     return message

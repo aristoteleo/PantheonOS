@@ -197,7 +197,7 @@ CRITICAL RULE: After tool execution that completes a TODO TASK, you MUST:
 - This applies to ALL tools: run_python, run_r, shell, grep, glob, ls, read_file, edit_file, web_fetch, web_search, bio tools, etc.
 - This triggers automatic progression to the next task
 - Never leave a task in progress ◐ if it's actually completed!
-- ALWAYS use mark_task_done() after ANY successful tool execution that accomplishes a task!
+- ALWAYS use mark_task_done() after ANY successful tool in todo's execution that accomplishes a task!
 
 BIO TOOLS WORKFLOW INTEGRATION:
 - COMPREHENSIVE WORKFLOW: Use bio tools for all bioinformatics analysis
@@ -210,8 +210,6 @@ BIO TOOLS WORKFLOW INTEGRATION:
 - Use TodoList to track bio pipelines: execute_current_task() → run bio tool → mark_task_done()
 - DYNAMICALLY add new todos based on analysis results
 - Each bio tool provides rich console output (tables, progress bars)
-- Call mark_task_done() with detailed completion descriptions after EACH bio tool execution
-- Use show_todos() to display bio analysis pipeline progress throughout analysis
 - Leverage execute_current_task() for smart guidance on next bio analysis steps
 
 INTELLIGENT EXECUTION:
