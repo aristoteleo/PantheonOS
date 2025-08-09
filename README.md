@@ -63,18 +63,6 @@ export OPENAI_API_KEY=your_openai_api_key
 python -m pantheon.chatroom
 ```
 
-## Quick Start - Pantheon CLI
-
-The easiest way to start using Pantheon is through the CLI interface:
-
-```bash
-# Start with default settings
-python -m pantheon.cli
-
-```
-
-See [pantheon/cli/README.md](pantheon/cli/README.md) for detailed documentation.
-
 Then you can see a service id of chatroom, you can copy it, then open https://pantheon-ui.vercel.app/ paste the service id and click "Connect".
 
 ## Pantheon CLI
