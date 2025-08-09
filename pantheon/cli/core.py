@@ -3,8 +3,9 @@
 import asyncio
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 import fire
+import sys
 
 # Import toolsets
 from pantheon.toolsets.shell import ShellToolSet
@@ -17,6 +18,7 @@ from pantheon.toolsets.notebook import NotebookToolSet
 from pantheon.toolsets.web import WebToolSet
 from pantheon.toolsets.todo import TodoToolSet
 from pantheon.toolsets.code_validator import CodeValidatorToolSet
+from pantheon.toolsets.generator import GeneratorToolSet
 from pantheon.agent import Agent
 
 # Import management modules
@@ -109,6 +111,14 @@ Use BIO operations for bioinformatics analysis:
 - bio info <tool>: Get detailed information about a specific bio tool
 - bio help [tool]: Get help for bio tools
 
+Use GENERATOR operations for managing external toolsets:
+- generate_toolset: Generate new external toolsets using AI Agent intelligence
+- list_domains: List available domains for toolset generation  
+- get_generation_help: Get help and examples for toolset generation
+- list_existing_toolsets: List all existing external toolsets
+- remove_toolset: Remove a specific external toolset
+- clear_all_toolsets: Clear all external toolsets (use with caution!)
+
 BIO TOOL COMMANDS (Access via /bio prefix):
 
 ATAC-seq Analysis:
@@ -182,6 +192,13 @@ Examples:
 - "analyze ATAC-seq data" → Use bio atac commands for chromatin accessibility analysis
 - "RNA-seq analysis" → Use bio rnaseq commands for transcriptome analysis  
 - "list bio tools" → Use bio list to see all available analysis tools
+- "generate a new web scraper toolset" → Use generate_toolset tool for AI-powered toolset creation
+- "create an API client toolset" → Use generate_toolset with domain="api_client"
+- "what domains are available for generation" → Use list_domains tool
+- "help with toolset generation" → Use get_generation_help tool
+- "list existing external toolsets" → Use list_existing_toolsets tool
+- "remove the github_client toolset" → Use remove_toolset tool
+- "clear all external toolsets" → Use clear_all_toolsets tool (caution!)
 
 TODO WORKFLOW - Make CLI SMART, NOT LAZY:
 When user adds a todo (like "generate figure step by step"):
@@ -231,6 +248,24 @@ CRITICAL: Todo system should make you MORE productive, not just a list maker!
 """
 
 
+def load_external_toolsets(ext_dir: str = "./ext_toolsets") -> Optional[Any]:
+    """Load external toolset loader if available"""
+    ext_path = Path(ext_dir).resolve()
+    
+    if not ext_path.exists():
+        return None
+    
+    # Add to Python path
+    if str(ext_path) not in sys.path:
+        sys.path.insert(0, str(ext_path))
+    
+    try:
+        from ext_loader import ext_loader
+        return ext_loader
+    except ImportError:
+        return None
+
+
 async def main(
     rag_db: Optional[str] = None,
     model: str = None,
@@ -242,7 +277,9 @@ async def main(
     disable_notebook: bool = False,
     disable_r: bool = False,
     disable_code_validator: bool = False,
-    disable_bio: bool = False
+    disable_bio: bool = False,
+    ext_toolsets: Optional[str] = None,
+    ext_dir: str = "./ext_toolsets"
 ):
     """
     Start the Pantheon CLI assistant.
@@ -259,6 +296,8 @@ async def main(
         disable_r: Disable R interpreter toolset
         disable_code_validator: Disable code validator toolset
         disable_bio: Disable bio analysis toolsets (ATAC-seq, RNA-seq, etc.)
+        ext_toolsets: Comma-separated list of external toolsets to load (default: load all)
+        ext_dir: Directory containing external toolsets (default: ./ext_toolsets)
     """
     # Initialize managers locally
     
@@ -306,7 +345,20 @@ async def main(
     
 
     
-    # Use custom instructions or default (no need to add model management info to prompt)
+    # Load external toolsets
+    ext_instructions = ""
+    ext_loader = load_external_toolsets(ext_dir)
+    
+    if ext_loader:
+        print(f"🔌 Checking for external toolsets in {ext_dir}...")
+        
+        # Parse toolset list if provided
+        toolset_list = None
+        if ext_toolsets:
+            toolset_list = [name.strip() for name in ext_toolsets.split(',')]
+            print(f"📋 Loading specific toolsets: {toolset_list}")
+    
+    # Use custom instructions or default
     agent_instructions = instructions or DEFAULT_INSTRUCTIONS
     
     # Initialize toolsets
@@ -339,6 +391,8 @@ async def main(
     code_validator = None
     if not disable_code_validator:
         code_validator = CodeValidatorToolSet("code_validator")
+    
+    generator_toolset = GeneratorToolSet("generator")
     
     bio_toolset = None
     if not disable_bio:
@@ -375,8 +429,27 @@ async def main(
         agent.toolset(r_interpreter)
     if code_validator:
         agent.toolset(code_validator)
+    
+    agent.toolset(generator_toolset)
+    
     if bio_toolset:
         agent.toolset(bio_toolset)
+    
+    # Register external toolsets if available
+    if ext_loader:
+        try:
+            ext_instructions = ext_loader.register_with_agent(
+                agent, 
+                toolset_list if ext_toolsets else None
+            )
+            
+            # Update agent instructions if external toolsets were loaded
+            if ext_instructions and not instructions:
+                # Append external instructions to default
+                agent.instructions = DEFAULT_INSTRUCTIONS + ext_instructions
+                print(f"📖 Updated agent with external toolset instructions")
+        except Exception as e:
+            print(f"[Warning] Failed to load external toolsets: {e}")
     
     # Note: Model and API key commands are handled directly by REPL interface
     # No need to register them as tools
