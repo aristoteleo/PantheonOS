@@ -286,8 +286,9 @@ async def main(
             print("RAG toolset will be disabled. To enable, provide --rag-db path")
             disable_rag = True
     
-    # Set workspace
-    workspace_path = Path(workspace) if workspace else Path.cwd()
+    # Set workspace and record launch directory
+    launch_directory = Path.cwd()  # Record current directory before any changes
+    workspace_path = Path(workspace) if workspace else launch_directory
     
     # Initialize managers
     config_file_path = workspace_path / ".pantheon_config.json"
@@ -354,7 +355,7 @@ async def main(
     
     bio_toolset = None
     if not disable_bio:
-        bio_toolset = BioToolsetManager("bio", workspace_path=workspace_path)
+        bio_toolset = BioToolsetManager("bio", workspace_path=workspace_path, launch_directory=launch_directory)
     
     # Create agent with complete instructions
     agent = Agent(

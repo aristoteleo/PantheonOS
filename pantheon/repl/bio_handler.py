@@ -44,6 +44,8 @@ class BioCommandHandler:
         self.console.print("[dim]  /bio list                      # Show all available tools[/dim]")
         self.console.print("[dim]  /bio atac init                 # Initialize ATAC-seq project[/dim]")
         self.console.print("[dim]  /bio atac upstream ./data      # Run upstream ATAC analysis[/dim]")
+        self.console.print("[dim]  /bio scatac init               # Initialize scATAC-seq project[/dim]")
+        self.console.print("[dim]  /bio scatac upstream ./data    # Run cellranger-atac analysis[/dim]")
         self.console.print("[dim]  /bio rnaseq init               # Initialize RNA-seq project (when available)[/dim]")
         self.console.print("")
     
@@ -65,6 +67,10 @@ class BioCommandHandler:
         # Handle ATAC commands with special logic
         if tool_name == "atac":
             return self._handle_atac_command(parts)
+        
+        # Handle scATAC commands with special logic
+        if tool_name == "scatac":
+            return self._handle_scatac_command(parts)
         
         # Generic handler for other tools
         if len(parts) > 2:
@@ -168,6 +174,126 @@ Response format (single line):
                 return f"bio_atac_{command} {params}"
             else:
                 return f"bio_atac_{command}"
+    
+    def _handle_scatac_command(self, parts) -> str:
+        """Handle scATAC-specific commands with special logic"""
+        
+        if len(parts) == 2:
+            # Just /bio scatac - show scATAC help
+            self.console.print("\n[bold]🧬 Single-cell ATAC-seq Analysis Helper[/bold]")
+            self.console.print("[dim]/bio scatac init[/dim] - Initialize scATAC-seq analysis project")
+            self.console.print("[dim]/bio scatac install[/dim] - Download and install cellranger-atac")
+            self.console.print("[dim]/bio scatac upstream <folder>[/dim] - Run cellranger-atac upstream analysis")
+            self.console.print("[dim]/bio scatac count <sample>[/dim] - Run cellranger-atac count for single sample")
+            self.console.print("\n[dim]Examples:[/dim]")
+            self.console.print("[dim]  /bio scatac init                      # Initialize scATAC project[/dim]")
+            self.console.print("[dim]  /bio scatac install                   # Download cellranger-atac v2.2.0[/dim]")
+            self.console.print("[dim]  /bio scatac upstream ./fastq_data    # Analyze 10X Chromium data[/dim]")
+            self.console.print("[dim]  /bio scatac count sample1             # Process single sample[/dim]")
+            self.console.print()
+            return None
+        
+        command = parts[2]
+        
+        if command == "init":
+            # Enter scATAC mode - simple mode activation
+            self.console.print("\n[bold cyan]🧬 Initializing scATAC-seq Project[/bold cyan]")
+            
+            # Clear all existing todos when entering scATAC mode
+            clear_message = """
+scATAC INIT MODE — STRICT
+
+Goal: ONLY clear TodoList and report the new status. Do NOT create or execute anything.
+
+Allowed tools (whitelist):
+  - clear_all_todos()
+  - show_todos()
+
+Hard bans (do NOT call under any circumstance in init):
+  - add_todo(), mark_task_done(), execute_current_task()
+  - any scatac.* analysis tools
+
+Steps:
+  1) clear_all_todos()
+  2) todos = show_todos()
+
+Response format (single line):
+  scATAC init ready • todos={len(todos)}
+"""
+            
+            self.console.print("[dim]Clearing existing todos and preparing scATAC environment...[/dim]")
+            self.console.print("[dim]Ready for single-cell ATAC-seq analysis assistance...[/dim]")
+            self.console.print("[dim]scATAC-seq mode activated. You can now use scATAC tools directly.[/dim]")
+            self.console.print()
+            self.console.print("[dim]The command structure is now clean:[/dim]")
+            self.console.print("[dim]  - /bio scatac init - Enter scATAC mode (simple prompt loading)[/dim]")
+            self.console.print("[dim]  - /bio scatac upstream <folder> - Run cellranger-atac analysis on specific folder[/dim]")
+            self.console.print("[dim]  - /bio scatac install - Download and install cellranger-atac[/dim]")
+            self.console.print()
+            
+            return clear_message
+        
+        elif command == "install":
+            # Handle cellranger-atac installation
+            self.console.print("\n[bold cyan]🔧 Installing cellranger-atac[/bold cyan]")
+            self.console.print("[dim]Downloading and setting up cellranger-atac v2.2.0...[/dim]")
+            self.console.print("[dim]This will download ~500MB and may take several minutes.[/dim]")
+            self.console.print()
+            return "scatac_install_cellranger_atac"
+        
+        elif command == "upstream":
+            # Handle upstream analysis with cellranger-atac
+            if len(parts) < 4:
+                self.console.print("[red]Error: Please specify a folder path[/red]")
+                self.console.print("[dim]Usage: /bio scatac upstream <folder_path>[/dim]")
+                self.console.print("[dim]Example: /bio scatac upstream ./10x_data[/dim]")
+                return None
+            
+            try:
+                from ..cli.prompt.atac_sc_upstream import generate_scatac_analysis_message
+                
+                folder_path = parts[3]
+                self.console.print(f"\n[bold cyan]🧬 Starting scATAC-seq Analysis[/bold cyan]")
+                self.console.print(f"[dim]Target folder: {folder_path}[/dim]")
+                self.console.print("[dim]Will scan for 10X Chromium ATAC data and run cellranger-atac pipeline...[/dim]")
+                self.console.print("[dim]Preparing cellranger-atac analysis pipeline...[/dim]\n")
+                
+                # Generate the analysis message with folder
+                scatac_message = generate_scatac_analysis_message(folder_path=folder_path)
+                
+                self.console.print("[dim]Sending scATAC-seq analysis request...[/dim]\n")
+                
+                return scatac_message
+                
+            except ImportError as e:
+                self.console.print(f"[red]Error: scATAC module not available: {e}[/red]")
+                return None
+            except Exception as e:
+                self.console.print(f"[red]Error preparing scATAC analysis: {str(e)}[/red]")
+                return None
+        
+        elif command == "count":
+            # Handle cellranger-atac count for single sample
+            if len(parts) < 4:
+                self.console.print("[red]Error: Please specify sample information[/red]")
+                self.console.print("[dim]Usage: /bio scatac count <sample_id>[/dim]")
+                self.console.print("[dim]Example: /bio scatac count Sample1[/dim]")
+                return None
+            
+            sample_id = parts[3]
+            self.console.print(f"\n[bold cyan]🧬 Running cellranger-atac count[/bold cyan]")
+            self.console.print(f"[dim]Sample ID: {sample_id}[/dim]")
+            self.console.print("[dim]Processing single-cell ATAC-seq data...[/dim]")
+            
+            return f"scatac_count {sample_id}"
+        
+        else:
+            # Handle other scATAC commands generically
+            params = " ".join(parts[3:]) if len(parts) > 3 else ""
+            if params:
+                return f"bio_scatac_{command} {params}"
+            else:
+                return f"bio_scatac_{command}"
     
     async def handle_deprecated_atac_command(self, command: str) -> str:
         """
