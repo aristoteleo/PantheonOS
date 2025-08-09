@@ -834,11 +834,9 @@ class Repl:
             self.console.print("\n[bold]🧬 ATAC-seq Analysis Helper[/bold]")
             self.console.print("[dim]/atac init[/dim] - Enter ATAC-seq analysis mode")
             self.console.print("[dim]/atac upstream <folder>[/dim] - Run upstream ATAC-seq analysis on folder")
-            self.console.print("[dim]/atac cellranger <folder>[/dim] - Auto-detect and run Cell Ranger ATAC workflow")
             self.console.print("\n[dim]Examples:[/dim]")
-            self.console.print("[dim]  /atac init                        # Enter ATAC mode[/dim]")
-            self.console.print("[dim]  /atac upstream ./fastq_data       # Analyze bulk ATAC-seq data[/dim]")
-            self.console.print("[dim]  /atac cellranger ./scatac_data    # Auto-analyze Cell Ranger ATAC data[/dim]")
+            self.console.print("[dim]  /atac init                     # Enter ATAC mode[/dim]")
+            self.console.print("[dim]  /atac upstream ./fastq_data    # Analyze FASTQ data[/dim]")
             self.console.print()
             return
         
@@ -847,28 +845,27 @@ class Repl:
             self.console.print("\n[bold cyan]🧬 Entering ATAC-seq Analysis Mode[/bold cyan]")
             
             # Clear all existing todos when entering ATAC mode
-            clear_message = "Clear all existing todos. I'm now in ATAC-seq analysis mode and ready to help with ATAC-seq analysis tasks."
+            clear_message = "Clearing existing todos and entering fresh ATAC-seq analysis mode."
             self._pending_atac_message = clear_message
             
             self.console.print("[dim]Clearing existing todos and preparing ATAC environment...[/dim]")
+            self.console.print("[dim]Ready for ATAC-seq analysis assistance...[/dim]")
             self.console.print("[dim]ATAC-seq mode activated. You can now use ATAC tools directly.[/dim]")
-            
-            # Show available tools and command structure
-            self.console.print("\n[bold green]Available ATAC tools:[/bold green]")
-            self.console.print("  - atac.scan_folder() - to scan data folders")
-            self.console.print("  - atac.auto_detect_species() - for species detection")
-            self.console.print("  - atac.setup_genome_resources() - for reference setup")
-            self.console.print("  - atac.run_fastqc(), atac.align_bowtie2(), etc. - for analysis steps")
-            self.console.print("  - atac.generate_atac_qc_report() - for QC reports with MultiQC integration")
-            self.console.print("  - Todo management tools for tracking progress")
-            
-            self.console.print("\n[bold blue]The command structure is now clean:[/bold blue]")
-            self.console.print("  - /atac init - Enter ATAC mode (simple prompt loading)")
-            self.console.print("  - /atac upstream <folder> - Run upstream analysis on specific folder")
-            self.console.print("  - /atac cellranger <folder> - Auto-detect and run Cell Ranger ATAC workflow")
+            self.console.print()
+            self.console.print("[dim]Available ATAC tools:[/dim]")
+            self.console.print("[dim]  - atac.scan_folder() - to scan data folders[/dim]")
+            self.console.print("[dim]  - atac.auto_detect_species() - for species detection[/dim]")
+            self.console.print("[dim]  - atac.setup_genome_resources() - for reference setup[/dim]")
+            self.console.print("[dim]  - atac.run_fastqc(), atac.align_bowtie2(), etc. - for analysis steps[/dim]")
+            self.console.print("[dim]  - atac.generate_atac_qc_report() - for QC reports with MultiQC integration[/dim]")
+            self.console.print("[dim]  - Todo management tools for tracking progress[/dim]")
+            self.console.print()
+            self.console.print("[dim]The command structure is now clean:[/dim]")
+            self.console.print("[dim]  - /atac init - Enter ATAC mode (simple prompt loading)[/dim]")
+            self.console.print("[dim]  - /atac upstream <folder> - Run upstream analysis on specific folder[/dim]")
             self.console.print()
             
-            # Set a simple message to clear todos only
+            # Set a simple message to clear todos without automation
         
         elif parts[1] == "upstream":
             # Run upstream analysis on specific folder
@@ -899,40 +896,11 @@ class Repl:
             except Exception as e:
                 self.console.print(f"[red]Error preparing upstream analysis: {str(e)}[/red]")
         
-        elif parts[1] == "cellranger":
-            if len(parts) < 3:
-                self.console.print("[red]Error: Please specify a folder path[/red]")
-                self.console.print("[dim]Usage: /atac cellranger <folder_path>[/dim]")
-                self.console.print("[dim]Example: /atac cellranger ./scatac_data[/dim]")
-                return
-                
-            try:
-                from ..cli.atac_simple import generate_atac_cellranger_message
-                
-                folder_path = parts[2]
-                self.console.print(f"\n[bold cyan]🧬 Starting Cell Ranger ATAC Auto-Analysis[/bold cyan]")
-                self.console.print(f"[dim]Target folder: {folder_path}[/dim]")
-                self.console.print("[dim]Auto-detecting workflow and data type...[/dim]\n")
-                
-                # Generate the Cell Ranger ATAC analysis message with folder
-                atac_message = generate_atac_cellranger_message(folder_path)
-                
-                # Set this as the next message to process
-                self._pending_atac_message = atac_message
-                
-                self.console.print("[dim]Sending Cell Ranger ATAC analysis request...[/dim]\n")
-                
-            except ImportError as e:
-                self.console.print(f"[red]Error: ATAC module not available: {e}[/red]")
-            except Exception as e:
-                self.console.print(f"[red]Error preparing Cell Ranger ATAC analysis: {str(e)}[/red]")
-        
         else:
             self.console.print(f"[red]Unknown ATAC command: {parts[1]}[/red]")
             self.console.print("[dim]Available commands:[/dim]")
             self.console.print("[dim]  /atac init - Enter ATAC mode[/dim]")
             self.console.print("[dim]  /atac upstream <folder> - Run upstream analysis[/dim]")
-            self.console.print("[dim]  /atac cellranger <folder> - Run Cell Ranger ATAC auto-analysis[/dim]")
         
         self.console.print()  # Add spacing
 

@@ -2,8 +2,6 @@
 
 A powerful CLI assistant for Single-Cell/Spatial genomics analysis with multiple tool capabilities.
 
-If you want to know the tools using, please see [Natural Language Input](README_INPUT.md)
-
 ## Quick Start
 
 ### Basic Usage
@@ -106,17 +104,17 @@ python -m pantheon.cli --instructions "You are a specialized bioinformatics assi
 
 ## Features
 
-- Fast startup with sensible defaults
-- Modular toolset architecture  
-- Single-cell genomics specialized
-- R/Seurat integration with sample data and workflows
-- Enhanced Python environment with auto-visualization
-- Web search and fetch capabilities
-- Jupyter notebook support
-- Advanced code search
-- RAG knowledge base integration
-- Universal software auto-installer
-- Claude Code-style todo management with status tracking
+- 🚀 Fast startup with sensible defaults
+- 🔧 Modular toolset architecture  
+- 📊 Single-cell genomics specialized
+- 🧬 R/Seurat integration with sample data and workflows
+- 🐍 Enhanced Python environment with auto-visualization
+- 🌐 Web search and fetch capabilities
+- 📓 Jupyter notebook support
+- 🔍 Advanced code search
+- 💾 RAG knowledge base integration
+- 🔧 Universal software auto-installer
+- ✅ Claude Code-style todo management with status tracking
 
 ## Requirements
 
