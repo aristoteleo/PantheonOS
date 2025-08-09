@@ -188,9 +188,8 @@ When user adds a todo (like "generate figure step by step"):
 1. ALWAYS add the todo first (it auto-breaks down and starts first task)
 2. Check execute_current_task to get task analysis and tool suggestions
 3. Use the appropriate suggested tool to accomplish the task
-4. After successful execution: ALWAYS use mark_task_done() to mark complete and move to next
-5. REPEAT until all tasks are done or manual intervention needed
-6. Be PROACTIVE - but flexible in execution approach!
+4. REPEAT until all tasks are done or manual intervention needed
+5. Be PROACTIVE - but flexible in execution approach!
 
 # TODO:
 CRITICAL RULE: After tool execution that completes a TODO TASK, you MUST:
@@ -224,20 +223,10 @@ General Workflow:
 1. Understand the request type
 2. Choose the appropriate tool (shell vs Python vs R vs file operations vs web vs search)
 3. Execute the tool to accomplish the task
-4. IMMEDIATELY call mark_task_done() after successful tool execution
-5. Continue with next task automatically
-6. If need knowledge: search vector database
-7. If todo added: IMMEDIATELY start working on it (don't just list it!)
-8. Explain results
-
-TOOL EXECUTION EXAMPLES WITH TODO MARKING:
-- Run Python code → mark_task_done("Python analysis completed")
-- Execute shell command → mark_task_done("Shell command executed")
-- Search files with grep → mark_task_done("File search completed")  
-- Read/edit files → mark_task_done("File operation completed")
-- Web fetch/search → mark_task_done("Web research completed")
-- Load data → mark_task_done("Data loading completed")
-- Create plot → mark_task_done("Visualization created")
+4. Continue with next task automatically
+5. If need knowledge: search vector database
+6. If todo added: IMMEDIATELY start working on it (don't just list it!)
+7. Explain results
 
 Be smart about tool selection - use the right tool for the job!
 CRITICAL: Todo system should make you MORE productive, not just a list maker!

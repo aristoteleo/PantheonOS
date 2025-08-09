@@ -20,6 +20,7 @@ GLOBAL RULES
 - Idempotent behavior: NEVER create duplicate todos. Only create if the list is EMPTY.
 - Do not ask the user for confirmations; proceed automatically and log warnings when needed.
 - After each concrete tool completes successfully, call mark_task_done("what was completed"), then show_todos().
+- All python code should use run_python() to execute. Don't use shell.run_command() or `python - << ` for python code.
 
 PHASE 0 — SMART CELLRANGER-ATAC DETECTION & SETUP (AI-DRIVEN)
 1) Intelligent cellranger-atac availability check (priority order):
@@ -29,12 +30,13 @@ PHASE 0 — SMART CELLRANGER-ATAC DETECTION & SETUP (AI-DRIVEN)
    - If SUCCESS: ✅ Already available in PATH - skip all installation
    - If FAIL: Continue to Priority 2
    
-   PRIORITY 2 - Search existing installations:  
-   - Use shell.run_command("find / -name 'cellranger-atac' 2>/dev/null | head -5")
-   - For each found path (e.g., /opt/cellranger-atac-2.1.0/cellranger-atac):
+   PRIORITY 2 - Search software directories only:  
+   - shell.run_command("find ./software -name 'cellranger-atac*' 2>/dev/null")
+   - shell.run_command("find ~/software -name 'cellranger-atac*' 2>/dev/null") 
+   - For each found path (prioritize ./software):
      * Test: shell.run_command("path_to_cellranger-atac --version")
      * If working: ✅ Found working installation - set PATH and use it
-     * Export PATH: shell.run_command("export PATH=/opt/cellranger-atac-2.1.0:$PATH")
+     * Export PATH: shell.run_command("export PATH=$(dirname path_to_cellranger-atac):$PATH")
      * Re-test: shell.run_command("cellranger-atac --version")
    - If any working installation found: skip installation
    
@@ -45,10 +47,9 @@ PHASE 0 — SMART CELLRANGER-ATAC DETECTION & SETUP (AI-DRIVEN)
    - Consider: write permissions, disk space, persistence needs
    - Execute: install_cellranger_atac(install_dir=chosen_path)
    
-   PRIORITY 4 - Final verification:
-   - Always run: test_cellranger_functionality() to confirm working state
 
 2) Reference genome setup:
+   You can ask the user for the species and genome version if you detect it failed.
    - setup_reference(species="human", auto_detect=True)  # Auto-detect from data
    - For mouse data: setup_reference(species="mouse")
 
@@ -87,17 +88,17 @@ For each current task:
   4) show_todos()
 Repeat until all todos are completed.
 
-🔍 10X_FASTQ_CHECKER_AND_RENAMER PROTOCOL:
-When validating/renaming 10X FASTQ files, follow this exact sequence:
+🔍 10X_FASTQ_CHECKER_AND_RENAMER PROTOCOL (MANDATORY EXECUTION):
+When task contains "Validate and rename 10X", execute ALL 5 steps in exact order:
 
 STEP 1 - List and analyze current files:
 - shell.run_command("ls -la {folder_path}/*fastq.gz")
 - shell.run_command("ls -la {folder_path}/*.fq.gz") 
 
-STEP 2 - Check 10X format compliance:
-- Required naming: samplename_S1_L00X_R1_001.fastq.gz, samplename_S1_L00X_R3_001.fastq.gz, samplename_S1_L00X_R2_001.fastq.gz
-- cellranger-atac needs R1 (reads), R2 (barcodes), R3 (reads) - NO R4
-- Check if files follow this pattern vs current naming
+STEP 2 - Check 10X format compliance (CRITICAL):
+- ✅ REQUIRED: samplename_S1_L00X_R1_001.fastq.gz, samplename_S1_L00X_R2_001.fastq.gz, samplename_S1_L00X_R3_001.fastq.gz
+- ❌ CURRENT: any other naming pattern (like atac_pbmc_1k_nextgem_*)
+- DECISION: If current naming != required naming → PROCEED TO STEP 4 RENAMING
 
 STEP 3 - Inspect FASTQ headers to confirm 10X format:
 - shell.run_command("zcat {folder_path}/*R1*fastq.gz | head -4")
@@ -105,15 +106,25 @@ STEP 3 - Inspect FASTQ headers to confirm 10X format:
 - shell.run_command("zcat {folder_path}/*R3*fastq.gz | head -4")
 - Verify 10X barcode/UMI structure in headers
 
-STEP 4 - Auto-rename if needed:
-- If files don't match cellranger-atac naming requirements:
-  * Generate new names following samplename_S1_L00X_RX_001.fastq.gz pattern
-  * Use shell.run_command("mv old_name new_name") for each file
-  * Create rename log: shell.run_command("echo 'old_name -> new_name' >> rename_log.txt")
+STEP 4 - MANDATORY RENAME (if files don't match S1_L00X_RX_001 pattern):
+- Extract sample name from current files:
+  * Example: "atac_pbmc_1k_nextgem_S1_L001_R1_001.fastq.gz" → extract "pbmc_1k" 
+  * Rule: Take meaningful part, remove technical prefixes like "atac_" and suffixes like "_nextgem"
+- Identify current file patterns and map to new names:
+  * Find current R1 file: shell.run_command("ls {folder_path}/*R1*fastq.gz")
+  * Find current R2 file: shell.run_command("ls {folder_path}/*R2*fastq.gz")
+  * Find current R3 file: shell.run_command("ls {folder_path}/*R3*fastq.gz")
+- Generate new names using extracted sample name (e.g., extracted_sample_S1_L001_R1_001.fastq.gz)
+- Execute renaming commands with actual filenames:
+  * shell.run_command("mv [actual_R1_filename] [extracted_sample]_S1_L001_R1_001.fastq.gz")
+  * shell.run_command("mv [actual_R2_filename] [extracted_sample]_S1_L001_R2_001.fastq.gz") 
+  * shell.run_command("mv [actual_R3_filename] [extracted_sample]_S1_L001_R3_001.fastq.gz")
+- Log: shell.run_command("echo 'Renamed files: [old_names] → [new_names]' > rename_log.txt")
   
-STEP 5 - Verify final structure:
-- shell.run_command("ls -la {folder_path}/*S1_L00*_R*_001.fastq.gz")
-- Confirm all required R1, R2, R3 files exist for cellranger-atac count
+STEP 5 - VERIFY final structure:
+- shell.run_command("ls -la {folder_path}/*S1_L001_R*_001.fastq.gz")
+- CONFIRM: All 3 files (R1, R2, R3) exist with correct naming
+- Mark task complete ONLY after successful verification
 
 PHASE 3 — ADAPTIVE TODO REFINEMENT
 - If installation fails → add_todo("Troubleshoot cellranger-atac installation")
@@ -128,7 +139,9 @@ EXECUTION STRATEGY (MUST FOLLOW THIS ORDER)
      - If only setup/installation todos exist → create analysis pipeline todos
      - If completely empty → create full todo set
      - If analysis todos exist → skip creation (work with existing)
-  5) FASTQ VALIDATION: If "validate 10X FASTQ" todo exists → execute 10X_FASTQ_CHECKER_AND_RENAMER
+  5) FASTQ VALIDATION: When current todo contains "Validate and rename 10X" → 
+     ⚠️ IMMEDIATELY execute 10X_FASTQ_CHECKER_AND_RENAMER protocol (ALL 5 STEPS)
+     ⚠️ DO NOT skip Step 4 renaming - it is MANDATORY for cellranger-atac
   6) Loop Phase 2 until all todos completed; refine with Phase 3 when needed
 
 BEGIN NOW:
