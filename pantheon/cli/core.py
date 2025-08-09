@@ -17,12 +17,15 @@ from pantheon.toolsets.notebook import NotebookToolSet
 from pantheon.toolsets.web import WebToolSet
 from pantheon.toolsets.todo import TodoToolSet
 from pantheon.toolsets.code_validator import CodeValidatorToolSet
-from pantheon.toolsets.atac import ATACSeqToolSet
 from pantheon.agent import Agent
 
 # Import management modules
-from .api_key_manager import APIKeyManager
-from .model_manager import ModelManager
+from .manager.api_key_manager import APIKeyManager
+from .manager.model_manager import ModelManager
+
+
+#Special toolsets
+from pantheon.toolsets.bio.atac import ATACSeqToolSet
 
 # Note: Model and API key commands are handled directly by REPL interface
 
@@ -187,7 +190,7 @@ Examples:
 - "add a todo to analyze data" → Use add_todo tool
 - "show my todos" → Use show_todos tool
 - "mark first todo as completed" → Use complete_todo tool
-- "/atac init folder" → atac.auto_detect_species → atac.setup_genome_resources(species, genome, gtf, blacklist) → atac.scan_folder → create adaptive todos → execute pipeline
+- "/atac init" → 🧹 await atac.ensure_clean_start() (clean todolist, show available tools, DO NOT create todos automatically)"
 - "analyze ATAC-seq data" → auto-detect species → comprehensive resource setup → organized file structure → scan folder → ATAC todos → execute with TodoList tracking
 - "ATAC pipeline for raw data" → Species detection → Comprehensive resource setup (genome+GTF+blacklist) → QC → Trimming → Bowtie2 Alignment → Peak Calling → Coverage → QC Report
 
@@ -200,7 +203,8 @@ When user adds a todo (like "generate figure step by step"):
 5. REPEAT until all tasks are done or manual intervention needed
 6. Be PROACTIVE - but flexible in execution approach!
 
-CRITICAL RULE: After ANY tool execution that completes a task, you MUST:
+# TODO:
+CRITICAL RULE: After tool execution that completes a TODO TASK, you MUST:
 - Call mark_task_done() to mark it done ☑ and show updated todo list with checkmarks
 - This applies to ALL tools: run_python, run_r, shell, grep, glob, ls, read_file, edit_file, web_fetch, web_search, ATAC tools, etc.
 - This triggers automatic progression to the next task
