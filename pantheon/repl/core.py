@@ -30,6 +30,7 @@ from ..agent import Agent
 from ..remote.agent import RemoteAgent
 from ..utils.misc import print_agent_message, print_agent, print_banner, print_agent_message_modern_style
 from .ui import ReplUI
+from .bio_handler import BioCommandHandler
 
 # Import toolsets from pantheon-toolsets
 try:
@@ -48,6 +49,7 @@ class Repl(ReplUI):
     """
     def __init__(self, agent: Agent | RemoteAgent, enable_python: bool = True):
         super().__init__()  # init UI
+        self.bio_handler = BioCommandHandler(self.console)
         self.agent = agent
         self.console = Console()
         self.current_task = None
@@ -324,13 +326,17 @@ class Repl(ReplUI):
                 self._handle_api_key_command(current_message.strip())
                 current_message = None  # Reset to get new input
                 continue
+            elif current_message.strip().startswith("/bio"):
+                bio_message = await self.bio_handler.handle_bio_command(current_message.strip())
+                if bio_message:
+                    current_message = bio_message
+                else:
+                    current_message = None  # Reset to get new input
+                    continue
             elif current_message.strip().startswith("/atac"):
-                await self._handle_atac_command(current_message.strip())
-                # Check if there's a pending ATAC message to process
-                if hasattr(self, '_pending_atac_message'):
-                    current_message = self._pending_atac_message
-                    del self._pending_atac_message
-                    # Continue to process this message
+                atac_message = await self.bio_handler.handle_deprecated_atac_command(current_message.strip())
+                if atac_message:
+                    current_message = atac_message
                 else:
                     current_message = None  # Reset to get new input
                     continue
@@ -497,95 +503,7 @@ class Repl(ReplUI):
             self.console.print(f"[red]Error handling API key command: {str(e)}[/red]")
         self.console.print()  # Add spacing
 
-    async def _handle_atac_command(self, command: str):
-        """Handle /atac commands for ATAC-seq analysis"""
-        parts = command.split(maxsplit=2)
-        
-        if len(parts) == 1:
-            # Just /atac - show help
-            self.console.print("\n[bold]🧬 ATAC-seq Analysis Helper[/bold]")
-            self.console.print("[dim]/atac init[/dim] - Enter ATAC-seq analysis mode")
-            self.console.print("[dim]/atac upstream <folder>[/dim] - Run upstream ATAC-seq analysis on folder")
-            self.console.print("\n[dim]Examples:[/dim]")
-            self.console.print("[dim]  /atac init                     # Enter ATAC mode[/dim]")
-            self.console.print("[dim]  /atac upstream ./fastq_data    # Analyze FASTQ data[/dim]")
-            self.console.print()
-            return
-        
-        if parts[1] == "init":
-            # Enter ATAC mode - simple mode activation without automation
-            self.console.print("\n[bold cyan]🧬 Entering ATAC-seq Analysis Mode[/bold cyan]")
-            
-            # Clear all existing todos when entering ATAC mode
-            clear_message = """
-ATAC INIT MODE — STRICT
-
-Goal: ONLY clear TodoList and report the new status. Do NOT create or execute anything.
-
-Allowed tools (whitelist):
-  - clear_all_todos()
-  - show_todos()
-
-Hard bans (do NOT call under any circumstance in init):
-  - add_todo(), mark_task_done(), execute_current_task()
-  - any atac.* analysis tools
-
-Steps:
-  1) clear_all_todos()
-  2) todos = show_todos()
-
-Response format (single line):
-  ATAC init ready • todos={len(todos)}
-"""
-            self._pending_atac_message = clear_message
-            
-            self.console.print("[dim]Clearing existing todos and preparing ATAC environment...[/dim]")
-            self.console.print("[dim]Ready for ATAC-seq analysis assistance...[/dim]")
-            self.console.print("[dim]ATAC-seq mode activated. You can now use ATAC tools directly.[/dim]")
-            self.console.print()
-            self.console.print("[dim]The command structure is now clean:[/dim]")
-            self.console.print("[dim]  - /atac init - Enter ATAC mode (simple prompt loading)[/dim]")
-            self.console.print("[dim]  - /atac upstream <folder> - Run upstream analysis on specific folder[/dim]")
-            self.console.print()
-            
-            # Set a simple message to clear todos without automation
-        
-        elif parts[1] == "upstream":
-            # Run upstream analysis on specific folder
-            if len(parts) < 3:
-                self.console.print("[red]Error: Please specify a folder path[/red]")
-                self.console.print("[dim]Usage: /atac upstream <folder_path>[/dim]")
-                self.console.print("[dim]Example: /atac upstream ./fastq_data[/dim]")
-                return
-                
-            try:
-                from ..cli.prompt.atac_bulk_upstream import generate_atac_analysis_message
-                
-                folder_path = parts[2]
-                self.console.print(f"\n[bold cyan]🧬 Starting Upstream ATAC-seq Analysis[/bold cyan]")
-                self.console.print(f"[dim]Target folder: {folder_path}[/dim]")
-                self.console.print("[dim]Preparing upstream analysis pipeline...[/dim]\n")
-                
-                # Generate the analysis message with folder
-                atac_message = generate_atac_analysis_message(folder_path=folder_path)
-                
-                # Set this as the next message to process
-                self._pending_atac_message = atac_message
-                
-                self.console.print("[dim]Sending upstream ATAC-seq analysis request...[/dim]\n")
-                
-            except ImportError as e:
-                self.console.print(f"[red]Error: ATAC module not available: {e}[/red]")
-            except Exception as e:
-                self.console.print(f"[red]Error preparing upstream analysis: {str(e)}[/red]")
-        
-        else:
-            self.console.print(f"[red]Unknown ATAC command: {parts[1]}[/red]")
-            self.console.print("[dim]Available commands:[/dim]")
-            self.console.print("[dim]  /atac init - Enter ATAC mode[/dim]")
-            self.console.print("[dim]  /atac upstream <folder> - Run upstream analysis[/dim]")
-        
-        self.console.print()  # Add spacing
+    # Bio command handling moved to bio_handler.py
 
 
 if __name__ == "__main__":

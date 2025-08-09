@@ -23,24 +23,23 @@ GLOBAL RULES
 
 PHASE 0 — SPECIES DETECTION & GENOME RESOURCES
 1) Species detection:
-   - species_info = atac.auto_detect_species("{folder_path}")
+   - species_info = auto_detect_species("{folder_path}")
    - If confidence ≥ 2.0: accept.
    - If confidence < 2.0: accept the best guess automatically and LOG a warning note in the response.
 
 2) Resource setup (comprehensive by default):
-   - atac.setup_genome_resources(species_info.species, species_info.genome_version,
-       include_gtf=True, include_blacklist=True)
+   - setup_genome_resources(species_info.species, species_info.genome_version, include_gtf=True, include_blacklist=True)
    - Then validate:
-     • atac.check_genome_integrity(species_info.species, species_info.genome_version)
-     • atac.get_resource_info(species_info.species, species_info.genome_version)
+     • check_genome_integrity(species_info.species, species_info.genome_version)
+     • get_resource_info(species_info.species, species_info.genome_version)
    - Optional utilities:
-     • atac.clean_incomplete_downloads()
-     • atac.list_available_resources()
+     • clean_incomplete_downloads()
+     • list_available_resources()
 
 PHASE 1 — TODO CREATION (STRICT DE-DUP)
 Mandatory order:
   a) current = show_todos()
-  b) atac.scan_folder("{folder_path}")
+  b) scan_folder("{folder_path}")
 Creation rule (single condition):
   • If current is EMPTY → create ONCE the following todos:
       0. "Setup reference genome automatically for Bowtie2 indexing"
@@ -57,9 +56,9 @@ PHASE 2 — EXECUTE WITH TODO TRACKING (LOOP)
 For each current task:
   1) hint = execute_current_task()   # obtain guidance for the next action
   2) Run the appropriate ATAC tool:
-     - For alignment: atac.auto_align_fastq("{folder_path}")
-     - For BAM processing: atac.process_bam_smart()   # default: no duplicate removal
-     - For QC/report/others: follow 'hint' and use the corresponding atac.* tool
+     - For alignment: auto_align_fastq("{folder_path}")
+     - For BAM processing: process_bam_smart()   # default: no duplicate removal
+     - For QC/report/others: follow 'hint' and use the corresponding tool
      - Tools auto-install dependencies when needed (bowtie2, samtools, etc.)
   3) mark_task_done("brief, precise description of the completed step")
   4) show_todos()
@@ -71,10 +70,10 @@ PHASE 3 — ADAPTIVE TODO REFINEMENT
 - If additional analysis needed → add_todo("Additional analysis task")
 
 EXECUTION STRATEGY (MUST FOLLOW THIS ORDER)
-  1) atac.auto_detect_species("{folder_path}") → decide species/genome (auto, no user prompts; log warning if <2.0)
-  2) atac.setup_genome_resources(...); validate with check/get_resource_info
+  1) species_info = auto_detect_species("{folder_path}") → decide species/genome (auto, no user prompts; log warning if <2.0)
+  2) setup_genome_resources(species_info.species, species_info.genome_version, include_gtf=True, include_blacklist=True); validate with check_genome_integrity and get_resource_info
   3) show_todos()
-  4) atac.scan_folder("{folder_path}")
+  4) scan_folder("{folder_path}")
   5) If todos empty → create the standard set ONCE; else skip creation
   6) Loop Phase 2 until all done; refine with Phase 3 when needed
 

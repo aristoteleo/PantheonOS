@@ -25,7 +25,7 @@ from .manager.model_manager import ModelManager
 
 
 #Special toolsets
-from pantheon.toolsets.bio.atac import ATACSeqToolSet
+from pantheon.toolsets.bio import BioToolsetManager
 
 # Note: Model and API key commands are handled directly by REPL interface
 
@@ -104,43 +104,30 @@ Use TODO operations for task management:
 - complete_todo: Mark a todo as completed
 - start_todo: Mark a todo as in progress
 
-Use ATAC-seq operations for chromatin accessibility analysis:
-- scan_folder: Comprehensive scan of folder for ATAC-seq files with analysis stage assessment
-- auto_detect_species: Intelligent species detection from folder/file names and FASTQ headers
+Use BIO operations for bioinformatics analysis:
+- bio list: List all available bio analysis tools (ATAC-seq, RNA-seq, etc.)
+- bio info <tool>: Get detailed information about a specific bio tool
+- bio help [tool]: Get help for bio tools
 
-GENOME RESOURCE MANAGEMENT (New Organized Structure):
-- setup_genome_resources: Download genome+GTF+blacklist in organized folders (species, genome_version, include_gtf, include_blacklist)
-- list_available_resources: Show all downloaded resources with status table
-- check_genome_integrity: Validate file completeness and format integrity  
-- clean_incomplete_downloads: Remove corrupted/incomplete downloads
-- get_resource_info: Detailed information about specific genome resources
-- test_download_speeds: Test multiple download sources and find fastest
-- test_download_progress: Test clean progress bar display
+BIO TOOL COMMANDS (Access via /bio prefix):
 
-LEGACY GENOME METHODS (For compatibility):  
-- quick_genome_setup: Fast test setup with single chromosome
-- setup_genome_resources: Comprehensive genome resource setup (genome+GTF+blacklist)
-- setup_reference_genome_from_source: Manual source selection (legacy compatibility)
+ATAC-seq Analysis:
+- bio atac init: Initialize ATAC-seq project
+- bio atac scan_folder: Scan folder for ATAC data
+- bio atac check_dependencies: Check ATAC tool installation
+- bio atac setup_genome_resources: Download genome resources
+- bio atac auto_align_fastq: Automated alignment pipeline
+- bio atac call_peaks_macs2: Call peaks using MACS2
+- bio atac generate_atac_qc_report: Generate QC report
 
-ANALYSIS TOOLS:
-- check_dependencies: Check which ATAC-seq tools are installed and show install commands
-- install_missing_tools: Automatically install missing ATAC-seq analysis tools
-- auto_align_fastq: Fully automated alignment pipeline (auto-detects files, installs tools, runs alignment)
-- validate_fastq: Validate FASTQ files and get basic stats
-- run_fastqc: Run FastQC quality control on FASTQ files
-- trim_adapters: Trim adapters using Trim Galore
-- align_bowtie2: Align reads to genome using Bowtie2 (ATAC-seq optimized, recommended)
-- align_bwa: Align reads to genome using BWA-MEM (legacy method)
-- filter_bam: Filter BAM files for quality and proper pairs
-- mark_duplicates: Mark or remove PCR duplicates with Picard
-- call_peaks_macs2: Call peaks using MACS2
-- call_peaks_genrich: Call peaks using Genrich (ATAC-optimized)
-- bam_to_bigwig: Convert BAM to BigWig tracks
-- compute_matrix: Compute matrix for heatmaps/profiles
-- plot_heatmap: Generate heatmaps from matrix
-- find_motifs: Find enriched motifs with HOMER
-- generate_atac_qc_report: Generate comprehensive QC report
-- suggest_next_step: Get suggestions for next analysis step
+RNA-seq Analysis (when available):
+- bio rnaseq init: Initialize RNA-seq project
+- bio rnaseq scan_folder: Scan folder for RNA-seq data
+- bio rnaseq align: Align RNA-seq reads
+
+Other Bio Tools:
+- bio chipseq init: ChIP-seq analysis (when available)
+- bio scrna init: Single-cell RNA-seq (when available)
 
 SEARCH PRIORITY RULES:
 - Use "grep" for ANY content search (even in single files)
@@ -190,9 +177,11 @@ Examples:
 - "add a todo to analyze data" → Use add_todo tool
 - "show my todos" → Use show_todos tool
 - "mark first todo as completed" → Use complete_todo tool
-- "/atac init" → 🧹 await atac.ensure_clean_start() (clean todolist, show available tools, DO NOT create todos automatically)"
-- "analyze ATAC-seq data" → auto-detect species → comprehensive resource setup → organized file structure → scan folder → ATAC todos → execute with TodoList tracking
-- "ATAC pipeline for raw data" → Species detection → Comprehensive resource setup (genome+GTF+blacklist) → QC → Trimming → Bowtie2 Alignment → Peak Calling → Coverage → QC Report
+- "/bio atac init" → Initialize ATAC-seq project structure  
+- "/bio list" → Show all available bio analysis tools
+- "analyze ATAC-seq data" → Use bio atac commands for chromatin accessibility analysis
+- "RNA-seq analysis" → Use bio rnaseq commands for transcriptome analysis  
+- "list bio tools" → Use bio list to see all available analysis tools
 
 TODO WORKFLOW - Make CLI SMART, NOT LAZY:
 When user adds a todo (like "generate figure step by step"):
@@ -206,25 +195,25 @@ When user adds a todo (like "generate figure step by step"):
 # TODO:
 CRITICAL RULE: After tool execution that completes a TODO TASK, you MUST:
 - Call mark_task_done() to mark it done ☑ and show updated todo list with checkmarks
-- This applies to ALL tools: run_python, run_r, shell, grep, glob, ls, read_file, edit_file, web_fetch, web_search, ATAC tools, etc.
+- This applies to ALL tools: run_python, run_r, shell, grep, glob, ls, read_file, edit_file, web_fetch, web_search, bio tools, etc.
 - This triggers automatic progression to the next task
 - Never leave a task in progress ◐ if it's actually completed!
 - ALWAYS use mark_task_done() after ANY successful tool execution that accomplishes a task!
 
-ATAC-seq WORKFLOW INTEGRATION:
-- COMPREHENSIVE WORKFLOW: atac.auto_detect_species() → atac.setup_genome_resources() → atac.scan_folder() → create ADAPTIVE todos
+BIO TOOLS WORKFLOW INTEGRATION:
+- COMPREHENSIVE WORKFLOW: Use bio tools for all bioinformatics analysis
+- ATAC-seq: bio atac scan_folder() → bio atac auto_detect_species() → bio atac setup_genome_resources() → create todos
+- RNA-seq: bio rnaseq scan_folder() → bio rnaseq check_dependencies() → bio rnaseq align_reads() → create todos  
 - Species detection is AUTOMATIC from folder/file names and FASTQ headers with confidence scoring
-- Only ask user for species confirmation if confidence is medium (1.0-2.0) or low (<1.0)
-- Resource setup is COMPREHENSIVE: genome+GTF+blacklist in organized structure (reference/genome/species/, reference/gtf/species/, reference/blacklist/species/)
+- Resource setup is COMPREHENSIVE: genome+GTF+blacklist in organized structure
 - SMART CACHING: automatically skips existing files, validates integrity, cleans incomplete downloads
-- Create specific ATAC todos: "ATAC-seq Quality Control", "ATAC-seq Peak Calling", etc. (NOT generic data analysis tasks)
-- Use TodoList to track ATAC pipeline: execute_current_task() → run ATAC tool → mark_task_done()
-- DYNAMICALLY add new todos based on analysis results (e.g., if tools missing, quality issues found)
-- Each ATAC tool provides rich console output (tables, progress bars) - let them display
-- Call mark_task_done() with detailed completion descriptions after EACH ATAC tool execution
-- Use show_todos() to display ATAC-seq pipeline progress throughout analysis
-- Leverage execute_current_task() for smart guidance on next ATAC-seq steps
-- Use atac.list_available_resources() to show downloaded resources; atac.check_genome_integrity() for validation
+- Create specific bio todos: "ATAC-seq Quality Control", "RNA-seq Alignment", etc. (NOT generic data analysis tasks)
+- Use TodoList to track bio pipelines: execute_current_task() → run bio tool → mark_task_done()
+- DYNAMICALLY add new todos based on analysis results
+- Each bio tool provides rich console output (tables, progress bars)
+- Call mark_task_done() with detailed completion descriptions after EACH bio tool execution
+- Use show_todos() to display bio analysis pipeline progress throughout analysis
+- Leverage execute_current_task() for smart guidance on next bio analysis steps
 
 INTELLIGENT EXECUTION:
 - execute_current_task() provides task analysis and tool suggestions
@@ -266,7 +255,7 @@ async def main(
     disable_notebook: bool = False,
     disable_r: bool = False,
     disable_code_validator: bool = False,
-    disable_atac: bool = False
+    disable_bio: bool = False
 ):
     """
     Start the Pantheon CLI assistant.
@@ -282,7 +271,7 @@ async def main(
         disable_notebook: Disable notebook toolset
         disable_r: Disable R interpreter toolset
         disable_code_validator: Disable code validator toolset
-        disable_atac: Disable ATAC-seq analysis toolset
+        disable_bio: Disable bio analysis toolsets (ATAC-seq, RNA-seq, etc.)
     """
     # Initialize managers locally
     
@@ -363,9 +352,9 @@ async def main(
     if not disable_code_validator:
         code_validator = CodeValidatorToolSet("code_validator")
     
-    atac_toolset = None
-    if not disable_atac:
-        atac_toolset = ATACSeqToolSet("atac", workspace_path=workspace_path)
+    bio_toolset = None
+    if not disable_bio:
+        bio_toolset = BioToolsetManager("bio", workspace_path=workspace_path)
     
     # Create agent with complete instructions
     agent = Agent(
@@ -398,8 +387,8 @@ async def main(
         agent.toolset(r_interpreter)
     if code_validator:
         agent.toolset(code_validator)
-    if atac_toolset:
-        agent.toolset(atac_toolset)
+    if bio_toolset:
+        agent.toolset(bio_toolset)
     
     # Note: Model and API key commands are handled directly by REPL interface
     # No need to register them as tools
