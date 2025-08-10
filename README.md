@@ -26,7 +26,9 @@
 pip install pantheon-agents
 ```
 
-See the [examples](examples) folder for more details.
+## Examples
+
+See the [examples](examples) folder for more advanced usage patterns and custom implementations.
 
 
 ## TODO
@@ -62,3 +64,14 @@ python -m pantheon.chatroom
 ```
 
 Then you can see a service id of chatroom, you can copy it, then open https://pantheon-ui.vercel.app/ paste the service id and click "Connect".
+
+## Pantheon CLI
+
+The easiest way to start using Pantheon is through the CLI interface:
+
+```bash
+# Start with default settings
+python -m pantheon.cli
+```
+
+See [pantheon/cli/README.md](pantheon/cli/README.md) for detailed documentation.

@@ -2,6 +2,7 @@ import asyncio
 import sys
 import time
 import json
+import signal
 from datetime import datetime
 import os
 from pathlib import Path
@@ -61,6 +62,7 @@ class Repl:
         # Processing status tracking
         self._current_live_display = None
         self._tools_executing = False
+        self._current_agent_task = None
         
         # Setup history file
         self.history_file = Path.home() / ".pantheon_history"
@@ -75,6 +77,9 @@ class Repl:
         # Setup input system
         self._setup_input_system()
         self._load_history()
+        
+        # Setup signal handlers for better interrupt handling
+        self._setup_signal_handlers()
         
         # Simple fixed input panel at bottom
         self.input_panel = Panel(
@@ -98,6 +103,43 @@ class Repl:
     def _setup_shell_toolset_callback(self):
         """Setup shell toolset callback - simplified"""
         pass
+        
+    def _setup_signal_handlers(self):
+        """Setup signal handlers for better interrupt management"""
+        self._interrupt_count = 0
+        self._last_interrupt_time = 0
+        
+        def signal_handler(signum, frame):
+            import time
+            current_time = time.time()
+            
+            # If interrupts come within 2 seconds of each other, count them
+            if current_time - self._last_interrupt_time < 2.0:
+                self._interrupt_count += 1
+            else:
+                self._interrupt_count = 1
+                
+            self._last_interrupt_time = current_time
+            
+            # Show cancellation message for first interrupt
+            if self._interrupt_count == 1:
+                self.console.print("\n[yellow]Operation interrupted - press Ctrl+C again within 2 seconds to force exit[/yellow]")
+                # Try to cancel the current agent task if it exists
+                if hasattr(self, '_current_agent_task') and self._current_agent_task and not self._current_agent_task.done():
+                    try:
+                        self._current_agent_task.cancel()
+                    except Exception:
+                        pass  # Ignore errors during cancellation
+            elif self._interrupt_count >= 2:
+                self.console.print("\n[red]Force exit requested[/red]")
+                sys.exit(1)
+            
+            # For first interrupt, let KeyboardInterrupt be raised normally
+            # This allows the normal interrupt handling to work
+        
+        # Only set up signal handler on Unix-like systems
+        if hasattr(signal, 'SIGINT'):
+            signal.signal(signal.SIGINT, signal_handler)
 
     async def print_greeting(self):
         await print_banner(self.console)
@@ -127,9 +169,14 @@ class Repl:
         self.console.print()  # Add some space
         
         # Claude Code style tool call display
-        if tool_name in ["run_code", "run_code_in_interpreter"] and args and 'code' in args:
-            # Special handling for Python code execution (native Python toolset)
-            self.console.print("⏺ [bold]Python[/bold]")
+        if tool_name in ["run_code", "run_code_in_interpreter", "run_python", "run_r"] and args and 'code' in args:
+            # Special handling for code execution
+            if tool_name in ["run_python", "run_code", "run_code_in_interpreter"]:
+                self.console.print("⏺ [bold]Python[/bold]")
+                header_title = "Run Python code"
+            elif tool_name == "run_r":
+                self.console.print("⏺ [bold]R[/bold]")
+                header_title = "Run R code"
             
             # Create a fancy code block
             code = args['code']
@@ -137,7 +184,8 @@ class Repl:
             
             # Create the box
             self.console.print("╭" + "─" * 79 + "╮")
-            self.console.print("│ [bold]Run Python code[/bold]" + " " * 58 + "│")
+            title_padding = " " * (79 - len(header_title) - 4)
+            self.console.print(f"│ [bold]{header_title}[/bold]{title_padding}   │")
             self.console.print("│ ╭" + "─" * 75 + "╮ │")
 
             # Limit display lines (show first 10 + last 10 if > 20 lines)
@@ -155,7 +203,7 @@ class Repl:
                 # Truncate long lines and pad short ones
                 display_line = line[:75] if len(line) <= 75 else line[:72] + "..."
                 padded_line = display_line.ljust(75)
-                self.console.print(f"│ │ {padded_line} │ │")
+                self.console.print(f"│ │ {padded_line[:71]}   │ │")
             
             self.console.print("│ ╰" + "─" * 75 + "╯ │")
             self.console.print("╰" + "─" * 79 + "╯")
@@ -176,6 +224,17 @@ class Repl:
                     key_arg = f"pattern='{args['pattern']}'"
                 elif 'query' in args:
                     key_arg = f"query='{args['query'][:50]}...'" if len(str(args['query'])) > 50 else f"query='{args['query']}'"
+                elif 'code' in args:
+                    # Display code for run_python and run_r tools
+                    code_lines = str(args['code']).strip().split('\n')
+                    if len(code_lines) == 1 and len(code_lines[0]) <= 60:
+                        key_arg = f"code='{code_lines[0]}'"
+                    elif len(code_lines) <= 3 and all(len(line) <= 50 for line in code_lines):
+                        code_preview = '; '.join(line.strip() for line in code_lines)
+                        key_arg = f"code='{code_preview[:70]}...'" if len(code_preview) > 70 else f"code='{code_preview}'"
+                    else:
+                        first_line = code_lines[0][:50]
+                        key_arg = f"code='{first_line}... ({len(code_lines)} lines)'"
                 
                 if key_arg:
                     self.console.print(f"⏺ [bold]{tool_name}[/bold]({key_arg})")
@@ -188,6 +247,17 @@ class Repl:
         
     def print_tool_result(self, tool_name: str, result: dict):
         """Print tool result in Claude Code style with diff support"""
+        
+        # Mark that tool execution is complete
+        self._tools_executing = False
+        
+        # Special handling for toolsets that print their own output - skip normal output box
+        skip_tools = ['edit', 'write', 'read', 'file', 'glob', 'grep', 'ls', 'notebook']
+        if any(tool in tool_name.lower() for tool in skip_tools) and isinstance(result, dict):
+            if result.get('success'):
+                # For successful operations, don't show any output box
+                # The content was already printed by the toolset
+                return
 
         # Show tool output in Claude Code style
         if isinstance(result, dict) and 'output' in result:
@@ -203,7 +273,7 @@ class Repl:
             max_width = min(79, max(len(line) for line in lines) + 4)
             
             self.console.print("╭" + "─" * (max_width - 2) + "╮")
-            self.console.print("│ [bold]Output[/bold]" + " " * (max_width - 11) + "│")
+            self.console.print("│ [bold]Output[/bold]" + " " * (max_width - 9) + "│")
             self.console.print("├" + "─" * (max_width - 2) + "┤")
             
             for line in lines:
@@ -318,20 +388,35 @@ class Repl:
         self.console.print(self.input_panel)
 
     def ask_user_input(self) -> str:
-        """Get user input with simple input panel"""
+        """Get user input with multi-line support and readline history."""
         try:
-            if READLINE_AVAILABLE:
-                # Use simple prompt without ANSI codes that might confuse readline
-                prompt_text = "> "
-                user_input = input(prompt_text)
-            else:
-                # Fallback for systems without readline
-                self.console.print("[bright_blue]>[/bright_blue]", end=" ")
-                user_input = input()
-            
-            return user_input.strip()
-        except (KeyboardInterrupt, EOFError):
+            self.console.print("[dim]Enter your message (press Enter twice to finish)[/dim]")
+            lines = []
+            while True:
+                # 第一次输入用 "> " 提示，后续行用 "... "
+                prompt_text = "... " if lines else ">   "
+
+                if READLINE_AVAILABLE:
+                    line = input(prompt_text)
+                else:
+                    self.console.print(f"[bright_blue]{prompt_text}[/bright_blue]", end=" ")
+                    line = input()
+
+                # 空行结束
+                if line.strip() == "":
+                    break
+
+                lines.append(line)
+
+            # 返回多行合并的字符串
+            return "\n".join(lines).strip()
+
+        except KeyboardInterrupt:
+            self.console.print("\n[dim]Ctrl+C pressed - operation cancelled[/dim]")
+            return ""
+        except EOFError:
             raise
+
     
     def _estimate_tokens(self, text: str) -> int:
         """Estimate token count using rough approximation (4 chars ≈ 1 token)"""
@@ -422,6 +507,24 @@ class Repl:
                 self._print_token_analysis()
                 current_message = None  # Reset to get new input
                 continue
+            elif current_message.strip().startswith("/model"):
+                self._handle_model_command(current_message.strip())
+                current_message = None  # Reset to get new input
+                continue
+            elif current_message.strip().startswith("/api-key"):
+                self._handle_api_key_command(current_message.strip())
+                current_message = None  # Reset to get new input
+                continue
+            elif current_message.strip().startswith("/atac"):
+                await self._handle_atac_command(current_message.strip())
+                # Check if there's a pending ATAC message to process
+                if hasattr(self, '_pending_atac_message'):
+                    current_message = self._pending_atac_message
+                    del self._pending_atac_message
+                    # Continue to process this message
+                else:
+                    current_message = None  # Reset to get new input
+                    continue
             
             # If not a special command, process with agent
             start_time = time.time()
@@ -480,10 +583,24 @@ class Repl:
                     self._current_live_display = processing_live
                     
                     # Process with agent - tool outputs will display independently
-                    await self.agent.run(
-                        current_message,
-                        process_chunk=smart_process_chunk,
+                    # Create a cancellable task for the agent processing
+                    agent_task = asyncio.create_task(
+                        self.agent.run(
+                            current_message,
+                            process_chunk=smart_process_chunk,
+                        )
                     )
+                    
+                    # Store the task so it can be cancelled on interrupt
+                    self._current_agent_task = agent_task
+                    
+                    try:
+                        await agent_task
+                    except asyncio.CancelledError:
+                        self.console.print("\n[yellow]Operation was cancelled[/yellow]")
+                        raise KeyboardInterrupt
+                    finally:
+                        self._current_agent_task = None
                     
                     # Final output token calculation
                     if content_buffer:
@@ -496,7 +613,16 @@ class Repl:
                     self.message_count += 1
                     
                 except KeyboardInterrupt:
-                    self.console.print("\n[yellow]Interrupted by user[/yellow]")
+                    #self.console.print("\n[yellow]Operation cancelled by user[/yellow]")
+                    # Reset interrupt counter since we handled it gracefully
+                    self._interrupt_count = 0
+                    # Cancel any running agent task
+                    if self._current_agent_task and not self._current_agent_task.done():
+                        self._current_agent_task.cancel()
+                        try:
+                            await self._current_agent_task
+                        except asyncio.CancelledError:
+                            pass
                     current_message = None  # Reset to get new input
                     continue
                 except Exception as e:
@@ -507,6 +633,10 @@ class Repl:
                     processing_live.stop()
                     self._tools_executing = False
                     self._current_live_display = None
+                    # Clean up agent task reference
+                    if self._current_agent_task and not self._current_agent_task.done():
+                        self._current_agent_task.cancel()
+                    self._current_agent_task = None
             finally:
                 # Ensure processing is stopped
                 if 'processing_live' in locals():
@@ -538,8 +668,21 @@ class Repl:
         self.console.print("[dim]/history[/dim] - Show command history")
         self.console.print("[dim]/tokens[/dim] - Token usage analysis")  
         self.console.print("[dim]/clear[/dim] - Clear screen")
-        self.console.print("[dim]/exit[/dim] - Exit")
-        self.console.print("[dim]Ctrl+C[/dim] - Interrupt/Exit")
+        self.console.print("[dim]/atac init[/dim] - ATAC-seq analysis helper 🧬")
+        self.console.print("[dim]/exit[/dim] - Exit cleanly")
+        self.console.print("[dim]Ctrl+C[/dim] - Cancel current operation")
+        self.console.print("[dim]Ctrl+C x2[/dim] - Force exit (within 2 seconds)")
+        
+        # Check if model/API key management is available
+        if hasattr(self.agent, '_model_manager') or hasattr(self.agent, '_api_key_manager'):
+            self.console.print("\n[bold]Model & API Management:[/bold]")
+            if hasattr(self.agent, '_model_manager'):
+                self.console.print("[dim]/model list[/dim] - List available models")
+                self.console.print("[dim]/model current[/dim] - Show current model")  
+                self.console.print("[dim]/model <id>[/dim] - Switch to model")
+            if hasattr(self.agent, '_api_key_manager'):
+                self.console.print("[dim]/api-key list[/dim] - Show API key status")
+                self.console.print("[dim]/api-key <provider> <key>[/dim] - Set API key")
         
         if READLINE_AVAILABLE:
             self.console.print("\n[bold]Navigation:[/bold]")
@@ -551,6 +694,9 @@ class Repl:
         self.console.print("[dim]create UMAP plot[/dim]")
         if self.python_enabled:
             self.console.print("[dim]write python script to calculate statistics[/dim]")
+        if hasattr(self.agent, '_model_manager'):
+            self.console.print("[dim]/model gpt-4o[/dim] - Switch to GPT-4o")
+            self.console.print("[dim]/api-key openai sk-...[/dim] - Set OpenAI key")
         self.console.print()
     
     def _print_history(self):
@@ -652,6 +798,111 @@ class Repl:
                 summary += f" • {self._format_token_count(total_tokens)} tokens"
             self.console.print(f"\n[dim]{summary}[/dim]")
         self.console.print("[dim]Goodbye![/dim]")
+
+    def _handle_model_command(self, command: str):
+        """Handle /model commands in REPL"""
+        try:
+            if hasattr(self.agent, '_model_manager') and self.agent._model_manager:
+                result = self.agent._model_manager.handle_model_command(command)
+                # Print result as plain text to avoid formatting issues
+                self.console.print(result)
+            else:
+                self.console.print("[red]Model management not available. Please restart with the CLI.[/red]")
+        except Exception as e:
+            self.console.print(f"[red]Error handling model command: {str(e)}[/red]")
+        self.console.print()  # Add spacing
+
+    def _handle_api_key_command(self, command: str):
+        """Handle /api-key commands in REPL"""
+        try:
+            if hasattr(self.agent, '_api_key_manager') and self.agent._api_key_manager:
+                result = self.agent._api_key_manager.handle_api_key_command(command)
+                # Print result as plain text to avoid formatting issues
+                self.console.print(result)
+            else:
+                self.console.print("[red]API key management not available. Please restart with the CLI.[/red]")
+        except Exception as e:
+            self.console.print(f"[red]Error handling API key command: {str(e)}[/red]")
+        self.console.print()  # Add spacing
+
+    async def _handle_atac_command(self, command: str):
+        """Handle /atac commands for ATAC-seq analysis"""
+        parts = command.split(maxsplit=2)
+        
+        if len(parts) == 1:
+            # Just /atac - show help
+            self.console.print("\n[bold]🧬 ATAC-seq Analysis Helper[/bold]")
+            self.console.print("[dim]/atac init[/dim] - Enter ATAC-seq analysis mode")
+            self.console.print("[dim]/atac upstream <folder>[/dim] - Run upstream ATAC-seq analysis on folder")
+            self.console.print("\n[dim]Examples:[/dim]")
+            self.console.print("[dim]  /atac init                     # Enter ATAC mode[/dim]")
+            self.console.print("[dim]  /atac upstream ./fastq_data    # Analyze FASTQ data[/dim]")
+            self.console.print()
+            return
+        
+        if parts[1] == "init":
+            # Enter ATAC mode - simple mode activation without automation
+            self.console.print("\n[bold cyan]🧬 Entering ATAC-seq Analysis Mode[/bold cyan]")
+            
+            # Clear all existing todos when entering ATAC mode
+            clear_message = "Clearing existing todos and entering fresh ATAC-seq analysis mode."
+            self._pending_atac_message = clear_message
+            
+            self.console.print("[dim]Clearing existing todos and preparing ATAC environment...[/dim]")
+            self.console.print("[dim]Ready for ATAC-seq analysis assistance...[/dim]")
+            self.console.print("[dim]ATAC-seq mode activated. You can now use ATAC tools directly.[/dim]")
+            self.console.print()
+            self.console.print("[dim]Available ATAC tools:[/dim]")
+            self.console.print("[dim]  - atac.scan_folder() - to scan data folders[/dim]")
+            self.console.print("[dim]  - atac.auto_detect_species() - for species detection[/dim]")
+            self.console.print("[dim]  - atac.setup_genome_resources() - for reference setup[/dim]")
+            self.console.print("[dim]  - atac.run_fastqc(), atac.align_bowtie2(), etc. - for analysis steps[/dim]")
+            self.console.print("[dim]  - atac.generate_atac_qc_report() - for QC reports with MultiQC integration[/dim]")
+            self.console.print("[dim]  - Todo management tools for tracking progress[/dim]")
+            self.console.print()
+            self.console.print("[dim]The command structure is now clean:[/dim]")
+            self.console.print("[dim]  - /atac init - Enter ATAC mode (simple prompt loading)[/dim]")
+            self.console.print("[dim]  - /atac upstream <folder> - Run upstream analysis on specific folder[/dim]")
+            self.console.print()
+            
+            # Set a simple message to clear todos without automation
+        
+        elif parts[1] == "upstream":
+            # Run upstream analysis on specific folder
+            if len(parts) < 3:
+                self.console.print("[red]Error: Please specify a folder path[/red]")
+                self.console.print("[dim]Usage: /atac upstream <folder_path>[/dim]")
+                self.console.print("[dim]Example: /atac upstream ./fastq_data[/dim]")
+                return
+                
+            try:
+                from ..cli.atac_simple import generate_atac_analysis_message
+                
+                folder_path = parts[2]
+                self.console.print(f"\n[bold cyan]🧬 Starting Upstream ATAC-seq Analysis[/bold cyan]")
+                self.console.print(f"[dim]Target folder: {folder_path}[/dim]")
+                self.console.print("[dim]Preparing upstream analysis pipeline...[/dim]\n")
+                
+                # Generate the analysis message with folder
+                atac_message = generate_atac_analysis_message(folder_path=folder_path)
+                
+                # Set this as the next message to process
+                self._pending_atac_message = atac_message
+                
+                self.console.print("[dim]Sending upstream ATAC-seq analysis request...[/dim]\n")
+                
+            except ImportError as e:
+                self.console.print(f"[red]Error: ATAC module not available: {e}[/red]")
+            except Exception as e:
+                self.console.print(f"[red]Error preparing upstream analysis: {str(e)}[/red]")
+        
+        else:
+            self.console.print(f"[red]Unknown ATAC command: {parts[1]}[/red]")
+            self.console.print("[dim]Available commands:[/dim]")
+            self.console.print("[dim]  /atac init - Enter ATAC mode[/dim]")
+            self.console.print("[dim]  /atac upstream <folder> - Run upstream analysis[/dim]")
+        
+        self.console.print()  # Add spacing
 
 
 if __name__ == "__main__":
