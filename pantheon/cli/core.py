@@ -278,6 +278,7 @@ async def main(
     disable_r: bool = False,
     disable_code_validator: bool = False,
     disable_bio: bool = False,
+    disable_ext: bool = True,
     ext_toolsets: Optional[str] = None,
     ext_dir: str = "./ext_toolsets"
 ):
@@ -344,19 +345,19 @@ async def main(
     print(f"💡 Commands: '/model list' | '/api-key list' | '/help'")
     
 
-    
-    # Load external toolsets
-    ext_instructions = ""
-    ext_loader = load_external_toolsets(ext_dir)
-    
-    if ext_loader:
-        print(f"🔌 Checking for external toolsets in {ext_dir}...")
+    if not disable_ext:
+        # Load external toolsets
+        ext_instructions = ""
+        ext_loader = load_external_toolsets(ext_dir)
         
-        # Parse toolset list if provided
-        toolset_list = None
-        if ext_toolsets:
-            toolset_list = [name.strip() for name in ext_toolsets.split(',')]
-            print(f"📋 Loading specific toolsets: {toolset_list}")
+        if ext_loader:
+            print(f"🔌 Checking for external toolsets in {ext_dir}...")
+            
+            # Parse toolset list if provided
+            toolset_list = None
+            if ext_toolsets:
+                toolset_list = [name.strip() for name in ext_toolsets.split(',')]
+                print(f"📋 Loading specific toolsets: {toolset_list}")
     
     # Use custom instructions or default
     agent_instructions = instructions or DEFAULT_INSTRUCTIONS
@@ -435,21 +436,22 @@ async def main(
     if bio_toolset:
         agent.toolset(bio_toolset)
     
-    # Register external toolsets if available
-    if ext_loader:
-        try:
-            ext_instructions = ext_loader.register_with_agent(
-                agent, 
-                toolset_list if ext_toolsets else None
-            )
-            
-            # Update agent instructions if external toolsets were loaded
-            if ext_instructions and not instructions:
-                # Append external instructions to default
-                agent.instructions = DEFAULT_INSTRUCTIONS + ext_instructions
-                print(f"📖 Updated agent with external toolset instructions")
-        except Exception as e:
-            print(f"[Warning] Failed to load external toolsets: {e}")
+    if not disable_ext:
+        # Register external toolsets if available
+        if ext_loader:
+            try:
+                ext_instructions = ext_loader.register_with_agent(
+                    agent, 
+                    toolset_list if ext_toolsets else None
+                )
+                
+                # Update agent instructions if external toolsets were loaded
+                if ext_instructions and not instructions:
+                    # Append external instructions to default
+                    agent.instructions = DEFAULT_INSTRUCTIONS + ext_instructions
+                    print(f"📖 Updated agent with external toolset instructions")
+            except Exception as e:
+                print(f"[Warning] Failed to load external toolsets: {e}")
     
     # Note: Model and API key commands are handled directly by REPL interface
     # No need to register them as tools
