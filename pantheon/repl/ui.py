@@ -62,7 +62,7 @@ class ReplUI:
             self.console.print("[dim]Enter your message (press Enter twice to finish)[/dim]")
             lines = []
             while True:
-                # 第一次输入用 "> " 提示，后续行用 "... "
+                # First input uses "> " prompt, subsequent lines use "... "
                 prompt_text = "... " if lines else ">   "
 
                 if READLINE_AVAILABLE:
