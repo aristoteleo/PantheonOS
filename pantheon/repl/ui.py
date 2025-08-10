@@ -9,7 +9,6 @@ import json
 import asyncio
 import sys
 import time
-import json
 import signal
 from datetime import datetime
 
