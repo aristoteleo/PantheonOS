@@ -89,7 +89,7 @@ Use NOTEBOOK operations for Jupyter notebooks:
 - delete_notebook_cell: Remove cells from notebook
 - create_notebook: Create new Jupyter notebooks
 
-Use WEB operations for online content:
+Use WEB operations for online content if input includes links like 'http'  or 'https' of websites:
 - web_fetch: Fetch and display web page content (like Claude Code's WebFetch)
 - web_search: Search the web using DuckDuckGo (like Claude Code's WebSearch)
 
@@ -111,13 +111,18 @@ Use BIO operations for bioinformatics analysis:
 - bio info <tool>: Get detailed information about a specific bio tool
 - bio help [tool]: Get help for bio tools
 
-Use GENERATOR operations for managing external toolsets:
-- generate_toolset: Generate new external toolsets using AI Agent intelligence
-- list_domains: List available domains for toolset generation  
-- get_generation_help: Get help and examples for toolset generation
+Use GENERATOR operations for AI-powered external toolset creation:
+- generate_toolset: Generate smart external toolsets for ANY domain (AI determines tools automatically)
 - list_existing_toolsets: List all existing external toolsets
 - remove_toolset: Remove a specific external toolset
 - clear_all_toolsets: Clear all external toolsets (use with caution!)
+- get_generation_help: Get help and examples for toolset generation
+
+IMPORTANT: External toolsets are now FULLY AI-POWERED and GENERIC:
+- NO domain restrictions - create toolsets for any domain (web scraping, blockchain, ML, etc.)
+- AI determines appropriate tools based on domain and description
+- Each generated toolset includes an AI prompt file for intelligent guidance
+- Generated toolsets automatically integrate with TodoList management
 
 BIO TOOL COMMANDS (Access via /bio prefix):
 
@@ -192,13 +197,29 @@ Examples:
 - "analyze ATAC-seq data" → Use bio atac commands for chromatin accessibility analysis
 - "RNA-seq analysis" → Use bio rnaseq commands for transcriptome analysis  
 - "list bio tools" → Use bio list to see all available analysis tools
-- "generate a new web scraper toolset" → Use generate_toolset tool for AI-powered toolset creation
-- "create an API client toolset" → Use generate_toolset with domain="api_client"
-- "what domains are available for generation" → Use list_domains tool
+- "generate a web scraper for e-commerce sites" → Use generate_toolset(name="ecommerce_scraper", domain="web_scraping", description="scrape product data from e-commerce sites")
+- "create blockchain analysis toolset" → Use generate_toolset(name="crypto_analyzer", domain="cryptocurrency", description="analyze blockchain transactions and DeFi protocols")  
+- "build machine learning pipeline tools" → Use generate_toolset(name="ml_pipeline", domain="machine_learning", description="automate ML model training and evaluation")
+- "generate custom domain toolset" → Use generate_toolset with ANY domain - AI will adapt automatically
 - "help with toolset generation" → Use get_generation_help tool
 - "list existing external toolsets" → Use list_existing_toolsets tool
-- "remove the github_client toolset" → Use remove_toolset tool
+- "remove the old_toolset" → Use remove_toolset tool
 - "clear all external toolsets" → Use clear_all_toolsets tool (caution!)
+
+CRITICAL: Generated external toolsets are AI-GUIDED:
+- Each toolset includes a prompt.py file with intelligent workflow guidance
+- AI adapts tools and workflow based on domain and description  
+- Use the toolset's specific tools (e.g., my_toolset.process_data, my_toolset.analyze_content)
+- Let AI determine the most appropriate tool sequence for the domain
+
+USING LOADED EXTERNAL TOOLSETS:
+- External toolsets auto-load when CLI starts (if ext_toolsets directory exists)
+- Each external toolset provides domain-specific tools that AI can intelligently use
+- AI will recognize and use external toolsets based on user requests and domain context
+- Example: If user mentions "scrape website", AI will automatically use web_scraper external toolset
+- Example: If user mentions "analyze blockchain", AI will use crypto_analyzer external toolset
+- All external toolsets follow the same patterns: check_dependencies, scan_folder, process_data, etc.
+- AI should call toolset.get_status() and toolset.list_tools() to understand available capabilities
 
 TODO WORKFLOW - Make CLI SMART, NOT LAZY:
 When user adds a todo (like "generate figure step by step"):
@@ -255,15 +276,20 @@ def load_external_toolsets(ext_dir: str = "./ext_toolsets") -> Optional[Any]:
     if not ext_path.exists():
         return None
     
-    # Add to Python path
-    if str(ext_path) not in sys.path:
-        sys.path.insert(0, str(ext_path))
-    
     try:
-        from ext_loader import ext_loader
-        return ext_loader
+        # Try importing from new location first
+        from pantheon.toolsets.external.loader import ExternalToolsetLoader
+        return ExternalToolsetLoader(ext_dir)
     except ImportError:
-        return None
+        # Fallback to legacy location
+        if str(ext_path) not in sys.path:
+            sys.path.insert(0, str(ext_path))
+        
+        try:
+            from ext_loader import ext_loader
+            return ext_loader
+        except ImportError:
+            return None
 
 
 async def main(
