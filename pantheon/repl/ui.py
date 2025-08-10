@@ -38,20 +38,23 @@ class ReplUI:
     async def print_greeting(self):
         await print_banner(self.console)
         self.console.print(
-            "[bold]Welcome to the Pantheon REPL![/bold]\n" +
-            "Single-cell genomics analysis assistant\n"
+            "[bold]Welcome to the Pantheon CLI![/bold]\n" +
+            "The First AI+ Assistant for Science!\n"
         )
         
         # Agent info in a compact format
-        self.console.print("[bold]Current agent:[/bold]")
+        self.console.print("[bold]Model:[/bold]")
         agent_info = f"  - [bright_blue]{self.agent.name}[/bright_blue]"
         if hasattr(self.agent, 'models') and self.agent.models:
             model = self.agent.models[0] if isinstance(self.agent.models, list) else self.agent.models
             agent_info += f" [dim]•[/dim] [yellow]{model}[/yellow]"
         
         self.console.print(agent_info)
-        self.console.print("[dim]Type your message, 'exit' to quit, or 'help' for commands[/dim]")
+        self.console.print("[dim]Type your message, '/exit' to quit, or '/help' for commands[/dim]")
+        
+        self.console.print("[dim]'/model' for available models, '/api-key' for API keys[/dim]")
         if READLINE_AVAILABLE:
+            self.console.print()
             self.console.print("[dim]Use ↑/↓ arrows for command history[/dim]")
         self.console.print()
     

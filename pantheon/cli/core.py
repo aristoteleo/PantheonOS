@@ -404,15 +404,15 @@ async def main(
     key_available, key_message = api_key_manager.check_api_key_for_model(model_manager.current_model)
     key_status_icon = "✅" if key_available else "⚠️"
     
-    print(f"🤖 Starting Pantheon CLI with model: {model_manager.current_model}")
-    print(f"{key_status_icon} {key_message}")
+    #print(f"Starting Pantheon CLI with model: {model_manager.current_model}")
+    #print(f"{key_status_icon} {key_message}")
     if not key_available:
         from .api_key_manager import PROVIDER_API_KEYS, PROVIDER_NAMES
         required_key = PROVIDER_API_KEYS.get(model_manager.current_model)
         if required_key:
             provider_cmd = required_key.lower().replace('_api_key', '')
-            print(f"💡 Set your API key: /api-key {provider_cmd} <your-key>")
-    print(f"💡 Commands: '/model list' | '/api-key list' | '/help'")
+            print(f"Set your API key: /api-key {provider_cmd} <your-key>")
+    #print(f"Commands: '/model list' | '/api-key list' | '/help'")
     
 
     if not disable_ext:
