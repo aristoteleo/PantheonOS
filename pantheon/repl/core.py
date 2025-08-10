@@ -51,7 +51,7 @@ class Repl(ReplUI):
         super().__init__()  # init UI
         self.bio_handler = BioCommandHandler(self.console)
         self.agent = agent
-        self.console = Console()
+        
         self.current_task = None
         self.tool_calls_active = False
         self.session_start = datetime.now()
