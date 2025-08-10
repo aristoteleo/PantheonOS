@@ -657,7 +657,7 @@ class Agent:
 
     async def chat(self, message: str | dict | None = None):
         """Chat with the agent with a REPL interface."""
-        from .repl.single import Repl
+        from .repl.core import Repl
         repl = Repl(self)
         await repl.run(message)
 

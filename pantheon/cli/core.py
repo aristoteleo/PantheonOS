@@ -3,8 +3,9 @@
 import asyncio
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 import fire
+import sys
 
 # Import toolsets
 from pantheon.toolsets.shell import ShellToolSet
@@ -17,12 +18,16 @@ from pantheon.toolsets.notebook import NotebookToolSet
 from pantheon.toolsets.web import WebToolSet
 from pantheon.toolsets.todo import TodoToolSet
 from pantheon.toolsets.code_validator import CodeValidatorToolSet
-from pantheon.toolsets.atac import ATACSeqToolSet
+from pantheon.toolsets.generator import GeneratorToolSet
 from pantheon.agent import Agent
 
 # Import management modules
-from .api_key_manager import APIKeyManager
-from .model_manager import ModelManager
+from .manager.api_key_manager import APIKeyManager
+from .manager.model_manager import ModelManager
+
+
+#Special toolsets
+from pantheon.toolsets.bio import BioToolsetManager
 
 # Note: Model and API key commands are handled directly by REPL interface
 
@@ -84,9 +89,35 @@ Use NOTEBOOK operations for Jupyter notebooks:
 - delete_notebook_cell: Remove cells from notebook
 - create_notebook: Create new Jupyter notebooks
 
-Use WEB operations for online content:
-- web_fetch: Fetch and display web page content (like Claude Code's WebFetch)
-- web_search: Search the web using DuckDuckGo (like Claude Code's WebSearch)
+🌐 MANDATORY WEB OPERATIONS - INTELLIGENT URL INTENT ANALYSIS:
+⚠️ CRITICAL: When user input contains URLs (http/https links), YOU MUST ANALYZE THE INTENT first:
+
+ALWAYS FETCH CONTENT FIRST (use web_fetch) when:
+- User mentions "参考这个网页/教程/文档" (reference this webpage/tutorial/doc)
+- User says "based on this URL", "according to this link", "following this tutorial"  
+- User wants to generate/create something "参考/based on" a specific URL
+- "Read this article: https://..." → User wants content from specific URL
+- "Analyze this webpage: https://..." → User wants to process specific page content  
+- "What does this say: https://..." → User wants content extraction from URL
+- "Summarize this: https://..." → User wants specific page content analyzed
+- "解析这个网页: https://..." → User wants Chinese content from specific URL
+
+SEARCH FOR INFORMATION (use web_search) when:  
+- "Find information about X" + URL as reference → User wants broader search, not specific URL content
+- "Search for similar articles to https://..." → User wants related content search
+- "搜索相关信息" → User wants general web search
+
+🚨 MANDATORY WEB TOOL SELECTION RULES:
+- web_fetch: REQUIRED when user wants to reference/use content FROM a specific URL
+- web_search: When user wants to FIND information about a topic (URL may be context)
+- NEVER skip web_fetch if user says "参考", "based on", "according to", "following" + URL
+- ALWAYS fetch URL content BEFORE other operations when URL is provided as reference
+- If unclear, ASK: "Do you want me to fetch content from [URL] or search for information about [topic]?"
+
+MULTILINGUAL INTENT KEYWORDS:
+English: read, analyze, extract, summarize, parse, get content, fetch, download
+Chinese: 读取, 分析, 解析, 总结, 获取内容, 提取, 下载
+Search Intent: find, search, look up, discover, explore, 搜索, 查找, 寻找
 
 Use TODO operations for task management:
 - add_todo: Add new todo items to track progress (auto-breaks down complex tasks and starts first task)
@@ -101,43 +132,43 @@ Use TODO operations for task management:
 - complete_todo: Mark a todo as completed
 - start_todo: Mark a todo as in progress
 
-Use ATAC-seq operations for chromatin accessibility analysis:
-- scan_folder: Comprehensive scan of folder for ATAC-seq files with analysis stage assessment
-- auto_detect_species: Intelligent species detection from folder/file names and FASTQ headers
+Use BIO operations for bioinformatics analysis:
+- bio list: List all available bio analysis tools (ATAC-seq, RNA-seq, etc.)
+- bio info <tool>: Get detailed information about a specific bio tool
+- bio help [tool]: Get help for bio tools
 
-GENOME RESOURCE MANAGEMENT (New Organized Structure):
-- setup_genome_resources: Download genome+GTF+blacklist in organized folders (species, genome_version, include_gtf, include_blacklist)
-- list_available_resources: Show all downloaded resources with status table
-- check_genome_integrity: Validate file completeness and format integrity  
-- clean_incomplete_downloads: Remove corrupted/incomplete downloads
-- get_resource_info: Detailed information about specific genome resources
-- test_download_speeds: Test multiple download sources and find fastest
-- test_download_progress: Test clean progress bar display
+Use GENERATOR operations for AI-powered external toolset creation:
+- generate_toolset: Generate smart external toolsets for ANY domain (AI determines tools automatically)
+- list_existing_toolsets: List all existing external toolsets
+- remove_toolset: Remove a specific external toolset
+- clear_all_toolsets: Clear all external toolsets (use with caution!)
+- get_generation_help: Get help and examples for toolset generation
 
-LEGACY GENOME METHODS (For compatibility):  
-- quick_genome_setup: Fast test setup with single chromosome
-- setup_genome_resources: Comprehensive genome resource setup (genome+GTF+blacklist)
-- setup_reference_genome_from_source: Manual source selection (legacy compatibility)
+IMPORTANT: External toolsets are now FULLY AI-POWERED and GENERIC:
+- NO domain restrictions - create toolsets for any domain (web scraping, blockchain, ML, etc.)
+- AI determines appropriate tools based on domain and description
+- Each generated toolset includes an AI prompt file for intelligent guidance
+- Generated toolsets automatically integrate with TodoList management
 
-ANALYSIS TOOLS:
-- check_dependencies: Check which ATAC-seq tools are installed and show install commands
-- install_missing_tools: Automatically install missing ATAC-seq analysis tools
-- auto_align_fastq: Fully automated alignment pipeline (auto-detects files, installs tools, runs alignment)
-- validate_fastq: Validate FASTQ files and get basic stats
-- run_fastqc: Run FastQC quality control on FASTQ files
-- trim_adapters: Trim adapters using Trim Galore
-- align_bowtie2: Align reads to genome using Bowtie2 (ATAC-seq optimized, recommended)
-- align_bwa: Align reads to genome using BWA-MEM (legacy method)
-- filter_bam: Filter BAM files for quality and proper pairs
-- mark_duplicates: Mark or remove PCR duplicates with Picard
-- call_peaks_macs2: Call peaks using MACS2
-- call_peaks_genrich: Call peaks using Genrich (ATAC-optimized)
-- bam_to_bigwig: Convert BAM to BigWig tracks
-- compute_matrix: Compute matrix for heatmaps/profiles
-- plot_heatmap: Generate heatmaps from matrix
-- find_motifs: Find enriched motifs with HOMER
-- generate_atac_qc_report: Generate comprehensive QC report
-- suggest_next_step: Get suggestions for next analysis step
+BIO TOOL COMMANDS (Access via /bio prefix):
+
+ATAC-seq Analysis:
+- bio atac init: Initialize ATAC-seq project
+- bio atac scan_folder: Scan folder for ATAC data
+- bio atac check_dependencies: Check ATAC tool installation
+- bio atac setup_genome_resources: Download genome resources
+- bio atac auto_align_fastq: Automated alignment pipeline
+- bio atac call_peaks_macs2: Call peaks using MACS2
+- bio atac generate_atac_qc_report: Generate QC report
+
+RNA-seq Analysis (when available):
+- bio rnaseq init: Initialize RNA-seq project
+- bio rnaseq scan_folder: Scan folder for RNA-seq data
+- bio rnaseq align: Align RNA-seq reads
+
+Other Bio Tools:
+- bio chipseq init: ChIP-seq analysis (when available)
+- bio scrna init: Single-cell RNA-seq (when available)
 
 SEARCH PRIORITY RULES:
 - Use "grep" for ANY content search (even in single files)
@@ -145,6 +176,7 @@ SEARCH PRIORITY RULES:
 - Use "glob" to find files first, then "grep" to search their contents
 
 CRITICAL EXECUTION RULES:
+- 🚨 URL REFERENCE RULE: When user says "参考/based on/according to/following" + URL → ALWAYS web_fetch FIRST!
 - For Seurat analysis: ALWAYS use run_r tool - NEVER run_python tool!
 - When using Python: MUST execute code with run_python tool - never just show code!  
 - When using R: MUST execute code with run_r tool - never just show code!
@@ -184,43 +216,76 @@ Examples:
 - "could you analysis the single cell using seurat" → Use run_r tool
 - "查询网页内容" → Use web: web_fetch tool
 - "搜索相关信息" → Use web: web_search tool
+- "Read this article: https://example.com" → Use web_fetch (intent: get specific URL content)
+- "Analyze https://github.com/project/readme" → Use web_fetch (intent: analyze specific page)
+- "What does this documentation say: https://..." → Use web_fetch (intent: extract content from URL)
+- "Find more articles like https://..." → Use web_search (intent: search for similar content)
+- "Search for information about topic X" → Use web_search (intent: general search)
+- "解析这个链接内容: https://..." → Use web_fetch (Chinese intent: parse specific URL)
+- "搜索关于X的更多信息" → Use web_search (Chinese intent: search for topic information)
+- "生成一个工具，参考这个教程: https://..." → MUST use web_fetch FIRST, then generate_toolset
+- "Create a tool based on this tutorial: https://..." → MUST use web_fetch FIRST, then other operations  
+- "根据这个文档: https://... 做分析" → MUST use web_fetch FIRST, then analysis tools
 - "add a todo to analyze data" → Use add_todo tool
 - "show my todos" → Use show_todos tool
 - "mark first todo as completed" → Use complete_todo tool
-- "/atac init folder" → atac.auto_detect_species → atac.setup_genome_resources(species, genome, gtf, blacklist) → atac.scan_folder → create adaptive todos → execute pipeline
-- "analyze ATAC-seq data" → auto-detect species → comprehensive resource setup → organized file structure → scan folder → ATAC todos → execute with TodoList tracking
-- "ATAC pipeline for raw data" → Species detection → Comprehensive resource setup (genome+GTF+blacklist) → QC → Trimming → Bowtie2 Alignment → Peak Calling → Coverage → QC Report
+- "/bio atac init" → Initialize ATAC-seq project structure  
+- "/bio list" → Show all available bio analysis tools
+- "analyze ATAC-seq data" → Use bio atac commands for chromatin accessibility analysis
+- "RNA-seq analysis" → Use bio rnaseq commands for transcriptome analysis  
+- "list bio tools" → Use bio list to see all available analysis tools
+- "generate a web scraper for e-commerce sites" → Use generate_toolset(name="ecommerce_scraper", domain="web_scraping", description="scrape product data from e-commerce sites")
+- "create blockchain analysis toolset" → Use generate_toolset(name="crypto_analyzer", domain="cryptocurrency", description="analyze blockchain transactions and DeFi protocols")  
+- "build machine learning pipeline tools" → Use generate_toolset(name="ml_pipeline", domain="machine_learning", description="automate ML model training and evaluation")
+- "generate custom domain toolset" → Use generate_toolset with ANY domain - AI will adapt automatically
+- "help with toolset generation" → Use get_generation_help tool
+- "list existing external toolsets" → Use list_existing_toolsets tool
+- "remove the old_toolset" → Use remove_toolset tool
+- "clear all external toolsets" → Use clear_all_toolsets tool (caution!)
+
+CRITICAL: Generated external toolsets are AI-GUIDED:
+- Each toolset includes a prompt.py file with intelligent workflow guidance
+- AI adapts tools and workflow based on domain and description  
+- Use the toolset's specific tools (e.g., my_toolset.process_data, my_toolset.analyze_content)
+- Let AI determine the most appropriate tool sequence for the domain
+
+USING LOADED EXTERNAL TOOLSETS:
+- External toolsets auto-load when CLI starts (if ext_toolsets directory exists)
+- Each external toolset provides domain-specific tools that AI can intelligently use
+- AI will recognize and use external toolsets based on user requests and domain context
+- Example: If user mentions "scrape website", AI will automatically use web_scraper external toolset
+- Example: If user mentions "analyze blockchain", AI will use crypto_analyzer external toolset
+- All external toolsets follow the same patterns: check_dependencies, scan_folder, process_data, etc.
+- AI should call toolset.get_status() and toolset.list_tools() to understand available capabilities
 
 TODO WORKFLOW - Make CLI SMART, NOT LAZY:
 When user adds a todo (like "generate figure step by step"):
 1. ALWAYS add the todo first (it auto-breaks down and starts first task)
 2. Check execute_current_task to get task analysis and tool suggestions
 3. Use the appropriate suggested tool to accomplish the task
-4. After successful execution: ALWAYS use mark_task_done() to mark complete and move to next
-5. REPEAT until all tasks are done or manual intervention needed
-6. Be PROACTIVE - but flexible in execution approach!
+4. REPEAT until all tasks are done or manual intervention needed
+5. Be PROACTIVE - but flexible in execution approach!
 
-CRITICAL RULE: After ANY tool execution that completes a task, you MUST:
+# TODO:
+CRITICAL RULE: After tool execution that completes a TODO TASK, you MUST:
 - Call mark_task_done() to mark it done ☑ and show updated todo list with checkmarks
-- This applies to ALL tools: run_python, run_r, shell, grep, glob, ls, read_file, edit_file, web_fetch, web_search, ATAC tools, etc.
+- This applies to ALL tools: run_python, run_r, shell, grep, glob, ls, read_file, edit_file, web_fetch, web_search, bio tools, etc.
 - This triggers automatic progression to the next task
 - Never leave a task in progress ◐ if it's actually completed!
-- ALWAYS use mark_task_done() after ANY successful tool execution that accomplishes a task!
+- ALWAYS use mark_task_done() after ANY successful tool in todo's execution that accomplishes a task!
 
-ATAC-seq WORKFLOW INTEGRATION:
-- COMPREHENSIVE WORKFLOW: atac.auto_detect_species() → atac.setup_genome_resources() → atac.scan_folder() → create ADAPTIVE todos
+BIO TOOLS WORKFLOW INTEGRATION:
+- COMPREHENSIVE WORKFLOW: Use bio tools for all bioinformatics analysis
+- ATAC-seq: bio atac scan_folder() → bio atac auto_detect_species() → bio atac setup_genome_resources() → create todos
+- RNA-seq: bio rnaseq scan_folder() → bio rnaseq check_dependencies() → bio rnaseq align_reads() → create todos  
 - Species detection is AUTOMATIC from folder/file names and FASTQ headers with confidence scoring
-- Only ask user for species confirmation if confidence is medium (1.0-2.0) or low (<1.0)
-- Resource setup is COMPREHENSIVE: genome+GTF+blacklist in organized structure (reference/genome/species/, reference/gtf/species/, reference/blacklist/species/)
+- Resource setup is COMPREHENSIVE: genome+GTF+blacklist in organized structure
 - SMART CACHING: automatically skips existing files, validates integrity, cleans incomplete downloads
-- Create specific ATAC todos: "ATAC-seq Quality Control", "ATAC-seq Peak Calling", etc. (NOT generic data analysis tasks)
-- Use TodoList to track ATAC pipeline: execute_current_task() → run ATAC tool → mark_task_done()
-- DYNAMICALLY add new todos based on analysis results (e.g., if tools missing, quality issues found)
-- Each ATAC tool provides rich console output (tables, progress bars) - let them display
-- Call mark_task_done() with detailed completion descriptions after EACH ATAC tool execution
-- Use show_todos() to display ATAC-seq pipeline progress throughout analysis
-- Leverage execute_current_task() for smart guidance on next ATAC-seq steps
-- Use atac.list_available_resources() to show downloaded resources; atac.check_genome_integrity() for validation
+- Create specific bio todos: "ATAC-seq Quality Control", "RNA-seq Alignment", etc. (NOT generic data analysis tasks)
+- Use TodoList to track bio pipelines: execute_current_task() → run bio tool → mark_task_done()
+- DYNAMICALLY add new todos based on analysis results
+- Each bio tool provides rich console output (tables, progress bars)
+- Leverage execute_current_task() for smart guidance on next bio analysis steps
 
 INTELLIGENT EXECUTION:
 - execute_current_task() provides task analysis and tool suggestions
@@ -229,26 +294,46 @@ INTELLIGENT EXECUTION:
 
 General Workflow:
 1. Understand the request type
-2. Choose the appropriate tool (shell vs Python vs R vs file operations vs web vs search)
-3. Execute the tool to accomplish the task
-4. IMMEDIATELY call mark_task_done() after successful tool execution
+2. 🚨 MANDATORY URL CHECK (if URLs present):
+   - Contains "参考", "based on", "according to", "following" + URL? → MUST use web_fetch FIRST
+   - User wants content FROM a specific URL? → web_fetch  
+   - User wants to SEARCH FOR information about a topic? → web_search
+   - Look for intent keywords: "read", "analyze", "extract", "what does this say" → web_fetch
+   - Look for search keywords: "find", "search for", "look up", "more information" → web_search
+   - NEVER proceed with other tools until URL content is fetched when reference is indicated
+3. Choose the appropriate tool (shell vs Python vs R vs file operations vs web vs search)
+4. Execute the tool to accomplish the task
 5. Continue with next task automatically
 6. If need knowledge: search vector database
 7. If todo added: IMMEDIATELY start working on it (don't just list it!)
 8. Explain results
 
-TOOL EXECUTION EXAMPLES WITH TODO MARKING:
-- Run Python code → mark_task_done("Python analysis completed")
-- Execute shell command → mark_task_done("Shell command executed")
-- Search files with grep → mark_task_done("File search completed")  
-- Read/edit files → mark_task_done("File operation completed")
-- Web fetch/search → mark_task_done("Web research completed")
-- Load data → mark_task_done("Data loading completed")
-- Create plot → mark_task_done("Visualization created")
-
 Be smart about tool selection - use the right tool for the job!
 CRITICAL: Todo system should make you MORE productive, not just a list maker!
 """
+
+
+def load_external_toolsets(ext_dir: str = "./ext_toolsets") -> Optional[Any]:
+    """Load external toolset loader if available"""
+    ext_path = Path(ext_dir).resolve()
+    
+    if not ext_path.exists():
+        return None
+    
+    try:
+        # Try importing from new location first
+        from pantheon.toolsets.external.loader import ExternalToolsetLoader
+        return ExternalToolsetLoader(ext_dir)
+    except ImportError:
+        # Fallback to legacy location
+        if str(ext_path) not in sys.path:
+            sys.path.insert(0, str(ext_path))
+        
+        try:
+            from ext_loader import ext_loader
+            return ext_loader
+        except ImportError:
+            return None
 
 
 async def main(
@@ -262,7 +347,10 @@ async def main(
     disable_notebook: bool = False,
     disable_r: bool = False,
     disable_code_validator: bool = False,
-    disable_atac: bool = False
+    disable_bio: bool = False,
+    disable_ext: bool = True,
+    ext_toolsets: Optional[str] = None,
+    ext_dir: str = "./ext_toolsets"
 ):
     """
     Start the Pantheon CLI assistant.
@@ -278,7 +366,9 @@ async def main(
         disable_notebook: Disable notebook toolset
         disable_r: Disable R interpreter toolset
         disable_code_validator: Disable code validator toolset
-        disable_atac: Disable ATAC-seq analysis toolset
+        disable_bio: Disable bio analysis toolsets (ATAC-seq, RNA-seq, etc.)
+        ext_toolsets: Comma-separated list of external toolsets to load (default: load all)
+        ext_dir: Directory containing external toolsets (default: ./ext_toolsets)
     """
     # Initialize managers locally
     
@@ -293,8 +383,9 @@ async def main(
             print("RAG toolset will be disabled. To enable, provide --rag-db path")
             disable_rag = True
     
-    # Set workspace
-    workspace_path = Path(workspace) if workspace else Path.cwd()
+    # Set workspace and record launch directory
+    launch_directory = Path.cwd()  # Record current directory before any changes
+    workspace_path = Path(workspace) if workspace else launch_directory
     
     # Initialize managers
     config_file_path = workspace_path / ".pantheon_config.json"
@@ -313,19 +404,32 @@ async def main(
     key_available, key_message = api_key_manager.check_api_key_for_model(model_manager.current_model)
     key_status_icon = "✅" if key_available else "⚠️"
     
-    print(f"🤖 Starting Pantheon CLI with model: {model_manager.current_model}")
-    print(f"{key_status_icon} {key_message}")
+    #print(f"Starting Pantheon CLI with model: {model_manager.current_model}")
+    #print(f"{key_status_icon} {key_message}")
     if not key_available:
         from .api_key_manager import PROVIDER_API_KEYS, PROVIDER_NAMES
         required_key = PROVIDER_API_KEYS.get(model_manager.current_model)
         if required_key:
             provider_cmd = required_key.lower().replace('_api_key', '')
-            print(f"💡 Set your API key: /api-key {provider_cmd} <your-key>")
-    print(f"💡 Commands: '/model list' | '/api-key list' | '/help'")
+            print(f"Set your API key: /api-key {provider_cmd} <your-key>")
+    #print(f"Commands: '/model list' | '/api-key list' | '/help'")
     
 
+    if not disable_ext:
+        # Load external toolsets
+        ext_instructions = ""
+        ext_loader = load_external_toolsets(ext_dir)
+        
+        if ext_loader:
+            print(f"🔌 Checking for external toolsets in {ext_dir}...")
+            
+            # Parse toolset list if provided
+            toolset_list = None
+            if ext_toolsets:
+                toolset_list = [name.strip() for name in ext_toolsets.split(',')]
+                print(f"📋 Loading specific toolsets: {toolset_list}")
     
-    # Use custom instructions or default (no need to add model management info to prompt)
+    # Use custom instructions or default
     agent_instructions = instructions or DEFAULT_INSTRUCTIONS
     
     # Initialize toolsets
@@ -359,9 +463,11 @@ async def main(
     if not disable_code_validator:
         code_validator = CodeValidatorToolSet("code_validator")
     
-    atac_toolset = None
-    if not disable_atac:
-        atac_toolset = ATACSeqToolSet("atac", workspace_path=workspace_path)
+    generator_toolset = GeneratorToolSet("generator")
+    
+    bio_toolset = None
+    if not disable_bio:
+        bio_toolset = BioToolsetManager("bio", workspace_path=workspace_path, launch_directory=launch_directory)
     
     # Create agent with complete instructions
     agent = Agent(
@@ -394,8 +500,28 @@ async def main(
         agent.toolset(r_interpreter)
     if code_validator:
         agent.toolset(code_validator)
-    if atac_toolset:
-        agent.toolset(atac_toolset)
+    
+    agent.toolset(generator_toolset)
+    
+    if bio_toolset:
+        agent.toolset(bio_toolset)
+    
+    if not disable_ext:
+        # Register external toolsets if available
+        if ext_loader:
+            try:
+                ext_instructions = ext_loader.register_with_agent(
+                    agent, 
+                    toolset_list if ext_toolsets else None
+                )
+                
+                # Update agent instructions if external toolsets were loaded
+                if ext_instructions and not instructions:
+                    # Append external instructions to default
+                    agent.instructions = DEFAULT_INSTRUCTIONS + ext_instructions
+                    print(f"📖 Updated agent with external toolset instructions")
+            except Exception as e:
+                print(f"[Warning] Failed to load external toolsets: {e}")
     
     # Note: Model and API key commands are handled directly by REPL interface
     # No need to register them as tools
