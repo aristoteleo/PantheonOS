@@ -1,0 +1,112 @@
+# Bioinformatics Knowledge Base Configuration
+# For building vector database with relevant documentation
+# NOTE: This is a template configuration - actual knowledge base building is TBD
+
+bioinformatics-knowledge:
+  description: Comprehensive bioinformatics analysis documentation and tutorials
+  type: vector_db
+  parameters:
+    embedding_model: text-embedding-3-large
+    chunk_size: 3000  # Smaller chunks for code examples
+    chunk_overlap: 300
+  items:
+    # Single-cell analysis packages
+    scanpy:
+      type: package documentation
+      url: https://scanpy.readthedocs.io/en/stable/
+      description: Single-cell analysis in Python
+    
+    scanpy-tutorials:
+      type: tutorial
+      url: https://scanpy-tutorials.readthedocs.io/en/latest/
+      description: Scanpy tutorials and workflows
+    
+    scvi-tools:
+      type: package documentation
+      url: https://docs.scvi-tools.org/en/stable/
+      description: Deep learning for single-cell analysis
+    
+    # Best practices
+    sc-best-practices:
+      type: tutorial
+      url: https://www.sc-best-practices.org/
+      description: Current best practices in single-cell data analysis
+    
+    # Seurat (R) - for reference
+    seurat:
+      type: tutorial
+      url: https://satijalab.org/seurat/articles/
+      description: Seurat vignettes for single-cell analysis
+    
+    # Trajectory analysis
+    scvelo:
+      type: package documentation
+      url: https://scvelo.readthedocs.io/
+      description: RNA velocity analysis for single cells
+    
+    # Spatial transcriptomics
+    squidpy:
+      type: package documentation
+      url: https://squidpy.readthedocs.io/en/stable/
+      description: Spatial single-cell analysis
+    
+    # Integration methods
+    scanorama:
+      type: github readme
+      url: https://github.com/brianhie/scanorama
+      description: Panoramic stitching of single-cell data
+    
+    # Command-line tools
+    kallisto-bustools:
+      type: package documentation
+      url: https://www.kallistobus.tools/
+      description: Fast single-cell RNA-seq preprocessing
+    
+    cellranger:
+      type: tutorial
+      url: https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/what-is-cell-ranger
+      description: 10x Genomics Cell Ranger documentation
+    
+    # STAR aligner
+    star:
+      type: pdf
+      url: https://raw.githubusercontent.com/alexdobin/STAR/master/doc/STARmanual.pdf
+      description: STAR RNA-seq aligner manual
+
+# Additional specialized knowledge bases can be added below
+
+single-cell-atlases:
+  description: Reference atlases and datasets for single-cell analysis
+  type: vector_db
+  parameters:
+    embedding_model: text-embedding-3-large
+    chunk_size: 4000
+    chunk_overlap: 400
+  items:
+    human-cell-atlas:
+      type: tutorial
+      url: https://www.humancellatlas.org/learn/
+      description: Human Cell Atlas documentation and guides
+    
+    cellxgene:
+      type: package documentation
+      url: https://cellxgene.cziscience.com/docs/
+      description: CellxGene data portal documentation
+
+troubleshooting-guides:
+  description: Common issues and solutions in bioinformatics
+  type: vector_db
+  parameters:
+    embedding_model: text-embedding-3-large
+    chunk_size: 2000
+    chunk_overlap: 200
+  items:
+    biostars:
+      type: tutorial
+      url: https://www.biostars.org/
+      description: Bioinformatics Q&A community
+    
+    seq-answers:
+      type: tutorial  
+      url: http://seqanswers.com/
+      description: Next-generation sequencing community

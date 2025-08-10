@@ -1,0 +1,33 @@
+pantheon-cli-tools:
+  description: Vector database of single-cell/spatial genomics command line tools documentation and tutorials.
+  type: vector_db
+  parameters:
+    embedding_model: text-embedding-3-large
+    chunk_size: 4000
+    chunk_overlap: 200
+  items:
+    kallisto-bustools:
+      type: package documentation
+      url: https://www.kallistobus.tools/
+      description: "kallisto | bustools is a workflow for pre-processing single-cell RNA-seq data. Pre-processing single-cell RNA-seq involves: (1) association of reads with their cells of origin, (2) collapsing of reads according to unique molecular identifiers (UMIs), and (3) generation of gene or feature counts from the reads to generate a cell x gene matrix."
+    star:
+      type: pdf
+      url: https://raw.githubusercontent.com/alexdobin/STAR/master/doc/STARmanual.pdf
+      description: RNA-seq aligner
+    cellranger:
+      type: package documentation
+      url: https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/what-is-cell-ranger
+      description: "10x Genomics Cell Ranger for single-cell RNA-seq analysis"
+    seurat:
+      type: package documentation
+      url: https://satijalab.org/seurat/
+      description: "R toolkit for single-cell genomics analysis"
+    scanpy:
+      type: package documentation
+      url: https://scanpy.readthedocs.io/
+      description: "Python-based single-cell analysis toolkit"
+    bulk-rna-seq:
+      type: package documentation
+      url: https://training.galaxyproject.org/training-material/topics/transcriptomics/tutorials/ref-based/tutorial.html
+      description: "Analysis of the gene expression data step by step using 7 of the original datasets:" 
+    

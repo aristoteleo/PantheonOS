@@ -15,6 +15,7 @@ dependencies = [
     "pillow>=10.4.0",
     "rich>=13.9.4",
     "rich-pyfiglet",
+    "ddgs>=0.1.0",
 ]
 dynamic = ["version"]
 
