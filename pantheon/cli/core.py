@@ -12,6 +12,7 @@ from pantheon.toolsets.shell import ShellToolSet
 from pantheon.toolsets.vector_rag import VectorRAGToolSet
 from pantheon.toolsets.python import PythonInterpreterToolSet
 from pantheon.toolsets.r import RInterpreterToolSet
+from pantheon.toolsets.julia import JuliaInterpreterToolSet
 from pantheon.toolsets.file_editor import FileEditorToolSet
 from pantheon.toolsets.code_search import CodeSearchToolSet
 from pantheon.toolsets.notebook import NotebookToolSet
@@ -61,6 +62,17 @@ Use R (run_r tool) for:
 - Load sample data with: load_sample_data('pbmc3k')
 - Quick Seurat workflow: quick_seurat_analysis(seurat_obj)
 - Auto-save figures: auto_ggsave()
+
+Use JULIA (julia tool) for:
+- High-performance scientific computing and numerical analysis
+- Linear algebra, differential equations, and optimization
+- Data analysis with DataFrames.jl and statistical packages
+- Interactive plotting with Plots.jl and PlotlyJS backend
+- Machine learning with MLJ.jl and Flux.jl
+- Load sample data with: load_sample_data("iris")
+- Quick data analysis: quick_analysis(df)
+- Auto-save plots: auto_save_plot()
+- Package management: julia_install_package("PackageName")
 
 Use FILE OPERATIONS for:
 - read_file: Read file contents with line numbers
@@ -180,11 +192,13 @@ CRITICAL EXECUTION RULES:
 - For Seurat analysis: ALWAYS use run_r tool - NEVER run_python tool!
 - When using Python: MUST execute code with run_python tool - never just show code!  
 - When using R: MUST execute code with run_r tool - never just show code!
-- Both Python and R have enhanced environments with auto-figure saving
+- When using Julia: MUST execute code with julia tool - never just show code!
+- Python, R, and Julia all have enhanced environments with auto-figure saving
 
 TOOL SELECTION PRIORITY FOR SINGLE-CELL ANALYSIS:
 - Seurat, single-cell RNA-seq, scRNA-seq → run_r tool
 - scanpy, anndata, Python single-cell → run_python tool
+- High-performance numerical analysis → julia tool
 
 Examples:
 - "查看当前目录" → Use code_search: ls tool
@@ -207,7 +221,9 @@ Examples:
 - "suggest alternatives for this function" → Use suggest_function_alternatives tool
 - "what functions are available in this module" → Use suggest_function_alternatives tool
 - "calculate fibonacci" → Use run_python tool
-- "create a plot" → Use run_python tool (matplotlib) or run_r tool (ggplot2)
+- "create a plot" → Use run_python tool (matplotlib), run_r tool (ggplot2), or julia tool (Plots.jl)
+- "linear algebra operations" → Use julia tool for high-performance computing
+- "solve differential equations" → Use julia tool with DifferentialEquations.jl
 - "run STAR alignment" → Use shell commands
 - "analyze expression data" → Use run_python tool (scanpy) or run_r tool (Seurat)
 - "single-cell analysis with Seurat" → Use run_r tool with load_sample_data() and quick_seurat_analysis()
@@ -346,6 +362,7 @@ async def main(
     disable_web: bool = False,
     disable_notebook: bool = False,
     disable_r: bool = False,
+    disable_julia: bool = False,
     disable_code_validator: bool = False,
     disable_bio: bool = False,
     disable_ext: bool = True,
@@ -365,6 +382,7 @@ async def main(
         disable_web: Disable web toolset
         disable_notebook: Disable notebook toolset
         disable_r: Disable R interpreter toolset
+        disable_julia: Disable Julia interpreter toolset
         disable_code_validator: Disable code validator toolset
         disable_bio: Disable bio analysis toolsets (ATAC-seq, RNA-seq, etc.)
         ext_toolsets: Comma-separated list of external toolsets to load (default: load all)
@@ -459,6 +477,10 @@ async def main(
     if not disable_r:
         r_interpreter = RInterpreterToolSet("r_interpreter", workdir=str(workspace_path))
     
+    julia_interpreter = None
+    if not disable_julia:
+        julia_interpreter = JuliaInterpreterToolSet("julia_interpreter", workdir=str(workspace_path))
+    
     code_validator = None
     if not disable_code_validator:
         code_validator = CodeValidatorToolSet("code_validator")
@@ -498,6 +520,8 @@ async def main(
         agent.toolset(web)
     if r_interpreter:
         agent.toolset(r_interpreter)
+    if julia_interpreter:
+        agent.toolset(julia_interpreter)
     if code_validator:
         agent.toolset(code_validator)
     

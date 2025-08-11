@@ -56,7 +56,7 @@
 
 ## Features
 
-- **Paradigm Shift**: The first CLI that truly integrates natural language with programming languages, enabling scientists to think and analyze without switching programing language.
+- **Paradigm Shift**: The first CLI that truly integrates natural language with programming languages (Python, R, Julia), enabling scientists to think and analyze without switching contexts.
 - **Open Source**: The first Python-Based CLI.
 - **Science-First**: Purpose-built for scientific workflows with comprehensive genomics pipelines, not a generic tool trying to do everything
 - **Distributed by Design**: Built on enterprise-grade distributed architecture, not a monolithic application that breaks at scale  
@@ -71,10 +71,11 @@
 # Start Pantheon CLI
 python -m pantheon.cli
 
-# Now you can seamlessly mix natural language, Python, and R:
+# Now you can seamlessly mix natural language, Python, R, and Julia:
 > Analyze single-cell data using Seurat, then create a Python visualization
 > 加载PBMC数据，用R做预处理，然后用Python画UMAP图
-> Load my_data.csv, run differential expression in R, export to Excel
+> Load my_data.csv, run differential equations in Julia, plot with R
+> Solve optimization problem with Julia, visualize results in Python
 ```
 
 ### Basic Usage
@@ -134,6 +135,7 @@ This creates a vector database at `tmp/pantheon_cli_tools_rag/pantheon-cli-tools
 | `--disable-web` | Disable web toolset | `False` |
 | `--disable-notebook` | Disable notebook toolset | `False` |
 | `--disable-r` | Disable R interpreter toolset | `False` |
+| `--disable-julia` | Disable Julia interpreter toolset | `False` |
 | `--disable-code-validator` | Disable code validation toolset | `False` |
 | `--disable-bio` | Disable bio analysis toolsets | `False` |
 | `--disable-ext` | Disable external toolsets loader | `True` |
@@ -146,6 +148,7 @@ This creates a vector database at `tmp/pantheon_cli_tools_rag/pantheon-cli-tools
 - **Shell**: System commands and genomics tools with auto-installer
 - **Python**: Data analysis and visualization (pandas, matplotlib, scanpy)
 - **R**: Statistical analysis and Seurat single-cell workflows with sample data
+- **Julia**: High-performance scientific computing (DataFrames.jl, Plots.jl, DifferentialEquations.jl)
 - **File Editor**: Read, edit, and create files with diffs
 - **Code Search**: Find files (glob), search content (grep), list directories (ls)
 - **Code Validation**: Verify Python code, commands, function calls, and detect common errors
@@ -166,7 +169,7 @@ This creates a vector database at `tmp/pantheon_cli_tools_rag/pantheon-cli-tools
 
 - Python 3.10+
 - Required packages: `fire`, `pantheon-toolsets`, `pantheon-agents`
-- Optional: `ddgs` for web search, `nbformat` for notebooks, R for statistical analysis
+- Optional: `ddgs` for web search, `nbformat` for notebooks, R for statistical analysis, Julia for high-performance computing
 
 ## Tips
 
@@ -179,6 +182,7 @@ This creates a vector database at `tmp/pantheon_cli_tools_rag/pantheon-cli-tools
 7. **External Toolsets**: Generate custom tools for any domain with `generate_toolset`
 8. **Todo Management**: Let the AI break down complex tasks automatically with `add_todo`
 9. **Code Validation**: Always validate generated code with built-in validation tools
-10. **Multilingual**: Works seamlessly in both English and Chinese contexts
+10. **Julia Computing**: Use Julia for high-performance numerical computing and scientific packages
+11. **Multilingual**: Works seamlessly in both English and Chinese contexts
 
 
