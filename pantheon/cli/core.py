@@ -1,7 +1,5 @@
 """Pantheon CLI Core - Main entry point for the CLI assistant (Refactored)"""
 
-import asyncio
-import os
 from pathlib import Path
 from typing import Optional, Any
 import fire
@@ -21,10 +19,13 @@ from pantheon.toolsets.todo import TodoToolSet
 from pantheon.toolsets.code_validator import CodeValidatorToolSet
 from pantheon.toolsets.generator import GeneratorToolSet
 from pantheon.agent import Agent
+from rich.console import Console
 
 # Import management modules
 from .manager.api_key_manager import APIKeyManager
 from .manager.model_manager import ModelManager
+
+from ..utils.log import logger
 
 
 #Special toolsets
@@ -388,6 +389,13 @@ async def main(
         ext_toolsets: Comma-separated list of external toolsets to load (default: load all)
         ext_dir: Directory containing external toolsets (default: ./ext_toolsets)
     """
+    console = Console()
+    def custom_sink(message):
+        console.print(message, end="")
+
+    logger.configure(handlers=[{"sink":custom_sink, "format":"{message}"}])
+    logger.disable("executor.engine")
+
     # Initialize managers locally
     
     # Set default RAG database path if not provided
@@ -396,9 +404,9 @@ async def main(
         if default_rag.exists():
             rag_db = str(default_rag)
         else:
-            print(f"[Warning] Default RAG database not found at {default_rag}")
-            print("Run: python -m pantheon.toolsets.utils.rag build pantheon/cli/rag_system_config.yaml tmp/pantheon_cli_tools_rag")
-            print("RAG toolset will be disabled. To enable, provide --rag-db path")
+            logger.warning(f"[yellow]Default RAG database not found at {default_rag}[/yellow]")
+            logger.warning("[yellow]Run: python -m pantheon.toolsets.utils.rag build pantheon/cli/rag_system_config.yaml tmp/pantheon_cli_tools_rag[/yellow]")
+            logger.warning("[yellow]RAG toolset will be disabled. To enable, provide --rag-db path[/yellow]")
             disable_rag = True
     
     # Set workspace and record launch directory
