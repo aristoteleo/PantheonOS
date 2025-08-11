@@ -236,7 +236,7 @@ class ReplUI:
         self.console.print()  # Add some space
         
         # Claude Code style tool call display
-        if tool_name in ["run_code", "run_code_in_interpreter", "run_python", "run_r"] and args and 'code' in args:
+        if tool_name in ["run_code", "run_code_in_interpreter", "run_python", "run_r", "run_julia"] and args and 'code' in args:
             # Special handling for code execution
             if tool_name in ["run_python", "run_code", "run_code_in_interpreter"]:
                 self.console.print("⏺ [bold]Python[/bold]")
@@ -244,6 +244,9 @@ class ReplUI:
             elif tool_name == "run_r":
                 self.console.print("⏺ [bold]R[/bold]")
                 header_title = "Run R code"
+            elif tool_name == "run_julia":
+                self.console.print("⏺ [bold]Julia[/bold]")
+                header_title = "Run Julia code"
             
             # Create a fancy code block
             code = args['code']
