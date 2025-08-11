@@ -290,6 +290,10 @@ class Repl(ReplUI):
                     self._print_session_summary()
                     break
             
+            # Record user input in conversation history (except for special commands)
+            if not current_message.strip().startswith('/'):
+                self.add_to_conversation("user", current_message)
+            
             # Handle special commands FIRST (before sending to API)
             cmd = current_message.lower().strip()
             
@@ -315,6 +319,10 @@ class Repl(ReplUI):
                 continue
             elif cmd in ["tokens", "/tokens"]:
                 self._print_token_analysis()
+                current_message = None  # Reset to get new input
+                continue
+            elif cmd in ["/save"] or current_message.strip().startswith("/save"):
+                self._handle_save_command(current_message.strip())
                 current_message = None  # Reset to get new input
                 continue
             elif current_message.strip().startswith("/model"):
@@ -463,6 +471,9 @@ class Repl(ReplUI):
             if content_buffer:
                 full_content = ''.join(content_buffer)
                 if full_content.strip():
+                    # Record AI response in conversation history
+                    self.add_to_conversation("assistant", full_content.strip())
+                    
                     # Check if content contains code blocks - if so, use plain text
                     if '```' in full_content or 'def ' in full_content or 'import ' in full_content:
                         self.console.print(full_content)
@@ -500,6 +511,31 @@ class Repl(ReplUI):
                 self.console.print("[red]API key management not available. Please restart with the CLI.[/red]")
         except Exception as e:
             self.console.print(f"[red]Error handling API key command: {str(e)}[/red]")
+        self.console.print()  # Add spacing
+
+    def _handle_save_command(self, command: str):
+        """Handle /save commands in REPL"""
+        try:
+            parts = command.split()
+            filename = None
+            
+            if len(parts) > 1:
+                # User specified a filename: /save myfile.md
+                filename = parts[1]
+                if not filename.endswith('.md'):
+                    filename += '.md'
+            
+            # Check if there's conversation history to save
+            if not hasattr(self, 'conversation_history') or not self.conversation_history:
+                self.console.print("[yellow]No conversation history to save yet.[/yellow]")
+                return
+            
+            # Export conversation to markdown
+            saved_file = self.export_conversation_to_markdown(filename)
+            self.console.print(f"[green]✅ Conversation saved to:[/green] {saved_file}")
+            
+        except Exception as e:
+            self.console.print(f"[red]Error saving conversation: {str(e)}[/red]")
         self.console.print()  # Add spacing
 
     # Bio command handling moved to bio_handler.py

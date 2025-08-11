@@ -34,6 +34,9 @@ class ReplUI:
                                  title="Input", border_style="bright_blue")
         self._tools_executing = False
         self._processing_live: Live | None = None
+        
+        # Conversation history for /save command
+        self.conversation_history = []
 
     async def print_greeting(self):
         await print_banner(self.console)
@@ -96,6 +99,7 @@ class ReplUI:
         self.console.print("[dim]/status[/dim] - Session info")
         self.console.print("[dim]/history[/dim] - Show command history")
         self.console.print("[dim]/tokens[/dim] - Token usage analysis")  
+        self.console.print("[dim]/save[/dim] - Save conversation to markdown file")
         self.console.print("[dim]/clear[/dim] - Clear screen")
         self.console.print("[dim]/atac init[/dim] - ATAC-seq analysis helper 🧬")
         self.console.print("[dim]/exit[/dim] - Exit cleanly")
@@ -228,10 +232,92 @@ class ReplUI:
             self.console.print(f"\n[dim]{summary}[/dim]")
         self.console.print("[dim]Goodbye![/dim]")
 
+    def add_to_conversation(self, message_type: str, content: str, metadata: dict = None):
+        """Add a message to the conversation history"""
+        entry = {
+            "type": message_type,  # "user", "assistant", "tool_call", "tool_result"
+            "content": content,
+            "timestamp": datetime.now().isoformat(),
+            "metadata": metadata or {}
+        }
+        self.conversation_history.append(entry)
+
+    def export_conversation_to_markdown(self, filename: str = None) -> str:
+        """Export conversation history to a markdown file"""
+        if not filename:
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"pantheon_conversation_{timestamp}.md"
+        
+        # Build markdown content
+        lines = []
+        lines.append("# Pantheon CLI Conversation")
+        lines.append("")
+        lines.append(f"*Exported on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
+        lines.append("")
+        
+        current_user_message = None
+        
+        for entry in self.conversation_history:
+            if entry["type"] == "user":
+                lines.append(f"## User")
+                lines.append("")
+                lines.append(f"```")
+                lines.append(entry["content"])
+                lines.append("```")
+                lines.append("")
+                current_user_message = entry["content"]
+                
+            elif entry["type"] == "assistant":
+                lines.append(f"## Assistant")
+                lines.append("")
+                lines.append(entry["content"])
+                lines.append("")
+                
+            elif entry["type"] == "tool_call":
+                tool_name = entry["metadata"].get("tool_name", "unknown")
+                lines.append(f"### Tool: {tool_name}")
+                lines.append("")
+                if "code" in entry["metadata"]:
+                    # For code execution tools
+                    lang = "python" if "python" in tool_name.lower() else "r" if "r" in tool_name.lower() else "julia" if "julia" in tool_name.lower() else "bash"
+                    lines.append(f"```{lang}")
+                    lines.append(entry["metadata"]["code"])
+                    lines.append("```")
+                else:
+                    lines.append(f"```")
+                    lines.append(entry["content"])
+                    lines.append("```")
+                lines.append("")
+                
+            elif entry["type"] == "tool_result":
+                lines.append("**Output:**")
+                lines.append("")
+                lines.append("```")
+                lines.append(entry["content"])
+                lines.append("```")
+                lines.append("")
+        
+        markdown_content = "\n".join(lines)
+        
+        # Write to file
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(markdown_content)
+            return filename
+        except Exception as e:
+            raise Exception(f"Failed to save conversation: {str(e)}")
+
     def print_tool_call(self, tool_name: str, args: dict = None):
         """Print tool call in Claude Code style with fancy boxes"""
         # Mark that tools are executing
         self._tools_executing = True
+        
+        # Record tool call in conversation history
+        metadata = {"tool_name": tool_name}
+        if args:
+            metadata.update(args)
+        self.add_to_conversation("tool_call", f"{tool_name}({args or {}})", metadata)
         
         self.console.print()  # Add some space
         
@@ -320,6 +406,22 @@ class ReplUI:
         
         # Mark that tool execution is complete
         self._tools_executing = False
+        
+        # Record tool result in conversation history
+        result_content = ""
+        if isinstance(result, dict):
+            if 'stdout' in result:
+                result_content = result['stdout']
+            elif 'output' in result:
+                result_content = result['output']
+            elif 'result' in result:
+                result_content = str(result['result'])
+            else:
+                result_content = str(result)
+        else:
+            result_content = str(result)
+        
+        self.add_to_conversation("tool_result", result_content, {"tool_name": tool_name})
         
         # Special handling for toolsets that print their own output - skip normal output box
         skip_tools = ['edit', 'write', 'read', 'file', 'glob', 'grep', 'ls', 'notebook']
