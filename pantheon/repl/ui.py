@@ -328,6 +328,7 @@ class ReplUI:
                 # For successful operations, don't show any output box
                 # The content was already printed by the toolset
                 return
+            
 
         # Show tool output in Claude Code style
         if isinstance(result, dict) and 'output' in result:
@@ -336,15 +337,22 @@ class ReplUI:
             output = result['result']
         else:
             output = str(result)
-        
+
+        if tool_name in ['run_python', 'run_julia', 'run_r']:
+            import ast
+            output = ast.literal_eval(output)
+            if isinstance(output, dict) and 'stdout' in output.keys():
+                output = output['stdout']
+
         if output and output.strip():
             # Create a Claude Code style output box
             lines = output.strip().split('\n')
-            max_width = min(79, max(len(line) for line in lines) + 4)
+            max_width = 79
             
             self.console.print("╭" + "─" * (max_width - 2) + "╮")
             self.console.print("│ [bold]Output[/bold]" + " " * (max_width - 9) + "│")
             self.console.print("├" + "─" * (max_width - 2) + "┤")
+            #self.console.print(f"│ {output['stdout']} │")
             
             for line in lines:
                 # Handle long lines
@@ -353,6 +361,7 @@ class ReplUI:
                 else:
                     padded_line = line
                 
+
                 padding = max_width - len(padded_line) - 4
                 self.console.print(f"│ {padded_line}" + " " * padding + " │")
             
