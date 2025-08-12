@@ -28,17 +28,8 @@ except ImportError:
 
 from ..agent import Agent
 from ..remote.agent import RemoteAgent
-from ..utils.misc import print_agent_message, print_agent, print_banner, print_agent_message_modern_style
 from .ui import ReplUI
 from .bio_handler import BioCommandHandler
-
-# Import toolsets from pantheon-toolsets
-try:
-    from pantheon.toolsets.python import PythonInterpreterToolSet
-    PYTHON_TOOLSET_AVAILABLE = True
-except ImportError:
-    PYTHON_TOOLSET_AVAILABLE = False
-    print("Warning: PythonInterpreterToolSet not available. Install pantheon-toolsets for Python execution.")
 
 
 class Repl(ReplUI):
@@ -47,7 +38,7 @@ class Repl(ReplUI):
     Args:
         agent: The agent to use for the REPL.
     """
-    def __init__(self, agent: Agent | RemoteAgent, enable_python: bool = True):
+    def __init__(self, agent: Agent | RemoteAgent):
         super().__init__()  # init UI
         self.bio_handler = BioCommandHandler(self.console)
         self.agent = agent
@@ -73,11 +64,6 @@ class Repl(ReplUI):
         self.command_history = []
         self.history_index = -1
         
-        # Setup Python toolset if available and enabled
-        self.python_enabled = enable_python and PYTHON_TOOLSET_AVAILABLE
-        if self.python_enabled:
-            self._setup_python_toolset()
-        
         # Setup input system
         self._setup_input_system()
         self._load_history()
@@ -91,18 +77,6 @@ class Repl(ReplUI):
             title="Input",
             border_style="bright_blue"
         )
-
-    def _setup_python_toolset(self):
-        """Setup Python toolset for code execution"""
-        try:
-            self.python_toolset = PythonInterpreterToolSet("python_interpreter")
-            # Claude Code style is handled by the toolset itself
-            self.agent.toolset(self.python_toolset)
-            self.console.print("[dim]Python execution enabled[/dim]")
-        except Exception as e:
-            self.console.print(f"[dim]Warning: Failed to setup Python toolset: {e}[/dim]")
-            self.python_enabled = False
-            self.python_toolset = None
 
     def _setup_shell_toolset_callback(self):
         """Setup shell toolset callback - simplified"""
