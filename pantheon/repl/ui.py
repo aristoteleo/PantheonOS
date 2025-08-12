@@ -121,8 +121,6 @@ class ReplUI:
         self.console.print("[dim]analyze single cell data[/dim]")
         self.console.print("[dim]run quality control[/dim]")
         self.console.print("[dim]create UMAP plot[/dim]")
-        if self.python_enabled:
-            self.console.print("[dim]write python script to calculate statistics[/dim]")
         if hasattr(self.agent, '_model_manager'):
             self.console.print("[dim]/model gpt-4o[/dim] - Switch to GPT-4o")
             self.console.print("[dim]/api-key openai sk-...[/dim] - Set OpenAI key")

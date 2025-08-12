@@ -28,7 +28,9 @@ from .utils.log import logger
 DEFAULT_MODEL = "gpt-4.1-mini"
 
 __CTX_VARS_NAME__ = "context_variables"
-__SKIP_PARAMS__ = [__CTX_VARS_NAME__, "__client_id__", "__agent_run__"]
+__AGENT_RUN_NAME__ = "agent_run"
+__SKIP_PARAMS__ = [__CTX_VARS_NAME__, __AGENT_RUN_NAME__]
+__CLIENT_ID_NAME__ = "client_id"
 
 
 class ResponseDetails(BaseModel):
@@ -245,10 +247,20 @@ class Agent:
             timeout: float,
             time_delta: float = 0.5,
             check_stop: Callable | None = None,
-            client_id: str | None = None,
             ) -> list[dict]:
         from .remote.agent import RemoteAgent
         messages = []
+
+        async def agent_run(msg: AgentInput):
+            """Remote function for toolset call agent."""
+            logger.info(f"Running agent {self.name} with message {msg}")
+            resp = await self.run(
+                msg,
+                allow_transfer=False,
+                update_memory=False,
+            )
+            return resp.content
+
         for call in tool_calls:
             try:
                 func_name = call["function"]["name"]
@@ -262,9 +274,8 @@ class Agent:
                         var_names = func.__code__.co_varnames
                     if __CTX_VARS_NAME__ in var_names:
                         params[__CTX_VARS_NAME__] = context_variables
-                    # Handle client_id for local functions too
-                    if ("__client_id__" in var_names) and (client_id is not None):
-                        params["__client_id__"] = client_id
+                    if __AGENT_RUN_NAME__ in var_names:
+                        params[__AGENT_RUN_NAME__] = agent_run
                     _func = func
                 else:
                     # remote toolset
@@ -274,19 +285,10 @@ class Agent:
                     service_info = await proxy.fetch_service_info()
                     func_desc = service_info.functions_description[func_name]
                     function_args = [v.name for v in func_desc.inputs]
-                    async def agent_run(msg: AgentInput):
-                        logger.info(f"Running agent {self.name} with message {msg}")
-                        resp = await self.run(
-                            msg,
-                            allow_transfer=False,
-                            update_memory=False,
-                            model="openai/gpt-4.1",
-                        )
-                        return resp.content
-                    if "__agent_run__" in function_args:
-                        params["__agent_run__"] = agent_run
-                    if ("__client_id__" in function_args) and (client_id is not None):
-                        params["__client_id__"] = client_id
+                    if __AGENT_RUN_NAME__ in function_args:
+                        params[__AGENT_RUN_NAME__] = agent_run
+                    if __CTX_VARS_NAME__ in function_args:
+                        params[__CTX_VARS_NAME__] = context_variables
                     async def _func(**params):
                         resp = await proxy.invoke(func_name, parameters=params)
                         if isinstance(resp, dict) and 'inner_call' in resp:
@@ -397,9 +399,24 @@ class Agent:
             message = complete_resp.choices[0].message.model_dump()
         return message
 
-    async def _acompletion_with_models(self, history, tool_use, response_format, process_chunk, allow_transfer):
+    async def _acompletion_with_models(
+        self,
+        history,
+        tool_use,
+        response_format,
+        process_chunk,
+        allow_transfer,
+        model: str | list[str] | None = None,
+    ):
         error_count = 0
-        for model in self.models:
+        if model is None:
+            models = self.models
+        else:
+            if isinstance(model, str):
+                models = [model] + self.models
+            else:
+                models = model + self.models
+        for model in models:
             if error_count > 0:
                 logger.warning(f"Try to use {model}, because of the error of the previous model.")
             try:
@@ -432,9 +449,8 @@ class Agent:
         response_format: Any | None = None,
         tool_use: bool = True,
         tool_timeout: int | None = None,
-        model: str | None = None,
+        model: str | list[str] | None = None,
         allow_transfer: bool = True,
-        client_id: str | None = None,
     ) -> ResponseDetails | AgentTransfer:
         response_format = response_format or self.response_format
         history = copy.deepcopy(messages)
@@ -467,6 +483,7 @@ class Agent:
                 Response,
                 _process_chunk,
                 allow_transfer,
+                model=model,
             )
 
             if Response is not None:
@@ -490,7 +507,6 @@ class Agent:
                 context_variables=context_variables,
                 timeout=tool_timeout,
                 check_stop=check_stop,
-                client_id=client_id,
             )
             history.extend(tool_messages)
             for msg in tool_messages:
@@ -563,7 +579,7 @@ class Agent:
             use_memory: bool | None = None,
             update_memory: bool = True,
             tool_timeout: int | None = None,
-            model: str | None = None,
+            model: str | list[str] | None = None,
             allow_transfer: bool = True,
             ) -> AgentResponse | AgentTransfer:
         """Run the agent.
@@ -580,7 +596,10 @@ class Agent:
             use_memory: Whether to use short term memory.
             update_memory: Whether to update the short term memory.
             tool_timeout: The timeout for the tool.
-            model: The model to use.
+            model: The model to use in this run.
+                Could be a list of models for fallback.
+                If not provided, the model will be selected from the agent's models.
+            allow_transfer: Whether to allow transfer to another agent.
 
         Returns:
             The agent response. Either an AgentResponse or an AgentTransfer.
@@ -603,6 +622,7 @@ class Agent:
         if isinstance(msg, AgentTransfer):
             new_input_messages = []
             context_variables = msg.context_variables
+        context_variables[__CLIENT_ID_NAME__] = memory.id
 
         if update_memory:
             memory.add_messages(new_input_messages)
@@ -628,7 +648,6 @@ class Agent:
                 tool_timeout=tool_timeout,
                 model=model,
                 allow_transfer=allow_transfer,
-                client_id=memory.id,  # Keep original memory.id logic
             )
         except StopRunning:
             logger.info("StopRunning")
