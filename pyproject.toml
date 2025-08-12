@@ -19,8 +19,7 @@ dependencies = [
 ]
 dynamic = ["version"]
 
-[project.scripts]
-pantheon-cli = "pantheon.cli.main:main"
+# CLI entry removed - now in separate pantheon-cli package
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
