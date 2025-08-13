@@ -393,7 +393,7 @@ async def main(
     def custom_sink(message):
         console.print(message, end="")
 
-    logger.configure(handlers=[{"sink":custom_sink, "format":"{message}"}])
+    logger.configure(handlers=[{"sink":custom_sink, "format":"{message}", "level":"INFO"}])
     logger.disable("executor.engine")
 
     # Initialize managers locally

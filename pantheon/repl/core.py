@@ -228,13 +228,6 @@ class Repl(ReplUI):
         self.total_output_tokens += output_tokens
 
     async def run(self, message: str | dict | None = None):
-        # Suppress verbose logging for cleaner output
-        import logging
-        logging.getLogger().setLevel(logging.WARNING)
-        import loguru
-        loguru.logger.remove()
-        loguru.logger.add(sys.stdout, level="WARNING")
-
         # Set up shell toolset callback now that agent is fully configured
         self._setup_shell_toolset_callback()
 
