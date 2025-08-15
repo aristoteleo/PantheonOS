@@ -38,6 +38,17 @@ class Repl(ReplUI):
     Args:
         agent: The agent to use for the REPL.
     """
+    def _get_history_file(self):
+        """Get history file path with fallback to temp directory if no permission"""
+        try:
+            history_file = Path.home() / ".pantheon_history"
+            # Test write permission
+            history_file.touch()
+            return history_file
+        except (PermissionError, OSError):
+            import tempfile
+            return Path(tempfile.gettempdir()) / ".pantheon_history"
+    
     def __init__(self, agent: Agent | RemoteAgent):
         super().__init__()  # init UI
         self.bio_handler = BioCommandHandler(self.console)
@@ -60,7 +71,7 @@ class Repl(ReplUI):
         self._current_agent_task = None
         
         # Setup history file
-        self.history_file = Path.home() / ".pantheon_history"
+        self.history_file = self._get_history_file()
         self.command_history = []
         self.history_index = -1
         
@@ -124,8 +135,12 @@ class Repl(ReplUI):
         """Setup simple input system with readline history"""
         if READLINE_AVAILABLE:
             # Setup readline with history
-            if self.history_file.exists():
-                readline.read_history_file(str(self.history_file))
+            try:
+                if self.history_file.exists():
+                    readline.read_history_file(str(self.history_file))
+            except (PermissionError, OSError):
+                # Continue without loading history if file can't be read
+                pass
             atexit.register(readline.write_history_file, str(self.history_file))
             readline.set_history_length(1000)
             
