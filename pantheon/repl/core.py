@@ -4,19 +4,12 @@ import time
 import json
 import signal
 from datetime import datetime
-import os
 from pathlib import Path
 
-from rich.console import Console
-from rich.prompt import Prompt
 from rich.text import Text
 from rich.live import Live
-from rich.spinner import Spinner
-from rich.columns import Columns
 from rich.panel import Panel
 from rich.markdown import Markdown
-from rich.syntax import Syntax
-from rich.layout import Layout
 
 # Simple readline support for history
 try:
@@ -26,8 +19,8 @@ try:
 except ImportError:
     READLINE_AVAILABLE = False
 
-from ..agent import Agent
-from ..remote.agent import RemoteAgent
+from pantheon.agent import Agent
+from pantheon.remote.agent import RemoteAgent
 from .ui import ReplUI
 from .bio_handler import BioCommandHandler
 
@@ -47,6 +40,7 @@ class Repl(ReplUI):
         self.tool_calls_active = False
         self.session_start = datetime.now()
         self.message_count = 0
+        self.python_enabled = False
         
         # Token statistics
         self.total_input_tokens = 0
@@ -257,6 +251,10 @@ class Repl(ReplUI):
                     self._print_session_summary()
                     break
             
+            # Record user input in conversation history (except for special commands)
+            if not current_message.strip().startswith('/'):
+                self.add_to_conversation("user", current_message)
+            
             # Handle special commands FIRST (before sending to API)
             cmd = current_message.lower().strip()
             
@@ -282,6 +280,10 @@ class Repl(ReplUI):
                 continue
             elif cmd in ["tokens", "/tokens"]:
                 self._print_token_analysis()
+                current_message = None  # Reset to get new input
+                continue
+            elif cmd in ["/save"] or current_message.strip().startswith("/save"):
+                self._handle_save_command(current_message.strip())
                 current_message = None  # Reset to get new input
                 continue
             elif current_message.strip().startswith("/model"):
@@ -430,6 +432,9 @@ class Repl(ReplUI):
             if content_buffer:
                 full_content = ''.join(content_buffer)
                 if full_content.strip():
+                    # Record AI response in conversation history
+                    self.add_to_conversation("assistant", full_content.strip())
+                    
                     # Check if content contains code blocks - if so, use plain text
                     if '```' in full_content or 'def ' in full_content or 'import ' in full_content:
                         self.console.print(full_content)
@@ -441,8 +446,6 @@ class Repl(ReplUI):
 
         print_task.cancel()
     
-    
-
     def _handle_model_command(self, command: str):
         """Handle /model commands in REPL"""
         try:
@@ -467,6 +470,31 @@ class Repl(ReplUI):
                 self.console.print("[red]API key management not available. Please restart with the CLI.[/red]")
         except Exception as e:
             self.console.print(f"[red]Error handling API key command: {str(e)}[/red]")
+        self.console.print()  # Add spacing
+
+    def _handle_save_command(self, command: str):
+        """Handle /save commands in REPL"""
+        try:
+            parts = command.split()
+            filename = None
+            
+            if len(parts) > 1:
+                # User specified a filename: /save myfile.md
+                filename = parts[1]
+                if not filename.endswith('.md'):
+                    filename += '.md'
+            
+            # Check if there's conversation history to save
+            if not hasattr(self, 'conversation_history') or not self.conversation_history:
+                self.console.print("[yellow]No conversation history to save yet.[/yellow]")
+                return
+            
+            # Export conversation to markdown
+            saved_file = self.export_conversation_to_markdown(filename)
+            self.console.print(f"[green]✅ Conversation saved to:[/green] {saved_file}")
+            
+        except Exception as e:
+            self.console.print(f"[red]Error saving conversation: {str(e)}[/red]")
         self.console.print()  # Add spacing
 
     # Bio command handling moved to bio_handler.py
