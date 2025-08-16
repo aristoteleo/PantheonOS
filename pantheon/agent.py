@@ -135,6 +135,11 @@ class Agent:
         self.functions: dict[str, Callable] = {}
         self.toolset_proxies: dict[str, ServiceProxy] = {}
         self._func_to_proxy: dict[str, str] = {}
+        
+        # Performance optimization: Cache tool definitions
+        self._tool_definitions_cache: dict[str, dict] = {}
+        self._cache_dirty = True
+        
         if tools:
             for func in tools:
                 self.tool(func)
@@ -166,6 +171,8 @@ class Agent:
             else:
                 raise ValueError(f"Invalid tool: {func}")
         self.functions[key] = func
+        # Mark cache as dirty when tools are added
+        self._cache_dirty = True
         return self
 
     async def remote_toolset(
@@ -190,6 +197,8 @@ class Agent:
             **kwargs,
         )
         self.toolset_proxies[s.service_info.service_id] = s
+        # Mark cache as dirty when remote toolsets are added
+        self._cache_dirty = True
         return self
 
     def toolset(self, toolset: ToolSet):
@@ -203,12 +212,23 @@ class Agent:
         """
         for name, (func, _) in toolset.worker.functions.items():
             self.tool(func, key=name)
+        # Cache will be marked dirty by individual tool() calls
         return self
 
     def _convert_functions(self, litellm_mode: bool, allow_transfer: bool) -> list[dict]:
-        """Convert function to the format that the model can understand."""
+        """Convert function to the format that the model can understand with caching."""
+        
+        # Create cache key based on configuration
+        cache_key = f"{litellm_mode}_{allow_transfer}_{len(self.functions)}_{len(self.toolset_proxies)}"
+        
+        # Return cached result if available and cache is clean
+        if not self._cache_dirty and cache_key in self._tool_definitions_cache:
+            return self._tool_definitions_cache[cache_key]
+        
+        # Performance optimization: build tool definitions
         functions = []
 
+        # Process local functions
         for func in self.functions.values():
             if isinstance(func, ReverseCallable):
                 desc = Description(
@@ -227,8 +247,14 @@ class Agent:
                 skip_params=__SKIP_PARAMS__,
                 litellm_mode=litellm_mode,
             )
+            # Performance optimization: Limit description length for faster LLM processing
+            if 'function' in func_dict and 'description' in func_dict['function']:
+                desc_text = func_dict['function']['description']
+                if len(desc_text) > 200:
+                    func_dict['function']['description'] = desc_text[:197] + "..."
             functions.append(func_dict)
 
+        # Process remote toolset functions
         for proxy in self.toolset_proxies.values():
             for name, desc in proxy.service_info.functions_description.items():
                 self._func_to_proxy[name] = proxy.service_info.service_id
@@ -237,7 +263,17 @@ class Agent:
                     skip_params=__SKIP_PARAMS__,
                     litellm_mode=litellm_mode,
                 )
+                # Performance optimization: Limit description length for faster LLM processing
+                if 'function' in func_dict and 'description' in func_dict['function']:
+                    desc_text = func_dict['function']['description']
+                    if len(desc_text) > 200:
+                        func_dict['function']['description'] = desc_text[:197] + "..."
                 functions.append(func_dict)
+        
+        # Cache the result for future use
+        self._tool_definitions_cache[cache_key] = functions
+        self._cache_dirty = False
+        
         return functions
 
     async def _handle_tool_calls(
