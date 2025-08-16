@@ -4,19 +4,12 @@ import time
 import json
 import signal
 from datetime import datetime
-import os
 from pathlib import Path
 
-from rich.console import Console
-from rich.prompt import Prompt
 from rich.text import Text
 from rich.live import Live
-from rich.spinner import Spinner
-from rich.columns import Columns
 from rich.panel import Panel
 from rich.markdown import Markdown
-from rich.syntax import Syntax
-from rich.layout import Layout
 
 # Simple readline support for history
 try:
@@ -26,8 +19,8 @@ try:
 except ImportError:
     READLINE_AVAILABLE = False
 
-from ..agent import Agent
-from ..remote.agent import RemoteAgent
+from pantheon.agent import Agent
+from pantheon.remote.agent import RemoteAgent
 from .ui import ReplUI
 from .bio_handler import BioCommandHandler
 
@@ -38,6 +31,17 @@ class Repl(ReplUI):
     Args:
         agent: The agent to use for the REPL.
     """
+    def _get_history_file(self):
+        """Get history file path with fallback to temp directory if no permission"""
+        try:
+            history_file = Path.home() / ".pantheon_history"
+            # Test write permission
+            history_file.touch()
+            return history_file
+        except (PermissionError, OSError):
+            import tempfile
+            return Path(tempfile.gettempdir()) / ".pantheon_history"
+    
     def __init__(self, agent: Agent | RemoteAgent):
         super().__init__()  # init UI
         self.bio_handler = BioCommandHandler(self.console)
@@ -47,6 +51,7 @@ class Repl(ReplUI):
         self.tool_calls_active = False
         self.session_start = datetime.now()
         self.message_count = 0
+        self.python_enabled = False
         
         # Token statistics
         self.total_input_tokens = 0
@@ -60,7 +65,7 @@ class Repl(ReplUI):
         self._current_agent_task = None
         
         # Setup history file
-        self.history_file = Path.home() / ".pantheon_history"
+        self.history_file = self._get_history_file()
         self.command_history = []
         self.history_index = -1
         
@@ -124,8 +129,12 @@ class Repl(ReplUI):
         """Setup simple input system with readline history"""
         if READLINE_AVAILABLE:
             # Setup readline with history
-            if self.history_file.exists():
-                readline.read_history_file(str(self.history_file))
+            try:
+                if self.history_file.exists():
+                    readline.read_history_file(str(self.history_file))
+            except (PermissionError, OSError):
+                # Continue without loading history if file can't be read
+                pass
             atexit.register(readline.write_history_file, str(self.history_file))
             readline.set_history_length(1000)
             
@@ -228,13 +237,6 @@ class Repl(ReplUI):
         self.total_output_tokens += output_tokens
 
     async def run(self, message: str | dict | None = None):
-        # Suppress verbose logging for cleaner output
-        import logging
-        logging.getLogger().setLevel(logging.WARNING)
-        import loguru
-        loguru.logger.remove()
-        loguru.logger.add(sys.stdout, level="WARNING")
-
         # Set up shell toolset callback now that agent is fully configured
         self._setup_shell_toolset_callback()
 
@@ -459,8 +461,6 @@ class Repl(ReplUI):
 
         print_task.cancel()
     
-    
-
     def _handle_model_command(self, command: str):
         """Handle /model commands in REPL"""
         try:

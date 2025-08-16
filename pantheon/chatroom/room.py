@@ -18,7 +18,7 @@ from ..remote.agent import RemoteAgent
 from ..utils.misc import run_func
 from ..utils.log import logger
 from .thread import Thread
-from .factory import create_agents_from_template, DEFAULT_AGENTS_TEMPLATE_PATH
+from ..factory import create_agents_from_template, DEFAULT_AGENTS_TEMPLATE_PATH
 
 
 class ChatRoom:
