@@ -250,8 +250,6 @@ class Agent:
             # Performance optimization: Limit description length for faster LLM processing
             if 'function' in func_dict and 'description' in func_dict['function']:
                 desc_text = func_dict['function']['description']
-                if len(desc_text) > 200:
-                    func_dict['function']['description'] = desc_text[:197] + "..."
             functions.append(func_dict)
 
         # Process remote toolset functions
