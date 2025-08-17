@@ -1,28 +1,34 @@
+import asyncio
 import copy
 import json
 import time
-import asyncio
-from typing import Callable, Any
+from typing import Any, Callable, Protocol
 from uuid import uuid4
 
+from funcdesc import Description, Value, parse_func
 from pydantic import BaseModel, create_model
-from funcdesc import parse_func, Description, Value
-from magique.client import ServiceProxy
-from magique.worker import ReverseCallable
-from pantheon.toolsets.utils.toolset import ToolSet
-from pantheon.toolsets.utils.remote import connect_remote
 
-from .utils.misc import desc_to_openai_dict, run_func
-from .utils.llm import (
-    acompletion_openai,
-    process_messages_for_model,
-    process_messages_for_hook_func,
-    remove_hidden_fields,
-    acompletion_litellm,
-)
-from .utils.vision import vision_to_openai, VisionInput
+from pantheon.toolset.utils.toolset import ToolSet
+
 from .memory import Memory
+from .remote import RemoteService
+from .remote.config import RemoteConfig
+from .remote.factory import RemoteBackendFactory
+from .utils.llm import (
+    acompletion_litellm,
+    acompletion_openai,
+    process_messages_for_hook_func,
+    process_messages_for_model,
+    remove_hidden_fields,
+)
 from .utils.log import logger
+from .utils.misc import desc_to_openai_dict, run_func
+from .utils.vision import VisionInput, vision_to_openai
+
+
+# Define protocol for remote callable functions (backend-agnostic)
+class RemoteCallable(Protocol):
+    parameters: list[str]
 
 
 DEFAULT_MODEL = "gpt-4.1-mini"
@@ -41,6 +47,7 @@ class ResponseDetails(BaseModel):
         messages: The messages of the agent response.
         context_variables: The context variables of the agent response.
     """
+
     messages: list[dict]
     context_variables: dict
 
@@ -55,6 +62,7 @@ class AgentResponse(BaseModel):
         details: The details of the agent response, which contains the history of the agent response.
         interrupt: Whether the agent is interrupted.
     """
+
     agent_name: str
     content: Any
     details: ResponseDetails | None
@@ -72,6 +80,7 @@ class AgentTransfer(BaseModel):
         context_variables: The context variables of the agent response.
         init_message_length: The length of the initial message.
     """
+
     from_agent: str
     to_agent: str
     history: list[dict]
@@ -79,7 +88,14 @@ class AgentTransfer(BaseModel):
     init_message_length: int
 
 
-AgentInput = str | BaseModel | AgentResponse | list[str | BaseModel | dict] | AgentTransfer | VisionInput
+AgentInput = (
+    str
+    | BaseModel
+    | AgentResponse
+    | list[str | BaseModel | dict]
+    | AgentTransfer
+    | VisionInput
+)
 
 
 class StopRunning(Exception):
@@ -109,12 +125,13 @@ class Agent:
         force_litellm: Whether to force using LiteLLM. (default: False)
         max_tool_content_length: The maximum length of the tool content. (default: 100000)
     """
+
     def __init__(
         self,
         name: str,
         instructions: str,
         model: str | list[str] = DEFAULT_MODEL,
-        icon: str = '🤖',
+        icon: str = "🤖",
         tools: list[Callable] | None = None,
         response_format: Any | None = None,
         use_memory: bool = True,
@@ -133,7 +150,7 @@ class Agent:
         else:
             self.models = model
         self.functions: dict[str, Callable] = {}
-        self.toolset_proxies: dict[str, ServiceProxy] = {}
+        self.toolset_services: dict[str, RemoteService] = {}
         self._func_to_proxy: dict[str, str] = {}
         if tools:
             for func in tools:
@@ -169,32 +186,31 @@ class Agent:
         return self
 
     async def remote_toolset(
-            self,
-            service_id_or_name: str,
-            server_url: str | list[str] | None = None,
-            **kwargs,
-            ):
+        self,
+        service_id_or_name: str,
+        backend_config: RemoteConfig | None = None,
+        **kwargs,
+    ):
         """Add a remote toolset to the agent.
-        
+
         Args:
             service_id_or_name: The service ID or name of the toolset.
-            server_url: The URL of the magique server.
-            **kwargs: Additional keyword arguments to pass to the connect_remote function.
+            backend_config: Configuration for the remote backend. If None, uses default configuration.
+            **kwargs: Additional keyword arguments to pass to the backend connection.
 
         Returns:
             The agent instance.
         """
-        s = await connect_remote(
-            service_id_or_name,
-            server_url,
-            **kwargs,
-        )
-        self.toolset_proxies[s.service_info.service_id] = s
+        # Create backend and connect to service
+        backend = RemoteBackendFactory.create_backend(backend_config)
+        remote_service = await backend.connect(service_id_or_name, **kwargs)
+
+        self.toolset_services[service_id_or_name] = remote_service
         return self
 
     def toolset(self, toolset: ToolSet):
         """Add a toolset to the agent.
-        
+
         Args:
             toolset: The toolset to add to the agent.
 
@@ -205,21 +221,26 @@ class Agent:
             self.tool(func, key=name)
         return self
 
-    def _convert_functions(self, litellm_mode: bool, allow_transfer: bool) -> list[dict]:
+    def _convert_functions(
+        self, litellm_mode: bool, allow_transfer: bool
+    ) -> list[dict]:
         """Convert function to the format that the model can understand."""
         functions = []
-
+        # FIX: unify two types of functions
         for func in self.functions.values():
-            if isinstance(func, ReverseCallable):
+            if hasattr(func, "parameters") and isinstance(func.parameters, list):
+                # This is a remote callable function
                 desc = Description(
                     inputs=[Value(type_=str, name=p) for p in func.parameters],
-                    name=func.name
+                    name=func.name,
                 )
             else:
                 desc = parse_func(func)
             assert isinstance(desc.name, str), "Function name must be a string"
             if not allow_transfer:
-                if desc.name.startswith("transfer_to_") or desc.name.startswith("call_agent_"):
+                if desc.name.startswith("transfer_to_") or desc.name.startswith(
+                    "call_agent_"
+                ):
                     # NOTE: transfer function should start with `transfer_to_`
                     continue
             func_dict = desc_to_openai_dict(
@@ -229,9 +250,9 @@ class Agent:
             )
             functions.append(func_dict)
 
-        for proxy in self.toolset_proxies.values():
-            for name, desc in proxy.service_info.functions_description.items():
-                self._func_to_proxy[name] = proxy.service_info.service_id
+        for service in self.toolset_services.values():
+            for name, desc in service.service_info.functions_description.items():
+                self._func_to_proxy[name] = service.service_info.service_id
                 func_dict = desc_to_openai_dict(
                     desc,
                     skip_params=__SKIP_PARAMS__,
@@ -241,14 +262,15 @@ class Agent:
         return functions
 
     async def _handle_tool_calls(
-            self,
-            tool_calls: list,
-            context_variables: dict,
-            timeout: float,
-            time_delta: float = 0.5,
-            check_stop: Callable | None = None,
-            ) -> list[dict]:
+        self,
+        tool_calls: list,
+        context_variables: dict,
+        timeout: float,
+        time_delta: float = 0.5,
+        check_stop: Callable | None = None,
+    ) -> list[dict]:
         from .remote.agent import RemoteAgent
+
         messages = []
 
         async def agent_run(msg: AgentInput):
@@ -261,6 +283,8 @@ class Agent:
             )
             return resp.content
 
+        # FIX: async run tool calls
+        # FIX: unify two types of tool calls
         for call in tool_calls:
             try:
                 func_name = call["function"]["name"]
@@ -268,7 +292,10 @@ class Agent:
                 if func_name in self.functions:
                     # call local functions
                     func = self.functions[func_name]
-                    if isinstance(func, ReverseCallable):
+                    if hasattr(func, "parameters") and isinstance(
+                        func.parameters, list
+                    ):
+                        # This is a remote callable function
                         var_names = func.parameters
                     else:
                         var_names = func.__code__.co_varnames
@@ -279,29 +306,36 @@ class Agent:
                     _func = func
                 else:
                     # remote toolset
-                    assert func_name in self._func_to_proxy, \
+                    assert func_name in self._func_to_proxy, (
                         f"Function `{func_name}` is not found in the toolset or local functions"
-                    proxy = self.toolset_proxies[self._func_to_proxy[func_name]]
-                    service_info = await proxy.fetch_service_info()
+                    )
+                    toolset_service = self.toolset_services[
+                        self._func_to_proxy[func_name]
+                    ]
+                    service_info = await toolset_service.fetch_service_info()
                     func_desc = service_info.functions_description[func_name]
                     function_args = [v.name for v in func_desc.inputs]
                     if __AGENT_RUN_NAME__ in function_args:
                         params[__AGENT_RUN_NAME__] = agent_run
                     if __CTX_VARS_NAME__ in function_args:
                         params[__CTX_VARS_NAME__] = context_variables
+
                     async def _func(**params):
-                        resp = await proxy.invoke(func_name, parameters=params)
-                        if isinstance(resp, dict) and 'inner_call' in resp:
-                            inner_call = resp.pop('inner_call')
-                            name = inner_call['name']
-                            args = inner_call['args']
-                            result_field = inner_call['result_field']
+                        resp = await toolset_service.invoke(
+                            func_name, parameters=params
+                        )
+                        if isinstance(resp, dict) and "inner_call" in resp:
+                            inner_call = resp.pop("inner_call")
+                            name = inner_call["name"]
+                            args = inner_call["args"]
+                            result_field = inner_call["result_field"]
                             if name == "__agent_run__":
                                 result = await agent_run(args)
                             else:
                                 result = await run_func(self.functions[name], **args)
                             resp[result_field] = result
                         return resp
+
                 start_time = time.time()
                 task = asyncio.create_task(run_func(_func, **params))
                 while True:
@@ -324,13 +358,15 @@ class Agent:
 
             context_variables[call["id"]] = result
             if isinstance(result, (Agent, RemoteAgent)):
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": call["id"],
-                    "tool_name": func_name,
-                    "content": result.name,
-                    "transfer": True,
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "tool_name": func_name,
+                        "content": result.name,
+                        "transfer": True,
+                    }
+                )
             else:
                 if isinstance(result, dict):
                     processed_result = remove_hidden_fields(result)
@@ -338,25 +374,27 @@ class Agent:
                     processed_result = result
                 content = repr(processed_result)
                 if self.max_tool_content_length is not None:
-                    content = content[:self.max_tool_content_length]
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": call["id"],
-                    "tool_name": func_name,
-                    "raw_content": result,
-                    "content": content,
-                })
+                    content = content[: self.max_tool_content_length]
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "tool_name": func_name,
+                        "raw_content": result,
+                        "content": content,
+                    }
+                )
         return messages
 
     async def _acompletion(
-            self,
-            messages: list[dict],
-            model: str,
-            tool_use: bool = True,
-            response_format: Any | None = None,
-            process_chunk: Callable | None = None,
-            allow_transfer: bool = True,
-            ) -> dict:
+        self,
+        messages: list[dict],
+        model: str,
+        tool_use: bool = True,
+        response_format: Any | None = None,
+        process_chunk: Callable | None = None,
+        allow_transfer: bool = True,
+    ) -> dict:
         force_litellm = self.force_litellm
         messages = process_messages_for_model(messages, model)
         provider = "openai"
@@ -387,7 +425,7 @@ class Agent:
                 message.pop("parsed")
             if "tool_calls" in message:
                 if message["tool_calls"] == []:
-                    message['tool_calls'] = None
+                    message["tool_calls"] = None
         else:
             complete_resp = await acompletion_litellm(
                 messages=messages,
@@ -418,7 +456,9 @@ class Agent:
                 models = model + self.models
         for model in models:
             if error_count > 0:
-                logger.warning(f"Try to use {model}, because of the error of the previous model.")
+                logger.warning(
+                    f"Try to use {model}, because of the error of the previous model."
+                )
             try:
                 message = await self._acompletion(
                     history,
@@ -468,6 +508,7 @@ class Agent:
             Response = None
 
         if check_stop is not None:
+
             async def _process_chunk(chunk: dict):
                 if process_chunk is not None:
                     await run_func(process_chunk, chunk)
@@ -532,11 +573,14 @@ class Agent:
         )
 
     def _input_to_openai_messages(
-            self,
-            msg: AgentInput,
-            ) -> list[dict]:
-        assert isinstance(msg, (list, str, BaseModel, AgentResponse, AgentTransfer, VisionInput)), \
+        self,
+        msg: AgentInput,
+    ) -> list[dict]:
+        assert isinstance(
+            msg, (list, str, BaseModel, AgentResponse, AgentTransfer, VisionInput)
+        ), (
             "Message must be a list, string, BaseModel or AgentResponse, AgentTransfer, VisionInput"
+        )
         if isinstance(msg, AgentResponse):
             # For acceping the result of previous run or other agent
             msg = msg.content
@@ -559,29 +603,32 @@ class Agent:
                     new_messages.extend(vision_to_openai(m))
                 elif isinstance(m, BaseModel):
                     new_messages.append(
-                        {"role": "user", "content": m.model_dump_json()})
+                        {"role": "user", "content": m.model_dump_json()}
+                    )
                 else:
-                    assert isinstance(m, dict), \
+                    assert isinstance(m, dict), (
                         "Message must be a string, BaseModel or dict"
+                    )
                     new_messages.append(m)
             messages = new_messages
         return messages
 
     async def run(
-            self, msg: AgentInput,
-            response_format: Any | None = None,
-            tool_use: bool = True,
-            context_variables: dict | None = None,
-            process_chunk: Callable | None = None,
-            process_step_message: Callable | None = None,
-            check_stop: Callable | None = None,
-            memory: Memory | None = None,
-            use_memory: bool | None = None,
-            update_memory: bool = True,
-            tool_timeout: int | None = None,
-            model: str | list[str] | None = None,
-            allow_transfer: bool = True,
-            ) -> AgentResponse | AgentTransfer:
+        self,
+        msg: AgentInput,
+        response_format: Any | None = None,
+        tool_use: bool = True,
+        context_variables: dict | None = None,
+        process_chunk: Callable | None = None,
+        process_step_message: Callable | None = None,
+        check_stop: Callable | None = None,
+        memory: Memory | None = None,
+        use_memory: bool | None = None,
+        update_memory: bool = True,
+        tool_timeout: int | None = None,
+        model: str | list[str] | None = None,
+        allow_transfer: bool = True,
+    ) -> AgentResponse | AgentTransfer:
         """Run the agent.
 
         Args:
@@ -627,10 +674,12 @@ class Agent:
         if update_memory:
             memory.add_messages(new_input_messages)
             if process_step_message is not None:
+
                 async def _process_step_message(step_message: dict):
                     memory.add_messages([step_message])
                     await run_func(process_step_message, step_message)
             else:
+
                 async def _process_step_message(step_message: dict):
                     memory.add_messages([step_message])
         else:
@@ -674,14 +723,17 @@ class Agent:
                 details=details,
             )
 
+    # FIX: agent should not call REPL, REPL call agent instead
     async def chat(self, message: str | dict | None = None):
         """Chat with the agent with a REPL interface."""
         from .repl.core import Repl
+
         repl = Repl(self)
         await repl.run(message)
 
     async def serve(self, **kwargs):
         """Serve the agent to a remote server."""
         from .remote.agent import AgentService
+
         service = AgentService(self, **kwargs)
         return await service.run()

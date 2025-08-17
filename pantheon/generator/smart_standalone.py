@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
 """Smart Standalone Pantheon Toolset Generator with Template Files"""
 
+import argparse
 import asyncio
 import json
-import sys
 import subprocess
+import sys
 from pathlib import Path
-from typing import Dict, Any, Optional, List
-import argparse
+from typing import Any, Dict, List, Optional
+
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Prompt, Confirm
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 # Import Pantheon components  
 sys.path.append(str(Path(__file__).parent.parent))
 from pantheon.agent import Agent
-from pantheon.toolsets.file_editor import FileEditorToolSet
-from pantheon.toolsets.python import PythonInterpreterToolSet
+from pantheon.toolset.file_editor import FileEditorToolSet
+from pantheon.toolset.python import PythonInterpreterToolSet
 
 console = Console()
 

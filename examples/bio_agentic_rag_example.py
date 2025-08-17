@@ -6,14 +6,14 @@ Example usage of the Agentic RAG toolset for bioinformatics analysis
 import asyncio
 from pathlib import Path
 from pantheon.agent import Agent
-from pantheon.toolsets.agentic_rag import AgenticRAGToolSet
-from pantheon.toolsets.python import PythonInterpreterToolSet
-from pantheon.toolsets.shell import ShellToolSet
+from pantheon.toolset.agentic_rag import AgenticRAGToolSet
+from pantheon.toolset.python import PythonInterpreterToolSet
+from pantheon.toolset.shell import ShellToolSet
 
 
 async def build_knowledge_base():
     """Build the bioinformatics knowledge base from configuration"""
-    from pantheon.toolsets.utils.rag import build_all
+    from pantheon.toolset.utils.rag import build_all
     
     config_path = Path("configs/bio_knowledge.yaml")
     output_dir = Path("./rag_databases")

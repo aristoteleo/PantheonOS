@@ -4,17 +4,19 @@ from ..agent import Agent
 from ..utils.log import logger
 
 
-DEFAULT_AGENTS_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "default_agents_templates.yaml")
+DEFAULT_AGENTS_TEMPLATE_PATH = os.path.join(
+    os.path.dirname(__file__), "default_agents_templates.yaml"
+)
 
 
 async def create_agent(
-        endpoint,
-        name: str,
-        instructions: str,
-        model: str,
-        icon: str,
-        toolsets: list[str] | None = None,
-        toolful: bool = False,
+    endpoint,
+    name: str,
+    instructions: str,
+    model: str,
+    icon: str,
+    toolsets: list[str] | None = None,
+    toolful: bool = False,
 ) -> Agent:
     """Create an agent from a template.
 

@@ -5,8 +5,8 @@ This demonstrates that the system can work even while KB building is in progress
 """
 
 import asyncio
-from pantheon.toolsets.agentic_rag import AgenticRAGToolSet
-from pantheon.toolsets.agentic_rag.bio_templates import get_template
+from pantheon.toolset.agentic_rag import AgenticRAGToolSet
+from pantheon.toolset.agentic_rag.bio_templates import get_template
 
 
 async def test_without_kb():

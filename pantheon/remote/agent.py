@@ -1,31 +1,39 @@
-import sys
 import asyncio
-from typing import Callable
+import sys
 
-from magique.worker import MagiqueWorker
-from magique.client import PyFunction
-from pantheon.toolsets.utils.remote import connect_remote
-from pantheon.toolsets.utils.constant import SERVER_URLS
+# Use TYPE_CHECKING to avoid circular imports
+from typing import TYPE_CHECKING, Callable, Optional
 
-from ..agent import Agent, AgentInput
+from .backend.base import RemoteWorker
+from .config import RemoteConfig
+from .factory import RemoteBackendFactory
+
+if TYPE_CHECKING:
+    from ..agent import Agent, AgentInput
+else:
+    # For runtime, we'll import these when needed
+    Agent = None
+    AgentInput = None
 
 
 class AgentService:
     def __init__(
-            self,
-            agent: Agent,
-            worker_params: dict | None = None,
-            ):
+        self,
+        agent: "Agent",
+        backend_config: Optional[RemoteConfig] = None,
+        worker_params: dict | None = None,
+    ):
         self.agent = agent
-        _worker_params = {
-            "service_name": "remote_agent_" + self.agent.name,
-            "server_url": SERVER_URLS,
-            "need_auth": False,
-        }
-        if worker_params is not None:
-            _worker_params.update(worker_params)
-        self.worker = MagiqueWorker(**_worker_params)
-        self.setup_worker()
+        self.backend_config = backend_config or RemoteConfig.from_env()
+        self.backend = RemoteBackendFactory.create_backend(self.backend_config)
+
+        # Merge worker parameters
+        default_params = {"service_name": f"remote_agent_{self.agent.name}"}
+        if worker_params:
+            default_params.update(worker_params)
+        self.worker_params = default_params
+
+        self.worker: RemoteWorker = None
 
     async def response(self, msg, **kwargs):
         resp = await self.agent.run(msg, **kwargs)
@@ -37,7 +45,7 @@ class AgentService:
             "instructions": self.agent.instructions,
             "models": self.agent.models,
             "functions_names": list(self.agent.functions.keys()),
-            "toolset_proxies_names": list(self.agent.toolset_proxies.keys()),
+            "toolset_proxies_names": list(self.agent.toolset_services.keys()),
         }
 
     async def get_message_queue(self):
@@ -51,7 +59,14 @@ class AgentService:
         self.agent.tool(func)
         return {"success": True}
 
+    async def _ensure_worker(self):
+        """Lazy initialization of worker"""
+        if self.worker is None:
+            self.worker = await self.backend.create_worker(**self.worker_params)
+            self.setup_worker()
+
     def setup_worker(self):
+        """Register methods with the worker"""
         self.worker.register(self.response)
         self.worker.register(self.get_info)
         self.worker.register(self.get_message_queue)
@@ -60,29 +75,32 @@ class AgentService:
 
     async def run(self, log_level: str = "INFO"):
         from loguru import logger
+
         logger.remove()
         logger.add(sys.stderr, level=log_level)
-        logger.info(f"Remote Server: {self.worker.servers}")
-        logger.info(f"Service Name: {self.worker.service_name}")
-        logger.info(f"Service ID: {self.worker.service_id}")
+
+        await self._ensure_worker()
+
+        logger.info(f"Remote Backend: {self.backend_config.backend}")
+        logger.info(f"Service Name: {self.worker_params['service_name']}")
+        if hasattr(self.worker, "service_id"):
+            logger.info(f"Service ID: {self.worker.service_id}")
+        if hasattr(self.worker, "servers"):
+            logger.info(f"Remote Servers: {self.worker.servers}")
+
         return await self.worker.run()
 
 
 class RemoteAgent:
     def __init__(
-            self,
-            service_id_or_name: str,
-            server_url: str | list[str] | None = None,
-            **remote_kwargs,
-            ):
+        self,
+        service_id_or_name: str,
+        backend_config: Optional[RemoteConfig] = None,
+        **remote_kwargs,
+    ):
         self.service_id_or_name = service_id_or_name
-        if isinstance(server_url, str):
-            server_urls = [server_url]
-        elif server_url is None:
-            server_urls = SERVER_URLS
-        else:
-            server_urls = server_url
-        self.server_urls = server_urls
+        self.backend_config = backend_config or RemoteConfig.from_env()
+        self.backend = RemoteBackendFactory.create_backend(self.backend_config)
         self.remote_kwargs = remote_kwargs
         self.name = None
         self.instructions = None
@@ -90,35 +108,46 @@ class RemoteAgent:
         self.events_queue = RemoteAgentMessageQueue(self)
 
     async def _connect(self):
-        return await connect_remote(
-            self.service_id_or_name,
-            self.server_urls,
-            **self.remote_kwargs,
-        )
+        return await self.backend.connect(self.service_id_or_name, **self.remote_kwargs)
 
     async def fetch_info(self):
-        s = await self._connect()
-        info = await s.invoke("get_info")
+        service = await self._connect()
+        info = await service.invoke("get_info")
         self.name = info["name"]
         self.instructions = info["instructions"]
         self.models = info["models"]
         self.functions_names = info["functions_names"]
         self.toolset_proxies_names = info["toolset_proxies_names"]
+        await service.close()
         return info
 
-    async def run(self, msg: AgentInput, **kwargs):
+    async def run(self, msg: "AgentInput", **kwargs):
         await self.fetch_info()
-        s = await self._connect()
-        return await s.invoke("response", {"msg": msg, **kwargs})
+        service = await self._connect()
+        try:
+            return await service.invoke("response", {"msg": msg, **kwargs})
+        finally:
+            await service.close()
 
     async def tool(self, func: Callable):
-        s = await self._connect()
-        await s.invoke("add_tool", {"func": PyFunction(func)})
+        service = await self._connect()
+        try:
+            # Convert function for backend compatibility
+            if self.backend_config.backend == "magique":
+                from magique.client import PyFunction
+
+                func_arg = {"func": PyFunction(func)}
+            else:
+                func_arg = {"func": func}
+            await service.invoke("add_tool", func_arg)
+        finally:
+            await service.close()
 
     async def chat(self, message: str | dict | None = None):
         """Chat with the agent with a REPL interface."""
         await self.fetch_info()
-        from ..repl.single import Repl
+        from ..repl.core import Repl
+
         repl = Repl(self)
         await repl.run(message)
 
@@ -128,9 +157,12 @@ class RemoteAgentMessageQueue:
         self.agent = agent
 
     async def get(self, interval: float = 0.2):
-        s = await self.agent._connect()
-        while True:
-            res = await s.invoke("check_message_queue")
-            if res:
-                return await s.invoke("get_message_queue")
-            await asyncio.sleep(interval)
+        service = await self.agent._connect()
+        try:
+            while True:
+                res = await service.invoke("check_message_queue")
+                if res:
+                    return await service.invoke("get_message_queue")
+                await asyncio.sleep(interval)
+        finally:
+            await service.close()

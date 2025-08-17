@@ -11,6 +11,8 @@ async def test_remote_agent():
     service = AgentService(agent)
     service_task = asyncio.create_task(service.run())
     await asyncio.sleep(1.0)
+    # Access worker after it's initialized by run()
+    await service._ensure_worker()
     remote_agent = RemoteAgent(service.worker.service_id)
     res = await remote_agent.run("What is the best scifi book?")
     assert isinstance(res, AgentResponse)
@@ -25,6 +27,8 @@ async def test_remote_agent_print_chunk():
     service = AgentService(agent)
     service_task = asyncio.create_task(service.run())
     await asyncio.sleep(1.0)
+    # Access worker after it's initialized by run()
+    await service._ensure_worker()
     remote_agent = RemoteAgent(service.worker.service_id)
     _flag = False
     def print_chunk(chunk):
@@ -49,6 +53,8 @@ async def test_remote_agent_tool():
     service = AgentService(agent)
     service_task = asyncio.create_task(service.run())
     await asyncio.sleep(1.0)
+    # Access worker after it's initialized by run()
+    await service._ensure_worker()
     remote_agent = RemoteAgent(service.worker.service_id)
     def fetch_weather(city: str):
         print(f"fetching weather in {city}")

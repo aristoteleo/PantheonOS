@@ -1,6 +1,6 @@
 import time
 
-from pantheon.toolsets.utils.toolset import tool, ToolSet
+from pantheon.toolset.utils.toolset import tool, ToolSet
 from executor.engine import Engine, LocalJob
 
 
