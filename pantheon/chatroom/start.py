@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 
-from pantheon.toolset.utils.remote import connect_remote
+from pantheon.toolsets.utils.remote import connect_remote
 
 from .room import ChatRoom
 
@@ -37,7 +37,8 @@ async def start_services(
         speech_to_text_model: The model to use for speech to text.
     """
     if endpoint_service_id is None:
-        from pantheon.toolset.endpoint import Endpoint
+        from pantheon.toolsets.endpoint import Endpoint
+
         w_path = Path(workspace_path)
         w_path.mkdir(parents=True, exist_ok=True)
         endpoint = Endpoint(

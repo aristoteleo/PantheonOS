@@ -8,7 +8,7 @@ from uuid import uuid4
 from funcdesc import Description, Value, parse_func
 from pydantic import BaseModel, create_model
 
-from pantheon.toolset.utils.toolset import ToolSet
+from pantheon.toolsets.utils.toolset import ToolSet
 
 from .memory import Memory
 from .remote import RemoteService

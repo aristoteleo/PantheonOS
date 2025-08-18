@@ -3,18 +3,19 @@ from pathlib import Path
 import fire
 
 from pantheon.agent import Agent
-from pantheon.toolset.code_search import CodeSearchToolSet
-from pantheon.toolset.file_editor import FileEditorToolSet
-from pantheon.toolset.notebook import NotebookToolSet
-from pantheon.toolset.python import PythonInterpreterToolSet
-#from pantheon.toolset.scraper import ScraperToolSet
-from pantheon.toolset.shell import ShellToolSet
-from pantheon.toolset.vector_rag import VectorRAGToolSet
-from pantheon.toolset.web import WebToolSet
+from pantheon.toolsets.code_search import CodeSearchToolSet
+from pantheon.toolsets.file_editor import FileEditorToolSet
+from pantheon.toolsets.notebook import NotebookToolSet
+from pantheon.toolsets.python import PythonInterpreterToolSet
+
+# from pantheon.toolsets.scraper import ScraperToolSet
+from pantheon.toolsets.shell import ShellToolSet
+from pantheon.toolsets.vector_rag import VectorRAGToolSet
+from pantheon.toolsets.web import WebToolSet
 
 
 async def main(path_to_rag_db: str):
-    #scraper_toolset = ScraperToolSet("scraper")
+    # scraper_toolset = ScraperToolSet("scraper")
     shell_toolset = ShellToolSet("shell")
     python_toolset = PythonInterpreterToolSet("python")
     vector_rag_toolset = VectorRAGToolSet(
@@ -107,8 +108,8 @@ async def main(path_to_rag_db: str):
         instructions,
         model="gpt-4.1-mini",
     )
-    #general tools
-    #agent.toolset(scraper_toolset)
+    # general tools
+    # agent.toolset(scraper_toolset)
     agent.toolset(shell_toolset)
     agent.toolset(python_toolset)
     agent.toolset(vector_rag_toolset)
