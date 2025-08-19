@@ -4,8 +4,7 @@ import os
 from pantheon.task import Task, TasksSolver
 from pantheon.agent import Agent
 from pantheon.smart_func import smart_func
-from magique.ai.tools.web_browse.duckduckgo import duckduckgo_search
-from magique.ai.tools.web_browse.web_crawl import web_crawl
+from pantheon.toolsets.web_browse import duckduckgo_search, web_crawl
 
 
 def write_file(content: str, file_path: str):
@@ -25,7 +24,7 @@ def read_file(file_path: str):
 
 @smart_func(model="gpt-4o-mini")
 async def extract_content(content: str) -> str:
-    """Extract the most important content from the text. 
+    """Extract the most important content from the text.
     For example,
     if the text is a paper, extract the
     authors, title, journal, publication date,
@@ -35,10 +34,10 @@ async def extract_content(content: str) -> str:
 
 async def crawl_and_extract(urls: list[str]) -> list[str]:
     """Crawl provided urls and extract the most important content from each page.
-    
+
     Args:
         urls: A list of urls to crawl.
-    
+
     Returns:
         A list of contents extracted from the urls.
     """
@@ -59,9 +58,15 @@ async def main():
 
     search_agent = Agent(
         name="Search Agent",
-        instructions = """You are a search engine expert.""",
+        instructions="""You are a search engine expert.""",
         model="gpt-4o",
-        tools=[duckduckgo_search, crawl_and_extract, write_file, read_directory, read_file],
+        tools=[
+            duckduckgo_search,
+            crawl_and_extract,
+            write_file,
+            read_directory,
+            read_file,
+        ],
     )
 
     task = Task(
@@ -74,7 +79,7 @@ async def main():
 5. Filter the contents according to the theme, and only keep the relevant papers.
 6. Count the number of papers after filtering.
 7. If the papers after filtering are not enough(less than 20), repeat the steps 1-6.
-8. Write the results into a markdown file(keep item's url) to path `./report.md`. And check the file is written successfully. """
+8. Write the results into a markdown file(keep item's url) to path `./report.md`. And check the file is written successfully. """,
     )
 
     tasks_solver = TasksSolver(task, search_agent)
@@ -83,4 +88,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

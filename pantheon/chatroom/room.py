@@ -8,12 +8,16 @@ from typing import Callable
 import openai
 import yaml
 
-from ..agent import Agent
+from pantheon.toolsets.remote import (
+    SERVER_URLS,
+    RemoteBackendFactory,
+    RemoteConfig,
+    RemoteWorker,
+)
+
+from ..agent import Agent, RemoteAgent
 from ..factory import DEFAULT_AGENTS_TEMPLATE_PATH, create_agents_from_template
 from ..memory import MemoryManager
-from ..remote import RemoteBackendFactory, RemoteConfig
-from ..remote.agent import RemoteAgent
-from ..remote.backend import RemoteWorker, SERVER_URLS
 from ..team import PantheonTeam
 from ..utils.log import logger
 from ..utils.misc import run_func
@@ -30,13 +34,13 @@ class ChatRoom:
     Each chats will be associated with a memory, which is a file in the memory_dir.
 
     Args:
-        remote_service_id: The service ID of the remote service.
+        endpoint_service_id: The service ID of the endpoint service.
         agents_template: The template of the agents.
         memory_dir: The directory to store the memory.
         name: The name of the chatroom.
         description: The description of the chatroom.
         worker_params: The parameters for the worker.
-        server_url: The URL of the magique server.
+        server_url: The URL of the server.
         remote_service_params: The parameters for the remote service connection.
         speech_to_text_model: The model to use for speech to text.
         check_before_chat: The function to check before chat.
@@ -45,7 +49,7 @@ class ChatRoom:
 
     def __init__(
         self,
-        remote_service_id: str,
+        endpoint_service_id: str,
         agents_template: dict | str | None = None,
         memory_dir: str = "./.pantheon-chatroom",
         name: str = "pantheon-chatroom",
@@ -76,7 +80,7 @@ class ChatRoom:
         else:
             self.agents_template = agents_template
 
-        self.remote_service_id = remote_service_id
+        self.endpoint_service_id = endpoint_service_id
         self.name = name
         self.description = description
         if isinstance(server_url, str):
@@ -112,11 +116,13 @@ class ChatRoom:
         - triage: The triage agent.
         - other: The other agents.
         """
-        remote_service = await self.backend.connect(self.remote_service_id)
+        endpoint_service = await self.backend.connect(self.endpoint_service_id)
         if self.worker is None:
             self.worker = await self.backend.create_worker(**self._worker_params)
             self.setup_handlers()
-        agents = await create_agents_from_template(remote_service, self.agents_template)
+        agents = await create_agents_from_template(
+            endpoint_service, self.agents_template
+        )
         triage_agent = agents["triage"]
         agents = agents["other"]
         self.team = PantheonTeam(
@@ -162,12 +168,12 @@ class ChatRoom:
     async def get_remote_service(self) -> dict:
         """Get the remote service info."""
         try:
-            s = await self.backend.connect(self.remote_service_id)
+            s = await self.backend.connect(self.endpoint_service_id)
             info = s.service_info
             return {
                 "success": True,
-                "service_name": info.service_name if info else self.remote_service_id,
-                "service_id": info.service_id if info else self.remote_service_id,
+                "service_name": info.service_name if info else self.endpoint_service_id,
+                "service_id": info.service_id if info else self.endpoint_service_id,
             }
         except Exception as e:
             logger.error(f"Error getting remote service info: {e}")
@@ -180,7 +186,7 @@ class ChatRoom:
             remote_service_id: The service ID of the remote service.
         """
         try:
-            self.remote_service_id = remote_service_id
+            self.endpoint_service_id = remote_service_id
             await self.setup_agents()
             return {"success": True, "message": "Remote service set successfully"}
         except Exception as e:

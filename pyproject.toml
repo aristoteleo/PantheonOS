@@ -9,21 +9,11 @@ dependencies = [
     "funcdesc>=0.1.8",
     "litellm>=1.56.4",
     "loguru>=0.7.3",
-    "magique>=0.6.7",
     "openai>=1.58.1",
     "pillow>=10.4.0",
     "rich>=13.9.4",
     "rich-pyfiglet",
     "ddgs>=9.5.2",
-    "nats-py>=2.6.0",
-    # Added from pantheon-toolsets
-    "diskcache",
-    "httpx>=0.28.1",
-    "crawl4ai>=0.5.0",
-    "matplotlib>=3.10.3",
-    "fastmcp>=2.11.0",
-    "pandas",
-    "hypha_rpc",
 ]
 dynamic = ["version"]
 

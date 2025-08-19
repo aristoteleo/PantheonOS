@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 
-from pantheon.toolsets.utils.remote import connect_remote
+from pantheon.toolsets.endpoint import Endpoint
 
 from .room import ChatRoom
 
@@ -37,21 +37,26 @@ async def start_services(
         speech_to_text_model: The model to use for speech to text.
     """
     if endpoint_service_id is None:
-        from pantheon.toolsets.endpoint import Endpoint
-
         w_path = Path(workspace_path)
         w_path.mkdir(parents=True, exist_ok=True)
         endpoint = Endpoint(
-            workspace_path=workspace_path,
-            config={"log_level": log_level},
-            worker_params=worker_params_endpoint,
+            {
+                "service_name": service_name,
+                "workspace_path": workspace_path,
+                "log_level": log_level,
+                "allow_file_transfer": True,
+                "builtin_services": [
+                    {"type": "python_interpreter"},
+                    "file_manager",
+                    "web_browse",
+                ],
+                "outer_services": [],
+                "docker_services": [],
+            }
         )
         asyncio.create_task(endpoint.run())
         endpoint_service_id = endpoint.worker.service_id
         await asyncio.sleep(endpoint_wait_time)
-
-    endpoint_connect_params = endpoint_connect_params or {}
-    endpoint = await connect_remote(endpoint_service_id, **endpoint_connect_params)
 
     if worker_params is None:
         worker_params = {}
@@ -64,7 +69,7 @@ async def start_services(
         memory_dir=memory_dir,
         name=service_name,
         worker_params=worker_params,
-        endpoint_connect_params=endpoint_connect_params,
+        remote_service_params=endpoint_connect_params,
         speech_to_text_model=speech_to_text_model,
     )
     await chat_room.run(log_level=log_level)

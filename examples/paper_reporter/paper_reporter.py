@@ -12,13 +12,13 @@ python -m playwright install --with-deps chromium
 python examples/paper_reporter.py --theme "The applications of LLM-based agents in biology and medicine." --output paper_report.md --results_per_keyword 5
 ```
 """
+
 from pprint import pprint
 import asyncio
 
 import fire
 from pantheon.smart_func import smart_func
-from magique.ai.tools.web_browse.duckduckgo import duckduckgo_search
-from magique.ai.tools.web_browse.web_crawl import web_crawl
+from pantheon.toolsets.web_browse import duckduckgo_search, web_crawl
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -88,7 +88,7 @@ async def main(
 
     @smart_func(model=model)
     async def check_paper_relation(info: ContentInfo, theme: str) -> bool:
-        """You should check if the paper is related to the theme. """
+        """You should check if the paper is related to the theme."""
 
     @smart_func(model=model)
     async def format_paper_info(info: list[ContentInfo]) -> str:
@@ -134,7 +134,7 @@ async def main(
         return None
 
     tasks = [
-        process_content(content, result) 
+        process_content(content, result)
         for content, result in zip(contents, merged_results)
     ]
     results = await asyncio.gather(*tasks)

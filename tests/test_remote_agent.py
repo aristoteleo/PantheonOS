@@ -1,6 +1,5 @@
 import asyncio
-from pantheon.agent import Agent, AgentResponse
-from pantheon.remote.agent import AgentService, RemoteAgent
+from pantheon.agent import Agent, AgentResponse, AgentService, RemoteAgent
 
 
 async def test_remote_agent():
@@ -31,12 +30,14 @@ async def test_remote_agent_print_chunk():
     await service._ensure_worker()
     remote_agent = RemoteAgent(service.worker.service_id)
     _flag = False
+
     def print_chunk(chunk):
         nonlocal _flag
         _flag = True
-        print(chunk['content'], end='', flush=True)
+        print(chunk["content"], end="", flush=True)
+
     res = await remote_agent.run(
-        "What is the best scifi book?", 
+        "What is the best scifi book?",
         process_chunk=print_chunk,
     )
     assert isinstance(res, AgentResponse)
@@ -56,9 +57,11 @@ async def test_remote_agent_tool():
     # Access worker after it's initialized by run()
     await service._ensure_worker()
     remote_agent = RemoteAgent(service.worker.service_id)
+
     def fetch_weather(city: str):
         print(f"fetching weather in {city}")
         return f"The weather in {city} is sunny"
+
     await remote_agent.tool(fetch_weather)
 
     def print_step_message(message):

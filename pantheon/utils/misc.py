@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Callable, List
 
 from funcdesc.desc import NotDef
 from funcdesc.pydantic import Description, desc_to_pydantic
-from magique.worker import ReverseCallable
 from openai import pydantic_function_tool
 from rich.console import Console
 from rich.markdown import Markdown
@@ -16,7 +15,7 @@ if TYPE_CHECKING:
 
 
 async def run_func(func: Callable, *args, **kwargs):
-    if inspect.iscoroutinefunction(func) or isinstance(func, ReverseCallable):
+    if inspect.iscoroutinefunction(func):
         return await func(*args, **kwargs)
     return func(*args, **kwargs)
 
