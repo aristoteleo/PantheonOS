@@ -15,9 +15,15 @@ if TYPE_CHECKING:
 
 
 async def run_func(func: Callable, *args, **kwargs):
+    # Check if it's a regular coroutine function
     if inspect.iscoroutinefunction(func):
         return await func(*args, **kwargs)
-    return func(*args, **kwargs)
+    # Check if it's a callable object with async __call__ method
+    elif hasattr(func, '__call__') and inspect.iscoroutinefunction(func.__call__):
+        return await func(*args, **kwargs)
+    # Regular synchronous function or callable
+    else:
+        return func(*args, **kwargs)
 
 
 def desc_to_openai_dict(

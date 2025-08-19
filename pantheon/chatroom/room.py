@@ -169,7 +169,7 @@ class ChatRoom:
         """Get the remote service info."""
         try:
             s = await self.backend.connect(self.endpoint_service_id)
-            info = s.service_info
+            info = await s.fetch_service_info()
             return {
                 "success": True,
                 "service_name": info.service_name if info else self.endpoint_service_id,

@@ -1,8 +1,9 @@
 import asyncio
 import copy
 import json
+import sys
 import time
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Optional
 from uuid import uuid4
 
 from funcdesc import Description, Value, parse_func
@@ -36,6 +37,257 @@ __CTX_VARS_NAME__ = "context_variables"
 __AGENT_RUN_NAME__ = "agent_run"
 __SKIP_PARAMS__ = [__CTX_VARS_NAME__, __AGENT_RUN_NAME__]
 __CLIENT_ID_NAME__ = "client_id"
+
+
+class AgentService:
+    def __init__(
+        self,
+        agent: "Agent",
+        backend_config: Optional[RemoteConfig] = None,
+        worker_params: dict | None = None,
+    ):
+        self.agent = agent
+        self.backend_config = backend_config or RemoteConfig.from_env()
+        self.backend = RemoteBackendFactory.create_backend(self.backend_config)
+
+        # Merge worker parameters
+        default_params = {"service_name": f"remote_agent_{self.agent.name}"}
+        if worker_params:
+            default_params.update(worker_params)
+        self.worker_params = default_params
+
+        self.worker: RemoteWorker = None
+
+    async def response(self, msg, **kwargs):
+        resp = await self.agent.run(msg, **kwargs)
+        return resp
+
+    async def get_info(self):
+        return {
+            "name": self.agent.name,
+            "instructions": self.agent.instructions,
+            "models": self.agent.models,
+            "functions_names": list(self.agent.functions.keys()),
+            "toolset_proxies_names": list(self.agent.toolset_services.keys()),
+        }
+
+    async def get_message_queue(self):
+        return await self.agent.events_queue.get()
+
+    async def check_message_queue(self):
+        # check if there is a message in the queue
+        return not self.agent.events_queue.empty()
+
+    async def add_tool(self, func: Callable):
+        self.agent.tool(func)
+        return {"success": True}
+
+    async def _ensure_worker(self):
+        """Lazy initialization of worker"""
+        if self.worker is None:
+            self.worker = await self.backend.create_worker(**self.worker_params)
+            self.setup_worker()
+
+    def setup_worker(self):
+        """Register methods with the worker"""
+        self.worker.register(self.response)
+        self.worker.register(self.get_info)
+        self.worker.register(self.get_message_queue)
+        self.worker.register(self.check_message_queue)
+        self.worker.register(self.add_tool)
+
+    async def run(self, log_level: str = "INFO"):
+        from loguru import logger
+
+        logger.remove()
+        logger.add(sys.stderr, level=log_level)
+
+        await self._ensure_worker()
+
+        logger.info(f"Remote Backend: {self.backend_config.backend}")
+        logger.info(f"Service Name: {self.worker_params['service_name']}")
+        if hasattr(self.worker, "service_id"):
+            logger.info(f"Service ID: {self.worker.service_id}")
+        if hasattr(self.worker, "servers"):
+            logger.info(f"Remote Servers: {self.worker.servers}")
+
+        return await self.worker.run()
+
+
+class RemoteAgent:
+    def __init__(
+        self,
+        service_id_or_name: str,
+        backend_config: Optional[RemoteConfig] = None,
+        **remote_kwargs,
+    ):
+        self.service_id_or_name = service_id_or_name
+        self.backend_config = backend_config or RemoteConfig.from_env()
+        self.backend = RemoteBackendFactory.create_backend(self.backend_config)
+        self.remote_kwargs = remote_kwargs
+        self.name = None
+        self.instructions = None
+        self.model = None
+        self.events_queue = RemoteAgentMessageQueue(self)
+
+    async def _connect(self):
+        return await self.backend.connect(self.service_id_or_name, **self.remote_kwargs)
+
+    async def fetch_info(self):
+        service = await self._connect()
+        info = await service.invoke("get_info")
+        self.name = info["name"]
+        self.instructions = info["instructions"]
+        self.models = info["models"]
+        self.functions_names = info["functions_names"]
+        self.toolset_proxies_names = info["toolset_proxies_names"]
+        await service.close()
+        return info
+
+    async def run(self, msg: "AgentInput", **kwargs):
+        await self.fetch_info()
+        service = await self._connect()
+        try:
+            return await service.invoke("response", {"msg": msg, **kwargs})
+        finally:
+            await service.close()
+
+    async def tool(self, func: Callable):
+        service = await self._connect()
+        try:
+            func_arg = {"func": func}
+            await service.invoke("add_tool", func_arg)
+        finally:
+            await service.close()
+
+    async def chat(self, message: str | dict | None = None):
+        """Chat with the agent with a REPL interface."""
+        await self.fetch_info()
+        from ..repl.core import Repl
+
+        repl = Repl(self)
+        await repl.run(message)
+
+
+class RemoteAgentMessageQueue:
+    def __init__(self, agent: "RemoteAgent"):
+        self.agent = agent
+
+    async def get(self, interval: float = 0.2):
+        service = await self.agent._connect()
+        try:
+            while True:
+                res = await service.invoke("check_message_queue")
+                if res:
+                    return await service.invoke("get_message_queue")
+                await asyncio.sleep(interval)
+        finally:
+            await service.close()
+
+
+class RemoteToolsetWrapper:
+    """Wrapper that makes remote toolset functions appear as local functions."""
+
+    def __init__(self, remote_service: RemoteService, agent_context=None):
+        self.remote_service = remote_service
+        self.agent_context = agent_context  # Reference to agent for callbacks
+        self.wrapped_functions = {}
+        self.service_info = None
+
+    async def initialize(self):
+        """Initialize by fetching service info and creating wrapped functions."""
+        self.service_info = await self.remote_service.fetch_service_info()
+
+        for func_name, func_desc in self.service_info.functions_description.items():
+            wrapped_func = self._create_wrapped_function(func_name, func_desc)
+            self.wrapped_functions[func_name] = wrapped_func
+
+    def _create_wrapped_function(self, func_name: str, func_desc: Description):
+        """Create a callable object that acts like a function but stores description info."""
+
+        class RemoteFunctionWrapper:
+            """Callable object that acts like a function for remote toolset calls."""
+
+            def __init__(
+                self,
+                func_name: str,
+                func_desc: Description,
+                remote_service: RemoteService,
+                agent_context,
+            ):
+                self.func_name = func_name
+                self.function_descriptions = (
+                    func_desc  # Store for parse_func compatibility
+                )
+                self.remote_service = remote_service
+                self.agent_context = agent_context
+
+                # Set standard function attributes
+                self.__name__ = func_name
+                self.__doc__ = getattr(
+                    func_desc, "description", f"Remote function: {func_name}"
+                )
+
+            async def __call__(self, **kwargs):
+                # Filter parameters for remote service
+                param_names = [v.name for v in self.function_descriptions.inputs]
+                remote_params = {}
+                for k, v in kwargs.items():
+                    if k in param_names or k in __SKIP_PARAMS__:
+                        remote_params[k] = v
+
+                # Call remote service
+                resp = await self.remote_service.invoke(
+                    self.func_name, parameters=remote_params
+                )
+
+                # Handle inner calls (callback mechanism)
+                if isinstance(resp, dict) and "inner_call" in resp:
+                    inner_call = resp.pop("inner_call")
+                    name = inner_call["name"]
+                    args = inner_call["args"]
+                    result_field = inner_call["result_field"]
+
+                    # Handle callback using the agent context passed in kwargs
+                    if name == "__agent_run__":
+                        agent_run = kwargs.get(__AGENT_RUN_NAME__)
+                        if agent_run:
+                            result = await agent_run(args)
+                            resp[result_field] = result
+                        else:
+                            raise RuntimeError(
+                                "Agent callback required but not provided"
+                            )
+                    else:
+                        # Local function callback - use agent's functions
+                        if self.agent_context and hasattr(
+                            self.agent_context, "functions"
+                        ):
+                            if name in self.agent_context.functions:
+                                from .utils.misc import run_func
+
+                                result = await run_func(
+                                    self.agent_context.functions[name], **args
+                                )
+                                resp[result_field] = result
+                            else:
+                                raise RuntimeError(
+                                    f"Local function '{name}' not found in agent"
+                                )
+                        else:
+                            raise RuntimeError(
+                                f"Local function callback '{name}' requires agent context"
+                            )
+
+                return resp
+
+        return RemoteFunctionWrapper(
+            func_name, func_desc, self.remote_service, self.agent_context
+        )
+
+    def get_wrapped_functions(self):
+        """Get all wrapped functions as (name, function) pairs."""
+        return list(self.wrapped_functions.items())
 
 
 class ResponseDetails(BaseModel):
@@ -149,7 +401,9 @@ class Agent:
         else:
             self.models = model
         self.functions: dict[str, Callable] = {}
+        # NOTE: toolset_services kept for cleanup/compatibility, but functions are now unified in self.functions
         self.toolset_services: dict[str, RemoteService] = {}
+        # NOTE: _func_to_proxy is now obsolete with unified approach, but kept for backwards compatibility
         self._func_to_proxy: dict[str, str] = {}
         if tools:
             for func in tools:
@@ -202,9 +456,19 @@ class Agent:
         """
         # Create backend and connect to service
         backend = RemoteBackendFactory.create_backend(backend_config)
-        toolset_service = await backend.connect(service_id_or_name, **kwargs)
+        remote_service = await backend.connect(service_id_or_name, **kwargs)
 
-        self.toolset_services[service_id_or_name] = toolset_service
+        # Store service for cleanup later
+        self.toolset_services[service_id_or_name] = remote_service
+
+        # Create wrapper for unified tool interface
+        wrapper = RemoteToolsetWrapper(remote_service, agent_context=self)
+        await wrapper.initialize()
+
+        # Add all remote functions as regular tools
+        for func_name, wrapped_func in wrapper.get_wrapped_functions():
+            self.tool(wrapped_func, key=func_name)
+
         return self
 
     def toolset(self, toolset: ToolSet):
@@ -225,16 +489,21 @@ class Agent:
     ) -> list[dict]:
         """Convert function to the format that the model can understand."""
         functions = []
-        # FIX: unify two types of functions
+        # Fully unified function handling - all functions are now identical
         for func in self.functions.values():
-            if hasattr(func, "parameters") and isinstance(func.parameters, list):
-                # This is a remote callable function
+            if hasattr(func, "function_descriptions"):
+                # This is a remote function wrapper with stored descriptions
+                desc = func.function_descriptions
+            elif hasattr(func, "parameters") and isinstance(func.parameters, list):
+                # This is a legacy reverse callable in magique
                 desc = Description(
                     inputs=[Value(type_=str, name=p) for p in func.parameters],
                     name=func.name,
                 )
             else:
+                # All other functions (local) can be parsed normally
                 desc = parse_func(func)
+
             assert isinstance(desc.name, str), "Function name must be a string"
             if not allow_transfer:
                 if desc.name.startswith("transfer_to_") or desc.name.startswith(
@@ -249,15 +518,6 @@ class Agent:
             )
             functions.append(func_dict)
 
-        for service in self.toolset_services.values():
-            for name, desc in service.service_info.functions_description.items():
-                self._func_to_proxy[name] = service.service_info.service_id
-                func_dict = desc_to_openai_dict(
-                    desc,
-                    skip_params=__SKIP_PARAMS__,
-                    litellm_mode=litellm_mode,
-                )
-                functions.append(func_dict)
         return functions
 
     async def _handle_tool_calls(
@@ -268,8 +528,6 @@ class Agent:
         time_delta: float = 0.5,
         check_stop: Callable | None = None,
     ) -> list[dict]:
-        from .remote.agent import RemoteAgent
-
         messages = []
 
         async def agent_run(msg: AgentInput):
@@ -282,61 +540,36 @@ class Agent:
             )
             return resp.content
 
-        # FIX: async run tool calls
-        # FIX: unify two types of tool calls
+        # Fully unified tool calling - all functions handled identically
         for call in tool_calls:
             try:
                 func_name = call["function"]["name"]
                 params = json.loads(call["function"]["arguments"])
-                if func_name in self.functions:
-                    # call local functions
-                    func = self.functions[func_name]
-                    if hasattr(func, "parameters") and isinstance(
-                        func.parameters, list
-                    ):
-                        # This is a remote callable function
-                        var_names = func.parameters
-                    else:
-                        var_names = func.__code__.co_varnames
-                    if __CTX_VARS_NAME__ in var_names:
-                        params[__CTX_VARS_NAME__] = context_variables
-                    if __AGENT_RUN_NAME__ in var_names:
-                        params[__AGENT_RUN_NAME__] = agent_run
-                    _func = func
+
+                # All functions are now in self.functions (unified approach)
+                assert func_name in self.functions, (
+                    f"Function `{func_name}` is not found in self.functions"
+                )
+
+                func = self.functions[func_name]
+
+                # Handle parameter injection - check function type
+                if hasattr(func, "function_descriptions"):
+                    # Remote function wrapper - check parameter names from description
+                    var_names = [v.name for v in func.function_descriptions.inputs]
+                elif hasattr(func, "parameters") and isinstance(func.parameters, list):
+                    # Legacy reverse callable in magique
+                    var_names = func.parameters
                 else:
-                    # remote toolset
-                    assert func_name in self._func_to_proxy, (
-                        f"Function `{func_name}` is not found in the toolset or local functions"
-                    )
-                    toolset_service = self.toolset_services[
-                        self._func_to_proxy[func_name]
-                    ]
-                    service_info = await toolset_service.fetch_service_info()
-                    func_desc = service_info.functions_description[func_name]
-                    function_args = [v.name for v in func_desc.inputs]
-                    if __AGENT_RUN_NAME__ in function_args:
-                        params[__AGENT_RUN_NAME__] = agent_run
-                    if __CTX_VARS_NAME__ in function_args:
-                        params[__CTX_VARS_NAME__] = context_variables
+                    # Regular local function
+                    var_names = func.__code__.co_varnames
 
-                    async def _func(**params):
-                        resp = await toolset_service.invoke(
-                            func_name, parameters=params
-                        )
-                        if isinstance(resp, dict) and "inner_call" in resp:
-                            inner_call = resp.pop("inner_call")
-                            name = inner_call["name"]
-                            args = inner_call["args"]
-                            result_field = inner_call["result_field"]
-                            if name == "__agent_run__":
-                                result = await agent_run(args)
-                            else:
-                                result = await run_func(self.functions[name], **args)
-                            resp[result_field] = result
-                        return resp
-
+                if __CTX_VARS_NAME__ in var_names:
+                    params[__CTX_VARS_NAME__] = context_variables
+                if __AGENT_RUN_NAME__ in var_names:
+                    params[__AGENT_RUN_NAME__] = agent_run
                 start_time = time.time()
-                task = asyncio.create_task(run_func(_func, **params))
+                task = asyncio.create_task(run_func(func, **params))
                 while True:
                     if task.done() or (task.cancelled()):
                         result = task.result()
@@ -732,153 +965,6 @@ class Agent:
 
     async def serve(self, **kwargs):
         """Serve the agent to a remote server."""
-        from .remote.agent import AgentService
 
         service = AgentService(self, **kwargs)
         return await service.run()
-
-
-class AgentService:
-    def __init__(
-        self,
-        agent: "Agent",
-        backend_config: Optional[RemoteConfig] = None,
-        worker_params: dict | None = None,
-    ):
-        self.agent = agent
-        self.backend_config = backend_config or RemoteConfig.from_env()
-        self.backend = RemoteBackendFactory.create_backend(self.backend_config)
-
-        # Merge worker parameters
-        default_params = {"service_name": f"remote_agent_{self.agent.name}"}
-        if worker_params:
-            default_params.update(worker_params)
-        self.worker_params = default_params
-
-        self.worker: RemoteWorker = None
-
-    async def response(self, msg, **kwargs):
-        resp = await self.agent.run(msg, **kwargs)
-        return resp
-
-    async def get_info(self):
-        return {
-            "name": self.agent.name,
-            "instructions": self.agent.instructions,
-            "models": self.agent.models,
-            "functions_names": list(self.agent.functions.keys()),
-            "toolset_proxies_names": list(self.agent.toolset_services.keys()),
-        }
-
-    async def get_message_queue(self):
-        return await self.agent.events_queue.get()
-
-    async def check_message_queue(self):
-        # check if there is a message in the queue
-        return not self.agent.events_queue.empty()
-
-    async def add_tool(self, func: Callable):
-        self.agent.tool(func)
-        return {"success": True}
-
-    async def _ensure_worker(self):
-        """Lazy initialization of worker"""
-        if self.worker is None:
-            self.worker = await self.backend.create_worker(**self.worker_params)
-            self.setup_worker()
-
-    def setup_worker(self):
-        """Register methods with the worker"""
-        self.worker.register(self.response)
-        self.worker.register(self.get_info)
-        self.worker.register(self.get_message_queue)
-        self.worker.register(self.check_message_queue)
-        self.worker.register(self.add_tool)
-
-    async def run(self, log_level: str = "INFO"):
-        from loguru import logger
-
-        logger.remove()
-        logger.add(sys.stderr, level=log_level)
-
-        await self._ensure_worker()
-
-        logger.info(f"Remote Backend: {self.backend_config.backend}")
-        logger.info(f"Service Name: {self.worker_params['service_name']}")
-        if hasattr(self.worker, "service_id"):
-            logger.info(f"Service ID: {self.worker.service_id}")
-        if hasattr(self.worker, "servers"):
-            logger.info(f"Remote Servers: {self.worker.servers}")
-
-        return await self.worker.run()
-
-
-class RemoteAgent:
-    def __init__(
-        self,
-        service_id_or_name: str,
-        backend_config: Optional[RemoteConfig] = None,
-        **remote_kwargs,
-    ):
-        self.service_id_or_name = service_id_or_name
-        self.backend_config = backend_config or RemoteConfig.from_env()
-        self.backend = RemoteBackendFactory.create_backend(self.backend_config)
-        self.remote_kwargs = remote_kwargs
-        self.name = None
-        self.instructions = None
-        self.model = None
-        self.events_queue = RemoteAgentMessageQueue(self)
-
-    async def _connect(self):
-        return await self.backend.connect(self.service_id_or_name, **self.remote_kwargs)
-
-    async def fetch_info(self):
-        service = await self._connect()
-        info = await service.invoke("get_info")
-        self.name = info["name"]
-        self.instructions = info["instructions"]
-        self.models = info["models"]
-        self.functions_names = info["functions_names"]
-        self.toolset_proxies_names = info["toolset_proxies_names"]
-        await service.close()
-        return info
-
-    async def run(self, msg: "AgentInput", **kwargs):
-        await self.fetch_info()
-        service = await self._connect()
-        try:
-            return await service.invoke("response", {"msg": msg, **kwargs})
-        finally:
-            await service.close()
-
-    async def tool(self, func: Callable):
-        service = await self._connect()
-        try:
-            func_arg = {"func": func}
-            await service.invoke("add_tool", func_arg)
-        finally:
-            await service.close()
-
-    async def chat(self, message: str | dict | None = None):
-        """Chat with the agent with a REPL interface."""
-        await self.fetch_info()
-        from ..repl.core import Repl
-
-        repl = Repl(self)
-        await repl.run(message)
-
-
-class RemoteAgentMessageQueue:
-    def __init__(self, agent: "RemoteAgent"):
-        self.agent = agent
-
-    async def get(self, interval: float = 0.2):
-        service = await self.agent._connect()
-        try:
-            while True:
-                res = await service.invoke("check_message_queue")
-                if res:
-                    return await service.invoke("get_message_queue")
-                await asyncio.sleep(interval)
-        finally:
-            await service.close()
