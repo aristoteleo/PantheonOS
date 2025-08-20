@@ -46,6 +46,7 @@ async def test_remote_agent_print_chunk():
     assert remote_agent.name == "scifi_fan"
 
 
+# FIX: not working now
 async def test_remote_agent_tool():
     agent = Agent(
         "assistant",

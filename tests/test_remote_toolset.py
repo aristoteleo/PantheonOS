@@ -1,7 +1,8 @@
 import time
-
-from pantheon.toolsets.utils.toolset import tool, ToolSet
+import asyncio
 from executor.engine import Engine, LocalJob
+
+from pantheon.toolsets.utils.toolset import ToolSet, tool
 
 
 async def test_agent_call_remote_toolset():
@@ -26,7 +27,7 @@ async def test_agent_call_remote_toolset():
         job = LocalJob(start_toolset)
         await engine.submit_async(job)
         await job.wait_until_status("running")
-
+        await asyncio.sleep(2)
         agent = Agent(
             "test",
             "You are an asistant, help me test my code",
