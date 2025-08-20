@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from funcdesc import Description, Value, parse_func
 from pydantic import BaseModel, create_model
+from magique.worker import ReverseCallable
 
 from pantheon.toolsets.utils.toolset import ToolSet
 
@@ -47,16 +48,16 @@ class AgentService:
         worker_params: dict | None = None,
     ):
         self.agent = agent
-        self.backend_config = backend_config or RemoteConfig.from_env()
-        self.backend = RemoteBackendFactory.create_backend(self.backend_config)
-
         # Merge worker parameters
         default_params = {"service_name": f"remote_agent_{self.agent.name}"}
         if worker_params:
             default_params.update(worker_params)
         self.worker_params = default_params
 
-        self.worker: RemoteWorker = None
+        self.backend_config = backend_config or RemoteConfig.from_env()
+        self.backend = RemoteBackendFactory.create_backend(self.backend_config)
+        self.worker: RemoteWorker = self.backend.create_worker(**self.worker_params)
+        self.setup_worker()
 
     async def response(self, msg, **kwargs):
         resp = await self.agent.run(msg, **kwargs)
@@ -82,12 +83,6 @@ class AgentService:
         self.agent.tool(func)
         return {"success": True}
 
-    async def _ensure_worker(self):
-        """Lazy initialization of worker"""
-        if self.worker is None:
-            self.worker = await self.backend.create_worker(**self.worker_params)
-            self.setup_worker()
-
     def setup_worker(self):
         """Register methods with the worker"""
         self.worker.register(self.response)
@@ -101,8 +96,6 @@ class AgentService:
 
         logger.remove()
         logger.add(sys.stderr, level=log_level)
-
-        await self._ensure_worker()
 
         logger.info(f"Remote Backend: {self.backend_config.backend}")
         logger.info(f"Service Name: {self.worker_params['service_name']}")
@@ -237,9 +230,12 @@ class RemoteToolsetWrapper:
                         remote_params[k] = v
 
                 # Call remote service
-                resp = await self.remote_service.invoke(
-                    self.func_name, parameters=remote_params
-                )
+                if remote_params:
+                    resp = await self.remote_service.invoke(
+                        self.func_name, parameters=remote_params
+                    )
+                else:
+                    resp = await self.remote_service.invoke(self.func_name)
 
                 # Handle inner calls (callback mechanism)
                 if isinstance(resp, dict) and "inner_call" in resp:
@@ -480,7 +476,7 @@ class Agent:
         Returns:
             The agent instance.
         """
-        for name, (func, _) in toolset.worker.functions.items():
+        for name, (func, _) in toolset.tool_functions.items():
             self.tool(func, key=name)
         return self
 
@@ -494,6 +490,12 @@ class Agent:
             if hasattr(func, "function_descriptions"):
                 # This is a remote function wrapper with stored descriptions
                 desc = func.function_descriptions
+            elif isinstance(func, ReverseCallable):
+                # This is a magique reverse callable
+                desc = Description(
+                    inputs=[Value(type_=str, name=p) for p in func.parameters],
+                    name=func.name,
+                )
             elif hasattr(func, "parameters") and isinstance(func.parameters, list):
                 # This is a legacy reverse callable in magique
                 desc = Description(
@@ -557,6 +559,9 @@ class Agent:
                 if hasattr(func, "function_descriptions"):
                     # Remote function wrapper - check parameter names from description
                     var_names = [v.name for v in func.function_descriptions.inputs]
+                elif isinstance(func, ReverseCallable):
+                    # This is a magique reverse callable
+                    var_names = func.parameters
                 elif hasattr(func, "parameters") and isinstance(func.parameters, list):
                     # Legacy reverse callable in magique
                     var_names = func.parameters

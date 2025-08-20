@@ -15,12 +15,12 @@ from rich.text import Text
 # Simple readline support for history
 try:
     import readline
+
     READLINE_AVAILABLE = True
 except ImportError:
     READLINE_AVAILABLE = False
 
-from pantheon.agent import Agent
-from pantheon.remote.agent import RemoteAgent
+from pantheon.agent import Agent, RemoteAgent
 
 from .bio_handler import BioCommandHandler
 from .ui import ReplUI

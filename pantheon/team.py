@@ -2,15 +2,13 @@ import asyncio
 from abc import ABC
 import uuid
 
-from .agent import Agent, AgentTransfer, AgentInput, AgentResponse
-from .remote.agent import RemoteAgent
+from .agent import Agent, AgentTransfer, AgentInput, AgentResponse, RemoteAgent
 from .utils.misc import run_func
 from .memory import Memory
 from .utils.log import logger
 
 
 class Team(ABC):
-
     def __init__(self, agents: list[Agent | RemoteAgent]):
         self.agents = {}
         for agent in agents:
@@ -41,6 +39,7 @@ class Team(ABC):
     async def chat(self, message: str | dict | None = None):
         """Chat with the team with a REPL interface."""
         from .repl.team import Repl
+
         repl = Repl(self)
         await repl.run(message)
 
@@ -49,6 +48,7 @@ class SwarmTeam(Team):
     """Team that run agents in handoff & routines patterns like
     OpenAI's [Swarm framework](https://github.com/openai/swarm).
     """
+
     def __init__(self, agents: list[Agent | RemoteAgent]):
         super().__init__(agents)
 
@@ -56,7 +56,9 @@ class SwarmTeam(Team):
         active_agent_name = memory.extra_data.get("active_agent")
         if (active_agent_name is None) or (active_agent_name not in self.agents):
             active_agent_name = list(self.agents.keys())[0]
-            logger.warning(f"Active agent not found in memory, setting to {active_agent_name}")
+            logger.warning(
+                f"Active agent not found in memory, setting to {active_agent_name}"
+            )
             memory.extra_data["active_agent"] = active_agent_name
         active_agent = self.agents[active_agent_name]
         return active_agent
@@ -79,6 +81,7 @@ class SwarmTeam(Team):
 
 class SwarmCenterTeam(SwarmTeam):
     """Swarm team that has a central triage agent that decides which agent to handoff to."""
+
     def __init__(self, triage: Agent, agents: list[Agent | RemoteAgent]):
         super().__init__([triage])
         self.triage = triage
@@ -116,7 +119,7 @@ class SwarmCenterTeam(SwarmTeam):
 
 
 class PantheonTeam(Team):
-    """Pantheon team structure. """
+    """Pantheon team structure."""
 
     def __init__(self, triage: Agent, agents: list[Agent | RemoteAgent]):
         super().__init__([triage])
@@ -129,7 +132,9 @@ class PantheonTeam(Team):
         active_agent_name = memory.extra_data.get("active_agent")
         if (active_agent_name is None) or (active_agent_name not in self.agents):
             active_agent_name = list(self.agents.keys())[0]
-            logger.warning(f"Active agent not found in memory, setting to {active_agent_name}")
+            logger.warning(
+                f"Active agent not found in memory, setting to {active_agent_name}"
+            )
             memory.extra_data["active_agent"] = active_agent_name
         active_agent = self.agents[active_agent_name]
         return active_agent
@@ -152,14 +157,22 @@ class PantheonTeam(Team):
         self.agents[agent.name] = agent
         await self.update_toolful_funcs()
 
-    async def add_toolful_call_func(self, agent: Agent | RemoteAgent, toolful_agent_name: str):
+    async def add_toolful_call_func(
+        self, agent: Agent | RemoteAgent, toolful_agent_name: str
+    ):
         assert isinstance(agent.name, str), "Agent name must be a string"
         agent_name = agent.name
+
         def _call_toolful_agent(instruction: str):
             self._call_stack.append(agent_name)  # push caller's name
             return self.agents[toolful_agent_name]
-        _call_toolful_agent.__name__ = f"call_agent_{toolful_agent_name.replace(' ', '_')}"
-        _call_toolful_agent.__doc__ = f"Call {toolful_agent_name} agent to handle the instruction."
+
+        _call_toolful_agent.__name__ = (
+            f"call_agent_{toolful_agent_name.replace(' ', '_')}"
+        )
+        _call_toolful_agent.__doc__ = (
+            f"Call {toolful_agent_name} agent to handle the instruction."
+        )
         await run_func(agent.tool, _call_toolful_agent)
 
     async def update_toolful_funcs(self):
@@ -210,20 +223,22 @@ class PantheonTeam(Team):
                     transfer_message = {
                         "role": "assistant",
                         "content": f"Transfer back to {caller_name}.",
-                        "tool_calls": [{
-                            "id": call_id,
-                            "type": "function",
-                            "function": {
-                                "name": f"transfer_to_{caller_name.replace(' ', '_')}",
-                                "arguments": "{}",
-                            },
-                        }],
+                        "tool_calls": [
+                            {
+                                "id": call_id,
+                                "type": "function",
+                                "function": {
+                                    "name": f"transfer_to_{caller_name.replace(' ', '_')}",
+                                    "arguments": "{}",
+                                },
+                            }
+                        ],
                         "agent_name": self.get_active_agent(memory).name,
                     }
                     tool_message = {
                         "role": "tool",
                         "tool_call_id": call_id,
-                        "tool_name": "transfer_to_" + caller_name.replace(' ', '_'),
+                        "tool_name": "transfer_to_" + caller_name.replace(" ", "_"),
                         "content": caller_name,
                     }
                     self.set_active_agent(memory, caller_name)
@@ -237,22 +252,23 @@ class PantheonTeam(Team):
 
 class SequentialTeam(Team):
     """Team that run agents in sequential order."""
+
     def __init__(
-            self,
-            agents: list[Agent],
-            connect_prompt: str | list[str] = "Next:",
-            ):
+        self,
+        agents: list[Agent],
+        connect_prompt: str | list[str] = "Next:",
+    ):
         super().__init__(agents)
         self.order = list(self.agents.keys())
         self.connect_prompt = connect_prompt
 
     async def run(
-            self,
-            msg: AgentInput,
-            connect_prompt: str | list[str] | None = None,
-            agent_kwargs: dict = {},
-            **final_kwargs,
-            ):
+        self,
+        msg: AgentInput,
+        connect_prompt: str | list[str] | None = None,
+        agent_kwargs: dict = {},
+        **final_kwargs,
+    ):
         first = self.agents[self.order[0]]
         history = first.input_to_openai_messages(msg, False)
         for i, name in enumerate(self.order):
@@ -272,7 +288,7 @@ class SequentialTeam(Team):
 
 class MoATeam(Team):
     """Team that run agents in a MoA (Mixture-of-Agents) pattern.
-    
+
     Reference:
         - [MoA: Mixure-of-Agents](https://arxiv.org/abs/2406.04692)
         - [Self-MoA](https://arxiv.org/abs/2502.00674)
@@ -293,12 +309,12 @@ Please carefully analyze these responses and generate a final answer that is:
 ### Final Answer:"""
 
     def __init__(
-            self,
-            proposers: list[Agent],
-            aggregator: Agent,
-            layers: int = 1,
-            parallel: bool = True,
-            ):
+        self,
+        proposers: list[Agent],
+        aggregator: Agent,
+        layers: int = 1,
+        parallel: bool = True,
+    ):
         super().__init__(proposers + [aggregator])
         self.proposers = proposers
         self.aggregator = aggregator
@@ -306,24 +322,30 @@ Please carefully analyze these responses and generate a final answer that is:
         self.parallel = parallel
 
     def get_aggregate_prompt(
-            self,
-            user_query: list[dict],
-            responses: dict[str, AgentResponse],
-            ) -> str:
+        self,
+        user_query: list[dict],
+        responses: dict[str, AgentResponse],
+    ) -> str:
         resps_str = ""
         for i, resp in enumerate(responses.values()):
-            resps_str += f"{i+1}. {resp.agent_name}:\n{resp.content}\n\n"
+            resps_str += f"{i + 1}. {resp.agent_name}:\n{resp.content}\n\n"
         user_query_str = user_query[-1]["content"]
         return self.AGGREGATION_TEMPLATE.format(
             user_query=user_query_str,
             responses=resps_str,
         )
 
-    async def run_proposers(self, input_, **proposer_kwargs) -> dict[str, AgentResponse]:
+    async def run_proposers(
+        self, input_, **proposer_kwargs
+    ) -> dict[str, AgentResponse]:
         if self.parallel:
-            tasks = [proposer.run(input_, **proposer_kwargs) for proposer in self.proposers]
+            tasks = [
+                proposer.run(input_, **proposer_kwargs) for proposer in self.proposers
+            ]
             gathered = await asyncio.gather(*tasks)
-            return {proposer.name: resp for proposer, resp in zip(self.proposers, gathered)}
+            return {
+                proposer.name: resp for proposer, resp in zip(self.proposers, gathered)
+            }
         else:
             responses = {}
             for proposer in self.proposers:
@@ -332,11 +354,11 @@ Please carefully analyze these responses and generate a final answer that is:
             return responses
 
     async def run(
-            self,
-            msg: AgentInput,
-            proposer_kwargs: dict = {},
-            **aggregator_kwargs,
-            ) -> AgentResponse:
+        self,
+        msg: AgentInput,
+        proposer_kwargs: dict = {},
+        **aggregator_kwargs,
+    ) -> AgentResponse:
         history = self.aggregator.input_to_openai_messages(msg)
         for i in range(self.layers):
             if i == 0:

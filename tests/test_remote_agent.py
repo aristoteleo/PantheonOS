@@ -1,4 +1,5 @@
 import asyncio
+
 from pantheon.agent import Agent, AgentResponse, AgentService, RemoteAgent
 
 
@@ -11,13 +12,13 @@ async def test_remote_agent():
     service_task = asyncio.create_task(service.run())
     await asyncio.sleep(1.0)
     # Access worker after it's initialized by run()
-    await service._ensure_worker()
     remote_agent = RemoteAgent(service.worker.service_id)
     res = await remote_agent.run("What is the best scifi book?")
     assert isinstance(res, AgentResponse)
     service_task.cancel()
 
 
+# FIX: currently NATs backend doesn't support reverse callable
 async def test_remote_agent_print_chunk():
     agent = Agent(
         "scifi_fan",
@@ -27,7 +28,6 @@ async def test_remote_agent_print_chunk():
     service_task = asyncio.create_task(service.run())
     await asyncio.sleep(1.0)
     # Access worker after it's initialized by run()
-    await service._ensure_worker()
     remote_agent = RemoteAgent(service.worker.service_id)
     _flag = False
 
@@ -55,7 +55,6 @@ async def test_remote_agent_tool():
     service_task = asyncio.create_task(service.run())
     await asyncio.sleep(1.0)
     # Access worker after it's initialized by run()
-    await service._ensure_worker()
     remote_agent = RemoteAgent(service.worker.service_id)
 
     def fetch_weather(city: str):

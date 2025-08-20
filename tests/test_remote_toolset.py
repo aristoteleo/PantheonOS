@@ -1,6 +1,6 @@
 import time
 
-from pantheon.toolset.utils.toolset import tool, ToolSet
+from pantheon.toolsets.utils.toolset import tool, ToolSet
 from executor.engine import Engine, LocalJob
 
 
@@ -69,7 +69,7 @@ async def test_agent_call_remote_toolset_with_timeout():
         await agent.remote_toolset(toolset.service_id)
 
         resp = await agent.run("Call function `print_hello`")
-        assert "TimeoutError" in resp.details.messages[1]['content']
+        assert "TimeoutError" in resp.details.messages[1]["content"]
 
         await job.cancel()
         await engine.wait_async()

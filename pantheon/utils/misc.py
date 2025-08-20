@@ -10,16 +10,18 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 if TYPE_CHECKING:
-    from ..agent import Agent
-    from ..remote.agent import RemoteAgent
+    from ..agent import Agent, RemoteAgent
 
 
 async def run_func(func: Callable, *args, **kwargs):
-    # Check if it's a regular coroutine function
-    if inspect.iscoroutinefunction(func):
+    # Import here to avoid circular imports
+    from magique.worker import ReverseCallable
+    
+    # Check if it's a regular coroutine function or ReverseCallable
+    if inspect.iscoroutinefunction(func) or isinstance(func, ReverseCallable):
         return await func(*args, **kwargs)
     # Check if it's a callable object with async __call__ method
-    elif hasattr(func, '__call__') and inspect.iscoroutinefunction(func.__call__):
+    elif hasattr(func, "__call__") and inspect.iscoroutinefunction(func.__call__):
         return await func(*args, **kwargs)
     # Regular synchronous function or callable
     else:
@@ -213,7 +215,7 @@ async def print_banner(console: Console, text: str = "PANTHEON"):
 
 
 async def print_agent(agent: "Agent | RemoteAgent", console: Console | None = None):
-    from ..remote.agent import RemoteAgent
+    from ..agent import RemoteAgent
 
     is_remote = isinstance(agent, RemoteAgent)
     if is_remote:
