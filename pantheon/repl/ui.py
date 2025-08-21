@@ -98,6 +98,7 @@ class ReplUI:
 
     def _print_help(self):
         """Print available commands"""
+
         #self.console.print("\n[bold]Commands:[/bold]")
         self.console.print("[dim][bold blue]-- BASIC ------------------------------------------------------------[/bold blue][/dim]")
         self.console.print()
@@ -334,6 +335,13 @@ class ReplUI:
         """Print tool call in Claude Code style with fancy boxes"""
         # Mark that tools are executing
         self._tools_executing = True
+        
+
+        # Record tool call in conversation history
+        metadata = {"tool_name": tool_name}
+        if args:
+            metadata.update(args)
+        self.add_to_conversation("tool_call", f"{tool_name}({args or {}})", metadata)
         
         
         # Record tool call in conversation history

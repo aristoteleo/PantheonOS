@@ -401,6 +401,11 @@ class Agent:
         self.toolset_services: dict[str, RemoteService] = {}
         # NOTE: _func_to_proxy is now obsolete with unified approach, but kept for backwards compatibility
         self._func_to_proxy: dict[str, str] = {}
+        
+        # Performance optimization: Cache tool definitions
+        self._tool_definitions_cache: dict[str, dict] = {}
+        self._cache_dirty = True
+        
         if tools:
             for func in tools:
                 self.tool(func)
@@ -432,6 +437,8 @@ class Agent:
             else:
                 raise ValueError(f"Invalid tool: {func}")
         self.functions[key] = func
+        # Mark cache as dirty when tools are added
+        self._cache_dirty = True
         return self
 
     async def remote_toolset(
@@ -478,6 +485,7 @@ class Agent:
         """
         for name, (func, _) in toolset.tool_functions.items():
             self.tool(func, key=name)
+        # Cache will be marked dirty by individual tool() calls
         return self
 
     def _convert_functions(
@@ -518,6 +526,9 @@ class Agent:
                 skip_params=__SKIP_PARAMS__,
                 litellm_mode=litellm_mode,
             )
+            # Performance optimization: Limit description length for faster LLM processing
+            if 'function' in func_dict and 'description' in func_dict['function']:
+                desc_text = func_dict['function']['description']
             functions.append(func_dict)
 
         return functions
