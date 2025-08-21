@@ -114,7 +114,7 @@ Default RAG database location: `tmp/sc_cli_tools_rag/single-cell-cli-tools`
 To use the RAG knowledge base, build it from the provided configuration:
 
 ```bash
-python -m pantheon.toolsets.utils.rag build \
+python -m pantheon.toolset.utils.rag build \
     pantheon/cli/rag_system_config.yaml \
     tmp/pantheon_cli_tools_rag
 ```
@@ -168,7 +168,7 @@ This creates a vector database at `tmp/pantheon_cli_tools_rag/pantheon-cli-tools
 ## Requirements
 
 - Python 3.10+
-- Required packages: `fire`, `pantheon-toolsets`, `pantheon-agents`
+- Required packages: `fire`, `pantheon-agents` (toolsets now built-in)
 - Optional: `ddgs` for web search, `nbformat` for notebooks, R for statistical analysis, Julia for high-performance computing
 
 ## Tips

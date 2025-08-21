@@ -6,6 +6,7 @@ from .utils.llm import process_messages_for_store
 from .utils.log import logger
 
 
+# FIX: other memory implimentaion?
 class Memory:
     """
     The Memory class is used to store the memory of the agent.
@@ -18,6 +19,7 @@ class Memory:
         id: The ID of the memory.
         extra_data: The extra data of the memory.
     """
+
     def __init__(self, name: str):
         self.name = name
         self.id = str(uuid4())
@@ -32,12 +34,15 @@ class Memory:
             file_path: The path to save the memory to.
         """
         with open(file_path, "w") as f:
-            json.dump({
-                "id": self.id,
-                "name": self.name,
-                "messages": self._messages,
-                "extra_data": self.extra_data,
-            }, f)
+            json.dump(
+                {
+                    "id": self.id,
+                    "name": self.name,
+                    "messages": self._messages,
+                    "extra_data": self.extra_data,
+                },
+                f,
+            )
 
     @classmethod
     def load(cls, file_path: str):
@@ -81,16 +86,22 @@ class Memory:
                 break
 
             last_message = self._messages[-1]
-            if 'role' not in last_message:
-                logger.debug(f"Popping message: {last_message}, len={len(self._messages)}")
+            if "role" not in last_message:
+                logger.debug(
+                    f"Popping message: {last_message}, len={len(self._messages)}"
+                )
                 self._messages.pop()
                 continue
             if last_message["role"] == "user":
-                logger.debug(f"Popping user message: {last_message}, len={len(self._messages)}")
+                logger.debug(
+                    f"Popping user message: {last_message}, len={len(self._messages)}"
+                )
                 self._messages.pop()
                 continue
             if last_message.get("content") is None:
-                logger.debug(f"Popping message: {last_message}, len={len(self._messages)}")
+                logger.debug(
+                    f"Popping message: {last_message}, len={len(self._messages)}"
+                )
                 self._messages.pop()
                 continue
             if last_message["role"] == "assistant":
@@ -116,6 +127,7 @@ class MemoryManager:
         path: The path to the memory files.
         memory_store: The in-RAM store of the memories.
     """
+
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.memory_store: dict[str, Memory] = {}

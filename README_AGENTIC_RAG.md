@@ -27,7 +27,7 @@ Actual knowledge base building is still in progress.
 ### 2. Basic Usage
 
 ```python
-from pantheon.toolsets.agentic_rag import AgenticRAGToolSet
+from pantheon.toolset.agentic_rag import AgenticRAGToolSet
 
 # Initialize agentic RAG
 rag = AgenticRAGToolSet(
@@ -133,7 +133,7 @@ The system includes documentation from:
 
 ```python
 from pantheon.agent import Agent
-from pantheon.toolsets.agentic_rag import AgenticRAGToolSet
+from pantheon.toolset.agentic_rag import AgenticRAGToolSet
 
 # Create bioinformatics expert agent
 agent = Agent(

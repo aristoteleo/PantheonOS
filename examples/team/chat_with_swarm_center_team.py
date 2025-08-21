@@ -1,7 +1,7 @@
 import asyncio
 
 from pantheon.agent import Agent
-from pantheon.remote.agent import RemoteAgent
+from pantheon.agent import RemoteAgent
 from pantheon.team import SwarmCenterTeam
 from pantheon.repl.team import Repl
 

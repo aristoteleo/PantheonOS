@@ -1,48 +1,52 @@
+import asyncio
 import io
 import sys
-import asyncio
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Callable
 
-import yaml
-from magique.worker import MagiqueWorker
-from pantheon.toolsets.utils.remote import connect_remote
-from pantheon.toolsets.utils.constant import SERVER_URLS
 import openai
+import yaml
 
-from ..agent import Agent
-from ..team import PantheonTeam
+from pantheon.toolsets.remote import (
+    SERVER_URLS,
+    RemoteBackendFactory,
+    RemoteConfig,
+    RemoteWorker,
+)
+
+from ..agent import Agent, RemoteAgent
+from ..factory import DEFAULT_AGENTS_TEMPLATE_PATH, create_agents_from_template
 from ..memory import MemoryManager
-from ..remote.agent import RemoteAgent
-from ..utils.misc import run_func
+from ..team import PantheonTeam
 from ..utils.log import logger
+from ..utils.misc import run_func
 from .thread import Thread
-from ..factory import create_agents_from_template, DEFAULT_AGENTS_TEMPLATE_PATH
 
 
 class ChatRoom:
     """
     ChatRoom is a service that allow user to interact with a team of agents.
-    It can connect to a remote endpoint to get the agents and tools,
+    It can connect to a remote service to get the agents and tools,
     and be connected with Pantheon-UI to provide a user-friendly interface.
 
     A chatroom contains a series of chats, which are identified by a chat_id.
     Each chats will be associated with a memory, which is a file in the memory_dir.
 
     Args:
-        endpoint_service_id: The service ID of the remote endpoint.
+        endpoint_service_id: The service ID of the endpoint service.
         agents_template: The template of the agents.
         memory_dir: The directory to store the memory.
         name: The name of the chatroom.
         description: The description of the chatroom.
         worker_params: The parameters for the worker.
-        server_url: The URL of the magique server.
-        endpoint_connect_params: The parameters for the endpoint connection.
+        server_url: The URL of the server.
+        remote_service_params: The parameters for the remote service connection.
         speech_to_text_model: The model to use for speech to text.
         check_before_chat: The function to check before chat.
         get_db_info: The function to get the database info.
     """
+
     def __init__(
         self,
         endpoint_service_id: str,
@@ -52,7 +56,7 @@ class ChatRoom:
         description: str = "Chatroom for Pantheon agents",
         worker_params: dict | None = None,
         server_url: str | list[str] | None = None,
-        endpoint_connect_params: dict | None = None,
+        remote_service_params: dict | None = None,
         speech_to_text_model: str = "gpt-4o-mini-transcribe",
         check_before_chat: Callable | None = None,
         get_db_info: Callable | None = None,
@@ -86,33 +90,39 @@ class ChatRoom:
         else:
             server_urls = server_url
         self.server_urls = server_urls
-        _worker_params = {
+
+        # Store worker params for later initialization in setup_agents
+        self._worker_params = {
             "service_name": name,
-            "server_url": server_urls,
-            "need_auth": False,
         }
         if worker_params is not None:
-            _worker_params.update(worker_params)
-        self.worker = MagiqueWorker(**_worker_params)
-        self.setup_handlers()
-        self.endpoint_connect_params = endpoint_connect_params or {}
+            self._worker_params.update(worker_params)
+
+        self.worker: RemoteWorker = None
+        self.remote_service_params = remote_service_params or {}
+        self.backend = RemoteBackendFactory.create_backend(
+            RemoteConfig.from_config(
+                server_urls=self.server_urls, **self.remote_service_params
+            )
+        )
         self.speech_to_text_model = speech_to_text_model
         self.threads: dict[str, Thread] = {}
         self.check_before_chat = check_before_chat
         self.get_db_info = get_db_info
 
     async def setup_agents(self):
-        """Setup the agents from the template.
+        """Setup the agents from the template and initialize the worker.
         The template is a dictionary with the following keys:
         - triage: The triage agent.
         - other: The other agents.
         """
-        endpoint = await connect_remote(
-            self.endpoint_service_id,
-            self.server_urls,
-            **self.endpoint_connect_params,
+        endpoint_service = await self.backend.connect(self.endpoint_service_id)
+        if self.worker is None:
+            self.worker = await self.backend.create_worker(**self._worker_params)
+            self.setup_handlers()
+        agents = await create_agents_from_template(
+            endpoint_service, self.agents_template
         )
-        agents = await create_agents_from_template(endpoint, self.agents_template)
         triage_agent = agents["triage"]
         agents = agents["other"]
         self.team = PantheonTeam(
@@ -137,8 +147,8 @@ class ChatRoom:
         self.worker.register(self.list_chats)
         self.worker.register(self.get_chat_messages)
         self.worker.register(self.update_chat_name)
-        self.worker.register(self.get_endpoint)
-        self.worker.register(self.set_endpoint)
+        self.worker.register(self.get_remote_service)
+        self.worker.register(self.set_remote_service)
         self.worker.register(self.get_agents)
         self.worker.register(self.set_active_agent)
         self.worker.register(self.get_active_agent)
@@ -155,42 +165,43 @@ class ChatRoom:
             }
         return {"success": False, "message": "Not implemented"}
 
-    async def get_endpoint(self) -> dict:
-        """Get the endpoint info."""
-        s = await connect_remote(
-            self.endpoint_service_id,
-            self.server_urls,
-            **self.endpoint_connect_params,
-        )
-        info = await s.fetch_service_info()
-        return {
-            "success": True,
-            "service_name": info.service_name,
-            "service_id": info.service_id,
-        }
+    async def get_remote_service(self) -> dict:
+        """Get the remote service info."""
+        try:
+            s = await self.backend.connect(self.endpoint_service_id)
+            info = await s.fetch_service_info()
+            return {
+                "success": True,
+                "service_name": info.service_name if info else self.endpoint_service_id,
+                "service_id": info.service_id if info else self.endpoint_service_id,
+            }
+        except Exception as e:
+            logger.error(f"Error getting remote service info: {e}")
+            return {"success": False, "message": str(e)}
 
-    async def set_endpoint(self, endpoint_service_id: str) -> dict:
-        """Set the endpoint service ID.
+    async def set_remote_service(self, remote_service_id: str) -> dict:
+        """Set the remote service ID.
 
         Args:
-            endpoint_service_id: The service ID of the remote endpoint.
+            remote_service_id: The service ID of the remote service.
         """
         try:
-            self.endpoint_service_id = endpoint_service_id
+            self.endpoint_service_id = remote_service_id
             await self.setup_agents()
-            return {"success": True, "message": "Endpoint set successfully"}
+            return {"success": True, "message": "Remote service set successfully"}
         except Exception as e:
-            logger.error(f"Error setting endpoint: {e}")
+            logger.error(f"Error setting remote service: {e}")
             return {"success": False, "message": str(e)}
 
     async def get_agents(self) -> dict:
         """Get the agents info.
-        
+
         Returns:
             A dictionary with the following keys:
             - success: Whether the operation was successful.
             - agents: A list of dictionaries, each containing the info of an agent.
         """
+
         def get_agent_info(agent: Agent | RemoteAgent):
             if hasattr(agent, "not_loaded_toolsets"):
                 not_loaded_toolsets = agent.not_loaded_toolsets
@@ -203,13 +214,15 @@ class ChatRoom:
                 "tools": [t for t in agent.functions.keys()],
                 "toolsets": [
                     {
-                        'id': s.service_info.service_id,
-                        'name': s.service_info.service_name,
-                    } for s in agent.toolset_proxies.values()
+                        "id": s.service_info.service_id,
+                        "name": s.service_info.service_name,
+                    }
+                    for s in agent.toolset_services.values()
                 ],
                 "icon": agent.icon,
                 "not_loaded_toolsets": not_loaded_toolsets,
             }
+
         return {
             "success": True,
             "agents": [get_agent_info(a) for a in self.team.agents.values()],
@@ -223,7 +236,9 @@ class ChatRoom:
             agent_name: The name of the agent.
         """
         memory = await run_func(self.memory_manager.get_memory, chat_name)
-        agent = next((a for a in self.team.agents.values() if a.name == agent_name), None)
+        agent = next(
+            (a for a in self.team.agents.values() if a.name == agent_name), None
+        )
         if agent is None:
             return {"success": False, "message": "Agent not found"}
         self.team.set_active_agent(memory, agent_name)
@@ -284,18 +299,22 @@ class ChatRoom:
             chats = []
             for id in ids:
                 memory = await run_func(self.memory_manager.get_memory, id)
-                chats.append({
-                    "id": id,
-                    "name": memory.name,
-                    "running": memory.extra_data.get("running", False),
-                    "last_activity_date": memory.extra_data.get("last_activity_date", None),
-                })
+                chats.append(
+                    {
+                        "id": id,
+                        "name": memory.name,
+                        "running": memory.extra_data.get("running", False),
+                        "last_activity_date": memory.extra_data.get(
+                            "last_activity_date", None
+                        ),
+                    }
+                )
 
             chats.sort(
-                key=lambda x: datetime.fromisoformat(x["last_activity_date"]) 
-                              if x["last_activity_date"] 
-                              else datetime.min,
-                reverse=True
+                key=lambda x: datetime.fromisoformat(x["last_activity_date"])
+                if x["last_activity_date"]
+                else datetime.min,
+                reverse=True,
             )
 
             return {
@@ -304,6 +323,7 @@ class ChatRoom:
             }
         except Exception as e:
             import traceback
+
             traceback.print_exc()
             logger.error(f"Error listing chats: {e}")
             return {"success": False, "message": str(e)}
@@ -325,10 +345,15 @@ class ChatRoom:
                         if isinstance(message["raw_content"], dict):
                             if "base64_uri" in message["raw_content"]:
                                 del message["raw_content"]["base64_uri"]
-                            for _k in ['stdout', 'stderr']: # truncate large stdout/stderr outputs
+                            for _k in [
+                                "stdout",
+                                "stderr",
+                            ]:  # truncate large stdout/stderr outputs
                                 MAX_LENGTH = 10000
                                 if _k in message["raw_content"]:
-                                    message["raw_content"][_k] = message["raw_content"][_k][:MAX_LENGTH]
+                                    message["raw_content"][_k] = message["raw_content"][
+                                        _k
+                                    ][:MAX_LENGTH]
                     new_messages.append(message)
                 messages = new_messages
             return {"success": True, "messages": messages}
@@ -348,7 +373,7 @@ class ChatRoom:
                 self.memory_manager.update_memory_name,
                 chat_id,
                 chat_name,
-                )
+            )
             return {
                 "success": True,
                 "message": "Chat name updated successfully",
@@ -358,15 +383,16 @@ class ChatRoom:
             return {
                 "success": False,
                 "message": str(e),
-                }
+            }
 
     async def attach_hooks(
-            self, chat_id: str,
-            process_chunk: Callable | None = None,
-            process_step_message: Callable | None = None,
-            wait: bool = True,
-            time_delta: int = 0.1,
-            ):
+        self,
+        chat_id: str,
+        process_chunk: Callable | None = None,
+        process_step_message: Callable | None = None,
+        wait: bool = True,
+        time_delta: float = 0.1,
+    ):
         """Attach hooks to a chat. Hooks are used to process the messages of the chat.
 
         Args:
@@ -419,7 +445,9 @@ class ChatRoom:
 
         thread = Thread(self.team, memory, message)
         self.threads[chat_id] = thread
-        await self.attach_hooks(chat_id, process_chunk, process_step_message, wait=False)
+        await self.attach_hooks(
+            chat_id, process_chunk, process_step_message, wait=False
+        )
         await thread.run()
 
         memory.extra_data["running"] = False
@@ -448,22 +476,22 @@ class ChatRoom:
         """
         try:
             client = openai.OpenAI()
-            
+
             # Try different audio formats until one works
             formats = ["webm", "mp4", "wav", "mp3"]
             last_error = None
-            
+
             for fmt in formats:
                 try:
                     # Create a BytesIO object with a proper filename for format detection
                     audio_file = io.BytesIO(bytes_data)
                     audio_file.name = f"audio.{fmt}"
-                    
+
                     response = client.audio.transcriptions.create(
                         model=self.speech_to_text_model,
                         file=audio_file,
                     )
-                    
+
                     return {
                         "success": True,
                         "text": response.text,
@@ -472,10 +500,13 @@ class ChatRoom:
                     last_error = format_error
                     logger.debug(f"Failed with format {fmt}: {format_error}")
                     continue
-            
+
             # If all formats failed, raise the last error
-            raise last_error
-            
+            if last_error:
+                raise last_error
+            else:
+                raise Exception("No audio formats worked")
+
         except Exception as e:
             logger.error(f"Error transcribing speech: {e}")
             return {
@@ -490,6 +521,7 @@ class ChatRoom:
             log_level: The level of the log.
         """
         from loguru import logger
+
         logger.remove()
         logger.add(sys.stderr, level=log_level)
         logger.info(f"Remote Servers: {self.worker.servers}")

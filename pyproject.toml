@@ -4,18 +4,18 @@ description = "A framework for building distributed evolvable multi-agent system
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "executor-engine>=0.3.1",
+    "executor-engine>=0.3.3",
     "fire>=0.7.0",
     "funcdesc>=0.1.8",
     "litellm>=1.56.4",
     "loguru>=0.7.3",
-    "magique>=0.6.7",
-    "pantheon-toolsets>=0.5.0",
     "openai>=1.58.1",
     "pillow>=10.4.0",
     "rich>=13.9.4",
     "rich-pyfiglet",
-    "ddgs>=0.1.0",
+    "ddgs>=9.5.2",
+    "pantheon-toolsets>=0.5.0",
+    "magique>=0.6.7"
 ]
 dynamic = ["version"]
 
