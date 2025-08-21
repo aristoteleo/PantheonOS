@@ -54,8 +54,7 @@ class AgentService:
             default_params.update(worker_params)
         self.worker_params = default_params
 
-        self.backend_config = backend_config or RemoteConfig.from_env()
-        self.backend = RemoteBackendFactory.create_backend(self.backend_config)
+        self.backend = RemoteBackendFactory.create_backend(backend_config)
         self.worker: RemoteWorker = self.backend.create_worker(**self.worker_params)
         self.setup_worker()
 
@@ -115,8 +114,7 @@ class RemoteAgent:
         **remote_kwargs,
     ):
         self.service_id_or_name = service_id_or_name
-        self.backend_config = backend_config or RemoteConfig.from_env()
-        self.backend = RemoteBackendFactory.create_backend(self.backend_config)
+        self.backend = RemoteBackendFactory.create_backend(backend_config)
         self.remote_kwargs = remote_kwargs
         self.name = None
         self.instructions = None

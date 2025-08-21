@@ -56,6 +56,7 @@ class ChatRoom:
         description: str = "Chatroom for Pantheon agents",
         worker_params: dict | None = None,
         server_url: str | list[str] | None = None,
+        backend: str | None = None,
         remote_service_params: dict | None = None,
         speech_to_text_model: str = "gpt-4o-mini-transcribe",
         check_before_chat: Callable | None = None,
@@ -98,13 +99,21 @@ class ChatRoom:
         if worker_params is not None:
             self._worker_params.update(worker_params)
 
-        self.worker: RemoteWorker = None
         self.remote_service_params = remote_service_params or {}
+
+        # Properly structure backend config to avoid parameter conflicts
+        backend_config = {"server_urls": self.server_urls}
+        if self.remote_service_params:
+            backend_config.update(self.remote_service_params)
+
         self.backend = RemoteBackendFactory.create_backend(
             RemoteConfig.from_config(
-                server_urls=self.server_urls, **self.remote_service_params
+                backend=backend,
+                backend_config=backend_config,
             )
         )
+        self.worker = self.backend.create_worker(**self._worker_params)
+        self.setup_handlers()
         self.speech_to_text_model = speech_to_text_model
         self.threads: dict[str, Thread] = {}
         self.check_before_chat = check_before_chat
@@ -117,9 +126,6 @@ class ChatRoom:
         - other: The other agents.
         """
         endpoint_service = await self.backend.connect(self.endpoint_service_id)
-        if self.worker is None:
-            self.worker = await self.backend.create_worker(**self._worker_params)
-            self.setup_handlers()
         agents = await create_agents_from_template(
             endpoint_service, self.agents_template
         )
@@ -524,8 +530,8 @@ class ChatRoom:
 
         logger.remove()
         logger.add(sys.stderr, level=log_level)
+        await self.setup_agents()
         logger.info(f"Remote Servers: {self.worker.servers}")
         logger.info(f"Service Name: {self.worker.service_name}")
         logger.info(f"Service ID: {self.worker.service_id}")
-        await self.setup_agents()
         return await self.worker.run()
