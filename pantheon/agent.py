@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from funcdesc import Description, Value, parse_func
 from pydantic import BaseModel, create_model
+from fastmcp import Client
 from magique.worker import ReverseCallable
 
 from pantheon.toolsets.utils.toolset import ToolSet
@@ -486,6 +487,34 @@ class Agent:
         # Cache will be marked dirty by individual tool() calls
         return self
 
+    async def mcp(self, client: Client):
+        """Add a MCP toolset to the agent.
+
+        Args:
+            client: The FastMCP client to add to the agent.
+
+        Returns:
+            The agent instance.
+        """
+        tools = await client.list_tools()
+        for tool in tools:
+            async def _wrap_tool(**kwargs):
+                res = await client.call_tool(tool.name, kwargs)
+                return res.structured_output['result']
+            params = tool.inputSchema
+            params["additionalProperties"] = False
+            _wrap_tool.__schema__ = {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "strict": True,
+                    "parameters": params,
+                },
+            }
+            self.tool(_wrap_tool, key=tool.name)
+        return self
+
     def _convert_functions(
         self, litellm_mode: bool, allow_transfer: bool
     ) -> list[dict]:
@@ -493,6 +522,15 @@ class Agent:
         functions = []
         # Fully unified function handling - all functions are now identical
         for func in self.functions.values():
+            if hasattr(func, "__schema__"):
+                # directly use the schema of the tool
+                schema = copy.deepcopy(func.__schema__)
+                if litellm_mode:
+                    schema["function"]["strict"] = False
+                    del schema["function"]["parameters"]["additionalProperties"]
+                functions.append(func.__schema__)
+                continue
+
             if hasattr(func, "function_descriptions"):
                 # This is a remote function wrapper with stored descriptions
                 desc = func.function_descriptions
@@ -524,9 +562,6 @@ class Agent:
                 skip_params=__SKIP_PARAMS__,
                 litellm_mode=litellm_mode,
             )
-            # Performance optimization: Limit description length for faster LLM processing
-            if "function" in func_dict and "description" in func_dict["function"]:
-                desc_text = func_dict["function"]["description"]
             functions.append(func_dict)
 
         return functions
