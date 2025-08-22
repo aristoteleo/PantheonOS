@@ -179,15 +179,15 @@ class RemoteAgentMessageQueue:
 class RemoteToolsetWrapper:
     """Wrapper that makes remote toolset functions appear as local functions."""
 
-    def __init__(self, remote_service: RemoteService, agent_context=None):
-        self.remote_service = remote_service
+    def __init__(self, endpoint_service: RemoteService, agent_context=None):
+        self.endpoint_service = endpoint_service
         self.agent_context = agent_context  # Reference to agent for callbacks
         self.wrapped_functions = {}
         self.service_info = None
 
     async def initialize(self):
         """Initialize by fetching service info and creating wrapped functions."""
-        self.service_info = await self.remote_service.fetch_service_info()
+        self.service_info = await self.endpoint_service.fetch_service_info()
 
         for func_name, func_desc in self.service_info.functions_description.items():
             wrapped_func = self._create_wrapped_function(func_name, func_desc)
@@ -203,14 +203,14 @@ class RemoteToolsetWrapper:
                 self,
                 func_name: str,
                 func_desc: Description,
-                remote_service: RemoteService,
+                endpoint_service: RemoteService,
                 agent_context,
             ):
                 self.func_name = func_name
                 self.function_descriptions = (
                     func_desc  # Store for parse_func compatibility
                 )
-                self.remote_service = remote_service
+                self.endpoint_service = endpoint_service
                 self.agent_context = agent_context
 
                 # Set standard function attributes
@@ -229,11 +229,11 @@ class RemoteToolsetWrapper:
 
                 # Call remote service
                 if remote_params:
-                    resp = await self.remote_service.invoke(
+                    resp = await self.endpoint_service.invoke(
                         self.func_name, parameters=remote_params
                     )
                 else:
-                    resp = await self.remote_service.invoke(self.func_name)
+                    resp = await self.endpoint_service.invoke(self.func_name)
 
                 # Handle inner calls (callback mechanism)
                 if isinstance(resp, dict) and "inner_call" in resp:
@@ -276,7 +276,7 @@ class RemoteToolsetWrapper:
                 return resp
 
         return RemoteFunctionWrapper(
-            func_name, func_desc, self.remote_service, self.agent_context
+            func_name, func_desc, self.endpoint_service, self.agent_context
         )
 
     def get_wrapped_functions(self):
@@ -399,11 +399,11 @@ class Agent:
         self.toolset_services: dict[str, RemoteService] = {}
         # NOTE: _func_to_proxy is now obsolete with unified approach, but kept for backwards compatibility
         self._func_to_proxy: dict[str, str] = {}
-        
+
         # Performance optimization: Cache tool definitions
         self._tool_definitions_cache: dict[str, dict] = {}
         self._cache_dirty = True
-        
+
         if tools:
             for func in tools:
                 self.tool(func)
@@ -457,13 +457,13 @@ class Agent:
         """
         # Create backend and connect to service
         backend = RemoteBackendFactory.create_backend(backend_config)
-        remote_service = await backend.connect(service_id_or_name, **kwargs)
+        endpoint_service = await backend.connect(service_id_or_name, **kwargs)
 
         # Store service for cleanup later
-        self.toolset_services[service_id_or_name] = remote_service
+        self.toolset_services[service_id_or_name] = endpoint_service
 
         # Create wrapper for unified tool interface
-        wrapper = RemoteToolsetWrapper(remote_service, agent_context=self)
+        wrapper = RemoteToolsetWrapper(endpoint_service, agent_context=self)
         await wrapper.initialize()
 
         # Add all remote functions as regular tools
@@ -525,8 +525,8 @@ class Agent:
                 litellm_mode=litellm_mode,
             )
             # Performance optimization: Limit description length for faster LLM processing
-            if 'function' in func_dict and 'description' in func_dict['function']:
-                desc_text = func_dict['function']['description']
+            if "function" in func_dict and "description" in func_dict["function"]:
+                desc_text = func_dict["function"]["description"]
             functions.append(func_dict)
 
         return functions

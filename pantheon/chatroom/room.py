@@ -1,6 +1,5 @@
 import asyncio
 import io
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -9,10 +8,8 @@ import openai
 import yaml
 
 from pantheon.toolsets.remote import (
-    SERVER_URLS,
     RemoteBackendFactory,
     RemoteConfig,
-    RemoteWorker,
 )
 
 from ..agent import Agent, RemoteAgent
@@ -41,7 +38,7 @@ class ChatRoom:
         description: The description of the chatroom.
         worker_params: The parameters for the worker.
         server_url: The URL of the server.
-        remote_service_params: The parameters for the remote service connection.
+        endpoint_connect_params: The parameters for the endpoint service connection.
         speech_to_text_model: The model to use for speech to text.
         check_before_chat: The function to check before chat.
         get_db_info: The function to get the database info.
@@ -57,7 +54,7 @@ class ChatRoom:
         worker_params: dict | None = None,
         server_url: str | list[str] | None = None,
         backend: str | None = None,
-        remote_service_params: dict | None = None,
+        endpoint_connect_params: dict | None = None,
         speech_to_text_model: str = "gpt-4o-mini-transcribe",
         check_before_chat: Callable | None = None,
         get_db_info: Callable | None = None,
@@ -95,12 +92,12 @@ class ChatRoom:
         if worker_params is not None:
             self._worker_params.update(worker_params)
 
-        self.remote_service_params = remote_service_params or {}
+        self.endpoint_connect_params = endpoint_connect_params or {}
 
         # Properly structure backend config to avoid parameter conflicts
         backend_config = {"server_urls": self.server_urls} if self.server_urls else {}
-        if self.remote_service_params:
-            backend_config.update(self.remote_service_params)
+        if self.endpoint_connect_params:
+            backend_config.update(self.endpoint_connect_params)
 
         self.backend = RemoteBackendFactory.create_backend(
             RemoteConfig.from_config(
@@ -149,8 +146,8 @@ class ChatRoom:
         self.worker.register(self.list_chats)
         self.worker.register(self.get_chat_messages)
         self.worker.register(self.update_chat_name)
-        self.worker.register(self.get_remote_service)
-        self.worker.register(self.set_remote_service)
+        self.worker.register(self.get_endpoint)
+        self.worker.register(self.set_endpoint)
         self.worker.register(self.get_agents)
         self.worker.register(self.set_active_agent)
         self.worker.register(self.get_active_agent)
@@ -167,10 +164,12 @@ class ChatRoom:
             }
         return {"success": False, "message": "Not implemented"}
 
-    async def get_remote_service(self) -> dict:
-        """Get the remote service info."""
+    async def get_endpoint(self) -> dict:
+        """Get the endpoint service info."""
         try:
-            s = await self.backend.connect(self.endpoint_service_id)
+            s = await self.backend.connect(
+                self.endpoint_service_id, **self.endpoint_connect_params
+            )
             info = await s.fetch_service_info()
             return {
                 "success": True,
@@ -181,18 +180,18 @@ class ChatRoom:
             logger.error(f"Error getting remote service info: {e}")
             return {"success": False, "message": str(e)}
 
-    async def set_remote_service(self, remote_service_id: str) -> dict:
-        """Set the remote service ID.
+    async def set_endpoint(self, endpoint_service_id: str) -> dict:
+        """Set the endpoint service ID.
 
         Args:
-            remote_service_id: The service ID of the remote service.
+            endpoint_service_id: The service ID of the endpoint service.
         """
         try:
-            self.endpoint_service_id = remote_service_id
+            self.endpoint_service_id = endpoint_service_id
             await self.setup_agents()
-            return {"success": True, "message": "Remote service set successfully"}
+            return {"success": True, "message": "Endpoint service set successfully"}
         except Exception as e:
-            logger.error(f"Error setting remote service: {e}")
+            logger.error(f"Error setting endpoint service: {e}")
             return {"success": False, "message": str(e)}
 
     async def get_agents(self) -> dict:

@@ -69,7 +69,7 @@ async def start_services(
         memory_dir=memory_dir,
         name=service_name,
         worker_params=worker_params,
-        remote_service_params=endpoint_connect_params,
+        endpoint_connect_params=endpoint_connect_params,
         speech_to_text_model=speech_to_text_model,
     )
     await chat_room.run(log_level=log_level)
