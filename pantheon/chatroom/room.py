@@ -85,12 +85,8 @@ class ChatRoom:
         self.name = name
         self.description = description
         if isinstance(server_url, str):
-            server_urls = [server_url]
-        elif server_url is None:
-            server_urls = SERVER_URLS
-        else:
-            server_urls = server_url
-        self.server_urls = server_urls
+            server_url = [server_url]
+        self.server_urls = server_url
 
         # Store worker params for later initialization in setup_agents
         self._worker_params = {
@@ -102,7 +98,7 @@ class ChatRoom:
         self.remote_service_params = remote_service_params or {}
 
         # Properly structure backend config to avoid parameter conflicts
-        backend_config = {"server_urls": self.server_urls}
+        backend_config = {"server_urls": self.server_urls} if self.server_urls else {}
         if self.remote_service_params:
             backend_config.update(self.remote_service_params)
 
@@ -528,10 +524,12 @@ class ChatRoom:
         """
         from loguru import logger
 
-        logger.remove()
-        logger.add(sys.stderr, level=log_level)
+        # logger.remove()
+        # logger.add(sys.stderr, level=log_level)
+        logger.info(f"Chat Room setup: endpoint_id {self.endpoint_service_id}")
         await self.setup_agents()
-        logger.info(f"Remote Servers: {self.worker.servers}")
-        logger.info(f"Service Name: {self.worker.service_name}")
-        logger.info(f"Service ID: {self.worker.service_id}")
+        logger.info(
+            f"Remote Servers: {self.worker.servers} Service Name: {self.worker.service_name} Service ID: {self.worker.service_id}"
+        )
+
         return await self.worker.run()

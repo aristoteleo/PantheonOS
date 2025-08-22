@@ -46,6 +46,7 @@ async def create_agent(
             )
             if s is None:
                 raise ValueError(f"{toolset} service not found")
+            logger.info(f"Adding toolset {toolset} to agent {name}")
             await agent.remote_toolset(s["id"])
         except Exception as e:
             logger.error(f"Failed to add toolset {toolset} to agent {name}: {e}")
