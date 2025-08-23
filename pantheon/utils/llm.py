@@ -14,10 +14,15 @@ async def acompletion_openai(
         response_format: Any | None = None,
         process_chunk: Callable | None = None,
         retry_times: int = 3,
+        base_url: str | None = None,
         ):
     from openai import AsyncOpenAI, NOT_GIVEN, APIConnectionError
 
-    client = AsyncOpenAI()
+    # Create client with custom base_url if provided
+    if base_url:
+        client = AsyncOpenAI(base_url=base_url)
+    else:
+        client = AsyncOpenAI()
     chunks = []
     _tools = tools or NOT_GIVEN
     _pcall = (tools is not None) or NOT_GIVEN
@@ -44,10 +49,12 @@ async def acompletion_openai(
                     if event.type == "chunk":
                         chunk = event.chunk
                         chunks.append(chunk.model_dump())
-                        if process_chunk:
-                            delta = chunk.choices[0].delta.model_dump()
-                            await run_func(process_chunk, delta)
-                            if chunk.choices[0].finish_reason == "stop":
+                        if process_chunk and hasattr(chunk, 'choices') and chunk.choices and len(chunk.choices) > 0:
+                            choice = chunk.choices[0]
+                            if hasattr(choice, 'delta'):
+                                delta = choice.delta.model_dump()
+                                await run_func(process_chunk, delta)
+                            if hasattr(choice, 'finish_reason') and choice.finish_reason == "stop":
                                 await run_func(process_chunk, {"stop": True})
                 final_message = await stream.get_final_completion()
                 break
@@ -70,20 +77,30 @@ async def acompletion_litellm(
         tools: list[dict] | None = None,
         response_format: Any | None = None,
         process_chunk: Callable | None = None,
+        base_url: str | None = None,
         ):
     litellm = import_litellm()
-    response = await litellm.acompletion(
-        model=model,
-        messages=messages,
-        tools=tools,
-        response_format=response_format,
-        stream=True,
-    )
+    
+    # Prepare arguments for litellm
+    kwargs = {
+        "model": model,
+        "messages": messages,
+        "tools": tools,
+        "response_format": response_format,
+        "stream": True,
+    }
+    
+    # Add base_url if provided (litellm uses api_base parameter)
+    if base_url:
+        kwargs["api_base"] = base_url
+    
+    response = await litellm.acompletion(**kwargs)
     async for chunk in response:
-        if process_chunk:
+        if process_chunk and hasattr(chunk, 'choices') and chunk.choices and len(chunk.choices) > 0:
             choice = chunk.choices[0]
-            await run_func(process_chunk, choice.delta.model_dump())
-            if choice.finish_reason == "stop":
+            if hasattr(choice, 'delta'):
+                await run_func(process_chunk, choice.delta.model_dump())
+            if hasattr(choice, 'finish_reason') and choice.finish_reason == "stop":
                 await run_func(process_chunk, {"stop": True})
     complete_resp = litellm.stream_chunk_builder(response.chunks)
     return complete_resp

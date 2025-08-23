@@ -236,10 +236,36 @@ class ModelManager:
         return result
     
     def get_current_model_status(self) -> str:
-        """Get current model with API key status"""
+        """Get current model with API key and endpoint status"""
         key_available, key_message = self.api_key_manager.check_api_key_for_model(self.current_model)
         key_status = "✅" if key_available else "❌"
-        return f"📱 Current Model: {AVAILABLE_MODELS.get(self.current_model, self.current_model)} ({self.current_model})\n{key_status} {key_message}"
+        
+        # Get endpoint info
+        provider = self._get_provider_from_model(self.current_model)
+        endpoint_info = ""
+        if provider in self.api_key_manager.endpoints_cache:
+            endpoint_info = f"\n🌐 Custom Endpoint: {self.api_key_manager.endpoints_cache[provider]}"
+        
+        return f"📱 Current Model: {AVAILABLE_MODELS.get(self.current_model, self.current_model)} ({self.current_model})\n{key_status} {key_message}{endpoint_info}"
+    
+    def _get_provider_from_model(self, model: str) -> str:
+        """Extract provider name from model string"""
+        if model.startswith("anthropic/"):
+            return "anthropic"
+        elif model.startswith(("qwq-", "qwen-", "qvq-")) or model.startswith("qwen/"):
+            return "qwen"
+        elif model.startswith(("kimi-", "moonshot-")) or model.startswith("moonshot/"):
+            return "moonshot"
+        elif model.startswith("grok/"):
+            return "grok"
+        elif model.startswith("gemini/"):
+            return "google"
+        elif model.startswith("deepseek/"):
+            return "deepseek"
+        elif model.startswith("ollama/"):
+            return "ollama"
+        else:
+            return "openai"
     
     def handle_model_command(self, command: str) -> str:
         """Handle /model commands"""

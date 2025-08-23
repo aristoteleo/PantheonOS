@@ -120,12 +120,13 @@ PROVIDER_NAMES = {
 
 
 class APIKeyManager:
-    """Manages API keys for different LLM providers with secure storage"""
+    """Manages API keys and endpoints for different LLM providers with secure storage"""
     
     def __init__(self, config_file_path: Path):
         self.config_file_path = config_file_path
         self.api_keys_cache: Dict[str, str] = {}
-        self._load_api_keys()
+        self.endpoints_cache: Dict[str, str] = {}
+        self._load_config()
     
     def _get_encryption_key(self) -> bytes:
         """Get or create encryption key for API keys"""
@@ -165,15 +166,15 @@ class APIKeyManager:
         fernet = Fernet(key)
         return fernet.decrypt(encrypted_key.encode()).decode()
     
-    def _load_api_keys(self) -> Dict[str, str]:
-        """Load encrypted API keys from config"""
+    def _load_config(self) -> None:
+        """Load encrypted API keys and endpoints from config"""
         if self.config_file_path and self.config_file_path.exists():
             try:
                 with open(self.config_file_path, 'r') as f:
                     config = json.load(f)
-                    encrypted_keys = config.get('api_keys', {})
                     
-                    # Decrypt keys and cache them
+                    # Load API keys
+                    encrypted_keys = config.get('api_keys', {})
                     for provider, encrypted_key in encrypted_keys.items():
                         try:
                             decrypted_key = self._decrypt_api_key(encrypted_key)
@@ -182,6 +183,15 @@ class APIKeyManager:
                             os.environ[provider] = decrypted_key
                         except Exception:
                             pass  # Skip corrupted keys
+                    
+                    # Load endpoints
+                    endpoints = config.get('endpoints', {})
+                    for provider, endpoint in endpoints.items():
+                        self.endpoints_cache[provider] = endpoint
+                        # Set environment variable for LiteLLM base_url
+                        env_var = f"{provider.upper()}_API_BASE"
+                        os.environ[env_var] = endpoint
+                        
             except Exception:
                 pass
         
@@ -191,14 +201,17 @@ class APIKeyManager:
                 env_key = os.environ.get(provider)
                 if env_key:
                     self.api_keys_cache[provider] = env_key
-        
-        return self.api_keys_cache
     
     def sync_environment_variables(self):
-        """Sync cached API keys to environment variables"""
+        """Sync cached API keys and endpoints to environment variables"""
         for provider, api_key in self.api_keys_cache.items():
             if api_key:  # Only set non-empty keys
                 os.environ[provider] = api_key
+        
+        for provider, endpoint in self.endpoints_cache.items():
+            if endpoint:  # Only set non-empty endpoints
+                env_var = f"{provider.upper()}_API_BASE"
+                os.environ[env_var] = endpoint
     
     def save_api_key(self, provider: str, api_key: str) -> bool:
         """Save encrypted API key to config"""
@@ -235,6 +248,43 @@ class APIKeyManager:
             return True
         except Exception as e:
             print(f"Warning: Could not save API key: {e}")
+            return False
+    
+    def save_endpoint(self, provider: str, endpoint: str) -> bool:
+        """Save endpoint URL to config"""
+        if not self.config_file_path:
+            return False
+        
+        # Load existing config
+        config = {}
+        if self.config_file_path.exists():
+            try:
+                with open(self.config_file_path, 'r') as f:
+                    config = json.load(f)
+            except Exception:
+                pass
+        
+        # Add endpoint
+        if 'endpoints' not in config:
+            config['endpoints'] = {}
+        
+        config['endpoints'][provider] = endpoint
+        
+        # Cache the endpoint
+        self.endpoints_cache[provider] = endpoint
+        
+        # Set environment variable for immediate use
+        env_var = f"{provider.upper()}_API_BASE"
+        os.environ[env_var] = endpoint
+        
+        try:
+            # Ensure restrictive permissions
+            self.config_file_path.touch(mode=0o600)
+            with open(self.config_file_path, 'w') as f:
+                json.dump(config, f, indent=2)
+            return True
+        except Exception as e:
+            print(f"Warning: Could not save endpoint: {e}")
             return False
     
     def check_api_key_for_model(self, model: str) -> Tuple[bool, str]:
@@ -287,6 +337,50 @@ class APIKeyManager:
         result += "    /api-key qwen sk-... - Set Qwen key\n"
         result += "    /api-key kimi sk-... - Set Kimi key\n"
         result += "    /api-key grok sk-... - Set Grok key\n"
+        result += "\n🌐 Endpoint Management:\n"
+        result += "  /endpoint list - Show endpoint status\n"
+        result += "  /endpoint <provider> <url> - Set custom endpoint\n"
+        result += "  Examples:\n"
+        result += "    /endpoint openai https://api.openai.com/v1\n"
+        result += "    /endpoint anthropic https://api.anthropic.com\n"
+        result += "    /endpoint custom https://your-proxy.com/v1\n"
+        
+        return result
+    
+    def list_endpoints(self) -> str:
+        """List endpoint configuration for all providers"""
+        result = "🌐 Endpoint Management:\n\n"
+        
+        # Default endpoints
+        default_endpoints = {
+            "openai": "https://api.openai.com/v1",
+            "anthropic": "https://api.anthropic.com",
+            "google": "https://generativelanguage.googleapis.com/v1beta",
+            "deepseek": "https://api.deepseek.com/v1", 
+            "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "moonshot": "https://api.moonshot.cn/v1",
+            "grok": "https://api.x.ai/v1",
+        }
+        
+        result += "Current Endpoints:\n"
+        for provider, default_url in default_endpoints.items():
+            custom_url = self.endpoints_cache.get(provider)
+            if custom_url:
+                status = f"✅ Custom: {custom_url}"
+            else:
+                status = f"🟢 Default: {default_url}"
+            
+            result += f"  • {provider.capitalize()}: {status}\n"
+        
+        # Show any additional custom endpoints
+        for provider, endpoint in self.endpoints_cache.items():
+            if provider not in default_endpoints:
+                result += f"  • {provider.capitalize()}: ✅ Custom: {endpoint}\n"
+        
+        result += "\n💡 Usage:\n"
+        result += "  /endpoint list - Show this status\n" 
+        result += "  /endpoint <provider> <url> - Set custom endpoint\n"
+        result += "  /endpoint reset <provider> - Reset to default endpoint\n"
         
         return result
     
@@ -353,3 +447,56 @@ class APIKeyManager:
                 return f"❌ Failed to save {PROVIDER_NAMES[provider_key]} API key. Check file permissions."
         else:
             return f"❌ Unknown provider '{subcommand}'. Available: openai, anthropic, google, deepseek, qwen, kimi, grok"
+    
+    def handle_endpoint_command(self, command: str) -> str:
+        """Handle /endpoint commands"""
+        parts = command.strip().split(maxsplit=2)
+        
+        if len(parts) == 1:  # Just "/endpoint"
+            return self.list_endpoints()
+        
+        subcommand = parts[1].lower()
+        
+        if subcommand == "list":
+            return self.list_endpoints()
+        elif subcommand == "reset":
+            if len(parts) < 3:
+                return "❌ Please specify provider to reset: `/endpoint reset <provider>`"
+            
+            provider = parts[2].lower()
+            if provider in self.endpoints_cache:
+                del self.endpoints_cache[provider]
+                env_var = f"{provider.upper()}_API_BASE"
+                if env_var in os.environ:
+                    del os.environ[env_var]
+                
+                # Update config file
+                try:
+                    if self.config_file_path and self.config_file_path.exists():
+                        with open(self.config_file_path, 'r') as f:
+                            config = json.load(f)
+                        if 'endpoints' in config and provider in config['endpoints']:
+                            del config['endpoints'][provider]
+                            with open(self.config_file_path, 'w') as f:
+                                json.dump(config, f, indent=2)
+                    return f"✅ {provider.capitalize()} endpoint reset to default"
+                except Exception as e:
+                    return f"❌ Failed to reset endpoint: {e}"
+            else:
+                return f"❌ No custom endpoint set for {provider}"
+        else:
+            # Set custom endpoint: /endpoint <provider> <url>
+            if len(parts) < 3:
+                return f"❌ Please provide the endpoint URL: `/endpoint {subcommand} <url>`"
+            
+            provider = subcommand
+            endpoint_url = parts[2]
+            
+            # Basic URL validation
+            if not endpoint_url.startswith(('http://', 'https://')):
+                return f"❌ Endpoint URL must start with http:// or https://"
+            
+            if self.save_endpoint(provider, endpoint_url):
+                return f"✅ {provider.capitalize()} endpoint set to: {endpoint_url}"
+            else:
+                return f"❌ Failed to save {provider} endpoint. Check file permissions."
