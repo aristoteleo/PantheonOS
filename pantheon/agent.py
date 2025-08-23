@@ -33,7 +33,7 @@ from .utils.misc import desc_to_openai_dict, run_func
 from .utils.vision import VisionInput, vision_to_openai
 
 
-DEFAULT_MODEL = "gpt-4.1-mini"
+DEFAULT_MODEL = "gpt-5-mini"
 
 __CTX_VARS_NAME__ = "context_variables"
 __AGENT_RUN_NAME__ = "agent_run"

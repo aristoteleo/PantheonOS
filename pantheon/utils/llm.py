@@ -136,10 +136,20 @@ def remove_unjsonifiable_raw_content(messages: list[dict]) -> list[dict]:
     return messages
 
 
+def remove_extra_fields(messages: list[dict]) -> list[dict]:
+    for msg in messages:
+        if "agent_name" in msg:
+            del msg["agent_name"]
+        if "tool_name" in msg:
+            del msg["tool_name"]
+    return messages
+
+
 def process_messages_for_model(messages: list[dict], model: str) -> list[dict]:
     messages = deepcopy(messages)
     messages = remove_parsed(messages)
     messages = remove_raw_content(messages)
+    messages = remove_extra_fields(messages)
     return messages
 
 
