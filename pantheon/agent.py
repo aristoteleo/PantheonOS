@@ -690,8 +690,8 @@ class Agent:
         # Get custom base_url from environment variable if set
         base_url = None
         env_var = f"{provider.upper()}_API_BASE"
-        if env_var in __import__('os').environ:
-            base_url = __import__('os').environ[env_var]
+        if env_var in os.environ:
+            base_url = os.environ[env_var]
 
         tools = None
         if tool_use:
