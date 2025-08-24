@@ -1,0 +1,5 @@
+include pantheon/factory/default_agents_templates.yaml
+include pantheon/cli/rag_system_config.yaml
+recursive-include pantheon/factory *.yaml
+recursive-include pantheon/cli *.yaml
+recursive-include configs *.yaml

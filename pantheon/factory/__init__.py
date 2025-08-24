@@ -39,6 +39,7 @@ async def create_agent(
     agent.not_loaded_toolsets = []
     if toolsets is None:
         return agent
+    endpoint_id = endpoint_service.service_info.service_id
     for toolset in toolsets:
         try:
             s = await endpoint_service.invoke(
@@ -46,9 +47,14 @@ async def create_agent(
             )
             if s is None:
                 raise ValueError(f"{toolset} service not found")
+            logger.info(
+                f"Agent:{name} Added toolset {toolset} to agent {name} endpoint_id:{endpoint_id}"
+            )
             await agent.remote_toolset(s["id"])
         except Exception as e:
-            logger.error(f"Failed to add toolset {toolset} to agent {name}: {e}")
+            logger.error(
+                f"Agent:{name} Failed to add toolset {toolset} in endpoint_id:{endpoint_id} with error:{e}"
+            )
             agent.not_loaded_toolsets.append(toolset)
     return agent
 
