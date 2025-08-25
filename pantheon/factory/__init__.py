@@ -17,6 +17,7 @@ async def create_agent(
     icon: str,
     toolsets: list[str] | None = None,
     toolful: bool = False,
+    **kwargs,
 ) -> Agent:
     """Create an agent from a template.
 
