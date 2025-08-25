@@ -14,13 +14,20 @@ async def acompletion_openai(
         response_format: Any | None = None,
         process_chunk: Callable | None = None,
         retry_times: int = 3,
+        base_url: str | None = None,
         ):
     from openai import AsyncOpenAI, NOT_GIVEN, APIConnectionError
 
-    client = AsyncOpenAI()
+    # Create client with custom base_url if provided
+    if base_url:
+        client = AsyncOpenAI(base_url=base_url)
+    else:
+        client = AsyncOpenAI()
     chunks = []
     _tools = tools or NOT_GIVEN
     _pcall = (tools is not None) or NOT_GIVEN
+    
+    # Use beta API only for OpenAI reasoning models (o1, o3 series)
     if model.startswith('o'):
         stream_manager = client.beta.chat.completions.stream(
             model=model,
@@ -44,16 +51,107 @@ async def acompletion_openai(
                     if event.type == "chunk":
                         chunk = event.chunk
                         chunks.append(chunk.model_dump())
-                        if process_chunk:
-                            delta = chunk.choices[0].delta.model_dump()
-                            await run_func(process_chunk, delta)
-                            if chunk.choices[0].finish_reason == "stop":
+                        if process_chunk and hasattr(chunk, 'choices') and chunk.choices and len(chunk.choices) > 0:
+                            choice = chunk.choices[0]
+                            if hasattr(choice, 'delta'):
+                                delta = choice.delta.model_dump()
+                                await run_func(process_chunk, delta)
+                            if hasattr(choice, 'finish_reason') and choice.finish_reason == "stop":
                                 await run_func(process_chunk, {"stop": True})
                 final_message = await stream.get_final_completion()
                 break
         except APIConnectionError as e:
             logger.error(f"OpenAI API connection error: {e}")
             retry_times -= 1
+    return final_message
+
+
+async def acompletion_zhipu(
+        messages: list[dict],
+        model: str,
+        tools: list[dict] | None = None,
+        response_format: Any | None = None,
+        process_chunk: Callable | None = None,
+        retry_times: int = 3,
+        base_url: str = "https://open.bigmodel.cn/api/paas/v4/",
+        ):
+    """
+    Zhipu AI (智谱AI) completion using OpenAI-compatible API format
+    
+    Zhipu AI provides OpenAI-compatible endpoints, so we can use the OpenAI client
+    with their custom base_url and API format.
+    """
+    from openai import AsyncOpenAI, NOT_GIVEN, APIConnectionError
+    import os
+
+    # Get API key from environment (ZAI_API_KEY for Zhipu AI)
+    api_key = os.environ.get('ZAI_API_KEY')
+    if not api_key:
+        raise ValueError("ZAI_API_KEY environment variable not set (required for Zhipu AI)")
+
+    # Create client pointing to Zhipu AI endpoint
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    _tools = tools or NOT_GIVEN
+
+    while retry_times > 0:
+        try:
+            # Use standard streaming API (Zhipu AI doesn't support beta API)
+            stream = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=_tools,
+                response_format=response_format,
+                stream=True
+            )
+            
+            collected_messages = []
+            async for chunk in stream:
+                if chunk.choices and len(chunk.choices) > 0:
+                    choice = chunk.choices[0]
+                    if hasattr(choice, 'delta'):
+                        delta = choice.delta
+                        if delta.content:
+                            collected_messages.append(delta.content)
+                        if process_chunk:
+                            await run_func(process_chunk, delta.model_dump())
+                    if hasattr(choice, 'finish_reason') and choice.finish_reason == "stop":
+                        if process_chunk:
+                            await run_func(process_chunk, {"stop": True})
+            
+            # Construct final message in pantheon-compatible format
+            class ZhipuMessage:
+                def __init__(self, content, role='assistant', tool_calls=None):
+                    self.content = content
+                    self.role = role 
+                    self.tool_calls = tool_calls
+                
+                def model_dump(self):
+                    return {
+                        'content': self.content,
+                        'role': self.role,
+                        'tool_calls': self.tool_calls
+                    }
+
+            class ZhipuChoice:
+                def __init__(self, message):
+                    self.message = message
+
+            class ZhipuResponse:
+                def __init__(self, choices):
+                    self.choices = choices
+
+            final_message = ZhipuResponse([
+                ZhipuChoice(ZhipuMessage(''.join(collected_messages)))
+            ])
+            
+            break
+        except APIConnectionError as e:
+            logger.error(f"Zhipu AI API connection error: {e}")
+            retry_times -= 1
+        except Exception as e:
+            logger.error(f"Zhipu AI API error: {e}")
+            retry_times -= 1
+    
     return final_message
 
 
@@ -70,20 +168,30 @@ async def acompletion_litellm(
         tools: list[dict] | None = None,
         response_format: Any | None = None,
         process_chunk: Callable | None = None,
+        base_url: str | None = None,
         ):
     litellm = import_litellm()
-    response = await litellm.acompletion(
-        model=model,
-        messages=messages,
-        tools=tools,
-        response_format=response_format,
-        stream=True,
-    )
+    
+    # Prepare arguments for litellm
+    kwargs = {
+        "model": model,
+        "messages": messages,
+        "tools": tools,
+        "response_format": response_format,
+        "stream": True,
+    }
+    
+    # Add base_url if provided (litellm uses api_base parameter)
+    if base_url:
+        kwargs["api_base"] = base_url
+    
+    response = await litellm.acompletion(**kwargs)
     async for chunk in response:
-        if process_chunk:
+        if process_chunk and hasattr(chunk, 'choices') and chunk.choices and len(chunk.choices) > 0:
             choice = chunk.choices[0]
-            await run_func(process_chunk, choice.delta.model_dump())
-            if choice.finish_reason == "stop":
+            if hasattr(choice, 'delta'):
+                await run_func(process_chunk, choice.delta.model_dump())
+            if hasattr(choice, 'finish_reason') and choice.finish_reason == "stop":
                 await run_func(process_chunk, {"stop": True})
     complete_resp = litellm.stream_chunk_builder(response.chunks)
     return complete_resp

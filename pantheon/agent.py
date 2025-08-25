@@ -24,6 +24,7 @@ from .memory import Memory
 from .utils.llm import (
     acompletion_litellm,
     acompletion_openai,
+    acompletion_zhipu,
     process_messages_for_hook_func,
     process_messages_for_model,
     remove_hidden_fields,
@@ -685,6 +686,12 @@ class Agent:
         else:
             model_name = model
         litellm_mode = (provider != "openai") or force_litellm
+        
+        # Get custom base_url from environment variable if set
+        base_url = None
+        env_var = f"{provider.upper()}_API_BASE"
+        if env_var in os.environ:
+            base_url = os.environ[env_var]
 
         tools = None
         if tool_use:
@@ -693,20 +700,43 @@ class Agent:
         if process_chunk:
             await run_func(process_chunk, {"begin": True})
 
-        if not litellm_mode:
+        if provider == "zhipu":
+            # Use dedicated Zhipu AI function
+            complete_resp = await acompletion_zhipu(
+                messages=messages,
+                model=model_name,
+                tools=tools,
+                response_format=response_format,
+                process_chunk=process_chunk,
+                base_url=base_url or "https://open.bigmodel.cn/api/paas/v4/",
+            )
+            if complete_resp and hasattr(complete_resp, 'choices') and complete_resp.choices and len(complete_resp.choices) > 0:
+                message = complete_resp.choices[0].message.model_dump()
+                if "parsed" in message:
+                    message.pop("parsed")
+                if "tool_calls" in message:
+                    if message["tool_calls"] == []:
+                        message["tool_calls"] = None
+            else:
+                message = {"role": "assistant", "content": "Error: Empty response from Zhipu AI"}
+        elif not litellm_mode:
             complete_resp = await acompletion_openai(
                 messages=messages,
                 model=model_name,
                 tools=tools,
                 response_format=response_format,
                 process_chunk=process_chunk,
+                base_url=base_url,
             )
-            message = complete_resp.choices[0].message.model_dump()
-            if "parsed" in message:
-                message.pop("parsed")
-            if "tool_calls" in message:
-                if message["tool_calls"] == []:
-                    message["tool_calls"] = None
+            if complete_resp and hasattr(complete_resp, 'choices') and complete_resp.choices and len(complete_resp.choices) > 0:
+                message = complete_resp.choices[0].message.model_dump()
+                if "parsed" in message:
+                    message.pop("parsed")
+                if "tool_calls" in message:
+                    if message["tool_calls"] == []:
+                        message["tool_calls"] = None
+            else:
+                message = {"role": "assistant", "content": "Error: Empty response from API"}
         else:
             complete_resp = await acompletion_litellm(
                 messages=messages,
@@ -714,8 +744,12 @@ class Agent:
                 tools=tools,
                 response_format=response_format,
                 process_chunk=process_chunk,
+                base_url=base_url,
             )
-            message = complete_resp.choices[0].message.model_dump()
+            if complete_resp and hasattr(complete_resp, 'choices') and complete_resp.choices and len(complete_resp.choices) > 0:
+                message = complete_resp.choices[0].message.model_dump()
+            else:
+                message = {"role": "assistant", "content": "Error: Empty response from API"}
         return message
 
     async def _acompletion_with_models(
