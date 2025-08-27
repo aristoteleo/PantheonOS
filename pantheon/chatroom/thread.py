@@ -18,14 +18,15 @@ class Thread:
         run_hook_timeout: The timeout for the hook.
         hook_retry_times: The number of times to retry the hook.
     """
+
     def __init__(
-            self,
-            team: PantheonTeam,
-            memory: Memory,
-            message: list[dict],
-            run_hook_timeout: float = 1.0,
-            hook_retry_times: int = 5,
-            ):
+        self,
+        team: PantheonTeam,
+        memory: Memory,
+        message: list[dict],
+        run_hook_timeout: float = 1.0,
+        hook_retry_times: int = 5,
+    ):
         self.id = str(uuid.uuid4())
         self.team = team
         self.memory = memory
@@ -62,23 +63,26 @@ class Thread:
         chunk["chat_id"] = self.memory.id
         _coros = []
         for hook in self._process_chunk_hooks:
+
             async def _run_hook(hook: Callable, chunk: dict):
                 res = None
                 error = None
                 for _ in range(self.hook_retry_times):
                     try:
                         res = await asyncio.wait_for(
-                            run_func(hook, chunk),
-                            timeout=self.run_hook_timeout
+                            run_func(hook, chunk), timeout=self.run_hook_timeout
                         )
                         return res
                     except Exception as e:
-                        logger.debug(f"Failed run hook {hook.__name__} for chunk {chunk}, retry {_ + 1} of {self.hook_retry_times}")
+                        logger.debug(
+                            f"Failed run hook {hook.__name__} for chunk {chunk}, retry {_ + 1} of {self.hook_retry_times}"
+                        )
                         error = e
                         continue
                 else:
                     logger.error(f"Error running process_chunk hook: {error}")
                     self._process_chunk_hooks.remove(hook)
+
             _coros.append(_run_hook(hook, chunk))
         await asyncio.gather(*_coros)
 
@@ -91,17 +95,18 @@ class Thread:
         step_message["chat_id"] = self.memory.id
         _coros = []
         for hook in self._process_step_message_hooks:
+
             async def _run_hook(hook: Callable, step_message: dict):
                 res = None
                 try:
                     res = await asyncio.wait_for(
-                        run_func(hook, step_message),
-                        timeout=self.run_hook_timeout
+                        run_func(hook, step_message), timeout=self.run_hook_timeout
                     )
                 except Exception as e:
                     logger.error(f"Error running process_step_message hook: {str(e)}")
                     self._process_step_message_hooks.remove(hook)
                 return res
+
             _coros.append(_run_hook(hook, step_message))
         await asyncio.gather(*_coros)
 
@@ -116,8 +121,12 @@ class Thread:
                 # summary to get new name using LLM
                 prompt = "Please summarize the question to get a name for the chat: \n"
                 prompt += str(self.message)
-                prompt += "\n\nPlease directly return the name, no other text or explanation."
-                new_name = await self.team.run(prompt, use_memory=False, update_memory=False)
+                prompt += (
+                    "\n\nPlease directly return the name, no other text or explanation."
+                )
+                new_name = await self.team.run(
+                    prompt, use_memory=False, update_memory=False
+                )
                 self.memory.name = new_name.content
 
             resp = await self.team.run(
@@ -127,12 +136,21 @@ class Thread:
                 process_step_message=self.process_step_message,
                 check_stop=self._check_stop,
             )
-            self.response = {"success": True, "response": resp.content, "chat_id": self.memory.id}
+            self.response = {
+                "success": True,
+                "response": resp.content,
+                "chat_id": self.memory.id,
+            }
         except Exception as e:
             logger.error(f"Error chatting: {e}")
             import traceback
+
             traceback.print_exc()
-            self.response = {"success": False, "message": str(e), "chat_id": self.memory.id}
+            self.response = {
+                "success": False,
+                "message": str(e),
+                "chat_id": self.memory.id,
+            }
 
     def _check_stop(self, *args, **kwargs):
         """Check if the thread should be stopped.
@@ -149,4 +167,3 @@ class Thread:
             The response of the thread.
         """
         self._stop_flag = True
-        
