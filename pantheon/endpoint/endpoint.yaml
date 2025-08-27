@@ -1,0 +1,35 @@
+service_name: "pantheon-chatroom-endpoint"
+workspace_path: "./.pantheon-chatroom-workspace"
+log_level: "INFO"
+# If you want to allow file transfer through the endpoint, set it to true
+allow_file_transfer: true
+# If you want to use a specific id hash, set it here
+#id_hash: "xxxx"
+
+# Provide the type name of the builtin services
+# available builtin services
+#   python_interpreter
+#   file_manager
+#   web_browse
+#   r_interpreter
+#   shell
+#   vector_rag (Need OPENAI_API_KEY in the environment)
+#   scraper (Need SCRAPER_API_KEY in the environment)
+# You can specify the docker image name to run the service inside the docker container
+# Like:
+#  - type: python_interpreter
+#    name: python.basic
+#    docker_image: python.basic
+# You can also specify the conda environment to run the service
+#  - type: python_interpreter
+#    name: python.sc_analysis
+#    conda_env: sc_analysis
+#    conda_command: "micromamba"  # default is "conda"
+builtin_services:
+  - type: python_interpreter
+  - file_manager
+  - web_browse
+
+# Provide the service id/name of the outer services
+#outer_services:
+#  - xxxx

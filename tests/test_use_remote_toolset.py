@@ -2,7 +2,7 @@ import time
 import asyncio
 from executor.engine import Engine, LocalJob
 
-from pantheon.toolsets.utils.toolset import ToolSet, tool
+from pantheon.toolset import ToolSet, tool
 
 
 async def test_agent_call_remote_toolset():

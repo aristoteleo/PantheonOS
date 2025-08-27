@@ -12,9 +12,9 @@ from pydantic import BaseModel, create_model
 from fastmcp import Client
 from magique.worker import ReverseCallable
 
-from pantheon.toolsets.utils.toolset import ToolSet
+from .toolset import ToolSet
 
-from pantheon.toolsets.remote import (
+from .remote import (
     RemoteBackendFactory,
     RemoteConfig,
     RemoteWorker,

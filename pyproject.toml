@@ -13,9 +13,12 @@ dependencies = [
     "pillow>=10.4.0",
     "rich>=13.9.4",
     "rich-pyfiglet",
-    "ddgs>=9.5.2",
-    "pantheon-toolsets>=0.5.0",
-    "magique>=0.6.7"
+    "magique>=0.6.7",
+    "fastmcp>=2.11.0",
+    "hypha_rpc",
+    "nats-py>=2.6.0",
+    "httpx>=0.28.1",
+    "diskcache",
 ]
 dynamic = ["version"]
 
@@ -34,6 +37,16 @@ dev = [
 slack = [
     "slack-sdk",
     "slack-bolt",
+]
+toolsets = [
+    "ddgs>=9.5.2",
+    "crawl4ai>=0.5.0",
+    "matplotlib>=3.10.3",
+    "pandas",
+    "cloudpickle>=3.0.0",
+    #"PyMuPDF>=1.25.5",
+    #"lancedb>=0.20.0",
+    #"difflib",
 ]
 
 [dependency-groups]

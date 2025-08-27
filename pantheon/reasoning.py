@@ -1,7 +1,7 @@
 from .utils.llm import import_litellm
 
 
-def use_reasoning_model(model):
+def use_reasoning_model(model, doc_string: str = None):
     async def reasoning(question: str) -> str:
         """Use reasoning model to solve complex problems.
         Especially useful for math, logic, physics, programming and other complex problems."""
@@ -11,6 +11,10 @@ def use_reasoning_model(model):
             messages=[{"role": "user", "content": question}],
         )
         return response["choices"][0]["message"]["content"]
+
+    if doc_string:
+        reasoning.__doc__ = doc_string
+
     return reasoning
 
 
