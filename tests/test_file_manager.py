@@ -16,7 +16,7 @@ async def test_file_transfer():
     test_output_file = "test_output.txt"
     with TemporaryDirectory() as temp_dir:
         toolset = FileTransferToolSet("file_transfer", temp_dir)
-        async with run_toolsets([toolset]):
+        async with run_toolsets([toolset], log_level="DEBUG"):
             client = FileTransferClient(toolset.service_id)
             await client.send_file(test_file, "test.txt", chunk_size=10000)
             await client.fetch_file(test_output_file, "test.txt", chunk_size=10000)
