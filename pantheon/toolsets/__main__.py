@@ -2,11 +2,15 @@ import fire
 import ast
 import importlib
 from pathlib import Path
+from rich.console import Console
 
 from ..constant import HYPHA_SERVER_URL
 
 
 HERE = Path(__file__).parent
+
+console = Console()
+
 
 def get_toolset_modules():
     return [
@@ -42,8 +46,10 @@ def import_toolset_class(module_name: str):
 
 
 def list_toolsets():
-    """List all available toolsets."""
-    print("Available toolsets:")
+    """List all available built-in toolsets."""
+    print()
+    console.print("[bold]Available built-in toolsets:[/bold]")
+    print()
     for module_name in sorted(get_toolset_modules()):
         toolset_class = import_toolset_class(module_name)
         doc = toolset_class.__doc__
@@ -52,15 +58,25 @@ def list_toolsets():
             for line in lines:
                 if line.strip() != "":
                     break
-            print(f"- {module_name}: {line.strip()}")
+            console.print(f"- [bold]{module_name}[/bold]: [dim]{line.strip()}[/dim]")
         else:
-            print(f"- {module_name}")
+            console.print(f"- [bold]{module_name}[/bold]")
+    print()
+
 
 def detail(toolset_name: str):
     """View detailed information about a toolset."""
     toolset_class = import_toolset_class(toolset_name)
     doc = toolset_class.__doc__
-    print(doc)
+    print()
+    console.print(f"[bold]{toolset_class.__name__} Doc-string:[/bold]")
+    print()
+    console.print(doc)
+    print()
+    console.print("Start this toolset with:")
+    print()
+    console.print(f"[bold]$[/bold] [dim]python -m pantheon.toolsets start {toolset_name}[/dim]")
+    print()
 
 
 async def start(
