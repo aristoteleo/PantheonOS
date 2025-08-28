@@ -46,10 +46,11 @@ async def test_web_toolset():
         s = await connect_remote(toolset.service_id)
         try:
             await s.invoke("duckduckgo_search", {"query": "Hello, world!"})
-            await job.cancel()
-            await engine.wait_async()
         except MagiqueError as e:
             print(e)
+        finally:
+            await job.cancel()
+            await engine.wait_async()
 
 
 async def test_python_interpreter_toolset():

@@ -15,6 +15,7 @@ class WebToolSet(ToolSet):
 
     @tool(job_type="thread")
     async def duckduckgo_search(
+            self,
             query: str,
             max_results: int = 10,
             time_limit: str | None = None,
@@ -37,7 +38,11 @@ class WebToolSet(ToolSet):
         return results
 
     @tool(job_type="thread")
-    async def web_crawl(urls: list[str], timeout: float = 20.0) -> list[str]:
+    async def web_crawl(
+            self,
+            urls: list[str],
+            timeout: float = 20.0,
+        ) -> list[str]:
         """
         Crawl the web and return the contents of the pages.
         Result will be in markdown format.
