@@ -2,7 +2,6 @@
 
 import json
 from pathlib import Path
-from typing import Optional
 
 from .api_key_manager import APIKeyManager
 
@@ -74,22 +73,22 @@ AVAILABLE_MODELS = {
     # Qwen/Alibaba Models - Legacy
     "qwen/qwen-2.5-72b-instruct": "Qwen 2.5 72B (Legacy)",
     # Kimi/Moonshot Models - Latest K2 Series
-    "kimi-k2-0711-preview": "Kimi K2 (Preview)",
-    "kimi-k2-turbo-preview": "Kimi K2 Turbo (Preview)",
+    "moonshot/kimi-k2-0711-preview": "Kimi K2 (Preview)",
+    "moonshot/kimi-k2-turbo-preview": "Kimi K2 Turbo (Preview)",
     # Kimi/Moonshot Models - Latest Series
-    "kimi-latest": "Kimi Latest (Auto Context)",
-    "kimi-latest-8k": "Kimi Latest 8K",
-    "kimi-latest-32k": "Kimi Latest 32K",
-    "kimi-latest-128k": "Kimi Latest 128K",
+    "moonshot/kimi-latest": "Kimi Latest (Auto Context)",
+    "moonshot/kimi-latest-8k": "Kimi Latest 8K",
+    "moonshot/kimi-latest-32k": "Kimi Latest 32K",
+    "moonshot/kimi-latest-128k": "Kimi Latest 128K",
     # Kimi/Moonshot Models - Moonshot V1 Series
-    "moonshot-v1-8k": "Moonshot V1 8K",
-    "moonshot-v1-32k": "Moonshot V1 32K",
-    "moonshot-v1-128k": "Moonshot V1 128K",
-    "moonshot-v1-8k-vision-preview": "Moonshot V1 8K Vision",
-    "moonshot-v1-32k-vision-preview": "Moonshot V1 32K Vision",
-    "moonshot-v1-128k-vision-preview": "Moonshot V1 128K Vision",
+    "moonshot/moonshot-v1-8k": "Moonshot V1 8K",
+    "moonshot/moonshot-v1-32k": "Moonshot V1 32K",
+    "moonshot/moonshot-v1-128k": "Moonshot V1 128K",
+    "moonshot/moonshot-v1-8k-vision-preview": "Moonshot V1 8K Vision",
+    "moonshot/moonshot-v1-32k-vision-preview": "Moonshot V1 32K Vision",
+    "moonshot/moonshot-v1-128k-vision-preview": "Moonshot V1 128K Vision",
     # Kimi/Moonshot Models - Thinking Series
-    "kimi-thinking-preview": "Kimi Thinking (Preview)",
+    "moonshot/kimi-thinking-preview": "Kimi Thinking (Preview)",
     # Kimi/Moonshot Models - Legacy
     "moonshot/moonshot-v1-8k": "Kimi 8K (Legacy)",
     "moonshot/moonshot-v1-32k": "Kimi 32K (Legacy)", 
@@ -97,6 +96,16 @@ AVAILABLE_MODELS = {
     # Grok/xAI Models
     "grok/grok-beta": "Grok Beta",
     "grok/grok-2": "Grok 2",
+    # Zhipu AI/GLM Models (User-friendly names, internally converted to openai/ format)
+    "zhipu/glm-4.5": "GLM-4.5 (Zhipu AI - Latest)",
+    "zhipu/glm-4.5-air": "GLM-4.5 Air (Zhipu AI - Latest)",
+    "zhipu/glm-4.5-flash": "GLM-4.5 Flash (Zhipu AI - Latest)",
+    "zhipu/glm-4": "GLM-4 (Zhipu AI)",
+    "zhipu/glm-4-plus": "GLM-4 Plus (Zhipu AI)", 
+    "zhipu/glm-4-air": "GLM-4 Air (Zhipu AI)",
+    "zhipu/glm-4-flash": "GLM-4 Flash (Zhipu AI - Free)",
+    "zhipu/glm-4-long": "GLM-4 Long (Zhipu AI)",
+    
     # Local/Other Models
     "ollama/llama3.2": "Llama 3.2 (Local)",
 }
@@ -105,8 +114,8 @@ AVAILABLE_MODELS = {
 class ModelManager:
     """Manages model selection and switching for Pantheon CLI"""
     
-    def __init__(self, config_file_path: Path, api_key_manager: APIKeyManager):
-        self.config_file_path = config_file_path
+    def __init__(self, config_file_path: Path | str, api_key_manager: APIKeyManager):
+        self.config_file_path = Path(config_file_path)
         self.api_key_manager = api_key_manager
         self.current_model = "gpt-5"
         self.current_agent = None
@@ -147,6 +156,7 @@ class ModelManager:
     def set_agent(self, agent):
         """Set the current agent reference for model updates"""
         self.current_agent = agent
+    
     
     def switch_model(self, new_model: str) -> str:
         """Switch to a new model"""
@@ -198,6 +208,8 @@ class ModelManager:
                 provider = "DeepSeek"
             elif model_id.startswith("ollama/"):
                 provider = "Local"
+            elif model_id.startswith("zhipu/"):
+                provider = "Zhipu AI"
             else:
                 provider = "OpenAI"
             
@@ -236,36 +248,10 @@ class ModelManager:
         return result
     
     def get_current_model_status(self) -> str:
-        """Get current model with API key and endpoint status"""
+        """Get current model with API key status"""
         key_available, key_message = self.api_key_manager.check_api_key_for_model(self.current_model)
         key_status = "✅" if key_available else "❌"
-        
-        # Get endpoint info
-        provider = self._get_provider_from_model(self.current_model)
-        endpoint_info = ""
-        if provider in self.api_key_manager.endpoints_cache:
-            endpoint_info = f"\n🌐 Custom Endpoint: {self.api_key_manager.endpoints_cache[provider]}"
-        
-        return f"📱 Current Model: {AVAILABLE_MODELS.get(self.current_model, self.current_model)} ({self.current_model})\n{key_status} {key_message}{endpoint_info}"
-    
-    def _get_provider_from_model(self, model: str) -> str:
-        """Extract provider name from model string"""
-        if model.startswith("anthropic/"):
-            return "anthropic"
-        elif model.startswith(("qwq-", "qwen-", "qvq-")) or model.startswith("qwen/"):
-            return "qwen"
-        elif model.startswith(("kimi-", "moonshot-")) or model.startswith("moonshot/"):
-            return "moonshot"
-        elif model.startswith("grok/"):
-            return "grok"
-        elif model.startswith("gemini/"):
-            return "google"
-        elif model.startswith("deepseek/"):
-            return "deepseek"
-        elif model.startswith("ollama/"):
-            return "ollama"
-        else:
-            return "openai"
+        return f"📱 Current Model: {AVAILABLE_MODELS.get(self.current_model, self.current_model)} ({self.current_model})\n{key_status} {key_message}"
     
     def handle_model_command(self, command: str) -> str:
         """Handle /model commands"""

@@ -337,7 +337,6 @@ class ReplUI:
         self.console.print("[dim][bold purple]/save    [/bold purple][/dim] - Save conversation with terminal output to markdown")
         self.console.print("[dim][bold purple]/clear   [/bold purple][/dim] - Clear screen")
         self.console.print("[dim][bold purple]/restart [/bold purple][/dim] - Restart Python interpreter (clear all state)")
-        self.console.print("[dim][bold purple]/bio     [/bold purple][/dim] - Bioinformatics analysis helper 🧬")
         self.console.print("[dim][bold purple]!<cmd>   [/bold purple][/dim] - Execute bash command directly (no LLM)")
         self.console.print("[dim][bold purple]%<code>  [/bold purple][/dim] - Execute Python code directly (no LLM)")
         self.console.print("[dim][bold purple]><code>  [/bold purple][/dim] - Execute R code directly (no LLM)")

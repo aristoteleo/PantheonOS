@@ -27,6 +27,7 @@ from .handlers.builtin.bash import BashCommandHandler
 from .handlers.builtin.r import RCommandHandler
 from .handlers.builtin.julia import JuliaCommandHandler
 from .handlers.builtin.python import PythonCommandHandler
+from .handlers.builtin.model_manager import ModelManagerCommandHandler
 
 
 class Repl(ReplUI):
@@ -81,6 +82,7 @@ class Repl(ReplUI):
             RCommandHandler(self.console, self),
             JuliaCommandHandler(self.console, self),
             PythonCommandHandler(self.console, self),
+            ModelManagerCommandHandler(self.console, self),
         ]
 
     def register_handler(self, handler: CommandHandler | str | Path):
@@ -292,30 +294,6 @@ class Repl(ReplUI):
             # Handle special commands FIRST (before sending to API)
             cmd = current_message.strip()
             
-            # Handle direct bash commands with ! prefix
-            if cmd.startswith("!"):
-                bash_command = cmd[1:].strip()  # Remove the ! prefix
-                if bash_command:
-                    await self._execute_direct_bash(bash_command)
-                current_message = None  # Reset to get new input
-                continue
-            
-            # Handle direct R code with > prefix
-            if cmd.startswith(">"):
-                r_code = cmd[1:].strip()  # Remove the > prefix
-                if r_code:
-                    await self._execute_direct_r(r_code)
-                current_message = None  # Reset to get new input
-                continue
-            
-            # Handle direct Julia code with ] prefix
-            if cmd.startswith("]"):
-                julia_code = cmd[1:].strip()  # Remove the ] prefix
-                if julia_code:
-                    await self._execute_direct_julia(julia_code)
-                current_message = None  # Reset to get new input
-                continue
-            
             cmd_lower = cmd.lower()
             
             if cmd_lower in ["exit", "quit", "q", "/exit", "/quit", "/q"]:
@@ -358,21 +336,16 @@ class Repl(ReplUI):
                 self._handle_endpoint_command(current_message.strip())
                 current_message = None  # Reset to get new input
                 continue
-            elif current_message.strip().startswith("/bio"):
-                bio_message = await self.bio_handler.handle_bio_command(current_message.strip())
-                if bio_message:
-                    current_message = bio_message
-                else:
-                    current_message = None  # Reset to get new input
-                    continue
             
             # Handle custom commands
-            continue_flag = True
+            continue_flag = False
             for handler in self.handlers:
                 if handler.match_command(cmd):
                     current_message = await handler.handle_command(cmd)
                     if current_message is not None:
                         continue_flag = False
+                    else:
+                        continue_flag = True
                     break
             if continue_flag:
                 continue
@@ -554,45 +527,6 @@ class Repl(ReplUI):
 
         print_task.cancel()
     
-    def _handle_model_command(self, command: str):
-        """Handle /model commands in REPL"""
-        try:
-            if hasattr(self.agent, '_model_manager') and self.agent._model_manager:
-                result = self.agent._model_manager.handle_model_command(command)
-                # Print result as plain text to avoid formatting issues
-                self.console.print(result)
-            else:
-                self.console.print("[red]Model management not available. Please restart with the CLI.[/red]")
-        except Exception as e:
-            self.console.print(f"[red]Error handling model command: {str(e)}[/red]")
-        self.console.print()  # Add spacing
-
-    def _handle_api_key_command(self, command: str):
-        """Handle /api-key commands in REPL"""
-        try:
-            if hasattr(self.agent, '_api_key_manager') and self.agent._api_key_manager:
-                result = self.agent._api_key_manager.handle_api_key_command(command)
-                # Print result as plain text to avoid formatting issues
-                self.console.print(result)
-            else:
-                self.console.print("[red]API key management not available. Please restart with the CLI.[/red]")
-        except Exception as e:
-            self.console.print(f"[red]Error handling API key command: {str(e)}[/red]")
-        self.console.print()  # Add spacing
-
-    def _handle_endpoint_command(self, command: str):
-        """Handle /endpoint commands in REPL"""
-        try:
-            if hasattr(self.agent, '_api_key_manager') and self.agent._api_key_manager:
-                result = self.agent._api_key_manager.handle_endpoint_command(command)
-                # Print result as plain text to avoid formatting issues
-                self.console.print(result)
-            else:
-                self.console.print("[red]Error: Endpoint manager not available[/red]")
-        except Exception as e:
-            self.console.print(f"[red]Error handling endpoint command: {str(e)}[/red]")
-        self.console.print()  # Add spacing
-
     def _handle_save_command(self, command: str):
         """Handle /save commands in REPL"""
         try:

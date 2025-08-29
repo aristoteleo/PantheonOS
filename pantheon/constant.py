@@ -16,3 +16,6 @@ else:
     SERVER_URLS = [_SERVER_URL]
 
 HYPHA_SERVER_URL = os.environ.get("HYPHA_SERVER_URL", "https://hypha.aristoteleo.com")
+
+CONFIG_DIR = os.path.realpath(os.environ.get("CONFIG_DIR", "~/.pantheon"))
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.yaml")
