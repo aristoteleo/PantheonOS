@@ -91,9 +91,9 @@ class Repl(ReplUI):
         """Register a handler for processing commands
         
         Args:
-            handler: A CommandHandler instance, a path to a YAML file, or a string.
-        
-        If a path or string is provided, the YAML file will be loaded and used to create a TemplateHandler instance.
+            handler: A CommandHandler instance or a path to a config file/folder.
+
+        If a path or string is provided, the config file/folder will be loaded and used to create a TemplateHandler instance.
         If a CommandHandler instance is provided, it will be added to the handlers list.
         """
         if isinstance(handler, CommandHandler):
@@ -105,7 +105,7 @@ class Repl(ReplUI):
                 template_handler = TemplateHandler(self.console, self, template)
                 self.handlers.append(template_handler)
             else:
-                self.console.print(f"[red]Template file not found: {yaml_path}[/red]")
+                self.console.print(f"[red]Template file not found: {p}[/red]")
 
     def _setup_signal_handlers(self):
         """Setup signal handlers for better interrupt management"""
@@ -515,7 +515,7 @@ class Repl(ReplUI):
             current_message = None  # Reset to get new input
 
         print_task.cancel()
-    
+
     def _handle_save_command(self, command: str):
         """Handle /save commands in REPL"""
         try:

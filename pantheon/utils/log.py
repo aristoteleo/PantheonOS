@@ -1,5 +1,5 @@
 import sys
-from loguru import logger
+from loguru import logger as loguru_logger
 from rich.console import Console
 
 console = Console()
@@ -19,11 +19,11 @@ class CustomLogger:
     def set_level(self, level: str):
         self.level = LEVEL_MAP[level]
         if not self.use_rich:
-            logger.remove()
-            logger.add(sys.stdout, level=self.level)
+            loguru_logger.remove()
+            loguru_logger.add(sys.stdout, level=self.level)
 
     def disable(self, name: str):
-        logger.disable(name)
+        loguru_logger.disable(name)
 
     def info(self, message: str, rich = None):
         if self.level > LEVEL_MAP["INFO"]:
@@ -31,7 +31,7 @@ class CustomLogger:
         if self.use_rich:
             console.print(message)
         else:
-            logger.info(message)
+            loguru_logger.info(message)
         if rich is not None:
             console.print(rich)
 
@@ -41,7 +41,7 @@ class CustomLogger:
         if self.use_rich:
             console.print(message)
         else:
-            logger.error(message)
+            loguru_logger.error(message)
         if rich is not None:
             console.print(rich)
 
@@ -51,7 +51,7 @@ class CustomLogger:
         if self.use_rich:
             console.print(message)
         else:
-            logger.warning(message)
+            loguru_logger.warning(message)
         if rich is not None:
             console.print(rich)
 
@@ -61,7 +61,7 @@ class CustomLogger:
         if self.use_rich:
             console.print(message)
         else:
-            logger.debug(message)
+            loguru_logger.debug(message)
         if rich is not None:
             console.print(rich)
 

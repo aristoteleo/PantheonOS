@@ -9,10 +9,16 @@ from pantheon.toolsets.python import PythonInterpreterToolSet
 from pantheon.toolsets.r import RInterpreterToolSet
 from pantheon.toolsets.julia import JuliaInterpreterToolSet
 from pantheon.toolsets.shell import ShellToolSet
+from pantheon.toolsets.workflow import WorkflowToolSet
+
+HERE = os.path.dirname(__file__)
 
 async def main():
     logger.use_rich = True
     logger.set_level("INFO")
+    logger.disable("executor.engine")
+
+    bio_workflow_path = os.path.join(HERE, "bio_workflows")
 
     agent = Agent(
         name="CLI Agent",
@@ -23,11 +29,11 @@ async def main():
     agent.toolset(RInterpreterToolSet("r"))
     agent.toolset(JuliaInterpreterToolSet("julia"))
     agent.toolset(ShellToolSet("bash"))
+    agent.toolset(WorkflowToolSet("bio-workflow", bio_workflow_path))
 
     repl = Repl(agent)
 
-    bio_handler_template_path = os.path.join(os.path.dirname(__file__), "bio.toml")
-    repl.register_handler(bio_handler_template_path)
+    repl.register_handler(bio_workflow_path)
 
     await repl.run()
 

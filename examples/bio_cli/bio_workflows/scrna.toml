@@ -1,0 +1,927 @@
+[bio.scrna.init]
+as_handler = true
+description = "Initialize single-cell RNA-seq pipeline."
+content = """
+scRNA INIT MODE — STRICT
+
+Goal: ONLY clear TodoList and report the new status. Do NOT create or execute anything.
+
+Allowed tools (whitelist):
+  - clear_all_todos()
+  - show_todos()
+
+Hard bans (do NOT call under any circumstance in init):
+  - add_todo(), mark_task_done(), execute_current_task()
+  - any scrna.* analysis tools
+
+Steps:
+  1) clear_all_todos()
+  2) todos = show_todos()
+
+Response format (single line):
+  scRNA init ready • todos={len(todos)}
+"""
+
+[bio.scrna.analysis]
+as_handler = true
+description = "Single-cell RNA-seq analysis."
+args = ["data_path"]
+
+content = """
+🧬 Single-cell RNA-seq Analysis Pipeline with omicverse Integration
+Target data path: {data_path}
+
+⚠️ CRITICAL PYTHON ENVIRONMENT RULES:
+- **PERSISTENT STATE**: Python interpreter maintains ALL variables across calls! 
+- **MEMORY OPTIMIZATION**: Variables persist! NEVER re-read or re-import data that already exists in memory!
+- **SMART VARIABLE CHECKING**: Use `try/except` or `'var' in globals()` to check existence - NO redundant file I/O!
+- **EFFICIENCY FIRST**: 
+  - Check if adata exists before loading: `if 'adata' not in globals()`
+  - Use existing results: `if 'pca_result' in adata.obsm`
+  - Reuse computed values: `if 'marker_genes' in locals()`
+- **ERROR RECOVERY**: If code fails, analyze error and fix - don't reload everything!
+- **NO REPETITION**: Each import/load/compute happens ONCE per session unless explicitly needed
+- **After each step**: mark_task_done("description"), then show_todos()
+- **AUTOMATIC EXECUTION**: Proceed automatically without confirmations; log warnings when needed.
+
+Always use the provided data_path: "{data_path}" for data loading and analysis.
+
+PHASE 0 — SETUP & VALIDATION
+1) Data discovery: Use ls command to check folder contents, then proceed with file loading
+2) Environment check will be done automatically within data loading step
+
+PHASE 1 — TODO CREATION (ONCE ONLY)
+Execute: current = show_todos()
+IF current is EMPTY, create these todos ONCE:
+1. "Check Python environment and load initial data"
+2. "Inspect data structure and determine processing pipeline"  
+3. "Apply quality control with omicverse.pp.qc"
+4. "Perform preprocessing with omicverse.pp.preprocess"
+5. "Compute PCA with omicverse.pp.pca"
+6. "Apply batch correction if needed"
+7. "Run clustering analysis"
+8. "Ask user for data context (tissue/condition)"
+9. "Generate context-specific cell types and markers from description"
+10. "Find cluster-specific marker genes from data"
+11. "Calculate AUCell scores for cell type markers"
+12. "Annotate cell type with LLM"
+13. "Conduct downstream analysis"
+14. "Generate analysis report"
+
+⚡ AUTOMATIC WORKFLOW MODE:
+- Execute each todo task automatically without asking for confirmation
+- After successful completion of any step, immediately call mark_task_done("description") and proceed to next
+- Continue the workflow seamlessly until all tasks complete or user intervenes
+
+PHASE 2 — ADAPTIVE EXECUTION WORKFLOW
+
+⚠️ CRITICAL EXECUTION STRATEGY:
+When you call scrna.run_scrna_workflow(), it returns guidance, explanations, and example Python code using toolset function run_python_code.
+You MUST:
+1. **Read and analyze** the entire returned content carefully
+2. **Understand the logic** and methodology described
+3. **Adapt the provided code** to your current data situation (adata shape, available columns, etc.)
+4. **Modify parameters** based on your actual data characteristics
+5. **Execute the adapted code** - NOT the original code directly
+6. **Handle errors** by adjusting code based on the guidance provided
+
+🧠 **RESULT ANALYSIS REQUIREMENT:**
+After executing any code:
+1. **Analyze the output** - Don't just print and move on!
+2. **Interpret the results** - What do the numbers, plots, and warnings mean?
+3. **Check for issues** - Are there data quality problems or unexpected patterns?
+4. **Make decisions** - Should parameters be adjusted based on what you observed?
+5. **Document findings** - Save key insights to results directory
+6. **Proceed intelligently** - Use results to inform next steps
+
+The returned content serves as GUIDANCE and TEMPLATES, not direct execution scripts.
+
+📊 STEP 1 - DATA LOADING, INSPECTION & PROJECT SETUP:
+```python
+# EFFICIENT DATA LOADING - Check memory first!
+try:
+    # Check if adata exists and is valid
+    print(f"Using existing adata: {{adata.shape}} (n_obs, n_var)")
+    data_already_loaded = True
+except NameError:
+    # Only load if not in memory
+    print("Loading data for the first time...")
+    
+    # Check and install required packages
+    import subprocess
+    import sys
+    print("Checking required packages...")
+    required = ['scanpy', 'omicverse', 'pandas', 'numpy']
+    for pkg in required:
+        try:
+            __import__(pkg)
+        except ImportError:
+            print(f"Installing {{pkg}}...")
+            subprocess.run([sys.executable, '-m', 'pip', 'install', pkg])
+    
+    import scanpy as sc
+    import omicverse as ov
+    import pandas as pd
+    import numpy as np
+    
+    # Load data based on detected format
+    adata = sc.read_xxx("path")  # .h5ad, .h5, .mtx, etc.
+    print(f"Loaded: {{adata.shape}} (n_obs, n_var)")
+    data_already_loaded = False
+
+# Only import libraries once
+if 'sc' not in globals():
+    import scanpy as sc
+    import omicverse as ov
+    import pandas as pd
+    import numpy as np
+    print("Libraries imported")
+
+# Create structured output directory (only if not exists)
+print("\\n📁 Setting up project structure...")
+try:
+    # Check if we already have a results directory
+    if 'results_dir' not in globals():
+        import os
+        from datetime import datetime
+        
+        # Create main results directory with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        results_dir = f"scrna_analysis_results_{{timestamp}}"
+        os.makedirs(results_dir, exist_ok=True)
+    else:
+        print(f"Using existing results directory: {{results_dir}}")
+    
+    # Create subdirectories for different analysis components
+    subdirs = [
+        "01_data_loading",
+        "02_quality_control",
+        "03_preprocessing", 
+        "04_dimensionality_reduction",
+        "05_batch_correction",
+        "06_clustering",
+        "07_cell_type_annotation",
+        "08_visualization",
+        "09_downstream_analysis",
+        "10_reports",
+        "logs"
+    ]
+    
+    for subdir in subdirs:
+        os.makedirs(os.path.join(results_dir, subdir), exist_ok=True)
+    
+    # Store results directory in adata for later use (if adata exists)
+    if 'adata' in globals():
+        adata.uns['results_directory'] = results_dir
+        print(f"✅ Project structure ready: {{results_dir}}")
+    else:
+        print(f"✅ Project structure created: {{results_dir}} (will link to adata after loading)")
+    
+except Exception as e:
+    print(f"❌ Failed to create project structure: {{e}}")
+
+# Initial data inspection using unified toolset
+print("\\n🔍 Running initial data inspection...")
+data_inspection = scrna.load_and_inspect_data(data_path="{data_path}", output_dir=results_dir)
+print("✅ Data inspection complete")
+```
+
+🏷️ STEP 2 - QUALITY CONTROL:
+Get QC guidance and adapt the code to your data:
+scrna.run_scrna_workflow(workflow_type="qc")
+Then analyze the returned guidance and implement adapted QC code based on your adata structure.
+**CRITICAL**: Analyze QC results - cell counts, gene expression distributions, mitochondrial percentages. Interpret plots and decide on filtering thresholds.
+
+🏷️ STEP 3 - PREPROCESSING:
+Get preprocessing guidance and adapt the code to your data:
+scrna.run_scrna_workflow(workflow_type="preprocessing")
+Then analyze the returned guidance and implement adapted preprocessing code based on your adata characteristics.
+**CRITICAL**: Examine normalization results, highly variable genes selection. Check if the data distribution looks appropriate.
+
+🏷️ STEP 4 - PCA:
+Get PCA guidance and adapt the code to your data:
+scrna.run_scrna_workflow(workflow_type="pca")
+Then analyze the returned guidance and implement adapted PCA code based on your adata dimensions.
+**CRITICAL**: Analyze PCA results - variance explained, elbow plots. Determine optimal number of components to use.
+
+🏷️ STEP 5 - BATCH CORRECTION (if needed):
+```python
+# EFFICIENT BATCH CHECK - Only compute if not done before
+if 'real_batch_keys' not in globals():
+    # Check if batch correction is needed - look for REAL batch keys
+    # Real batch keys are typically: 'batch', 'sample', 'donor', 'experiment', 'plate', 'condition'
+    # NOT QC metrics like 'passing_mt', 'passing_ngenes', 'n_genes', 'total_counts', etc.
+    
+    real_batch_keys = []
+    potential_batch_keys = ['batch', 'sample', 'donor', 'experiment', 'plate', 'condition', 'library_id']
+    
+    for key in potential_batch_keys:
+        if key in adata.obs.columns:
+            # Check if it has multiple unique values and is categorical
+            unique_vals = adata.obs[key].nunique()
+            if unique_vals > 1 and unique_vals < adata.n_obs * 0.5:  # Not too many unique values
+                real_batch_keys.append(key)
+                print(f"Found real batch key: {{key}} with {{unique_vals}} unique values")
+else:
+    print(f"Using previously identified batch keys: {{real_batch_keys}}")
+
+if real_batch_keys:
+    print(f"\\n🔧 Real batch keys detected: {{real_batch_keys}}")
+    print("Proceeding with batch correction...")
+    # Only proceed if real batch keys exist
+else:
+    print("\\n✅ No real batch keys found - skipping batch correction")
+    print("Note: QC metrics like 'passing_mt', 'passing_ngenes' are NOT batch keys")
+```
+Only if real_batch_keys were found, get guidance and adapt the code:
+If real_batch_keys: scrna.run_scrna_workflow(workflow_type="batch_correction")
+Then implement adapted batch correction code based on your specific batch keys.
+**CRITICAL**: Only apply batch correction if there are REAL batch effects, not QC filtering metrics.
+
+🏷️ STEP 6 - CLUSTERING:
+Get clustering guidance and adapt the code to your data:
+scrna.run_scrna_workflow(workflow_type="clustering")
+Then analyze the returned guidance and implement adapted clustering code based on your adata.
+
+🏷️ STEP 7 - VISUALIZATION:
+Get UMAP guidance and adapt the code to your data:
+scrna.run_scrna_workflow(workflow_type="umap")
+Then analyze the returned guidance and implement adapted visualization code.
+
+🏷️ STEP 8 - DATA CONTEXT COLLECTION:
+```python
+# EFFICIENT CONTEXT COLLECTION - Check if already collected
+if 'user_data_context' not in globals():
+    print("\\n📝 **DATA CONTEXT COLLECTION**")
+    user_data_context = input("Please briefly describe your data (tissue, condition, experiment): ").strip()
+    print(f"Data context recorded: {{user_data_context}}")
+    
+    # Store context in adata
+    adata.uns['user_data_context'] = user_data_context
+else:
+    print(f"Using existing data context: {{user_data_context}}")
+```
+
+🏷️ STEP 9 - Marker from description:
+Get marker generation guidance based on data context:
+scrna.run_scrna_workflow(workflow_type="marker_from_desc", description=user_data_context)
+Then adapt and implement marker generation code based on the returned guidance and your tissue context.
+
+🏷️ STEP 10 - Marker from data:
+Get data-driven marker analysis guidance:
+scrna.run_scrna_workflow(workflow_type="marker_from_data")
+Then adapt and implement marker analysis code based on your actual cluster structure.
+**CRITICAL**: Evaluate marker genes - fold changes, p-values, specificity. Identify the most discriminative markers per cluster.
+
+🏷️ STEP 11 - AUCELL CELL TYPE SCORING:
+Get AUCell scoring guidance and methodology:
+scrna.run_scrna_workflow(workflow_type="aucell")
+Then adapt and implement AUCell scoring code based on your marker genes and cell clusters.
+**CRITICAL**: Examine AUCell scores distribution, thresholds, and how well they separate cell types. Validate scoring results.
+
+🏷️ STEP 12 - ANNOTATION:
+Get LLM-powered annotation guidance and workflow:
+scrna.run_scrna_workflow(workflow_type="llm_anno", description=user_data_context)
+Then adapt the annotation workflow based on your specific clustering results and evidence.
+**CRITICAL**: Carefully review LLM annotations against marker evidence. Verify biological plausibility of assigned cell types.
+
+🏷️ STEP 13 - DOWNSTREAM ANALYSIS:
+```python
+print("\\n🧬 Conducting downstream analysis...")
+
+# Generate comprehensive analysis report
+report_generation = scrna.generate_report(
+    data_path="{data_path}",
+    output_dir=results_dir,
+    include_qc=True,
+    include_clustering=True,
+    include_annotation=True
+)
+
+print("✅ Downstream analysis and reporting complete")
+```
+
+
+🔧 **AVAILABLE TOOLSET FUNCTIONS:**
+
+**UNIFIED WORKFLOW ENGINE:**
+- `scrna.run_scrna_workflow(workflow_type="qc")` - Quality control with omicverse
+- `scrna.run_scrna_workflow(workflow_type="preprocessing")` - Preprocessing with omicverse
+- `scrna.run_scrna_workflow(workflow_type="pca")` - PCA with omicverse
+- `scrna.run_scrna_workflow(workflow_type="clustering")` - Clustering analysis
+- `scrna.run_scrna_workflow(workflow_type="umap")` - Calculate UMAP
+- `scrna.run_scrna_workflow(workflow_type="aucell")` - AUCell scoring
+
+**EXECUTION STRATEGY:**
+1. Load data and create project structure
+2. Execute todos in sequence using appropriate workflow functions
+3. Use modular functions for specialized analysis steps
+4. Leverage omicverse integration with scanpy fallbacks
+5. Interactive LLM annotation for expert cell type assignment
+6. Comprehensive result saving and reporting
+
+**EFFICIENCY PRINCIPLES:**
+1. **CHECK BEFORE COMPUTE**: Always check if variables/results exist before recomputing
+2. **USE TRY/EXCEPT**: Gracefully handle missing variables without re-reading files
+3. **MEMORY-FIRST**: Trust the persistent Python interpreter - no redundant I/O
+4. **SMART RECOVERY**: Fix errors in-place, don't restart entire analysis
+5. **INCREMENTAL PROGRESS**: Each step builds on previous results
+
+Example patterns:
+```python
+# Good - Check memory first
+try:
+    print(f"Using existing adata: {{adata.shape}}")
+except NameError:
+    adata = sc.read_h5ad(path)
+
+# Good - Check computed results
+if 'X_pca' not in adata.obsm:
+    sc.tl.pca(adata)
+else:
+    print("PCA already computed")
+
+# Bad - Redundant file I/O
+adata = sc.read_h5ad(path)  # Don't do this if adata exists!
+```
+
+**Remember:** Maintain persistent state, avoid redundant operations, and mark tasks complete with mark_task_done()!
+"""
+
+[bio.scrna.task.analysis.qc]
+description = "Quality control for scRNA-seq data"
+content = """
+First, check the function parameters:
+```python
+import omicverse as ov
+# MANDATORY: Check help first before any omicverse function
+help(ov.pp.qc)
+```
+
+Then run the actual QC:
+```python
+# Check if QC already done
+if 'nUMIs' not in adata.obs.columns:
+    print("\\n📊 Running Quality Control...")
+    
+    try:
+        # Apply QC with actual omicverse parameters
+        qc_tresh = dict(mito_perc=0.2, nUMIs=500, detected_genes=250)
+        ov.pp.qc(adata, 
+                mode='seurat',           # 'seurat' or 'mads'
+                min_cells=3, 
+                min_genes=200,
+                mt_startswith='MT-',     # Mitochondrial gene prefix
+                tresh=qc_tresh)
+        print("✅ QC completed successfully")
+        
+        # Save QC results
+        try:
+            qc_dir = os.path.join(adata.uns['results_directory'], "02_quality_control")
+            
+            # Save QC parameters and statistics
+            qc_stats = dict(
+                pre_qc_cells=adata.n_obs,
+                pre_qc_genes=adata.n_vars,
+                qc_parameters=dict(
+                    mode="seurat",
+                    min_cells=3,
+                    min_genes=200,
+                    mt_startswith='MT-',
+                    mito_threshold=qc_tresh.get('mito_perc', 0.2),
+                    nUMIs_threshold=qc_tresh.get('nUMIs', 500),
+                    detected_genes_threshold=qc_tresh.get('detected_genes', 250)
+                ),
+                timestamp=datetime.now().isoformat()
+            ))
+            
+            
+            import json
+            with open(os.path.join(qc_dir, "qc_statistics.json"), 'w') as f:
+                json.dump(qc_stats, f, indent=2)
+            
+            # Save post-QC data
+            adata.write_h5ad(os.path.join(qc_dir, "post_qc_data.h5ad"))
+            
+            print(f"✅ QC results saved to {{qc_dir}}")
+            
+        except Exception as save_error:
+            print(f"⚠️ Failed to save QC results: {{save_error}}")
+        
+    except Exception as e:
+        print(f"❌ QC failed: {{e}}")
+        
+        
+else:
+    print("✅ QC already completed - skipping")
+"""
+
+[bio.scrna.task.analysis.preprocessing]
+description = "Preprocessing for scRNA-seq data"
+content = """
+First, check the function parameters:
+```python
+# MANDATORY: Check help first before any omicverse function  
+import omicverse as ov
+help(ov.pp.preprocess)
+```
+
+Then run preprocessing:
+```python
+# Check if preprocessing needed
+needs_preprocessing = (
+    ('highly_variable' or 'highly_variable_features') not in adata.var.columns or 
+    'counts' not in adata.layers or
+    adata.X.max() > 50  # Raw counts detected
+)
+
+if needs_preprocessing:
+    try:
+        # Use actual omicverse preprocess parameters
+        adata = ov.pp.preprocess(adata, 
+                                mode='shiftlog|pearson',    # normalization|HVG method
+                                target_sum=50*1e4,          # Target sum for normalization
+                                n_HVGs=2000,                # Number of HVGs
+                                organism='human',           # 'human' or 'mouse'
+                                no_cc=False)                # Remove cell cycle genes
+        adata.var['highly_variable'] = adata.var['highly_variable_features']
+        print("✅ Preprocessing completed successfully")
+        
+        # Save preprocessing results
+        try:
+            preprocess_dir = os.path.join(adata.uns['results_directory'], "03_preprocessing")
+            
+            # Save preprocessing parameters and statistics
+            preprocess_stats = dict()
+            preprocess_stats["preprocessing_parameters"] = dict(
+                mode="shiftlog|pearson",
+                target_sum=50*1e4,
+                n_HVGs=2000,
+                organism='human',
+                no_cc=False)
+            preprocess_stats["post_preprocessing"] = dict(
+                n_cells=adata.n_obs,
+                n_genes=adata.n_vars,
+                n_hvgs=sum(adata.var['highly_variable']) if 'highly_variable' in adata.var.columns else 0,
+                layers_available=list(adata.layers.keys()))
+            preprocess_stats["timestamp"] = datetime.now().isoformat()
+            preprocess_stats["hvg_genes"] = adata.var[adata.var['highly_variable']].index.tolist()
+            preprocess_stats["layers_available"] = list(adata.layers.keys())
+            preprocess_stats["timestamp"] = datetime.now().isoformat()
+            preprocess_stats["hvg_genes"] = adata.var[adata.var['highly_variable']].index.tolist()
+            preprocess_stats["layers_available"] = list(adata.layers.keys())
+            preprocess_stats["timestamp"] = datetime.now().isoformat()
+            
+            
+            # Save HVG list if available
+            if 'highly_variable' in adata.var.columns:
+                hvg_genes = adata.var[adata.var['highly_variable']].index.tolist()
+                preprocess_stats["hvg_genes"] = hvg_genes
+                
+                # Save HVG list to separate file
+                with open(os.path.join(preprocess_dir, "highly_variable_genes.txt"), 'w') as f:
+                    for gene in hvg_genes:
+                        f.write(f"{{gene}}\\n")
+            
+            # Save preprocessing statistics
+            import json
+            with open(os.path.join(preprocess_dir, "preprocessing_statistics.json"), 'w') as f:
+                json.dump(preprocess_stats, f, indent=2)
+            
+            # Save preprocessed data
+            adata.write_h5ad(os.path.join(preprocess_dir, "preprocessed_data.h5ad"))
+            
+            print(f"✅ Preprocessing results saved to {{preprocess_dir}}")
+            
+        except Exception as save_error:
+            print(f"⚠️ Failed to save preprocessing results: {{save_error}}")
+        
+    except Exception as e:
+        print(f"❌ Preprocessing failed: {{e}}")
+        
+else:
+    print("✅ Data already preprocessed - skipping")
+```
+"""
+
+[bio.scrna.task.analysis.pca]
+description = "PCA for scRNA-seq data"
+content = """
+First, check the scaling function parameters:
+```python
+# MANDATORY: Check help first
+import omicverse as ov
+help(ov.pp.scale)
+```
+
+Then check PCA function parameters:
+```python
+# MANDATORY: Check help first
+
+help(ov.pp.pca)
+```
+
+Now run scaling and PCA:
+```python
+# Check if scaling and PCA needed
+needs_scaling = 'scaled' not in adata.layers
+needs_pca = 'scaled|original|X_pca' not in adata.obsm.keys()
+
+if needs_scaling:
+    print("\\n🔢 Scaling data...")
+    try:
+        ov.pp.scale(adata,                    # Scale to unit variance and zero mean
+                   max_value=10,              # Clip values above this
+                   layers_add='scaled')       # Add to 'scaled' layer
+        print("✅ Scaling completed successfully")
+    except Exception as e:
+        print(f"❌ Scaling failed: {{e}}")
+
+if needs_pca:
+    print("\\n🔢 Computing PCA...")
+    try:
+        ov.pp.pca(adata, 
+                 n_pcs=50,                   # Number of principal components
+                 layer='scaled',             # Use scaled data
+                 inplace=True)               # Modify adata in place
+        print("✅ PCA completed successfully")
+        
+        # Save PCA results
+        try:
+            pca_dir = os.path.join(adata.uns['results_directory'], "04_dimensionality_reduction")
+            
+            # Save PCA parameters and statistics
+            pca_stats = dict()
+            pca_stats["pca_parameters"] = dict(
+                n_pcs=50,
+                layer='scaled',
+                inplace=True)
+            pca_stats["scaling_parameters"] = dict(
+                max_value=10,
+                layers_add='scaled')
+            pca_stats["results"] = dict(
+                n_cells=adata.n_obs,
+                n_genes=adata.n_vars,
+                n_pcs_computed=adata.obsm['scaled|original|X_pca'].shape[1] if 'scaled|original|X_pca' in adata.obsm else 0,
+                layers_available=list(adata.layers.keys()),
+                obsm_keys=list(adata.obsm.keys()))
+            pca_stats["timestamp"] = datetime.now().isoformat()
+            
+            # Add variance explained if available
+            if 'pca' in adata.uns and 'variance_ratio' in adata.uns['pca']:
+                variance_ratio = adata.uns['pca']['variance_ratio']
+                pca_stats["variance_explained"] = dict(
+                    variance_ratio=variance_ratio.tolist(),
+                    cumulative_variance=variance_ratio.cumsum().tolist(),
+                    n_components_80pct=int((variance_ratio.cumsum() < 0.8).sum() + 1),
+                    n_components_90pct=int((variance_ratio.cumsum() < 0.9).sum() + 1))
+            
+            
+            # Save PCA statistics
+            import json
+            with open(os.path.join(pca_dir, "pca_statistics.json"), 'w') as f:
+                json.dump(pca_stats, f, indent=2)
+            
+            # Save post-PCA data
+            adata.write_h5ad(os.path.join(pca_dir, "post_pca_data.h5ad"))
+            
+            print(f"✅ PCA results saved to {{pca_dir}}")
+            
+        except Exception as save_error:
+            print(f"⚠️ Failed to save PCA results: {{save_error}}")
+        
+    except Exception as e:
+        print(f"❌ PCA failed: {{e}}")
+        
+
+if not needs_scaling and not needs_pca:
+    print("✅ Scaling and PCA already completed - skipping")
+```
+"""
+
+[bio.scrna.task.analysis.batch_correction]
+description = "Batch correction for scRNA-seq data"
+content = """
+
+```python
+import omicverse as ov
+# Check if batch correction needed and possible
+batch_key = None
+for potential_key in ['batch', 'sample', 'donor', 'condition']:
+    if potential_key in adata.obs.columns:
+        batch_key = potential_key
+        break
+
+has_corrected = any('harmony' in k or 'scanorama' in k or 'scVI' in k for k in adata.obsm.keys())
+
+if batch_key and not has_corrected:
+    print(f"\\n🔗 Applying Batch Correction using batch_key: {{batch_key}}...")
+    
+    # MANDATORY: Check help first
+    help(ov.single.batch_correction)
+    
+    try:
+        # Use actual omicverse batch_correction parameters
+        ov.single.batch_correction(adata, 
+                                 batch_key=batch_key,       # Batch column name
+                                 use_rep='scaled|original|X_pca',  # Representation to use
+                                 methods='harmony',         # 'harmony', 'combat', 'scanorama'
+                                 n_pcs=50)                  # Number of PCs
+        print("✅ Batch correction completed successfully")
+    except Exception as e:
+        print(f"❌ Batch correction failed: {{e}}")
+        # Try with different method
+        try:
+            ov.single.batch_correction(adata, batch_key=batch_key, methods='combat')
+            print("✅ Batch correction completed using Combat")
+        except Exception as e2:
+            print(f"❌ All batch correction methods failed: {{e2}}")
+else:
+    if not batch_key:
+        print("✅ No batch information found - skipping batch correction")
+    else:
+        print("✅ Batch correction already completed - skipping")
+```
+
+"""
+
+[bio.scrna.task.analysis.clustering]
+description = "Clustering for scRNA-seq data"
+content = """
+
+First, check the embedding of cells in obsm:
+```python 
+print(adata.obsm.keys())
+if 'X_harmony' in adata.obsm.keys():
+    use_rep = 'X_harmony'
+elif 'X_scanorama' in adata.obsm.keys():
+    use_rep = 'X_scanorama'
+elif 'X_scVI' in adata.obsm.keys():
+    use_rep = 'X_scVI'
+else:
+    use_rep = 'X_pca'
+```
+
+
+```python
+# Check if clustering needed
+needs_neighbors = 'neighbors' not in adata.uns.keys()
+needs_clustering = 'leiden' not in adata.obs.columns
+
+if needs_neighbors:
+    print("\\n🎯 Computing neighborhood graph...")
+    # Use scanpy directly for neighbors (no help() needed for non-omicverse functions)
+    try:
+        sc.pp.neighbors(adata, 
+                       n_neighbors=15,              # Number of neighbors
+                       use_rep=use_rep)  # Use PCA representation
+        print("✅ Neighborhood graph computed successfully")
+    except Exception as e:
+        print(f"❌ Neighbors computation failed: {{e}}")
+        # Try with default representation
+        try:
+            sc.pp.neighbors(adata, n_neighbors=15, use_rep=use_rep)
+            print("✅ Neighbors computed with default representation")
+        except Exception as e2:
+            print(f"❌ Neighbors computation still failed: {{e2}}")
+
+# Alternative: Use omicverse clustering
+if needs_clustering:
+    print("\\n🎯 Running clustering...")
+    
+    # MANDATORY: Check help first for omicverse clustering
+    help(ov.utils.cluster)
+    
+    try:
+        # Use omicverse clustering function with actual parameters
+        ov.utils.cluster(adata, 
+                        method='leiden',         # 'leiden', 'louvain', 'kmeans', 'GMM'
+                        use_rep=use_rep,        # Representation to use
+                        random_state=1024,      # Random seed
+                        resolution=0.5,         # Resolution parameter
+                        key_added='leiden')     # Output column name
+        print("✅ Omicverse clustering completed successfully")
+        
+        # Save clustering and UMAP results
+        try:
+            clustering_dir = os.path.join(adata.uns['results_directory'], "06_clustering")
+            
+            # Save clustering parameters and statistics
+            clustering_stats = dict()
+            clustering_stats["clustering_parameters"] = dict(
+                method="omicverse.utils.cluster",
+                algorithm="leiden",
+                use_rep=use_rep,
+                random_state=1024,
+                resolution=0.5,
+                key_added="leiden")
+            clustering_stats["neighbors_parameters"] = dict(
+                n_neighbors=15,
+                use_rep=use_rep)
+            clustering_stats["results"] = dict(
+                n_cells=adata.n_obs,
+                n_clusters=len(adata.obs['leiden'].cat.categories) if 'leiden' in adata.obs.columns else 0,
+                cluster_sizes=adata.obs['leiden'].value_counts().to_dict(),
+                embeddings_available=list(adata.obsm.keys()),
+            )
+            clustering_stats["timestamp"] = datetime.now().isoformat()
+
+            
+            # Save clustering statistics
+            import json
+            with open(os.path.join(clustering_dir, "clustering_statistics.json"), 'w') as f:
+                json.dump(clustering_stats, f, indent=2)
+            
+            # Save post-clustering data with UMAP
+            adata.write_h5ad(os.path.join(clustering_dir, "post_clustering_data.h5ad"))
+            
+        except Exception as save_error:
+            print(f"⚠️ Failed to save clustering results: {{save_error}}")
+            
+    except Exception as e:
+        print(f"❌ Omicverse clustering failed: {{e}}")
+        # Fallback to scanpy leiden clustering
+        try:
+            sc.tl.leiden(adata, resolution=0.5, random_state=0, key_added='leiden')
+            print("✅ Scanpy clustering completed successfully")
+        except Exception as e2:
+            print(f"❌ All clustering attempts failed: {{e2}}")
+
+if not needs_neighbors and not needs_clustering:
+    print("✅ Neighbors and clustering already completed - skipping")
+```
+
+"""
+
+[bio.scrna.task.analysis.umap]
+description = "UMAP for scRNA-seq data"
+content = """
+
+First, check the UMAP function parameters:
+```python
+# MANDATORY: Check help first
+help(sc.tl.umap)
+```
+
+Then run UMAP:
+```python
+# Check if UMAP needed
+needs_umap = 'X_umap' not in adata.obsm.keys()
+
+if needs_umap:
+    print("\\n🎯 Computing UMAP...")
+    try:
+        sc.tl.umap(adata, random_state=0)
+        print("✅ UMAP computed successfully")
+    except Exception as e:
+        print(f"❌ UMAP computation failed: {{e}}")
+```
+
+"""
+
+[bio.scrna.task.analysis.marker_from_data]
+description = "Get cell type markers from data."
+content = """
+First, find cluster-specific markers:
+```python
+# MANDATORY: Check help for marker gene functions
+help(ov.single.get_celltype_marker)
+help(sc.get.aggregate)
+```
+
+Then calculate the cluster-specific markers:
+```python
+cluster_markers = None
+try:
+    cluster_markers = ov.single.get_celltype_marker(adata,
+                                                   clustertype='leiden',
+                                                   log2fc_min=1,
+                                                   pval_cutoff=0.05,
+                                                   topgenenumber=10,
+                                                   rank=True,
+                                                   unique=False)
+    print("✅ Cluster markers extracted with get_celltype_marker")
+except:
+    try:
+        sc.tl.rank_genes_groups(adata, groupby='leiden', method='wilcoxon')
+        cluster_markers = {}
+        for cluster in adata.obs['leiden'].cat.categories:
+            cluster_markers[cluster] = adata.uns['rank_genes_groups']['names'][cluster][:10].tolist()
+        print("✅ Cluster markers extracted with scanpy")
+    except Exception as e:
+        print(f"❌ Marker detection failed: {e}")
+print(cluster_markers)
+adata.uns['cluster_markers'] = cluster_markers
+"""
+
+[bio.scrna.task.analysis.marker_from_desc]
+description = "Get cell type markers from description."
+args = ["description"]
+content = """
+Get user data context (this should be provided by user in previous step)
+data_context = "{description}"  # You should provide this
+
+IMPORTANT: Generate 20 cell types based on actual biological knowledge of the tissue/context
+This replaces hardcoded examples with context-aware generation
+
+In real implementation, this should be dynamically generated based on the user data context
+expected_cell_types = dict()
+
+expected_cell_types['T Cells'] = ['CD3D', 'CD3E', ...]
+expected_cell_types['B Cells'] = ['MS4A1', 'CD79A', ...]
+
+Please generate the expected_cell_types dictionary in python format as return:
+"""
+
+[bio.scrna.task.analysis.aucell]
+description = "Calculate AUCell scores for cell type markers."
+content = """
+Get cell markers from user (this should be provided by user in previous step)
+expected_cell_types = ...  # dict[str, list[str]]
+
+First, check the function parameters:
+```python
+# MANDATORY: Check help first for omicverse function
+help(ov.single.geneset_aucell)
+```
+
+Then calculate AUCell scores:
+```python
+print("\\n📊 Calculating AUCell scores for cell type markers...")
+
+# Calculate AUCell scores for each expected cell type
+for cell_type, markers in expected_cell_types.items():
+    try:
+        ov.single.geneset_aucell(adata, 
+                            geneset_name=cell_type,     # Cell type name
+                            geneset=markers,             # Marker gene list
+                            AUC_threshold=0.01,          # AUC threshold
+                            seed=42)                     # Random seed
+        print(f"✅ AUCell score calculated for {{cell_type}}")
+    except Exception as e:
+        print(f"❌ AUCell failed for {{cell_type}}: {{e}}")
+
+print("\\n📈 AUCell scores added to adata.obs")
+```
+"""
+
+[bio.scrna.task.analysis.llm_annotation]
+description = "Cell type annotation using LLM."
+content = """
+        First, analysis the first cluster:
+        ```python
+
+        for clust in adata.obs['leiden'].cat.categories:
+            first_cluster = adata.obs['leiden'].cat.categories[0]
+            print(f"\\n--- Processing Cluster {{first_cluster}} (1/{{total_clusters}}) ---")
+
+            cluster = first_cluster
+            print(f"\\n--- Analyzing Cluster {{cluster}} ---")
+
+            print(f"Cluster markers:")
+            cluster_markers = adata.uns['cluster_markers'][first_cluster]
+            print(cluster_markers)
+
+            print("📊 AUCell Score Analysis:")
+            cluster_aucell_scores = {{}}
+            for celltype_col in celltype_columns:
+                if celltype_col in adata.obs.columns:
+                    cluster_mean = adata.obs[adata.obs['leiden'] == cluster][celltype_col].mean()
+                    other_clusters_mean = adata.obs[adata.obs['leiden'] != cluster][celltype_col].mean()
+                    cluster_aucell_scores[celltype_col] = {{
+                        'cluster_mean': cluster_mean,
+                        'other_mean': other_clusters_mean,
+                        'fold_enrichment': cluster_mean / (other_clusters_mean + 1e-6)
+                    }}
+
+            # Find top AUCell predictions
+            top_aucell_types = sorted(cluster_aucell_scores.items(), 
+                                    key=lambda x: x[1]['fold_enrichment'], 
+                                    reverse=True)[:3]
+
+            for i, (celltype_col, scores) in enumerate(top_aucell_types):
+                celltype = celltype_col.replace('_AUCell', '').replace('AUCell_', '')
+                print(f"  {{i+1}}. {{celltype}}: cluster={{scores['cluster_mean']:.3f}}, others={{scores['other_mean']:.3f}}, fold={{scores['fold_enrichment']:.2f}}x")
+
+        ```
+
+        Your task is to identify the most likely biological cell type for each cluster in {description}.
+        First, interpret the marker genes in the context of known cell type–specific markers from public references (e.g., PanglaoDB, CellMarker, or literature).
+        Then, cross-check with the AUCell scores: higher AUCell scores indicate stronger similarity to that cell type’s reference gene set.
+        If marker gene evidence and AUCell score agree, assign that cell type.
+        If they conflict, prioritize the marker gene interpretation but explain the discrepancy and possible reasons (e.g., mixed populations, doublets, transitional states).
+        In ambiguous cases, provide the top 3 likely cell types ranked by confidence, with a brief explanation.
+        Output the result as a dictionary with the following columns:
+
+        Example:
+        llm_anno_results={{
+            "Cluster 0": "T Cells",
+            "Cluster 1": "B Cells",
+            ...
+        }}
+
+        Then, you need to annotate the cluster with the most likely cell type:
+        ```python
+        adata.obs['celltype_llm'] = adata.obs['leiden'].map(llm_anno_results)
+        ```
+"""

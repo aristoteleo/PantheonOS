@@ -27,7 +27,13 @@ class ModelManagerCommandHandler(CommandHandler):
         )
 
     async def handle_command(self, command: str):
-        pass
+        if command.startswith("/model"):
+            return self._handle_model_command(command)
+        elif command.startswith("/api-key"):
+            return self._handle_api_key_command(command)
+        elif command.startswith("/api-endpoint"):
+            return self._handle_endpoint_command(command)
+        return None
 
     def _handle_model_command(self, command: str):
         """Handle /model commands in REPL"""
