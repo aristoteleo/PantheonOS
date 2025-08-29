@@ -20,6 +20,7 @@ except ImportError:
     READLINE_AVAILABLE = False
 
 from ..agent import Agent
+from ..constant import CLI_HISTORY_FILE
 from .ui import ReplUI
 from .handlers.base import CommandHandler
 from .handlers.template_handler import TemplateHandler
@@ -59,7 +60,7 @@ class Repl(ReplUI):
         self._current_tool_name = None
         
         # Setup history file
-        self.history_file = Path.home() / ".pantheon_history"
+        self.history_file = Path(CLI_HISTORY_FILE)
         self.command_history = []
         self.history_index = -1
 
@@ -209,13 +210,13 @@ class Repl(ReplUI):
                     self.console.print(f"[bright_blue]{prompt_text}[/bright_blue]", end=" ")
                     line = input()
 
-                # 空行结束
                 if line.strip() == "":
+                    # Empty line ends input
                     break
 
                 lines.append(line)
 
-            # 返回多行合并的字符串
+            # Return multi-line string
             return "\n".join(lines).strip()
 
         except KeyboardInterrupt:
@@ -322,18 +323,6 @@ class Repl(ReplUI):
                 continue
             elif cmd_lower in ["/save"] or current_message.strip().lower().startswith("/save"):
                 self._handle_save_command(current_message.strip())
-                current_message = None  # Reset to get new input
-                continue
-            elif current_message.strip().startswith("/model"):
-                self._handle_model_command(current_message.strip())
-                current_message = None  # Reset to get new input
-                continue
-            elif current_message.strip().startswith("/api-key"):
-                self._handle_api_key_command(current_message.strip())
-                current_message = None  # Reset to get new input
-                continue
-            elif current_message.strip().startswith("/endpoint"):
-                self._handle_endpoint_command(current_message.strip())
                 current_message = None  # Reset to get new input
                 continue
             
