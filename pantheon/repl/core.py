@@ -9,7 +9,6 @@ from rich.text import Text
 from rich.live import Live
 from rich.panel import Panel
 from rich.markdown import Markdown
-import yaml
 
 # Simple readline support for history
 try:
@@ -23,7 +22,7 @@ from ..agent import Agent
 from ..constant import CLI_HISTORY_FILE
 from .ui import ReplUI
 from .handlers.base import CommandHandler
-from .handlers.template_handler import TemplateHandler
+from .handlers.template_handler import TemplateHandler, load_template
 from .handlers.builtin.bash import BashCommandHandler
 from .handlers.builtin.r import RCommandHandler
 from .handlers.builtin.julia import JuliaCommandHandler
@@ -61,6 +60,8 @@ class Repl(ReplUI):
         
         # Setup history file
         self.history_file = Path(CLI_HISTORY_FILE)
+        if not self.history_file.exists():
+            self.history_file.touch()
         self.command_history = []
         self.history_index = -1
 
@@ -98,10 +99,9 @@ class Repl(ReplUI):
         if isinstance(handler, CommandHandler):
             self.handlers.append(handler)
         elif isinstance(handler, str) or isinstance(handler, Path):
-            yaml_path = Path(handler)
-            if yaml_path.exists():
-                with open(yaml_path, 'r') as f:
-                    template = yaml.safe_load(f)
+            p = Path(handler)
+            if p.exists():
+                template = load_template(p)
                 template_handler = TemplateHandler(self.console, self, template)
                 self.handlers.append(template_handler)
             else:

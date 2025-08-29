@@ -17,6 +17,8 @@ else:
 
 HYPHA_SERVER_URL = os.environ.get("HYPHA_SERVER_URL", "https://hypha.aristoteleo.com")
 
-PANTHEON_DIR = os.path.realpath(os.environ.get("CONFIG_DIR", "~/.pantheon"))
+PANTHEON_DIR = os.path.realpath(
+    os.path.expanduser(os.environ.get("CONFIG_DIR", "~/.pantheon"))
+)
 CONFIG_FILE = os.path.join(PANTHEON_DIR, "config.yaml")
-CLI_HISTORY_FILE = os.path.join(PANTHEON_DIR, "pantheon_history")
+CLI_HISTORY_FILE = os.path.join(PANTHEON_DIR, "cli_history")
