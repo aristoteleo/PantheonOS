@@ -348,15 +348,26 @@ class Repl(ReplUI):
             
             # Create live status with real-time token tracking (Claude Code style)
             content_buffer = []
+            tool_calls_content_buffer = []
             estimated_output_tokens = 0  # Track estimated output tokens from all sources
             
             def process_chunk(chunk: dict):
                 nonlocal estimated_output_tokens
                 content = chunk.get("content")
+                tool_calls = chunk.get("tool_calls")
+                if (content is None) and (tool_calls is None):
+                    return
+                if tool_calls is not None:
+                    for tool_call in tool_calls:
+                        if "function" in tool_call:
+                            if "arguments" in tool_call["function"]:
+                                t_content = (content or "") + (tool_call["function"]["arguments"])
+                                tool_calls_content_buffer.append(t_content)
                 if content is not None:
                     content_buffer.append(content)
-                    # Update estimated tokens when we get new content
-                    estimated_output_tokens = self._estimate_tokens(''.join(content_buffer))
+                # Update estimated tokens when we get new content
+                estimated_output_tokens = self._estimate_tokens(
+                    ''.join(content_buffer+tool_calls_content_buffer))
 
             # Tetris-style animation frames (different from Claude's *)
             animation_frames = ["▢", "▣", "▤", "▥", "▦", "▧", "▨", "▩"]
