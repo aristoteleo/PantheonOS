@@ -20,8 +20,8 @@ class WorkflowToolSet(ToolSet):
         }
 
     @tool
-    async def run_workflow(self, name: str, **kwargs):
-        """Run a workflow.
+    async def use_workflow(self, name: str, **kwargs):
+        """Get the information of some specific workflow.
         
         Args:
             name: The name of the workflow.

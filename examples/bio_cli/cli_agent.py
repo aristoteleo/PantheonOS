@@ -20,9 +20,25 @@ async def main():
 
     bio_workflow_path = os.path.join(HERE, "bio_workflows")
 
+    instructions = """
+    You are a CLI agent that can help user perform data analysis.
+
+    Before performing any analysis, you should do planning with the todo tool.
+    When planning, you should use the list workflow tool to get the workflow of the analysis.
+    After planning, you should do task executions one by one.
+    Before each task execution, you should use the use_workflow tool to get the specific workflow information related to the current task.
+    After each task execution, you should use the todo tool to mark the task as done.
+    If there are some results or outputs, you should use the file editor tool to save the results or outputs.
+
+    During the analysis, you should use the shell tool to perform any shell commands.
+    You should use the python tool to perform any python code execution.
+    You should use the r tool to perform any r code execution.
+    You should use the julia tool to perform any julia code execution.
+    """
+
     agent = Agent(
         name="CLI Agent",
-        instructions="""You are a CLI agent that can help user perform data analysis.""",
+        instructions=instructions,
     )
     agent.toolset(TodoToolSet("todo"))
     agent.toolset(PythonInterpreterToolSet("python"))
