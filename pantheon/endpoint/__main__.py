@@ -23,12 +23,9 @@ def generate_config(output_path: str = "endpoint.yaml", overwrite: bool = False)
     logger.info(f"Config file generated at {output_path}")
 
 
-async def start_endpoint(config_path: str | None = None, log_file: str | None = None):
+async def start_endpoint(config_path: str | None = None):
     if config_path is None:
         config_path = "endpoint.yaml"
-    if log_file:
-        logger.info(f"Logging to {log_file}")
-        logger.add(log_file, rotation="100 MB", retention="10 days")
     if not os.path.exists(config_path):
         logger.error(f"Config file not found at {config_path}")
         logger.info(

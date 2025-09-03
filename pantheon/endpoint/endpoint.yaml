@@ -17,18 +17,18 @@ allow_file_transfer: true
 #   scraper (Need SCRAPER_API_KEY in the environment)
 # You can specify the docker image name to run the service inside the docker container
 # Like:
-#  - type: python_interpreter
+#  - type: python
 #    name: python.basic
 #    docker_image: python.basic
 # You can also specify the conda environment to run the service
-#  - type: python_interpreter
+#  - type: python
 #    name: python.sc_analysis
 #    conda_env: sc_analysis
 #    conda_command: "micromamba"  # default is "conda"
 builtin_services:
-  - type: python_interpreter
+  - type: python
   - file_manager
-  - web_browse
+  - web
 
 # Provide the service id/name of the outer services
 #outer_services:

@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 
-from pantheon.toolsets.endpoint import Endpoint
+from pantheon.endpoint import Endpoint, wait_endpoint_ready
 
 from .room import ChatRoom
 
@@ -39,24 +39,12 @@ async def start_services(
     if endpoint_service_id is None:
         w_path = Path(workspace_path)
         w_path.mkdir(parents=True, exist_ok=True)
-        endpoint = Endpoint(
-            {
-                "service_name": service_name,
-                "workspace_path": workspace_path,
-                "log_level": log_level,
-                "allow_file_transfer": True,
-                "builtin_services": [
-                    {"type": "python_interpreter"},
-                    "file_manager",
-                    "web_browse",
-                ],
-                "outer_services": [],
-                "docker_services": [],
-            }
-        )
+        endpoint = Endpoint()
         asyncio.create_task(endpoint.run())
         endpoint_service_id = endpoint.worker.service_id
         await asyncio.sleep(endpoint_wait_time)
+
+    await wait_endpoint_ready(endpoint_service_id)
 
     if worker_params is None:
         worker_params = {}

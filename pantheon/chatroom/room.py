@@ -7,7 +7,7 @@ from typing import Callable
 import openai
 import yaml
 
-from pantheon.toolsets.remote import (
+from pantheon.remote import (
     RemoteBackendFactory,
     RemoteConfig,
 )

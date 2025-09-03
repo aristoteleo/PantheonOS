@@ -9,10 +9,11 @@ from typing import TypedDict
 
 from executor.engine import Engine, LocalJob
 from executor.engine.job.extend import SubprocessJob
+import yaml
 
-from ..utils.toolset import tool
-from ..utils.remote import connect_remote
-from ..file_transfer import FileTransferToolSet
+from ..toolset import tool
+from ..remote import connect_remote
+from ..toolsets.file_transfer import FileTransferToolSet
 from ..utils.log import logger
 
 
@@ -61,8 +62,10 @@ class EndpointConfig(TypedDict):
 class Endpoint(FileTransferToolSet):
     def __init__(
         self,
-        config: EndpointConfig,
+        config: EndpointConfig | None = None,
     ):
+        if config is None:
+            config = self.default_config()
         self.config = config
         name = self.config.get("service_name", "pantheon-chatroom-endpoint")
         workspace_path = self.config.get(
@@ -87,6 +90,11 @@ class Endpoint(FileTransferToolSet):
             black_list=[".endpoint-logs", ".executor"],
         )
         self.report_service_id()
+
+    @staticmethod
+    def default_config() -> EndpointConfig:
+        with open(os.path.join(os.path.dirname(__file__), "endpoint.yaml"), "r") as f:
+            return yaml.safe_load(f)
 
     def report_service_id(self):
         with open(self.log_dir / "service_id.txt", "w") as f:
@@ -173,70 +181,39 @@ class Endpoint(FileTransferToolSet):
         if len(self.services) == 0:
             return False
             
-        # Finally, check if all services are responsive
-        try:
-            for service_info in self.services.values():
-                # Try to connect to each service to verify it's responsive
-                service_id = service_info.get("id")
-                if service_id:
-                    try:
-                        # Test basic connectivity
-                        await connect_remote(service_id, timeout=2.0)
-                    except Exception:
-                        # If any service is not responsive, not ready
-                        return False
-        except Exception:
-            # If we can't check services, assume not ready
-            return False
+        for service_info in self.services.values():
+            # Try to connect to each service to verify it's responsive
+            service_id = service_info.get("id")
+            if service_id:
+                try:
+                    # Test basic connectivity
+                    await connect_remote(service_id)
+                except Exception as e:
+                    logger.error(f"Error checking service {service_id}: {e}")
+                    # If any service is not responsive, not ready
+                    return False
             
         return True
 
     def _get_cmd(self, service_type: str, params: dict):
         worker_params_str = f"\"{{'id_hash': '{self.id_hash + '_' + service_type}'}}\""
+        cmd = [
+            f"python -m pantheon.toolsets start {service_type}",
+            f"--service-name {params.get('name', service_type)}",
+            f"--endpoint-service-id {self.service_id}",
+            f"--worker-params {worker_params_str}",
+        ]
 
-        if service_type == "python_interpreter":
-            cmd = (
-                f"python -m pantheon.toolsets.python "
-                f"--service-name {params.get('name', 'python_interpreter')} "
-                f"--workdir {str(self.path)} "
-                f"--endpoint-service-id {self.service_id} "
-                f"--worker-params {worker_params_str}"
-            )
+        if service_type == "python":
+            cmd.append(f"--workdir {str(self.path)}")
         elif service_type == "file_manager":
-            cmd = (
-                f"python -m pantheon.toolsets.file_manager "
-                f"--service-name {params.get('name', 'file_manager')} "
-                f"--path {str(self.path)} "
-                f"--endpoint-service-id {self.service_id} "
-                f"--worker-params {worker_params_str}"
-            )
-        elif service_type == "web_browse":
-            cmd = (
-                f"python -m pantheon.toolsets.web_browse "
-                f"--service-name {params.get('name', 'web_browse')} "
-                f"--endpoint-service-id {self.service_id} "
-                f"--worker-params {worker_params_str}"
-            )
-        elif service_type == "r_interpreter":
-            cmd = (
-                f"python -m pantheon.toolsets.r "
-                f"--service-name {params.get('name', 'r_interpreter')} "
-                f"--endpoint-service-id {self.service_id} "
-                f"--worker-params {worker_params_str}"
-            )
-        elif service_type == "shell":
-            cmd = (
-                f"python -m pantheon.toolsets.shell "
-                f"--service-name {params.get('name', 'shell')} "
-                f"--endpoint-service-id {self.service_id} "
-                f"--worker-params {worker_params_str}"
-            )
+            cmd.append(f"--path {str(self.path)}")
         elif service_type == "vector_rag":
             db_path = params.get("db_path")
             if not db_path:
                 raise ValueError("db_path is required for vector_rag service")
             if params.get("download_from_huggingface"):
-                from ..utils.rag.build import download_from_huggingface
+                from ..rag.build import download_from_huggingface
 
                 download_path = params.get("download_path", "tmp/db")
                 if not os.path.exists(download_path):
@@ -250,29 +227,15 @@ class Endpoint(FileTransferToolSet):
                     )
                 else:
                     logger.info(f"Vector database already exists in {download_path}")
-            cmd = (
-                f"python -m pantheon.toolsets.vector_rag "
-                f"--service-name {params.get('name', 'vector_rag')} "
-                f"--db-path {db_path} "
-                f"--endpoint-service-id {self.service_id} "
-                f"--worker-params {worker_params_str}"
-            )
-        elif service_type == "scraper":
-            cmd = (
-                f"python -m pantheon.toolsets.scraper "
-                f"--service-name {params.get('name', 'scraper')} "
-                f"--endpoint-service-id {self.service_id} "
-                f"--worker-params {worker_params_str}"
-            )
-        else:
-            raise ValueError(f"Unknown service type: {service_type}")
-        return cmd
+            cmd.append(f"--db-path {db_path}")
+        _cmd = " ".join(cmd)
+        return _cmd
 
     async def run_builtin_services(self, engine: Engine):
         default_services = [
-            "python_interpreter",
+            "python",
             "file_manager",
-            "web_browse",
+            "web",
         ]
         builtin_services = self.config.get("builtin_services", default_services)
         jobs = []
@@ -333,30 +296,43 @@ class Endpoint(FileTransferToolSet):
                 )
 
     async def run(self):
-        from loguru import logger
-
-        logger.remove()
-        logger.add(sys.stderr, level=self.config.get("log_level", "INFO"))
-
         # Setup the endpoint toolset first
         await self.run_setup()
 
         engine = Engine()
 
-        # Start all services BEFORE registering the endpoint with magique
-        await self.run_builtin_services(engine)
-        await self.add_outer_services()
-        
-        # Wait a bit more for services to fully initialize
-        await asyncio.sleep(3)
-
-        # Only now register the endpoint with magique, making it available for API calls
+        # Register the endpoint to remote server
         async def run_worker():
             return await super(Endpoint, self).run(self.config.get("log_level", "INFO"))
 
         job = LocalJob(run_worker)
         await engine.submit_async(job)
         await job.wait_until_status("running")
-        
+
+        # Wait a bit more for endpoint is registered
+        await asyncio.sleep(3)
+
+        # Start all services, registering the endpoint to remote server
+        await self.run_builtin_services(engine)
+        await self.add_outer_services()
+
+        while True:
+            ready = await self.services_ready()
+            if ready:
+                logger.info(f"Services are ready!!!")
+                break
+            await asyncio.sleep(1)
+
         logger.info(f"Endpoint started: {self.service_id}")
         await engine.wait_async()
+
+
+async def wait_endpoint_ready(endpoint_service_id: str):
+    s = await connect_remote(endpoint_service_id)
+    while True:
+        ready = await s.invoke("services_ready")
+        logger.info(f"Services are ready: {ready}")
+        if ready:
+            logger.info(f"Services are ready!!!")
+            break
+        await asyncio.sleep(1)

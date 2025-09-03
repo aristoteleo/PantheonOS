@@ -14,7 +14,7 @@ from pantheon.toolsets.workflow import WorkflowToolSet
 HERE = os.path.dirname(__file__)
 
 async def main():
-    logger.use_rich = True
+    logger.use_rich_mode()
     logger.set_level("INFO")
     logger.disable("executor.engine")
 
@@ -28,6 +28,7 @@ async def main():
     After planning, you should do task executions one by one.
     Before each task execution, you should use the use_workflow tool to get the specific workflow information related to the current task.
     After each task execution, you should use the todo tool to mark the task as done.
+    Then you can use python/shell/r/julia tool to perform any code execution according to the information you have.
     If there are some results or outputs, you should use the file editor tool to save the results or outputs.
 
     During the analysis, you should use the shell tool to perform any shell commands.

@@ -12,13 +12,16 @@ LEVEL_MAP = {
 }
 
 class CustomLogger:
-    def __init__(self, use_rich: bool = True):
-        self.use_rich = use_rich
+    def __init__(self, rich_mode: bool = False):
+        self.rich_mode = rich_mode
         self.level = LEVEL_MAP["INFO"]
+
+    def use_rich_mode(self):
+        self.rich_mode = True
 
     def set_level(self, level: str):
         self.level = LEVEL_MAP[level]
-        if not self.use_rich:
+        if not self.rich_mode:
             loguru_logger.remove()
             loguru_logger.add(sys.stdout, level=self.level)
 
@@ -28,7 +31,7 @@ class CustomLogger:
     def info(self, message: str, rich = None):
         if self.level > LEVEL_MAP["INFO"]:
             return
-        if self.use_rich:
+        if self.rich_mode:
             console.print(message)
         else:
             loguru_logger.info(message)
@@ -38,7 +41,7 @@ class CustomLogger:
     def error(self, message: str, rich = None):
         if self.level > LEVEL_MAP["ERROR"]:
             return
-        if self.use_rich:
+        if self.rich_mode:
             console.print(message)
         else:
             loguru_logger.error(message)
@@ -48,7 +51,7 @@ class CustomLogger:
     def warning(self, message: str, rich = None):
         if self.level > LEVEL_MAP["WARNING"]:
             return
-        if self.use_rich:
+        if self.rich_mode:
             console.print(message)
         else:
             loguru_logger.warning(message)
@@ -58,7 +61,7 @@ class CustomLogger:
     def debug(self, message: str, rich = None):
         if self.level > LEVEL_MAP["DEBUG"]:
             return
-        if self.use_rich:
+        if self.rich_mode:
             console.print(message)
         else:
             loguru_logger.debug(message)

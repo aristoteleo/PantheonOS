@@ -128,8 +128,7 @@ class ToolSet(ABC):
 
     async def run(self, log_level: str | None = None):
         if log_level is not None:
-            logger.remove()
-            logger.add(sys.stderr, level=log_level)
+            logger.set_level(log_level)
         await self.run_setup()
         logger.info(f"Remote Server: {getattr(self.worker, 'servers', 'N/A')}")
         logger.info(f"Service Name: {self.worker.service_name}")
@@ -154,8 +153,7 @@ class ToolSet(ABC):
 
     async def run_as_mcp(self, log_level: str | None = None, **mcp_kwargs):
         if log_level is not None:
-            logger.remove()
-            logger.add(sys.stderr, level=log_level)
+            logger.set_level(log_level)
         mcp = self.to_mcp(mcp_kwargs)
         transport = mcp_kwargs.get("transport", "http")
         show_banner = mcp_kwargs.get("show_banner", True)
