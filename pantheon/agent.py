@@ -4,7 +4,7 @@ import json
 import os
 import sys
 import time
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, List
 from uuid import uuid4
 
 from funcdesc import Description, Value, parse_func
@@ -372,6 +372,8 @@ class Agent:
         tool_timeout: The timeout for the tool. (default: 10 minutes)
         force_litellm: Whether to force using LiteLLM. (default: False)
         max_tool_content_length: The maximum length of the tool content. (default: 100000)
+        max_consecutive_messages: Max consecutive assistant messages without tools to prevent API loops. (default: 2)
+        max_total_messages: Max total assistant messages per conversation to prevent excessive API usage. (default: 10)
     """
 
     def __init__(
@@ -387,6 +389,9 @@ class Agent:
         tool_timeout: int = 10 * 60,
         force_litellm: bool = False,
         max_tool_content_length: int | None = 100000,
+        # Safety limits to prevent API drain
+        max_consecutive_messages: int = 2,
+        max_total_messages: int = 20,
     ):
         self.id = uuid4()
         self.name = name
@@ -418,6 +423,9 @@ class Agent:
         self.force_litellm = force_litellm
         self.icon = icon
         self.max_tool_content_length = max_tool_content_length
+        # Safety limits to prevent API drain
+        self.max_consecutive_messages = max_consecutive_messages
+        self.max_total_messages = max_total_messages
 
     def tool(self, func: Callable, key: str | None = None):
         """
@@ -475,6 +483,12 @@ class Agent:
 
         return self
 
+    def enable_rich_conversations(self):
+        """Enable rich conversation flow"""
+        self._enhanced_flow = True
+        self.instructions = create_enhanced_instructions(self.instructions)
+        return self
+
     def toolset(self, toolset: ToolSet):
         """Add a toolset to the agent.
 
@@ -500,9 +514,11 @@ class Agent:
         """
         tools = await client.list_tools()
         for tool in tools:
+
             async def _wrap_tool(**kwargs):
                 res = await client.call_tool(tool.name, kwargs)
-                return res.structured_output['result']
+                return res.structured_output["result"]
+
             params = tool.inputSchema
             params["additionalProperties"] = False
             _wrap_tool.__schema__ = {
@@ -687,7 +703,7 @@ class Agent:
         else:
             model_name = model
         litellm_mode = (provider != "openai") or force_litellm
-        
+
         # Get custom base_url from environment variable if set
         base_url = None
         env_var = f"{provider.upper()}_API_BASE"
@@ -711,7 +727,12 @@ class Agent:
                 process_chunk=process_chunk,
                 base_url=base_url or "https://open.bigmodel.cn/api/paas/v4/",
             )
-            if complete_resp and hasattr(complete_resp, 'choices') and complete_resp.choices and len(complete_resp.choices) > 0:
+            if (
+                complete_resp
+                and hasattr(complete_resp, "choices")
+                and complete_resp.choices
+                and len(complete_resp.choices) > 0
+            ):
                 message = complete_resp.choices[0].message.model_dump()
                 if "parsed" in message:
                     message.pop("parsed")
@@ -719,7 +740,10 @@ class Agent:
                     if message["tool_calls"] == []:
                         message["tool_calls"] = None
             else:
-                message = {"role": "assistant", "content": "Error: Empty response from Zhipu AI"}
+                message = {
+                    "role": "assistant",
+                    "content": "Error: Empty response from Zhipu AI",
+                }
         elif not litellm_mode:
             complete_resp = await acompletion_openai(
                 messages=messages,
@@ -729,7 +753,12 @@ class Agent:
                 process_chunk=process_chunk,
                 base_url=base_url,
             )
-            if complete_resp and hasattr(complete_resp, 'choices') and complete_resp.choices and len(complete_resp.choices) > 0:
+            if (
+                complete_resp
+                and hasattr(complete_resp, "choices")
+                and complete_resp.choices
+                and len(complete_resp.choices) > 0
+            ):
                 message = complete_resp.choices[0].message.model_dump()
                 if "parsed" in message:
                     message.pop("parsed")
@@ -737,7 +766,10 @@ class Agent:
                     if message["tool_calls"] == []:
                         message["tool_calls"] = None
             else:
-                message = {"role": "assistant", "content": "Error: Empty response from API"}
+                message = {
+                    "role": "assistant",
+                    "content": "Error: Empty response from API",
+                }
         else:
             complete_resp = await acompletion_litellm(
                 messages=messages,
@@ -747,10 +779,18 @@ class Agent:
                 process_chunk=process_chunk,
                 base_url=base_url,
             )
-            if complete_resp and hasattr(complete_resp, 'choices') and complete_resp.choices and len(complete_resp.choices) > 0:
+            if (
+                complete_resp
+                and hasattr(complete_resp, "choices")
+                and complete_resp.choices
+                and len(complete_resp.choices) > 0
+            ):
                 message = complete_resp.choices[0].message.model_dump()
             else:
-                message = {"role": "assistant", "content": "Error: Empty response from API"}
+                message = {
+                    "role": "assistant",
+                    "content": "Error: Empty response from API",
+                }
         return message
 
     async def _acompletion_with_models(
@@ -856,7 +896,11 @@ class Agent:
             if process_step_message:
                 await run_func(process_step_message, message)
 
+            # Enhanced conversation flow (opt-in)
             if not message.get("tool_calls"):
+                if hasattr(self, "_enhanced_flow") and self._enhanced_flow:
+                    if self._should_continue_conversation(message, history):
+                        continue
                 break
 
             tool_messages = await self._handle_tool_calls(
@@ -928,6 +972,51 @@ class Agent:
                     new_messages.append(m)
             messages = new_messages
         return messages
+
+    def _should_continue_conversation(self, message: dict, history: list) -> bool:
+        """Simple conversation continuation logic - only enhanced messages reach here"""
+        from .utils.log import logger
+
+        # SAFETY FIRST: Basic limits to prevent API drain - count truly consecutive messages from THIS agent
+        consecutive_no_tools = 0
+        for msg in reversed(history):
+            if (msg.get("role") == "assistant" 
+                and not msg.get("tool_calls") 
+                and msg.get("agent_name") == self.name):
+                consecutive_no_tools += 1
+            else:
+                # Stop counting when we hit a non-matching message (breaks the consecutive chain)
+                break
+
+        if consecutive_no_tools >= self.max_consecutive_messages:
+            logger.warning(
+                f"Agent {self.name}: Too many consecutive messages without tools ({consecutive_no_tools})"
+            )
+            return False
+
+        if (
+            len([m for m in history if m.get("role") == "assistant"])
+            >= self.max_total_messages
+        ):
+            logger.warning(f"Agent {self.name}: Reached message limit")
+            return False
+
+        # CORE LOGIC: Simple state-based decisions
+        state = (
+            message.get("conversation_state")
+            or _detect_conversation_state_static(message)["state"]
+        )
+
+        # These always stop (completed tasks or user questions)
+        if state in ["completed", "executed"]:
+            return False
+
+        # These always continue (reasoning leads to action, executing continues the work)
+        if state in ["reasoning", "executing"]:
+            return True
+
+        # Default: stop
+        return False
 
     async def run(
         self,
@@ -1001,6 +1090,17 @@ class Agent:
         else:
             _process_step_message = process_step_message
 
+        async def enhanced_step_processor(step_message):
+            enhancer = SmartMessageEnhancer()
+            enhancer.enhance_message(step_message)
+            if _process_step_message:
+                await run_func(_process_step_message, step_message)
+
+        if hasattr(self, "_enhanced_flow") and self._enhanced_flow:
+            step_processor = enhanced_step_processor
+        else:
+            step_processor = _process_step_message
+
         try:
             details = await self._run_stream(
                 messages=messages,
@@ -1008,7 +1108,7 @@ class Agent:
                 tool_use=tool_use,
                 context_variables=context_variables,
                 process_chunk=process_chunk,
-                process_step_message=_process_step_message,
+                process_step_message=step_processor,
                 check_stop=check_stop,
                 tool_timeout=tool_timeout,
                 model=model,
@@ -1052,3 +1152,165 @@ class Agent:
 
         service = AgentService(self, **kwargs)
         return await service.run()
+
+
+def create_enhanced_instructions(base_instructions: str) -> str:
+    """Add rich response capability with Biomni-inspired structured format"""
+
+    enhanced_format = f"""{base_instructions}
+
+ENHANCED CONVERSATION FLOW:
+
+At each turn, you must include EXACTLY ONE tag with title and content. Choose from these 3 options:
+
+1) For reasoning and analysis:
+<thinking>Brief title of your thinking focus
+Your detailed reasoning, planning, or analysis process goes here.
+</thinking>
+
+2) For taking actions or using tools:
+<execute>Brief title of the action you're taking
+Explanation of what you're doing and why, then call your tools.
+</execute>
+
+3) For completion - either finished work OR asking user questions:
+<complete>Brief title of what you're concluding
+Final results, answers, questions to user, or task completion summary.
+</complete>
+
+CRITICAL RULES:
+- Use EXACTLY ONE tag per response - no exceptions
+- Each tag must have: Brief title on first line + detailed content below
+- NEVER combine multiple tags: ✗ <thinking>...</thinking> <execute>...</execute>
+- In each response, you must include one of the three tags. No messages without tags.
+- If you need to think AND act, use <thinking> first, then <execute> in next response
+
+TAG USAGE GUIDE:
+- <thinking> = internal reasoning, planning, analyzing requirements
+- <execute> = calling tools, performing actions, working on tasks  
+- <complete> = final answers, results, OR questions to user
+
+EXAMPLES OF CORRECT USAGE:
+✓ "<thinking>Analyzing user requirements
+Let me break down what the user is asking for: 1) They want X, 2) They need Y...
+</thinking>"
+
+✓ "<execute>Running data analysis
+I'll call the analysis function with these parameters and process the results.
+[calls tools here]
+</execute>"
+
+✓ "<complete>Task completed successfully
+Here are the results: ... What would you like me to focus on next?
+</complete>"
+
+EXAMPLES OF WRONG USAGE:
+✗ "<thinking>Planning...</thinking> <execute>Now running...</execute>"
+✗ "Let me <thinking>think</thinking> and then <execute>act</execute>"
+✗ Any response with more than one tag
+
+"""
+
+    return enhanced_format
+
+
+def _detect_conversation_state_static(message: dict) -> dict:
+    """Standalone function for conversation state detection using loop-based patterns"""
+    import re
+
+    # Tool responses are always "executed"
+    if message.get("role") == "tool":
+        return {
+            "state": "executed",
+            "description": f"Tool {message.get('tool_name', 'response')} executed",
+            "title": "🔹 Tool Response",
+        }
+
+    content = message.get("content", "")
+    has_tool_calls = bool(message.get("tool_calls"))
+
+    # Define state patterns - simplified 3-tag system with title + content
+    patterns = [
+        # (regex_pattern, state, emoji)
+        (r"<thinking>\s*([^\n<]*?)(?:\n(.*?))?</thinking>", "reasoning", "🧠"),
+        (r"<execute>\s*([^\n<]*?)(?:\n(.*?))?</execute>", "executing", "⚡"),
+        (r"<complete>\s*([^\n<]*?)(?:\n(.*?))?</complete>", "completed", "✅"),
+    ]
+
+    # Check content for explicit state markers - find first match
+    if content:
+        for pattern, state, emoji in patterns:
+            match = re.search(pattern, content, re.IGNORECASE | re.DOTALL)
+            if match:
+                title = match.group(1).strip() if match.group(1) else ""
+                raw_description = match.group(2).strip() if match.group(2) else ""
+
+                # Clean description by removing any subsequent markers
+                cleaned_description = re.sub(
+                    r"<(thinking|execute|complete)\b.*",
+                    "",
+                    raw_description,
+                    flags=re.IGNORECASE | re.DOTALL,
+                ).strip()
+
+                return {
+                    "state": state,
+                    "description": cleaned_description,
+                    "title": f"{emoji} {title}",
+                }
+
+    # Assistant with tool calls but no explicit markers
+    if message.get("role") == "assistant" and has_tool_calls:
+        return {
+            "state": "executing",
+            "description": content,
+            "title": "⚡ Executing Tools",
+        }
+
+    # Default fallback - use content as description if no markers found
+    return {"state": "reasoning", "description": content, "title": ""}
+
+
+class SmartMessageEnhancer:
+    """Extract metadata from structured LLM responses with explicit state support"""
+
+    def enhance_message(self, message: dict) -> dict:
+        """Extract metadata from state markers and clean content for display"""
+
+        state_info = _detect_conversation_state_static(message)
+
+        # Add metadata to message
+        message["step_title"] = state_info["title"]  # Already includes emoji
+        message["conversation_state"] = state_info["state"]
+
+        # Extract both title and detailed content separately
+        message["step_briefi_title"] = self._extract_brief_title(state_info["title"])
+        message["display_content"] = self._clean_content_for_display(
+            state_info["description"]
+        )
+
+        # Keep original content for backward compatibility
+        if not message.get("display_content"):
+            message["display_content"] = message.get("content", "")
+
+        return message
+
+    def _extract_brief_title(self, full_title: str) -> str:
+        """Extract just the title without emoji"""
+        # Remove emoji and extra whitespace
+        import re
+
+        clean_title = re.sub(r"^[^\w\s]+\s*", "", full_title).strip()
+        return clean_title if clean_title else "Processing"
+
+    def _clean_content_for_display(self, description: str) -> str:
+        """Return the description content (content after the marker)"""
+        return description.strip() if description else ""
+
+
+# Utility functions for enhanced message system
+def update_agents_with_enhancer(agents: List[Agent]):
+    """Apply enhanced prompts to your existing agents"""
+    for agent in agents:
+        agent.enable_rich_conversations()
+    return agents

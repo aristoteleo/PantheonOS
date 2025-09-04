@@ -124,6 +124,8 @@ class ChatRoom:
         )
         triage_agent = agents["triage"]
         agents = agents["other"]
+        for agent in [triage_agent, *agents]:
+            agent.enable_rich_conversations()
         self.team = PantheonTeam(
             triage=triage_agent,
             agents=agents,

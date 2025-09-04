@@ -1,12 +1,12 @@
-from pathlib import Path
 import asyncio
+import random
+from pathlib import Path
+from typing import List
+
+from pydantic import BaseModel, Field
 
 from pantheon.agent import Agent, AgentTransfer
 from pantheon.utils.vision import vision_input
-from pydantic import BaseModel, Field
-from typing import List
-import random
-
 
 HERE = Path(__file__).parent
 
@@ -26,19 +26,30 @@ async def test_stream():
 
 
 async def test_tool_use():
+    instructions = """
+You are a weather agent, you can use the weather API to get the weather of a city.
+
+"""
+    from pantheon.agent import update_agents_with_enhancer
+
     agent = Agent(
         name="test",
-        instructions="You are a weather agent, you can use the weather API to get the weather of a city.",
+        instructions=instructions,
     )
+    agent.enable_rich_conversations()
 
     @agent.tool
     def get_weather(city: str, unit: str = "celsius"):
         """Get the weather of a city."""
         return {"weather": "sunny", "temperature": 20}
 
-    msgs = [{"role": "user", "content": "What is the weather in Palo Alto and Redwood City?"}]
+    msgs = [
+        {
+            "role": "user",
+            "content": "What is the weather in Palo Alto and Redwood City?",
+        }
+    ]
     resp = await agent._run_stream(msgs)
-    print()
     print(resp)
     call_id = resp.messages[0]["tool_calls"][0]["id"]
     assert resp.context_variables[call_id]["weather"] == "sunny"
@@ -91,7 +102,9 @@ async def test_structured_output_with_tool_use():
 
     class SciFiBookList(BaseModel):
         books: List[SciFiBook]
-        ratings: List[float] = Field(description="Use function call to get the rating of each book.")
+        ratings: List[float] = Field(
+            description="Use function call to get the rating of each book."
+        )
 
     called = False
 
@@ -207,7 +220,6 @@ async def test_agent_transfer():
         instructions="You are a classic literature fan, you can answer any classic literature related questions.",
     )
 
-
     @scifi_fan.tool
     def transfer_to_classic_literature_fan():
         """Transfer the question to the classic literature fan."""
@@ -244,9 +256,10 @@ async def test_vision():
     )
 
     resp = await agent.run(
-        vision_input("Is there a dog in the image?", HERE / "data/animal.png", from_path=True),
+        vision_input(
+            "Is there a dog in the image?", HERE / "data/animal.png", from_path=True
+        ),
         response_format=bool,
     )
     print(resp.content)
     assert resp.content is True
-
