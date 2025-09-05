@@ -33,9 +33,9 @@ def extract_exported_classes(content: str):
 def import_toolset_class(module_name: str):
     module_path = HERE / module_name
     if module_path.is_dir():
-        content = (module_path / "__init__.py").read_text()
+        content = (module_path / "__init__.py").read_text(encoding="utf-8")
     else:
-        content = (HERE / f"{module_name}.py").read_text()
+        content = (HERE / f"{module_name}.py").read_text(encoding="utf-8")
     classes = extract_exported_classes(content)
     if len(classes) == 1:
         class_name = classes[0]

@@ -93,11 +93,11 @@ class Endpoint(FileTransferToolSet):
 
     @staticmethod
     def default_config() -> EndpointConfig:
-        with open(os.path.join(os.path.dirname(__file__), "endpoint.yaml"), "r") as f:
+        with open(os.path.join(os.path.dirname(__file__), "endpoint.yaml"), "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
 
     def report_service_id(self):
-        with open(self.log_dir / "service_id.txt", "w") as f:
+        with open(self.log_dir / "service_id.txt", "w", encoding="utf-8") as f:
             f.write(self.service_id)
 
     def setup_tools(self):

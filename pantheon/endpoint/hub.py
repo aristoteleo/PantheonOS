@@ -7,7 +7,7 @@ import subprocess
 from executor.engine import Engine
 from executor.engine.job.extend import SubprocessJob
 
-from ..utils.toolset import ToolSet, tool
+from ..toolset import ToolSet, tool
 from ..utils.log import logger
 
 

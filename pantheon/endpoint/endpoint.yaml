@@ -8,11 +8,19 @@ allow_file_transfer: true
 
 # Provide the type name of the builtin services
 # available builtin services
-#   python_interpreter
-#   file_manager
-#   web_browse
-#   r_interpreter
+#   python
+#   r
 #   shell
+#   julia
+#   latex
+#   file_manager
+#   file_editor
+#   code_search
+#   web
+#   web_urllib
+#   todo
+#   workflow
+#   notebook
 #   vector_rag (Need OPENAI_API_KEY in the environment)
 #   scraper (Need SCRAPER_API_KEY in the environment)
 # You can specify the docker image name to run the service inside the docker container
