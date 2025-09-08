@@ -30,13 +30,10 @@ async def test_tool_use():
 You are a weather agent, you can use the weather API to get the weather of a city.
 
 """
-    from pantheon.agent import update_agents_with_enhancer
-
     agent = Agent(
         name="test",
         instructions=instructions,
     )
-    agent.enable_rich_conversations()
 
     @agent.tool
     def get_weather(city: str, unit: str = "celsius"):

@@ -523,10 +523,7 @@ class ChatRoom:
         Args:
             log_level: The level of the log.
         """
-        from loguru import logger
-
-        # logger.remove()
-        # logger.add(sys.stderr, level=log_level)
+        logger.set_level(log_level)
         logger.info(f"Chat Room setup: endpoint_id {self.endpoint_service_id}")
         await self.setup_agents()
         logger.info(

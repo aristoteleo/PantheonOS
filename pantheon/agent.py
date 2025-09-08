@@ -4,7 +4,7 @@ import json
 import os
 import sys
 import time
-from typing import Any, Callable, Optional, List
+from typing import Any, Callable, Optional
 from uuid import uuid4
 
 from funcdesc import Description, Value, parse_func
@@ -426,6 +426,7 @@ class Agent:
         # Safety limits to prevent API drain
         self.max_consecutive_messages = max_consecutive_messages
         self.max_total_messages = max_total_messages
+        self.enhanced_flow = False
 
     def tool(self, func: Callable, key: str | None = None):
         """
@@ -485,8 +486,7 @@ class Agent:
 
     def enable_rich_conversations(self):
         """Enable rich conversation flow"""
-        self._enhanced_flow = True
-        self.instructions = create_enhanced_instructions(self.instructions)
+        self.enhanced_flow = True
         return self
 
     def toolset(self, toolset: ToolSet):
@@ -834,6 +834,11 @@ class Agent:
         else:
             return {}
 
+    def get_system_prompt(self):
+        if self.enhanced_flow:
+            return create_enhanced_instructions(self.instructions)
+        return self.instructions
+
     async def _run_stream(
         self,
         messages: list[dict],
@@ -851,10 +856,11 @@ class Agent:
         response_format = response_format or self.response_format
         history = copy.deepcopy(messages)
         tool_timeout = tool_timeout or self.tool_timeout
+        system_prompt = self.get_system_prompt()
         if (len(history) > 0) and (history[0]["role"] == "system"):
-            history[0]["content"] = self.instructions
+            history[0]["content"] = system_prompt
         else:
-            history.insert(0, {"role": "system", "content": self.instructions})
+            history.insert(0, {"role": "system", "content": system_prompt})
         init_len = len(history)
         context_variables = context_variables or {}
 
@@ -898,7 +904,7 @@ class Agent:
 
             # Enhanced conversation flow (opt-in)
             if not message.get("tool_calls"):
-                if hasattr(self, "_enhanced_flow") and self._enhanced_flow:
+                if self.enhanced_flow:
                     if self._should_continue_conversation(message, history):
                         continue
                 break
@@ -1096,7 +1102,7 @@ class Agent:
             if _process_step_message:
                 await run_func(_process_step_message, step_message)
 
-        if hasattr(self, "_enhanced_flow") and self._enhanced_flow:
+        if self.enhanced_flow:
             step_processor = enhanced_step_processor
         else:
             step_processor = _process_step_message
@@ -1306,11 +1312,3 @@ class SmartMessageEnhancer:
     def _clean_content_for_display(self, description: str) -> str:
         """Return the description content (content after the marker)"""
         return description.strip() if description else ""
-
-
-# Utility functions for enhanced message system
-def update_agents_with_enhancer(agents: List[Agent]):
-    """Apply enhanced prompts to your existing agents"""
-    for agent in agents:
-        agent.enable_rich_conversations()
-    return agents
