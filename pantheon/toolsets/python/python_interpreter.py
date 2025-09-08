@@ -66,13 +66,6 @@ class PythonInterpreterToolSet(ToolSet):
     """Python interpreter toolset with automatic code validation.
     For running Python code in an interpreter with built-in validation.
 
-    Features:
-        - Automatic code validation before execution
-        - Detection of common coding errors (e.g., adata=adata patterns)
-        - Function existence checking with intelligent suggestions
-        - Syntax and import validation
-        - Support for matplotlib figure auto-saving
-
     Args:
         name: The name of the toolset.
         workdir: The working directory for the interpreter.
@@ -205,15 +198,12 @@ class PythonInterpreterToolSet(ToolSet):
                         "result": None,
                         "stdout": "",
                         "stderr": f"Python interpreter crashed and restart failed.\nOriginal error: {error_type}\nRetry error: {str(retry_error)[:200]}...\n\nTry using /restart command to fully reset the Python environment.",
-                        "code_executed": code,
                         "interpreter_crashed": True
                     }
             else:
                 # Re-raise non-process-related exceptions
                 raise e
 
-        # Add executed code for display
-        res["code_executed"] = code
         return res
 
     async def __run_code_in_interpreter(
@@ -270,8 +260,6 @@ class PythonInterpreterToolSet(ToolSet):
             res["base64_uri"] = [base64_uri]
             res["hidden_to_model"] = ["base64_uri"]
         
-        # Add executed code for display consistency 
-        res["code_executed"] = code
         return res
 
     @tool

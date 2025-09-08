@@ -1,6 +1,6 @@
 import inspect
 import json
-from typing import TYPE_CHECKING, Callable, List
+from typing import Callable, List
 
 from funcdesc.desc import NotDef
 from funcdesc.pydantic import Description, desc_to_pydantic
@@ -8,9 +8,6 @@ from openai import pydantic_function_tool
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
-
-if TYPE_CHECKING:
-    from ..agent import Agent, RemoteAgent
 
 
 async def run_func(func: Callable, *args, **kwargs):
@@ -86,57 +83,6 @@ def desc_to_openai_dict(
     return func_dict
 
 
-def print_agent_message_modern_style(
-    agent_name: str,
-    message: dict,
-    console: Console | None = None,
-    show_tool_details: bool = False,
-    max_content_length: int | None = 800,
-):
-    if console is None:
-        console = Console()
-
-    # Handle tool calls with minimal visual noise
-    if tool_calls := message.get("tool_calls"):
-        for call in tool_calls:
-            tool_name = call.get("function", {}).get("name")
-            if tool_name:
-                console.print(f"[dim]\u25b6 Using {tool_name}[/dim]")
-                if show_tool_details:
-                    args = call.get("function", {}).get("arguments", "")
-                    if args:
-                        console.print(
-                            f"[dim]  {args[:200]}{'...' if len(args) > 200 else ''}[/dim]"
-                        )
-
-    # Handle tool responses with clean formatting
-    elif message.get("role") == "tool":
-        content = message.get("content", "")
-        if max_content_length and len(content) > max_content_length:
-            content = content[:max_content_length] + "..."
-
-        # Try to format nicely based on content type
-        try:
-            import json
-
-            parsed = json.loads(content)
-            from rich.syntax import Syntax
-
-            formatted = json.dumps(parsed, indent=2)
-            console.print(
-                Syntax(formatted, "json", theme="monokai", line_numbers=False)
-            )
-        except:
-            console.print(f"[dim]{content}[/dim]")
-
-    # Handle assistant messages with markdown
-    elif message.get("role") == "assistant" and message.get("content"):
-        content = message.get("content")
-        if content.strip():
-            markdown = Markdown(content)
-            console.print(markdown)
-
-
 def print_agent_message(
     agent_name: str,
     message: dict,
@@ -169,12 +115,15 @@ def print_agent_message(
 
     if print_tool_call and (tool_calls := message.get("tool_calls")):
         for call in tool_calls:
+            func_name = call.get('function', {}).get('name')
+            func_args = call.get('function', {}).get('arguments')
             _print(
                 f"[bold]Agent [blue]{agent_name}[/blue] is using tool "
-                f"[green]{call.get('function', {}).get('name')}[/green]:[/bold] "
-                f"[yellow]{call.get('function', {}).get('arguments')}[/yellow]",
-                "Tool Call",
+                f"[green]{func_name}[/green]:[/bold] "
+                f"[yellow]{func_args}[/yellow]",
+                f"Tool Call({func_name})",
             )
+            _print("")
     if print_tool_response and message.get("role") == "tool":
         try:
             formatted_content = json.dumps(message["raw_content"], indent=2)
@@ -183,11 +132,12 @@ def print_agent_message(
         if max_tool_call_message_length is not None:
             formatted_content = formatted_content[:max_tool_call_message_length]
             formatted_content += "......"
+        func_name = message.get('tool_name')
         _print(
             f"[bold]Agent [blue]{agent_name}[/blue] is using tool "
-            f"[green]{message.get('tool_name')}[/green]:[/bold] "
+            f"[green]{func_name}[/green]:[/bold] "
             f"[yellow]{formatted_content}[/yellow]",
-            "Tool Response",
+            f"Tool Response({func_name})",
         )
     elif print_assistant_message and message.get("role") == "assistant":
         if message.get("content"):
@@ -202,57 +152,3 @@ def print_agent_message(
                 )
 
 
-async def print_banner(console: Console, text: str = "PANTHEON"):
-    from rich_pyfiglet import RichFiglet
-
-    rich_fig = RichFiglet(
-        text,
-        font="ansi_regular",
-        colors=["blue", "purple", "#FFC0CB"],
-        horizontal=True,
-    )
-    console.print(rich_fig)
-
-
-async def print_agent(agent: "Agent | RemoteAgent", console: Console | None = None):
-    from ..agent import RemoteAgent
-
-    is_remote = isinstance(agent, RemoteAgent)
-    if is_remote:
-        await agent.fetch_info()
-    if console is None:
-
-        def _print(msg: str):
-            print(msg)
-    else:
-
-        def _print(msg: str):
-            console.print(msg)
-
-    _print(f"  - [blue]{agent.name}[/blue]")
-    # print remote info
-    if is_remote:
-        _print("    - [green]Remote[/green]")
-        _print(f"      - Server: {agent.server_host}:{agent.server_port}")
-        _print(f"      - Service ID: {agent.service_id_or_name}")
-    # print agent model
-    _print("    - [green]Model:[/green]")
-    for model in agent.models:
-        _print(f"      - {model}")
-    # print agent instructions
-    _print(f"    - [green]Instructions:[/green] {agent.instructions}")
-    # print agent tools
-    if is_remote:
-        function_names = agent.functions_names
-        toolset_proxies_names = agent.toolset_proxies_names
-    else:
-        function_names = agent.functions.keys()
-        toolset_proxies_names = agent.toolset_services.keys()
-    if function_names:
-        _print("    - [green]Tools:[/green]")
-        for func_name in function_names:
-            _print(f"      - {func_name}")
-    if toolset_proxies_names:
-        _print("    - [green]Remote ToolSets:[/green]")
-        for proxy_name in toolset_proxies_names:
-            _print(f"      - {proxy_name}")
