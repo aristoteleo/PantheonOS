@@ -124,10 +124,23 @@ class Thread:
                 prompt += (
                     "\n\nPlease directly return the name, no other text or explanation."
                 )
-                new_name = await self.team.run(
-                    prompt, use_memory=False, update_memory=False
-                )
-                self.memory.name = new_name.content
+                
+                # Temporarily disable rich conversations to avoid tags in name
+                enhanced_states = {}
+                for agent_name, agent in self.team.agents.items():
+                    enhanced_states[agent_name] = agent.enhanced_flow
+                    agent.disable_rich_conversations()
+                
+                try:
+                    new_name = await self.team.run(
+                        prompt, use_memory=False, update_memory=False
+                    )
+                    self.memory.name = new_name.content
+                finally:
+                    # Restore original enhanced flow states
+                    for agent_name, was_enhanced in enhanced_states.items():
+                        if was_enhanced:
+                            self.team.agents[agent_name].enable_rich_conversations()
 
             resp = await self.team.run(
                 self.message,

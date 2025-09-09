@@ -489,6 +489,11 @@ class Agent:
         self.enhanced_flow = True
         return self
 
+    def disable_rich_conversations(self):
+        """Disable rich conversation flow"""
+        self.enhanced_flow = False
+        return self
+
     def toolset(self, toolset: ToolSet):
         """Add a toolset to the agent.
 
