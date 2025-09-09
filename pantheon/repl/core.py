@@ -288,10 +288,6 @@ class Repl(ReplUI):
                     self._print_session_summary()
                     break
             
-            # Record user input in conversation history (except for special commands)
-            if not current_message.strip().startswith('/'):
-                self.add_to_conversation("user", current_message)
-            
             # Handle special commands FIRST (before sending to API)
             cmd = current_message.strip()
             
@@ -310,6 +306,7 @@ class Repl(ReplUI):
                 continue
             elif cmd_lower in ["clear", "/clear"]:
                 self.console.clear()
+                self.agent.memory.clear()
                 await self.print_greeting()
                 current_message = None  # Reset to get new input
                 continue
@@ -323,6 +320,10 @@ class Repl(ReplUI):
                 continue
             elif cmd_lower in ["/save"] or current_message.strip().lower().startswith("/save"):
                 self._handle_save_command(current_message.strip())
+                current_message = None  # Reset to get new input
+                continue
+            elif current_message.strip().lower().startswith("/load"):
+                self._handle_load_command(current_message.strip())
                 current_message = None  # Reset to get new input
                 continue
             
@@ -513,8 +514,6 @@ class Repl(ReplUI):
             if content_buffer:
                 full_content = ''.join(content_buffer)
                 if full_content.strip():
-                    # Record AI response in conversation history
-                    self.add_to_conversation("assistant", full_content.strip())
                     
                     # Check if content contains code blocks - if so, use plain text
                     if '```' in full_content or 'def ' in full_content or 'import ' in full_content:
@@ -536,24 +535,30 @@ class Repl(ReplUI):
             if len(parts) > 1:
                 # User specified a filename: /save myfile.md
                 filename = parts[1]
-                if not filename.endswith('.md'):
-                    filename += '.md'
+                if not filename.endswith('.json'):
+                    filename += '.json'
+
+            else:
+                filename = datetime.now().strftime("%Y%m%d_%H%M%S") + '.json'
             
-            # Check if there's conversation history to save
-            if not hasattr(self, 'conversation_history') or not self.conversation_history:
-                self.console.print("[yellow]No conversation history to save yet.[/yellow]")
-                return
-            
-            # Export conversation to markdown
-            saved_file = self.export_conversation_to_markdown(filename)
-            self.console.print(f"[green]✅ Conversation saved to:[/green] {saved_file}")
+            self.agent.memory.save(filename)
+            self.console.print(f"[green]✅ Conversation saved to:[/green] {filename}")
             
         except Exception as e:
             self.console.print(f"[red]Error saving conversation: {str(e)}[/red]")
         self.console.print()  # Add spacing
 
-    # Bio command handling moved to bio_handler.py
-
+    def _handle_load_command(self, command: str):
+        """Handle /load commands in REPL"""
+        try:
+            parts = command.split()
+            filename = parts[1]
+            self.agent.memory = self.agent.memory.load(filename)
+            self.console.print(f"[green]✅ Conversation loaded from:[/green] {filename}")
+        except Exception as e:
+            self.console.print(f"[red]Error loading conversation: {str(e)}[/red]")
+        self.console.print()  # Add spacing
+    
 
 if __name__ == "__main__":
     agent = Agent(

@@ -40,6 +40,7 @@ async def main():
     agent = Agent(
         name="CLI Agent",
         instructions=instructions,
+        model="gpt-5",
     )
     agent.toolset(TodoToolSet("todo"))
     agent.toolset(PythonInterpreterToolSet("python"))

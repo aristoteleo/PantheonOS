@@ -60,6 +60,13 @@ class Memory:
             memory.extra_data = data.get("extra_data", {})
             return memory
 
+    def clear(self):
+        """
+        Clear the memory.
+        """
+        self._messages = []
+        self.extra_data = {}
+
     def add_messages(self, messages: list[dict]):
         """
         Add messages to the memory.
