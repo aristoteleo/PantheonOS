@@ -156,6 +156,9 @@ class ChatRoom:
         self.worker.register(self.attach_hooks)
         self.worker.register(self.speech_to_text)
         self.worker.register(self.get_db_info)
+        # Register suggestion methods
+        self.worker.register(self.get_suggestions)
+        self.worker.register(self.refresh_suggestions)
 
     async def get_db_info(self) -> dict:
         """Get the database info."""
@@ -516,6 +519,73 @@ class ChatRoom:
                 "success": False,
                 "text": str(e),
             }
+
+    async def _get_or_create_thread_for_suggestions(self, chat_id: str, force_refresh: bool = False):
+        """Helper method to get active thread or create temporary thread for suggestions"""
+        thread = self.threads.get(chat_id)
+        if thread is not None:
+            return thread, False  # Active thread, no cleanup needed
+            
+        # History chat - create temporary thread
+        memory = await run_func(self.memory_manager.get_memory, chat_id)
+        if len(memory.get_messages()) < 2:
+            raise ValueError("Not enough messages to generate suggestions")
+            
+        if force_refresh:
+            # Clear cache for refresh
+            memory.extra_data.pop('cached_suggestions', None)
+            memory.extra_data.pop('last_suggestion_message_count', None)
+            
+        temp_thread = Thread(self.team, memory, [])
+        return temp_thread, True  # Temporary thread, cleanup needed
+
+    async def get_suggestions(self, chat_id: str) -> dict:
+        """Get suggestion questions for a chat."""
+        return await self._handle_suggestions(chat_id, force_refresh=False)
+
+    async def refresh_suggestions(self, chat_id: str) -> dict:
+        """Refresh suggestion questions for a chat."""
+        return await self._handle_suggestions(chat_id, force_refresh=True)
+
+    async def _handle_suggestions(self, chat_id: str, force_refresh: bool = False) -> dict:
+        """Common suggestion handling logic."""
+        try:
+            thread, is_temp = await self._get_or_create_thread_for_suggestions(chat_id, force_refresh)
+            
+            # Check cache for history chats (unless forcing refresh)
+            if not force_refresh and is_temp:
+                cached = thread.memory.extra_data.get('cached_suggestions', [])
+                if cached:
+                    return {
+                        "success": True,
+                        "suggestions": cached,
+                        "chat_id": chat_id,
+                        "from_cache": True
+                    }
+            
+            # Generate or refresh suggestions
+            if force_refresh and not is_temp:
+                suggestions = await thread.refresh_suggestions()
+            else:
+                await thread._generate_suggestions()
+                suggestions = thread.get_suggestions()
+            
+            # Save memory if needed
+            if suggestions:
+                await run_func(self.memory_manager.save)
+                
+            return {
+                "success": True,
+                "suggestions": suggestions,
+                "chat_id": chat_id,
+                "from_cache": False
+            }
+            
+        except ValueError as e:
+            return {"success": False, "message": str(e)}
+        except Exception as e:
+            logger.error(f"Error handling suggestions for chat {chat_id}: {str(e)}")
+            return {"success": False, "message": str(e)}
 
     async def run(self, log_level: str = "INFO"):
         """Run the chatroom service.
