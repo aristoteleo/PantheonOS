@@ -64,7 +64,9 @@ class ChatRoom:
 
         if agents_template is None:
             if (self.memory_dir / "agents_template.yaml").exists():
-                with open(self.memory_dir / "agents_template.yaml", "r", encoding="utf-8") as f:
+                with open(
+                    self.memory_dir / "agents_template.yaml", "r", encoding="utf-8"
+                ) as f:
                     self.agents_template = yaml.safe_load(f)
             else:
                 with open(DEFAULT_AGENTS_TEMPLATE_PATH, "r", encoding="utf-8") as f:
@@ -150,6 +152,8 @@ class ChatRoom:
         self.worker.register(self.update_chat_name)
         self.worker.register(self.get_endpoint)
         self.worker.register(self.set_endpoint)
+        self.worker.register(self.get_toolsets)
+        self.worker.register(self.proxy_toolset)
         self.worker.register(self.get_agents)
         self.worker.register(self.set_active_agent)
         self.worker.register(self.get_active_agent)
@@ -198,6 +202,52 @@ class ChatRoom:
         except Exception as e:
             logger.error(f"Error setting endpoint service: {e}")
             return {"success": False, "message": str(e)}
+
+    async def get_toolsets(self) -> dict:
+        """Get all available toolsets from the endpoint service.
+
+        Returns:
+            A dictionary with the following keys:
+            - success: Whether the operation was successful.
+            - services: A list of available toolset services.
+            - error: Error message if operation failed.
+        """
+        try:
+            s = await self.backend.connect(
+                self.endpoint_service_id, **self.endpoint_connect_params
+            )
+            result = await s.invoke("list_services")
+            if isinstance(result, dict) and "success" in result:
+                return result
+            else:
+                # If result is directly the services list
+                return {"success": True, "services": result}
+        except Exception as e:
+            logger.error(f"Error getting toolsets: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def proxy_toolset(self, method_name: str, args: dict | None = None) -> dict:
+        """Proxy call to any toolset method in the endpoint service.
+
+        Args:
+            method_name: The name of the toolset method to call.
+            args: Arguments to pass to the method.
+
+        Returns:
+            The result from the toolset method call.
+        """
+        # DONT support reverse callback proxy!
+        try:
+            s = await self.backend.connect(
+                self.endpoint_service_id, **self.endpoint_connect_params
+            )
+            if args is None:
+                args = {}
+            result = await s.invoke(method_name, args)
+            return result
+        except Exception as e:
+            logger.error(f"Error calling toolset method {method_name}: {e}")
+            return {"success": False, "error": str(e)}
 
     async def get_agents(self) -> dict:
         """Get the agents info.
@@ -520,22 +570,24 @@ class ChatRoom:
                 "text": str(e),
             }
 
-    async def _get_or_create_thread_for_suggestions(self, chat_id: str, force_refresh: bool = False):
+    async def _get_or_create_thread_for_suggestions(
+        self, chat_id: str, force_refresh: bool = False
+    ):
         """Helper method to get active thread or create temporary thread for suggestions"""
         thread = self.threads.get(chat_id)
         if thread is not None:
             return thread, False  # Active thread, no cleanup needed
-            
+
         # History chat - create temporary thread
         memory = await run_func(self.memory_manager.get_memory, chat_id)
         if len(memory.get_messages()) < 2:
             raise ValueError("Not enough messages to generate suggestions")
-            
+
         if force_refresh:
             # Clear cache for refresh
-            memory.extra_data.pop('cached_suggestions', None)
-            memory.extra_data.pop('last_suggestion_message_count', None)
-            
+            memory.extra_data.pop("cached_suggestions", None)
+            memory.extra_data.pop("last_suggestion_message_count", None)
+
         temp_thread = Thread(self.team, memory, [])
         return temp_thread, True  # Temporary thread, cleanup needed
 
@@ -547,40 +599,44 @@ class ChatRoom:
         """Refresh suggestion questions for a chat."""
         return await self._handle_suggestions(chat_id, force_refresh=True)
 
-    async def _handle_suggestions(self, chat_id: str, force_refresh: bool = False) -> dict:
+    async def _handle_suggestions(
+        self, chat_id: str, force_refresh: bool = False
+    ) -> dict:
         """Common suggestion handling logic."""
         try:
-            thread, is_temp = await self._get_or_create_thread_for_suggestions(chat_id, force_refresh)
-            
+            thread, is_temp = await self._get_or_create_thread_for_suggestions(
+                chat_id, force_refresh
+            )
+
             # Check cache for history chats (unless forcing refresh)
             if not force_refresh and is_temp:
-                cached = thread.memory.extra_data.get('cached_suggestions', [])
+                cached = thread.memory.extra_data.get("cached_suggestions", [])
                 if cached:
                     return {
                         "success": True,
                         "suggestions": cached,
                         "chat_id": chat_id,
-                        "from_cache": True
+                        "from_cache": True,
                     }
-            
+
             # Generate or refresh suggestions
             if force_refresh and not is_temp:
                 suggestions = await thread.refresh_suggestions()
             else:
                 await thread._generate_suggestions()
                 suggestions = thread.get_suggestions()
-            
+
             # Save memory if needed
             if suggestions:
                 await run_func(self.memory_manager.save)
-                
+
             return {
                 "success": True,
                 "suggestions": suggestions,
                 "chat_id": chat_id,
-                "from_cache": False
+                "from_cache": False,
             }
-            
+
         except ValueError as e:
             return {"success": False, "message": str(e)}
         except Exception as e:

@@ -13,20 +13,21 @@ class FileTransferToolSet(FileManagerToolSetBase):
     - close file
     - read file
     """
+
     def __init__(
-            self,
-            name: str,
-            path: str | Path,
-            worker_params: dict | None = None,
-            **kwargs,
-            ):
+        self,
+        name: str,
+        path: str | Path,
+        worker_params: dict | None = None,
+        **kwargs,
+    ):
         super().__init__(name, path, worker_params, **kwargs)
         self._handles = {}
 
     @tool
     async def open_file_for_write(self, file_path: str):
         """Open a file for writing."""
-        if '..' in file_path:
+        if ".." in file_path:
             return {"error": "File path cannot contain '..'"}
         path = self.path / file_path
         handle_id = str(uuid.uuid4())
@@ -57,17 +58,31 @@ class FileTransferToolSet(FileManagerToolSetBase):
         return {"success": True}
 
     @tool
-    async def read_file(self, file_path: str, receive_chunk, chunk_size: int = 1024):
+    async def read_file(
+        self, file_path: str, receive_chunk=None, chunk_size: int = 1024
+    ):
         """Read a file."""
-        if '..' in file_path:
-            return {"error": "File path cannot contain '..'"}
+        if ".." in file_path:
+            return {"success": False, "error": "File path cannot contain '..'"}
         path = self.path / file_path
         if not path.exists():
             return {"success": False, "error": "File does not exist"}
-        with open(path, "rb") as f:
-            while True:
-                data = f.read(chunk_size)
-                if not data:
-                    break
-                await receive_chunk(data)
-        return {"success": True}
+
+        if receive_chunk is None:
+            # Non-streaming mode: return full file content for proxy calls
+            with open(path, "rb") as f:
+                file_data = f.read()
+                return {
+                    "success": True,
+                    "data": file_data,
+                    "total_size": len(file_data),
+                }
+        else:
+            # Streaming mode: use callback function for direct connections
+            with open(path, "rb") as f:
+                while True:
+                    data = f.read(chunk_size)
+                    if not data:
+                        break
+                    await receive_chunk(data)
+            return {"success": True}
