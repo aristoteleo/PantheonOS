@@ -10,9 +10,30 @@ class WorkflowToolSet(ToolSet):
     Args:
         name: The name of the toolset.
         workflow_path: The path to the workflow config file or folder.
+        worker_params: The parameters for the worker.
+        endpoint_service_id: The endpoint service ID.
+        **kwargs: Additional keyword arguments.
     """
-    def __init__(self, name: str, workflow_path: str | Path):
-        super().__init__(name)
+    def __init__(
+        self, 
+        name: str, 
+        workflow_path: str | Path | None = None,
+        worker_params: dict | None = None,
+        endpoint_service_id: str | None = None,
+        **kwargs
+    ):
+        # Pass standard ToolSet parameters to parent class
+        super().__init__(name, worker_params, endpoint_service_id)
+        
+        # Use default workflow path if not provided
+        if workflow_path is None:
+            import os
+            # Default to bio_workflows in examples directory
+            workflow_path = os.path.join(
+                os.path.dirname(__file__), 
+                "..", "..", "examples", "bio_cli", "bio_workflows"
+            )
+        
         template = load_template(workflow_path)
         template_items = parse_items(template)
         self.template_items = {

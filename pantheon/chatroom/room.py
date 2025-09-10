@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Callable
 
 import openai
-import yaml
 
 from pantheon.remote import (
     RemoteBackendFactory,
@@ -13,12 +12,14 @@ from pantheon.remote import (
 )
 
 from ..agent import Agent, RemoteAgent
-from ..factory import DEFAULT_AGENTS_TEMPLATE_PATH, create_agents_from_template
+from ..factory import create_agents_from_template
+from ..factory.template_manager import get_template_manager, ChatroomTemplate
 from ..memory import MemoryManager
 from ..team import PantheonTeam
 from ..utils.log import logger
 from ..utils.misc import run_func
 from .thread import Thread
+from .suggestion_generator import get_centralized_suggestion_manager
 
 
 class ChatRoom:
@@ -62,23 +63,8 @@ class ChatRoom:
         self.memory_dir = Path(memory_dir)
         self.memory_manager = MemoryManager(self.memory_dir)
 
-        if agents_template is None:
-            if (self.memory_dir / "agents_template.yaml").exists():
-                with open(
-                    self.memory_dir / "agents_template.yaml", "r", encoding="utf-8"
-                ) as f:
-                    self.agents_template = yaml.safe_load(f)
-            else:
-                with open(DEFAULT_AGENTS_TEMPLATE_PATH, "r", encoding="utf-8") as f:
-                    self.agents_template = yaml.safe_load(f)
-                self.save_agents_template()
-        elif isinstance(agents_template, str):
-            with open(agents_template, "r", encoding="utf-8") as f:
-                self.agents_template = yaml.safe_load(f)
-            if not (self.memory_dir / "agents_template.yaml").exists():
-                self.save_agents_template()
-        else:
-            self.agents_template = agents_template
+        # Initialize template manager - no more direct agents_template handling
+        self.template_manager = get_template_manager()
 
         self.endpoint_service_id = endpoint_service_id
         self.name = name
@@ -86,6 +72,10 @@ class ChatRoom:
         if isinstance(server_url, str):
             server_url = [server_url]
         self.server_urls = server_url
+
+        # Per-chat team management
+        self.default_team: PantheonTeam = None  # Will be initialized in setup_agents
+        self.chat_teams: dict[str, PantheonTeam] = {}  # Per-chat teams cache
 
         # Store worker params for later initialization in setup_agents
         self._worker_params = {
@@ -121,23 +111,145 @@ class ChatRoom:
         - other: The other agents.
         """
         endpoint_service = await self.backend.connect(self.endpoint_service_id)
+
+        # Get default template from template_manager
+        default_template = self.template_manager.get_template("default")
+        if not default_template:
+            raise RuntimeError("Default template not found in template manager")
+
         agents = await create_agents_from_template(
-            endpoint_service, self.agents_template
+            endpoint_service, default_template.agents_config
         )
         triage_agent = agents["triage"]
         agents = agents["other"]
         for agent in [triage_agent, *agents]:
             agent.enable_rich_conversations()
-        self.team = PantheonTeam(
+        # Create default team for compatibility and fallback
+        self.default_team = PantheonTeam(
             triage=triage_agent,
             agents=agents,
         )
-        await self.team.async_setup()
+        await self.default_team.async_setup()
 
-    def save_agents_template(self):
-        """Save the agents template to the memory_dir."""
-        with open(self.memory_dir / "agents_template.yaml", "w") as f:
-            yaml.dump(self.agents_template, f)
+        # Keep self.team for backward compatibility with existing code
+        self.team = self.default_team
+
+    # Removed: save_agents_template - using template_manager only
+
+    async def get_team_for_chat(self, chat_id: str) -> PantheonTeam:
+        """Get the team for a specific chat, creating from memory if needed."""
+        # FIX for performance, history chat will get team even not needed.
+        # 1. Check if team already exists in cache
+        if chat_id in self.chat_teams:
+            return self.chat_teams[chat_id]
+
+        # 2. Try to load team from persistent memory
+        team = await self._load_team_from_memory(chat_id)
+        self.chat_teams[chat_id] = team  # Cache it
+
+        return team
+
+    async def _load_team_from_memory(self, chat_id: str) -> PantheonTeam:
+        """Load team from chat's persistent memory."""
+        try:
+            memory = await run_func(self.memory_manager.get_memory, chat_id)
+
+            # Check for stored team template
+            if hasattr(memory, "extra_data") and memory.extra_data:
+                team_template = memory.extra_data.get("team_template")
+                if team_template:
+                    return await self._create_team_from_template(team_template)
+
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to load team from memory for chat {chat_id}: {e}")
+
+        logger.info(f"Load default team for chat {chat_id}")
+
+        return self.default_team
+
+    async def _create_team_from_template(self, team_template: dict) -> PantheonTeam:
+        """Create a team from a stored template configuration."""
+        template_name = team_template.get("template_name", "unknown")
+
+        agents_config = team_template.get("agents_config", {})
+        logger.info(
+            f"🏗️ Creating team from template '{template_name}' with {len(agents_config)} agents"
+        )
+
+        # Connect to endpoint service
+        endpoint_service = await self.backend.connect(
+            self.endpoint_service_id, **self.endpoint_connect_params
+        )
+
+        # Create agents from template
+        agents = await create_agents_from_template(endpoint_service, agents_config)
+        triage_agent = agents["triage"]
+        other_agents = agents["other"]
+
+        logger.info(
+            f"📋 Created agents: triage='{triage_agent.name}', others=[{', '.join(a.name for a in other_agents)}]"
+        )
+
+        # Enable rich conversations for all agents
+        for agent in [triage_agent, *other_agents]:
+            agent.enable_rich_conversations()
+
+        # Create and setup team
+        team = PantheonTeam(triage=triage_agent, agents=other_agents)
+        await team.async_setup()
+
+        total_agents = len(team.agents)  # Use actual team.agents count
+        logger.info(
+            f"✅ Successfully created team from template '{template_name}' with {total_agents} agents"
+        )
+
+        return team
+
+    async def setup_team_for_chat(self, chat_id: str, template_obj: dict):
+        """Setup/update team for a specific chat using full template object."""
+        try:
+            logger.info(
+                f"Setting up team for chat {chat_id} with template: {template_obj.get('name', 'unknown')}"
+            )
+
+            # Store full template in memory
+            memory = await run_func(self.memory_manager.get_memory, chat_id)
+            if not hasattr(memory, "extra_data"):
+                memory.extra_data = {}
+
+            # Store complete template configuration
+            memory.extra_data["team_template"] = {
+                "template_id": template_obj.get("id", "custom"),
+                "template_name": template_obj.get("name", "Custom Template"),
+                "agents_config": template_obj.get("agents_config", {}),
+                "required_toolsets": template_obj.get("required_toolsets", []),
+                "created_at": datetime.now().isoformat(),
+            }
+            if "active_agent" in memory.extra_data:
+                del memory.extra_data["active_agent"]
+            await run_func(self.memory_manager.save)
+
+            # Clear cached team (force recreation next time)
+            if chat_id in self.chat_teams:
+                del self.chat_teams[chat_id]
+
+            # Start missing toolsets in background (non-blocking)
+            required_toolsets = template_obj.get("required_toolsets", [])
+            if required_toolsets:
+                logger.info(
+                    f"Template requires toolsets: {required_toolsets}. Starting them in background..."
+                )
+                asyncio.create_task(self._start_toolsets_background(required_toolsets))
+
+            return {
+                "success": True,
+                "message": f"Team template '{template_obj.get('name', 'Custom')}' prepared for chat",
+                "template": template_obj,
+                "chat_id": chat_id,
+            }
+
+        except Exception as e:
+            return {"success": False, "message": f"Template setup failed: {str(e)}"}
 
     def setup_handlers(self):
         """Setup the handlers for the worker.
@@ -163,6 +275,11 @@ class ChatRoom:
         # Register suggestion methods
         self.worker.register(self.get_suggestions)
         self.worker.register(self.refresh_suggestions)
+        # Register template methods
+        self.worker.register(self.list_templates)
+        self.worker.register(self.setup_team_for_chat)
+        self.worker.register(self.get_chat_template)
+        self.worker.register(self.validate_template)
 
     async def get_db_info(self) -> dict:
         """Get the database info."""
@@ -249,8 +366,11 @@ class ChatRoom:
             logger.error(f"Error calling toolset method {method_name}: {e}")
             return {"success": False, "error": str(e)}
 
-    async def get_agents(self) -> dict:
-        """Get the agents info.
+    async def get_agents(self, chat_id: str = None) -> dict:
+        """Get the agents info for a specific chat or default team.
+
+        Args:
+            chat_id: The chat ID to get agents for. If None, uses default team.
 
         Returns:
             A dictionary with the following keys:
@@ -279,9 +399,15 @@ class ChatRoom:
                 "not_loaded_toolsets": not_loaded_toolsets,
             }
 
+        # Get the appropriate team for this chat
+        if chat_id:
+            team = await self.get_team_for_chat(chat_id)
+        else:
+            team = self.default_team
+
         return {
             "success": True,
-            "agents": [get_agent_info(a) for a in self.team.agents.values()],
+            "agents": [get_agent_info(a) for a in team.agents.values()],
         }
 
     async def set_active_agent(self, chat_name: str, agent_name: str):
@@ -291,13 +417,14 @@ class ChatRoom:
             chat_name: The name of the chat.
             agent_name: The name of the agent.
         """
+        # Get the team for this specific chat
+        team = await self.get_team_for_chat(chat_name)
         memory = await run_func(self.memory_manager.get_memory, chat_name)
-        agent = next(
-            (a for a in self.team.agents.values() if a.name == agent_name), None
-        )
+
+        agent = next((a for a in team.agents.values() if a.name == agent_name), None)
         if agent is None:
             return {"success": False, "message": "Agent not found"}
-        self.team.set_active_agent(memory, agent_name)
+        team.set_active_agent(memory, agent_name)
         return {"success": True, "message": "Agent set as active"}
 
     async def get_active_agent(self, chat_name: str) -> dict:
@@ -306,8 +433,10 @@ class ChatRoom:
         Args:
             chat_name: The name of the chat.
         """
+        # Get the team for this specific chat
+        team = await self.get_team_for_chat(chat_name)
         memory = await run_func(self.memory_manager.get_memory, chat_name)
-        active_agent = self.team.get_active_agent(memory)
+        active_agent = team.get_active_agent(memory)
         return {
             "success": True,
             "agent": active_agent.name,
@@ -499,7 +628,14 @@ class ChatRoom:
         memory.extra_data["running"] = True
         memory.extra_data["last_activity_date"] = datetime.now().isoformat()
 
-        thread = Thread(self.team, memory, message)
+        async def team_getter():
+            return await self.get_team_for_chat(chat_id)
+
+        thread = Thread(
+            team_getter,  # Pass chatroom reference instead of team
+            memory,
+            message,
+        )
         self.threads[chat_id] = thread
         await self.attach_hooks(
             chat_id, process_chunk, process_step_message, wait=False
@@ -570,26 +706,7 @@ class ChatRoom:
                 "text": str(e),
             }
 
-    async def _get_or_create_thread_for_suggestions(
-        self, chat_id: str, force_refresh: bool = False
-    ):
-        """Helper method to get active thread or create temporary thread for suggestions"""
-        thread = self.threads.get(chat_id)
-        if thread is not None:
-            return thread, False  # Active thread, no cleanup needed
-
-        # History chat - create temporary thread
-        memory = await run_func(self.memory_manager.get_memory, chat_id)
-        if len(memory.get_messages()) < 2:
-            raise ValueError("Not enough messages to generate suggestions")
-
-        if force_refresh:
-            # Clear cache for refresh
-            memory.extra_data.pop("cached_suggestions", None)
-            memory.extra_data.pop("last_suggestion_message_count", None)
-
-        temp_thread = Thread(self.team, memory, [])
-        return temp_thread, True  # Temporary thread, cleanup needed
+    # Removed: _get_or_create_thread_for_suggestions - suggestions now handled directly in room.py
 
     async def get_suggestions(self, chat_id: str) -> dict:
         """Get suggestion questions for a chat."""
@@ -602,16 +719,27 @@ class ChatRoom:
     async def _handle_suggestions(
         self, chat_id: str, force_refresh: bool = False
     ) -> dict:
-        """Common suggestion handling logic."""
+        """Common suggestion handling logic using centralized suggestion generator."""
         try:
-            thread, is_temp = await self._get_or_create_thread_for_suggestions(
-                chat_id, force_refresh
-            )
+            # Get chat memory directly from memory manager
+            memory = await run_func(self.memory_manager.get_memory, chat_id)
+            messages = memory.get_messages()
 
-            # Check cache for history chats (unless forcing refresh)
-            if not force_refresh and is_temp:
-                cached = thread.memory.extra_data.get("cached_suggestions", [])
-                if cached:
+            if len(messages) < 2:
+                return {
+                    "success": False,
+                    "message": "Not enough messages to generate suggestions",
+                }
+
+            # Check cache (unless forcing refresh)
+            if not force_refresh:
+                cached = memory.extra_data.get("cached_suggestions", [])
+                last_suggestion_message_count = memory.extra_data.get(
+                    "last_suggestion_message_count", 0
+                )
+
+                # Use cached suggestions if still valid
+                if cached and len(messages) <= last_suggestion_message_count:
                     return {
                         "success": True,
                         "suggestions": cached,
@@ -619,16 +747,43 @@ class ChatRoom:
                         "from_cache": True,
                     }
 
-            # Generate or refresh suggestions
-            if force_refresh and not is_temp:
-                suggestions = await thread.refresh_suggestions()
-            else:
-                await thread._generate_suggestions()
-                suggestions = thread.get_suggestions()
+            # Convert messages to the format expected by suggestion generator
+            formatted_messages = []
+            for msg in messages:
+                if hasattr(msg, "to_dict"):
+                    formatted_messages.append(msg.to_dict())
+                elif isinstance(msg, dict):
+                    formatted_messages.append(msg)
+                else:
+                    # Handle other message formats
+                    formatted_messages.append(
+                        {
+                            "role": getattr(msg, "role", "unknown"),
+                            "content": getattr(msg, "content", str(msg)),
+                        }
+                    )
 
-            # Save memory if needed
+            # Use centralized suggestion generator
+            suggestion_generator = get_centralized_suggestion_manager()
+            suggestions_objects = await suggestion_generator.generate_suggestions(
+                formatted_messages
+            )
+
+            # Convert to dict format
+            suggestions = [
+                {"text": s.text, "category": s.category} for s in suggestions_objects
+            ]
+
+            # Cache suggestions in memory
             if suggestions:
+                memory.extra_data["cached_suggestions"] = suggestions
+                memory.extra_data["last_suggestion_message_count"] = len(messages)
+                memory.extra_data["suggestions_generated_at"] = (
+                    datetime.now().isoformat()
+                )
                 await run_func(self.memory_manager.save)
+
+            logger.info(f"Generated {len(suggestions)} suggestions for chat {chat_id}")
 
             return {
                 "success": True,
@@ -642,6 +797,156 @@ class ChatRoom:
         except Exception as e:
             logger.error(f"Error handling suggestions for chat {chat_id}: {str(e)}")
             return {"success": False, "message": str(e)}
+
+    # Template Management Methods
+
+    async def list_templates(self) -> dict:
+        """List all available chatroom templates."""
+        try:
+            template_manager = get_template_manager()
+            templates = template_manager.list_templates()
+
+            return {
+                "success": True,
+                "templates": [template.to_dict() for template in templates],
+            }
+        except Exception as e:
+            logger.error(f"Error listing templates: {e}")
+            return {"success": False, "message": str(e)}
+
+    async def get_chat_template(self, chat_id: str) -> dict:
+        """Get the current template for a specific chat."""
+        memory = await run_func(self.memory_manager.get_memory, chat_id)
+
+        # Check if chat has a stored template
+        if hasattr(memory, "extra_data") and memory.extra_data:
+            team_template = memory.extra_data.get("team_template")
+            if team_template:
+                # Return the stored template information
+                return {
+                    "success": True,
+                    "template": {
+                        "id": team_template.get("template_id", "custom"),
+                        "name": team_template.get("template_name", "Custom Template"),
+                        "agents_config": team_template.get("agents_config", {}),
+                        "required_toolsets": team_template.get("required_toolsets", []),
+                        "created_at": team_template.get("created_at"),
+                        "partial_setup": team_template.get("partial_setup", False),
+                    },
+                }
+
+        # No template found, return default template info
+        template_manager = get_template_manager()
+        default_template = template_manager.get_template("default")
+        if default_template:
+            return {
+                "success": True,
+                "template": default_template.to_dict(),
+                "is_default": True,
+            }
+
+        # Fallback if no default template found
+        return {
+            "success": False,
+            "message": "No template found and no default template available",
+        }
+
+    async def validate_template(self, template: dict) -> dict:
+        """Validate if a template is compatible with current endpoint."""
+        try:
+            # Convert dict to ChatroomTemplate object
+            from ..factory.template_manager import ChatroomTemplate
+
+            template_obj = ChatroomTemplate(
+                id=template.get("id", ""),
+                name=template.get("name", ""),
+                description=template.get("description", ""),
+                icon=template.get("icon", ""),
+                category=template.get("category", ""),
+                version=template.get("version", "1.0"),
+                agents_config=template.get("agents_config", {}),
+                required_toolsets=template.get("required_toolsets", []),
+                tags=template.get("tags", []),
+            )
+
+            # Validate template structure
+            template_manager = get_template_manager()
+            validation_errors = template_manager.validate_template(template_obj)
+            if validation_errors:
+                return {
+                    "success": False,
+                    "message": "Template validation failed",
+                    "validation_errors": validation_errors,
+                }
+
+            # Check toolset availability
+
+            s = await self.backend.connect(
+                self.endpoint_service_id, **self.endpoint_connect_params
+            )
+            available_toolsets_resp = await s.invoke("list_services")
+
+            if (
+                isinstance(available_toolsets_resp, dict)
+                and "success" in available_toolsets_resp
+            ):
+                if available_toolsets_resp["success"]:
+                    available_services = available_toolsets_resp.get("services", [])
+                    available_toolsets = [
+                        svc.get("name", svc.get("id", "")) for svc in available_services
+                    ]
+                else:
+                    available_toolsets = []
+            else:
+                available_toolsets = (
+                    available_toolsets_resp
+                    if isinstance(available_toolsets_resp, list)
+                    else []
+                )
+
+            missing_toolsets = []
+            for required_toolset in template_obj.required_toolsets:
+                if required_toolset not in available_toolsets:
+                    missing_toolsets.append(required_toolset)
+
+            return {
+                "success": True,
+                "compatible": len(missing_toolsets) == 0,
+                "required_toolsets": template_obj.required_toolsets,
+                "available_toolsets": available_toolsets,
+                "missing_toolsets": missing_toolsets,
+                "template": template_obj.to_dict(),
+            }
+
+        except Exception as e:
+            logger.error(f"Error validating template compatibility: {e}")
+            return {"success": False, "message": str(e)}
+
+    async def _start_toolsets_background(self, missing_toolsets: list[str]):
+        """Start missing toolsets in background without blocking."""
+
+        logger.info(f"🚀 Background task: Starting toolsets {missing_toolsets}")
+
+        s = await self.backend.connect(
+            self.endpoint_service_id, **self.endpoint_connect_params
+        )
+        result = await s.invoke(
+            "ensure_toolsets", {"required_toolsets": missing_toolsets}
+        )
+
+        if result.get("success", False):
+            started = result.get("starting_toolsets", [])
+            still_missing = result.get("missing_toolsets", [])
+
+            if started:
+                logger.info(f"✅ Successfully started toolsets: {', '.join(started)}")
+            if still_missing:
+                logger.warning(
+                    f"⚠️ Could not start toolsets: {', '.join(still_missing)} (they may not exist or have errors)"
+                )
+        else:
+            error_msg = result.get("error", "Unknown error")
+            logger.warning(f"⚠️ Toolset startup failed: {error_msg}")
 
     async def run(self, log_level: str = "INFO"):
         """Run the chatroom service.

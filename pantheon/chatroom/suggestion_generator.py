@@ -1,11 +1,12 @@
 """
-Suggestion Generator for Chat Follow-up Questions
-Based on the same pattern as chat title generation in thread.py
+Centralized Suggestion Manager for Chat Follow-up Questions
+Uses a dedicated suggestion agent/team for all suggestion generation across chats
 """
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+import asyncio
 
-from ..team import PantheonTeam
+from ..agent import Agent
 from ..utils.log import logger
 
 
@@ -17,16 +18,55 @@ class SuggestedQuestion:
 
 
 class SuggestionGenerator:
-    """Generate contextual follow-up questions for chat conversations"""
+    """Centralized manager for generating contextual follow-up questions using a dedicated suggestion agent"""
     
-    def __init__(self, team: PantheonTeam):
-        """
-        Initialize suggestion generator
-        
-        Args:
-            team: The team to use for generation
-        """
-        self.team = team
+    def __init__(self):
+        """Initialize centralized suggestion manager"""
+        self._suggestion_agent: Optional[Agent] = None
+        self._initialization_lock = asyncio.Lock()
+        self._is_initialized = False
+    
+    async def _ensure_initialized(self):
+        """Ensure the suggestion agent is initialized (lazy loading)"""
+        if self._is_initialized:
+            return
+            
+        async with self._initialization_lock:
+            if self._is_initialized:
+                return
+                
+            await self._initialize_suggestion_agent()
+            self._is_initialized = True
+    
+    async def _initialize_suggestion_agent(self):
+        """Initialize the dedicated suggestion agent"""
+        try:
+            # Create a simple suggestion agent directly
+            self._suggestion_agent = Agent(
+                name="Suggestion Agent",
+                instructions="""You are a suggestion assistant that generates contextual follow-up questions. 
+Your role is to analyze conversation context and suggest 3 relevant questions the user might want to ask next.
+
+Rules:
+1. Generate exactly 3 questions that are contextual and actionable
+2. Make questions specific to the conversation topic
+3. Focus on clarification, follow-up details, or related exploration
+4. Keep questions concise and natural
+5. Return only the questions, one per line, without numbering or formatting""",
+                model="gpt-4o-mini",  # Use efficient model for suggestions
+            )
+            
+            if not self._suggestion_agent:
+                raise RuntimeError("Failed to create suggestion agent")
+            
+            # Enable rich conversations for better responses
+            self._suggestion_agent.enable_rich_conversations()
+            
+            logger.info("✅ Centralized suggestion agent initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize suggestion agent: {str(e)}")
+            raise
     
     async def generate_suggestions(
         self, 
@@ -34,7 +74,7 @@ class SuggestionGenerator:
         max_suggestions: int = 3
     ) -> List[SuggestedQuestion]:
         """
-        Generate contextual follow-up questions using the same pattern as chat title generation
+        Generate contextual follow-up questions using the centralized suggestion team
         
         Args:
             messages: List of chat messages
@@ -48,6 +88,13 @@ class SuggestionGenerator:
             return []
         
         try:
+            # Ensure suggestion agent is initialized
+            await self._ensure_initialized()
+            
+            if not self._suggestion_agent:
+                logger.warning("Suggestion agent not available, skipping suggestions")
+                return []
+            
             # Build conversation context from recent messages
             context = self._build_conversation_context(messages)
             if not context:
@@ -56,35 +103,34 @@ class SuggestionGenerator:
             # Create prompt for suggestion generation
             prompt = self._build_suggestion_prompt(context, max_suggestions)
             
-            # Generate suggestions using the same pattern as chat title generation
+            # Generate suggestions using the centralized agent
             # Temporarily disable rich conversations to avoid tags in suggestions
-            enhanced_states = {}
-            for agent_name, agent in self.team.agents.items():
-                enhanced_states[agent_name] = agent.enhanced_flow
-                agent.disable_rich_conversations()
+            was_enhanced = self._suggestion_agent.enhanced_flow
+            self._suggestion_agent.disable_rich_conversations()
             
             try:
-                # Generate suggestions without using memory to avoid interference
-                response = await self.team.run(
-                    prompt, 
-                    use_memory=False, 
-                    update_memory=False
+                # Generate suggestions using the agent directly with timeout
+                response = await asyncio.wait_for(
+                    self._suggestion_agent.run(prompt), 
+                    timeout=30.0  # 30 second timeout for suggestions
                 )
                 
                 # Parse the response into structured suggestions
                 suggestions = self._parse_suggestions(response.content if response else "")
                 
-                logger.info(f"Generated {len(suggestions)} suggestions from LLM response")
+                logger.info(f"🔮 Generated {len(suggestions)} suggestions using centralized agent")
                 return suggestions
                 
+            except asyncio.TimeoutError:
+                logger.warning("Suggestion generation timed out after 30 seconds")
+                return []
             finally:
-                # Restore original enhanced flow states
-                for agent_name, was_enhanced in enhanced_states.items():
-                    if was_enhanced:
-                        self.team.agents[agent_name].enable_rich_conversations()
+                # Restore original enhanced flow state
+                if was_enhanced:
+                    self._suggestion_agent.enable_rich_conversations()
                         
         except Exception as e:
-            logger.error(f"Error generating suggestions: {str(e)}")
+            logger.error(f"Error generating centralized suggestions: {str(e)}")
             return []
     
     def _build_conversation_context(self, messages: List[Dict[str, Any]]) -> str:
@@ -158,3 +204,15 @@ Questions:"""
                 break
         
         return suggestions
+
+
+# Global singleton instance
+_suggestion_generator: Optional[SuggestionGenerator] = None
+
+
+def get_centralized_suggestion_manager() -> SuggestionGenerator:
+    """Get the global suggestion generator instance"""
+    global _suggestion_generator
+    if _suggestion_generator is None:
+        _suggestion_generator = SuggestionGenerator()
+    return _suggestion_generator
