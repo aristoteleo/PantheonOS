@@ -93,7 +93,11 @@ class Endpoint(FileTransferToolSet):
 
     @staticmethod
     def default_config() -> EndpointConfig:
-        with open(os.path.join(os.path.dirname(__file__), "endpoint.yaml"), "r", encoding="utf-8") as f:
+        with open(
+            os.path.join(os.path.dirname(__file__), "endpoint.yaml"),
+            "r",
+            encoding="utf-8",
+        ) as f:
             return yaml.safe_load(f)
 
     def report_service_id(self):
@@ -176,11 +180,11 @@ class Endpoint(FileTransferToolSet):
         # First check if all expected services have been added
         if len(self._services_to_start) > 0:
             return False
-        
+
         # Then verify that we actually have services running
         if len(self.services) == 0:
             return False
-            
+
         for service_info in self.services.values():
             # Try to connect to each service to verify it's responsive
             service_id = service_info.get("id")
@@ -192,19 +196,202 @@ class Endpoint(FileTransferToolSet):
                     logger.error(f"Error checking service {service_id}: {e}")
                     # If any service is not responsive, not ready
                     return False
-            
+
         return True
 
+    @tool
+    async def ensure_toolsets(self, required_toolsets: list[str]) -> dict:
+        """Ensure required toolsets are available, starting them if needed."""
+        try:
+            missing_toolsets = []
+            starting_toolsets = []
+
+            for toolset_id in required_toolsets:
+                if not await self._is_service_running(toolset_id):
+                    logger.info(f"Starting toolset: {toolset_id}")
+                    success = await self._start_toolset_service(toolset_id)
+                    if success:
+                        starting_toolsets.append(toolset_id)
+                    else:
+                        missing_toolsets.append(toolset_id)
+
+            return {
+                "success": True,
+                "missing_toolsets": missing_toolsets,
+                "starting_toolsets": starting_toolsets,
+                "message": f"Started {len(starting_toolsets)} toolsets, {len(missing_toolsets)} failed to start",
+            }
+        except Exception as e:
+            logger.error(f"Error ensuring toolsets: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _is_service_running(self, service_name: str) -> bool:
+        """Check if a service is currently running."""
+        # Check by service name or ID
+        for service_info in self.services.values():
+            if (
+                service_info.get("name") == service_name
+                or service_info.get("id") == service_name
+            ):
+                return True
+        return False
+
+    async def _start_toolset_service(self, toolset_type: str, engine=None) -> bool:
+        """Start a single toolset service dynamically."""
+        try:
+            # Use existing _get_cmd method to get the command
+            cmd = self._get_cmd(toolset_type, {"name": toolset_type})
+
+            log_file = self.log_dir / f"{toolset_type}.log"
+            env = os.environ.copy()
+
+            if self.redirect_log:
+                job = SubprocessJob(
+                    cmd, retries=3, redirect_out_err=str(log_file), env=env
+                )
+            else:
+                job = SubprocessJob(cmd, retries=3, env=env)
+
+            # Use existing engine if provided, otherwise create a temporary one
+            if engine is None:
+                from executor.engine import Engine
+
+                engine = Engine()
+                engine_cleanup_needed = True
+            else:
+                engine_cleanup_needed = False
+
+            await engine.submit_async(job)
+            await job.wait_until_status("running")
+
+            # Wait a bit for the service to register
+            await asyncio.sleep(3)  # Increased wait time
+
+            # Try to add the service to our registry
+            await self._detect_new_service(toolset_type)
+
+            logger.info(f"Successfully started toolset service: {toolset_type}")
+
+            # Don't cleanup engine if it was provided externally
+            if engine_cleanup_needed:
+                # The engine will be cleaned up automatically when the process exits
+                pass
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to start toolset service {toolset_type}: {e}")
+            return False
+
+    async def _detect_new_service(self, expected_service: str):
+        """Detect and register a newly started service."""
+        try:
+            # Map service name for detection
+            mapped_service = self._map_toolset_name(expected_service)
+
+            # Try to find the service by connecting to it
+            potential_service_ids = [
+                f"{self.id_hash}_{expected_service}",
+                f"{self.id_hash}_{mapped_service}",
+                expected_service,
+                mapped_service,
+                f"{expected_service}_{self.id_hash}",
+                f"{mapped_service}_{self.id_hash}",
+            ]
+
+            # Try multiple attempts with delays
+            for attempt in range(3):
+                for service_id in potential_service_ids:
+                    try:
+                        s = await connect_remote(service_id)
+                        info = await s.fetch_service_info()
+
+                        if info:
+                            self.services[service_id] = {
+                                "id": service_id,
+                                "name": info.service_name or expected_service,
+                            }
+                            logger.info(
+                                f"Detected and registered new service: {service_id} (attempt {attempt + 1})"
+                            )
+                            return True
+                    except Exception as e:
+                        # Log only on final attempt to reduce noise
+                        if attempt == 2:
+                            logger.debug(f"Failed to connect to {service_id}: {e}")
+                        continue
+
+                # Wait before retry
+                if attempt < 2:
+                    await asyncio.sleep(2)
+
+            logger.warning(
+                f"Could not detect service {expected_service} after 3 attempts"
+            )
+            return False
+
+        except Exception as e:
+            logger.error(f"Error detecting new service {expected_service}: {e}")
+            return False
+
+    @tool
+    async def get_toolset_status(self) -> dict:
+        """Get the status of all toolsets."""
+        try:
+            running_services = []
+            for service_id, service_info in self.services.items():
+                try:
+                    # Quick health check
+                    await connect_remote(service_id)
+                    running_services.append(
+                        {
+                            "id": service_id,
+                            "name": service_info.get("name", service_id),
+                            "status": "running",
+                        }
+                    )
+                except:
+                    running_services.append(
+                        {
+                            "id": service_id,
+                            "name": service_info.get("name", service_id),
+                            "status": "unavailable",
+                        }
+                    )
+
+            return {
+                "success": True,
+                "services": running_services,
+                "total_services": len(self.services),
+            }
+        except Exception as e:
+            logger.error(f"Error getting toolset status: {e}")
+            return {"success": False, "error": str(e)}
+
+    def _map_toolset_name(self, template_name: str) -> str:
+        """Map template toolset names to actual toolset startup names."""
+        toolset_name_mapping = {
+            "r_interpreter": "r",
+            "python_interpreter": "python", 
+            "julia_interpreter": "julia",
+            "web_browse": "web",
+        }
+        return toolset_name_mapping.get(template_name, template_name)
+
     def _get_cmd(self, service_type: str, params: dict):
+        # Map template toolset name to actual startup name
+        startup_name = self._map_toolset_name(service_type)
+
         worker_params_str = f"\"{{'id_hash': '{self.id_hash + '_' + service_type}'}}\""
         cmd = [
-            f"python -m pantheon.toolsets start {service_type}",
+            f"python -m pantheon.toolsets start {startup_name}",
             f"--service-name {params.get('name', service_type)}",
             f"--endpoint-service-id {self.service_id}",
             f"--worker-params {worker_params_str}",
         ]
 
-        if service_type == "python":
+        # Use mapped name for startup logic, but check both original and mapped names for parameters
+        if startup_name == "python" or service_type in ["python", "python_interpreter"]:
             cmd.append(f"--workdir {str(self.path)}")
         elif service_type == "file_manager":
             cmd.append(f"--path {str(self.path)}")
@@ -228,6 +415,12 @@ class Endpoint(FileTransferToolSet):
                 else:
                     logger.info(f"Vector database already exists in {download_path}")
             cmd.append(f"--db-path {db_path}")
+        elif service_type == "workflow":
+            # Add workflow path parameter - default to bio workflows
+            workflow_path = params.get("workflow_path")
+            if workflow_path:
+                cmd.append(f"--workflow-path {workflow_path}")
+            # Note: If no workflow_path specified, WorkflowToolSet will use default bio_workflows
         _cmd = " ".join(cmd)
         return _cmd
 

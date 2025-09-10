@@ -1,0 +1,347 @@
+# Chatroom Templates for Per-Thread Template Support
+# Each template defines a complete chatroom configuration with agents and metadata
+
+templates:
+  default:
+    id: "default"
+    name: "Default Chatroom"
+    description: "The default chatroom configuration with basic agents"
+    icon: "🏠"
+    category: "general"
+    version: "1.0.0"
+    agents_config:
+      triage:
+        name: Triage Agent
+        instructions: |
+          You are the triage agent,
+          you should decide which agent to use based on the user's request.
+          If no related agent, you can do the task by yourself.
+        model: openai/gpt-5
+        icon: 🤖
+      data_analysis:
+        name: Data Analysis Agent
+        instructions: |
+          You are a data analysis agent that can analyze data.
+          You can use the python to analyze the data.
+          You can use the file_manager to manage the data.
+        model: openai/gpt-5
+        icon: 📊
+        toolsets:
+          - python
+          - file_manager
+      web_search:
+        name: Web Search Agent
+        instructions: You are a web search agent that can search the web for information.
+        model: openai/gpt-5
+        icon: 🔍
+        toolsets:
+          - web
+    required_toolsets:
+      - python
+      - file_manager
+      - web
+    tags:
+      - general
+      - default
+    
+  data_scientist:
+    id: "data_scientist"
+    name: "Data Science Workbench"
+    description: "Specialized template for data analysis and scientific computing"
+    icon: "🔬"
+    category: "data_science"
+    version: "1.0.0"
+    agents_config:
+      triage:
+        name: Data Science Triage
+        instructions: |
+          You are a data science triage agent.
+          Route tasks to appropriate specialists: data analyst, statistician, or ML engineer.
+          Handle general queries yourself.
+        model: openai/gpt-5
+        icon: 🧭
+      data_analyst:
+        name: Data Analyst
+        instructions: |
+          You are an expert data analyst specializing in exploratory data analysis,
+          data cleaning, visualization, and statistical analysis.
+          Use Python with pandas, numpy, matplotlib, and seaborn.
+        model: openai/gpt-5
+        icon: 📊
+        toolsets:
+          - python
+          - file_manager
+      statistician:
+        name: Statistician
+        instructions: |
+          You are a professional statistician specializing in hypothesis testing,
+          regression analysis, and statistical modeling.
+          Use R and Python for statistical computations.
+        model: openai/gpt-5
+        icon: 📈
+        toolsets:
+          - python
+          - r_interpreter
+          - file_manager
+      ml_engineer:
+        name: ML Engineer
+        instructions: |
+          You are a machine learning engineer focused on model development,
+          training, evaluation, and deployment.
+          Use scikit-learn, tensorflow, pytorch, and other ML frameworks.
+        model: openai/gpt-5
+        icon: 🤖
+        toolsets:
+          - python
+          - file_manager
+    required_toolsets:
+      - python
+      - r_interpreter
+      - file_manager
+    tags:
+      - data_science
+      - machine_learning
+      - statistics
+      - analysis
+
+  web_research:
+    id: "web_research"
+    name: "Web Research Hub"
+    description: "Optimized for web research, scraping, and content analysis"
+    icon: "🌐"
+    category: "research"
+    version: "1.0.0"
+    agents_config:
+      triage:
+        name: Research Coordinator
+        instructions: |
+          You coordinate web research tasks.
+          Route to appropriate specialists: researcher, scraper, or analyst.
+          Handle planning and coordination tasks yourself.
+        model: openai/gpt-5
+        icon: 🧭
+      researcher:
+        name: Web Researcher
+        instructions: |
+          You are a web research specialist focused on finding, evaluating,
+          and synthesizing information from web sources.
+          Use web browsing and search capabilities effectively.
+        model: openai/gpt-5
+        icon: 🔍
+        toolsets:
+          - web
+          - web_browse
+      scraper:
+        name: Data Scraper
+        instructions: |
+          You specialize in web scraping and data extraction.
+          Extract structured data from websites and APIs.
+          Clean and organize extracted data.
+        model: openai/gpt-5
+        icon: 🕷️
+        toolsets:
+          - scraper
+          - python
+          - file_manager
+      analyst:
+        name: Content Analyst
+        instructions: |
+          You analyze web content, documents, and research data.
+          Provide insights, summaries, and structured analysis.
+          Use text processing and analysis tools.
+        model: openai/gpt-5
+        icon: 📋
+        toolsets:
+          - python
+          - file_manager
+          - vector_rag
+    required_toolsets:
+      - web
+      - web_browse
+      - scraper
+      - python
+      - file_manager
+      - vector_rag
+    tags:
+      - research
+      - web_scraping
+      - content_analysis
+
+  code_development:
+    id: "code_development"
+    name: "Software Development"
+    description: "Full-stack development environment with multiple language support"
+    icon: "💻"
+    category: "development"
+    version: "1.0.0"
+    agents_config:
+      triage:
+        name: Dev Lead
+        instructions: |
+          You are a development team lead coordinating coding tasks.
+          Route to appropriate developers based on language and task type.
+          Handle architecture and planning decisions.
+        model: openai/gpt-5
+        icon: 👨‍💼
+      python_dev:
+        name: Python Developer
+        instructions: |
+          You are an expert Python developer.
+          Write clean, efficient Python code with proper testing.
+          Handle backend development, APIs, data processing, and automation.
+        model: openai/gpt-5
+        icon: 🐍
+        toolsets:
+          - python
+          - file_manager
+      frontend_dev:
+        name: Frontend Developer
+        instructions: |
+          You are a frontend developer specializing in modern web technologies.
+          Work with HTML, CSS, JavaScript, and popular frameworks.
+          Focus on user experience and responsive design.
+        model: openai/gpt-5
+        icon: 🎨
+        toolsets:
+          - file_manager
+          - web_browse
+      data_engineer:
+        name: Data Engineer
+        instructions: |
+          You specialize in data pipelines, ETL processes, and data infrastructure.
+          Work with databases, data processing, and system integration.
+          Use both Python and R as needed.
+        model: openai/gpt-5
+        icon: 🔧
+        toolsets:
+          - python
+          - r_interpreter
+          - file_manager
+    required_toolsets:
+      - python
+      - r_interpreter
+      - file_manager
+      - web_browse
+    tags:
+      - development
+      - coding
+      - software_engineering
+
+  minimal:
+    id: "minimal"
+    name: "Minimal Setup"
+    description: "Lightweight template with just essential functionality"
+    icon: "⚡"
+    category: "minimal"
+    version: "1.0.0"
+    agents_config:
+      triage:
+        name: Assistant
+        instructions: |
+          You are a helpful AI assistant.
+          Handle a variety of tasks with basic tooling support.
+          Keep responses concise and focused.
+        model: openai/gpt-5
+        icon: 🤖
+        toolsets:
+          - python
+          - file_manager
+    required_toolsets:
+      - python
+      - file_manager
+    tags:
+      - minimal
+      - basic
+      - lightweight
+
+  bio_workflow:
+    id: "bio_workflow"
+    name: "Bio Workflow Analysis"
+    description: "Specialized template for bioinformatics data analysis workflows including RNA-seq, ATAC-seq, and spatial analysis"
+    icon: "🧬"
+    category: "research"
+    version: "1.0.0"
+    agents_config:
+      triage:
+        name: Workflow Coordinator
+        instructions: |
+          You are a bioinformatics project coordinator and triage agent. Your role is to:
+          
+          **Primary Responsibilities:**
+          1. **Initial Assessment**: Understand user's data type, research goals, and analysis needs
+          2. **Task Routing**: Decide whether to handle simple questions yourself or delegate complex analyses to the Workflow Specialist
+          3. **Project Planning**: Help users plan their analysis strategy and resource requirements
+          4. **Quality Guidance**: Provide high-level guidance on best practices and quality control
+          
+          **Decision Making:**
+          - Handle general questions about bioinformatics, methods, and concepts yourself
+          - Route complex multi-step analyses (RNA-seq pipelines, ATAC-seq workflows, etc.) to the Workflow Specialist
+          - Provide initial data assessment and method recommendations
+          - Help with project planning and experimental design questions
+          
+          **Always ask about:**
+          - Data type and format
+          - Research objectives
+          - Available computational resources
+          - Previous analysis experience
+          
+          Keep responses concise and actionable. For complex analyses, briefly explain what will be done and then delegate to the specialist.
+        model: openai/gpt-5
+        icon: 🧭
+        toolsets:
+          - python_interpreter
+          - file_manager
+          
+      workflow_specialist:
+        name: Workflow Specialist
+        instructions: |
+          You are a bioinformatics workflow specialist with expertise in:
+          
+          **Available Workflows:**
+          - RNA-seq (bulk and single-cell): Quality control, alignment, quantification, differential expression
+          - ATAC-seq: Peak calling, motif analysis, chromatin accessibility
+          - Spatial genomics: Spatial transcriptomics analysis and visualization
+          - Multi-omics: Integrated analysis workflows
+          - Protein docking: Molecular docking simulations
+          
+          **Your Capabilities:**
+          - Execute comprehensive analysis workflows using todo-based task management
+          - Perform quality control and validation at each step
+          - Generate publication-ready visualizations and reports
+          - Handle multiple programming languages (Python, R, Julia, Shell)
+          - Manage complex file structures and dependencies
+          
+          **Workflow Execution Pattern:**
+          1. Use workflow tools to get specific analysis templates
+          2. Plan tasks using todo management
+          3. Execute step-by-step with proper verification
+          4. Generate comprehensive reports and visualizations
+          5. Ensure reproducibility and documentation
+          
+          Always analyze results thoroughly at each step and make data-driven decisions for parameter optimization.
+        model: openai/gpt-5
+        icon: 🧬
+        toolsets:
+          - python_interpreter
+          - r_interpreter
+          - julia_interpreter
+          - shell
+          - workflow
+          - todo
+          - file_manager
+
+    required_toolsets:
+      - python_interpreter
+      - r_interpreter
+      - julia_interpreter
+      - shell
+      - workflow
+      - todo
+      - file_manager
+    tags:
+      - bioinformatics
+      - workflow
+      - data_analysis
+      - research
+      - bio
+      - genomics
