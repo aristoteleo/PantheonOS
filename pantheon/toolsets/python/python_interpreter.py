@@ -24,7 +24,8 @@ def exec_with_echo(code, env=None):
         if isinstance(node, ast.Expr):
             expr_code = compile(ast.Expression(node.value), '<string>', 'eval')
             result = eval(expr_code, env)
-            print(result)
+            if result is not None:
+                print(result)
         else:
             exec(compile(ast.Module([node], []), '<string>', 'exec'), env)
 
