@@ -11,7 +11,7 @@ import tempfile
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
 from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
 from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
-from ..log import logger
+from ..utils.log import logger
 
 
 async def download_docs(

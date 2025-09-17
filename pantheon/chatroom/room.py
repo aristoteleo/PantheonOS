@@ -343,27 +343,37 @@ class ChatRoom:
             logger.error(f"Error getting toolsets: {e}")
             return {"success": False, "error": str(e)}
 
-    async def proxy_toolset(self, method_name: str, args: dict | None = None) -> dict:
-        """Proxy call to any toolset method in the endpoint service.
+    async def proxy_toolset(self, method_name: str, args: dict | None = None, toolset_name: str | None = None) -> dict:
+        """Proxy call to any toolset method in the endpoint service or specific toolset.
 
         Args:
             method_name: The name of the toolset method to call.
             args: Arguments to pass to the method.
+            toolset_name: The name of the specific toolset to call. If None, calls endpoint directly.
 
         Returns:
             The result from the toolset method call.
         """
         # DONT support reverse callback proxy!
         try:
-            s = await self.backend.connect(
+            endpoint = await self.backend.connect(
                 self.endpoint_service_id, **self.endpoint_connect_params
             )
-            if args is None:
-                args = {}
-            result = await s.invoke(method_name, args)
+
+            # Add debug logging
+            logger.info(f"chatroom proxy_toolset: method_name={method_name}, toolset_name={toolset_name}, args={args}")
+
+            # Use endpoint's proxy_toolset method for unified handling
+            result = await endpoint.invoke("proxy_toolset", {
+                "method_name": method_name,
+                "args": args or {},
+                "toolset_name": toolset_name
+            })
+
             return result
+
         except Exception as e:
-            logger.error(f"Error calling toolset method {method_name}: {e}")
+            logger.error(f"Error calling toolset method {method_name} on {toolset_name or 'endpoint'}: {e}")
             return {"success": False, "error": str(e)}
 
     async def get_agents(self, chat_id: str = None) -> dict:

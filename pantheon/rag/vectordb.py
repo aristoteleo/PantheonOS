@@ -114,6 +114,19 @@ class VectorDB(RAGWrapper):
         )
         return self._table
 
+    async def get_document_count(self) -> int:
+        """Get the number of documents in the database.
+
+        Returns:
+            The number of documents in the database.
+        """
+        try:
+            table = await self.get_table()
+            return table.count_rows()
+        except Exception as e:
+            logger.warning(f"Failed to get document count: {e}")
+            return 0
+
     def split_text(self, text: str) -> list[str]:
         """Split the text into chunks.
 

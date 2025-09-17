@@ -83,6 +83,9 @@ class Endpoint(FileTransferToolSet):
         self.allow_file_transfer = self.config.get("allow_file_transfer", True)
         self.redirect_log = self.config.get("redirect_log", False)
         self._services_to_start: list[str] = []
+
+        # RAG manager will be started as separate process like other services
+
         super().__init__(
             name,
             workspace_path,
@@ -112,6 +115,69 @@ class Endpoint(FileTransferToolSet):
             self.close_file._is_tool = False
             self.read_file._is_tool = False
         super().setup_tools()
+
+    @tool
+    async def proxy_toolset(
+        self,
+        method_name: str,
+        args: dict | None = None,
+        toolset_name: str | None = None,
+    ) -> dict:
+        """Proxy call to any toolset method in the endpoint or specific toolset.
+
+        Args:
+            method_name: The name of the toolset method to call.
+            args: Arguments to pass to the method.
+            toolset_name: The name of the specific toolset to call. If None, calls endpoint directly.
+
+        Returns:
+            The result from the toolset method call.
+        """
+        try:
+            if args is None:
+                args = {}
+
+            # Add debug logging
+            logger.info(
+                f"proxy_toolset called: method_name={method_name}, toolset_name={toolset_name}, args={args}"
+            )
+
+            if toolset_name is None or toolset_name == "":
+                # Call endpoint method directly
+                logger.info(f"Calling endpoint method: {method_name}")
+                if hasattr(self, method_name):
+                    method = getattr(self, method_name)
+                    if hasattr(method, "_is_tool") and method._is_tool:
+                        result = await method(**args)
+                        return result
+                    else:
+                        raise Exception(f"Method '{method_name}' is not a tool method")
+                else:
+                    raise Exception(f"Method '{method_name}' not found on endpoint")
+            else:
+                # Call specific toolset method
+                logger.info(f"Calling toolset '{toolset_name}' method: {method_name}")
+                service_info = await self.get_service(toolset_name)
+
+                if not service_info:
+                    raise Exception(
+                        f"Toolset '{toolset_name}' not found in endpoint services"
+                    )
+
+                # Connect to the specific toolset service
+                from ..remote import connect_remote
+
+                toolset_service = await connect_remote(service_info["id"])
+
+                # Call the method on the toolset
+                result = await toolset_service.invoke(method_name, args)
+                return result
+
+        except Exception as e:
+            logger.error(
+                f"Error calling toolset method {method_name} on {toolset_name or 'endpoint'}: {e}"
+            )
+            return {"success": False, "error": str(e)}
 
     @tool
     async def list_services(self) -> list[dict]:
@@ -372,7 +438,7 @@ class Endpoint(FileTransferToolSet):
         """Map template toolset names to actual toolset startup names."""
         toolset_name_mapping = {
             "r_interpreter": "r",
-            "python_interpreter": "python", 
+            "python_interpreter": "python",
             "julia_interpreter": "julia",
             "web_browse": "web",
         }
@@ -426,6 +492,7 @@ class Endpoint(FileTransferToolSet):
 
     async def run_builtin_services(self, engine: Engine):
         default_services = [
+            "ragmanager",
             "python",
             "file_manager",
             "web",
@@ -440,6 +507,7 @@ class Endpoint(FileTransferToolSet):
                 service_type = service.get("type", service)
                 params = service.copy()
                 del params["type"]
+
             cmd = self._get_cmd(service_type, params)
             if params.get("docker_image"):
                 docker_image_name = params.get("docker_image")

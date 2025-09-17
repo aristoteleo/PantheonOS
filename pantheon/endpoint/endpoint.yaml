@@ -22,6 +22,7 @@ allow_file_transfer: true
 #   workflow
 #   notebook
 #   vector_rag (Need OPENAI_API_KEY in the environment)
+#   ragmanager (Need OPENAI_API_KEY in the environment) - RAG database management service
 #   scraper (Need SCRAPER_API_KEY in the environment)
 # You can specify the docker image name to run the service inside the docker container
 # Like:
@@ -34,6 +35,7 @@ allow_file_transfer: true
 #    conda_env: sc_analysis
 #    conda_command: "micromamba"  # default is "conda"
 builtin_services:
+  - ragmanager
   - type: python
   - file_manager
   - web

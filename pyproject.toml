@@ -44,9 +44,9 @@ toolsets = [
     "matplotlib>=3.10.3",
     "pandas",
     "cloudpickle>=3.0.0",
-    #"PyMuPDF>=1.25.5",
-    #"lancedb>=0.20.0",
-    #"difflib",
+    "aiofiles>=24.0.0",
+    "PyMuPDF>=1.25.5",
+    "lancedb>=0.20.0",
 ]
 
 [dependency-groups]

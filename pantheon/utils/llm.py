@@ -276,7 +276,16 @@ def process_messages_for_hook_func(messages: list[dict]) -> list[dict]:
 
 async def openai_embedding(texts: list[str], model: str = "text-embedding-3-large") -> list[list[float]]:
     import openai
-    client = openai.AsyncOpenAI()
+    import os
+
+    # 从环境变量读取配置
+    api_key = os.getenv("OPENAI_API_KEY")
+    base_url = os.getenv("OPENAI_API_BASE")
+
+    client = openai.AsyncOpenAI(
+        api_key=api_key,
+        base_url=base_url
+    )
     resp = await client.embeddings.create(input=texts, model=model)
     return [d.embedding for d in resp.data]
 

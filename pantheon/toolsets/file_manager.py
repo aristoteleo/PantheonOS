@@ -42,6 +42,11 @@ class FileManagerToolSetBase(ToolSet):
         self.black_list = black_list or []
 
     @tool
+    async def get_cwd(self) -> dict:
+        """Get current working directory."""
+        return {"success": True, "cwd": str(self.path)}
+
+    @tool
     async def list_files(self, sub_dir: str | None = None) -> dict:
         """List all files in the directory."""
         if not self.path.exists():
