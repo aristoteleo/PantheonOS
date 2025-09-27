@@ -317,6 +317,7 @@ class ChatRoom:
 
         try:
             import time
+
             publish_start = time.time()
 
             from pantheon.remote.backend.base import StreamType, StreamMessage
@@ -337,12 +338,18 @@ class ChatRoom:
             chunk_type = chunk.get("begin", chunk.get("stop", "content"))
 
             if chunk.get("begin"):
-                logger.info(f"📤 [ChatRoom] Published BEGIN chunk to stream: {publish_time:.3f}s")
+                logger.info(
+                    f"📤 [ChatRoom] Published BEGIN chunk to stream: {publish_time:.3f}s"
+                )
             elif chunk.get("stop"):
-                logger.info(f"📤 [ChatRoom] Published STOP chunk to stream: {publish_time:.3f}s")
+                logger.info(
+                    f"📤 [ChatRoom] Published STOP chunk to stream: {publish_time:.3f}s"
+                )
             elif chunk.get("content"):
                 content_preview = chunk.get("content", "")[:20]
-                logger.debug(f"📤 [ChatRoom] Published content chunk: {publish_time:.3f}s ('{content_preview}...')")
+                logger.debug(
+                    f"📤 [ChatRoom] Published content chunk: {publish_time:.3f}s ('{content_preview}...')"
+                )
             else:
                 logger.debug(f"📤 [ChatRoom] Published chunk: {publish_time:.3f}s")
 
@@ -779,6 +786,14 @@ class ChatRoom:
         )
         await thread.run()
 
+        # Generate or update chat name after conversation
+        try:
+            from .chatname_generator import get_chat_name_generator
+            chat_name_generator = get_chat_name_generator()
+            memory.name = await chat_name_generator.generate_or_update_name(memory)
+        except Exception as e:
+            logger.error(f"Failed to generate/update chat name: {e}")
+
         memory.extra_data["running"] = False
         memory.extra_data["last_activity_date"] = datetime.now().isoformat()
         await run_func(self.memory_manager.save)
@@ -1098,6 +1113,8 @@ class ChatRoom:
 
         return await self.worker.run()
 
+    # Chat context and Notebook sessions Methods
+
     async def get_chat_context(self, chat_id: str) -> dict:
         """Get chat context information including notebook sessions and other metadata.
 
@@ -1291,7 +1308,7 @@ class ChatRoom:
                         # Call integrated_notebook toolset to get current active sessions
                         notebook_result = await self.proxy_toolset(
                             method_name="list_notebook_sessions",
-                            toolset_name="integrated_notebook"
+                            toolset_name="integrated_notebook",
                         )
                         if notebook_result and notebook_result.get("success"):
                             live_sessions = notebook_result.get("sessions", [])
@@ -1317,19 +1334,24 @@ class ChatRoom:
 
                         if live_session:
                             # Add live information
-                            enhanced_session.update({
-                                "notebook_path": live_session.get("notebook_path"),
-                                "notebook_title": live_session.get("notebook_title"),
-                                "kernel_status": live_session.get("kernel_status"),
-                                "execution_count": live_session.get("execution_count"),
-                                "is_active": True
-                            })
+                            enhanced_session.update(
+                                {
+                                    "notebook_path": live_session.get("notebook_path"),
+                                    "notebook_title": live_session.get(
+                                        "notebook_title"
+                                    ),
+                                    "kernel_status": live_session.get("kernel_status"),
+                                    "execution_count": live_session.get(
+                                        "execution_count"
+                                    ),
+                                    "is_active": True,
+                                }
+                            )
                         else:
                             # Session exists in memory but not in toolset (may be dead)
-                            enhanced_session.update({
-                                "kernel_status": "dead",
-                                "is_active": False
-                            })
+                            enhanced_session.update(
+                                {"kernel_status": "dead", "is_active": False}
+                            )
 
                         enhanced_sessions.append(enhanced_session)
 
@@ -1339,23 +1361,27 @@ class ChatRoom:
                         live_session_id = live.get("session_id")
                         if live_session_id not in stored_session_ids:
                             # This is a session created directly via toolset, add it
-                            enhanced_sessions.append({
-                                "session_id": live_session_id,
-                                "notebook_path": live.get("notebook_path"),
-                                "notebook_title": live.get("notebook_title"),
-                                "kernel_status": live.get("kernel_status"),
-                                "execution_count": live.get("execution_count"),
-                                "created_by": "user",  # Default, could be enhanced
-                                "status": "active",
-                                "is_active": True,
-                                "created_at": datetime.now().isoformat(),
-                            })
+                            enhanced_sessions.append(
+                                {
+                                    "session_id": live_session_id,
+                                    "notebook_path": live.get("notebook_path"),
+                                    "notebook_title": live.get("notebook_title"),
+                                    "kernel_status": live.get("kernel_status"),
+                                    "execution_count": live.get("execution_count"),
+                                    "created_by": "user",  # Default, could be enhanced
+                                    "status": "active",
+                                    "is_active": True,
+                                    "created_at": datetime.now().isoformat(),
+                                }
+                            )
 
                     # Update sessions to return enhanced data
                     sessions = enhanced_sessions
 
                 except Exception as e:
-                    logger.warning(f"Failed to enhance session data with live information: {e}")
+                    logger.warning(
+                        f"Failed to enhance session data with live information: {e}"
+                    )
                     # Fallback to stored sessions only
                     pass
             else:

@@ -127,30 +127,6 @@ class Thread:
             if not isinstance(self.team, Team):
                 team = await run_func(self.team)
 
-            if len(self.memory.get_messages()) == 0:
-                # summary to get new name using LLM
-                prompt = "Please summarize the question to get a name for the chat: \n"
-                prompt += str(self.message)
-                prompt += (
-                    "\n\nPlease directly return the name, no other text or explanation."
-                )
-
-                # Temporarily disable rich conversations to avoid tags in name
-                enhanced_states = {}
-                for agent_name, agent in team.agents.items():
-                    enhanced_states[agent_name] = agent.enhanced_flow
-                    agent.disable_rich_conversations()
-
-                try:
-                    new_name = await team.run(
-                        prompt, use_memory=False, update_memory=False
-                    )
-                    self.memory.name = new_name.content
-                finally:
-                    # Restore original enhanced flow states
-                    for agent_name, was_enhanced in enhanced_states.items():
-                        if was_enhanced:
-                            team.agents[agent_name].enable_rich_conversations()
 
             resp = await team.run(
                 self.message,
@@ -164,6 +140,7 @@ class Thread:
                 "response": resp.content,
                 "chat_id": self.memory.id,
             }
+
 
             # Suggestions are now handled in room.py
         except Exception as e:
