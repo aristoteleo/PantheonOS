@@ -47,6 +47,9 @@ toolsets = [
     "aiofiles>=24.0.0",
     "PyMuPDF>=1.25.5",
     "lancedb>=0.20.0",
+    "jupyter-client>=8.0.0",
+    "ipykernel>=6.25.0",
+    "nbformat>=5.10.0",
 ]
 
 [dependency-groups]

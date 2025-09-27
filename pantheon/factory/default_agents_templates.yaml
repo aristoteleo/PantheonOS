@@ -4,7 +4,7 @@ triage:
     You are the triage agent,
     you should decide which agent to use based on the user's request.
     If no related agent, you can do the task by yourself.
-  model: openai/gpt-5
+  model: openai/gpt-5-mini
   icon: 🤖
 
 data_analysis:
@@ -13,7 +13,7 @@ data_analysis:
     You are a data analysis agent that can analyze data.
     You can use the python to analyze the data.
     You can use the file_manager to manage the data.
-  model: openai/gpt-5
+  model: openai/gpt-5-mini
   icon: 📊
   toolsets:
     - python
@@ -22,7 +22,7 @@ data_analysis:
 web_search:
   name: Web search
   instructions: You are a web search agent that can search the web for information.
-  model: openai/gpt-5
+  model: openai/gpt-5-mini
   icon: 🔍
   toolsets:
     - web

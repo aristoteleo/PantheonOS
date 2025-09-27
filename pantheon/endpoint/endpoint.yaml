@@ -36,9 +36,11 @@ allow_file_transfer: true
 #    conda_command: "micromamba"  # default is "conda"
 builtin_services:
   - ragmanager
-  - type: python
+  - python
   - file_manager
   - web
+  - integrated_notebook
+  - jupyter_kernel
 
 # Provide the service id/name of the outer services
 #outer_services:

@@ -46,19 +46,38 @@ async def acompletion_openai(
 
     while retry_times > 0:
         try:
+            import time
+            from .log import logger
+
+            stream_start_time = time.time()
+            first_chunk_time = None
+            chunk_count = 0
+
             async with stream_manager as stream:
+                logger.info(f"🔗 OpenAI stream connection established ({model})")
                 async for event in stream:
                     if event.type == "chunk":
                         chunk = event.chunk
                         chunks.append(chunk.model_dump())
+
+                        # Track first chunk timing
+                        if first_chunk_time is None:
+                            first_chunk_time = time.time()
+                            ttfb = first_chunk_time - stream_start_time
+                            logger.info(f"⚡ OpenAI first chunk received: {ttfb:.3f}s (TTFB)")
+
                         if process_chunk and hasattr(chunk, 'choices') and chunk.choices and len(chunk.choices) > 0:
                             choice = chunk.choices[0]
                             if hasattr(choice, 'delta'):
                                 delta = choice.delta.model_dump()
+                                chunk_count += 1
                                 await run_func(process_chunk, delta)
                             if hasattr(choice, 'finish_reason') and choice.finish_reason == "stop":
                                 await run_func(process_chunk, {"stop": True})
+
                 final_message = await stream.get_final_completion()
+                total_stream_time = time.time() - stream_start_time
+                logger.info(f"✅ OpenAI stream completed: {total_stream_time:.3f}s, {chunk_count} chunks")
                 break
         except APIConnectionError as e:
             logger.error(f"OpenAI API connection error: {e}")

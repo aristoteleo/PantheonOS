@@ -269,24 +269,38 @@ class Endpoint(FileTransferToolSet):
     async def ensure_toolsets(self, required_toolsets: list[str]) -> dict:
         """Ensure required toolsets are available, starting them if needed."""
         try:
-            missing_toolsets = []
-            starting_toolsets = []
+            # Filter out already running services
+            services_to_start = []
+            already_running = []
 
             for toolset_id in required_toolsets:
-                if not await self._is_service_running(toolset_id):
-                    logger.info(f"Starting toolset: {toolset_id}")
-                    success = await self._start_toolset_service(toolset_id)
-                    if success:
-                        starting_toolsets.append(toolset_id)
-                    else:
-                        missing_toolsets.append(toolset_id)
+                if await self._is_service_running(toolset_id):
+                    already_running.append(toolset_id)
+                else:
+                    services_to_start.append(toolset_id)
+
+            if not services_to_start:
+                return {
+                    "success": True,
+                    "message": f"All {len(required_toolsets)} toolsets already running",
+                    "already_running": already_running,
+                    "started": [],
+                    "failed": []
+                }
+
+            logger.info(f"Need to start {len(services_to_start)} toolsets: {services_to_start}")
+
+            # Start services using unified batch logic
+            successful, failed = await self.start_toolsets_batch(services_to_start, engine=None, retries=3)
 
             return {
                 "success": True,
-                "missing_toolsets": missing_toolsets,
-                "starting_toolsets": starting_toolsets,
-                "message": f"Started {len(starting_toolsets)} toolsets, {len(missing_toolsets)} failed to start",
+                "message": f"Started {successful} toolsets, {failed} failed, {len(already_running)} already running",
+                "already_running": already_running,
+                "started": successful,
+                "failed": failed
             }
+
         except Exception as e:
             logger.error(f"Error ensuring toolsets: {e}")
             return {"success": False, "error": str(e)}
@@ -302,52 +316,83 @@ class Endpoint(FileTransferToolSet):
                 return True
         return False
 
-    async def _start_toolset_service(self, toolset_type: str, engine=None) -> bool:
-        """Start a single toolset service dynamically."""
+    async def _start_single_toolset(self, service_config, engine=None, retries: int = 3) -> bool:
+        """Start a single toolset service with given configuration."""
         try:
-            # Use existing _get_cmd method to get the command
-            cmd = self._get_cmd(toolset_type, {"name": toolset_type})
+            if isinstance(service_config, str):
+                service_type = service_config
+                params = {"name": service_config}
+            else:
+                service_type = service_config.get("type", service_config)
+                params = service_config.copy()
+                if "type" in params:
+                    del params["type"]
 
-            log_file = self.log_dir / f"{toolset_type}.log"
+            # Generate command using existing logic
+            cmd = self._get_cmd(service_type, params)
+
+            # Handle docker and conda environments
+            if params.get("docker_image"):
+                docker_image_name = params.get("docker_image")
+                data_dir = str(self.path.absolute())
+                env_flags = prepare_docker_env_vars()
+                docker_cmd = (
+                    f"docker run "
+                    f"{env_flags} "
+                    f"--add-host=host.docker.internal:host-gateway "
+                    f"-v {data_dir}:/data "
+                    f"{docker_image_name}"
+                )
+                cmd = docker_cmd + " " + cmd
+            elif params.get("conda_env"):
+                conda_command = params.get("conda_command", "conda")
+                cmd = f"{conda_command} run -n {params.get('conda_env')} {cmd}"
+
+            # Setup logging and environment
+            log_file = self.log_dir / f"{service_type}.log"
             env = os.environ.copy()
 
             if self.redirect_log:
                 job = SubprocessJob(
-                    cmd, retries=3, redirect_out_err=str(log_file), env=env
+                    cmd, retries=retries, redirect_out_err=str(log_file), env=env
                 )
             else:
-                job = SubprocessJob(cmd, retries=3, env=env)
+                job = SubprocessJob(cmd, retries=retries, env=env)
 
-            # Use existing engine if provided, otherwise create a temporary one
+            # Handle engine lifecycle
+            engine_cleanup_needed = False
             if engine is None:
                 from executor.engine import Engine
-
                 engine = Engine()
                 engine_cleanup_needed = True
-            else:
-                engine_cleanup_needed = False
 
+            # Start the service
             await engine.submit_async(job)
             await job.wait_until_status("running")
 
-            # Wait a bit for the service to register
-            await asyncio.sleep(3)  # Increased wait time
+            # Add to services_to_start for tracking
+            self._services_to_start.append(service_type)
 
-            # Try to add the service to our registry
-            await self._detect_new_service(toolset_type)
+            # Wait for service registration and detect it
+            await asyncio.sleep(3)
+            success = await self._detect_new_service(service_type)
 
-            logger.info(f"Successfully started toolset service: {toolset_type}")
+            if success:
+                logger.info(f"Successfully started toolset service: {service_type}")
+            else:
+                logger.warning(f"Service {service_type} started but detection failed")
 
-            # Don't cleanup engine if it was provided externally
+            # Cleanup engine if we created it
             if engine_cleanup_needed:
-                # The engine will be cleaned up automatically when the process exits
+                # Engine cleanup is handled automatically
                 pass
 
-            return True
+            return success
 
         except Exception as e:
-            logger.error(f"Failed to start toolset service {toolset_type}: {e}")
+            logger.error(f"Failed to start toolset service {service_config}: {e}")
             return False
+
 
     async def _detect_new_service(self, expected_service: str):
         """Detect and register a newly started service."""
@@ -356,7 +401,17 @@ class Endpoint(FileTransferToolSet):
             mapped_service = self._map_toolset_name(expected_service)
 
             # Try to find the service by connecting to it
+            # Generate the same full hash as NATS backend would create
+            import hashlib
+            id_hash_for_service = f"{self.id_hash}_{expected_service}"
+            hash_obj = hashlib.sha256(id_hash_for_service.encode())
+            full_hash_id = hash_obj.hexdigest()  # Full hash for new format
+            service_id_suffix = hash_obj.hexdigest()[:8]  # Keep short hash for backward compatibility
+
             potential_service_ids = [
+                full_hash_id,                               # New NATS backend format (full hash)
+                f"{expected_service}_{service_id_suffix}",  # Old NATS backend format
+                f"{mapped_service}_{service_id_suffix}",    # Old NATS backend format with mapped name
                 f"{self.id_hash}_{expected_service}",
                 f"{self.id_hash}_{mapped_service}",
                 expected_service,
@@ -377,6 +432,9 @@ class Endpoint(FileTransferToolSet):
                                 "id": service_id,
                                 "name": info.service_name or expected_service,
                             }
+                            # Remove from services_to_start list
+                            if expected_service in self._services_to_start:
+                                self._services_to_start.remove(expected_service)
                             logger.info(
                                 f"Detected and registered new service: {service_id} (attempt {attempt + 1})"
                             )
@@ -491,6 +549,7 @@ class Endpoint(FileTransferToolSet):
         return _cmd
 
     async def run_builtin_services(self, engine: Engine):
+        """Start all builtin services using unified service startup logic."""
         default_services = [
             "ragmanager",
             "python",
@@ -498,54 +557,41 @@ class Endpoint(FileTransferToolSet):
             "web",
         ]
         builtin_services = self.config.get("builtin_services", default_services)
-        jobs = []
-        for service in builtin_services:
-            if isinstance(service, str):
-                service_type = service
-                params = {}
-            else:
-                service_type = service.get("type", service)
-                params = service.copy()
-                del params["type"]
 
-            cmd = self._get_cmd(service_type, params)
-            if params.get("docker_image"):
-                docker_image_name = params.get("docker_image")
-                data_dir = str(self.path.absolute())
+        # Use batch startup for better performance
+        await self.start_toolsets_batch(builtin_services, engine, retries=10)
 
-                # Get environment variables for Docker container
-                env_flags = prepare_docker_env_vars()
+    async def start_toolsets_batch(self, services: list, engine=None, retries: int = 10):
+        """Start multiple toolsets in parallel with unified logic."""
+        logger.info(f"Starting {len(services)} toolsets: {[s if isinstance(s, str) else s.get('type', s) for s in services]}")
 
-                docker_cmd = (
-                    f"docker run "
-                    f"{env_flags} "
-                    f"--add-host=host.docker.internal:host-gateway "
-                    f"-v {data_dir}:/data "
-                    f"{docker_image_name}"
-                )
-                cmd = docker_cmd + " " + cmd
-            elif params.get("conda_env"):
-                conda_command = params.get("conda_command", "conda")
-                cmd = f"{conda_command} run -n {params.get('conda_env')} {cmd}"
+        # Start all services in parallel
+        tasks = []
+        for service in services:
+            task = asyncio.create_task(
+                self._start_single_toolset(service, engine, retries=retries)
+            )
+            tasks.append(task)
 
-            self._services_to_start.append(service_type)
-            log_file = self.log_dir / f"{service_type}.log"
+        # Wait for all services to start
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Inherit current environment variables for remote backend and server URLs
-            env = os.environ.copy()
+        # Log results
+        successful = sum(1 for result in results if result is True)
+        failed = len(results) - successful
 
-            if self.redirect_log:
-                job = SubprocessJob(
-                    cmd, retries=10, redirect_out_err=str(log_file), env=env
-                )
-            else:
-                job = SubprocessJob(cmd, retries=10, env=env)
-            jobs.append(job)
+        logger.info(f"Toolset startup completed: {successful} successful, {failed} failed")
 
-        for job in jobs:
-            await engine.submit_async(job)
-            await job.wait_until_status("running")
-            await asyncio.sleep(1)
+        if failed > 0:
+            for i, result in enumerate(results):
+                if result is not True:
+                    service_name = services[i] if isinstance(services[i], str) else services[i].get('type', services[i])
+                    if isinstance(result, Exception):
+                        logger.error(f"Service {service_name} failed: {result}")
+                    else:
+                        logger.warning(f"Service {service_name} startup returned: {result}")
+
+        return successful, failed
 
     async def add_outer_services(self):
         for service_id in self.config.get("outer_services", []):

@@ -661,6 +661,10 @@ class Agent:
                 result = repr(e)
 
             context_variables[call["id"]] = result
+            # Generate unique id for each tool message
+            tool_message_id = str(uuid4())
+            current_timestamp = time.time()
+
             if isinstance(result, (Agent, RemoteAgent)):
                 messages.append(
                     {
@@ -669,6 +673,8 @@ class Agent:
                         "tool_name": func_name,
                         "content": result.name,
                         "transfer": True,
+                        "id": tool_message_id,
+                        "timestamp": current_timestamp,
                     }
                 )
             else:
@@ -686,6 +692,8 @@ class Agent:
                         "tool_name": func_name,
                         "raw_content": result,
                         "content": content,
+                        "id": tool_message_id,
+                        "timestamp": current_timestamp,
                     }
                 )
         return messages
@@ -699,8 +707,19 @@ class Agent:
         process_chunk: Callable | None = None,
         allow_transfer: bool = True,
     ) -> dict:
-        force_litellm = self.force_litellm
+        import time
+
+        # Start timing
+        request_start_time = time.time()
+        logger.info(f"🚀 [Agent:{self.name}] Starting LLM request for model: {model}")
+
+        # Time message processing
+        msg_start = time.time()
         messages = process_messages_for_model(messages, model)
+        msg_time = time.time() - msg_start
+
+        force_litellm = self.force_litellm
+
         provider = "openai"
         if "/" in model:
             provider = model.split("/")[0]
@@ -715,12 +734,52 @@ class Agent:
         if env_var in os.environ:
             base_url = os.environ[env_var]
 
+        # Time tool conversion
         tools = None
         if tool_use:
+            tools_start = time.time()
             tools = self._convert_functions(litellm_mode, allow_transfer) or None
+            tools_time = time.time() - tools_start
+            tool_count = len(tools) if tools else 0
+            logger.info(
+                f"⚙️  [Agent:{self.name}] Tool conversion: {tools_time:.3f}s for {tool_count} tools"
+            )
+        else:
+            tools_time = 0
+            tool_count = 0
 
+        # Generate unique message_id for this LLM request
+        message_id = str(uuid4())
+        chunk_index = 0
+
+        # Create enhanced process_chunk for this specific request
+        enhanced_process_chunk = None
         if process_chunk:
-            await run_func(process_chunk, {"begin": True})
+            async def enhanced_process_chunk(chunk: dict):
+                nonlocal chunk_index
+                enhanced_chunk = {
+                    **chunk,
+                    "message_id": message_id,
+                    "chunk_index": chunk_index,
+                    "timestamp": time.time(),
+                }
+                chunk_index += 1
+                await run_func(process_chunk, enhanced_chunk)
+
+        # Send begin chunk and time it
+        if enhanced_process_chunk:
+            begin_start = time.time()
+            await enhanced_process_chunk({"begin": True})
+            begin_time = time.time() - begin_start
+            logger.info(f"📤 [Agent:{self.name}] Begin chunk sent: {begin_time:.3f}s")
+        else:
+            begin_time = 0
+
+        # Start LLM API timing
+        llm_start_time = time.time()
+        logger.info(
+            f"🤖 [Agent:{self.name}] Calling {provider} API (model: {model_name})"
+        )
 
         if provider == "zhipu":
             # Use dedicated Zhipu AI function
@@ -729,7 +788,7 @@ class Agent:
                 model=model_name,
                 tools=tools,
                 response_format=response_format,
-                process_chunk=process_chunk,
+                process_chunk=enhanced_process_chunk,
                 base_url=base_url or "https://open.bigmodel.cn/api/paas/v4/",
             )
             if (
@@ -755,7 +814,7 @@ class Agent:
                 model=model_name,
                 tools=tools,
                 response_format=response_format,
-                process_chunk=process_chunk,
+                process_chunk=enhanced_process_chunk,
                 base_url=base_url,
             )
             if (
@@ -781,7 +840,7 @@ class Agent:
                 model=model,
                 tools=tools,
                 response_format=response_format,
-                process_chunk=process_chunk,
+                process_chunk=enhanced_process_chunk,
                 base_url=base_url,
             )
             if (
@@ -796,6 +855,23 @@ class Agent:
                     "role": "assistant",
                     "content": "Error: Empty response from API",
                 }
+
+        # Log total LLM timing
+        llm_total_time = time.time() - llm_start_time
+        request_total_time = time.time() - request_start_time
+
+        logger.info(
+            f"⏱️  [Agent:{self.name}] LLM response received: {llm_total_time:.3f}s"
+        )
+        logger.info(
+            f"📊 [Agent:{self.name}] Request breakdown - Total: {request_total_time:.3f}s | "
+            f"Message: {msg_time:.3f}s | Tools: {tools_time:.3f}s | "
+            f"Begin: {begin_time:.3f}s | LLM: {llm_total_time:.3f}s"
+        )
+
+        # Add streaming fields directly to step_message
+        message["id"] = message_id
+        message["timestamp"] = time.time()
         return message
 
     async def _acompletion_with_models(
@@ -868,6 +944,7 @@ class Agent:
             history.insert(0, {"role": "system", "content": system_prompt})
         init_len = len(history)
         context_variables = context_variables or {}
+
 
         if response_format:
             Response = create_model("Response", result=(response_format, ...))
@@ -991,9 +1068,11 @@ class Agent:
         # SAFETY FIRST: Basic limits to prevent API drain - count truly consecutive messages from THIS agent
         consecutive_no_tools = 0
         for msg in reversed(history):
-            if (msg.get("role") == "assistant" 
-                and not msg.get("tool_calls") 
-                and msg.get("agent_name") == self.name):
+            if (
+                msg.get("role") == "assistant"
+                and not msg.get("tool_calls")
+                and msg.get("agent_name") == self.name
+            ):
                 consecutive_no_tools += 1
             else:
                 # Stop counting when we hit a non-matching message (breaks the consecutive chain)
@@ -1177,17 +1256,14 @@ At each turn, you must include EXACTLY ONE tag with title and content. Choose fr
 1) For reasoning and analysis:
 <thinking>Brief title of your thinking focus
 Your detailed reasoning, planning, or analysis process goes here.
-</thinking>
 
 2) For taking actions or using tools:
 <execute>Brief title of the action you're taking
 Explanation of what you're doing and why, then call your tools.
-</execute>
 
 3) For completion - either finished work OR asking user questions:
 <complete>Brief title of what you're concluding
 Final results, answers, questions to user, or task completion summary.
-</complete>
 
 CRITICAL RULES:
 - Use EXACTLY ONE tag per response - no exceptions
@@ -1198,26 +1274,23 @@ CRITICAL RULES:
 
 TAG USAGE GUIDE:
 - <thinking> = internal reasoning, planning, analyzing requirements
-- <execute> = calling tools, performing actions, working on tasks  
+- <execute> = calling tools, performing actions, working on tasks
 - <complete> = final answers, results, OR questions to user
 
 EXAMPLES OF CORRECT USAGE:
 ✓ "<thinking>Analyzing user requirements
-Let me break down what the user is asking for: 1) They want X, 2) They need Y...
-</thinking>"
+Let me break down what the user is asking for: 1) They want X, 2) They need Y..."
 
 ✓ "<execute>Running data analysis
 I'll call the analysis function with these parameters and process the results.
-[calls tools here]
-</execute>"
+[calls tools here]"
 
 ✓ "<complete>Task completed successfully
-Here are the results: ... What would you like me to focus on next?
-</complete>"
+Here are the results: ... What would you like me to focus on next?"
 
 EXAMPLES OF WRONG USAGE:
-✗ "<thinking>Planning...</thinking> <execute>Now running...</execute>"
-✗ "Let me <thinking>think</thinking> and then <execute>act</execute>"
+✗ "<thinking>Planning... <execute>Now running..."
+✗ "Let me <thinking>think and then <execute>act"
 ✗ Any response with more than one tag
 
 """
@@ -1240,12 +1313,12 @@ def _detect_conversation_state_static(message: dict) -> dict:
     content = message.get("content", "")
     has_tool_calls = bool(message.get("tool_calls"))
 
-    # Define state patterns - simplified 3-tag system with title + content
+    # Define state patterns - simplified 3-tag system with title + content (single tag format)
     patterns = [
         # (regex_pattern, state, emoji)
-        (r"<thinking>\s*([^\n<]*?)(?:\n(.*?))?</thinking>", "reasoning", "🧠"),
-        (r"<execute>\s*([^\n<]*?)(?:\n(.*?))?</execute>", "executing", "⚡"),
-        (r"<complete>\s*([^\n<]*?)(?:\n(.*?))?</complete>", "completed", "✅"),
+        (r"<thinking>\s*([^\n<]*?)(?:\n(.*?))?(?=<(?:execute|complete)|$)", "reasoning", "🧠"),
+        (r"<execute>\s*([^\n<]*?)(?:\n(.*?))?(?=<(?:thinking|complete)|$)", "executing", "⚡"),
+        (r"<complete>\s*([^\n<]*?)(?:\n(.*?))?(?=<(?:thinking|execute)|$)", "completed", "✅"),
     ]
 
     # Check content for explicit state markers - find first match
@@ -1256,7 +1329,7 @@ def _detect_conversation_state_static(message: dict) -> dict:
                 title = match.group(1).strip() if match.group(1) else ""
                 raw_description = match.group(2).strip() if match.group(2) else ""
 
-                # Clean description by removing any subsequent markers
+                # Clean description by removing any subsequent markers (single tag format)
                 cleaned_description = re.sub(
                     r"<(thinking|execute|complete)\b.*",
                     "",

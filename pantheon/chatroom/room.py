@@ -1,5 +1,7 @@
 import asyncio
 import io
+import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -10,6 +12,7 @@ from pantheon.remote import (
     RemoteBackendFactory,
     RemoteConfig,
 )
+from pantheon.remote.backend.base import RemoteBackend
 
 from ..agent import Agent, RemoteAgent
 from ..factory import create_agents_from_template
@@ -98,11 +101,19 @@ class ChatRoom:
             )
         )
         self.worker = self.backend.create_worker(**self._worker_params)
+
+        # Check if backend supports streaming (only NATS backend supports streaming)
+        self.supports_streaming = hasattr(self.backend, "get_or_create_stream")
+        if self.supports_streaming:
+            logger.info(f"ChatRoom: Streaming support enabled for {backend} backend")
+        else:
+            logger.info(f"ChatRoom: Streaming not supported for {backend} backend")
+
         self.setup_handlers()
         self.speech_to_text_model = speech_to_text_model
         self.threads: dict[str, Thread] = {}
         self.check_before_chat = check_before_chat
-        self.get_db_info = get_db_info
+        self._get_db_info_func = get_db_info
 
     async def setup_agents(self):
         """Setup the agents from the template and initialize the worker.
@@ -280,15 +291,99 @@ class ChatRoom:
         self.worker.register(self.setup_team_for_chat)
         self.worker.register(self.get_chat_template)
         self.worker.register(self.validate_template)
+        # Register chat context management methods
+        self.worker.register(self.get_chat_context)
+        self.worker.register(self.update_chat_context)
+        self.worker.register(self.manage_notebook_session)
 
     async def get_db_info(self) -> dict:
         """Get the database info."""
-        if self.get_db_info is not None:
+        if hasattr(self, "_get_db_info_func") and self._get_db_info_func is not None:
             return {
                 "success": True,
-                "info": await self.get_db_info(),
+                "info": await self._get_db_info_func(),
             }
         return {"success": False, "message": "Not implemented"}
+
+    async def _publish_chunk(self, chat_id: str, chunk: dict):
+        """Publish a chunk to stream.
+
+        Args:
+            chat_id: The chat ID
+            chunk: The chunk data to publish
+        """
+        if not self.supports_streaming:
+            return
+
+        try:
+            import time
+            publish_start = time.time()
+
+            from pantheon.remote.backend.base import StreamType, StreamMessage
+
+            message = StreamMessage(
+                type=StreamType.CHAT,
+                session_id=f"chat_{chat_id}",
+                timestamp=time.time(),  # Use actual timestamp for ordering
+                data={"type": "chunk", "chunk": chunk, "chat_id": chat_id},
+            )
+            # Get or create stream channel (simplified with new API)
+            stream_channel = await self.backend.get_or_create_stream(
+                f"chat_{chat_id}", StreamType.CHAT
+            )
+            await stream_channel.publish(message)
+
+            publish_time = time.time() - publish_start
+            chunk_type = chunk.get("begin", chunk.get("stop", "content"))
+
+            if chunk.get("begin"):
+                logger.info(f"📤 [ChatRoom] Published BEGIN chunk to stream: {publish_time:.3f}s")
+            elif chunk.get("stop"):
+                logger.info(f"📤 [ChatRoom] Published STOP chunk to stream: {publish_time:.3f}s")
+            elif chunk.get("content"):
+                content_preview = chunk.get("content", "")[:20]
+                logger.debug(f"📤 [ChatRoom] Published content chunk: {publish_time:.3f}s ('{content_preview}...')")
+            else:
+                logger.debug(f"📤 [ChatRoom] Published chunk: {publish_time:.3f}s")
+
+        except Exception as e:
+            logger.error(
+                f"ChatRoom: Failed to publish chunk to NATS for chat {chat_id}: {e}"
+            )
+
+    async def _publish_step_message(self, chat_id: str, step_message: dict):
+        """Publish a step message to stream.
+
+        Args:
+            chat_id: The chat ID
+            step_message: The step message data to publish
+        """
+        if not self.supports_streaming:
+            return
+
+        try:
+            from pantheon.remote.backend.base import StreamType, StreamMessage
+
+            message = StreamMessage(
+                type=StreamType.CHAT,
+                session_id=f"chat_{chat_id}",
+                timestamp=0,  # Will be set automatically
+                data={
+                    "type": "step_message",
+                    "step_message": step_message,
+                    "chat_id": chat_id,
+                },
+            )
+            # Get or create stream channel (simplified with new API)
+            stream_channel = await self.backend.get_or_create_stream(
+                f"chat_{chat_id}", StreamType.CHAT
+            )
+            await stream_channel.publish(message)
+            logger.info(f"ChatRoom: Published step message to NATS for chat {chat_id}")
+        except Exception as e:
+            logger.error(
+                f"ChatRoom: Failed to publish step message to NATS for chat {chat_id}: {e}"
+            )
 
     async def get_endpoint(self) -> dict:
         """Get the endpoint service info."""
@@ -343,7 +438,12 @@ class ChatRoom:
             logger.error(f"Error getting toolsets: {e}")
             return {"success": False, "error": str(e)}
 
-    async def proxy_toolset(self, method_name: str, args: dict | None = None, toolset_name: str | None = None) -> dict:
+    async def proxy_toolset(
+        self,
+        method_name: str,
+        args: dict | None = None,
+        toolset_name: str | None = None,
+    ) -> dict:
         """Proxy call to any toolset method in the endpoint service or specific toolset.
 
         Args:
@@ -361,19 +461,26 @@ class ChatRoom:
             )
 
             # Add debug logging
-            logger.info(f"chatroom proxy_toolset: method_name={method_name}, toolset_name={toolset_name}, args={args}")
+            logger.info(
+                f"chatroom proxy_toolset: method_name={method_name}, toolset_name={toolset_name}, args={args}"
+            )
 
             # Use endpoint's proxy_toolset method for unified handling
-            result = await endpoint.invoke("proxy_toolset", {
-                "method_name": method_name,
-                "args": args or {},
-                "toolset_name": toolset_name
-            })
+            result = await endpoint.invoke(
+                "proxy_toolset",
+                {
+                    "method_name": method_name,
+                    "args": args or {},
+                    "toolset_name": toolset_name,
+                },
+            )
 
             return result
 
         except Exception as e:
-            logger.error(f"Error calling toolset method {method_name} on {toolset_name or 'endpoint'}: {e}")
+            logger.error(
+                f"Error calling toolset method {method_name} on {toolset_name or 'endpoint'}: {e}"
+            )
             return {"success": False, "error": str(e)}
 
     async def get_agents(self, chat_id: str = None) -> dict:
@@ -600,10 +707,13 @@ class ChatRoom:
         thread = self.threads.get(chat_id, None)
         if thread is None:
             return {"success": False, "message": "Chat doesn't have a thread"}
+
         if process_chunk is not None:
             thread.add_chunk_hook(process_chunk)
+
         if process_step_message is not None:
             thread.add_step_message_hook(process_step_message)
+
         while wait:  # wait for thread end, for keep hooks alive
             if chat_id not in self.threads:
                 break
@@ -632,6 +742,8 @@ class ChatRoom:
                 logger.error(f"Error in check_before_chat: {e}")
                 return {"success": False, "message": str(e)}
 
+        logger.error(f"Received message: {chat_id}|{message}")
+
         if chat_id in self.threads:
             return {"success": False, "message": "Chat is already running"}
         memory = await run_func(self.memory_manager.get_memory, chat_id)
@@ -642,11 +754,26 @@ class ChatRoom:
             return await self.get_team_for_chat(chat_id)
 
         thread = Thread(
-            team_getter,  # Pass chatroom reference instead of team
+            team_getter,  # Pass team getter
             memory,
             message,
         )
         self.threads[chat_id] = thread
+
+        # Always attach notebook detection hook for automatic session management
+        thread.add_step_message_hook(self._process_notebook_detection_hook)
+        # Always add streaming support if backend supports it
+        if self.supports_streaming:
+
+            async def nats_chunk_processor(chunk: dict):
+                await self._publish_chunk(chat_id, chunk)
+
+            async def nats_step_processor(step_message: dict):
+                await self._publish_step_message(chat_id, step_message)
+
+            thread.add_chunk_hook(nats_chunk_processor)
+            thread.add_step_message_hook(nats_step_processor)
+
         await self.attach_hooks(
             chat_id, process_chunk, process_step_message, wait=False
         )
@@ -715,8 +842,6 @@ class ChatRoom:
                 "success": False,
                 "text": str(e),
             }
-
-    # Removed: _get_or_create_thread_for_suggestions - suggestions now handled directly in room.py
 
     async def get_suggestions(self, chat_id: str) -> dict:
         """Get suggestion questions for a chat."""
@@ -972,3 +1097,281 @@ class ChatRoom:
         )
 
         return await self.worker.run()
+
+    async def get_chat_context(self, chat_id: str) -> dict:
+        """Get chat context information including notebook sessions and other metadata.
+
+        Args:
+            chat_id: The chat ID to get context for.
+
+        Returns:
+            A dictionary containing the chat context information.
+        """
+        try:
+            memory = await run_func(self.memory_manager.get_memory, chat_id)
+            if not hasattr(memory, "extra_data"):
+                memory.extra_data = {}
+
+            context = memory.extra_data.get("chat_context", {})
+            return {"success": True, "chat_id": chat_id, "context": context}
+        except Exception as e:
+            logger.error(f"Error getting chat context for {chat_id}: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def update_chat_context(self, chat_id: str, context_data: dict) -> dict:
+        """Update chat context information.
+
+        Args:
+            chat_id: The chat ID to update context for.
+            context_data: The context data to update.
+
+        Returns:
+            A dictionary with success status and updated context.
+        """
+        try:
+            memory = await run_func(self.memory_manager.get_memory, chat_id)
+            if not hasattr(memory, "extra_data"):
+                memory.extra_data = {}
+
+            if "chat_context" not in memory.extra_data:
+                memory.extra_data["chat_context"] = {}
+
+            # Merge new context data
+            memory.extra_data["chat_context"].update(context_data)
+            memory.extra_data["last_context_update"] = datetime.now().isoformat()
+
+            await run_func(self.memory_manager.save)
+            return {
+                "success": True,
+                "chat_id": chat_id,
+                "updated_context": memory.extra_data["chat_context"],
+            }
+        except Exception as e:
+            logger.error(f"Error updating chat context for {chat_id}: {e}")
+            return {"success": False, "error": str(e)}
+
+    def _extract_session_id_from_step_message(self, step_message: dict) -> str | None:
+        """Extract session_id from step message content (matches frontend logic)"""
+        try:
+            # Step messages can contain tool responses
+            if step_message.get("role") == "tool":
+                content = step_message.get("content", {})
+
+                # Handle string content (try to parse as JSON)
+                if isinstance(content, str):
+                    try:
+                        content = json.loads(content)
+                    except (json.JSONDecodeError, ValueError):
+                        # If not JSON, check for session_id pattern in string
+                        session_id_match = re.search(
+                            r'session_id[\'\":][\s]*[\'\""]?([^\'\"",\s]+)[\'\""]?',
+                            content,
+                        )
+                        if session_id_match:
+                            return session_id_match.group(1)
+                        return None
+
+                # Extract session_id from different possible field names
+                return (
+                    content.get("session_id")
+                    or content.get("sessionId")
+                    or content.get("id")
+                    or content.get("result", {}).get("session_id")
+                    or content.get("data", {}).get("session_id")
+                )
+        except Exception as e:
+            logger.warning(f"Error extracting session_id from step message: {e}")
+
+        return None
+
+    async def _process_notebook_detection_hook(self, step_message: dict):
+        """Hook to detect and auto-store notebook sessions from step messages"""
+        try:
+            chat_id = step_message.get("chat_id")
+            if not chat_id:
+                return
+
+            # Check if this is a tool response for notebook session creation
+            if step_message.get("role") == "tool":
+                tool_call_id = step_message.get("tool_call_id")
+
+                # We need to find the corresponding tool call to check the function name
+                # For now, try to extract session_id and assume it's notebook-related if found
+                session_id = self._extract_session_id_from_step_message(step_message)
+
+                if session_id:
+                    # Auto-store the detected session
+                    await self.manage_notebook_session(
+                        chat_id=chat_id,
+                        action="add",
+                        session_data={
+                            "session_id": session_id,
+                            "kernel_spec": "python3",  # Default, could be extracted from args
+                            "created_by": "agent",
+                            "tool_call_id": tool_call_id,
+                            "detected_at": datetime.now().isoformat(),
+                        },
+                    )
+                    logger.info(
+                        f"Auto-detected and stored notebook session {session_id} for chat {chat_id}"
+                    )
+
+        except Exception as e:
+            logger.error(f"Error in notebook detection hook: {e}")
+
+    async def manage_notebook_session(
+        self, chat_id: str, action: str, session_data: dict | None = None
+    ) -> dict:
+        """Manage notebook sessions for a specific chat.
+
+        Args:
+            chat_id: The chat ID to manage sessions for.
+            action: The action to perform ('add', 'remove', 'update', 'list').
+            session_data: The session data for add/update/remove operations.
+
+        Returns:
+            A dictionary with success status and session information.
+        """
+        try:
+            memory = await run_func(self.memory_manager.get_memory, chat_id)
+            if not hasattr(memory, "extra_data"):
+                memory.extra_data = {}
+
+            if "chat_context" not in memory.extra_data:
+                memory.extra_data["chat_context"] = {}
+
+            if "notebook_sessions" not in memory.extra_data["chat_context"]:
+                memory.extra_data["chat_context"]["notebook_sessions"] = []
+
+            sessions = memory.extra_data["chat_context"]["notebook_sessions"]
+
+            if action == "add":
+                if session_data:
+                    new_session = {
+                        **session_data,
+                        "created_at": datetime.now().isoformat(),
+                        "status": "active",
+                    }
+                    sessions.append(new_session)
+                    logger.info(
+                        f"Added notebook session {session_data.get('session_id')} to chat {chat_id}"
+                    )
+
+            elif action == "remove":
+                if session_data and "session_id" in session_data:
+                    sessions_before = len(sessions)
+                    sessions = [
+                        s
+                        for s in sessions
+                        if s.get("session_id") != session_data["session_id"]
+                    ]
+                    memory.extra_data["chat_context"]["notebook_sessions"] = sessions
+                    sessions_removed = sessions_before - len(sessions)
+                    logger.info(
+                        f"Removed {sessions_removed} notebook session(s) from chat {chat_id}"
+                    )
+
+            elif action == "update":
+                if session_data and "session_id" in session_data:
+                    for session in sessions:
+                        if session.get("session_id") == session_data["session_id"]:
+                            session.update(session_data)
+                            session["updated_at"] = datetime.now().isoformat()
+                            logger.info(
+                                f"Updated notebook session {session_data['session_id']} in chat {chat_id}"
+                            )
+                            break
+
+            elif action == "list":
+                # Enhance session data with real-time information from toolsets
+                try:
+                    # Try to get live session information from integrated_notebook toolset
+                    live_sessions = []
+                    try:
+                        # Call integrated_notebook toolset to get current active sessions
+                        notebook_result = await self.proxy_toolset(
+                            method_name="list_notebook_sessions",
+                            toolset_name="integrated_notebook"
+                        )
+                        if notebook_result and notebook_result.get("success"):
+                            live_sessions = notebook_result.get("sessions", [])
+                    except Exception as e:
+                        logger.warning(f"Failed to get live notebook sessions: {e}")
+
+                    # Merge stored metadata with live session data
+                    enhanced_sessions = []
+                    for stored_session in sessions:
+                        session_id = stored_session.get("session_id")
+
+                        # Find corresponding live session
+                        live_session = None
+                        for live in live_sessions:
+                            if live.get("session_id") == session_id:
+                                live_session = live
+                                break
+
+                        # Merge data: stored metadata + live status
+                        enhanced_session = {
+                            **stored_session,  # Basic metadata from chat memory
+                        }
+
+                        if live_session:
+                            # Add live information
+                            enhanced_session.update({
+                                "notebook_path": live_session.get("notebook_path"),
+                                "notebook_title": live_session.get("notebook_title"),
+                                "kernel_status": live_session.get("kernel_status"),
+                                "execution_count": live_session.get("execution_count"),
+                                "is_active": True
+                            })
+                        else:
+                            # Session exists in memory but not in toolset (may be dead)
+                            enhanced_session.update({
+                                "kernel_status": "dead",
+                                "is_active": False
+                            })
+
+                        enhanced_sessions.append(enhanced_session)
+
+                    # Also add any live sessions not in stored memory
+                    stored_session_ids = {s.get("session_id") for s in sessions}
+                    for live in live_sessions:
+                        live_session_id = live.get("session_id")
+                        if live_session_id not in stored_session_ids:
+                            # This is a session created directly via toolset, add it
+                            enhanced_sessions.append({
+                                "session_id": live_session_id,
+                                "notebook_path": live.get("notebook_path"),
+                                "notebook_title": live.get("notebook_title"),
+                                "kernel_status": live.get("kernel_status"),
+                                "execution_count": live.get("execution_count"),
+                                "created_by": "user",  # Default, could be enhanced
+                                "status": "active",
+                                "is_active": True,
+                                "created_at": datetime.now().isoformat(),
+                            })
+
+                    # Update sessions to return enhanced data
+                    sessions = enhanced_sessions
+
+                except Exception as e:
+                    logger.warning(f"Failed to enhance session data with live information: {e}")
+                    # Fallback to stored sessions only
+                    pass
+            else:
+                return {
+                    "success": False,
+                    "error": f"Unknown action: {action}. Supported actions: add, remove, update, list",
+                }
+
+            await run_func(self.memory_manager.save)
+            return {
+                "success": True,
+                "action": action,
+                "chat_id": chat_id,
+                "sessions": sessions,
+            }
+
+        except Exception as e:
+            logger.error(f"Error managing notebook session for chat {chat_id}: {e}")
+            return {"success": False, "error": str(e)}

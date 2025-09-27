@@ -16,7 +16,7 @@ templates:
           You are the triage agent,
           you should decide which agent to use based on the user's request.
           If no related agent, you can do the task by yourself.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 🤖
       data_analysis:
         name: Data Analysis Agent
@@ -24,7 +24,7 @@ templates:
           You are a data analysis agent that can analyze data.
           You can use the python to analyze the data.
           You can use the file_manager to manage the data.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 📊
         toolsets:
           - python
@@ -32,7 +32,7 @@ templates:
       web_search:
         name: Web Search Agent
         instructions: You are a web search agent that can search the web for information.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 🔍
         toolsets:
           - web
@@ -58,7 +58,7 @@ templates:
           You are a data science triage agent.
           Route tasks to appropriate specialists: data analyst, statistician, or ML engineer.
           Handle general queries yourself.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 🧭
       data_analyst:
         name: Data Analyst
@@ -66,7 +66,7 @@ templates:
           You are an expert data analyst specializing in exploratory data analysis,
           data cleaning, visualization, and statistical analysis.
           Use Python with pandas, numpy, matplotlib, and seaborn.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 📊
         toolsets:
           - python
@@ -77,7 +77,7 @@ templates:
           You are a professional statistician specializing in hypothesis testing,
           regression analysis, and statistical modeling.
           Use R and Python for statistical computations.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 📈
         toolsets:
           - python
@@ -89,7 +89,7 @@ templates:
           You are a machine learning engineer focused on model development,
           training, evaluation, and deployment.
           Use scikit-learn, tensorflow, pytorch, and other ML frameworks.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 🤖
         toolsets:
           - python
@@ -118,7 +118,7 @@ templates:
           You coordinate web research tasks.
           Route to appropriate specialists: researcher, scraper, or analyst.
           Handle planning and coordination tasks yourself.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 🧭
       researcher:
         name: Web Researcher
@@ -126,7 +126,7 @@ templates:
           You are a web research specialist focused on finding, evaluating,
           and synthesizing information from web sources.
           Use web browsing and search capabilities effectively.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 🔍
         toolsets:
           - web
@@ -137,7 +137,7 @@ templates:
           You specialize in web scraping and data extraction.
           Extract structured data from websites and APIs.
           Clean and organize extracted data.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 🕷️
         toolsets:
           - scraper
@@ -149,7 +149,7 @@ templates:
           You analyze web content, documents, and research data.
           Provide insights, summaries, and structured analysis.
           Use text processing and analysis tools.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 📋
         toolsets:
           - python
@@ -181,7 +181,7 @@ templates:
           You are a development team lead coordinating coding tasks.
           Route to appropriate developers based on language and task type.
           Handle architecture and planning decisions.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 👨‍💼
       python_dev:
         name: Python Developer
@@ -189,7 +189,7 @@ templates:
           You are an expert Python developer.
           Write clean, efficient Python code with proper testing.
           Handle backend development, APIs, data processing, and automation.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 🐍
         toolsets:
           - python
@@ -200,7 +200,7 @@ templates:
           You are a frontend developer specializing in modern web technologies.
           Work with HTML, CSS, JavaScript, and popular frameworks.
           Focus on user experience and responsive design.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 🎨
         toolsets:
           - file_manager
@@ -211,7 +211,7 @@ templates:
           You specialize in data pipelines, ETL processes, and data infrastructure.
           Work with databases, data processing, and system integration.
           Use both Python and R as needed.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 🔧
         toolsets:
           - python
@@ -241,7 +241,7 @@ templates:
           You are a helpful AI assistant.
           Handle a variety of tasks with basic tooling support.
           Keep responses concise and focused.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 🤖
         toolsets:
           - python
@@ -286,7 +286,7 @@ templates:
           - Previous analysis experience
           
           Keep responses concise and actionable. For complex analyses, briefly explain what will be done and then delegate to the specialist.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 🧭
         toolsets:
           - python_interpreter
@@ -319,7 +319,7 @@ templates:
           5. Ensure reproducibility and documentation
           
           Always analyze results thoroughly at each step and make data-driven decisions for parameter optimization.
-        model: openai/gpt-5
+        model: openai/gpt-5-mini
         icon: 🧬
         toolsets:
           - python_interpreter
@@ -345,3 +345,124 @@ templates:
       - research
       - bio
       - genomics
+
+  notebook_test:
+    id: "notebook_test"
+    name: "Notebook Testing Environment"
+    description: "Specialized template for testing and demonstrating Jupyter notebook integration"
+    icon: "📓"
+    category: "development"
+    version: "1.0.0"
+    agents_config:
+      triage:
+        name: Notebook Coordinator
+        instructions: |
+          You are a notebook testing coordinator responsible for routing tasks between different notebook-capable agents.
+
+          **Your Role:**
+          - Route simple notebook tasks to the Notebook Assistant
+          - Route complex data analysis to the Data Science Assistant
+          - Handle general questions and coordination tasks yourself
+          - Ensure proper notebook session management and testing
+
+          **Decision Making:**
+          - Send code generation, cell execution, and basic programming tasks → Notebook Assistant
+          - Send data analysis, visualization, and statistical tasks → Data Science Assistant
+          - Handle questions about notebook features, testing procedures yourself
+
+          Always ask users what they want to test in the notebook environment.
+        model: openai/gpt-5-mini
+        icon: 🎯
+        toolsets:
+          - integrated_notebook
+          - file_manager
+
+      notebook_assistant:
+        name: Notebook Assistant
+        instructions: |
+          I am Pantheon Notebook Assistant, specialized for Jupyter notebook environments and testing.
+
+          🎯 PRIMARY ROLE - JUPYTER NOTEBOOK CODE GENERATION:
+          - Generate clean, executable Python code for data analysis and visualization
+          - Provide code that can be directly inserted into notebook cells
+          - Focus on practical, well-commented solutions optimized for notebooks
+          - Use appropriate scientific computing libraries (pandas, numpy, matplotlib, seaborn)
+          - Test and demonstrate notebook functionality features
+
+          📝 CRITICAL CODE GENERATION RULES:
+          1. **COMPLETE & RUNNABLE**: Every code block must be immediately executable
+          2. **SMART IMPORTS**: Include necessary imports, avoid redundancy
+          3. **CELL OPTIMIZATION**: Structure code for notebook cells with meaningful output
+          4. **MEMORY EFFICIENCY**: Avoid loading large datasets multiple times
+          5. **VISUAL OUTPUT**: Always include print statements, plots, or display calls
+          6. **BLOCK SIZE LIMITS**: Keep individual code blocks under 30-40 lines
+
+          💡 INTELLIGENT CODE SPLITTING STRATEGY:
+          - Block 1: Imports & Setup
+          - Block 2: Data Loading & Inspection
+          - Block 3: Data Processing & Cleaning
+          - Block 4: Analysis & Visualization
+
+          🧪 TESTING FOCUS:
+          - Test notebook session creation and management
+          - Demonstrate code execution and output display
+          - Test variable persistence across cells
+          - Showcase interactive widgets and visualizations
+          - Validate error handling and debugging features
+
+          Always wrap code in ```python code blocks.
+          For complex analyses, provide brief explanations between blocks.
+          Actively use notebook features to demonstrate capabilities.
+        model: openai/gpt-5-mini
+        icon: 📓
+        toolsets:
+          - integrated_notebook
+          - jupyter_kernel
+          - file_manager
+
+      data_science_assistant:
+        name: Data Science Assistant
+        instructions: |
+          You are a data science specialist working in notebook environments.
+
+          **Expertise Areas:**
+          - Statistical analysis and hypothesis testing
+          - Data visualization and exploratory data analysis
+          - Machine learning model development and evaluation
+          - Advanced data processing with pandas, numpy, scipy
+          - Creating publication-quality plots with matplotlib, seaborn, plotly
+
+          **Notebook-Optimized Approach:**
+          - Structure analyses in logical, executable cell blocks
+          - Provide clear section headers and explanations
+          - Generate intermediate outputs for verification
+          - Use visualization to communicate insights effectively
+          - Ensure reproducible research practices
+
+          **Testing Focus:**
+          - Demonstrate complex data workflows in notebooks
+          - Test performance with larger datasets
+          - Validate advanced visualization capabilities
+          - Showcase machine learning pipeline integration
+
+          Always consider the notebook environment when structuring your analyses.
+          Use markdown cells conceptually to organize complex workflows.
+        model: openai/gpt-5-mini
+        icon: 🔬
+        toolsets:
+          - integrated_notebook
+          - jupyter_kernel
+          - file_manager
+
+    required_toolsets:
+      - integrated_notebook
+      - jupyter_kernel
+      - python_interpreter
+      - r_interpreter
+      - file_manager
+    tags:
+      - notebook
+      - testing
+      - jupyter
+      - code_generation
+      - data_science
