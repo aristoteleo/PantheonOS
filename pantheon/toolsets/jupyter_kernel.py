@@ -738,87 +738,6 @@ class JupyterClientKernelToolSet(ToolSet):
             }
 
     @tool
-    async def complete_request(
-        self, code: str, cursor_pos: int, session_id: str
-    ) -> dict:
-        """Get code completion suggestions"""
-        if session_id not in self.sessions:
-            return {"success": False, "error": f"Session not found: {session_id}"}
-
-        client = self.clients[session_id]
-
-        try:
-            client.complete(code, cursor_pos)
-            reply = client.get_shell_msg(timeout=10)
-
-            return {"success": True, "content": reply["content"]}
-        except Exception as e:
-            logger.error(f"Complete request failed for session {session_id}: {e}")
-            return {"success": False, "error": str(e)}
-
-    @tool
-    async def inspect_request(
-        self, code: str, cursor_pos: int, session_id: str, detail_level: int = 0
-    ) -> dict:
-        """Inspect object or variable"""
-        if session_id not in self.sessions:
-            return {"success": False, "error": f"Session not found: {session_id}"}
-
-        client = self.clients[session_id]
-
-        try:
-            # Send inspect request to kernel
-            msg_id = client.inspect(code, cursor_pos, detail_level)
-
-            # Wait for shell reply - handle both sync and async versions
-            try:
-                reply = client.get_shell_msg(timeout=10)
-                # If get_shell_msg is async, it returns a coroutine
-                if hasattr(reply, "__await__"):
-                    reply = await reply
-            except TypeError:
-                # Fallback to async version
-                reply = await client.get_shell_msg(timeout=10)
-
-            # Validate reply message
-            if not reply or not isinstance(reply, dict) or "content" not in reply:
-                return {"success": False, "error": "Invalid reply from kernel"}
-
-            # Clean the reply to make it JSON serializable
-            clean_reply = make_json_serializable(reply)
-
-            # Ensure clean_reply is a dict
-            if not isinstance(clean_reply, dict):
-                return {"success": False, "error": "Reply is not a valid dictionary"}
-
-            content = clean_reply.get("content", {})
-
-            # Check if this is the correct reply (matching msg_id)
-            parent_header = clean_reply.get("parent_header", {})
-            parent_msg_id = (
-                parent_header.get("msg_id") if isinstance(parent_header, dict) else None
-            )
-
-            if parent_msg_id != msg_id:
-                logger.warning(
-                    f"Reply msg_id mismatch: expected {msg_id}, got {parent_msg_id}"
-                )
-
-            header = clean_reply.get("header", {})
-            reply_msg_id = header.get("msg_id") if isinstance(header, dict) else None
-
-            return {
-                "success": True,
-                "content": content,
-                "msg_id": msg_id,
-                "reply_msg_id": reply_msg_id,
-            }
-
-        except Exception as e:
-            logger.error(f"Inspect request failed for session {session_id}: {e}")
-            return {"success": False, "error": str(e)}
-
-    @tool
     async def list_sessions(self) -> dict:
         """List active kernel sessions"""
         try:
@@ -1263,8 +1182,9 @@ class JupyterClientKernelToolSet(ToolSet):
         # Clear message metadata mappings
         self.msg_metadata_mapping.clear()
 
-        # Shutdown all kernels
+        # Clear Jedi contexts for all sessions
         for session_id in list(self.sessions.keys()):
+            self.completion_service.clear_session_context(session_id)
             await self.shutdown_session(session_id)
 
         logger.info("JupyterClientKernelToolSet cleanup complete")
