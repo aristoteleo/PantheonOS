@@ -2,7 +2,6 @@
 
 import asyncio
 import uuid
-from datetime import datetime
 from typing import Dict, Optional
 
 from ..remote.backend.base import RemoteBackend
@@ -12,10 +11,10 @@ from ..utils.log import logger
 from .jupyter_kernel import (
     IOPubEventBus,
     JupyterClientKernelToolSet,
-    JupyterMessage,
     RemoteIOPubEventBus,
 )
 from .notebook_contents import NotebookContentsToolSet
+from .jedi_integration import EnhancedCompletionService
 
 
 class IntegratedNotebookToolSet(ToolSet):
@@ -47,6 +46,9 @@ class IntegratedNotebookToolSet(ToolSet):
         # Session to notebook file mapping
         self.session_notebooks: Dict[str, str] = {}  # session_id -> notebook_path
         self.notebook_sessions: Dict[str, str] = {}  # notebook_path -> session_id
+
+        # Enhanced completion service with Jedi integration
+        self.completion_service = EnhancedCompletionService()
 
     async def run_setup(self):
         """Setup toolset"""
@@ -395,33 +397,68 @@ class IntegratedNotebookToolSet(ToolSet):
         )
 
     @tool
-    async def shutdown_notebook_session(self, session_id: str) -> dict:
-        """Shutdown notebook session and kernel"""
+    async def manage_notebook_session(
+        self, session_id: str, action: str = "restart"
+    ) -> dict:
+        """Manage notebook session - restart or shutdown
+
+        Args:
+            session_id: Session identifier
+            action: "restart" (default) or "shutdown"
+        """
         if session_id not in self.session_notebooks:
             return {"success": False, "error": f"Session not found: {session_id}"}
+
+        if action not in ["restart", "shutdown"]:
+            return {
+                "success": False,
+                "error": f"Invalid action: {action}. Must be 'restart' or 'shutdown'",
+            }
 
         notebook_path = self.session_notebooks[session_id]
 
         try:
-            # 1. Shutdown kernel session
-            shutdown_result = await self.kernel_toolset.shutdown_session(session_id)
+            # 1. Clear Jedi context for both actions
+            if self.completion_service:
+                self.completion_service.clear_session_context(session_id)
+                logger.info(f"Cleared Jedi context for session: {session_id}")
 
-            # 2. Clean up mapping relationships
-            del self.session_notebooks[session_id]
-            if notebook_path in self.notebook_sessions:
-                del self.notebook_sessions[notebook_path]
+            if action == "restart":
+                # 2. Restart kernel session
+                kernel_result = await self.kernel_toolset.restart_session(session_id)
+                logger.info(f"Restarted integrated notebook session: {session_id}")
 
-            logger.info(f"Shutdown integrated notebook session: {session_id}")
+                return {
+                    "success": kernel_result["success"],
+                    "action": "restart",
+                    "session_id": session_id,
+                    "notebook_path": notebook_path,
+                    "kernel_result": kernel_result,
+                    "context_cleared": True,
+                }
 
-            return {
-                "success": True,
-                "session_id": session_id,
-                "notebook_path": notebook_path,
-                "kernel_shutdown": shutdown_result,
-            }
+            else:  # action == "shutdown"
+                # 2. Shutdown kernel session
+                kernel_result = await self.kernel_toolset.shutdown_session(session_id)
+
+                # 3. Clean up mapping relationships for shutdown
+                del self.session_notebooks[session_id]
+                if notebook_path in self.notebook_sessions:
+                    del self.notebook_sessions[notebook_path]
+
+                logger.info(f"Shutdown integrated notebook session: {session_id}")
+
+                return {
+                    "success": True,
+                    "action": "shutdown",
+                    "session_id": session_id,
+                    "notebook_path": notebook_path,
+                    "kernel_result": kernel_result,
+                    "context_cleared": True,
+                }
 
         except Exception as e:
-            logger.error(f"Failed to shutdown notebook session: {e}")
+            logger.error(f"Failed to {action} notebook session: {e}")
             return {"success": False, "error": str(e)}
 
     async def _update_cell_output(
@@ -503,6 +540,10 @@ class IntegratedNotebookToolSet(ToolSet):
             # SSOT: Always update backend notebook file after execution (even on failure)
             if update_notebook:
                 await self._update_cell_output(notebook_path, cell_index, exec_result)
+
+            # Update Jedi context with executed code for better completions
+            if exec_result.get("success") and code.strip():
+                self.completion_service.update_session_context(session_id, code)
 
             return exec_result
 
@@ -672,6 +713,11 @@ class IntegratedNotebookToolSet(ToolSet):
             if self.notebook_contents and hasattr(self.notebook_contents, "cleanup"):
                 await self.notebook_contents.cleanup()
 
+            # Clear Jedi contexts for all sessions
+            if self.completion_service:
+                for session_id in list(self.session_notebooks.keys()):
+                    self.completion_service.clear_session_context(session_id)
+
             # Clear session mappings
             self.session_notebooks.clear()
             self.notebook_sessions.clear()
@@ -680,6 +726,64 @@ class IntegratedNotebookToolSet(ToolSet):
 
         except Exception as e:
             logger.error(f"Error during IntegratedNotebookToolSet cleanup: {e}")
+
+    @tool
+    async def complete_request(
+        self,
+        code: str,
+        cursor_pos: int,
+        session_id: Optional[str] = None,
+    ) -> dict:
+        """Get code completion suggestions with optional session context"""
+        try:
+            # If session_id provided, validate it exists
+            if session_id is not None and session_id not in self.session_notebooks:
+                return {
+                    "success": False,
+                    "error": f"Session not found: {session_id}",
+                }
+
+            # Use completion service with or without session context
+            effective_session_id = session_id or "default"
+            return await self.completion_service.get_completions(
+                code=code,
+                cursor_pos=cursor_pos,
+                session_id=effective_session_id,
+                context_code="",  # Empty - Jedi service uses its internal session context
+            )
+
+        except Exception as e:
+            logger.error(f"Integrated completion failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def inspect_request(
+        self,
+        code: str,
+        cursor_pos: int,
+        session_id: Optional[str] = None,
+    ) -> dict:
+        """Inspect object or variable with optional session context"""
+        try:
+            # If session_id provided, validate it exists
+            if session_id is not None and session_id not in self.session_notebooks:
+                return {
+                    "success": False,
+                    "error": f"Session not found: {session_id}",
+                }
+
+            # Use completion service with or without session context
+            effective_session_id = session_id or "default"
+            return await self.completion_service.get_inspection(
+                code=code,
+                cursor_pos=cursor_pos,
+                session_id=effective_session_id,
+                context_code="",  # Empty - Jedi service uses its internal session context
+            )
+
+        except Exception as e:
+            logger.error(f"Integrated inspection failed: {e}")
+            return {"success": False, "error": str(e)}
 
 
 # Export
