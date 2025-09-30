@@ -624,13 +624,6 @@ class IntegratedNotebookToolSet(ToolSet):
         return await self.notebook_contents.move_cell(path, from_index, to_index)
 
     @tool
-    async def create_notebook(
-        self, path: str, title: Optional[str] = None, kernel_spec: Optional[dict] = None
-    ) -> dict:
-        """Create new empty notebook file"""
-        return await self.notebook_contents.create_notebook(path, title, kernel_spec)
-
-    @tool
     async def get_variables(self, session_id: str) -> dict:
         """Get variables from kernel session"""
         if session_id not in self.session_notebooks:

@@ -663,7 +663,8 @@ class Agent:
             context_variables[call["id"]] = result
             # Generate unique id for each tool message
             tool_message_id = str(uuid4())
-            current_timestamp = time.time()
+            end_timestamp = time.time()
+            execution_duration = end_timestamp - start_time
 
             if isinstance(result, (Agent, RemoteAgent)):
                 messages.append(
@@ -674,7 +675,10 @@ class Agent:
                         "content": result.name,
                         "transfer": True,
                         "id": tool_message_id,
-                        "timestamp": current_timestamp,
+                        "timestamp": end_timestamp,  # 保持兼容性
+                        "start_timestamp": start_time,  # 新增：开始时间
+                        "end_timestamp": end_timestamp,  # 新增：结束时间
+                        "execution_duration": execution_duration,  # 新增：执行时长（秒）
                     }
                 )
             else:
@@ -693,7 +697,10 @@ class Agent:
                         "raw_content": result,
                         "content": content,
                         "id": tool_message_id,
-                        "timestamp": current_timestamp,
+                        "timestamp": end_timestamp,  # 保持兼容性
+                        "start_timestamp": start_time,  # 新增：开始时间
+                        "end_timestamp": end_timestamp,  # 新增：结束时间
+                        "execution_duration": execution_duration,  # 新增：执行时长（秒）
                     }
                 )
         return messages
@@ -870,8 +877,14 @@ class Agent:
         )
 
         # Add streaming fields directly to step_message
+        end_timestamp = time.time()
+        generation_duration = end_timestamp - request_start_time
+
         message["id"] = message_id
-        message["timestamp"] = time.time()
+        message["timestamp"] = end_timestamp  # 保持兼容性
+        message["start_timestamp"] = request_start_time  # 新增：开始时间
+        message["end_timestamp"] = end_timestamp  # 新增：结束时间
+        message["generation_duration"] = generation_duration  # 新增：生成时长（秒）
         return message
 
     async def _acompletion_with_models(
@@ -938,10 +951,20 @@ class Agent:
         history = copy.deepcopy(messages)
         tool_timeout = tool_timeout or self.tool_timeout
         system_prompt = self.get_system_prompt()
+        current_timestamp = time.time()
+
         if (len(history) > 0) and (history[0]["role"] == "system"):
             history[0]["content"] = system_prompt
+            history[0]["timestamp"] = current_timestamp  # 添加时间戳
+            if "id" not in history[0]:
+                history[0]["id"] = str(uuid4())  # 添加唯一ID（如果没有的话）
         else:
-            history.insert(0, {"role": "system", "content": system_prompt})
+            history.insert(0, {
+                "role": "system",
+                "content": system_prompt,
+                "timestamp": current_timestamp,  # 添加时间戳
+                "id": str(uuid4())  # 添加唯一ID
+            })
         init_len = len(history)
         context_variables = context_variables or {}
 
@@ -1039,20 +1062,38 @@ class Agent:
         elif isinstance(msg, VisionInput):
             messages = vision_to_openai(msg)
         elif isinstance(msg, BaseModel):
-            messages = [{"role": "user", "content": msg.model_dump_json()}]
+            messages = [{
+                "role": "user",
+                "content": msg.model_dump_json(),
+                "timestamp": time.time(),
+                "id": str(uuid4())
+            }]
         elif isinstance(msg, str):
-            messages = [{"role": "user", "content": msg}]
+            messages = [{
+                "role": "user",
+                "content": msg,
+                "timestamp": time.time(),
+                "id": str(uuid4())
+            }]
         elif isinstance(msg, list):
             new_messages = []
             for m in msg:
                 if isinstance(m, str):
-                    new_messages.append({"role": "user", "content": m})
+                    new_messages.append({
+                        "role": "user",
+                        "content": m,
+                        "timestamp": time.time(),
+                        "id": str(uuid4())
+                    })
                 elif isinstance(m, VisionInput):
                     new_messages.extend(vision_to_openai(m))
                 elif isinstance(m, BaseModel):
-                    new_messages.append(
-                        {"role": "user", "content": m.model_dump_json()}
-                    )
+                    new_messages.append({
+                        "role": "user",
+                        "content": m.model_dump_json(),
+                        "timestamp": time.time(),
+                        "id": str(uuid4())
+                    })
                 else:
                     assert isinstance(m, dict), (
                         "Message must be a string, BaseModel or dict"
