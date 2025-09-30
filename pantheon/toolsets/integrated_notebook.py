@@ -486,10 +486,6 @@ class IntegratedNotebookToolSet(ToolSet):
             logger.info(
                 f"Generated {len(notebook_outputs)} outputs for cell {cell_index}"
             )
-            for i, output in enumerate(notebook_outputs):
-                logger.info(
-                    f"  Output {i}: {output.get('output_type')} - {str(output)[:100]}..."
-                )
 
             # Extract execution timing from exec_result metadata (standard nbformat structure)
             metadata = exec_result.get("metadata", {})

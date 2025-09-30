@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import re
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -21,6 +22,13 @@ from ..remote.backend.base import RemoteBackend, StreamMessage, StreamType
 from ..toolset import ToolSet, tool
 from ..utils.log import logger
 from ..utils.misc import run_func
+
+# Terminal control character processing (nbclient-style)
+# Reference: https://github.com/jupyter/nbclient/blob/main/nbclient/client.py
+
+# Regex patterns for terminal control characters
+_RGX_CARRIAGERETURN = re.compile(r".*\r(?=[^\n])")
+_RGX_BACKSPACE = re.compile(r"[^\n]\b")
 
 
 class KernelStatus(Enum):
@@ -1125,10 +1133,19 @@ class JupyterClientKernelToolSet(ToolSet):
     def _generate_outputs_from_iopub(
         self, iopub_messages: List[dict], execution_count: Optional[int] = None
     ) -> List[dict]:
-        """Generate standard notebook outputs from IOPub messages using nbformat API"""
+        """Generate standard notebook outputs from IOPub messages with stream coalescing
+
+        Implements nbclient-style stream merging and terminal control character processing:
+        1. Merges consecutive stream outputs with the same name (stdout/stderr)
+        2. Processes carriage return (\r) and backspace (\b) characters
+
+        This ensures progress bars and terminal animations display correctly.
+        """
         _ = execution_count  # Mark as intentionally unused (for potential future use)
         outputs = []
+        streams = {}  # stream_name -> output_dict (for merging)
 
+        # Phase 1: Convert IOPub messages to outputs and merge streams
         for msg in iopub_messages:
             msg_type = msg.get("header", {}).get("msg_type", "")
 
@@ -1138,11 +1155,24 @@ class JupyterClientKernelToolSet(ToolSet):
                     # Use official nbformat API to create output from IOPub message
                     output_node = nbformat.v4.output_from_msg(msg)
 
-                    # Convert NotebookNode to dict and add frontend-specific id
+                    # Convert NotebookNode to dict
                     output_dict = dict(output_node)
-                    output_dict["id"] = f"{msg_type}_{len(outputs)}"
 
-                    outputs.append(output_dict)
+                    if output_dict["output_type"] == "stream":
+                        # Merge streams with the same name (nbclient-style)
+                        stream_name = output_dict["name"]
+                        if stream_name in streams:
+                            # Append new text to existing stream
+                            streams[stream_name]["text"] += output_dict["text"]
+                        else:
+                            # New stream: add to outputs and track for merging
+                            output_dict["id"] = f"{msg_type}_{len(outputs)}"
+                            outputs.append(output_dict)
+                            streams[stream_name] = output_dict
+                    else:
+                        # Non-stream outputs: add directly
+                        output_dict["id"] = f"{msg_type}_{len(outputs)}"
+                        outputs.append(output_dict)
 
                 except ValueError as e:
                     # If nbformat.output_from_msg fails, log the error and skip
@@ -1156,6 +1186,30 @@ class JupyterClientKernelToolSet(ToolSet):
                         f"Unexpected error processing IOPub message {msg_type}: {e}"
                     )
                     continue
+
+        # Phase 2: Process terminal control characters in merged streams
+        # Apply nbclient's exact approach: iterate until no more changes
+        for stream in streams.values():
+            original_length = len(stream["text"])
+
+            # Process \r and \b characters (exact nbclient algorithm)
+            old = stream["text"]
+            while len(stream["text"]) < len(old):
+                old = stream["text"]
+                # Cancel out anything-but-newline followed by backspace
+                stream["text"] = _RGX_BACKSPACE.sub("", stream["text"])
+            # Replace all carriage returns not followed by newline (OUTSIDE loop - applied once)
+            stream["text"] = _RGX_CARRIAGERETURN.sub("", stream["text"])
+
+            if original_length != len(stream["text"]):
+                logger.info(
+                    f"Processed stream '{stream['name']}': {original_length} → {len(stream['text'])} chars "
+                    f"(removed {original_length - len(stream['text'])} chars from \\r/\\b)"
+                )
+
+        logger.debug(
+            f"Generated {len(outputs)} outputs ({len(streams)} merged streams) from {len(iopub_messages)} IOPub messages"
+        )
 
         return outputs
 
