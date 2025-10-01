@@ -24,16 +24,19 @@ def generate_config(output_path: str = "endpoint.yaml", overwrite: bool = False)
 
 
 async def start_endpoint(config_path: str | None = None):
-    if config_path is None:
-        config_path = "endpoint.yaml"
-    if not os.path.exists(config_path):
-        logger.error(f"Config file not found at {config_path}")
+    if config_path is not None and os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+    elif os.path.exists("endpoint.yaml"):
+        with open("endpoint.yaml", "r") as f:
+            config = yaml.safe_load(f)
+    else:
+        logger.warning(f"Config file not found at {config_path} using default config.")
         logger.info(
-            "Please run `python -m pantheon.toolsets.endpoint config` to generate a config file"
+            "If you want to use a custom config file, "
+            "please run `python -m pantheon.toolsets.endpoint config` to generate a config file"
         )
-        return
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
+        config = None
     endpoint = Endpoint(config)
     await endpoint.run()
 
