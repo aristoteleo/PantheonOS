@@ -8,24 +8,21 @@ from typing import Callable
 
 import openai
 
-from pantheon.remote import (
-    RemoteBackendFactory,
-    RemoteConfig,
-)
-from pantheon.remote.backend.base import RemoteBackend
+from pantheon.remote import RemoteBackendFactory
 
 from ..agent import Agent, RemoteAgent
 from ..factory import create_agents_from_template
 from ..factory.template_manager import get_template_manager, ChatroomTemplate
 from ..memory import MemoryManager
 from ..team import PantheonTeam
+from ..toolset import ToolSet, tool
 from ..utils.log import logger
 from ..utils.misc import run_func
 from .thread import Thread
 from .suggestion_generator import get_centralized_suggestion_manager
 
 
-class ChatRoom:
+class ChatRoom(ToolSet):
     """
     ChatRoom is a service that allow user to interact with a team of agents.
     It can connect to a remote service to get the agents and tools,
@@ -36,114 +33,51 @@ class ChatRoom:
 
     Args:
         endpoint_service_id: The service ID of the endpoint service.
-        agents_template: The template of the agents.
         memory_dir: The directory to store the memory.
         name: The name of the chatroom.
         description: The description of the chatroom.
-        worker_params: The parameters for the worker.
-        server_url: The URL of the server.
-        endpoint_connect_params: The parameters for the endpoint service connection.
         speech_to_text_model: The model to use for speech to text.
         check_before_chat: The function to check before chat.
         get_db_info: The function to get the database info.
+        **kwargs: Additional parameters passed to ToolSet (e.g., id_hash).
     """
 
     def __init__(
         self,
         endpoint_service_id: str,
-        agents_template: dict | str | None = None,
         memory_dir: str = "./.pantheon-chatroom",
         name: str = "pantheon-chatroom",
         description: str = "Chatroom for Pantheon agents",
-        worker_params: dict | None = None,
-        server_url: str | list[str] | None = None,
-        backend: str | None = None,
-        endpoint_connect_params: dict | None = None,
         speech_to_text_model: str = "gpt-4o-mini-transcribe",
         check_before_chat: Callable | None = None,
         get_db_info: Callable | None = None,
+        **kwargs,
     ):
+        # Initialize ToolSet (will handle worker creation in run())
+        super().__init__(name=name, **kwargs)
+
+        # ChatRoom specific initialization
         self.memory_dir = Path(memory_dir)
         self.memory_manager = MemoryManager(self.memory_dir)
 
-        # Initialize template manager - no more direct agents_template handling
+        # Initialize template manager
         self.template_manager = get_template_manager()
 
         self.endpoint_service_id = endpoint_service_id
-        self.name = name
         self.description = description
-        if isinstance(server_url, str):
-            server_url = [server_url]
-        self.server_urls = server_url
 
         # Per-chat team management
-        self.default_team: PantheonTeam = None  # Will be initialized in setup_agents
+        self.default_team: PantheonTeam = None  # Will be initialized in run_setup
         self.chat_teams: dict[str, PantheonTeam] = {}  # Per-chat teams cache
 
-        # Store worker params for later initialization in setup_agents
-        self._worker_params = {
-            "service_name": name,
-        }
-        if worker_params is not None:
-            self._worker_params.update(worker_params)
-
-        self.endpoint_connect_params = endpoint_connect_params or {}
-
-        # Properly structure backend config to avoid parameter conflicts
-        backend_config = {"server_urls": self.server_urls} if self.server_urls else {}
-        if self.endpoint_connect_params:
-            backend_config.update(self.endpoint_connect_params)
-
-        self.backend = RemoteBackendFactory.create_backend(
-            RemoteConfig.from_config(
-                backend=backend,
-                backend_config=backend_config,
-            )
-        )
-        self.worker = self.backend.create_worker(**self._worker_params)
-
-        # Check if backend supports streaming (only NATS backend supports streaming)
-        self.supports_streaming = hasattr(self.backend, "get_or_create_stream")
-        if self.supports_streaming:
-            logger.info(f"ChatRoom: Streaming support enabled for {backend} backend")
-        else:
-            logger.info(f"ChatRoom: Streaming not supported for {backend} backend")
-
-        self.setup_handlers()
         self.speech_to_text_model = speech_to_text_model
         self.threads: dict[str, Thread] = {}
         self.check_before_chat = check_before_chat
         self._get_db_info_func = get_db_info
 
-    async def setup_agents(self):
-        """Setup the agents from the template and initialize the worker.
-        The template is a dictionary with the following keys:
-        - triage: The triage agent.
-        - other: The other agents.
-        """
-        endpoint_service = await self.backend.connect(self.endpoint_service_id)
-
-        # Get default template from template_manager
-        default_template = self.template_manager.get_template("default")
-        if not default_template:
-            raise RuntimeError("Default template not found in template manager")
-
-        agents = await create_agents_from_template(
-            endpoint_service, default_template.agents_config
-        )
-        triage_agent = agents["triage"]
-        agents = agents["other"]
-        for agent in [triage_agent, *agents]:
-            agent.enable_rich_conversations()
-        # Create default team for compatibility and fallback
-        self.default_team = PantheonTeam(
-            triage=triage_agent,
-            agents=agents,
-        )
-        await self.default_team.async_setup()
-
-        # Keep self.team for backward compatibility with existing code
-        self.team = self.default_team
+    async def run_setup(self):
+        """Setup the chatroom (ToolSet hook called before run)."""
+        logger.info(f"ChatRoom: endpoint_id={self.endpoint_service_id}")
 
     # Removed: save_agents_template - using template_manager only
 
@@ -176,30 +110,34 @@ class ChatRoom:
 
         logger.info(f"Load default team for chat {chat_id}")
 
+        # Create default team if not exists
+        if self.default_team is None:
+            default_template = self.template_manager.get_template("default")
+            if not default_template:
+                raise RuntimeError("Default template not found in template manager")
+
+            self.default_team = await self._create_team_from_template(
+                default_template.to_dict()
+            )
+
         return self.default_team
 
     async def _create_team_from_template(self, team_template: dict) -> PantheonTeam:
-        """Create a team from a stored template configuration."""
-        template_name = team_template.get("template_name", "unknown")
-
-        agents_config = team_template.get("agents_config", {})
-        logger.info(
-            f"🏗️ Creating team from template '{template_name}' with {len(agents_config)} agents"
+        """Create a team from template configuration (default or custom)."""
+        template_name = team_template.get("template_name") or team_template.get(
+            "name", "unknown"
         )
+        agents_config = team_template.get("agents_config", {})
+
+        logger.info(f"🏗️ Creating team from template '{template_name}'")
 
         # Connect to endpoint service
-        endpoint_service = await self.backend.connect(
-            self.endpoint_service_id, **self.endpoint_connect_params
-        )
+        endpoint_service = await self._backend.connect(self.endpoint_service_id)
 
         # Create agents from template
         agents = await create_agents_from_template(endpoint_service, agents_config)
         triage_agent = agents["triage"]
         other_agents = agents["other"]
-
-        logger.info(
-            f"📋 Created agents: triage='{triage_agent.name}', others=[{', '.join(a.name for a in other_agents)}]"
-        )
 
         # Enable rich conversations for all agents
         for agent in [triage_agent, *other_agents]:
@@ -209,13 +147,10 @@ class ChatRoom:
         team = PantheonTeam(triage=triage_agent, agents=other_agents)
         await team.async_setup()
 
-        total_agents = len(team.agents)  # Use actual team.agents count
-        logger.info(
-            f"✅ Successfully created team from template '{template_name}' with {total_agents} agents"
-        )
-
+        logger.info(f"✅ Team '{template_name}' created with {len(team.agents)} agents")
         return team
 
+    @tool
     async def setup_team_for_chat(self, chat_id: str, template_obj: dict):
         """Setup/update team for a specific chat using full template object."""
         try:
@@ -262,40 +197,9 @@ class ChatRoom:
         except Exception as e:
             return {"success": False, "message": f"Template setup failed: {str(e)}"}
 
-    def setup_handlers(self):
-        """Setup the handlers for the worker.
-        To expose the chatroom interfaces to the Pantheon-UI.
-        """
-        self.worker.register(self.create_chat)
-        self.worker.register(self.delete_chat)
-        self.worker.register(self.chat)
-        self.worker.register(self.stop_chat)
-        self.worker.register(self.list_chats)
-        self.worker.register(self.get_chat_messages)
-        self.worker.register(self.update_chat_name)
-        self.worker.register(self.get_endpoint)
-        self.worker.register(self.set_endpoint)
-        self.worker.register(self.get_toolsets)
-        self.worker.register(self.proxy_toolset)
-        self.worker.register(self.get_agents)
-        self.worker.register(self.set_active_agent)
-        self.worker.register(self.get_active_agent)
-        self.worker.register(self.attach_hooks)
-        self.worker.register(self.speech_to_text)
-        self.worker.register(self.get_db_info)
-        # Register suggestion methods
-        self.worker.register(self.get_suggestions)
-        self.worker.register(self.refresh_suggestions)
-        # Register template methods
-        self.worker.register(self.list_templates)
-        self.worker.register(self.setup_team_for_chat)
-        self.worker.register(self.get_chat_template)
-        self.worker.register(self.validate_template)
-        # Register chat context management methods
-        self.worker.register(self.get_chat_context)
-        self.worker.register(self.update_chat_context)
-        self.worker.register(self.manage_notebook_session)
+    # Removed: setup_handlers - methods are now auto-registered via @tool decorator
 
+    @tool
     async def get_db_info(self) -> dict:
         """Get the database info."""
         if hasattr(self, "_get_db_info_func") and self._get_db_info_func is not None:
@@ -312,9 +216,6 @@ class ChatRoom:
             chat_id: The chat ID
             chunk: The chunk data to publish
         """
-        if not self.supports_streaming:
-            return
-
         try:
             import time
 
@@ -329,7 +230,7 @@ class ChatRoom:
                 data={"type": "chunk", "chunk": chunk, "chat_id": chat_id},
             )
             # Get or create stream channel (simplified with new API)
-            stream_channel = await self.backend.get_or_create_stream(
+            stream_channel = await self._backend.get_or_create_stream(
                 f"chat_{chat_id}", StreamType.CHAT
             )
             await stream_channel.publish(message)
@@ -365,9 +266,6 @@ class ChatRoom:
             chat_id: The chat ID
             step_message: The step message data to publish
         """
-        if not self.supports_streaming:
-            return
-
         try:
             from pantheon.remote.backend.base import StreamType, StreamMessage
 
@@ -382,7 +280,7 @@ class ChatRoom:
                 },
             )
             # Get or create stream channel (simplified with new API)
-            stream_channel = await self.backend.get_or_create_stream(
+            stream_channel = await self._backend.get_or_create_stream(
                 f"chat_{chat_id}", StreamType.CHAT
             )
             await stream_channel.publish(message)
@@ -392,12 +290,11 @@ class ChatRoom:
                 f"ChatRoom: Failed to publish step message to NATS for chat {chat_id}: {e}"
             )
 
+    @tool
     async def get_endpoint(self) -> dict:
         """Get the endpoint service info."""
         try:
-            s = await self.backend.connect(
-                self.endpoint_service_id, **self.endpoint_connect_params
-            )
+            s = await self._backend.connect(self.endpoint_service_id)
             info = await s.fetch_service_info()
             return {
                 "success": True,
@@ -408,6 +305,7 @@ class ChatRoom:
             logger.error(f"Error getting remote service info: {e}")
             return {"success": False, "message": str(e)}
 
+    @tool
     async def set_endpoint(self, endpoint_service_id: str) -> dict:
         """Set the endpoint service ID.
 
@@ -422,6 +320,7 @@ class ChatRoom:
             logger.error(f"Error setting endpoint service: {e}")
             return {"success": False, "message": str(e)}
 
+    @tool
     async def get_toolsets(self) -> dict:
         """Get all available toolsets from the endpoint service.
 
@@ -432,9 +331,7 @@ class ChatRoom:
             - error: Error message if operation failed.
         """
         try:
-            s = await self.backend.connect(
-                self.endpoint_service_id, **self.endpoint_connect_params
-            )
+            s = await self._backend.connect(self.endpoint_service_id)
             result = await s.invoke("list_services")
             if isinstance(result, dict) and "success" in result:
                 return result
@@ -445,6 +342,7 @@ class ChatRoom:
             logger.error(f"Error getting toolsets: {e}")
             return {"success": False, "error": str(e)}
 
+    @tool
     async def proxy_toolset(
         self,
         method_name: str,
@@ -461,11 +359,8 @@ class ChatRoom:
         Returns:
             The result from the toolset method call.
         """
-        # DONT support reverse callback proxy!
         try:
-            endpoint = await self.backend.connect(
-                self.endpoint_service_id, **self.endpoint_connect_params
-            )
+            endpoint = await self._backend.connect(self.endpoint_service_id)
 
             # Add debug logging
             logger.info(
@@ -490,6 +385,7 @@ class ChatRoom:
             )
             return {"success": False, "error": str(e)}
 
+    @tool
     async def get_agents(self, chat_id: str = None) -> dict:
         """Get the agents info for a specific chat or default team.
 
@@ -534,6 +430,7 @@ class ChatRoom:
             "agents": [get_agent_info(a) for a in team.agents.values()],
         }
 
+    @tool
     async def set_active_agent(self, chat_name: str, agent_name: str):
         """Set the active agent for a chat.
 
@@ -551,6 +448,7 @@ class ChatRoom:
         team.set_active_agent(memory, agent_name)
         return {"success": True, "message": "Agent set as active"}
 
+    @tool
     async def get_active_agent(self, chat_name: str) -> dict:
         """Get the active agent for a chat.
 
@@ -566,6 +464,7 @@ class ChatRoom:
             "agent": active_agent.name,
         }
 
+    @tool
     async def create_chat(self, chat_name: str | None = None) -> dict:
         """Create a new chat.
 
@@ -581,6 +480,7 @@ class ChatRoom:
             "chat_id": memory.id,
         }
 
+    @tool
     async def delete_chat(self, chat_id: str):
         """Delete a chat.
 
@@ -595,6 +495,7 @@ class ChatRoom:
             logger.error(f"Error deleting chat: {e}")
             return {"success": False, "message": str(e)}
 
+    @tool
     async def list_chats(self) -> dict:
         """List all the chats.
 
@@ -637,6 +538,7 @@ class ChatRoom:
             logger.error(f"Error listing chats: {e}")
             return {"success": False, "message": str(e)}
 
+    @tool
     async def get_chat_messages(self, chat_id: str, filter_out_images: bool = False):
         """Get the messages of a chat.
 
@@ -670,6 +572,7 @@ class ChatRoom:
             logger.error(f"Error getting chat messages: {e}")
             return {"success": False, "message": str(e)}
 
+    @tool
     async def update_chat_name(self, chat_id: str, chat_name: str):
         """Update the name of a chat.
 
@@ -694,6 +597,7 @@ class ChatRoom:
                 "message": str(e),
             }
 
+    @tool
     async def attach_hooks(
         self,
         chat_id: str,
@@ -727,6 +631,7 @@ class ChatRoom:
             await asyncio.sleep(time_delta)
         return {"success": True, "message": "Hooks attached successfully"}
 
+    @tool
     async def chat(
         self,
         chat_id: str,
@@ -769,17 +674,16 @@ class ChatRoom:
 
         # Always attach notebook detection hook for automatic session management
         thread.add_step_message_hook(self._process_notebook_detection_hook)
-        # Always add streaming support if backend supports it
-        if self.supports_streaming:
 
-            async def nats_chunk_processor(chunk: dict):
-                await self._publish_chunk(chat_id, chunk)
+        # Add streaming hooks (will fail silently if backend doesn't support streaming)
+        async def nats_chunk_processor(chunk: dict):
+            await self._publish_chunk(chat_id, chunk)
 
-            async def nats_step_processor(step_message: dict):
-                await self._publish_step_message(chat_id, step_message)
+        async def nats_step_processor(step_message: dict):
+            await self._publish_step_message(chat_id, step_message)
 
-            thread.add_chunk_hook(nats_chunk_processor)
-            thread.add_step_message_hook(nats_step_processor)
+        thread.add_chunk_hook(nats_chunk_processor)
+        thread.add_step_message_hook(nats_step_processor)
 
         await self.attach_hooks(
             chat_id, process_chunk, process_step_message, wait=False
@@ -789,6 +693,7 @@ class ChatRoom:
         # Generate or update chat name after conversation
         try:
             from .chatname_generator import get_chat_name_generator
+
             chat_name_generator = get_chat_name_generator()
             memory.name = await chat_name_generator.generate_or_update_name(memory)
         except Exception as e:
@@ -800,6 +705,7 @@ class ChatRoom:
         del self.threads[chat_id]
         return thread.response
 
+    @tool
     async def stop_chat(self, chat_id: str):
         """Stop a chat.
 
@@ -812,6 +718,7 @@ class ChatRoom:
         await thread.stop()
         return {"success": True, "message": "Chat stopped successfully"}
 
+    @tool
     async def speech_to_text(self, bytes_data: bytes):
         """Convert speech to text.
 
@@ -858,10 +765,12 @@ class ChatRoom:
                 "text": str(e),
             }
 
+    @tool
     async def get_suggestions(self, chat_id: str) -> dict:
         """Get suggestion questions for a chat."""
         return await self._handle_suggestions(chat_id, force_refresh=False)
 
+    @tool
     async def refresh_suggestions(self, chat_id: str) -> dict:
         """Refresh suggestion questions for a chat."""
         return await self._handle_suggestions(chat_id, force_refresh=True)
@@ -950,6 +859,7 @@ class ChatRoom:
 
     # Template Management Methods
 
+    @tool
     async def list_templates(self) -> dict:
         """List all available chatroom templates."""
         try:
@@ -964,6 +874,7 @@ class ChatRoom:
             logger.error(f"Error listing templates: {e}")
             return {"success": False, "message": str(e)}
 
+    @tool
     async def get_chat_template(self, chat_id: str) -> dict:
         """Get the current template for a specific chat."""
         memory = await run_func(self.memory_manager.get_memory, chat_id)
@@ -1001,6 +912,7 @@ class ChatRoom:
             "message": "No template found and no default template available",
         }
 
+    @tool
     async def validate_template(self, template: dict) -> dict:
         """Validate if a template is compatible with current endpoint."""
         try:
@@ -1031,9 +943,7 @@ class ChatRoom:
 
             # Check toolset availability
 
-            s = await self.backend.connect(
-                self.endpoint_service_id, **self.endpoint_connect_params
-            )
+            s = await self._backend.connect(self.endpoint_service_id)
             available_toolsets_resp = await s.invoke("list_services")
 
             if (
@@ -1077,9 +987,7 @@ class ChatRoom:
 
         logger.info(f"🚀 Background task: Starting toolsets {missing_toolsets}")
 
-        s = await self.backend.connect(
-            self.endpoint_service_id, **self.endpoint_connect_params
-        )
+        s = await self._backend.connect(self.endpoint_service_id)
         result = await s.invoke(
             "ensure_toolsets", {"required_toolsets": missing_toolsets}
         )
@@ -1104,17 +1012,12 @@ class ChatRoom:
         Args:
             log_level: The level of the log.
         """
-        logger.set_level(log_level)
-        logger.info(f"Chat Room setup: endpoint_id {self.endpoint_service_id}")
-        await self.setup_agents()
-        logger.info(
-            f"Remote Servers: {self.worker.servers} Service Name: {self.worker.service_name} Service ID: {self.worker.service_id}"
-        )
-
-        return await self.worker.run()
+        # Call parent ToolSet.run() which handles worker creation and registration
+        return await super().run(log_level=log_level)
 
     # Chat context and Notebook sessions Methods
 
+    @tool
     async def get_chat_context(self, chat_id: str) -> dict:
         """Get chat context information including notebook sessions and other metadata.
 
@@ -1135,6 +1038,7 @@ class ChatRoom:
             logger.error(f"Error getting chat context for {chat_id}: {e}")
             return {"success": False, "error": str(e)}
 
+    @tool
     async def update_chat_context(self, chat_id: str, context_data: dict) -> dict:
         """Update chat context information.
 
@@ -1236,6 +1140,7 @@ class ChatRoom:
         except Exception as e:
             logger.error(f"Error in notebook detection hook: {e}")
 
+    @tool
     async def manage_notebook_session(
         self, chat_id: str, action: str, session_data: dict | None = None
     ) -> dict:

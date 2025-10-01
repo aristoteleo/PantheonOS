@@ -10,7 +10,7 @@ from ..toolset import ToolSet, tool
 from ..utils.log import logger
 from .jupyter_kernel import (
     IOPubEventBus,
-    JupyterClientKernelToolSet,
+    JupyterKernelToolSet,
     RemoteIOPubEventBus,
 )
 from .notebook_contents import NotebookContentsToolSet
@@ -36,7 +36,7 @@ class IntegratedNotebookToolSet(ToolSet):
         )
 
         # Initialize child toolsets (event_bus will be set in run_setup)
-        self.kernel_toolset = JupyterClientKernelToolSet(
+        self.kernel_toolset = JupyterKernelToolSet(
             f"{name}_kernel", workdir, worker_params, **kwargs
         )
         self.notebook_contents = NotebookContentsToolSet(

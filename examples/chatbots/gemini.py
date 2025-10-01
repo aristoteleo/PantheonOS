@@ -2,6 +2,7 @@ import asyncio
 from pantheon.agent import Agent
 from pantheon.toolsets.python import PythonInterpreterToolSet
 from pantheon.toolsets.utils.toolset import run_toolsets
+from pantheon.endpoint import ToolsetProxy
 
 
 async def main():
@@ -12,7 +13,9 @@ async def main():
             "You are an AI assistant that can run Python code.",
             model="gemini/gemini-2.0-flash",
         )
-        await agent.remote_toolset(toolset.service_id)
+        # Use ToolsetProxy instead of remote_toolset
+        proxy = ToolsetProxy.from_toolset(toolset.service_id)
+        await agent.toolset(proxy)
         await agent.chat()
 
 

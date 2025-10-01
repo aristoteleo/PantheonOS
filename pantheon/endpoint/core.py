@@ -1,52 +1,28 @@
 import os
 import sys
-import re
 import uuid
 import base64
 import asyncio
+import importlib
 from pathlib import Path
-from typing import TypedDict
+from typing import TypedDict, Callable
+from enum import Enum
 
 from executor.engine import Engine, LocalJob
 from executor.engine.job.extend import SubprocessJob
 import yaml
 
-from ..toolset import tool
+from ..toolset import tool, ToolSet
 from ..remote import connect_remote
 from ..toolsets.file_transfer import FileTransferToolSet
 from ..utils.log import logger
 
 
-def prepare_docker_env_vars() -> str:
-    """Prepare environment variables for Docker container with localhost transformation."""
-    relevant_env_vars = [
-        "PANTHEON_REMOTE_BACKEND",
-        "NATS_SERVERS",
-        "MAGIQUE_SERVERS",
-        "MAGIQUE_SERVER_URL",
-    ]
+class ToolSetMode(Enum):
+    """ToolSet运行模式"""
 
-    def transform_localhost_for_docker(value):
-        if value and isinstance(value, str):
-            return re.sub(
-                r"localhost|127\.0\.0\.1|0\.0\.0\.0",
-                "host.docker.internal",
-                value,
-            )
-        return value
-
-    env_vars = []
-    for env_var in relevant_env_vars:
-        if env_var in os.environ:
-            original_value = os.environ[env_var]
-            # Apply localhost transformation for server URL variables
-            if env_var in ["NATS_SERVERS", "MAGIQUE_SERVERS", "MAGIQUE_SERVER_URL"]:
-                transformed_value = transform_localhost_for_docker(original_value)
-            else:
-                transformed_value = original_value
-            env_vars.append(f'-e {env_var}="{transformed_value}"')
-
-    return " ".join(env_vars)
+    REMOTE = "remote"  # 通过remote模块通信（独立进程）
+    LOCAL = "local"  # 本地进程内管理（直接调用）
 
 
 class EndpointConfig(TypedDict):
@@ -55,14 +31,20 @@ class EndpointConfig(TypedDict):
     log_level: str
     allow_file_transfer: bool
     builtin_services: list[str | dict]
-    outer_services: list[str]
-    docker_services: list[str]
+    # 支持混合模式配置
+    service_modes: dict[
+        str, str
+    ]  # 服务名 -> "local" | "remote"，指定每个服务的运行模式
+    # 特殊键 "default" -> 未指定服务的默认模式（默认为"local"）
+    # Local toolset 配置
+    local_toolset_timeout: int  # Local toolset方法调用的超时时间（秒），默认60
 
 
 class Endpoint(FileTransferToolSet):
     def __init__(
         self,
         config: EndpointConfig | None = None,
+        **kwargs,
     ):
         if config is None:
             config = self.default_config()
@@ -74,23 +56,38 @@ class Endpoint(FileTransferToolSet):
         Path(workspace_path).mkdir(parents=True, exist_ok=True)
         self.log_dir = Path(workspace_path) / ".endpoint-logs"
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        self.id_hash = self.config.get("id_hash", None)
-        worker_params = self.config.get("worker_params", {})
-        if self.id_hash is None:
-            self.id_hash = str(uuid.uuid4())
-        worker_params["id_hash"] = self.id_hash
+
+        # Generate id_hash if not provided in kwargs or config
+        if "id_hash" not in kwargs:
+            kwargs["id_hash"] = self.config.get("id_hash") or str(uuid.uuid4())
+        self.id_hash = kwargs["id_hash"]
+
         self.services: dict[str, dict] = {}
         self.allow_file_transfer = self.config.get("allow_file_transfer", True)
         self.redirect_log = self.config.get("redirect_log", False)
         self._services_to_start: list[str] = []
 
-        # RAG manager will be started as separate process like other services
+        # Local toolset management
+        self.local_toolsets: dict[str, ToolSet] = {}  # service_id -> ToolSet instance
+        self.service_modes: dict[str, str] = self.config.get(
+            "service_modes", {}
+        )  # service_name -> "local"/"remote"
+        # Extract default mode from service_modes, default to "local" if not specified
+        self.default_service_mode: str = self.service_modes.get("default", "local")
+
+        # Executor engines for toolset execution
+        self._local_engine = Engine()  # For LOCAL mode ThreadJob execution
+        self._remote_engine = None  # For REMOTE mode SubprocessJob execution (created in run())
+        self.local_toolset_timeout = self.config.get("local_toolset_timeout", 60)
+        logger.info(
+            f"Created local toolset engine with timeout={self.local_toolset_timeout}s"
+        )
 
         super().__init__(
             name,
             workspace_path,
-            worker_params,
             black_list=[".endpoint-logs", ".executor"],
+            **kwargs,
         )
         self.report_service_id()
 
@@ -114,7 +111,17 @@ class Endpoint(FileTransferToolSet):
             self.write_chunk._is_tool = False
             self.close_file._is_tool = False
             self.read_file._is_tool = False
-        super().setup_tools()
+
+    def _get_tool_method(self, obj, method_name: str, context: str):
+        """Get and validate a tool method from an object."""
+        if not hasattr(obj, method_name):
+            raise Exception(f"Method '{method_name}' not found on {context}")
+
+        method = getattr(obj, method_name)
+        if not (hasattr(method, "_is_tool") and method._is_tool):
+            raise Exception(f"Method '{method_name}' is not a tool method")
+
+        return method
 
     @tool
     async def proxy_toolset(
@@ -124,6 +131,7 @@ class Endpoint(FileTransferToolSet):
         toolset_name: str | None = None,
     ) -> dict:
         """Proxy call to any toolset method in the endpoint or specific toolset.
+        Supports both local and remote toolset modes.
 
         Args:
             method_name: The name of the toolset method to call.
@@ -134,48 +142,49 @@ class Endpoint(FileTransferToolSet):
             The result from the toolset method call.
         """
         try:
-            if args is None:
-                args = {}
-
-            # Add debug logging
+            args = args or {}
             logger.info(
-                f"proxy_toolset called: method_name={method_name}, toolset_name={toolset_name}, args={args}"
+                f"proxy_toolset: method={method_name}, toolset={toolset_name}, args={args}"
             )
 
-            if toolset_name is None or toolset_name == "":
-                # Call endpoint method directly
+            # Call endpoint method directly
+            if not toolset_name:
                 logger.info(f"Calling endpoint method: {method_name}")
-                if hasattr(self, method_name):
-                    method = getattr(self, method_name)
-                    if hasattr(method, "_is_tool") and method._is_tool:
-                        result = await method(**args)
-                        return result
-                    else:
-                        raise Exception(f"Method '{method_name}' is not a tool method")
-                else:
-                    raise Exception(f"Method '{method_name}' not found on endpoint")
-            else:
-                # Call specific toolset method
-                logger.info(f"Calling toolset '{toolset_name}' method: {method_name}")
-                service_info = await self.get_service(toolset_name)
+                method = self._get_tool_method(self, method_name, "endpoint")
+                return await method(**args)
 
-                if not service_info:
+            # Call specific toolset method
+            logger.info(f"Calling toolset '{toolset_name}' method: {method_name}")
+            service_info = await self.get_service(toolset_name)
+
+            if not service_info:
+                raise Exception(
+                    f"Toolset '{toolset_name}' not found in endpoint services"
+                )
+
+            # Route based on mode
+            if service_info.get("mode") == ToolSetMode.LOCAL:
+                # LOCAL mode: call via ThreadJob
+                logger.debug(f"Using LOCAL mode (ThreadJob) for {toolset_name}")
+                toolset_instance = service_info.get("instance")
+                if not toolset_instance:
                     raise Exception(
-                        f"Toolset '{toolset_name}' not found in endpoint services"
+                        f"No instance found for local toolset '{toolset_name}'"
                     )
 
-                # Connect to the specific toolset service
-                from ..remote import connect_remote
-
+                method = self._get_tool_method(
+                    toolset_instance, method_name, f"toolset '{toolset_name}'"
+                )
+                return await self._execute_local_method(method, args)
+            else:
+                # REMOTE mode: call via remote service
+                logger.debug(f"Using REMOTE mode for {toolset_name}")
                 toolset_service = await connect_remote(service_info["id"])
-
-                # Call the method on the toolset
-                result = await toolset_service.invoke(method_name, args)
-                return result
+                return await toolset_service.invoke(method_name, args)
 
         except Exception as e:
             logger.error(
-                f"Error calling toolset method {method_name} on {toolset_name or 'endpoint'}: {e}"
+                f"Error calling {method_name} on {toolset_name or 'endpoint'}: {e}"
             )
             return {"success": False, "error": str(e)}
 
@@ -187,6 +196,9 @@ class Endpoint(FileTransferToolSet):
                 {
                     "name": s["name"],
                     "id": s["id"],
+                    "mode": s.get("mode", ToolSetMode.REMOTE).value
+                    if isinstance(s.get("mode"), ToolSetMode)
+                    else s.get("mode", "remote"),
                 }
             )
         return res
@@ -223,6 +235,8 @@ class Endpoint(FileTransferToolSet):
             self.services[service_id] = {
                 "id": service_id,
                 "name": info.service_name,
+                "mode": ToolSetMode.REMOTE,  # Remote services
+                "instance": None,
             }
             if service_id in self._services_to_start:
                 self._services_to_start.remove(service_id)
@@ -239,6 +253,31 @@ class Endpoint(FileTransferToolSet):
             if s["id"] == service_id_or_name or s["name"] == service_id_or_name:
                 return s
         return None
+
+    @tool
+    async def list_toolset_tools(self, toolset_name: str) -> dict:
+        """List all available tools from a specific toolset.
+
+        This method simply calls the toolset's list_tools() method
+        through proxy_toolset, which works for both LOCAL and REMOTE toolsets.
+
+        Args:
+            toolset_name: Name of the toolset
+
+        Returns:
+            dict: {
+                "success": bool,
+                "tools": List[dict],  # List of tool descriptions
+                "error": str  # Only present if success=False
+            }
+        """
+        # Simply proxy to toolset's list_tools() method
+        # This works for both LOCAL and REMOTE automatically!
+        return await self.proxy_toolset(
+            method_name="list_tools",
+            args={},
+            toolset_name=toolset_name
+        )
 
     @tool
     async def services_ready(self) -> bool:
@@ -266,8 +305,23 @@ class Endpoint(FileTransferToolSet):
         return True
 
     @tool
-    async def ensure_toolsets(self, required_toolsets: list[str]) -> dict:
-        """Ensure required toolsets are available, starting them if needed."""
+    async def ensure_toolsets(
+        self,
+        required_toolsets: list[str],
+        local_retries: int = 3,
+        remote_retries: int = 10
+    ) -> dict:
+        """Ensure required toolsets are available, starting them if needed.
+        Respects service_modes configuration for local/remote mode selection.
+
+        Args:
+            required_toolsets: List of toolset names to ensure are running
+            local_retries: Number of retries for local mode services (default: 3)
+            remote_retries: Number of retries for remote mode services (default: 10)
+
+        Returns:
+            Dict with success status, message, and counts
+        """
         try:
             # Filter out already running services
             services_to_start = []
@@ -284,21 +338,25 @@ class Endpoint(FileTransferToolSet):
                     "success": True,
                     "message": f"All {len(required_toolsets)} toolsets already running",
                     "already_running": already_running,
-                    "started": [],
-                    "failed": []
+                    "started": 0,
+                    "failed": 0,
                 }
 
-            logger.info(f"Need to start {len(services_to_start)} toolsets: {services_to_start}")
+            logger.info(
+                f"Need to start {len(services_to_start)} toolsets: {services_to_start}"
+            )
 
-            # Start services using unified batch logic
-            successful, failed = await self.start_toolsets_batch(services_to_start, engine=None, retries=3)
+            # Start all services in one batch (will auto-separate by mode internally)
+            total_successful, total_failed = await self.start_toolsets_batch(
+                services_to_start, local_retries=local_retries, remote_retries=remote_retries
+            )
 
             return {
                 "success": True,
-                "message": f"Started {successful} toolsets, {failed} failed, {len(already_running)} already running",
+                "message": f"Started {total_successful} toolsets, {total_failed} failed, {len(already_running)} already running",
                 "already_running": already_running,
-                "started": successful,
-                "failed": failed
+                "started": total_successful,
+                "failed": total_failed,
             }
 
         except Exception as e:
@@ -316,172 +374,234 @@ class Endpoint(FileTransferToolSet):
                 return True
         return False
 
-    async def _start_single_toolset(self, service_config, engine=None, retries: int = 3) -> bool:
-        """Start a single toolset service with given configuration."""
+    def _parse_service_config(self, service_config) -> tuple[str, dict]:
+        """Parse service config into (service_type, params).
+
+        Args:
+            service_config: Either a string (service type) or dict with 'type' key
+
+        Returns:
+            Tuple of (service_type, params_dict)
+        """
+        if isinstance(service_config, str):
+            service_type = service_config
+            params = {"name": service_config}
+        else:
+            service_type = service_config.get("type", service_config)
+            params = service_config.copy()
+            if "type" in params:
+                del params["type"]
+
+        return service_type, params
+
+
+    def _generate_cmd_from_args(
+        self, service_type: str, toolset_args: dict, params: dict
+    ) -> str:
+        """Generate command-line string from toolset arguments.
+
+        Args:
+            service_type: The type of toolset
+            toolset_args: Arguments dict used for toolset instantiation (same as LOCAL mode)
+            params: Original configuration parameters
+
+        Returns:
+            Command string for subprocess execution
+        """
+        cmd_parts = [
+            f"python -m pantheon.toolsets start {service_type}",
+            # Pass id_hash and endpoint_service_id as kwargs (will be passed to create_worker)
+            f"--id-hash {self.id_hash}_{service_type}",
+            f"--endpoint-service-id {self.service_id}",
+        ]
+
+        # Convert toolset_args to command-line arguments
+        # This uses the SAME args prepared by _prepare_toolset_args
+        for key, value in toolset_args.items():
+            # Convert snake_case to kebab-case for CLI
+            cli_key = key.replace("_", "-")
+            cmd_parts.append(f"--{cli_key} {value}")
+
+        return " ".join(cmd_parts)
+
+
+    async def _start_toolset_unified(
+        self, service_config, mode: str, retries: int = 3
+    ) -> bool:
+        """Unified toolset startup for both local and remote modes.
+
+        Args:
+            service_config: Service configuration (string or dict)
+            mode: "local" or "remote"
+            retries: Number of retries for remote mode
+
+        Returns:
+            True if startup succeeded, False otherwise
+        """
         try:
-            if isinstance(service_config, str):
-                service_type = service_config
-                params = {"name": service_config}
+            # 1. Parse configuration (shared for both modes)
+            service_type, params = self._parse_service_config(service_config)
+            service_name = params.get("name", service_type)
+
+            # 2. Prepare toolset arguments (shared for both modes)
+            toolset_args = self._prepare_toolset_args(service_type, params)
+
+            # 3. Mode-specific execution
+            if mode == "local":
+                # LOCAL MODE: Instantiate, run setup and register instance locally
+                toolset_class = self._get_toolset_class(service_type)
+                toolset_instance = toolset_class(**toolset_args)
+                await toolset_instance.run_setup()
+
+                service_id = f"local_{service_name}_{uuid.uuid4().hex[:8]}"
+                self.local_toolsets[service_id] = toolset_instance
+                self.services[service_id] = {
+                    "id": service_id,
+                    "name": service_name,
+                    "mode": ToolSetMode.LOCAL,
+                    "instance": toolset_instance,
+                }
+
+                logger.info(f"Started local toolset: {service_name} (id: {service_id})")
+                return True
+
             else:
-                service_type = service_config.get("type", service_config)
-                params = service_config.copy()
-                if "type" in params:
-                    del params["type"]
+                # REMOTE MODE: Generate cmd and launch subprocess
+                cmd = self._generate_cmd_from_args(service_type, toolset_args, params)
 
-            # Generate command using existing logic
-            cmd = self._get_cmd(service_type, params)
+                # Setup logging and environment
+                log_file = self.log_dir / f"{service_type}.log"
+                env = os.environ.copy()
 
-            # Handle docker and conda environments
-            if params.get("docker_image"):
-                docker_image_name = params.get("docker_image")
-                data_dir = str(self.path.absolute())
-                env_flags = prepare_docker_env_vars()
-                docker_cmd = (
-                    f"docker run "
-                    f"{env_flags} "
-                    f"--add-host=host.docker.internal:host-gateway "
-                    f"-v {data_dir}:/data "
-                    f"{docker_image_name}"
-                )
-                cmd = docker_cmd + " " + cmd
-            elif params.get("conda_env"):
-                conda_command = params.get("conda_command", "conda")
-                cmd = f"{conda_command} run -n {params.get('conda_env')} {cmd}"
+                if self.redirect_log:
+                    job = SubprocessJob(
+                        cmd, retries=retries, redirect_out_err=str(log_file), env=env
+                    )
+                else:
+                    job = SubprocessJob(cmd, retries=retries, env=env)
 
-            # Setup logging and environment
-            log_file = self.log_dir / f"{service_type}.log"
-            env = os.environ.copy()
+                # Start the service using endpoint's remote engine
+                await self._remote_engine.submit_async(job)
+                await job.wait_until_status("running")
 
-            if self.redirect_log:
-                job = SubprocessJob(
-                    cmd, retries=retries, redirect_out_err=str(log_file), env=env
-                )
-            else:
-                job = SubprocessJob(cmd, retries=retries, env=env)
+                # Add to services_to_start for tracking
+                self._services_to_start.append(service_type)
 
-            # Handle engine lifecycle
-            engine_cleanup_needed = False
-            if engine is None:
-                from executor.engine import Engine
-                engine = Engine()
-                engine_cleanup_needed = True
+                # Wait for service registration and detect it
+                await asyncio.sleep(3)
+                success = await self._detect_new_service(service_type)
 
-            # Start the service
-            await engine.submit_async(job)
-            await job.wait_until_status("running")
+                if success:
+                    logger.info(f"Successfully started toolset service: {service_type}")
+                else:
+                    logger.warning(
+                        f"Service {service_type} started but detection failed"
+                    )
 
-            # Add to services_to_start for tracking
-            self._services_to_start.append(service_type)
-
-            # Wait for service registration and detect it
-            await asyncio.sleep(3)
-            success = await self._detect_new_service(service_type)
-
-            if success:
-                logger.info(f"Successfully started toolset service: {service_type}")
-            else:
-                logger.warning(f"Service {service_type} started but detection failed")
-
-            # Cleanup engine if we created it
-            if engine_cleanup_needed:
-                # Engine cleanup is handled automatically
-                pass
-
-            return success
+                return success
 
         except Exception as e:
-            logger.error(f"Failed to start toolset service {service_config}: {e}")
+            logger.error(
+                f"Failed to start toolset {service_config} in {mode} mode: {e}"
+            )
+            import traceback
+
+            logger.error(traceback.format_exc())
             return False
 
+    def _generate_potential_service_ids(self, expected_service: str) -> list[str]:
+        """Generate list of potential service IDs for detection."""
+        import hashlib
+
+        id_hash_for_service = f"{self.id_hash}_{expected_service}"
+        hash_obj = hashlib.sha256(id_hash_for_service.encode())
+        full_hash = hash_obj.hexdigest()
+        short_hash = full_hash[:8]
+
+        return [
+            full_hash,  # New NATS backend format (full hash)
+            f"{expected_service}_{short_hash}",  # Old format
+            f"{self.id_hash}_{expected_service}",
+            expected_service,
+            f"{expected_service}_{self.id_hash}",
+        ]
+
+    async def _try_connect_service(
+        self, service_id: str, expected_service: str
+    ) -> bool:
+        """Try to connect to a service and register it if successful."""
+        try:
+            s = await connect_remote(service_id)
+            info = await s.fetch_service_info()
+
+            if not info:
+                return False
+
+            self.services[service_id] = {
+                "id": service_id,
+                "name": info.service_name or expected_service,
+                "mode": ToolSetMode.REMOTE,
+                "instance": None,
+            }
+
+            # Remove from services_to_start list
+            if expected_service in self._services_to_start:
+                self._services_to_start.remove(expected_service)
+
+            return True
+        except Exception:
+            return False
 
     async def _detect_new_service(self, expected_service: str):
         """Detect and register a newly started service."""
-        try:
-            # Map service name for detection
-            mapped_service = self._map_toolset_name(expected_service)
+        potential_service_ids = self._generate_potential_service_ids(expected_service)
 
-            # Try to find the service by connecting to it
-            # Generate the same full hash as NATS backend would create
-            import hashlib
-            id_hash_for_service = f"{self.id_hash}_{expected_service}"
-            hash_obj = hashlib.sha256(id_hash_for_service.encode())
-            full_hash_id = hash_obj.hexdigest()  # Full hash for new format
-            service_id_suffix = hash_obj.hexdigest()[:8]  # Keep short hash for backward compatibility
+        # Try multiple attempts with delays
+        for attempt in range(3):
+            for service_id in potential_service_ids:
+                if await self._try_connect_service(service_id, expected_service):
+                    logger.info(
+                        f"Detected service: {service_id} (attempt {attempt + 1})"
+                    )
+                    return True
 
-            potential_service_ids = [
-                full_hash_id,                               # New NATS backend format (full hash)
-                f"{expected_service}_{service_id_suffix}",  # Old NATS backend format
-                f"{mapped_service}_{service_id_suffix}",    # Old NATS backend format with mapped name
-                f"{self.id_hash}_{expected_service}",
-                f"{self.id_hash}_{mapped_service}",
-                expected_service,
-                mapped_service,
-                f"{expected_service}_{self.id_hash}",
-                f"{mapped_service}_{self.id_hash}",
-            ]
+            # Wait before retry (except on last attempt)
+            if attempt < 2:
+                await asyncio.sleep(2)
 
-            # Try multiple attempts with delays
-            for attempt in range(3):
-                for service_id in potential_service_ids:
-                    try:
-                        s = await connect_remote(service_id)
-                        info = await s.fetch_service_info()
-
-                        if info:
-                            self.services[service_id] = {
-                                "id": service_id,
-                                "name": info.service_name or expected_service,
-                            }
-                            # Remove from services_to_start list
-                            if expected_service in self._services_to_start:
-                                self._services_to_start.remove(expected_service)
-                            logger.info(
-                                f"Detected and registered new service: {service_id} (attempt {attempt + 1})"
-                            )
-                            return True
-                    except Exception as e:
-                        # Log only on final attempt to reduce noise
-                        if attempt == 2:
-                            logger.debug(f"Failed to connect to {service_id}: {e}")
-                        continue
-
-                # Wait before retry
-                if attempt < 2:
-                    await asyncio.sleep(2)
-
-            logger.warning(
-                f"Could not detect service {expected_service} after 3 attempts"
-            )
-            return False
-
-        except Exception as e:
-            logger.error(f"Error detecting new service {expected_service}: {e}")
-            return False
+        logger.warning(f"Could not detect service {expected_service} after 3 attempts")
+        return False
 
     @tool
     async def get_toolset_status(self) -> dict:
-        """Get the status of all toolsets."""
+        """Get the status of all toolsets (both local and remote)."""
         try:
             running_services = []
             for service_id, service_info in self.services.items():
+                mode = service_info.get("mode", ToolSetMode.REMOTE)
+                mode_str = mode.value if isinstance(mode, ToolSetMode) else mode
+
+                # Determine status based on mode
+                status = "unavailable"
                 try:
-                    # Quick health check
-                    await connect_remote(service_id)
-                    running_services.append(
-                        {
-                            "id": service_id,
-                            "name": service_info.get("name", service_id),
-                            "status": "running",
-                        }
-                    )
-                except:
-                    running_services.append(
-                        {
-                            "id": service_id,
-                            "name": service_info.get("name", service_id),
-                            "status": "unavailable",
-                        }
-                    )
+                    if mode == ToolSetMode.LOCAL:
+                        status = (
+                            "running" if service_info.get("instance") else "unavailable"
+                        )
+                    else:
+                        await connect_remote(service_id)
+                        status = "running"
+                except Exception:
+                    status = "unavailable"
+
+                running_services.append(
+                    {
+                        "id": service_id,
+                        "name": service_info.get("name", service_id),
+                        "status": status,
+                        "mode": mode_str,
+                    }
+                )
 
             return {
                 "success": True,
@@ -492,100 +612,185 @@ class Endpoint(FileTransferToolSet):
             logger.error(f"Error getting toolset status: {e}")
             return {"success": False, "error": str(e)}
 
-    def _map_toolset_name(self, template_name: str) -> str:
-        """Map template toolset names to actual toolset startup names."""
-        toolset_name_mapping = {
-            "r_interpreter": "r",
-            "python_interpreter": "python",
-            "julia_interpreter": "julia",
-            "web_browse": "web",
-        }
-        return toolset_name_mapping.get(template_name, template_name)
+    def _get_toolset_class(self, service_type: str):
+        """根据service_type动态获取ToolSet类
 
-    def _get_cmd(self, service_type: str, params: dict):
-        # Map template toolset name to actual startup name
-        startup_name = self._map_toolset_name(service_type)
+        自动将 snake_case service_type 转换为 PascalCase ToolSet 类名。
+        例如: python_interpreter → PythonInterpreterToolSet
+             file_manager → FileManagerToolSet
+        """
+        import pantheon.toolsets as toolsets
 
-        worker_params_str = f"\"{{'id_hash': '{self.id_hash + '_' + service_type}'}}\""
-        cmd = [
-            f"python -m pantheon.toolsets start {startup_name}",
-            f"--service-name {params.get('name', service_type)}",
-            f"--endpoint-service-id {self.service_id}",
-            f"--worker-params {worker_params_str}",
-        ]
+        # Convert snake_case to PascalCase and add ToolSet suffix
+        # Handle special capitalization rules for acronyms
+        def capitalize_word(word: str) -> str:
+            # Special acronym handling: rag → RAG, api → API
+            acronyms = {"rag": "RAG", "api": "API"}
+            return acronyms.get(word.lower(), word.capitalize())
 
-        # Use mapped name for startup logic, but check both original and mapped names for parameters
-        if startup_name == "python" or service_type in ["python", "python_interpreter"]:
-            cmd.append(f"--workdir {str(self.path)}")
+        class_name = "".join(
+            capitalize_word(word) for word in service_type.split("_")
+        ) + "ToolSet"
+
+        # Try to get the class from toolsets module
+        try:
+            return getattr(toolsets, class_name)
+        except AttributeError:
+            raise ValueError(
+                f"ToolSet class '{class_name}' not found for service type '{service_type}'. "
+                f"Make sure it's exported in pantheon.toolsets.__init__.py"
+            )
+
+    def _prepare_toolset_args(self, service_type: str, params: dict) -> dict:
+        """准备ToolSet实例化所需的参数"""
+        service_name = params.get("name", service_type)
+        args = {"name": service_name}
+
+        # 根据不同的toolset类型准备特定参数
+        if service_type == "python_interpreter":
+            args["workdir"] = str(self.path)
         elif service_type == "file_manager":
-            cmd.append(f"--path {str(self.path)}")
+            args["path"] = str(self.path)
         elif service_type == "vector_rag":
             db_path = params.get("db_path")
             if not db_path:
                 raise ValueError("db_path is required for vector_rag service")
-            if params.get("download_from_huggingface"):
-                from ..rag.build import download_from_huggingface
-
-                download_path = params.get("download_path", "tmp/db")
-                if not os.path.exists(download_path):
-                    logger.info(
-                        f"Downloading vector database from Hugging Face to {download_path}"
-                    )
-                    download_from_huggingface(
-                        download_path,
-                        params.get("repo_id", "NaNg/pantheon_rag_db"),
-                        params.get("filename", "latest.zip"),
-                    )
-                else:
-                    logger.info(f"Vector database already exists in {download_path}")
-            cmd.append(f"--db-path {db_path}")
+            args["db_path"] = db_path
         elif service_type == "workflow":
-            # Add workflow path parameter - default to bio workflows
             workflow_path = params.get("workflow_path")
             if workflow_path:
-                cmd.append(f"--workflow-path {workflow_path}")
-            # Note: If no workflow_path specified, WorkflowToolSet will use default bio_workflows
-        _cmd = " ".join(cmd)
-        return _cmd
+                args["workflow_path"] = workflow_path
+        elif service_type == "rag_manager":
+            args["workspace_path"] = str(self.path)
 
-    async def run_builtin_services(self, engine: Engine):
-        """Start all builtin services using unified service startup logic."""
-        default_services = [
-            "ragmanager",
-            "python",
-            "file_manager",
-            "web",
-        ]
-        builtin_services = self.config.get("builtin_services", default_services)
+        return args
 
-        # Use batch startup for better performance
-        await self.start_toolsets_batch(builtin_services, engine, retries=10)
+    async def _execute_local_method(self, method: Callable, args: dict) -> dict:
+        """使用executor-engine的ThreadJob执行local toolset方法，提供线程隔离和超时保护。
+        ThreadJob原生支持异步方法，会自动使用asyncio.run()在新事件循环中执行。
+        """
+        try:
+            from executor.engine.job import ThreadJob
 
-    async def start_toolsets_batch(self, services: list, engine=None, retries: int = 10):
-        """Start multiple toolsets in parallel with unified logic."""
-        logger.info(f"Starting {len(services)} toolsets: {[s if isinstance(s, str) else s.get('type', s) for s in services]}")
+            # 创建ThreadJob（自动处理同步和异步方法）
+            job = ThreadJob(
+                func=method,
+                kwargs=args,
+                name=f"local_{method.__name__}",
+                retries=0,  # 不重试，失败即返回
+            )
 
-        # Start all services in parallel
-        tasks = []
+            # 提交到local engine
+            await self._local_engine.submit_async(job)
+
+            # 等待完成（带超时）
+            await asyncio.wait_for(
+                job.wait_until_done(), timeout=self.local_toolset_timeout
+            )
+
+            # 检查结果
+            if job.status == "succeeded":
+                return job.result
+            elif job.status == "failed":
+                error_msg = str(job.error) if job.error else "Unknown error"
+                logger.error(f"ThreadJob failed: {error_msg}")
+                return {"success": False, "error": error_msg}
+            else:
+                return {
+                    "success": False,
+                    "error": f"Unexpected job status: {job.status}",
+                }
+
+        except asyncio.TimeoutError:
+            # 超时，尝试取消job
+            try:
+                await job.cancel()
+            except Exception as cancel_error:
+                logger.warning(f"Failed to cancel job: {cancel_error}")
+
+            error_msg = f"Execution timeout after {self.local_toolset_timeout}s"
+            logger.error(error_msg)
+            return {"success": False, "error": error_msg}
+
+        except Exception as e:
+            logger.error(f"Local method execution error: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+
+    async def start_toolsets_batch(
+        self, services: list, local_retries: int = 3, remote_retries: int = 10
+    ):
+        """Start multiple toolsets in parallel (automatically handles mixed local/remote modes).
+
+        Args:
+            services: List of service configs to start
+            local_retries: Number of retries for local mode services (default: 3)
+            remote_retries: Number of retries for remote mode services (default: 10)
+
+        Returns:
+            Tuple of (successful_count, failed_count)
+        """
+        if not services:
+            return 0, 0
+
+        logger.info(f"Starting {len(services)} toolsets")
+
+        # Separate services by mode based on service_modes configuration
+        local_services = []
+        remote_services = []
+
         for service in services:
+            service_name = (
+                service
+                if isinstance(service, str)
+                else service.get("type", service.get("name", ""))
+            )
+            mode = self.service_modes.get(service_name, self.default_service_mode)
+
+            if mode == "local":
+                local_services.append(service)
+            else:
+                remote_services.append(service)
+
+        # Start all services in parallel (both local and remote)
+        tasks = []
+
+        # Add local service tasks
+        for service in local_services:
             task = asyncio.create_task(
-                self._start_single_toolset(service, engine, retries=retries)
+                self._start_toolset_unified(service, "local", local_retries)
+            )
+            tasks.append(task)
+
+        # Add remote service tasks
+        for service in remote_services:
+            task = asyncio.create_task(
+                self._start_toolset_unified(service, "remote", remote_retries)
             )
             tasks.append(task)
 
         # Wait for all services to start
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Log results
+        # Count results
         successful = sum(1 for result in results if result is True)
         failed = len(results) - successful
 
-        logger.info(f"Toolset startup completed: {successful} successful, {failed} failed")
+        logger.info(
+            f"Toolset startup complete: {successful} successful, {failed} failed "
+            f"({len(local_services)} local, {len(remote_services)} remote)"
+        )
 
+        # Detailed failure logging
         if failed > 0:
+            all_services = local_services + remote_services
             for i, result in enumerate(results):
                 if result is not True:
-                    service_name = services[i] if isinstance(services[i], str) else services[i].get('type', services[i])
+                    service_name = (
+                        all_services[i]
+                        if isinstance(all_services[i], str)
+                        else all_services[i].get("type", all_services[i])
+                    )
                     if isinstance(result, Exception):
                         logger.error(f"Service {service_name} failed: {result}")
                     else:
@@ -593,35 +798,48 @@ class Endpoint(FileTransferToolSet):
 
         return successful, failed
 
-    async def add_outer_services(self):
-        for service_id in self.config.get("outer_services", []):
-            logger.info(f"Adding outer service {service_id}")
-            resp = await self.add_service(service_id)
-            if not resp["success"]:
-                logger.error(
-                    f"Failed to add outer service {service_id}: {resp['error']}"
-                )
+    async def cleanup(self):
+        """清理Endpoint资源，包括local和remote toolset engines"""
+        try:
+            if hasattr(self, "_local_engine"):
+                self._local_engine.stop()
+                logger.info("Local toolset engine stopped")
+            if hasattr(self, "_remote_engine") and self._remote_engine is not None:
+                self._remote_engine.stop()
+                logger.info("Remote toolset engine stopped")
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
 
     async def run(self):
         # Setup the endpoint toolset first
         await self.run_setup()
 
-        engine = Engine()
+        # Create remote engine for REMOTE mode toolset execution
+        self._remote_engine = Engine()
 
         # Register the endpoint to remote server
         async def run_worker():
             return await super(Endpoint, self).run(self.config.get("log_level", "INFO"))
 
         job = LocalJob(run_worker)
-        await engine.submit_async(job)
+        await self._remote_engine.submit_async(job)
         await job.wait_until_status("running")
 
         # Wait a bit more for endpoint is registered
         await asyncio.sleep(3)
 
-        # Start all services, registering the endpoint to remote server
-        await self.run_builtin_services(engine)
-        await self.add_outer_services()
+        # Start all builtin services using ensure_toolsets
+        default_services = [
+            "rag_manager",
+            "python_interpreter",
+            "file_manager",
+            "web",
+        ]
+        builtin_services = self.config.get("builtin_services", default_services)
+        result = await self.ensure_toolsets(
+            builtin_services, local_retries=10, remote_retries=10
+        )
+        logger.info(f"Builtin services startup result: {result.get('message', 'unknown')}")
 
         while True:
             ready = await self.services_ready()
@@ -631,7 +849,12 @@ class Endpoint(FileTransferToolSet):
             await asyncio.sleep(1)
 
         logger.info(f"Endpoint started: {self.service_id}")
-        await engine.wait_async()
+
+        try:
+            await self._remote_engine.wait_async()
+        finally:
+            # Cleanup on shutdown
+            await self.cleanup()
 
 
 async def wait_endpoint_ready(endpoint_service_id: str):

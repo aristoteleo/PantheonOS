@@ -1,14 +1,12 @@
 from typing import Callable
 from functools import partial
 import inspect
-import os
 import sys
 from abc import ABC
 from contextlib import asynccontextmanager
 
 from executor.engine import Engine, ProcessJob
-from .remote import RemoteBackendFactory, RemoteConfig
-from .remote import connect_remote
+from .remote import RemoteBackendFactory
 
 from .utils.log import logger
 
@@ -29,125 +27,174 @@ def tool(func: Callable | None = None, **kwargs):
 
 
 class ToolSet(ABC):
-    def __init__(
-        self,
-        name: str,
-        worker_params: dict | None = None,
-        endpoint_service_id: str | None = None,
-    ):
-        # Setup remote backend configuration using centralized resolver
-        # Extract backend and server configuration from worker_params if present
-        backend = None
-        backend_config = None
-
-        if worker_params is not None:
-            backend = worker_params.pop("backend", None)
-            server_urls = worker_params.pop("server_urls", None)
-            if server_urls:
-                backend_config = {"server_urls": server_urls}
-
-        # Use standardized configuration pattern
-        config = RemoteConfig.from_config(
-            backend=backend, backend_config=backend_config
-        )
-        backend_instance = RemoteBackendFactory.create_backend(config)
-
-        # Prepare worker parameters (remaining params after extraction)
-        worker_kwargs = worker_params or {}
-
-        # Create remote worker synchronously
-        self.worker = backend_instance.create_worker(name, **worker_kwargs)
-        self._worker_config = config
-        self._backend = backend_instance
+    def __init__(self, name: str, **kwargs):
         self._service_name = name
-        self.endpoint_service_id = endpoint_service_id
+        self._worker_kwargs = kwargs
         self._setup_completed = False
+        self.worker = None
+        self._backend = None
 
-        # Register tools immediately during initialization
-        self.setup_tools()
-
-    def setup_tools(self):
-        """Register all tool methods with the worker"""
+        # Collect tool functions internally
+        self._functions = {}
         methods = inspect.getmembers(self, inspect.ismethod)
-        for _, method in methods:
+        for name, method in methods:
             if hasattr(method, "_is_tool"):
                 _kwargs = getattr(method, "_tool_params", {})
-                self.worker.register(method, **_kwargs)
+                self._functions[name] = (method, _kwargs)
 
     @property
     def tool_functions(self):
-        return self.worker.functions
+        return self._functions
+
+    @property
+    def functions(self):
+        return self._functions
 
     @property
     def service_id(self):
         return self.worker.service_id if self.worker else None
 
     async def run_setup(self):
-        """Setup the toolset before running it."""
-        if not self._setup_completed:
-            # Tools are already registered in __init__, just mark as completed
-            self._setup_completed = True
+        """Setup the toolset before running it. Can be overridden by subclasses."""
+        pass
 
-    async def after_worker_register(self, _):
-        """Handle endpoint register after worker register."""
-        if self.endpoint_service_id:
-            endpoint = await connect_remote(
-                self.endpoint_service_id, self.worker.servers
-            )
-            resp = await endpoint.invoke(
-                "add_service",
-                {
-                    "service_id": self.service_id,
-                },
-            )
-            if not resp["success"]:
-                logger.error(f"Failed to add service to endpoint: {resp['error']}")
-            else:
-                logger.info(
-                    f"Added service({self.service_id}) to endpoint({self.endpoint_service_id})"
+    @tool
+    async def list_tools(self) -> dict:
+        """List all available tools in this toolset.
+
+        This method is used by ToolsetProxy to discover available tools.
+        It works for both LOCAL and REMOTE toolsets through proxy_toolset.
+        Named to match MCP's list_tools convention.
+
+        Returns:
+            dict: {
+                "success": True,
+                "tools": [
+                    {
+                        "name": "method_name",
+                        "description": "Method docstring summary",
+                        "parameters": {
+                            "param_name": {
+                                "type": "string|integer|number|boolean|array|object|any",
+                                "required": True|False,
+                                "default": value  # if not required
+                            }
+                        }
+                    },
+                    ...
+                ]
+            }
+        """
+        tools = []
+
+        for name, (method, tool_kwargs) in self._functions.items():
+            # Skip list_tools itself to avoid recursion
+            if name == "list_tools":
+                continue
+
+            try:
+                # Get function signature
+                sig = inspect.signature(method)
+                doc = inspect.getdoc(method) or ""
+
+                # Parse parameters
+                parameters = {}
+                for param_name, param in sig.parameters.items():
+                    # Skip self/cls
+                    if param_name in ["self", "cls"]:
+                        continue
+
+                    param_info = {
+                        "type": self._get_param_type_str(param),
+                        "required": param.default == inspect.Parameter.empty,
+                    }
+
+                    # Add default value if exists
+                    if param.default != inspect.Parameter.empty:
+                        param_info["default"] = param.default
+
+                    parameters[param_name] = param_info
+
+                # Add to tools list
+                tools.append(
+                    {
+                        "name": name,
+                        "description": doc if doc else "",
+                        "parameters": parameters,
+                    }
                 )
 
-    async def run_as_hypha_service(self, hypha_server_url, **hypha_kwargs):
-        # Create hypha backend config
-        backend_config = {"server_url": hypha_server_url, **hypha_kwargs}
-        config = RemoteConfig(backend="hypha", backend_config=backend_config)
-        backend = RemoteBackendFactory.create_backend(config)
+            except Exception as e:
+                logger.warning(f"Failed to extract tool info for '{name}': {e}")
+                continue
 
-        # Create hypha worker
-        worker = backend.create_worker(self._service_name, **hypha_kwargs)
+        return {"success": True, "tools": tools}
 
-        # Register all tools
-        methods = inspect.getmembers(self, inspect.ismethod)
-        for _, method in methods:
-            if hasattr(method, "_is_tool"):
-                worker.register(method)
+    def _get_param_type_str(self, param) -> str:
+        """Get parameter type as string."""
+        if param.annotation == inspect.Parameter.empty:
+            return "any"
 
-        logger.info(f"Starting Hypha Service: {worker.service_name}")
-        logger.info(f"Service ID: {worker.service_id}")
-        await worker.run()
+        # Simple type mapping
+        type_map = {
+            str: "string",
+            int: "integer",
+            float: "number",
+            bool: "boolean",
+            list: "array",
+            dict: "object",
+        }
+
+        # Direct match
+        if param.annotation in type_map:
+            return type_map[param.annotation]
+
+        # Handle typing module types
+        annotation_str = str(param.annotation)
+        if "List" in annotation_str or "list" in annotation_str:
+            return "array"
+        elif "Dict" in annotation_str or "dict" in annotation_str:
+            return "object"
+        elif "str" in annotation_str:
+            return "string"
+        elif "int" in annotation_str:
+            return "integer"
+        elif "float" in annotation_str:
+            return "number"
+        elif "bool" in annotation_str:
+            return "boolean"
+
+        return "any"
 
     async def run(self, log_level: str | None = None):
         if log_level is not None:
             logger.set_level(log_level)
+
+        # Create backend and worker in run method
+        self._backend = RemoteBackendFactory.create_backend()
+        self.worker = self._backend.create_worker(
+            self._service_name, **self._worker_kwargs
+        )
+
+        # Register all tools with the worker
+        for name, (method, tool_kwargs) in self._functions.items():
+            self.worker.register(method, **tool_kwargs)
+
+        # Run custom setup
         await self.run_setup()
+        self._setup_completed = True
+
         logger.info(f"Remote Server: {getattr(self.worker, 'servers', 'N/A')}")
         logger.info(f"Service Name: {self.worker.service_name}")
         logger.info(f"Service ID: {self.service_id}")
 
-        # For MagiqueRemoteWorker, pass the after_register callback
-        if hasattr(self.worker, "_worker") and hasattr(self.worker._worker, "run"):
-            return await self.worker._worker.run(
-                after_register=self.after_worker_register,
-            )
-        else:
-            # For other backends, just run normally
-            return await self.worker.run()
+        return await self.worker.run()
 
     def to_mcp(self, mcp_kwargs: dict = {}):
         from fastmcp import FastMCP
 
-        mcp = FastMCP(self.worker.service_name, **mcp_kwargs)
-        for func, _ in self.worker.functions.values():
+        mcp = FastMCP(self._service_name, **mcp_kwargs)
+        for func, _ in self._functions.values():
             mcp.tool(func)
         return mcp
 
@@ -198,9 +245,6 @@ def toolset_cli(toolset_type: type[ToolSet], default_service_name: str):
         service_name: str = default_service_name,
         mcp: bool = False,
         mcp_kwargs: dict = {},
-        hypha: bool = False,
-        hypha_server_url: str | None = None,
-        hypha_kwargs: dict = {},
         **kwargs,
     ):
         """
@@ -215,12 +259,6 @@ def toolset_cli(toolset_type: type[ToolSet], default_service_name: str):
         toolset = toolset_type(service_name, **kwargs)
         if mcp:
             await toolset.run_as_mcp(**mcp_kwargs)
-        elif hypha:
-            if hypha_server_url is None:
-                hypha_server_url = os.getenv(
-                    "HYPHA_SERVER_URL", "https://hypha.aristoteleo.com"
-                )
-            await toolset.run_as_hypha_service(hypha_server_url, **hypha_kwargs)
         else:
             await toolset.run()
 

@@ -447,7 +447,7 @@ def make_json_serializable(obj):
     return str(obj)
 
 
-class JupyterClientKernelToolSet(ToolSet):
+class JupyterKernelToolSet(ToolSet):
     """Standard Jupyter kernel implementation using jupyter_client"""
 
     def __init__(
@@ -1241,8 +1241,8 @@ class JupyterClientKernelToolSet(ToolSet):
             self.completion_service.clear_session_context(session_id)
             await self.shutdown_session(session_id)
 
-        logger.info("JupyterClientKernelToolSet cleanup complete")
+        logger.info("JupyterKernelToolSet cleanup complete")
 
 
 # Export
-__all__ = ["JupyterClientKernelToolSet"]
+__all__ = ["JupyterKernelToolSet"]

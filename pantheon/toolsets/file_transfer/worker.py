@@ -18,10 +18,9 @@ class FileTransferToolSet(FileManagerToolSetBase):
         self,
         name: str,
         path: str | Path,
-        worker_params: dict | None = None,
         **kwargs,
     ):
-        super().__init__(name, path, worker_params, **kwargs)
+        super().__init__(name, path, **kwargs)
         self._handles = {}
 
     @tool

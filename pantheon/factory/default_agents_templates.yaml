@@ -11,12 +11,12 @@ data_analysis:
   name: Data Analysis Agent
   instructions: |
     You are a data analysis agent that can analyze data.
-    You can use the python to analyze the data.
+    You can use the python_interpreter to analyze the data.
     You can use the file_manager to manage the data.
   model: openai/gpt-5-mini
   icon: 📊
   toolsets:
-    - python
+    - python_interpreter
     - file_manager
 
 web_search:

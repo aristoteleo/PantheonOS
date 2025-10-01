@@ -6,12 +6,33 @@ allow_file_transfer: true
 # If you want to use a specific id hash, set it here
 #id_hash: "xxxx"
 
+# Service modes configuration - specify which services run in local or remote mode
+# local: runs in the same process as endpoint (faster, uses ThreadJob for isolation)
+# remote: runs in separate process (slower, better isolation)
+# Special key "default" specifies the mode for services not explicitly listed
+# If "default" is not specified, it defaults to "local"
+service_modes:
+  default: "local"        # Default mode for services not explicitly listed below
+  # python_interpreter: "local"         # Fast lightweight services work well in local mode
+  # file_manager: "local"
+  # web: "local"
+  # rag_manager: "local"     # Can also use local mode for simple RAG operations
+  # integrated_notebook: "local"
+  # jupyter_kernel: "local"
+  # Example: if you want some services to run in separate processes:
+  # julia_interpreter: "remote"       # Heavy computation might need isolation
+  # r_interpreter: "remote"           # Separate process for R interpreter
+
+# Local toolset configuration
+# All local toolsets execute in ThreadJob for isolation and timeout protection
+local_toolset_timeout: 600  # Timeout in seconds for local toolset method calls (default: 60)
+
 # Provide the type name of the builtin services
-# available builtin services
-#   python
-#   r
+# Available builtin services:
+#   python_interpreter
+#   r_interpreter
 #   shell
-#   julia
+#   julia_interpreter
 #   latex
 #   file_manager
 #   file_editor
@@ -22,26 +43,16 @@ allow_file_transfer: true
 #   workflow
 #   notebook
 #   vector_rag (Need OPENAI_API_KEY in the environment)
-#   ragmanager (Need OPENAI_API_KEY in the environment) - RAG database management service
+#   rag_manager (Need OPENAI_API_KEY in the environment) - RAG database management service
 #   scraper (Need SCRAPER_API_KEY in the environment)
-# You can specify the docker image name to run the service inside the docker container
-# Like:
-#  - type: python
-#    name: python.basic
-#    docker_image: python.basic
-# You can also specify the conda environment to run the service
-#  - type: python
-#    name: python.sc_analysis
-#    conda_env: sc_analysis
-#    conda_command: "micromamba"  # default is "conda"
+#
+# You can customize service names:
+#  - type: python_interpreter
+#    name: python.custom
 builtin_services:
-  - ragmanager
-  - python
+  - rag_manager
+  - python_interpreter
   - file_manager
   - web
   - integrated_notebook
   - jupyter_kernel
-
-# Provide the service id/name of the outer services
-#outer_services:
-#  - xxxx

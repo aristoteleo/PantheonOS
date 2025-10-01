@@ -3,6 +3,7 @@ import asyncio
 from executor.engine import Engine, LocalJob
 
 from pantheon.toolset import ToolSet, tool
+from pantheon.endpoint import ToolsetProxy
 
 
 async def test_agent_call_remote_toolset():
@@ -32,7 +33,9 @@ async def test_agent_call_remote_toolset():
             "test",
             "You are an asistant, help me test my code",
         )
-        await agent.remote_toolset(toolset.service_id)
+        # Use ToolsetProxy instead of remote_toolset
+        proxy = ToolsetProxy.from_toolset(toolset.service_id)
+        await agent.toolset(proxy)
 
         resp = await agent.run("Call function `print_hello`")
         print(resp.content)
@@ -67,7 +70,9 @@ async def test_agent_call_remote_toolset_with_timeout():
             "You are an asistant, help me test my code",
             tool_timeout=1,
         )
-        await agent.remote_toolset(toolset.service_id)
+        # Use ToolsetProxy instead of remote_toolset
+        proxy = ToolsetProxy.from_toolset(toolset.service_id)
+        await agent.toolset(proxy)
 
         resp = await agent.run("Call function `print_hello`")
         assert "TimeoutError" in resp.details.messages[1]["content"]

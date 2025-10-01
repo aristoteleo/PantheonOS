@@ -27,7 +27,7 @@ templates:
         model: openai/gpt-5-mini
         icon: 📊
         toolsets:
-          - python
+          - python_interpreter
           - file_manager
       web_search:
         name: Web Search Agent
@@ -37,7 +37,7 @@ templates:
         toolsets:
           - web
     required_toolsets:
-      - python
+      - python_interpreter
       - file_manager
       - web
     tags:
@@ -69,7 +69,7 @@ templates:
         model: openai/gpt-5-mini
         icon: 📊
         toolsets:
-          - python
+          - python_interpreter
           - file_manager
       statistician:
         name: Statistician
@@ -80,7 +80,7 @@ templates:
         model: openai/gpt-5-mini
         icon: 📈
         toolsets:
-          - python
+          - python_interpreter
           - r_interpreter
           - file_manager
       ml_engineer:
@@ -92,10 +92,10 @@ templates:
         model: openai/gpt-5-mini
         icon: 🤖
         toolsets:
-          - python
+          - python_interpreter
           - file_manager
     required_toolsets:
-      - python
+      - python_interpreter
       - r_interpreter
       - file_manager
     tags:
@@ -130,7 +130,6 @@ templates:
         icon: 🔍
         toolsets:
           - web
-          - web_browse
       scraper:
         name: Data Scraper
         instructions: |
@@ -141,7 +140,7 @@ templates:
         icon: 🕷️
         toolsets:
           - scraper
-          - python
+          - python_interpreter
           - file_manager
       analyst:
         name: Content Analyst
@@ -152,14 +151,13 @@ templates:
         model: openai/gpt-5-mini
         icon: 📋
         toolsets:
-          - python
+          - python_interpreter
           - file_manager
           - vector_rag
     required_toolsets:
       - web
-      - web_browse
       - scraper
-      - python
+      - python_interpreter
       - file_manager
       - vector_rag
     tags:
@@ -192,7 +190,7 @@ templates:
         model: openai/gpt-5-mini
         icon: 🐍
         toolsets:
-          - python
+          - python_interpreter
           - file_manager
       frontend_dev:
         name: Frontend Developer
@@ -204,7 +202,7 @@ templates:
         icon: 🎨
         toolsets:
           - file_manager
-          - web_browse
+          - web
       data_engineer:
         name: Data Engineer
         instructions: |
@@ -214,14 +212,14 @@ templates:
         model: openai/gpt-5-mini
         icon: 🔧
         toolsets:
-          - python
+          - python_interpreter
           - r_interpreter
           - file_manager
     required_toolsets:
-      - python
+      - python_interpreter
       - r_interpreter
       - file_manager
-      - web_browse
+      - web
     tags:
       - development
       - coding
@@ -244,10 +242,10 @@ templates:
         model: openai/gpt-5-mini
         icon: 🤖
         toolsets:
-          - python
+          - python_interpreter
           - file_manager
     required_toolsets:
-      - python
+      - python_interpreter
       - file_manager
     tags:
       - minimal
@@ -291,7 +289,7 @@ templates:
         toolsets:
           - python_interpreter
           - file_manager
-          
+
       workflow_specialist:
         name: Workflow Specialist
         instructions: |

@@ -4,7 +4,7 @@ import json
 import os
 import sys
 import time
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union, Protocol
 from uuid import uuid4
 
 from funcdesc import Description, Value, parse_func
@@ -20,6 +20,8 @@ from .remote import (
     RemoteWorker,
     RemoteService,
 )
+
+from .endpoint import ToolsetProxy
 
 from .memory import Memory
 from .utils.llm import (
@@ -37,10 +39,71 @@ from .utils.vision import VisionInput, vision_to_openai
 
 DEFAULT_MODEL = "gpt-5-mini"
 
+
+# Protocol for legacy toolset compatibility (objects with tool_functions attribute)
+class ToolsetLike(Protocol):
+    """Protocol for objects that can be used as toolsets.
+
+    Any object with a tool_functions attribute is considered toolset-compatible.
+    """
+
+    tool_functions: dict[str, tuple[Callable, dict]]
+
+
 __CTX_VARS_NAME__ = "context_variables"
 __AGENT_RUN_NAME__ = "agent_run"
 __SKIP_PARAMS__ = [__CTX_VARS_NAME__, __AGENT_RUN_NAME__]
 __CLIENT_ID_NAME__ = "client_id"
+
+
+def _convert_tool_desc_to_description(tool_desc: dict) -> Description:
+    """Convert tool description dict to funcdesc.Description.
+
+    Args:
+        tool_desc: Tool description dict with format:
+            {
+                "name": "tool_name",
+                "description": "Tool description",
+                "parameters": {
+                    "param1": {"type": "string", "required": True},
+                    ...
+                }
+            }
+
+    Returns:
+        funcdesc.Description object
+    """
+    parameters = tool_desc.get("parameters", {})
+
+    inputs = []
+    for param_name, param_info in parameters.items():
+        # Map type string to Python type
+        type_map = {
+            "string": str,
+            "integer": int,
+            "number": float,
+            "boolean": bool,
+            "array": list,
+            "object": dict,
+            "any": Any,
+        }
+        param_type = type_map.get(param_info.get("type", "any"), Any)
+
+        # Create Value object
+        value = Value(
+            type_=param_type,
+            name=param_name,
+            default=(
+                param_info.get("default", None)
+                if not param_info.get("required", False)
+                else ...
+            ),
+        )
+        inputs.append(value)
+
+    return Description(
+        name=tool_desc["name"], inputs=inputs, doc=tool_desc.get("description", "")
+    )
 
 
 class AgentService:
@@ -179,114 +242,6 @@ class RemoteAgentMessageQueue:
             await service.close()
 
 
-class RemoteToolsetWrapper:
-    """Wrapper that makes remote toolset functions appear as local functions."""
-
-    def __init__(self, endpoint_service: RemoteService, agent_context=None):
-        self.endpoint_service = endpoint_service
-        self.agent_context = agent_context  # Reference to agent for callbacks
-        self.wrapped_functions = {}
-        self.service_info = None
-
-    async def initialize(self):
-        """Initialize by fetching service info and creating wrapped functions."""
-        self.service_info = await self.endpoint_service.fetch_service_info()
-
-        for func_name, func_desc in self.service_info.functions_description.items():
-            wrapped_func = self._create_wrapped_function(func_name, func_desc)
-            self.wrapped_functions[func_name] = wrapped_func
-
-    def _create_wrapped_function(self, func_name: str, func_desc: Description):
-        """Create a callable object that acts like a function but stores description info."""
-
-        class RemoteFunctionWrapper:
-            """Callable object that acts like a function for remote toolset calls."""
-
-            def __init__(
-                self,
-                func_name: str,
-                func_desc: Description,
-                endpoint_service: RemoteService,
-                agent_context,
-            ):
-                self.func_name = func_name
-                self.function_descriptions = (
-                    func_desc  # Store for parse_func compatibility
-                )
-                self.endpoint_service = endpoint_service
-                self.agent_context = agent_context
-
-                # Set standard function attributes
-                self.__name__ = func_name
-                self.__doc__ = getattr(
-                    func_desc, "description", f"Remote function: {func_name}"
-                )
-
-            async def __call__(self, **kwargs):
-                # Filter parameters for remote service
-                param_names = [v.name for v in self.function_descriptions.inputs]
-                remote_params = {}
-                for k, v in kwargs.items():
-                    if k in param_names or k in __SKIP_PARAMS__:
-                        remote_params[k] = v
-
-                # Call remote service
-                if remote_params:
-                    resp = await self.endpoint_service.invoke(
-                        self.func_name, parameters=remote_params
-                    )
-                else:
-                    resp = await self.endpoint_service.invoke(self.func_name)
-
-                # Handle inner calls (callback mechanism)
-                if isinstance(resp, dict) and "inner_call" in resp:
-                    inner_call = resp.pop("inner_call")
-                    name = inner_call["name"]
-                    args = inner_call["args"]
-                    result_field = inner_call["result_field"]
-
-                    # Handle callback using the agent context passed in kwargs
-                    if name == "__agent_run__":
-                        agent_run = kwargs.get(__AGENT_RUN_NAME__)
-                        if agent_run:
-                            result = await agent_run(args)
-                            resp[result_field] = result
-                        else:
-                            raise RuntimeError(
-                                "Agent callback required but not provided"
-                            )
-                    else:
-                        # Local function callback - use agent's functions
-                        if self.agent_context and hasattr(
-                            self.agent_context, "functions"
-                        ):
-                            if name in self.agent_context.functions:
-                                from .utils.misc import run_func
-
-                                result = await run_func(
-                                    self.agent_context.functions[name], **args
-                                )
-                                resp[result_field] = result
-                            else:
-                                raise RuntimeError(
-                                    f"Local function '{name}' not found in agent"
-                                )
-                        else:
-                            raise RuntimeError(
-                                f"Local function callback '{name}' requires agent context"
-                            )
-
-                return resp
-
-        return RemoteFunctionWrapper(
-            func_name, func_desc, self.endpoint_service, self.agent_context
-        )
-
-    def get_wrapped_functions(self):
-        """Get all wrapped functions as (name, function) pairs."""
-        return list(self.wrapped_functions.items())
-
-
 class ResponseDetails(BaseModel):
     """
     The ResponseDetails class is used to store the details of the agent response.
@@ -408,6 +363,10 @@ class Agent:
         # NOTE: _func_to_proxy is now obsolete with unified approach, but kept for backwards compatibility
         self._func_to_proxy: dict[str, str] = {}
 
+        # Lazy loading for ToolsetProxy
+        self.toolset_proxies: dict[str, "ToolsetProxy"] = {}  # Proxy references
+        self._proxy_loaded: set[str] = set()  # Track loaded proxies
+
         # Performance optimization: Cache tool definitions
         self._tool_definitions_cache: dict[str, dict] = {}
         self._cache_dirty = True
@@ -451,39 +410,6 @@ class Agent:
         self._cache_dirty = True
         return self
 
-    async def remote_toolset(
-        self,
-        service_id_or_name: str,
-        backend_config: RemoteConfig | None = None,
-        **kwargs,
-    ):
-        """Add a remote toolset to the agent.
-
-        Args:
-            service_id_or_name: The service ID or name of the toolset.
-            backend_config: Configuration for the remote backend. If None, uses default configuration.
-            **kwargs: Additional keyword arguments to pass to the backend connection.
-
-        Returns:
-            The agent instance.
-        """
-        # Create backend and connect to service
-        backend = RemoteBackendFactory.create_backend(backend_config)
-        endpoint_service = await backend.connect(service_id_or_name, **kwargs)
-
-        # Store service for cleanup later
-        self.toolset_services[service_id_or_name] = endpoint_service
-
-        # Create wrapper for unified tool interface
-        wrapper = RemoteToolsetWrapper(endpoint_service, agent_context=self)
-        await wrapper.initialize()
-
-        # Add all remote functions as regular tools
-        for func_name, wrapped_func in wrapper.get_wrapped_functions():
-            self.tool(wrapped_func, key=func_name)
-
-        return self
-
     def enable_rich_conversations(self):
         """Enable rich conversation flow"""
         self.enhanced_flow = True
@@ -494,18 +420,72 @@ class Agent:
         self.enhanced_flow = False
         return self
 
-    def toolset(self, toolset: ToolSet):
+    async def toolset(
+        self, toolset: Union["ToolSet", "ToolsetProxy", "ToolsetLike"]
+    ) -> "Agent":
         """Add a toolset to the agent.
 
+        Supports three types of toolsets:
+        1. ToolSet instance (local toolset) - loaded immediately
+        2. ToolsetProxy instance (remote toolset) - lazy loaded on first conversation
+        3. Any object with tool_functions attribute - legacy compatibility
+
+        For ToolsetProxy, this method only stores the proxy reference.
+        Tools are loaded lazily during the first conversation via _ensure_proxy_tools_loaded().
+
         Args:
-            toolset: The toolset to add to the agent.
+            toolset: The toolset to add. Accepted types:
+                - ToolSet: Local toolset instance (loaded immediately)
+                - ToolsetProxy: Remote toolset proxy (lazy loading)
+                - ToolsetLike: Any object with tool_functions attribute (legacy)
 
         Returns:
-            The agent instance.
+            Agent: The agent instance for method chaining.
+
+        Raises:
+            TypeError: If toolset is not one of the accepted types.
+
+        Example:
+            ```python
+            # Local toolset (immediate loading)
+            from pantheon.toolset import ToolSet
+            local_ts = ToolSet()
+            await agent.toolset(local_ts)
+
+            # Remote toolset (lazy loading)
+            from pantheon.endpoint import ToolsetProxy
+            proxy = ToolsetProxy.from_toolset("service_id")
+            await agent.toolset(proxy)  # ← Instant return
+
+            # Tools loaded on first conversation
+            await agent.run("Hello")
+            ```
         """
-        for name, (func, _) in toolset.tool_functions.items():
-            self.tool(func, key=name)
-        # Cache will be marked dirty by individual tool() calls
+        # Check if it's a ToolsetProxy
+        if isinstance(toolset, ToolsetProxy):
+            # Lazy loading: only store proxy reference, don't load tools yet
+            toolset_name = toolset.toolset_name
+
+            # Store proxy (no await, instant return)
+            self.toolset_proxies[toolset_name] = toolset
+
+            logger.info(
+                f"Agent '{self.name}' registered toolset '{toolset_name}' "
+                f"(lazy loading - tools will be loaded on first conversation)"
+            )
+
+        # Check if it's a regular ToolSet or compatible object
+        elif hasattr(toolset, "tool_functions"):
+            # Use local ToolSet pattern - load immediately
+            for name, (func, _) in toolset.tool_functions.items():
+                self.tool(func, key=name)
+            # Cache will be marked dirty by individual tool() calls
+        else:
+            raise TypeError(
+                f"Invalid toolset type: {type(toolset)}. "
+                "Expected ToolSet, ToolsetProxy, or object with tool_functions."
+            )
+
         return self
 
     async def mcp(self, client: Client):
@@ -537,6 +517,125 @@ class Agent:
             }
             self.tool(_wrap_tool, key=tool.name)
         return self
+
+    async def _ensure_proxy_tools_loaded(self):
+        """Ensure all ToolsetProxy tools are loaded (lazy loading on first conversation).
+
+        This method is called before each conversation to:
+        1. Load tools from proxies that haven't been loaded yet
+        2. Retry loading from proxies that failed before (auto-healing)
+        3. Create wrapper functions and add them to self.functions
+
+        This is idempotent - already loaded proxies are skipped.
+        Failed proxies are logged but don't block agent operation.
+        """
+        if not self.toolset_proxies:
+            return  # No proxies registered
+
+        for toolset_name, proxy in self.toolset_proxies.items():
+            # Skip if already loaded
+            if toolset_name in self._proxy_loaded:
+                continue
+
+            try:
+                # Attempt to load tools (uses proxy's cache if available)
+                logger.debug(f"Loading tools from toolset '{toolset_name}'...")
+                tools = await proxy.list_tools()
+
+                # Create wrapper for each tool and add to self.functions
+                for tool_desc in tools:
+                    tool_name = tool_desc["name"]
+                    wrapper = self._create_proxy_wrapper(proxy, tool_desc)
+                    self.tool(wrapper, key=tool_name)
+
+                # Mark as loaded
+                self._proxy_loaded.add(toolset_name)
+                logger.info(
+                    f"Successfully loaded {len(tools)} tools from toolset '{toolset_name}'"
+                )
+
+            except Exception as e:
+                # Failed to load - skip this toolset, will retry next conversation
+                logger.warning(
+                    f"Failed to load toolset '{toolset_name}': {e}. "
+                    f"Tools from this toolset will not be available for this conversation. "
+                    f"Will retry on next conversation."
+                )
+                continue  # Don't block other toolsets
+
+    def _create_proxy_wrapper(self, proxy: "ToolsetProxy", tool_desc: dict):
+        """Create a wrapper function for a proxy tool.
+
+        This wrapper:
+        1. Calls proxy.invoke() when invoked
+        2. Has function_descriptions attribute for _convert_functions()
+        3. Handles errors gracefully (proxy.invoke() returns error dict)
+        4. Handles inner_call callback mechanism (for agent_run and local functions)
+
+        Args:
+            proxy: ToolsetProxy instance
+            tool_desc: Tool description dict from proxy.list_tools()
+
+        Returns:
+            Callable wrapper function with function_descriptions attribute
+        """
+        tool_name = tool_desc["name"]
+        agent_context = self  # Reference to agent for callbacks
+
+        # Create async wrapper function
+        async def proxy_tool_wrapper(**kwargs):
+            """Wrapper that calls through ToolsetProxy.invoke()."""
+            # Filter parameters based on tool description
+            param_names = list(tool_desc.get("parameters", {}).keys())
+            remote_params = {
+                k: v
+                for k, v in kwargs.items()
+                if k in param_names or k in __SKIP_PARAMS__
+            }
+
+            # proxy.invoke() handles all errors and returns dict (never raises)
+            result = await proxy.invoke(tool_name, remote_params)
+
+            # Handle inner calls (callback mechanism)
+            # Some toolsets use this to call back to agent or local functions
+            if isinstance(result, dict) and "inner_call" in result:
+                inner_call = result.pop("inner_call")
+                name = inner_call["name"]
+                args = inner_call["args"]
+                result_field = inner_call["result_field"]
+
+                # Handle callback using the agent context
+                if name == "__agent_run__":
+                    agent_run = kwargs.get(__AGENT_RUN_NAME__)
+                    if agent_run:
+                        callback_result = await agent_run(args)
+                        result[result_field] = callback_result
+                    else:
+                        raise RuntimeError("Agent callback required but not provided")
+                else:
+                    # Local function callback - use agent's functions
+                    if name in agent_context.functions:
+                        callback_result = await run_func(
+                            agent_context.functions[name], **args
+                        )
+                        result[result_field] = callback_result
+                    else:
+                        raise RuntimeError(
+                            f"Local function '{name}' not found in agent"
+                        )
+
+            return result
+
+        # Set function metadata
+        proxy_tool_wrapper.__name__ = tool_name
+        proxy_tool_wrapper.__doc__ = tool_desc.get("description", "")
+
+        # Convert tool_desc to Description for _convert_functions()
+        proxy_tool_wrapper.function_descriptions = _convert_tool_desc_to_description(
+            tool_desc
+        )
+
+        return proxy_tool_wrapper
 
     def _convert_functions(
         self, litellm_mode: bool, allow_transfer: bool
@@ -741,6 +840,16 @@ class Agent:
         if env_var in os.environ:
             base_url = os.environ[env_var]
 
+        # Ensure proxy tools are loaded (lazy loading on first conversation)
+        if tool_use:
+            load_start = time.time()
+            await self._ensure_proxy_tools_loaded()
+            load_time = time.time() - load_start
+            if load_time > 0.01:  # Only log if took significant time
+                logger.info(
+                    f"📦 [Agent:{self.name}] Proxy tools loaded: {load_time:.3f}s"
+                )
+
         # Time tool conversion
         tools = None
         if tool_use:
@@ -762,6 +871,7 @@ class Agent:
         # Create enhanced process_chunk for this specific request
         enhanced_process_chunk = None
         if process_chunk:
+
             async def enhanced_process_chunk(chunk: dict):
                 nonlocal chunk_index
                 enhanced_chunk = {
@@ -959,15 +1069,17 @@ class Agent:
             if "id" not in history[0]:
                 history[0]["id"] = str(uuid4())  # 添加唯一ID（如果没有的话）
         else:
-            history.insert(0, {
-                "role": "system",
-                "content": system_prompt,
-                "timestamp": current_timestamp,  # 添加时间戳
-                "id": str(uuid4())  # 添加唯一ID
-            })
+            history.insert(
+                0,
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                    "timestamp": current_timestamp,  # 添加时间戳
+                    "id": str(uuid4()),  # 添加唯一ID
+                },
+            )
         init_len = len(history)
         context_variables = context_variables or {}
-
 
         if response_format:
             Response = create_model("Response", result=(response_format, ...))
@@ -1062,38 +1174,46 @@ class Agent:
         elif isinstance(msg, VisionInput):
             messages = vision_to_openai(msg)
         elif isinstance(msg, BaseModel):
-            messages = [{
-                "role": "user",
-                "content": msg.model_dump_json(),
-                "timestamp": time.time(),
-                "id": str(uuid4())
-            }]
+            messages = [
+                {
+                    "role": "user",
+                    "content": msg.model_dump_json(),
+                    "timestamp": time.time(),
+                    "id": str(uuid4()),
+                }
+            ]
         elif isinstance(msg, str):
-            messages = [{
-                "role": "user",
-                "content": msg,
-                "timestamp": time.time(),
-                "id": str(uuid4())
-            }]
+            messages = [
+                {
+                    "role": "user",
+                    "content": msg,
+                    "timestamp": time.time(),
+                    "id": str(uuid4()),
+                }
+            ]
         elif isinstance(msg, list):
             new_messages = []
             for m in msg:
                 if isinstance(m, str):
-                    new_messages.append({
-                        "role": "user",
-                        "content": m,
-                        "timestamp": time.time(),
-                        "id": str(uuid4())
-                    })
+                    new_messages.append(
+                        {
+                            "role": "user",
+                            "content": m,
+                            "timestamp": time.time(),
+                            "id": str(uuid4()),
+                        }
+                    )
                 elif isinstance(m, VisionInput):
                     new_messages.extend(vision_to_openai(m))
                 elif isinstance(m, BaseModel):
-                    new_messages.append({
-                        "role": "user",
-                        "content": m.model_dump_json(),
-                        "timestamp": time.time(),
-                        "id": str(uuid4())
-                    })
+                    new_messages.append(
+                        {
+                            "role": "user",
+                            "content": m.model_dump_json(),
+                            "timestamp": time.time(),
+                            "id": str(uuid4()),
+                        }
+                    )
                 else:
                     assert isinstance(m, dict), (
                         "Message must be a string, BaseModel or dict"
@@ -1357,9 +1477,21 @@ def _detect_conversation_state_static(message: dict) -> dict:
     # Define state patterns - simplified 3-tag system with title + content (single tag format)
     patterns = [
         # (regex_pattern, state, emoji)
-        (r"<thinking>\s*([^\n<]*?)(?:\n(.*?))?(?=<(?:execute|complete)|$)", "reasoning", "🧠"),
-        (r"<execute>\s*([^\n<]*?)(?:\n(.*?))?(?=<(?:thinking|complete)|$)", "executing", "⚡"),
-        (r"<complete>\s*([^\n<]*?)(?:\n(.*?))?(?=<(?:thinking|execute)|$)", "completed", "✅"),
+        (
+            r"<thinking>\s*([^\n<]*?)(?:\n(.*?))?(?=<(?:execute|complete)|$)",
+            "reasoning",
+            "🧠",
+        ),
+        (
+            r"<execute>\s*([^\n<]*?)(?:\n(.*?))?(?=<(?:thinking|complete)|$)",
+            "executing",
+            "⚡",
+        ),
+        (
+            r"<complete>\s*([^\n<]*?)(?:\n(.*?))?(?=<(?:thinking|execute)|$)",
+            "completed",
+            "✅",
+        ),
     ]
 
     # Check content for explicit state markers - find first match

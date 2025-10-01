@@ -1,6 +1,7 @@
 import os
 
 from ..agent import Agent
+from ..endpoint import ToolsetProxy
 from ..utils.log import logger
 
 
@@ -38,25 +39,33 @@ async def create_agent(
     )
     agent.toolful = toolful
     agent.not_loaded_toolsets = []
+
     if toolsets is None:
         return agent
-    endpoint_id = endpoint_service.service_info.service_id
-    for toolset in toolsets:
+
+    logger.info(f"Agent '{name}': Adding {len(toolsets)} toolsets via ToolsetProxy")
+
+    for toolset_name in toolsets:
         try:
-            s = await endpoint_service.invoke(
-                "get_service", {"service_id_or_name": toolset}
+            # Create ToolsetProxy (no connection needed, instant!)
+            proxy = ToolsetProxy.from_endpoint(
+                endpoint_service,
+                toolset_name,
+                cache_ttl=300,  # 5 minutes cache
+                max_retries=3,
             )
-            if s is None:
-                raise ValueError(f"{toolset} service not found")
-            logger.info(
-                f"Agent:{name} Added toolset {toolset} to agent {name} endpoint_id:{endpoint_id}"
-            )
-            await agent.remote_toolset(s["id"])
+
+            # Add toolset through proxy (lazy-loaded)
+            await agent.toolset(proxy)
+
+            logger.info(f"Agent '{name}': Registered toolset '{toolset_name}'")
+
         except Exception as e:
             logger.error(
-                f"Agent:{name} Failed to add toolset {toolset} in endpoint_id:{endpoint_id} with error:{e}"
+                f"Agent '{name}': Failed to register toolset '{toolset_name}': {e}"
             )
-            agent.not_loaded_toolsets.append(toolset)
+            agent.not_loaded_toolsets.append(toolset_name)
+
     return agent
 
 

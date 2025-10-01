@@ -33,11 +33,10 @@ class FileManagerToolSetBase(ToolSet):
             self,
             name: str,
             path: str | Path,
-            worker_params: dict | None = None,
             black_list: list[str] | None = None,
             **kwargs,
             ):
-        super().__init__(name, worker_params, **kwargs)
+        super().__init__(name, **kwargs)
         self.path = Path(path)
         self.black_list = black_list or []
 

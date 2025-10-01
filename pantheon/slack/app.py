@@ -13,6 +13,7 @@ from ..team import Team
 from ..utils.log import logger
 from ..utils.vision import vision_input
 from ..utils.misc import print_agent_message
+from ..endpoint import ToolsetProxy
 
 
 async def run_app(
@@ -104,7 +105,10 @@ async def run_app(
 
         agent = await get_agent(body)
         if content.startswith("!toolset"):
-            await agent.remote_toolset(content.split(" ")[1])
+            # Use ToolsetProxy instead of remote_toolset
+            toolset_id = content.split(" ")[1]
+            proxy = ToolsetProxy.from_toolset(toolset_id)
+            await agent.toolset(proxy)
             return "Toolset successfully loaded."
         elif content.startswith("!reset"):
             reset_agent(body)

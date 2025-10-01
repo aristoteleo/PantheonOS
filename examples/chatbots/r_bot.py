@@ -2,6 +2,7 @@ import asyncio
 from pantheon.agent import Agent
 from pantheon.toolsets.r import RInterpreterToolSet
 from pantheon.toolsets.utils.toolset import run_toolsets
+from pantheon.endpoint import ToolsetProxy
 
 
 async def main():
@@ -14,7 +15,9 @@ async def main():
             model="gpt-4o",
         )
 
-        await agent.remote_toolset(toolset.service_id)
+        # Use ToolsetProxy instead of remote_toolset
+        proxy = ToolsetProxy.from_toolset(toolset.service_id)
+        await agent.toolset(proxy)
         await agent.chat()
 
 
