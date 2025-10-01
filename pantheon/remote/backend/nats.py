@@ -5,6 +5,7 @@ Integrates RPC calls and streaming functionality using Core NATS + JetStream KV
 
 import asyncio
 import hashlib
+import inspect
 import json
 import time
 import uuid
@@ -228,17 +229,29 @@ class NATSService(RemoteService):
     async def invoke(
         self, method: str, parameters: Optional[Dict[str, Any]] = None
     ) -> Any:
-        """Invoke remote method with cloudpickle priority for backend-to-backend communication"""
-        message = NATSMessage(
-            method=method, parameters=parameters or {}, correlation_id=str(uuid.uuid4())
-        )
+        """Invoke remote method with cloudpickle priority for backend-to-backend communication
 
-        try:
+        Supports reverse callable: if parameters contain callable objects, they will be
+        wrapped as ReverseCallable so the worker can call them back.
+        """
+        if parameters is None:
+            parameters = {}
+
+        # Use ReverseCallContext to handle reverse call setup/teardown
+        async with ReverseCallContext(self.nc, parameters) as processed_parameters:
+            message = NATSMessage(
+                method=method, parameters=processed_parameters, correlation_id=str(uuid.uuid4())
+            )
+
             # Use cloudpickle first for backend-to-backend communication
             payload = cloudpickle.dumps(message)
-            response = await self.nc.request(
-                self.service_subject, payload, timeout=self.timeout
-            )
+
+            try:
+                response = await self.nc.request(
+                    self.service_subject, payload, timeout=self.timeout
+                )
+            except asyncio.TimeoutError:
+                raise Exception(f"Timeout calling {method} on {self.service_id}")
 
             # Try to parse response as cloudpickle first
             try:
@@ -259,9 +272,6 @@ class NATSService(RemoteService):
             if result.get("error"):
                 raise Exception(result["error"])
             return result.get("result")
-
-        except asyncio.TimeoutError:
-            raise Exception(f"Timeout calling {method} on {self.service_id}")
 
     async def close(self):
         pass
@@ -314,6 +324,7 @@ class NATSRemoteWorker(RemoteWorker):
         self.kv_store = None
         self._service_name = service_name
         self._description = description
+        self.timeout = kwargs.get("timeout", 30.0)  # Default timeout for reverse calls
 
         # Generate service ID using full hash for frontend compatibility
         id_hash = kwargs.get("id_hash")
@@ -476,10 +487,16 @@ class NATSRemoteWorker(RemoteWorker):
             logger.info(
                 f"NATS worker:{self.service_subject} received function request: {method}"
             )
+
+            # Restore callable parameters using ReverseCallHelper
+            processed_parameters = ReverseCallHelper.restore_callables(
+                parameters, self.nc, timeout=getattr(self, 'timeout', 30.0)
+            )
+
             func = self._functions[method]
 
             # Use run_func to handle both sync and async functions correctly
-            result = await run_func(func, **parameters)
+            result = await run_func(func, **processed_parameters)
 
             logger.info(
                 f"NATS worker:{self.service_subject} finished function request: {method}"
@@ -514,3 +531,234 @@ class NATSRemoteWorker(RemoteWorker):
             name: (func, getattr(func, "__doc__", ""))
             for name, func in self._functions.items()
         }
+
+
+# ==============================================================================
+# Reverse Call Support
+# ==============================================================================
+# This section provides reverse call functionality as an optional enhancement.
+# Based on commits 98b7f46 and 635d1b3 from weize-dev-hypha branch.
+
+
+class ReverseInvokeError(Exception):
+    """Exception raised when reverse invoke fails"""
+    pass
+
+
+class ReverseCallable:
+    """
+    A callable wrapper that enables reverse calls from worker to client.
+    This allows workers to invoke callbacks provided by the client.
+
+    Note: This is an async callable - use with await.
+    """
+
+    def __init__(
+        self,
+        nc: nats.aio.client.Client,
+        name: str,
+        invoke_id: str,
+        parameters: list[str],
+        is_async: bool,
+        call_timeout: float = 30.0,
+    ):
+        self.nc = nc
+        self.name = name
+        self.invoke_id = invoke_id
+        self.parameters = parameters
+        self.is_async = is_async
+        self.call_timeout = call_timeout
+
+    async def invoke(self, params: dict) -> Any:
+        """Async invoke the reverse callable"""
+        req_payload = {
+            "action": "reverse_invoke",
+            "name": self.name,
+            "parameters": params,
+        }
+        try:
+            resp = await self.nc.request(
+                self.invoke_id,
+                cloudpickle.dumps(req_payload),
+                timeout=self.call_timeout
+            )
+            res = cloudpickle.loads(resp.data)
+
+            if res.get("status") == "error":
+                raise ReverseInvokeError(res.get("message", "Unknown error"))
+            return res.get("result")
+        except asyncio.TimeoutError:
+            raise ReverseInvokeError(f"Reverse call timeout for {self.name}")
+
+    async def __call__(self, *args, **kwargs):
+        """
+        Make the object async callable.
+        Always use with await: result = await reverse_callable(args)
+        """
+        params = {}
+        # Map positional args to parameter names
+        if self.parameters:
+            for i, param_name in enumerate(self.parameters):
+                if i < len(args):
+                    params[param_name] = args[i]
+        params.update(kwargs)
+
+        return await self.invoke(params)
+
+
+class ReverseCallHelper:
+    """
+    Helper class to handle reverse call logic independently.
+    Provides utilities for both client and worker sides.
+    """
+
+    @staticmethod
+    def process_parameters(
+        parameters: Dict[str, Any], invoke_id: str
+    ) -> tuple[Dict[str, Any], Dict[str, Callable]]:
+        """
+        Process parameters to detect and wrap callable objects for reverse calls.
+
+        Returns:
+            (processed_parameters, reverse_callables):
+                - processed_parameters with callables replaced by metadata
+                - dict of original callable objects
+        """
+        reverse_callables = {}
+        processed_parameters = {}
+
+        for k, v in parameters.items():
+            if callable(v):
+                # Store the original callable
+                reverse_callables[k] = v
+                # Replace with metadata for the worker
+                processed_parameters[k] = {
+                    "_reverse_callable": True,
+                    "name": k,
+                    "invoke_id": invoke_id,
+                    "parameters": list(inspect.signature(v).parameters.keys()),
+                    "is_async": inspect.iscoroutinefunction(v),
+                }
+            else:
+                processed_parameters[k] = v
+
+        return processed_parameters, reverse_callables
+
+    @staticmethod
+    async def setup_handler(
+        nc: nats.aio.client.Client,
+        invoke_id: str,
+        reverse_callables: Dict[str, Callable]
+    ):
+        """
+        Set up subscription to handle reverse calls from worker.
+
+        Returns:
+            subscription object for cleanup
+        """
+        async def reverse_call_handler(msg):
+            """Handle reverse invoke requests from worker"""
+            try:
+                req = cloudpickle.loads(msg.data)
+                if req.get("action") == "reverse_invoke":
+                    func_name = req["name"]
+                    func = reverse_callables.get(func_name)
+                    if not func:
+                        error_response = {
+                            "status": "error",
+                            "message": f"Reverse callable {func_name} not found"
+                        }
+                        await msg.respond(cloudpickle.dumps(error_response))
+                        return
+
+                    # Execute the callback
+                    try:
+                        result = await run_func(func, **req["parameters"])
+                        response = {
+                            "status": "success",
+                            "result": result,
+                        }
+                    except Exception as e:
+                        response = {
+                            "status": "error",
+                            "message": f"{e.__class__.__name__}: {str(e)}",
+                        }
+                    await msg.respond(cloudpickle.dumps(response))
+            except Exception as e:
+                logger.error(f"Error in reverse call handler: {e}")
+
+        return await nc.subscribe(invoke_id, cb=reverse_call_handler)
+
+    @staticmethod
+    def restore_callables(
+        parameters: Dict[str, Any],
+        nc: nats.aio.client.Client,
+        timeout: float = 30.0
+    ) -> Dict[str, Any]:
+        """
+        Restore callable parameters from metadata on worker side.
+
+        Args:
+            parameters: Parameters dict potentially containing reverse callable metadata
+            nc: NATS connection
+            timeout: Timeout for reverse calls
+
+        Returns:
+            Parameters dict with metadata replaced by ReverseCallable objects
+        """
+        processed_parameters = {}
+
+        for k, v in parameters.items():
+            if isinstance(v, dict) and v.get("_reverse_callable"):
+                # Create a ReverseCallable object
+                processed_parameters[k] = ReverseCallable(
+                    nc=nc,
+                    name=v["name"],
+                    invoke_id=v["invoke_id"],
+                    parameters=v["parameters"],
+                    is_async=v["is_async"],
+                    call_timeout=timeout,
+                )
+            else:
+                processed_parameters[k] = v
+
+        return processed_parameters
+
+
+class ReverseCallContext:
+    """
+    Context manager for reverse call operations.
+    Provides clean setup and teardown of reverse call infrastructure.
+    """
+
+    def __init__(
+        self,
+        nc: nats.aio.client.Client,
+        parameters: Dict[str, Any]
+    ):
+        self.nc = nc
+        self.original_parameters = parameters
+        self.invoke_id = str(uuid.uuid4())
+        self.subscription = None
+        self.processed_parameters = None
+        self.reverse_callables = None
+
+    async def __aenter__(self):
+        """Setup reverse call infrastructure"""
+        # Process parameters
+        self.processed_parameters, self.reverse_callables = \
+            ReverseCallHelper.process_parameters(self.original_parameters, self.invoke_id)
+
+        # Setup handler if there are callables
+        if self.reverse_callables:
+            self.subscription = await ReverseCallHelper.setup_handler(
+                self.nc, self.invoke_id, self.reverse_callables
+            )
+
+        return self.processed_parameters
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Cleanup reverse call infrastructure"""
+        if self.subscription:
+            await self.subscription.unsubscribe()
+        return False
