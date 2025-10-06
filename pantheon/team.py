@@ -182,16 +182,19 @@ class PantheonTeam(Team):
                 continue
             if agent is self.triage:
                 continue
-            for func_name in agent.functions.keys():
+            # Remove existing call_agent_* functions using standard API
+            for func_name in list(agent.functions.keys()):
                 if func_name.startswith("call_agent_"):
-                    del agent.functions[func_name]
+                    agent.remove_tool(func_name)
             for toolful_agent_name in self._toolful_agents:
                 await self.add_toolful_call_func(agent, toolful_agent_name)
 
     async def remove_agent(self, agent: Agent | RemoteAgent):
         assert isinstance(agent.name, str), "Agent name must be a string"
         del self.agents[agent.name]
-        self.triage.functions.pop(f"transfer_to_{agent.name.replace(' ', '_').lower()}")
+        # Remove transfer function using standard API
+        transfer_func_name = f"transfer_to_{agent.name.replace(' ', '_').lower()}"
+        self.triage.remove_tool(transfer_func_name)
 
         if agent.name in self._toolful_agents:
             self._toolful_agents.remove(agent.name)

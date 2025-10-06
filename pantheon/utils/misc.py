@@ -30,13 +30,8 @@ def desc_to_openai_dict(
     skip_params: List[str] = [],
     litellm_mode: bool = False,
 ) -> dict:
-    # remove skip_params from desc.inputs
-    new_inputs = []
-    for arg in desc.inputs:
-        if arg.name in skip_params:
-            continue
-        new_inputs.append(arg)
-    desc.inputs = new_inputs
+    # Filter inputs without modifying original desc.inputs
+    filtered_inputs = [arg for arg in desc.inputs if arg.name not in skip_params]
 
     pydantic_model = desc_to_pydantic(desc)["inputs"]
     oai_func_dict = pydantic_function_tool(pydantic_model)
@@ -45,7 +40,7 @@ def desc_to_openai_dict(
     parameters = {}
     required = []
 
-    for arg in desc.inputs:
+    for arg in filtered_inputs:
         pdict = {
             "description": arg.doc or "",
         }

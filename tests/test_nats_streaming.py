@@ -84,7 +84,7 @@ from pantheon.remote import (
     StreamMessage,
     StreamType,
 )
-from pantheon.toolsets.integrated_notebook import IntegratedNotebookToolSet
+from pantheon.toolsets.notebook import IntegratedNotebookToolSet
 
 
 @pytest_asyncio.fixture

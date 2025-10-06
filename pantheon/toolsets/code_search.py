@@ -17,7 +17,6 @@ class CodeSearchToolSet(ToolSet):
     Args:
         name: The name of the toolset.
         workspace_path: The path to the workspace.
-        worker_params: The parameters for the worker.
         **kwargs: Additional keyword arguments.
     """
     
@@ -25,7 +24,6 @@ class CodeSearchToolSet(ToolSet):
         self,
         name: str,
         workspace_path: str | Path | None = None,
-        worker_params: dict | None = None,
         **kwargs,
     ):
         """
@@ -34,10 +32,9 @@ class CodeSearchToolSet(ToolSet):
         Args:
             name: Name of the toolset
             workspace_path: Base directory for search operations (default: current directory)
-            worker_params: Parameters for the worker
             **kwargs: Additional keyword arguments
         """
-        super().__init__(name, worker_params, **kwargs)
+        super().__init__(name, **kwargs)
         self.workspace_path = Path(workspace_path) if workspace_path else Path.cwd()
                 
     def _resolve_path(self, path: str) -> Path:

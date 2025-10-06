@@ -81,6 +81,7 @@ class NATSStreamChannel(StreamChannel):
                 payload = json.loads(msg.data.decode("utf-8"))
                 # 转换为StreamMessage对象
                 from .base import StreamMessage
+
                 stream_message = StreamMessage.from_dict(payload)
                 # 调用回调函数 - 使用run_func自动处理同步/异步
                 await run_func(callback, stream_message)
@@ -92,16 +93,19 @@ class NATSStreamChannel(StreamChannel):
         subscription_id = str(id(subscription))
 
         # 存储subscription以便后续取消订阅
-        if not hasattr(self, '_subscriptions'):
+        if not hasattr(self, "_subscriptions"):
             self._subscriptions = {}
         self._subscriptions[subscription_id] = subscription
 
-        logger.info(f"NATS stream subscribed: {self._subject} -> {subscription_id}")
+        logger.debug(f"NATS stream subscribed: {self._subject} -> {subscription_id}")
         return subscription_id
 
     async def unsubscribe(self, subscription_id: str) -> bool:
         """取消订阅NATS流消息"""
-        if not hasattr(self, '_subscriptions') or subscription_id not in self._subscriptions:
+        if (
+            not hasattr(self, "_subscriptions")
+            or subscription_id not in self._subscriptions
+        ):
             logger.warning(f"Subscription not found: {subscription_id}")
             return False
 
@@ -109,7 +113,7 @@ class NATSStreamChannel(StreamChannel):
             subscription = self._subscriptions[subscription_id]
             await subscription.unsubscribe()
             del self._subscriptions[subscription_id]
-            logger.info(f"NATS stream unsubscribed: {subscription_id}")
+            logger.debug(f"NATS stream unsubscribed: {subscription_id}")
             return True
         except Exception as e:
             logger.error(f"Error unsubscribing NATS stream: {e}")
@@ -127,7 +131,7 @@ class NATSBackend(RemoteBackend):
     def __init__(self, server_urls: list[str], **nats_kwargs):
         self.server_urls = server_urls or ["nats://localhost:4222"]
         self.nats_kwargs = nats_kwargs
-        self._nc = None
+        self._nc: nats.aio.client.Client = None
         self._js = None  # Only used for KV store
         self._kv = None  # JetStream KV store
 
@@ -151,7 +155,7 @@ class NATSBackend(RemoteBackend):
                         self._kv = await self._js.create_key_value(
                             bucket="pantheon-service"
                         )
-                        logger.info("Created NATS KV bucket: pantheon-service")
+                        logger.debug("Created NATS KV bucket: pantheon-service")
                     except Exception as e:
                         logger.warning(
                             f"KV store creation failed: {e}, continuing without KV store"
@@ -170,6 +174,9 @@ class NATSBackend(RemoteBackend):
     # RPC interface implementation
     async def connect(self, service_id: str, **kwargs) -> "NATSService":
         """Connect to remote service"""
+        if not service_id:
+            raise ValueError("service_id cannot be None")
+
         nc, _ = await self._get_connection()
         service = NATSService(nc, service_id, kv_store=self._kv, **kwargs)
         await service.fetch_service_info()
@@ -202,7 +209,7 @@ class NATSBackend(RemoteBackend):
         stream_channel = NATSStreamChannel(stream_id, stream_type, self)
         self._streams[stream_id] = stream_channel
 
-        logger.info(
+        logger.debug(
             f"Created Core NATS stream: {stream_id} (type: {stream_type.value})"
         )
         return stream_channel
@@ -212,7 +219,12 @@ class NATSService(RemoteService):
     """NATS service client"""
 
     def __init__(
-        self, nc, service_id: str, kv_store=None, timeout: float = 30.0, **kwargs
+        self,
+        nc: nats.aio.client.Client,
+        service_id: str,
+        kv_store=None,
+        timeout: float = 30.0,
+        **kwargs,
     ):
         self.nc = nc
         self.service_id = service_id
@@ -240,7 +252,9 @@ class NATSService(RemoteService):
         # Use ReverseCallContext to handle reverse call setup/teardown
         async with ReverseCallContext(self.nc, parameters) as processed_parameters:
             message = NATSMessage(
-                method=method, parameters=processed_parameters, correlation_id=str(uuid.uuid4())
+                method=method,
+                parameters=processed_parameters,
+                correlation_id=str(uuid.uuid4()),
             )
 
             # Use cloudpickle first for backend-to-backend communication
@@ -265,7 +279,7 @@ class NATSService(RemoteService):
                         f"Unable to decode response from service {self.service_id}"
                     )
 
-            logger.info(
+            logger.debug(
                 f"NATS client: requested function: {method} in service: {self.service_subject}"
             )
 
@@ -281,31 +295,43 @@ class NATSService(RemoteService):
         if self.kv_store:
             try:
                 entry = await self.kv_store.get(self.service_id)
-                if entry:
-                    service_data = json.loads(entry.value.decode("utf-8"))
-
-                    # Convert functions_description from JSON back to Description objects
-                    functions_description = {}
-                    for name, func_data in service_data.get(
-                        "functions_description", {}
-                    ).items():
-                        if isinstance(func_data, dict):
-                            # Convert JSON dict back to Description object using from_json
-                            functions_description[name] = Description.from_json(
-                                json.dumps(func_data)
-                            )
-                        else:
-                            # Keep as-is if already Description object (shouldn't happen in practice)
-                            functions_description[name] = func_data
-
-                    self._service_info = ServiceInfo(
-                        service_id=service_data["service_id"],
-                        service_name=service_data["service_name"],
-                        description=service_data.get("description", ""),
-                        functions_description=functions_description,
+                if not entry:
+                    raise RuntimeError(
+                        f"Service '{self.service_id}' not found in KV store. "
+                        f"The service may not be registered or has been unregistered."
                     )
+
+                service_data = json.loads(entry.value.decode("utf-8"))
+
+                # Convert functions_description from JSON back to Description objects
+                functions_description = {}
+                for name, func_data in service_data.get(
+                    "functions_description", {}
+                ).items():
+                    if isinstance(func_data, dict):
+                        # Convert JSON dict back to Description object using from_json
+                        functions_description[name] = Description.from_json(
+                            json.dumps(func_data)
+                        )
+                    else:
+                        # Keep as-is if already Description object (shouldn't happen in practice)
+                        functions_description[name] = func_data
+
+                self._service_info = ServiceInfo(
+                    service_id=service_data["service_id"],
+                    service_name=service_data["service_name"],
+                    description=service_data.get("description", ""),
+                    functions_description=functions_description,
+                )
             except Exception as e:
-                raise RuntimeError(f"KV store get failed with error: {e}")
+                import traceback
+
+                logger.error(
+                    f"Error fetching service info for '{self.service_id}':\n{traceback.format_exc()}"
+                )
+                raise RuntimeError(
+                    f"Failed to fetch service info for '{self.service_id}': {e}"
+                )
         return self._service_info
 
     @property
@@ -385,7 +411,7 @@ class NATSRemoteWorker(RemoteWorker):
         if self.kv_store:
             try:
                 await self.kv_store.delete(self._service_id)
-                logger.info(f"Service {self._service_id} unregistered from KV store")
+                logger.debug(f"Service {self._service_id} unregistered from KV store")
             except Exception as e:
                 logger.error(f"Failed to unregister from KV store: {e}")
 
@@ -420,7 +446,7 @@ class NATSRemoteWorker(RemoteWorker):
             await self.kv_store.put(
                 self._service_id, json.dumps(service_data).encode("utf-8")
             )
-            logger.info(f"Service {self._service_id} registered to KV store using JSON")
+            logger.debug(f"Service {self._service_id} registered to KV store using JSON")
         except Exception as e:
             logger.error(f"Failed to register to KV store: {e}")
 
@@ -484,13 +510,13 @@ class NATSRemoteWorker(RemoteWorker):
                 await msg.respond(json.dumps(error_response).encode("utf-8"))
                 return
 
-            logger.info(
+            logger.debug(
                 f"NATS worker:{self.service_subject} received function request: {method}"
             )
 
             # Restore callable parameters using ReverseCallHelper
             processed_parameters = ReverseCallHelper.restore_callables(
-                parameters, self.nc, timeout=getattr(self, 'timeout', 30.0)
+                parameters, self.nc, timeout=getattr(self, "timeout", 30.0)
             )
 
             func = self._functions[method]
@@ -498,7 +524,7 @@ class NATSRemoteWorker(RemoteWorker):
             # Use run_func to handle both sync and async functions correctly
             result = await run_func(func, **processed_parameters)
 
-            logger.info(
+            logger.debug(
                 f"NATS worker:{self.service_subject} finished function request: {method}"
             )
             response = {"result": result}
@@ -542,6 +568,7 @@ class NATSRemoteWorker(RemoteWorker):
 
 class ReverseInvokeError(Exception):
     """Exception raised when reverse invoke fails"""
+
     pass
 
 
@@ -580,7 +607,7 @@ class ReverseCallable:
             resp = await self.nc.request(
                 self.invoke_id,
                 cloudpickle.dumps(req_payload),
-                timeout=self.call_timeout
+                timeout=self.call_timeout,
             )
             res = cloudpickle.loads(resp.data)
 
@@ -648,7 +675,7 @@ class ReverseCallHelper:
     async def setup_handler(
         nc: nats.aio.client.Client,
         invoke_id: str,
-        reverse_callables: Dict[str, Callable]
+        reverse_callables: Dict[str, Callable],
     ):
         """
         Set up subscription to handle reverse calls from worker.
@@ -656,6 +683,7 @@ class ReverseCallHelper:
         Returns:
             subscription object for cleanup
         """
+
         async def reverse_call_handler(msg):
             """Handle reverse invoke requests from worker"""
             try:
@@ -666,7 +694,7 @@ class ReverseCallHelper:
                     if not func:
                         error_response = {
                             "status": "error",
-                            "message": f"Reverse callable {func_name} not found"
+                            "message": f"Reverse callable {func_name} not found",
                         }
                         await msg.respond(cloudpickle.dumps(error_response))
                         return
@@ -691,9 +719,7 @@ class ReverseCallHelper:
 
     @staticmethod
     def restore_callables(
-        parameters: Dict[str, Any],
-        nc: nats.aio.client.Client,
-        timeout: float = 30.0
+        parameters: Dict[str, Any], nc: nats.aio.client.Client, timeout: float = 30.0
     ) -> Dict[str, Any]:
         """
         Restore callable parameters from metadata on worker side.
@@ -731,11 +757,7 @@ class ReverseCallContext:
     Provides clean setup and teardown of reverse call infrastructure.
     """
 
-    def __init__(
-        self,
-        nc: nats.aio.client.Client,
-        parameters: Dict[str, Any]
-    ):
+    def __init__(self, nc: nats.aio.client.Client, parameters: Dict[str, Any]):
         self.nc = nc
         self.original_parameters = parameters
         self.invoke_id = str(uuid.uuid4())
@@ -746,8 +768,11 @@ class ReverseCallContext:
     async def __aenter__(self):
         """Setup reverse call infrastructure"""
         # Process parameters
-        self.processed_parameters, self.reverse_callables = \
-            ReverseCallHelper.process_parameters(self.original_parameters, self.invoke_id)
+        self.processed_parameters, self.reverse_callables = (
+            ReverseCallHelper.process_parameters(
+                self.original_parameters, self.invoke_id
+            )
+        )
 
         # Setup handler if there are callables
         if self.reverse_callables:

@@ -4,26 +4,21 @@ import json
 import os
 import sys
 import time
-from typing import Any, Callable, Optional, Union, Protocol
+from typing import Any, Callable, Optional, Protocol
 from uuid import uuid4
 
+from fastmcp import Client
 from funcdesc import Description, Value, parse_func
 from pydantic import BaseModel, create_model
-from fastmcp import Client
-from magique.worker import ReverseCallable
 
-from .toolset import ToolSet
-
+from .constant import build_system_prompt
+from .memory import Memory
 from .remote import (
     RemoteBackendFactory,
     RemoteConfig,
     RemoteWorker,
-    RemoteService,
 )
-
-from .endpoint import ToolsetProxy
-
-from .memory import Memory
+from .toolset import ToolSet
 from .utils.llm import (
     acompletion_litellm,
     acompletion_openai,
@@ -35,7 +30,6 @@ from .utils.llm import (
 from .utils.log import logger
 from .utils.misc import desc_to_openai_dict, run_func
 from .utils.vision import VisionInput, vision_to_openai
-
 
 DEFAULT_MODEL = "gpt-5-mini"
 
@@ -50,78 +44,18 @@ class ToolsetLike(Protocol):
     tool_functions: dict[str, tuple[Callable, dict]]
 
 
-__CTX_VARS_NAME__ = "context_variables"
-__AGENT_RUN_NAME__ = "agent_run"
-__SKIP_PARAMS__ = [__CTX_VARS_NAME__, __AGENT_RUN_NAME__]
-__CLIENT_ID_NAME__ = "client_id"
-
-
-def _convert_tool_desc_to_description(tool_desc: dict) -> Description:
-    """Convert tool description dict to funcdesc.Description.
-
-    Args:
-        tool_desc: Tool description dict with format:
-            {
-                "name": "tool_name",
-                "description": "Tool description",
-                "parameters": {
-                    "param1": {"type": "string", "required": True},
-                    ...
-                }
-            }
-
-    Returns:
-        funcdesc.Description object
-    """
-    parameters = tool_desc.get("parameters", {})
-
-    inputs = []
-    for param_name, param_info in parameters.items():
-        # Map type string to Python type
-        type_map = {
-            "string": str,
-            "integer": int,
-            "number": float,
-            "boolean": bool,
-            "array": list,
-            "object": dict,
-            "any": Any,
-        }
-        param_type = type_map.get(param_info.get("type", "any"), Any)
-
-        # Create Value object
-        value = Value(
-            type_=param_type,
-            name=param_name,
-            default=(
-                param_info.get("default", None)
-                if not param_info.get("required", False)
-                else ...
-            ),
-        )
-        inputs.append(value)
-
-    return Description(
-        name=tool_desc["name"], inputs=inputs, doc=tool_desc.get("description", "")
-    )
+_CTX_VARS_NAME = "context_variables"
+_AGENT_RUN_NAME = "agent_run"
+_SKIP_PARAMS = [_CTX_VARS_NAME, _AGENT_RUN_NAME]
+_CLIENT_ID_NAME = "client_id"
 
 
 class AgentService:
-    def __init__(
-        self,
-        agent: "Agent",
-        backend_config: Optional[RemoteConfig] = None,
-        worker_params: dict | None = None,
-    ):
+    def __init__(self, agent: "Agent", **kwargs):
         self.agent = agent
-        # Merge worker parameters
-        default_params = {"service_name": f"remote_agent_{self.agent.name}"}
-        if worker_params:
-            default_params.update(worker_params)
-        self.worker_params = default_params
 
-        self.backend = RemoteBackendFactory.create_backend(backend_config)
-        self.worker: RemoteWorker = self.backend.create_worker(**self.worker_params)
+        self.backend = RemoteBackendFactory.create_backend()
+        self.worker: RemoteWorker = self.backend.create_worker(**kwargs)
         self.setup_worker()
 
     async def response(self, msg, **kwargs):
@@ -133,8 +67,9 @@ class AgentService:
             "name": self.agent.name,
             "instructions": self.agent.instructions,
             "models": self.agent.models,
-            "functions_names": list(self.agent.functions.keys()),
-            "toolset_proxies_names": list(self.agent.toolset_services.keys()),
+            "tool_names": list(
+                self.agent.functions.keys()
+            ),  # Simplified: return tool names
         }
 
     async def get_message_queue(self):
@@ -161,13 +96,6 @@ class AgentService:
 
         logger.remove()
         logger.add(sys.stderr, level=log_level)
-
-        logger.info(f"Remote Backend: {self.backend_config.backend}")
-        logger.info(f"Service Name: {self.worker_params['service_name']}")
-        if hasattr(self.worker, "service_id"):
-            logger.info(f"Service ID: {self.worker.service_id}")
-        if hasattr(self.worker, "servers"):
-            logger.info(f"Remote Servers: {self.worker.servers}")
 
         return await self.worker.run()
 
@@ -196,8 +124,10 @@ class RemoteAgent:
         self.name = info["name"]
         self.instructions = info["instructions"]
         self.models = info["models"]
-        self.functions_names = info["functions_names"]
-        self.toolset_proxies_names = info["toolset_proxies_names"]
+        self.tool_names = info.get("tool_names", [])  # New format
+        # Backward compatibility
+        if "functions_names" in info:
+            self.tool_names = info["functions_names"]
         await service.close()
         return info
 
@@ -327,8 +257,6 @@ class Agent:
         tool_timeout: The timeout for the tool. (default: 10 minutes)
         force_litellm: Whether to force using LiteLLM. (default: False)
         max_tool_content_length: The maximum length of the tool content. (default: 100000)
-        max_consecutive_messages: Max consecutive assistant messages without tools to prevent API loops. (default: 2)
-        max_total_messages: Max total assistant messages per conversation to prevent excessive API usage. (default: 10)
     """
 
     def __init__(
@@ -344,9 +272,6 @@ class Agent:
         tool_timeout: int = 10 * 60,
         force_litellm: bool = False,
         max_tool_content_length: int | None = 100000,
-        # Safety limits to prevent API drain
-        max_consecutive_messages: int = 2,
-        max_total_messages: int = 20,
     ):
         self.id = uuid4()
         self.name = name
@@ -357,19 +282,10 @@ class Agent:
                 self.models.append(DEFAULT_MODEL)
         else:
             self.models = model
-        self.functions: dict[str, Callable] = {}
-        # NOTE: toolset_services kept for cleanup/compatibility, but functions are now unified in self.functions
-        self.toolset_services: dict[str, RemoteService] = {}
-        # NOTE: _func_to_proxy is now obsolete with unified approach, but kept for backwards compatibility
-        self._func_to_proxy: dict[str, str] = {}
-
-        # Lazy loading for ToolsetProxy
-        self.toolset_proxies: dict[str, "ToolsetProxy"] = {}  # Proxy references
-        self._proxy_loaded: set[str] = set()  # Track loaded proxies
-
-        # Performance optimization: Cache tool definitions
-        self._tool_definitions_cache: dict[str, dict] = {}
-        self._cache_dirty = True
+        # Tool storage (simplified - unified handling)
+        self._base_functions: dict[
+            str, Callable
+        ] = {}  # All tools (local + remote wrappers)
 
         if tools:
             for func in tools:
@@ -382,10 +298,14 @@ class Agent:
         self.force_litellm = force_litellm
         self.icon = icon
         self.max_tool_content_length = max_tool_content_length
-        # Safety limits to prevent API drain
-        self.max_consecutive_messages = max_consecutive_messages
-        self.max_total_messages = max_total_messages
-        self.enhanced_flow = False
+
+        # Plan Mode support
+        self.plan_mode = False
+
+    @property
+    def functions(self) -> dict[str, Callable]:
+        """Get current tools (returns a copy for safety)."""
+        return self._base_functions
 
     def tool(self, func: Callable, key: str | None = None):
         """
@@ -405,85 +325,82 @@ class Agent:
                 key = func.name
             else:
                 raise ValueError(f"Invalid tool: {func}")
-        self.functions[key] = func
-        # Mark cache as dirty when tools are added
-        self._cache_dirty = True
+
+        # Unified approach: Ensure all functions have function_descriptions
+        # Skip if already has function_descriptions (e.g., proxy wrappers)
+        # Skip if has __schema__ (e.g., MCP tools - different format)
+        if not hasattr(func, "function_descriptions") and not hasattr(
+            func, "__schema__"
+        ):
+            # Parse function to create Description object
+            if hasattr(func, "parameters") and isinstance(func.parameters, list):
+                # Reverse callable - create Description manually
+                func.function_descriptions = Description(
+                    inputs=[Value(type_=str, name=p) for p in func.parameters],
+                    name=getattr(func, "name", key),
+                )
+
+        # Add to _base_functions
+        self._base_functions[key] = func
+
         return self
 
-    def enable_rich_conversations(self):
-        """Enable rich conversation flow"""
-        self.enhanced_flow = True
-        return self
-
-    def disable_rich_conversations(self):
-        """Disable rich conversation flow"""
-        self.enhanced_flow = False
-        return self
-
-    async def toolset(
-        self, toolset: Union["ToolSet", "ToolsetProxy", "ToolsetLike"]
-    ) -> "Agent":
-        """Add a toolset to the agent.
-
-        Supports three types of toolsets:
-        1. ToolSet instance (local toolset) - loaded immediately
-        2. ToolsetProxy instance (remote toolset) - lazy loaded on first conversation
-        3. Any object with tool_functions attribute - legacy compatibility
-
-        For ToolsetProxy, this method only stores the proxy reference.
-        Tools are loaded lazily during the first conversation via _ensure_proxy_tools_loaded().
+    def remove_tool(self, key: str) -> bool:
+        """
+        Remove a tool from the agent.
 
         Args:
-            toolset: The toolset to add. Accepted types:
-                - ToolSet: Local toolset instance (loaded immediately)
-                - ToolsetProxy: Remote toolset proxy (lazy loading)
-                - ToolsetLike: Any object with tool_functions attribute (legacy)
+            key: The name of the tool to remove.
 
         Returns:
-            Agent: The agent instance for method chaining.
-
-        Raises:
-            TypeError: If toolset is not one of the accepted types.
-
-        Example:
-            ```python
-            # Local toolset (immediate loading)
-            from pantheon.toolset import ToolSet
-            local_ts = ToolSet()
-            await agent.toolset(local_ts)
-
-            # Remote toolset (lazy loading)
-            from pantheon.endpoint import ToolsetProxy
-            proxy = ToolsetProxy.from_toolset("service_id")
-            await agent.toolset(proxy)  # ← Instant return
-
-            # Tools loaded on first conversation
-            await agent.run("Hello")
-            ```
+            bool: True if the tool was found and removed, False otherwise.
         """
-        # Check if it's a ToolsetProxy
-        if isinstance(toolset, ToolsetProxy):
-            # Lazy loading: only store proxy reference, don't load tools yet
-            toolset_name = toolset.toolset_name
+        if key in self._base_functions:
+            del self._base_functions[key]
+            return True
 
-            # Store proxy (no await, instant return)
-            self.toolset_proxies[toolset_name] = toolset
+        return False
 
-            logger.info(
-                f"Agent '{self.name}' registered toolset '{toolset_name}' "
-                f"(lazy loading - tools will be loaded on first conversation)"
-            )
+    def enable_plan_mode(self) -> dict:
+        """Enable Plan Mode - a read-only environment for safe planning and analysis."""
+        if self.plan_mode:
+            return {"already_in_plan_mode": True, "message": "Already in Plan Mode"}
 
-        # Check if it's a regular ToolSet or compatible object
-        elif hasattr(toolset, "tool_functions"):
-            # Use local ToolSet pattern - load immediately
+        # Set flag - system prompt will enforce restrictions
+        self.plan_mode = True
+        logger.info(f"🔒 [Agent:{self.name}] Entered Plan Mode (Read-Only). ")
+
+        return {
+            "success": True,
+            "plan_mode": True,
+            "message": "Plan Mode activated. Tool restrictions enforced via system prompt.",
+        }
+
+    def _disable_plan_mode_internal(self):
+        """Internal method to disable Plan Mode (called by exit_plan_mode tool)."""
+        if not self.plan_mode:
+            return
+
+        # Clear flag - system prompt will return to normal
+        self.plan_mode = False
+
+        logger.info(
+            f"🔓 [Agent:{self.name}] Exited Plan Mode. Full tool access restored."
+        )
+
+    async def toolset(self, toolset: "ToolSet") -> "Agent":
+        """Add a local toolset to the agent."""
+        if isinstance(toolset, ToolSet):
+            # Local ToolSet - immediately load all tools
             for name, (func, _) in toolset.tool_functions.items():
                 self.tool(func, key=name)
-            # Cache will be marked dirty by individual tool() calls
+            logger.info(
+                f"Agent '{self.name}': Added local toolset with {len(toolset.functions)} tools"
+            )
         else:
             raise TypeError(
                 f"Invalid toolset type: {type(toolset)}. "
-                "Expected ToolSet, ToolsetProxy, or object with tool_functions."
+                f"ToolsetProxy should be managed at ChatRoom/Factory level."
             )
 
         return self
@@ -518,134 +435,15 @@ class Agent:
             self.tool(_wrap_tool, key=tool.name)
         return self
 
-    async def _ensure_proxy_tools_loaded(self):
-        """Ensure all ToolsetProxy tools are loaded (lazy loading on first conversation).
-
-        This method is called before each conversation to:
-        1. Load tools from proxies that haven't been loaded yet
-        2. Retry loading from proxies that failed before (auto-healing)
-        3. Create wrapper functions and add them to self.functions
-
-        This is idempotent - already loaded proxies are skipped.
-        Failed proxies are logged but don't block agent operation.
-        """
-        if not self.toolset_proxies:
-            return  # No proxies registered
-
-        for toolset_name, proxy in self.toolset_proxies.items():
-            # Skip if already loaded
-            if toolset_name in self._proxy_loaded:
-                continue
-
-            try:
-                # Attempt to load tools (uses proxy's cache if available)
-                logger.debug(f"Loading tools from toolset '{toolset_name}'...")
-                tools = await proxy.list_tools()
-
-                # Create wrapper for each tool and add to self.functions
-                for tool_desc in tools:
-                    tool_name = tool_desc["name"]
-                    wrapper = self._create_proxy_wrapper(proxy, tool_desc)
-                    self.tool(wrapper, key=tool_name)
-
-                # Mark as loaded
-                self._proxy_loaded.add(toolset_name)
-                logger.info(
-                    f"Successfully loaded {len(tools)} tools from toolset '{toolset_name}'"
-                )
-
-            except Exception as e:
-                # Failed to load - skip this toolset, will retry next conversation
-                logger.warning(
-                    f"Failed to load toolset '{toolset_name}': {e}. "
-                    f"Tools from this toolset will not be available for this conversation. "
-                    f"Will retry on next conversation."
-                )
-                continue  # Don't block other toolsets
-
-    def _create_proxy_wrapper(self, proxy: "ToolsetProxy", tool_desc: dict):
-        """Create a wrapper function for a proxy tool.
-
-        This wrapper:
-        1. Calls proxy.invoke() when invoked
-        2. Has function_descriptions attribute for _convert_functions()
-        3. Handles errors gracefully (proxy.invoke() returns error dict)
-        4. Handles inner_call callback mechanism (for agent_run and local functions)
-
-        Args:
-            proxy: ToolsetProxy instance
-            tool_desc: Tool description dict from proxy.list_tools()
-
-        Returns:
-            Callable wrapper function with function_descriptions attribute
-        """
-        tool_name = tool_desc["name"]
-        agent_context = self  # Reference to agent for callbacks
-
-        # Create async wrapper function
-        async def proxy_tool_wrapper(**kwargs):
-            """Wrapper that calls through ToolsetProxy.invoke()."""
-            # Filter parameters based on tool description
-            param_names = list(tool_desc.get("parameters", {}).keys())
-            remote_params = {
-                k: v
-                for k, v in kwargs.items()
-                if k in param_names or k in __SKIP_PARAMS__
-            }
-
-            # proxy.invoke() handles all errors and returns dict (never raises)
-            result = await proxy.invoke(tool_name, remote_params)
-
-            # Handle inner calls (callback mechanism)
-            # Some toolsets use this to call back to agent or local functions
-            if isinstance(result, dict) and "inner_call" in result:
-                inner_call = result.pop("inner_call")
-                name = inner_call["name"]
-                args = inner_call["args"]
-                result_field = inner_call["result_field"]
-
-                # Handle callback using the agent context
-                if name == "__agent_run__":
-                    agent_run = kwargs.get(__AGENT_RUN_NAME__)
-                    if agent_run:
-                        callback_result = await agent_run(args)
-                        result[result_field] = callback_result
-                    else:
-                        raise RuntimeError("Agent callback required but not provided")
-                else:
-                    # Local function callback - use agent's functions
-                    if name in agent_context.functions:
-                        callback_result = await run_func(
-                            agent_context.functions[name], **args
-                        )
-                        result[result_field] = callback_result
-                    else:
-                        raise RuntimeError(
-                            f"Local function '{name}' not found in agent"
-                        )
-
-            return result
-
-        # Set function metadata
-        proxy_tool_wrapper.__name__ = tool_name
-        proxy_tool_wrapper.__doc__ = tool_desc.get("description", "")
-
-        # Convert tool_desc to Description for _convert_functions()
-        proxy_tool_wrapper.function_descriptions = _convert_tool_desc_to_description(
-            tool_desc
-        )
-
-        return proxy_tool_wrapper
-
     def _convert_functions(
         self, litellm_mode: bool, allow_transfer: bool
     ) -> list[dict]:
         """Convert function to the format that the model can understand."""
         functions = []
-        # Fully unified function handling - all functions are now identical
+
         for func in self.functions.values():
+            # Special case: MCP tools with __schema__
             if hasattr(func, "__schema__"):
-                # directly use the schema of the tool
                 schema = copy.deepcopy(func.__schema__)
                 if litellm_mode:
                     schema["function"]["strict"] = False
@@ -656,32 +454,25 @@ class Agent:
             if hasattr(func, "function_descriptions"):
                 # This is a remote function wrapper with stored descriptions
                 desc = func.function_descriptions
-            elif isinstance(func, ReverseCallable):
-                # This is a magique reverse callable
-                desc = Description(
-                    inputs=[Value(type_=str, name=p) for p in func.parameters],
-                    name=func.name,
-                )
-            elif hasattr(func, "parameters") and isinstance(func.parameters, list):
-                # This is a legacy reverse callable in magique
-                desc = Description(
-                    inputs=[Value(type_=str, name=p) for p in func.parameters],
-                    name=func.name,
-                )
             else:
                 # All other functions (local) can be parsed normally
                 desc = parse_func(func)
 
             assert isinstance(desc.name, str), "Function name must be a string"
+
+            # Filter transfer functions if not allowed
             if not allow_transfer:
                 if desc.name.startswith("transfer_to_") or desc.name.startswith(
                     "call_agent_"
                 ):
                     # NOTE: transfer function should start with `transfer_to_`
                     continue
+
+            skip_params = list(_SKIP_PARAMS)
+
             func_dict = desc_to_openai_dict(
                 desc,
-                skip_params=__SKIP_PARAMS__,
+                skip_params=skip_params,
                 litellm_mode=litellm_mode,
             )
             functions.append(func_dict)
@@ -696,7 +487,7 @@ class Agent:
         time_delta: float = 0.5,
         check_stop: Callable | None = None,
     ) -> list[dict]:
-        messages = []
+        tool_messages = []
 
         async def agent_run(msg: AgentInput):
             """Remote function for toolset call agent."""
@@ -712,7 +503,7 @@ class Agent:
         for call in tool_calls:
             try:
                 func_name = call["function"]["name"]
-                params = json.loads(call["function"]["arguments"])
+                params = json.loads(call["function"]["arguments"]) or {}
 
                 # All functions are now in self.functions (unified approach)
                 assert func_name in self.functions, (
@@ -721,24 +512,20 @@ class Agent:
 
                 func = self.functions[func_name]
 
-                # Handle parameter injection - check function type
-                if hasattr(func, "function_descriptions"):
-                    # Remote function wrapper - check parameter names from description
+                # Handle parameter injection - unified approach
+                # All functions now have function_descriptions (except MCP with __schema__)
+                if hasattr(func, "__schema__"):
+                    var_names = func.__code__.co_varnames
+                elif hasattr(func, "function_descriptions"):
                     var_names = [v.name for v in func.function_descriptions.inputs]
-                elif isinstance(func, ReverseCallable):
-                    # This is a magique reverse callable
-                    var_names = func.parameters
-                elif hasattr(func, "parameters") and isinstance(func.parameters, list):
-                    # Legacy reverse callable in magique
-                    var_names = func.parameters
                 else:
-                    # Regular local function
                     var_names = func.__code__.co_varnames
 
-                if __CTX_VARS_NAME__ in var_names:
-                    params[__CTX_VARS_NAME__] = context_variables
-                if __AGENT_RUN_NAME__ in var_names:
-                    params[__AGENT_RUN_NAME__] = agent_run
+                if _CTX_VARS_NAME in var_names:
+                    params[_CTX_VARS_NAME] = context_variables
+                if _AGENT_RUN_NAME in var_names:
+                    params[_AGENT_RUN_NAME] = agent_run
+
                 start_time = time.time()
                 task = asyncio.create_task(run_func(func, **params))
                 while True:
@@ -766,7 +553,7 @@ class Agent:
             execution_duration = end_timestamp - start_time
 
             if isinstance(result, (Agent, RemoteAgent)):
-                messages.append(
+                tool_messages.append(
                     {
                         "role": "tool",
                         "tool_call_id": call["id"],
@@ -788,7 +575,7 @@ class Agent:
                 content = repr(processed_result)
                 if self.max_tool_content_length is not None:
                     content = content[: self.max_tool_content_length]
-                messages.append(
+                tool_messages.append(
                     {
                         "role": "tool",
                         "tool_call_id": call["id"],
@@ -802,7 +589,7 @@ class Agent:
                         "execution_duration": execution_duration,  # 新增：执行时长（秒）
                     }
                 )
-        return messages
+        return tool_messages
 
     async def _acompletion(
         self,
@@ -839,16 +626,6 @@ class Agent:
         env_var = f"{provider.upper()}_API_BASE"
         if env_var in os.environ:
             base_url = os.environ[env_var]
-
-        # Ensure proxy tools are loaded (lazy loading on first conversation)
-        if tool_use:
-            load_start = time.time()
-            await self._ensure_proxy_tools_loaded()
-            load_time = time.time() - load_start
-            if load_time > 0.01:  # Only log if took significant time
-                logger.info(
-                    f"📦 [Agent:{self.name}] Proxy tools loaded: {load_time:.3f}s"
-                )
 
         # Time tool conversion
         tools = None
@@ -1038,11 +815,6 @@ class Agent:
         else:
             return {}
 
-    def get_system_prompt(self):
-        if self.enhanced_flow:
-            return create_enhanced_instructions(self.instructions)
-        return self.instructions
-
     async def _run_stream(
         self,
         messages: list[dict],
@@ -1060,7 +832,14 @@ class Agent:
         response_format = response_format or self.response_format
         history = copy.deepcopy(messages)
         tool_timeout = tool_timeout or self.tool_timeout
-        system_prompt = self.get_system_prompt()
+
+        system_prompt = build_system_prompt(
+            self.instructions,
+            plan_mode=self.plan_mode,
+            decision_flow=True,
+            react_mode=True,
+            tools_guidance=True,
+        )
         current_timestamp = time.time()
 
         if (len(history) > 0) and (history[0]["role"] == "system"):
@@ -1119,11 +898,8 @@ class Agent:
             if process_step_message:
                 await run_func(process_step_message, message)
 
-            # Enhanced conversation flow (opt-in)
+            # If no tool calls, stop conversation
             if not message.get("tool_calls"):
-                if self.enhanced_flow:
-                    if self._should_continue_conversation(message, history):
-                        continue
                 break
 
             tool_messages = await self._handle_tool_calls(
@@ -1149,6 +925,19 @@ class Agent:
                         context_variables=context_variables,
                         init_message_length=init_len,
                     )
+
+            # Check for exit_plan_mode tool call - stop execution for user approval
+            for msg in tool_messages:
+                if msg.get("tool_name") == "exit_plan_mode":
+                    raw_content = msg.get("raw_content", {})
+                    if isinstance(raw_content, dict) and raw_content.get(
+                        "exit_plan_mode"
+                    ):
+                        logger.info(
+                            f"🔒 [Agent:{self.name}] exit_plan_mode called - stopping execution for user approval"
+                        )
+                        # Stop conversation loop - user needs to approve the plan
+                        break
 
         return ResponseDetails(
             messages=history[init_len:],
@@ -1222,53 +1011,6 @@ class Agent:
             messages = new_messages
         return messages
 
-    def _should_continue_conversation(self, message: dict, history: list) -> bool:
-        """Simple conversation continuation logic - only enhanced messages reach here"""
-        from .utils.log import logger
-
-        # SAFETY FIRST: Basic limits to prevent API drain - count truly consecutive messages from THIS agent
-        consecutive_no_tools = 0
-        for msg in reversed(history):
-            if (
-                msg.get("role") == "assistant"
-                and not msg.get("tool_calls")
-                and msg.get("agent_name") == self.name
-            ):
-                consecutive_no_tools += 1
-            else:
-                # Stop counting when we hit a non-matching message (breaks the consecutive chain)
-                break
-
-        if consecutive_no_tools >= self.max_consecutive_messages:
-            logger.warning(
-                f"Agent {self.name}: Too many consecutive messages without tools ({consecutive_no_tools})"
-            )
-            return False
-
-        if (
-            len([m for m in history if m.get("role") == "assistant"])
-            >= self.max_total_messages
-        ):
-            logger.warning(f"Agent {self.name}: Reached message limit")
-            return False
-
-        # CORE LOGIC: Simple state-based decisions
-        state = (
-            message.get("conversation_state")
-            or _detect_conversation_state_static(message)["state"]
-        )
-
-        # These always stop (completed tasks or user questions)
-        if state in ["completed", "executed"]:
-            return False
-
-        # These always continue (reasoning leads to action, executing continues the work)
-        if state in ["reasoning", "executing"]:
-            return True
-
-        # Default: stop
-        return False
-
     async def run(
         self,
         msg: AgentInput,
@@ -1325,7 +1067,7 @@ class Agent:
         if isinstance(msg, AgentTransfer):
             new_input_messages = []
             context_variables = msg.context_variables
-        context_variables[__CLIENT_ID_NAME__] = memory.id
+        context_variables[_CLIENT_ID_NAME] = memory.id
 
         if update_memory:
             memory.add_messages(new_input_messages)
@@ -1341,17 +1083,6 @@ class Agent:
         else:
             _process_step_message = process_step_message
 
-        async def enhanced_step_processor(step_message):
-            enhancer = SmartMessageEnhancer()
-            enhancer.enhance_message(step_message)
-            if _process_step_message:
-                await run_func(_process_step_message, step_message)
-
-        if self.enhanced_flow:
-            step_processor = enhanced_step_processor
-        else:
-            step_processor = _process_step_message
-
         try:
             details = await self._run_stream(
                 messages=messages,
@@ -1359,7 +1090,7 @@ class Agent:
                 tool_use=tool_use,
                 context_variables=context_variables,
                 process_chunk=process_chunk,
-                process_step_message=step_processor,
+                process_step_message=_process_step_message,
                 check_stop=check_stop,
                 tool_timeout=tool_timeout,
                 model=model,
@@ -1403,163 +1134,3 @@ class Agent:
 
         service = AgentService(self, **kwargs)
         return await service.run()
-
-
-def create_enhanced_instructions(base_instructions: str) -> str:
-    """Add rich response capability with Biomni-inspired structured format"""
-
-    enhanced_format = f"""{base_instructions}
-
-ENHANCED CONVERSATION FLOW:
-
-At each turn, you must include EXACTLY ONE tag with title and content. Choose from these 3 options:
-
-1) For reasoning and analysis:
-<thinking>Brief title of your thinking focus
-Your detailed reasoning, planning, or analysis process goes here.
-
-2) For taking actions or using tools:
-<execute>Brief title of the action you're taking
-Explanation of what you're doing and why, then call your tools.
-
-3) For completion - either finished work OR asking user questions:
-<complete>Brief title of what you're concluding
-Final results, answers, questions to user, or task completion summary.
-
-CRITICAL RULES:
-- Use EXACTLY ONE tag per response - no exceptions
-- Each tag must have: Brief title on first line + detailed content below
-- NEVER combine multiple tags: ✗ <thinking>...</thinking> <execute>...</execute>
-- In each response, you must include one of the three tags. No messages without tags.
-- If you need to think AND act, use <thinking> first, then <execute> in next response
-
-TAG USAGE GUIDE:
-- <thinking> = internal reasoning, planning, analyzing requirements
-- <execute> = calling tools, performing actions, working on tasks
-- <complete> = final answers, results, OR questions to user
-
-EXAMPLES OF CORRECT USAGE:
-✓ "<thinking>Analyzing user requirements
-Let me break down what the user is asking for: 1) They want X, 2) They need Y..."
-
-✓ "<execute>Running data analysis
-I'll call the analysis function with these parameters and process the results.
-[calls tools here]"
-
-✓ "<complete>Task completed successfully
-Here are the results: ... What would you like me to focus on next?"
-
-EXAMPLES OF WRONG USAGE:
-✗ "<thinking>Planning... <execute>Now running..."
-✗ "Let me <thinking>think and then <execute>act"
-✗ Any response with more than one tag
-
-"""
-
-    return enhanced_format
-
-
-def _detect_conversation_state_static(message: dict) -> dict:
-    """Standalone function for conversation state detection using loop-based patterns"""
-    import re
-
-    # Tool responses are always "executed"
-    if message.get("role") == "tool":
-        return {
-            "state": "executed",
-            "description": f"Tool {message.get('tool_name', 'response')} executed",
-            "title": "🔹 Tool Response",
-        }
-
-    content = message.get("content", "")
-    has_tool_calls = bool(message.get("tool_calls"))
-
-    # Define state patterns - simplified 3-tag system with title + content (single tag format)
-    patterns = [
-        # (regex_pattern, state, emoji)
-        (
-            r"<thinking>\s*([^\n<]*?)(?:\n(.*?))?(?=<(?:execute|complete)|$)",
-            "reasoning",
-            "🧠",
-        ),
-        (
-            r"<execute>\s*([^\n<]*?)(?:\n(.*?))?(?=<(?:thinking|complete)|$)",
-            "executing",
-            "⚡",
-        ),
-        (
-            r"<complete>\s*([^\n<]*?)(?:\n(.*?))?(?=<(?:thinking|execute)|$)",
-            "completed",
-            "✅",
-        ),
-    ]
-
-    # Check content for explicit state markers - find first match
-    if content:
-        for pattern, state, emoji in patterns:
-            match = re.search(pattern, content, re.IGNORECASE | re.DOTALL)
-            if match:
-                title = match.group(1).strip() if match.group(1) else ""
-                raw_description = match.group(2).strip() if match.group(2) else ""
-
-                # Clean description by removing any subsequent markers (single tag format)
-                cleaned_description = re.sub(
-                    r"<(thinking|execute|complete)\b.*",
-                    "",
-                    raw_description,
-                    flags=re.IGNORECASE | re.DOTALL,
-                ).strip()
-
-                return {
-                    "state": state,
-                    "description": cleaned_description,
-                    "title": f"{emoji} {title}",
-                }
-
-    # Assistant with tool calls but no explicit markers
-    if message.get("role") == "assistant" and has_tool_calls:
-        return {
-            "state": "executing",
-            "description": content,
-            "title": "⚡ Executing Tools",
-        }
-
-    # Default fallback - use content as description if no markers found
-    return {"state": "reasoning", "description": content, "title": ""}
-
-
-class SmartMessageEnhancer:
-    """Extract metadata from structured LLM responses with explicit state support"""
-
-    def enhance_message(self, message: dict) -> dict:
-        """Extract metadata from state markers and clean content for display"""
-
-        state_info = _detect_conversation_state_static(message)
-
-        # Add metadata to message
-        message["step_title"] = state_info["title"]  # Already includes emoji
-        message["conversation_state"] = state_info["state"]
-
-        # Extract both title and detailed content separately
-        message["step_briefi_title"] = self._extract_brief_title(state_info["title"])
-        message["display_content"] = self._clean_content_for_display(
-            state_info["description"]
-        )
-
-        # Keep original content for backward compatibility
-        if not message.get("display_content"):
-            message["display_content"] = message.get("content", "")
-
-        return message
-
-    def _extract_brief_title(self, full_title: str) -> str:
-        """Extract just the title without emoji"""
-        # Remove emoji and extra whitespace
-        import re
-
-        clean_title = re.sub(r"^[^\w\s]+\s*", "", full_title).strip()
-        return clean_title if clean_title else "Processing"
-
-    def _clean_content_for_display(self, description: str) -> str:
-        """Return the description content (content after the marker)"""
-        return description.strip() if description else ""

@@ -4,8 +4,6 @@ import importlib
 from pathlib import Path
 from rich.console import Console
 
-from ..constant import HYPHA_SERVER_URL
-
 
 HERE = Path(__file__).parent
 
@@ -84,9 +82,6 @@ async def start(
     service_name: str = None,
     mcp: bool = False,
     mcp_kwargs: dict = {},
-    hypha: bool = False,
-    hypha_server_url: str | None = None,
-    hypha_kwargs: dict = {},
     **kwargs,
     ):
     """Start a remote toolset.
@@ -95,9 +90,6 @@ async def start(
         toolset_name: The name of the toolset to run.
         mcp: Whether to run the toolset as an MCP server.
         mcp_kwargs: The keyword arguments for the MCP server.
-        hypha: Whether to run the toolset as a Hypha service.
-        hypha_server_url: The URL of the Hypha server.
-        hypha_kwargs: The keyword arguments for the Hypha service.
     """
     if service_name is None:
         service_name = toolset_name
@@ -105,10 +97,6 @@ async def start(
     toolset = toolset_class(service_name, **kwargs)
     if mcp:
         await toolset.run_as_mcp(**mcp_kwargs)
-    elif hypha:
-        if hypha_server_url is None:
-            hypha_server_url = HYPHA_SERVER_URL
-        await toolset.run_as_hypha_service(hypha_server_url, **hypha_kwargs)
     else:
         await toolset.run()
 

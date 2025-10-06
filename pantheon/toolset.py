@@ -11,17 +11,23 @@ from .remote import RemoteBackendFactory
 from .utils.log import logger
 
 
-def tool(func: Callable | None = None, **kwargs):
+def tool(func: Callable | None = None, *, exclude: bool = False, **kwargs):
     """Mark tool in a ToolSet class
 
     Args:
+        exclude: bool
+            If True, this tool will not be exposed to LLM agents.
+            Useful for tools that are only meant for frontend/API use.
+            Default False
         job_type: "local", "thread" or "process"
             Different job types will be executed in different ways.
             Default "local"
+        **kwargs: Additional parameters for tool execution
     """
     if func is None:
-        return partial(tool, **kwargs)
+        return partial(tool, exclude=exclude, **kwargs)
     func._is_tool = True
+    func._exclude = exclude
     func._tool_params = kwargs
     return func
 
@@ -43,11 +49,21 @@ class ToolSet(ABC):
                 self._functions[name] = (method, _kwargs)
 
     @property
+    def toolset_name(self):
+        return self._service_name
+
+    @property
     def tool_functions(self):
-        return self._functions
+        """Get tool functions available to LLM (exclude=True filtered out)"""
+        return {
+            name: (method, kwargs)
+            for name, (method, kwargs) in self._functions.items()
+            if not getattr(method, "_exclude", False)
+        }
 
     @property
     def functions(self):
+        """Get all functions (including excluded ones)"""
         return self._functions
 
     @property
@@ -63,7 +79,7 @@ class ToolSet(ABC):
         """List all available tools in this toolset.
 
         This method is used by ToolsetProxy to discover available tools.
-        It works for both LOCAL and REMOTE toolsets through proxy_toolset.
+        Uses funcdesc for unified type extraction (same as local tools).
         Named to match MCP's list_tools convention.
 
         Returns:
@@ -72,99 +88,45 @@ class ToolSet(ABC):
                 "tools": [
                     {
                         "name": "method_name",
-                        "description": "Method docstring summary",
-                        "parameters": {
-                            "param_name": {
-                                "type": "string|integer|number|boolean|array|object|any",
-                                "required": True|False,
-                                "default": value  # if not required
+                        "doc": "Method docstring",
+                        "inputs": [
+                            {
+                                "name": "param_name",
+                                "type": {"type": "str"} or {"type": "list", "args": [...]},
+                                "default": value,
+                                "doc": ""
                             }
-                        }
+                        ]
                     },
                     ...
                 ]
             }
         """
+        import json
+        from funcdesc import parse_func
+
         tools = []
 
-        for name, (method, tool_kwargs) in self._functions.items():
+        # Use tool_functions which already filters out exclude=True tools
+        for name, (method, tool_kwargs) in self.tool_functions.items():
             # Skip list_tools itself to avoid recursion
             if name == "list_tools":
                 continue
 
             try:
-                # Get function signature
-                sig = inspect.signature(method)
-                doc = inspect.getdoc(method) or ""
+                # Use funcdesc.parse_func() - same as local tools
+                desc = parse_func(method)
 
-                # Parse parameters
-                parameters = {}
-                for param_name, param in sig.parameters.items():
-                    # Skip self/cls
-                    if param_name in ["self", "cls"]:
-                        continue
+                # Serialize using Description's built-in to_json()
+                tool_dict = json.loads(desc.to_json())
 
-                    param_info = {
-                        "type": self._get_param_type_str(param),
-                        "required": param.default == inspect.Parameter.empty,
-                    }
-
-                    # Add default value if exists
-                    if param.default != inspect.Parameter.empty:
-                        param_info["default"] = param.default
-
-                    parameters[param_name] = param_info
-
-                # Add to tools list
-                tools.append(
-                    {
-                        "name": name,
-                        "description": doc if doc else "",
-                        "parameters": parameters,
-                    }
-                )
+                tools.append(tool_dict)
 
             except Exception as e:
-                logger.warning(f"Failed to extract tool info for '{name}': {e}")
+                logger.warning(f"Failed to parse tool '{name}': {e}")
                 continue
 
         return {"success": True, "tools": tools}
-
-    def _get_param_type_str(self, param) -> str:
-        """Get parameter type as string."""
-        if param.annotation == inspect.Parameter.empty:
-            return "any"
-
-        # Simple type mapping
-        type_map = {
-            str: "string",
-            int: "integer",
-            float: "number",
-            bool: "boolean",
-            list: "array",
-            dict: "object",
-        }
-
-        # Direct match
-        if param.annotation in type_map:
-            return type_map[param.annotation]
-
-        # Handle typing module types
-        annotation_str = str(param.annotation)
-        if "List" in annotation_str or "list" in annotation_str:
-            return "array"
-        elif "Dict" in annotation_str or "dict" in annotation_str:
-            return "object"
-        elif "str" in annotation_str:
-            return "string"
-        elif "int" in annotation_str:
-            return "integer"
-        elif "float" in annotation_str:
-            return "number"
-        elif "bool" in annotation_str:
-            return "boolean"
-
-        return "any"
 
     async def run(self, log_level: str | None = None):
         if log_level is not None:
@@ -194,8 +156,8 @@ class ToolSet(ABC):
         from fastmcp import FastMCP
 
         mcp = FastMCP(self._service_name, **mcp_kwargs)
-        for func, _ in self._functions.values():
-            mcp.tool(func)
+        for method, kwargs in self._functions.values():
+            mcp.tool(method)
         return mcp
 
     async def run_as_mcp(self, log_level: str | None = None, **mcp_kwargs):

@@ -6,22 +6,21 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 
 from .base import ScATACSeqBase
-from ...utils.toolset import tool
-from ...utils.log import logger
+from pantheon.toolset import tool
+from pantheon.utils.log import logger
 
 
 class ScATACSeqUpstreamToolSet(ScATACSeqBase):
     """Single-cell ATAC-seq upstream processing toolset using cellranger-atac"""
-    
+
     def __init__(
         self,
         name: str = "scatac_upstream",
         workspace_path: str = None,
         launch_directory: str = None,
-        worker_params: dict = None,
-        **kwargs
+        **kwargs,
     ):
-        super().__init__(name, workspace_path, launch_directory, worker_params, **kwargs)
+        super().__init__(name, workspace_path, launch_directory, **kwargs)
 
     @tool
     def ScATAC_Upstream(self, workflow_type: str, description: str = None):
@@ -42,7 +41,7 @@ class ScATACSeqUpstreamToolSet(ScATACSeqBase):
             return self.run_upstream_workflow_test_functionality()
         else:
             return "Invalid workflow type"
-    
+
     def run_upstream_workflow_init(self):
         """Run scATAC project initialization workflow"""
         logger.info("Running scATAC project initialization workflow")

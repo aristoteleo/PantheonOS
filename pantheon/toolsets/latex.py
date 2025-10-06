@@ -8,7 +8,6 @@ class LatexToolSet(ToolSet):
 
     Args:
         name: The name of the toolset.
-        worker_params: The parameters for the worker.
         **kwargs: Additional keyword arguments.
     """
 

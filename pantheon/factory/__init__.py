@@ -1,6 +1,7 @@
 import os
 
 from ..agent import Agent
+from ..utils.proxy_wrapper import ProxyWrapperBuilder
 from ..endpoint import ToolsetProxy
 from ..utils.log import logger
 
@@ -18,6 +19,7 @@ async def create_agent(
     icon: str,
     toolsets: list[str] | None = None,
     toolful: bool = False,
+    chat_id=None,
     **kwargs,
 ) -> Agent:
     """Create an agent from a template.
@@ -43,33 +45,35 @@ async def create_agent(
     if toolsets is None:
         return agent
 
-    logger.info(f"Agent '{name}': Adding {len(toolsets)} toolsets via ToolsetProxy")
+    logger.info(f"Agent '{name}': Adding {len(toolsets)} remote toolsets")
 
     for toolset_name in toolsets:
         try:
-            # Create ToolsetProxy (no connection needed, instant!)
-            proxy = ToolsetProxy.from_endpoint(
-                endpoint_service,
-                toolset_name,
-                cache_ttl=300,  # 5 minutes cache
-                max_retries=3,
-            )
+            # Add remote toolset via helper function (ChatRoom-style management)
+            proxy = ToolsetProxy.from_endpoint(endpoint_service, toolset_name)
 
-            # Add toolset through proxy (lazy-loaded)
-            await agent.toolset(proxy)
+            wrapped_tools = await ProxyWrapperBuilder.wrap_tools(proxy, agent, chat_id)
+            num_tools = len(wrapped_tools.keys())
+            for tool_name, tool in wrapped_tools.items():
+                agent.tool(tool, key=tool_name)
 
-            logger.info(f"Agent '{name}': Registered toolset '{toolset_name}'")
+            if num_tools > 0:
+                logger.info(
+                    f"Agent '{name}': Added {num_tools} tools from '{toolset_name}'"
+                )
+            else:
+                agent.not_loaded_toolsets.append(toolset_name)
 
         except Exception as e:
-            logger.error(
-                f"Agent '{name}': Failed to register toolset '{toolset_name}': {e}"
-            )
+            logger.error(f"Agent '{name}': Failed to add toolset '{toolset_name}': {e}")
             agent.not_loaded_toolsets.append(toolset_name)
 
     return agent
 
 
-async def create_agents_from_template(endpoint_service, template: dict) -> dict:
+async def create_agents_from_template(
+    endpoint_service, template: dict, chat_id=None
+) -> dict:
     """Create agents from a template.
 
     Args:
@@ -85,9 +89,13 @@ async def create_agents_from_template(endpoint_service, template: dict) -> dict:
     triage_agent = None
     for name, agent_template in template.items():
         if name == "triage":
-            triage_agent = await create_agent(endpoint_service, **agent_template)
+            triage_agent = await create_agent(
+                endpoint_service, **agent_template, chat_id=chat_id
+            )
         else:
-            agents.append(await create_agent(endpoint_service, **agent_template))
+            agents.append(
+                await create_agent(endpoint_service, **agent_template, chat_id=chat_id)
+            )
     if triage_agent is None:
         raise ValueError("Triage agent not found")
     return {

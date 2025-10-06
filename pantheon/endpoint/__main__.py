@@ -42,15 +42,13 @@ async def start_endpoint(config_path: str | None = None):
 
 
 async def start_endpoint_hub(
-    config_dir: str | None = None,
-    workspace_base_path: str | None = None,
-    worker_params: dict | None = None,
+    config_dir: str | None = None, workspace_base_path: str | None = None, **kwargs
 ):
     if config_dir is None:
         config_dir = "endpoint_configs"
     if workspace_base_path is None:
         workspace_base_path = "./.endpoint-hub"
-    hub = EndpointHub(config_dir, workspace_base_path, worker_params)
+    hub = EndpointHub(config_dir, workspace_base_path, **kwargs)
     await hub.run()
 
 

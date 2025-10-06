@@ -5,35 +5,50 @@ import subprocess
 import json
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
-from ...utils.log import logger
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from pantheon.utils.log import logger
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+)
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
-from ...utils.toolset import ToolSet, tool
+from pantheon.toolset import ToolSet, tool
 from rich.console import Console
+
 
 class HiCUpstreamToolSet(ToolSet):
     """Hi-C Upstream Analysis Toolset - From FASTQ to Hi-C contact matrix"""
-    
+
     def __init__(
         self,
         name: str = "hic_upstream",
         workspace_path: str | Path | None = None,
-        worker_params: dict | None = None,
         **kwargs,
     ):
-        super().__init__(name, worker_params, **kwargs)
+        super().__init__(name, **kwargs)
         self.workspace_path = Path(workspace_path) if workspace_path else Path.cwd()
         self.pipeline_config = self._initialize_config()
         self.console = Console()
-        
+
     def _initialize_config(self) -> Dict[str, Any]:
         """Initialize Hi-C pipeline configuration"""
         return {
             "file_extensions": {
-                "raw_reads": [".fastq", ".fq", ".fastq.gz", ".fq.gz", ".fastq.bz2", 
-                             ".fq.bz2", ".fastq.zst", ".fq.zst", ".sra"],
+                "raw_reads": [
+                    ".fastq",
+                    ".fq",
+                    ".fastq.gz",
+                    ".fq.gz",
+                    ".fastq.bz2",
+                    ".fq.bz2",
+                    ".fastq.zst",
+                    ".fq.zst",
+                    ".sra",
+                ],
                 "genome": [".fa", ".fasta", ".fai", ".dict"],
                 "bwa_index": [".amb", ".ann", ".bwt", ".pac", ".sa"],
                 "restriction_sites": [".bed", ".txt"],
@@ -41,31 +56,44 @@ class HiCUpstreamToolSet(ToolSet):
                 "hic_matrix": [".h5", ".cool", ".mcool", ".hic"],
                 "pairs": [".pairs", ".pairs.gz", ".pairs.px2"],
                 "tracks": [".bw", ".bigwig", ".bedgraph"],
-                "reports": [".html", ".json", ".txt", ".tsv", ".csv", ".pdf", ".png"]
+                "reports": [".html", ".json", ".txt", ".tsv", ".csv", ".pdf", ".png"],
             },
             "tools": {
                 "acquisition": ["sra-tools", "pigz", "pbzip2", "zstd"],
                 "qc": ["fastqc", "multiqc", "trim_galore", "cutadapt", "fastp"],
                 "alignment": ["bwa", "bwa-mem2", "bowtie2"],
-                "hic_processing": ["hicexplorer", "cooler", "juicer", "hic-pro", "pairix"],
+                "hic_processing": [
+                    "hicexplorer",
+                    "cooler",
+                    "juicer",
+                    "hic-pro",
+                    "pairix",
+                ],
                 "sam_processing": ["samtools", "sambamba", "picard"],
                 "matrix_ops": ["cooler", "pairix", "pairs-tools", "hicstuff"],
                 "visualization": ["hicexplorer", "pygenometracks", "cooler", "higlass"],
-                "restriction": ["findRestSites", "digest_genome.py"]
+                "restriction": ["findRestSites", "digest_genome.py"],
             },
             "default_params": {
                 "threads": 8,
                 "memory": "32G",
                 "quality_threshold": 10,
                 "min_mapping_quality": 10,
-                "resolutions": [5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000],
+                "resolutions": [
+                    5000,
+                    10000,
+                    25000,
+                    50000,
+                    100000,
+                    250000,
+                    500000,
+                    1000000,
+                ],
                 "enzyme": "MboI",
                 "enzyme_sequence": "GATC",
-                "genome_build": "hg38"
-            }
+                "genome_build": "hg38",
+            },
         }
-        
-    
 
     @tool
     def HiC_Upstream(self, workflow_type: str, description: str = None):
@@ -96,7 +124,7 @@ class HiCUpstreamToolSet(ToolSet):
             return self.run_upstream_workflow_validate_enzyme()
         else:
             return "Invalid workflow type"
-    
+
     def run_upstream_workflow_init(self):
         """Run project initialization workflow"""
         logger.info("Running Hi-C project initialization workflow")
@@ -137,7 +165,7 @@ echo "  3. Update hic_config.json with your genome and enzyme"
 echo "  4. Run: /bio hic upstream ./"
         """
         return init_response
-    
+
     def run_upstream_workflow_check_dependencies(self):
         """Run dependency check workflow"""
         logger.info("Running Hi-C dependency check workflow")
@@ -163,7 +191,7 @@ cooler --version 2>/dev/null
 hicBuildMatrix --version 2>/dev/null | head -1
         """
         return check_dependencies_response
-    
+
     def run_upstream_workflow_setup_genome_resources(self):
         """Run genome setup workflow"""
         logger.info("Running Hi-C genome setup workflow")
@@ -192,7 +220,7 @@ findRestSites --fasta references/genome/hg38.fa --searchPattern GATC --outFile r
 echo "Genome resources setup complete!"
         """
         return setup_genome_response
-    
+
     def run_upstream_workflow_run_fastqc(self):
         """Run FastQC workflow"""
         logger.info("Running Hi-C FastQC workflow")
@@ -208,7 +236,7 @@ multiqc qc/fastqc/ -o qc/multiqc/ -n "hic_raw_reads_qc"
 echo "Hi-C raw reads QC complete!"
         """
         return fastqc_response
-    
+
     def run_upstream_workflow_trim_adapters(self):
         """Run adapter trimming workflow"""
         logger.info("Running Hi-C adapter trimming workflow")
@@ -233,7 +261,7 @@ done
 multiqc trimmed_data/ -o qc/multiqc/ -n "hic_trimmed_reads_qc"
         """
         return trim_adapters_response
-    
+
     def run_upstream_workflow_align_reads(self):
         """Run alignment workflow"""
         logger.info("Running Hi-C alignment workflow")
@@ -268,7 +296,7 @@ done
 echo "Hi-C alignment complete!"
         """
         return align_reads_response
-    
+
     def run_upstream_workflow_process_bam(self):
         """Run BAM processing workflow"""
         logger.info("Running Hi-C BAM processing workflow")
@@ -304,7 +332,7 @@ done
 echo "Hi-C BAM processing complete!"
         """
         return process_bam_response
-    
+
     def run_upstream_workflow_build_matrix(self):
         """Run Hi-C matrix building workflow"""
         logger.info("Running Hi-C matrix building workflow")
@@ -337,7 +365,7 @@ echo "Hi-C matrix building complete!"
 echo "Check qc/hicqc/ folders for quality reports!"
         """
         return build_matrix_response
-    
+
     def run_upstream_workflow_correct_matrix(self):
         """Run Hi-C matrix correction workflow"""
         logger.info("Running Hi-C matrix correction workflow")
@@ -370,7 +398,7 @@ done
 echo "Hi-C matrix correction complete!"
         """
         return correct_matrix_response
-    
+
     def run_upstream_workflow_generate_qc(self):
         """Run Hi-C QC generation workflow"""
         logger.info("Running Hi-C QC generation workflow")
@@ -406,7 +434,7 @@ echo "Hi-C QC generation complete!"
 echo "Check reports/ folder for comprehensive QC report!"
         """
         return generate_qc_response
-    
+
     def run_upstream_workflow_find_restriction_sites(self):
         """Run restriction enzyme site finding workflow"""
         logger.info("Running Hi-C restriction enzyme site finding workflow")
@@ -459,7 +487,7 @@ echo "Restriction enzyme site finding complete!"
 echo "Check references/enzyme_sites/ for BED files and statistics."
         """
         return find_restriction_sites_response
-    
+
     def run_upstream_workflow_validate_enzyme(self):
         """Run enzyme validation workflow"""
         logger.info("Running Hi-C enzyme validation workflow")

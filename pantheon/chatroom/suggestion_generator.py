@@ -58,10 +58,7 @@ Rules:
             
             if not self._suggestion_agent:
                 raise RuntimeError("Failed to create suggestion agent")
-            
-            # Enable rich conversations for better responses
-            self._suggestion_agent.enable_rich_conversations()
-            
+
             logger.info("✅ Centralized suggestion agent initialized successfully")
             
         except Exception as e:
@@ -104,30 +101,22 @@ Rules:
             prompt = self._build_suggestion_prompt(context, max_suggestions)
             
             # Generate suggestions using the centralized agent
-            # Temporarily disable rich conversations to avoid tags in suggestions
-            was_enhanced = self._suggestion_agent.enhanced_flow
-            self._suggestion_agent.disable_rich_conversations()
-            
             try:
                 # Generate suggestions using the agent directly with timeout
                 response = await asyncio.wait_for(
-                    self._suggestion_agent.run(prompt), 
+                    self._suggestion_agent.run(prompt),
                     timeout=30.0  # 30 second timeout for suggestions
                 )
-                
+
                 # Parse the response into structured suggestions
                 suggestions = self._parse_suggestions(response.content if response else "")
-                
+
                 logger.info(f"🔮 Generated {len(suggestions)} suggestions using centralized agent")
                 return suggestions
-                
+
             except asyncio.TimeoutError:
                 logger.warning("Suggestion generation timed out after 30 seconds")
                 return []
-            finally:
-                # Restore original enhanced flow state
-                if was_enhanced:
-                    self._suggestion_agent.enable_rich_conversations()
                         
         except Exception as e:
             logger.error(f"Error generating centralized suggestions: {str(e)}")

@@ -38,6 +38,9 @@ class EndpointConfig(TypedDict):
     # 特殊键 "default" -> 未指定服务的默认模式（默认为"local"）
     # Local toolset 配置
     local_toolset_timeout: int  # Local toolset方法调用的超时时间（秒），默认60
+    local_toolset_execution_mode: (
+        str  # Local toolset全局执行模式："thread" | "direct"，默认"direct"
+    )
 
 
 class Endpoint(FileTransferToolSet):
@@ -75,12 +78,23 @@ class Endpoint(FileTransferToolSet):
         # Extract default mode from service_modes, default to "local" if not specified
         self.default_service_mode: str = self.service_modes.get("default", "local")
 
-        # Executor engines for toolset execution
-        self._local_engine = Engine()  # For LOCAL mode ThreadJob execution
-        self._remote_engine = None  # For REMOTE mode SubprocessJob execution (created in run())
+        # Local toolset execution configuration
         self.local_toolset_timeout = self.config.get("local_toolset_timeout", 60)
+        self.local_toolset_execution_mode = self.config.get(
+            "local_toolset_execution_mode", "direct"
+        )  # "thread" or "direct" - applies to all LOCAL mode toolsets
+
+        # Executor engines for toolset execution
+        self._local_engine = (
+            Engine()
+        )  # For LOCAL mode ThreadJob execution (when using "thread" mode)
+        self._remote_engine = (
+            None  # For REMOTE mode SubprocessJob execution (created in run())
+        )
+
         logger.info(
-            f"Created local toolset engine with timeout={self.local_toolset_timeout}s"
+            f"Local toolset config: timeout={self.local_toolset_timeout}s, "
+            f"execution_mode={self.local_toolset_execution_mode} (global)"
         )
 
         super().__init__(
@@ -89,7 +103,6 @@ class Endpoint(FileTransferToolSet):
             black_list=[".endpoint-logs", ".executor"],
             **kwargs,
         )
-        self.report_service_id()
 
     @staticmethod
     def default_config() -> EndpointConfig:
@@ -143,7 +156,7 @@ class Endpoint(FileTransferToolSet):
         """
         try:
             args = args or {}
-            logger.info(
+            logger.debug(
                 f"proxy_toolset: method={method_name}, toolset={toolset_name}, args={args}"
             )
 
@@ -154,7 +167,7 @@ class Endpoint(FileTransferToolSet):
                 return await method(**args)
 
             # Call specific toolset method
-            logger.info(f"Calling toolset '{toolset_name}' method: {method_name}")
+            logger.debug(f"Calling toolset '{toolset_name}' method: {method_name}")
             service_info = await self.get_service(toolset_name)
 
             if not service_info:
@@ -162,10 +175,14 @@ class Endpoint(FileTransferToolSet):
                     f"Toolset '{toolset_name}' not found in endpoint services"
                 )
 
+            # Debug logging
+            logger.debug(
+                f"Service info for '{toolset_name}': id={service_info.get('id')}, name={service_info.get('name')}, mode={service_info.get('mode')}"
+            )
+
             # Route based on mode
             if service_info.get("mode") == ToolSetMode.LOCAL:
-                # LOCAL mode: call via ThreadJob
-                logger.debug(f"Using LOCAL mode (ThreadJob) for {toolset_name}")
+                # LOCAL mode: use global execution mode setting
                 toolset_instance = service_info.get("instance")
                 if not toolset_instance:
                     raise Exception(
@@ -175,7 +192,18 @@ class Endpoint(FileTransferToolSet):
                 method = self._get_tool_method(
                     toolset_instance, method_name, f"toolset '{toolset_name}'"
                 )
-                return await self._execute_local_method(method, args)
+
+                # Use global execution mode for all LOCAL toolsets
+                if self.local_toolset_execution_mode == "direct":
+                    logger.debug(
+                        f"Using LOCAL mode (direct) for {toolset_name}.{method_name}"
+                    )
+                    return await self._execute_local_method_direct(method, args)
+                else:  # "thread"
+                    logger.debug(
+                        f"Using LOCAL mode (thread) for {toolset_name}.{method_name}"
+                    )
+                    return await self._execute_local_method(method, args)
             else:
                 # REMOTE mode: call via remote service
                 logger.debug(f"Using REMOTE mode for {toolset_name}")
@@ -255,52 +283,24 @@ class Endpoint(FileTransferToolSet):
         return None
 
     @tool
-    async def list_toolset_tools(self, toolset_name: str) -> dict:
-        """List all available tools from a specific toolset.
-
-        This method simply calls the toolset's list_tools() method
-        through proxy_toolset, which works for both LOCAL and REMOTE toolsets.
-
-        Args:
-            toolset_name: Name of the toolset
+    async def services_ready(self) -> bool:
+        """Check if endpoint and all builtin services are ready.
 
         Returns:
-            dict: {
-                "success": bool,
-                "tools": List[dict],  # List of tool descriptions
-                "error": str  # Only present if success=False
-            }
+            True if endpoint setup is completed AND all builtin services are running.
         """
-        # Simply proxy to toolset's list_tools() method
-        # This works for both LOCAL and REMOTE automatically!
-        return await self.proxy_toolset(
-            method_name="list_tools",
-            args={},
-            toolset_name=toolset_name
-        )
-
-    @tool
-    async def services_ready(self) -> bool:
-        """Check if all services are ready."""
-        # First check if all expected services have been added
-        if len(self._services_to_start) > 0:
+        # First check if endpoint itself is ready
+        if not self._setup_completed:
             return False
 
-        # Then verify that we actually have services running
-        if len(self.services) == 0:
-            return False
-
-        for service_info in self.services.values():
-            # Try to connect to each service to verify it's responsive
-            service_id = service_info.get("id")
-            if service_id:
-                try:
-                    # Test basic connectivity
-                    await connect_remote(service_id)
-                except Exception as e:
-                    logger.error(f"Error checking service {service_id}: {e}")
-                    # If any service is not responsive, not ready
-                    return False
+        # Then check if all builtin services are running
+        builtin_services = self.config.get("builtin_services", [])
+        for service_name in builtin_services:
+            if not await self._is_service_running(service_name):
+                logger.debug(
+                    f"services_ready: waiting for builtin service '{service_name}'"
+                )
+                return False
 
         return True
 
@@ -309,7 +309,7 @@ class Endpoint(FileTransferToolSet):
         self,
         required_toolsets: list[str],
         local_retries: int = 3,
-        remote_retries: int = 10
+        remote_retries: int = 10,
     ) -> dict:
         """Ensure required toolsets are available, starting them if needed.
         Respects service_modes configuration for local/remote mode selection.
@@ -348,7 +348,9 @@ class Endpoint(FileTransferToolSet):
 
             # Start all services in one batch (will auto-separate by mode internally)
             total_successful, total_failed = await self.start_toolsets_batch(
-                services_to_start, local_retries=local_retries, remote_retries=remote_retries
+                services_to_start,
+                local_retries=local_retries,
+                remote_retries=remote_retries,
             )
 
             return {
@@ -394,7 +396,6 @@ class Endpoint(FileTransferToolSet):
 
         return service_type, params
 
-
     def _generate_cmd_from_args(
         self, service_type: str, toolset_args: dict, params: dict
     ) -> str:
@@ -423,7 +424,6 @@ class Endpoint(FileTransferToolSet):
             cmd_parts.append(f"--{cli_key} {value}")
 
         return " ".join(cmd_parts)
-
 
     async def _start_toolset_unified(
         self, service_config, mode: str, retries: int = 3
@@ -482,13 +482,15 @@ class Endpoint(FileTransferToolSet):
 
                 # Start the service using endpoint's remote engine
                 await self._remote_engine.submit_async(job)
-                await job.wait_until_status("running")
 
                 # Add to services_to_start for tracking
                 self._services_to_start.append(service_type)
 
                 # Wait for service registration and detect it
-                await asyncio.sleep(3)
+                # Note: We don't wait for job.status=="running" because:
+                # 1. wait_until_status uses polling (inefficient)
+                # 2. "running" status doesn't guarantee service is registered in NATS
+                # Instead, _detect_new_service does retry logic with proper delays
                 success = await self._detect_new_service(service_type)
 
                 if success:
@@ -628,17 +630,33 @@ class Endpoint(FileTransferToolSet):
             acronyms = {"rag": "RAG", "api": "API"}
             return acronyms.get(word.lower(), word.capitalize())
 
-        class_name = "".join(
-            capitalize_word(word) for word in service_type.split("_")
-        ) + "ToolSet"
+        class_name = (
+            "".join(capitalize_word(word) for word in service_type.split("_"))
+            + "ToolSet"
+        )
 
         # Try to get the class from toolsets module
         try:
             return getattr(toolsets, class_name)
         except AttributeError:
+            # Fallback: Try case-insensitive matching
+            # Get all available toolset classes
+            available_classes = [
+                name
+                for name in dir(toolsets)
+                if name.endswith("ToolSet") and not name.startswith("_")
+            ]
+
+            # Try to find a case-insensitive match
+            for available_class in available_classes:
+                if available_class.lower() == class_name.lower():
+                    return getattr(toolsets, available_class)
+
+            # If still not found, raise error with suggestions
             raise ValueError(
                 f"ToolSet class '{class_name}' not found for service type '{service_type}'. "
-                f"Make sure it's exported in pantheon.toolsets.__init__.py"
+                f"Make sure it's exported in pantheon.toolsets.__init__.py. "
+                f"Available classes: {', '.join(available_classes)}"
             )
 
     def _prepare_toolset_args(self, service_type: str, params: dict) -> dict:
@@ -665,10 +683,24 @@ class Endpoint(FileTransferToolSet):
 
         return args
 
+    async def _execute_local_method_direct(self, method: Callable, args: dict) -> dict:
+        try:
+            result = await asyncio.wait_for(
+                method(**args), timeout=self.local_toolset_timeout
+            )
+            return result
+        except asyncio.TimeoutError:
+            error_msg = f"Execution timeout after {self.local_toolset_timeout}s"
+            logger.error(error_msg)
+            return {"success": False, "error": error_msg}
+        except Exception as e:
+            import traceback
+
+            logger.error(f"Local method execution error: {e}\n{traceback.format_exc()}")
+            return {"success": False, "error": str(e)}
+
     async def _execute_local_method(self, method: Callable, args: dict) -> dict:
-        """使用executor-engine的ThreadJob执行local toolset方法，提供线程隔离和超时保护。
-        ThreadJob原生支持异步方法，会自动使用asyncio.run()在新事件循环中执行。
-        """
+        job = None
         try:
             from executor.engine.job import ThreadJob
 
@@ -684,15 +716,18 @@ class Endpoint(FileTransferToolSet):
             await self._local_engine.submit_async(job)
 
             # 等待完成（带超时）
-            await asyncio.wait_for(
-                job.wait_until_done(), timeout=self.local_toolset_timeout
-            )
+            # 使用 job.join() 而非 wait_until() 以避免轮询开销
+            # join() 使用 asyncio.wait() 实现真正的事件驱动等待
+            await asyncio.wait_for(job.join(), timeout=self.local_toolset_timeout)
 
             # 检查结果
-            if job.status == "succeeded":
-                return job.result
+            if job.status == "done":
+                # Success - return result (result is a method, need to call it)
+                return job.result()
             elif job.status == "failed":
-                error_msg = str(job.error) if job.error else "Unknown error"
+                # Failed - get exception message (exception is also a method)
+                exc = job.exception()
+                error_msg = str(exc) if exc else "Unknown error"
                 logger.error(f"ThreadJob failed: {error_msg}")
                 return {"success": False, "error": error_msg}
             else:
@@ -703,19 +738,21 @@ class Endpoint(FileTransferToolSet):
 
         except asyncio.TimeoutError:
             # 超时，尝试取消job
-            try:
-                await job.cancel()
-            except Exception as cancel_error:
-                logger.warning(f"Failed to cancel job: {cancel_error}")
+            if job is not None:
+                try:
+                    await job.cancel()
+                except Exception as cancel_error:
+                    logger.warning(f"Failed to cancel job: {cancel_error}")
 
             error_msg = f"Execution timeout after {self.local_toolset_timeout}s"
             logger.error(error_msg)
             return {"success": False, "error": error_msg}
 
         except Exception as e:
-            logger.error(f"Local method execution error: {e}", exc_info=True)
-            return {"success": False, "error": str(e)}
+            import traceback
 
+            logger.error(f"Local method execution error: {e}\n{traceback.format_exc()}")
+            return {"success": False, "error": str(e)}
 
     async def start_toolsets_batch(
         self, services: list, local_retries: int = 3, remote_retries: int = 10
@@ -794,7 +831,9 @@ class Endpoint(FileTransferToolSet):
                     if isinstance(result, Exception):
                         logger.error(f"Service {service_name} failed: {result}")
                     else:
-                        logger.warning(f"Service {service_name} startup returned: {result}")
+                        logger.warning(
+                            f"Service {service_name} startup returned: {result}"
+                        )
 
         return successful, failed
 
@@ -828,6 +867,9 @@ class Endpoint(FileTransferToolSet):
         # Wait a bit more for endpoint is registered
         await asyncio.sleep(3)
 
+        # Report service_id after worker is created
+        self.report_service_id()
+
         # Start all builtin services using ensure_toolsets
         default_services = [
             "rag_manager",
@@ -839,7 +881,9 @@ class Endpoint(FileTransferToolSet):
         result = await self.ensure_toolsets(
             builtin_services, local_retries=10, remote_retries=10
         )
-        logger.info(f"Builtin services startup result: {result.get('message', 'unknown')}")
+        logger.info(
+            f"Builtin services startup result: {result.get('message', 'unknown')}"
+        )
 
         while True:
             ready = await self.services_ready()

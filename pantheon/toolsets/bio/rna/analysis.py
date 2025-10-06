@@ -5,28 +5,34 @@ import subprocess
 import json
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
-from ...utils.log import logger
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from pantheon.utils.log import logger
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+)
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
-from ...utils.toolset import ToolSet, tool
+from pantheon.toolset import ToolSet, tool
 from rich.console import Console
+
 
 class RNASeqAnalysisToolSet(ToolSet):
     """RNA-seq Downstream Analysis Toolset - From quantified expression to biological insights"""
-    
+
     def __init__(
         self,
         name: str = "rna_analysis",
         workspace_path: str | Path | None = None,
-        worker_params: dict | None = None,
         **kwargs,
     ):
-        super().__init__(name, worker_params, **kwargs)
+        super().__init__(name, **kwargs)
         self.workspace_path = Path(workspace_path) if workspace_path else Path.cwd()
         self.console = Console()
-        
+
     @tool
     def RNA_Analysis(self, workflow_type: str, description: str = None):
         """Run a specific RNA-seq downstream analysis workflow"""
@@ -38,7 +44,7 @@ class RNASeqAnalysisToolSet(ToolSet):
             return self.run_analysis_workflow_visualization()
         else:
             return "Invalid workflow type"
-    
+
     def run_analysis_workflow_differential_expression(self):
         """Run differential expression analysis workflow"""
         logger.info("Running differential expression analysis workflow")
@@ -68,7 +74,7 @@ write.csv(res, 'differential_expression_results.csv')
 "
         """
         return de_response
-    
+
     def run_analysis_workflow_pathway_analysis(self):
         """Run pathway analysis workflow"""
         logger.info("Running pathway analysis workflow")
@@ -100,7 +106,7 @@ write.csv(kegg_results@result, 'kegg_enrichment.csv')
 "
         """
         return pathway_response
-    
+
     def run_analysis_workflow_visualization(self):
         """Run visualization workflow"""
         logger.info("Running visualization workflow")

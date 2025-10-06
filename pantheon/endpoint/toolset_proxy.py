@@ -2,506 +2,297 @@
 
 This module provides a proxy layer between Agents and ToolSets, enabling:
 - Lazy loading of function descriptions
-- Automatic caching with TTL
-- Transparent fault recovery
-- Zero-dependency agent creation
+- Permanent caching (no TTL expiration)
+- Instance pooling (same endpoint+toolset returns same instance)
 - Unified access to endpoint-routed or direct toolset connections
 """
 
-import time
 import asyncio
-from typing import Dict, List, Optional, Callable, Union
-from dataclasses import dataclass
+from typing import Dict, List, Optional, Any, Union
 from enum import Enum
 
 from ..utils.log import logger
+from ..remote import RemoteService
 
 
 class ProxyMode(Enum):
     """Proxy connection mode."""
-    ENDPOINT_ROUTED = "endpoint_routed"  # Route through endpoint (by toolset_name)
-    DIRECT_CONNECTION = "direct_connection"  # Direct connection to toolset service_id
 
-
-@dataclass
-class CachedFunctionDescriptions:
-    """Cached function descriptions with timestamp."""
-    descriptions: List[Dict]
-    timestamp: float
-    version: Optional[str] = None
+    ENDPOINT_INSTANCE = "endpoint_instance"  # Route through endpoint instance
+    ENDPOINT_ID = "endpoint_id"  # Route through endpoint by service_id
+    TOOLSET_ID = "toolset_id"  # Direct connection to toolset by service_id
 
 
 class ToolsetProxy:
     """Unified proxy class for accessing remote toolsets.
 
-    Use factory methods to create proxy instances:
+    Implements instance pooling - same endpoint+toolset returns same instance.
+
+    Factory methods (support both service_id string and service object):
     - from_endpoint(endpoint, toolset_name) - Route through endpoint (recommended)
-      endpoint can be an Endpoint instance or endpoint_id string
-    - from_toolset(service_id) - Direct connection to toolset (compatibility mode)
-
-    Examples:
-        ```python
-        # Method 1: From endpoint instance (recommended)
-        proxy = ToolsetProxy.from_endpoint(endpoint_service, "python_interpreter")
-
-        # Method 2: From endpoint_id string (lazy connection)
-        proxy = ToolsetProxy.from_endpoint(endpoint_id, "python_interpreter")
-
-        # Method 3: From toolset service_id (legacy compatibility)
-        proxy = ToolsetProxy.from_toolset(toolset_service_id)
-
-        # Use proxy
-        tools = await proxy.list_tools()
-        result = await proxy.invoke("execute_code", {"code": "print('hello')"})
-        ```
+    - from_toolset(service_or_id) - Direct toolset connection (legacy)
     """
+
+    # Class-level instance pool: {pool_key: instance}
+    _instance_pool: Dict[str, "ToolsetProxy"] = {}
+    _pool_lock = asyncio.Lock()
+
+    def __new__(
+        cls,
+        mode: ProxyMode,
+        toolset_name: str,
+        **kwargs,
+    ):
+        """Control instance creation - return existing instance if available.
+
+        Pooling key: mode + toolset_name + service_id (or endpoint id)
+        """
+        # Generate pool key based on mode and identifiers
+        if mode == ProxyMode.ENDPOINT_INSTANCE:
+            endpoint = kwargs.get("endpoint")
+            # Use object id for endpoint instances (not poolable across different instances)
+            pool_key = f"{mode.value}:{toolset_name}:{id(endpoint)}"
+        elif mode == ProxyMode.ENDPOINT_ID:
+            service_id = kwargs.get("service_id")
+            pool_key = f"{mode.value}:{toolset_name}:{service_id}"
+        else:  # TOOLSET_ID
+            service_id = kwargs.get("service_id")
+            pool_key = f"{mode.value}:{toolset_name}:{service_id}"
+
+        # Check pool for existing instance
+        if pool_key in cls._instance_pool:
+            instance = cls._instance_pool[pool_key]
+            logger.debug(
+                f"ToolsetProxy: Reusing pooled instance for {toolset_name} (key={pool_key})"
+            )
+            return instance
+
+        # Create new instance
+        instance = super().__new__(cls)
+        cls._instance_pool[pool_key] = instance
+
+        # Store pool key for debugging
+        instance._pool_key = pool_key
+        instance._is_initialized = False  # Flag to prevent re-init
+
+        logger.debug(
+            f"ToolsetProxy: Created new pooled instance for {toolset_name} (key={pool_key})"
+        )
+
+        return instance
 
     def __init__(
         self,
         mode: ProxyMode,
         toolset_name: str,
-        cache_ttl: int = 300,
-        max_retries: int = 3,
-        retry_delay_base: float = 1.0,
-        **kwargs
+        **kwargs,
     ):
-        """Initialize ToolsetProxy (private, use factory methods instead).
+        """Initialize ToolsetProxy (use factory methods instead).
 
-        Args:
-            mode: Connection mode (ENDPOINT_ROUTED or DIRECT_CONNECTION)
-            toolset_name: Toolset name or service_id
-            cache_ttl: Cache time-to-live in seconds (default: 300)
-            max_retries: Maximum number of retries on failure (default: 3)
-            retry_delay_base: Base delay for exponential backoff (default: 1.0)
-            **kwargs: Mode-specific parameters
+        Note: Due to instance pooling, __init__ may be called multiple times
+        on the same instance. We guard against re-initialization.
         """
+        # Guard against re-initialization (instance pooling)
+        if self._is_initialized:
+            return
+
         self.mode = mode
         self.toolset_name = toolset_name
-        self.cache_ttl = cache_ttl
-        self.max_retries = max_retries
-        self.retry_delay_base = retry_delay_base
 
-        # Mode-specific attributes
-        if mode == ProxyMode.ENDPOINT_ROUTED:
-            self.endpoint = kwargs.get('endpoint')
-            self.endpoint_id = kwargs.get('endpoint_id')
-        else:  # DIRECT_CONNECTION
-            self.service_id = kwargs.get('service_id')
-            self._connected = False
+        # Mode-specific attributes with type annotations
+        self.endpoint: Optional[Any] = (
+            None  # Endpoint instance (ENDPOINT_INSTANCE mode)
+        )
+        self.service: Optional[Any] = (
+            None  # Remote service (ENDPOINT_ID/TOOLSET_ID modes)
+        )
+        self.service_id: Optional[str] = None  # Service ID for lazy connection
 
-        # Cache
-        self._function_descriptions_cache: Optional[CachedFunctionDescriptions] = None
+        if mode == ProxyMode.ENDPOINT_INSTANCE:
+            self.endpoint = kwargs.get("endpoint")
+        elif mode == ProxyMode.ENDPOINT_ID:
+            self.service_id = kwargs.get("service_id")
+        else:  # TOOLSET_ID
+            self.service_id = kwargs.get("service_id")
+
+        # Cache (simple permanent cache, no TTL)
+        self._tools_cache: Optional[List[Dict]] = None
         self._lock = asyncio.Lock()
+
+        # Mark as initialized
+        self._is_initialized = True
 
         logger.debug(
             f"ToolsetProxy initialized: mode={self.mode.value}, "
-            f"toolset={toolset_name}"
+            f"toolset={toolset_name}, "
+            f"service_id={kwargs.get('service_id', 'N/A')}, "
+            f"pool_key={self._pool_key}"
         )
 
     @classmethod
     def from_endpoint(
         cls,
-        endpoint,
+        endpoint: Union[str, RemoteService, Any],
         toolset_name: str,
-        cache_ttl: int = 300,
-        max_retries: int = 3,
-        retry_delay_base: float = 1.0,
     ):
-        """Create ToolsetProxy that routes through endpoint (recommended).
-
-        This mode provides automatic fault recovery when toolset restarts.
+        """Create proxy routing through endpoint (recommended).
 
         Args:
-            endpoint: Endpoint service/RemoteService instance or endpoint service_id string.
-                - If service/instance: Uses directly
-                - If service_id string: Connects on first use (lazy connection)
-            toolset_name: Name of the toolset (e.g., "python_interpreter")
-            cache_ttl: Cache TTL in seconds (default: 300)
-            max_retries: Max retry count (default: 3)
-            retry_delay_base: Retry delay base (default: 1.0)
-
-        Returns:
-            ToolsetProxy instance in ENDPOINT_ROUTED mode
-
-        Example:
-            ```python
-            # With endpoint instance
-            proxy = ToolsetProxy.from_endpoint(endpoint_service, "python_interpreter")
-
-            # With endpoint_id (lazy connection)
-            proxy = ToolsetProxy.from_endpoint(endpoint_id, "python_interpreter")
-            ```
+            endpoint: str (service_id), RemoteService instance, or Endpoint instance
         """
-        # Check if endpoint is a string (service_id) or an instance
+        # Case 1: service_id string provided - lazy connection
         if isinstance(endpoint, str):
-            # endpoint_id provided - lazy connection
             return cls(
-                mode=ProxyMode.ENDPOINT_ROUTED,
+                mode=ProxyMode.ENDPOINT_ID,
                 toolset_name=toolset_name,
-                cache_ttl=cache_ttl,
-                max_retries=max_retries,
-                retry_delay_base=retry_delay_base,
-                endpoint_id=endpoint,
+                service_id=endpoint,
             )
-        else:
-            # endpoint instance provided - use directly
-            return cls(
-                mode=ProxyMode.ENDPOINT_ROUTED,
+
+        # Case 2: RemoteService instance (e.g., NATSService)
+        # Use service directly, avoid reconnecting
+        elif isinstance(endpoint, RemoteService):
+            proxy = cls(
+                mode=ProxyMode.ENDPOINT_ID,
                 toolset_name=toolset_name,
-                cache_ttl=cache_ttl,
-                max_retries=max_retries,
-                retry_delay_base=retry_delay_base,
+                service_id=endpoint.service_id,
+            )
+            # Directly assign service to avoid reconnecting
+            proxy.service = endpoint
+            return proxy
+
+        # Case 3: Endpoint instance (has proxy_toolset method) - use directly
+        else:
+            return cls(
+                mode=ProxyMode.ENDPOINT_INSTANCE,
+                toolset_name=toolset_name,
                 endpoint=endpoint,
             )
 
     @classmethod
     def from_toolset(
         cls,
-        service_id: str,
-        cache_ttl: int = 300,
-        max_retries: int = 3,
-        retry_delay_base: float = 1.0,
+        service_or_id: Union[str, RemoteService],
     ):
-        """Create ToolsetProxy with direct connection to toolset.
-
-        This mode bypasses endpoint and connects directly to toolset service_id.
-        Less resilient to toolset restarts but useful for legacy compatibility.
+        """Create proxy with direct toolset connection (bypass endpoint, legacy).
 
         Args:
-            service_id: Toolset service ID (not endpoint service_id!)
-            cache_ttl: Cache TTL in seconds (default: 300)
-            max_retries: Max retry count (default: 3)
-            retry_delay_base: Retry delay base (default: 1.0)
-
-        Returns:
-            ToolsetProxy instance in DIRECT_CONNECTION mode
-
-        Example:
-            ```python
-            proxy = ToolsetProxy.from_toolset(toolset_service_id)
-            ```
+            service_or_id: str (service_id) or RemoteService instance
         """
-        return cls(
-            mode=ProxyMode.DIRECT_CONNECTION,
-            toolset_name=service_id,  # Use service_id as name for now
-            cache_ttl=cache_ttl,
-            max_retries=max_retries,
-            retry_delay_base=retry_delay_base,
-            service_id=service_id,
-        )
+        # Case 1: service_id string provided - lazy connection
+        if isinstance(service_or_id, str):
+            return cls(
+                mode=ProxyMode.TOOLSET_ID,
+                toolset_name=service_or_id,
+                service_id=service_or_id,
+            )
+
+        # Case 2: RemoteService instance
+        # Use service directly, avoid reconnecting
+        elif isinstance(service_or_id, RemoteService):
+            proxy = cls(
+                mode=ProxyMode.TOOLSET_ID,
+                toolset_name=service_or_id.service_id,
+                service_id=service_or_id.service_id,
+            )
+            # Directly assign service to avoid reconnecting
+            proxy.service = service_or_id
+            return proxy
+
+        # Case 3: Unknown type - fallback
+        else:
+            raise TypeError(
+                f"service_or_id must be str or RemoteService, got {type(service_or_id)}"
+            )
 
     async def _ensure_connected(self):
-        """Ensure connection is established."""
-        if self.mode == ProxyMode.ENDPOINT_ROUTED:
-            # Ensure endpoint connection
-            if not hasattr(self, 'endpoint') or self.endpoint is None:
-                if hasattr(self, 'endpoint_id'):
-                    from ..remote import connect_remote
-                    self.endpoint = await connect_remote(self.endpoint_id)
-                    logger.debug(f"Connected to endpoint: {self.endpoint_id}")
-                else:
-                    raise RuntimeError("No endpoint or endpoint_id available")
+        """Ensure connection established (lazy connect for ENDPOINT_ID/TOOLSET_ID modes)."""
+        if self.mode == ProxyMode.ENDPOINT_INSTANCE:
+            # Endpoint instance already provided, nothing to do
+            # If endpoint is None, let subsequent method calls fail naturally
+            return
 
-        elif self.mode == ProxyMode.DIRECT_CONNECTION:
-            # Ensure toolset connection
-            if not self._connected:
-                from ..remote import connect_remote
-                self.toolset_service = await connect_remote(self.service_id)
-                self._connected = True
-                logger.debug(f"Connected to toolset service: {self.service_id}")
+        # For ENDPOINT_ID and TOOLSET_ID: connect by service_id if needed
+        if self.service is None:
+            if not self.service_id:
+                raise ValueError(f"service_id is None for mode {self.mode.value}")
 
-    async def list_tools(
-        self,
-        force_refresh: bool = False
-    ) -> List[Dict]:
-        """List all available tools from this toolset (with caching).
+            from ..remote import connect_remote
 
-        This method:
-        1. Checks cache validity (unless force_refresh=True)
-        2. Returns cached tools if valid
-        3. Fetches fresh tools (mode-dependent)
-        4. Falls back to stale cache if fetch fails (degradation strategy)
+            self.service = await connect_remote(self.service_id)
+            service_type = (
+                "endpoint" if self.mode == ProxyMode.ENDPOINT_ID else "toolset"
+            )
+            logger.debug(f"Connected to {service_type} service: {self.service_id}")
 
-        Args:
-            force_refresh: Force refresh cache even if valid
-
-        Returns:
-            List of tool description dicts
-
-        Raises:
-            Exception: If fetch fails and no cache available
-        """
-        # Ensure connection for DIRECT_CONNECTION mode
-        if self.mode == ProxyMode.DIRECT_CONNECTION:
-            await self._ensure_connected()
+    async def list_tools(self, force_refresh: bool = False) -> List[Dict]:
+        """List available tools (permanently cached until force_refresh)."""
+        await self._ensure_connected()
 
         async with self._lock:
-            # Check cache validity
-            if not force_refresh and self._is_cache_valid():
-                logger.debug(
-                    f"Using cached tools for {self.toolset_name} "
-                    f"(age: {time.time() - self._function_descriptions_cache.timestamp:.1f}s)"
-                )
-                return self._function_descriptions_cache.descriptions
+            # Return cached tools if available (unless force refresh)
+            if not force_refresh and self._tools_cache is not None:
+                logger.debug(f"Using cached tools for {self.toolset_name}")
+                return self._tools_cache
 
-            # Fetch fresh tools (mode-dependent)
-            try:
-                logger.info(f"Fetching tools for {self.toolset_name} (mode: {self.mode.value})")
+            # Fetch fresh tools
+            logger.info(
+                f"Fetching tools for {self.toolset_name} (mode: {self.mode.value})"
+            )
 
-                if self.mode == ProxyMode.ENDPOINT_ROUTED:
-                    # Route through endpoint
-                    result = await self.endpoint.invoke(
-                        "list_toolset_tools",
-                        {"toolset_name": self.toolset_name}
-                    )
-                else:
-                    # Direct connection to toolset
-                    result = await self.toolset_service.invoke("list_tools", {})
+            result = await self._call_toolset_method("list_tools", {})
 
-                if result.get("success"):
-                    descriptions = result.get("tools", [])
-
-                    # Update cache
-                    self._function_descriptions_cache = CachedFunctionDescriptions(
-                        descriptions=descriptions,
-                        timestamp=time.time(),
-                        version=result.get("version")
-                    )
-
-                    logger.debug(
-                        f"Cached {len(descriptions)} tools "
-                        f"for {self.toolset_name}"
-                    )
-                    return descriptions
-                else:
-                    error = result.get("error", "Unknown error")
-                    raise Exception(
-                        f"Failed to list tools: {error}"
-                    )
-
-            except Exception as e:
-                # Degradation strategy: use stale cache if available
-                if self._function_descriptions_cache:
-                    cache_age = time.time() - self._function_descriptions_cache.timestamp
-                    logger.warning(
-                        f"Failed to refresh tools for {self.toolset_name}, "
-                        f"using stale cache (age: {cache_age:.1f}s): {e}"
-                    )
-                    return self._function_descriptions_cache.descriptions
-                else:
-                    raise Exception(
-                        f"Failed to list tools and no cache available: {e}"
-                    )
-
-    def _is_cache_valid(self) -> bool:
-        """Check if cache is valid (not expired).
-
-        Returns:
-            True if cache exists and not expired, False otherwise
-        """
-        if not self._function_descriptions_cache:
-            return False
-
-        age = time.time() - self._function_descriptions_cache.timestamp
-        return age < self.cache_ttl
+            if result.get("success"):
+                tools = result.get("tools", [])
+                self._tools_cache = tools  # Cache permanently
+                logger.debug(f"Cached {len(tools)} tools for {self.toolset_name}")
+                return tools
+            else:
+                error = result.get("error", "Unknown error")
+                raise Exception(f"Failed to list tools: {error}")
 
     def invalidate_cache(self):
-        """Invalidate cached tools.
-
-        This forces a fresh fetch on next list_tools() call.
-        Useful when toolset is updated or restarted.
-        """
-        if self._function_descriptions_cache:
+        """Invalidate cache (force refresh on next list_tools)."""
+        if self._tools_cache:
             logger.debug(f"Invalidating cache for {self.toolset_name}")
-        self._function_descriptions_cache = None
+        self._tools_cache = None
 
-    async def invoke(self, method_name: str, args: Dict = None) -> Dict:
-        """Invoke a toolset method (mode-dependent).
-
-        This method NEVER raises exceptions - it always returns a dict.
-        On failure, it returns an error dict that LLM can understand.
-
-        This method:
-        1. Routes call based on proxy mode (ENDPOINT_ROUTED or DIRECT_CONNECTION)
-        2. Invalidates cache on certain failures (toolset unavailable)
-        3. Uses exponential backoff for retries
-        4. Returns friendly error messages (never raises exceptions)
-
-        Args:
-            method_name: Name of the method to invoke
-            args: Method arguments (default: {})
-
-        Returns:
-            Method result dict (success) or error dict (failure)
-            Error dict format: {
-                "success": False,
-                "error": "Human-readable error message",
-                "error_type": "ExceptionType",
-                "toolset": "toolset_name"
-            }
-
-        Example:
-            ```python
-            result = await proxy.invoke("execute_code", {
-                "code": "print('hello')",
-                "timeout": 10
-            })
-            if result.get("success", True):
-                print("Success:", result)
-            else:
-                print("Error:", result["error"])
-            ```
-        """
-        args = args or {}
-
-        # Wrap everything in try-except to ensure we never raise
-        try:
-            # Ensure connection for DIRECT_CONNECTION mode
-            if self.mode == ProxyMode.DIRECT_CONNECTION:
-                await self._ensure_connected()
-
-            for attempt in range(self.max_retries):
-                try:
-                    logger.debug(
-                        f"Invoking {self.toolset_name}.{method_name} "
-                        f"(attempt {attempt + 1}/{self.max_retries}, mode: {self.mode.value})"
-                    )
-
-                    # Mode-dependent call
-                    if self.mode == ProxyMode.ENDPOINT_ROUTED:
-                        # Route through endpoint
-                        result = await self.endpoint.invoke(
-                            "proxy_toolset",
-                            {
-                                "method_name": method_name,
-                                "args": args,
-                                "toolset_name": self.toolset_name
-                            }
-                        )
-                    else:
-                        # Direct connection to toolset
-                        result = await self.toolset_service.invoke(method_name, args)
-
-                    # Success (assuming success=True or no error field)
-                    if result.get("success", True):
-                        return result
-
-                    # Failure - analyze error
-                    error = result.get("error", "Unknown error")
-                    logger.warning(
-                        f"Toolset call failed: {self.toolset_name}.{method_name} - {error}"
-                    )
-
-                    # Check if it's a recoverable error
-                    if self._is_recoverable_error(error):
-                        # Invalidate cache (toolset might be restarting)
-                        self.invalidate_cache()
-
-                        # Retry if not last attempt
-                        if attempt < self.max_retries - 1:
-                            delay = self.retry_delay_base * (2 ** attempt)  # Exponential backoff
-                            logger.info(
-                                f"Retrying {self.toolset_name}.{method_name} "
-                                f"after {delay}s delay..."
-                            )
-                            await asyncio.sleep(delay)
-                            continue
-
-                    # Non-recoverable error or last attempt
-                    # Ensure error dict has standard format
-                    return {
-                        "success": False,
-                        "error": f"Tool '{method_name}' execution failed: {error}",
-                        "error_type": "ToolExecutionError",
-                        "toolset": self.toolset_name,
-                    }
-
-                except Exception as e:
-                    logger.error(
-                        f"Error invoking {self.toolset_name}.{method_name}: {e}",
-                        exc_info=True
-                    )
-
-                    # Last attempt, return error dict
-                    if attempt == self.max_retries - 1:
-                        return {
-                            "success": False,
-                            "error": f"Tool '{method_name}' failed: {str(e)}",
-                            "error_type": type(e).__name__,
-                            "toolset": self.toolset_name,
-                        }
-
-                    # Invalidate cache and retry
-                    self.invalidate_cache()
-                    delay = self.retry_delay_base * (2 ** attempt)
-                    logger.info(f"Retrying after {delay}s delay...")
-                    await asyncio.sleep(delay)
-
-            # Should not reach here, but just in case
-            return {
-                "success": False,
-                "error": f"Tool '{method_name}' failed after {self.max_retries} retries",
-                "error_type": "MaxRetriesExceeded",
-                "toolset": self.toolset_name,
-            }
-
-        except Exception as e:
-            # Catch-all: ensure we NEVER raise exceptions
-            logger.error(
-                f"Unexpected error in invoke({method_name}): {e}",
-                exc_info=True
+    async def _call_toolset_method(self, method_name: str, args: Dict) -> Dict:
+        """Call toolset method (mode-dependent routing)."""
+        if self.mode == ProxyMode.ENDPOINT_INSTANCE:
+            # Direct method call on endpoint instance
+            if not self.endpoint:
+                raise ValueError("endpoint is None for ENDPOINT_INSTANCE mode")
+            return await self.endpoint.proxy_toolset(
+                method_name=method_name, args=args, toolset_name=self.toolset_name
             )
-            return {
-                "success": False,
-                "error": f"Unexpected error calling tool '{method_name}': {str(e)}",
-                "error_type": type(e).__name__,
-                "toolset": self.toolset_name,
-            }
+        elif self.mode == ProxyMode.ENDPOINT_ID:
+            # Remote invoke through endpoint service
+            if not self.service:
+                raise ValueError("service is None for ENDPOINT_ID mode")
+            return await self.service.invoke(
+                "proxy_toolset",
+                {
+                    "method_name": method_name,
+                    "args": args,
+                    "toolset_name": self.toolset_name,
+                },
+            )
+        else:  # TOOLSET_ID
+            # Direct invoke to toolset (bypass endpoint)
+            if not self.service:
+                raise ValueError("service is None for TOOLSET_ID mode")
+            return await self.service.invoke(method_name, args)
 
-    def _is_recoverable_error(self, error: str) -> bool:
-        """Check if error is recoverable (worth retrying).
-
-        Args:
-            error: Error message
-
-        Returns:
-            True if error is recoverable, False otherwise
-        """
-        error_lower = error.lower()
-
-        # Recoverable: toolset not found, unavailable, connection issues
-        recoverable_keywords = [
-            "not found",
-            "unavailable",
-            "connection",
-            "timeout",
-            "no instance",
-        ]
-
-        return any(keyword in error_lower for keyword in recoverable_keywords)
-
-    def to_tool_wrapper(self) -> Callable:
-        """Convert proxy to a callable tool wrapper for Agent use.
-
-        Returns:
-            Async callable that invokes methods through this proxy
-
-        Example:
-            ```python
-            wrapper = proxy.to_tool_wrapper()
-            result = await wrapper("execute_code", code="print('hello')")
-            ```
-        """
-        async def wrapper(method_name: str, **kwargs):
-            return await self.invoke(method_name, kwargs)
-
-        # Add metadata for inspection
-        wrapper.__toolset_name__ = self.toolset_name
-        wrapper.__proxy__ = self
-
-        return wrapper
+    async def invoke(self, method_name: str, args: Optional[Dict] = None) -> Dict:
+        """Invoke toolset method (simple passthrough, returns result or raises)."""
+        args = args or {}
+        await self._ensure_connected()
+        logger.debug(
+            f"Invoking {self.toolset_name}.{method_name} (mode: {self.mode.value})"
+        )
+        return await self._call_toolset_method(method_name, args)
 
     def __repr__(self) -> str:
         """String representation."""
-        cache_status = "cached" if self._is_cache_valid() else "no cache"
-        return f"ToolsetProxy(toolset={self.toolset_name}, {cache_status})"
+        cache_info = "cached" if self._tools_cache else "no cache"
+        return f"ToolsetProxy(toolset={self.toolset_name}, {cache_info})"

@@ -1,13 +1,16 @@
 """Integrated Notebook ToolSet - Unified notebook experience connecting file operations and code execution"""
 
 import asyncio
+import json
 import uuid
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, Optional
 
-from ..remote.backend.base import RemoteBackend
-from ..remote.factory import RemoteBackendFactory
-from ..toolset import ToolSet, tool
-from ..utils.log import logger
+from pantheon.remote.backend.base import RemoteBackend
+from pantheon.remote.factory import RemoteBackendFactory
+from pantheon.toolset import ToolSet, tool
+from pantheon.utils.log import logger
 from .jupyter_kernel import (
     IOPubEventBus,
     JupyterKernelToolSet,
@@ -24,11 +27,10 @@ class IntegratedNotebookToolSet(ToolSet):
         self,
         name: str,
         workdir: str | None = None,
-        worker_params: dict | None = None,
         remote_backend: Optional[RemoteBackend] = None,
         **kwargs,
     ):
-        super().__init__(name, worker_params, **kwargs)
+        super().__init__(name, **kwargs)
         self.workdir = workdir
         self.remote_backend = remote_backend
         self.event_bus: Optional[IOPubEventBus] = (
@@ -36,16 +38,24 @@ class IntegratedNotebookToolSet(ToolSet):
         )
 
         # Initialize child toolsets (event_bus will be set in run_setup)
-        self.kernel_toolset = JupyterKernelToolSet(
-            f"{name}_kernel", workdir, worker_params, **kwargs
-        )
+        self.kernel_toolset = JupyterKernelToolSet(f"{name}_kernel", workdir, **kwargs)
         self.notebook_contents = NotebookContentsToolSet(
-            f"{name}_contents", workdir, worker_params, **kwargs
+            f"{name}_contents", workdir, **kwargs
         )
 
-        # Session to notebook file mapping
+        # Session to notebook file mapping (legacy, kept for backward compatibility)
         self.session_notebooks: Dict[str, str] = {}  # session_id -> notebook_path
         self.notebook_sessions: Dict[str, str] = {}  # notebook_path -> session_id
+
+        # Session metadata storage with chat_id binding (v2.0)
+        # Format: {session_id: {chat_id, created_at, created_by, notebook_path, notebook_title, ...}}
+        self.session_metadata: Dict[str, dict] = {}
+
+        # Persistence file path
+        self.persistence_dir = Path(workdir) if workdir else Path.cwd()
+        self.persistence_file = (
+            self.persistence_dir / ".notebook_sessions_metadata.json"
+        )
 
         # Enhanced completion service with Jedi integration
         self.completion_service = EnhancedCompletionService()
@@ -79,7 +89,67 @@ class IntegratedNotebookToolSet(ToolSet):
 
         await self.kernel_toolset.run_setup()
         await self.notebook_contents.run_setup()
+
+        # Start unified IOPub listener in the current event loop (Endpoint main loop)
+        # This ensures the listener task persists across individual method calls
+        if (
+            self.kernel_toolset.use_unified_listener
+            and self.kernel_toolset.unified_listener
+        ):
+            await self.kernel_toolset.unified_listener.start_listening()
+            logger.info("Started unified IOPub listener in Endpoint main event loop")
+
+        # Load persisted session metadata
+        await self._load_session_metadata()
+
         logger.info("IntegratedNotebookToolSet setup complete")
+
+    async def _load_session_metadata(self):
+        """Load session metadata from persistence file"""
+        try:
+            if self.persistence_file.exists():
+                with open(self.persistence_file, "r") as f:
+                    data = json.load(f)
+                    self.session_metadata = data.get("sessions", {})
+
+                    # Rebuild legacy mappings for backward compatibility
+                    for session_id, metadata in self.session_metadata.items():
+                        notebook_path = metadata.get("notebook_path")
+                        if notebook_path:
+                            self.session_notebooks[session_id] = notebook_path
+                            self.notebook_sessions[notebook_path] = session_id
+
+                    logger.info(
+                        f"Loaded {len(self.session_metadata)} session(s) from persistence"
+                    )
+            else:
+                logger.info("No persistence file found, starting with empty sessions")
+        except Exception as e:
+            logger.error(
+                f"Failed to load session metadata: {e}, starting with empty sessions"
+            )
+            self.session_metadata = {}
+
+    async def _save_session_metadata(self):
+        """Save session metadata to persistence file"""
+        try:
+            # Ensure directory exists
+            self.persistence_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save metadata
+            data = {
+                "sessions": self.session_metadata,
+                "last_updated": datetime.now().isoformat(),
+            }
+
+            with open(self.persistence_file, "w") as f:
+                json.dump(data, f, indent=2)
+
+            logger.debug(
+                f"Saved {len(self.session_metadata)} session(s) to persistence"
+            )
+        except Exception as e:
+            logger.error(f"Failed to save session metadata: {e}")
 
     @tool
     async def create_notebook_session(
@@ -87,8 +157,19 @@ class IntegratedNotebookToolSet(ToolSet):
         notebook_path: str,
         notebook_title: Optional[str] = None,
         session_id: Optional[str] = None,
+        chat_id: str = None,
     ) -> dict:
-        """Create notebook file and kernel session"""
+        """Create notebook file and kernel session bound to chat_id
+
+        Args:
+            notebook_path: Path to notebook file
+            notebook_title: Optional notebook title
+            session_id: Optional session ID (for restart scenarios)
+        """
+        # Validate chat_id
+        if not chat_id:
+            return {"success": False, "error": "chat_id is required"}
+
         try:
             # 1. Auto-detect file existence and handle accordingly
             read_result = await self.notebook_contents.read_notebook(notebook_path)
@@ -123,12 +204,26 @@ class IntegratedNotebookToolSet(ToolSet):
 
             actual_session_id = session_result["session_id"]
 
-            # 3. Establish association mapping
+            # 3. Establish association mapping (legacy)
             self.session_notebooks[actual_session_id] = notebook_path
             self.notebook_sessions[notebook_path] = actual_session_id
 
+            # 4. Store metadata with chat_id binding (v2.0)
+            self.session_metadata[actual_session_id] = {
+                "session_id": actual_session_id,
+                "chat_id": chat_id,
+                "notebook_path": notebook_path,
+                "notebook_title": notebook_title or "New Notebook",
+                "created_at": datetime.now().isoformat(),
+                "created_by": "user",
+                "kernel_spec": session_result.get("kernel_name", "python3"),
+            }
+
+            # 5. Persist metadata
+            await self._save_session_metadata()
+
             logger.info(
-                f"Created integrated notebook session: {actual_session_id} -> {notebook_path}"
+                f"Created integrated notebook session: {actual_session_id} -> {notebook_path} (chat_id={chat_id})"
             )
 
             return {
@@ -137,6 +232,8 @@ class IntegratedNotebookToolSet(ToolSet):
                 "notebook_path": notebook_path,
                 "kernel_info": session_result,
                 "streaming_enabled": self.event_bus is not None,
+                "kernel_name": session_result.get("kernel_name", "python3"),
+                "kernel_status": session_result.get("status", "starting"),
             }
 
         except Exception as e:
@@ -398,27 +495,36 @@ class IntegratedNotebookToolSet(ToolSet):
 
     @tool
     async def manage_notebook_session(
-        self, session_id: str, action: str = "restart"
+        self, session_id: str, action: str = "restart", chat_id: str = None
     ) -> dict:
-        """Manage notebook session - restart or shutdown
+        """Manage notebook session - restart, shutdown, or delete
 
         Args:
             session_id: Session identifier
-            action: "restart" (default) or "shutdown"
+            action: "restart", "shutdown", or "delete" (default: "restart")
         """
         if session_id not in self.session_notebooks:
             return {"success": False, "error": f"Session not found: {session_id}"}
 
-        if action not in ["restart", "shutdown"]:
+        if action not in ["restart", "shutdown", "delete"]:
             return {
                 "success": False,
-                "error": f"Invalid action: {action}. Must be 'restart' or 'shutdown'",
+                "error": f"Invalid action: {action}. Must be 'restart', 'shutdown', or 'delete'",
             }
+
+        # Validate chat_id ownership for delete/shutdown actions
+        if action in ["shutdown", "delete"] and chat_id:
+            metadata = self.session_metadata.get(session_id)
+            if metadata and metadata.get("chat_id") != chat_id:
+                return {
+                    "success": False,
+                    "error": f"Permission denied: session belongs to different chat",
+                }
 
         notebook_path = self.session_notebooks[session_id]
 
         try:
-            # 1. Clear Jedi context for both actions
+            # 1. Clear Jedi context for all actions
             if self.completion_service:
                 self.completion_service.clear_session_context(session_id)
                 logger.info(f"Cleared Jedi context for session: {session_id}")
@@ -437,20 +543,29 @@ class IntegratedNotebookToolSet(ToolSet):
                     "context_cleared": True,
                 }
 
-            else:  # action == "shutdown"
+            else:  # action in ["shutdown", "delete"]
                 # 2. Shutdown kernel session
                 kernel_result = await self.kernel_toolset.shutdown_session(session_id)
 
-                # 3. Clean up mapping relationships for shutdown
+                # 3. Clean up mapping relationships
                 del self.session_notebooks[session_id]
                 if notebook_path in self.notebook_sessions:
                     del self.notebook_sessions[notebook_path]
 
-                logger.info(f"Shutdown integrated notebook session: {session_id}")
+                # 4. Clean up metadata (v2.0)
+                if session_id in self.session_metadata:
+                    del self.session_metadata[session_id]
+
+                # 5. Persist changes
+                await self._save_session_metadata()
+
+                logger.info(
+                    f"{action.capitalize()} integrated notebook session: {session_id}"
+                )
 
                 return {
                     "success": True,
-                    "action": "shutdown",
+                    "action": action,
                     "session_id": session_id,
                     "notebook_path": notebook_path,
                     "kernel_result": kernel_result,
@@ -634,47 +749,48 @@ class IntegratedNotebookToolSet(ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool
-    async def list_notebook_sessions(self) -> dict:
-        """List active notebook sessions"""
+    async def list_notebook_sessions(self, chat_id: str = None) -> dict:
+        """List notebook sessions"""
         try:
+            # Get live kernel sessions for status
+            kernel_sessions_result = await self.kernel_toolset.list_sessions()
+            kernel_sessions_map = {}
+            if kernel_sessions_result["success"]:
+                for ks in kernel_sessions_result["sessions"]:
+                    kernel_sessions_map[ks["session_id"]] = ks
+
             sessions = []
-            for session_id, notebook_path in self.session_notebooks.items():
-                # Get kernel status
-                kernel_sessions = await self.kernel_toolset.list_sessions()
-                kernel_info = None
 
-                if kernel_sessions["success"]:
-                    for session in kernel_sessions["sessions"]:
-                        if session["session_id"] == session_id:
-                            kernel_info = session
-                            break
+            # Iterate through metadata (v2.0 - source of truth)
+            for session_id, metadata in self.session_metadata.items():
+                # Filter by chat_id if provided
+                if chat_id and metadata.get("chat_id") != chat_id:
+                    continue
 
-                # Extract notebook title from path (remove .ipynb extension)
-                notebook_filename = (
-                    notebook_path.split("/")[-1]
-                    if notebook_path
-                    else f"session_{session_id[:8]}"
-                )
-                notebook_title = (
-                    notebook_filename.replace(".ipynb", "")
-                    if notebook_filename.endswith(".ipynb")
-                    else notebook_filename
-                )
+                # Get live kernel status
+                kernel_info = kernel_sessions_map.get(session_id)
 
-                sessions.append(
-                    {
-                        "session_id": session_id,
-                        "notebook_path": notebook_path,
-                        "notebook_title": notebook_title,
-                        "created_by": "user",  # Currently all sessions are user-created, can be extended later
-                        "kernel_status": kernel_info["status"]
-                        if kernel_info
-                        else "unknown",
-                        "execution_count": kernel_info["execution_count"]
-                        if kernel_info
-                        else 0,
-                    }
-                )
+                # Build session info
+                session_info = {
+                    "session_id": session_id,
+                    "chat_id": metadata.get("chat_id"),
+                    "notebook_path": metadata.get("notebook_path"),
+                    "notebook_title": metadata.get("notebook_title", "Untitled"),
+                    "created_at": metadata.get("created_at"),
+                    "created_by": metadata.get("created_by", "user"),
+                    "kernel_spec": metadata.get("kernel_spec", "python3"),
+                    "kernel_status": kernel_info["status"] if kernel_info else "dead",
+                    "execution_count": kernel_info["execution_count"]
+                    if kernel_info
+                    else 0,
+                }
+
+                sessions.append(session_info)
+
+            logger.info(
+                f"Listed {len(sessions)} session(s)"
+                + (f" for chat_id={chat_id}" if chat_id else "")
+            )
 
             return {"success": True, "sessions": sessions, "count": len(sessions)}
 
@@ -685,6 +801,9 @@ class IntegratedNotebookToolSet(ToolSet):
     async def cleanup(self):
         """Cleanup all resources"""
         try:
+            # Save session metadata before cleanup
+            await self._save_session_metadata()
+
             # Cleanup event bus if it exists and has cleanup method
             if self.event_bus:
                 if hasattr(self.event_bus, "cleanup") and callable(
@@ -710,6 +829,7 @@ class IntegratedNotebookToolSet(ToolSet):
             # Clear session mappings
             self.session_notebooks.clear()
             self.notebook_sessions.clear()
+            self.session_metadata.clear()
 
             logger.info("IntegratedNotebookToolSet cleanup complete")
 

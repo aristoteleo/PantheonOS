@@ -6,22 +6,21 @@ from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 
 from .base import ScATACSeqBase
-from ...utils.toolset import tool
-from ...utils.log import logger
+from pantheon.toolset import tool
+from pantheon.utils.log import logger
 
 
 class ScATACSeqAnalysisToolSet(ScATACSeqBase):
     """Single-cell ATAC-seq downstream analysis toolset"""
-    
+
     def __init__(
         self,
         name: str = "scatac_analysis",
         workspace_path: str = None,
         launch_directory: str = None,
-        worker_params: dict = None,
-        **kwargs
+        **kwargs,
     ):
-        super().__init__(name, workspace_path, launch_directory, worker_params, **kwargs)
+        super().__init__(name, workspace_path, launch_directory, **kwargs)
 
     @tool
     def ScATAC_Analysis(self, workflow_type: str, description: str = None):
@@ -216,7 +215,7 @@ X_lsi = svd.fit_transform(X_tfidf)
 
 # Store LSI components
 adata.obsm['X_lsi'] = X_lsi
-adata.uns['lsi'] = {'components': svd.components_, 'explained_variance_ratio': svd.explained_variance_ratio_}
+adata.uns['lsi'] = {"components": svd.components_, 'explained_variance_ratio': svd.explained_variance_ratio_}
 
 print(f"LSI explained variance ratio (first 10): {svd.explained_variance_ratio_[:10]}")
 
@@ -278,7 +277,7 @@ resolutions = [0.1, 0.3, 0.5, 0.7, 1.0]
 
 for res in resolutions:
     sc.tl.leiden(adata, resolution=res, key_added=f'leiden_res_{res}')
-    print(f"Resolution {res}: {len(adata.obs[f'leiden_res_{res}'].unique())} clusters")
+    print(f"Resolution {res}: {len(adata.obs[f"leiden_res_{res}"].unique())} clusters")
 
 # Use resolution 0.5 as default
 adata.obs['clusters'] = adata.obs['leiden_res_0.5']
@@ -289,7 +288,9 @@ axes = axes.flatten()
 
 for i, res in enumerate(resolutions):
     sc.pl.umap(adata, color=f'leiden_res_{res}', ax=axes[i], show=False, 
-               title=f'Leiden res={res} ({len(adata.obs[f"leiden_res_{res}"].unique())} clusters)')
+               title=f'Leiden res={res} ({
+            len(adata.obs[f"leiden_res_{res}"].unique())
+        } clusters)')
 
 # Add QC metrics plot
 sc.pl.umap(adata, color='n_peaks', ax=axes[5], show=False, title='Peaks per cell')
@@ -300,7 +301,7 @@ print("Clustering plots saved to $OUTPUT_DIR/clustering_resolutions.pdf")
 
 # Cluster statistics
 cluster_stats = adata.obs.groupby('clusters').agg({
-    'n_peaks': ['mean', 'std'],
+            "n_peaks": ['mean', 'std'],
     'total_counts': ['mean', 'std'],
     'pct_mito': ['mean', 'std']
 }).round(2)
@@ -434,7 +435,7 @@ clusters = result['names'].dtype.names
 marker_peaks = []
 for cluster in clusters:
     cluster_peaks = pd.DataFrame({
-        'peak': result['names'][cluster],
+            "peak": result['names'][cluster],
         'scores': result['scores'][cluster],
         'pvals': result['pvals'][cluster],
         'pvals_adj': result['pvals_adj'][cluster],

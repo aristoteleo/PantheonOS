@@ -8,18 +8,18 @@ from typing import Callable
 
 import openai
 
-from pantheon.remote import RemoteBackendFactory
-
-from ..agent import Agent, RemoteAgent
+from ..agent import Agent
+from ..endpoint import ToolsetProxy
 from ..factory import create_agents_from_template
-from ..factory.template_manager import get_template_manager, ChatroomTemplate
+from ..factory.template_manager import get_template_manager
 from ..memory import MemoryManager
 from ..team import PantheonTeam
 from ..toolset import ToolSet, tool
+from ..toolsets import PlanModeToolSet
 from ..utils.log import logger
 from ..utils.misc import run_func
-from .thread import Thread
 from .suggestion_generator import get_centralized_suggestion_manager
+from .thread import Thread
 
 
 class ChatRoom(ToolSet):
@@ -79,8 +79,6 @@ class ChatRoom(ToolSet):
         """Setup the chatroom (ToolSet hook called before run)."""
         logger.info(f"ChatRoom: endpoint_id={self.endpoint_service_id}")
 
-    # Removed: save_agents_template - using template_manager only
-
     async def get_team_for_chat(self, chat_id: str) -> PantheonTeam:
         """Get the team for a specific chat, creating from memory if needed."""
         # FIX for performance, history chat will get team even not needed.
@@ -95,35 +93,100 @@ class ChatRoom(ToolSet):
         return team
 
     async def _load_team_from_memory(self, chat_id: str) -> PantheonTeam:
-        """Load team from chat's persistent memory."""
+        """Load team from chat's persistent memory.
+
+        If no team template is found in memory, create a new team from default template
+        and save it to memory for this chat.
+        """
+        memory = await run_func(self.memory_manager.get_memory, chat_id)
+
+        # Check for stored team template
+        if hasattr(memory, "extra_data") and memory.extra_data:
+            team_template = memory.extra_data.get("team_template")
+            if team_template:
+                logger.info(
+                    f"Loading team from stored template '{team_template.get('template_name', 'unknown')}' for chat {chat_id}"
+                )
+                # Create team with per-chat toolsets
+                return await self._create_team_from_template(
+                    team_template, chat_id=chat_id
+                )
+
+        # No template found in memory, use default template
+        logger.info(
+            f"No team template in memory, creating default team for chat {chat_id}"
+        )
+
+        default_template = self.template_manager.get_template("default")
+        if not default_template:
+            raise RuntimeError("Default template not found in template manager")
+
+        # Create team with per-chat toolsets for this chat
+        team = await self._create_team_from_template(
+            default_template.to_dict(), chat_id=chat_id
+        )
+
+        # Save default template to memory for this chat
+        if not hasattr(memory, "extra_data"):
+            memory.extra_data = {}
+
+        memory.extra_data["team_template"] = {
+            "template_id": default_template.id,
+            "template_name": default_template.name,
+            "agents_config": default_template.agents_config,
+            "required_toolsets": default_template.required_toolsets,
+            "created_at": datetime.now().isoformat(),
+        }
+        await run_func(self.memory_manager.save)
+
+        logger.info(f"Saved default template to memory for chat {chat_id}")
+
+        return team
+
+    async def _add_remote_toolset_to_agent(
+        self, agent: Agent, endpoint_service, toolset_name: str, chat_id: str = None
+    ):
+        """Add remote toolset tools to agent via ChatRoom layer."""
+        from ..utils.proxy_wrapper import ProxyWrapperBuilder
+
+        # 1. Create ToolsetProxy
+        proxy = ToolsetProxy.from_endpoint(endpoint_service, toolset_name)
+
+        # 2. Get tool list from remote toolset
         try:
-            memory = await run_func(self.memory_manager.get_memory, chat_id)
-
-            # Check for stored team template
-            if hasattr(memory, "extra_data") and memory.extra_data:
-                team_template = memory.extra_data.get("team_template")
-                if team_template:
-                    return await self._create_team_from_template(team_template)
-
+            tools = await proxy.list_tools()
         except Exception as e:
-            logger.warning(f"⚠️ Failed to load team from memory for chat {chat_id}: {e}")
+            logger.warning(
+                f"Failed to load toolset '{toolset_name}' for agent '{agent.name}': {e}"
+            )
+            return
 
-        logger.info(f"Load default team for chat {chat_id}")
+        # 3. Create wrapper for each tool and add to agent
+        for tool_desc in tools:
+            tool_name = tool_desc["name"]
 
-        # Create default team if not exists
-        if self.default_team is None:
-            default_template = self.template_manager.get_template("default")
-            if not default_template:
-                raise RuntimeError("Default template not found in template manager")
-
-            self.default_team = await self._create_team_from_template(
-                default_template.to_dict()
+            # Create wrapper using ProxyWrapperBuilder (with chat_id injection)
+            wrapper = ProxyWrapperBuilder.create_wrapper(
+                proxy, tool_desc, agent, chat_id=chat_id
             )
 
-        return self.default_team
+            # Add to agent via agent.tool() (unified @tool logic)
+            agent.tool(wrapper, key=tool_name)
 
-    async def _create_team_from_template(self, team_template: dict) -> PantheonTeam:
-        """Create a team from template configuration (default or custom)."""
+        logger.info(
+            f"Agent '{agent.name}': Added {len(tools)} tools from remote toolset '{toolset_name}'"
+            + (f" (chat_id={chat_id})" if chat_id else "")
+        )
+
+    async def _create_team_from_template(
+        self, team_template: dict, chat_id: str = None
+    ) -> PantheonTeam:
+        """Create a team from template configuration (default or custom).
+
+        Args:
+            team_template: Template configuration dict
+            chat_id: Optional chat ID for per-chat toolset isolation
+        """
         template_name = team_template.get("template_name") or team_template.get(
             "name", "unknown"
         )
@@ -135,13 +198,25 @@ class ChatRoom(ToolSet):
         endpoint_service = await self._backend.connect(self.endpoint_service_id)
 
         # Create agents from template
-        agents = await create_agents_from_template(endpoint_service, agents_config)
+        agents = await create_agents_from_template(
+            endpoint_service, agents_config, chat_id
+        )
         triage_agent = agents["triage"]
         other_agents = agents["other"]
 
-        # Enable rich conversations for all agents
-        for agent in [triage_agent, *other_agents]:
-            agent.enable_rich_conversations()
+        # Add per-chat local toolsets if chat_id is provided
+        if chat_id:
+            # Add TodoListToolSet to all agents (remote toolset via wrapper with chat_id)
+            for agent in [triage_agent, *other_agents]:
+                await self._add_remote_toolset_to_agent(
+                    agent, endpoint_service, "todolist", chat_id=chat_id
+                )
+
+            # PlanModeToolSet (per-agent instance for individual plan mode control)
+            for agent in [triage_agent, *other_agents]:
+                plan_mode_toolset = PlanModeToolSet(agent=agent, name="plan_mode")
+                await agent.toolset(plan_mode_toolset)
+                logger.info(f"Agent '{agent.name}': Added PlanModeToolSet")
 
         # Create and setup team
         team = PantheonTeam(triage=triage_agent, agents=other_agents)
@@ -197,8 +272,6 @@ class ChatRoom(ToolSet):
         except Exception as e:
             return {"success": False, "message": f"Template setup failed: {str(e)}"}
 
-    # Removed: setup_handlers - methods are now auto-registered via @tool decorator
-
     @tool
     async def get_db_info(self) -> dict:
         """Get the database info."""
@@ -221,7 +294,7 @@ class ChatRoom(ToolSet):
 
             publish_start = time.time()
 
-            from pantheon.remote.backend.base import StreamType, StreamMessage
+            from pantheon.remote.backend.base import StreamMessage, StreamType
 
             message = StreamMessage(
                 type=StreamType.CHAT,
@@ -267,7 +340,7 @@ class ChatRoom(ToolSet):
             step_message: The step message data to publish
         """
         try:
-            from pantheon.remote.backend.base import StreamType, StreamMessage
+            from pantheon.remote.backend.base import StreamMessage, StreamType
 
             message = StreamMessage(
                 type=StreamType.CHAT,
@@ -363,7 +436,7 @@ class ChatRoom(ToolSet):
             endpoint = await self._backend.connect(self.endpoint_service_id)
 
             # Add debug logging
-            logger.info(
+            logger.debug(
                 f"chatroom proxy_toolset: method_name={method_name}, toolset_name={toolset_name}, args={args}"
             )
 
@@ -398,7 +471,7 @@ class ChatRoom(ToolSet):
             - agents: A list of dictionaries, each containing the info of an agent.
         """
 
-        def get_agent_info(agent: Agent | RemoteAgent):
+        def get_agent_info(agent: Agent):
             if hasattr(agent, "not_loaded_toolsets"):
                 not_loaded_toolsets = agent.not_loaded_toolsets
             else:
@@ -408,21 +481,31 @@ class ChatRoom(ToolSet):
                 "instructions": agent.instructions,
                 "toolful": getattr(agent, "toolful", False),
                 "tools": [t for t in agent.functions.keys()],
-                "toolsets": [
-                    {
-                        "id": s.service_info.service_id,
-                        "name": s.service_info.service_name,
-                    }
-                    for s in agent.toolset_services.values()
-                ],
+                "toolsets": [],
                 "icon": agent.icon,
                 "not_loaded_toolsets": not_loaded_toolsets,
             }
 
+        logger.info(f"get agents {chat_id}")
         # Get the appropriate team for this chat
         if chat_id:
             team = await self.get_team_for_chat(chat_id)
         else:
+            # Lazy load default_team on first access (avoids startup race condition)
+            if self.default_team is None:
+                logger.info("Creating default_team on demand")
+                default_template = self.template_manager.get_template("default")
+                if not default_template:
+                    return {
+                        "success": False,
+                        "message": "Default template not found in template manager",
+                    }
+
+                self.default_team = await self._create_team_from_template(
+                    default_template.to_dict(), chat_id=None
+                )
+                logger.info("Default team created successfully")
+
             team = self.default_team
 
         return {
@@ -671,9 +754,6 @@ class ChatRoom(ToolSet):
             message,
         )
         self.threads[chat_id] = thread
-
-        # Always attach notebook detection hook for automatic session management
-        thread.add_step_message_hook(self._process_notebook_detection_hook)
 
         # Add streaming hooks (will fail silently if backend doesn't support streaming)
         async def nats_chunk_processor(chunk: dict):
@@ -1069,240 +1149,4 @@ class ChatRoom(ToolSet):
             }
         except Exception as e:
             logger.error(f"Error updating chat context for {chat_id}: {e}")
-            return {"success": False, "error": str(e)}
-
-    def _extract_session_id_from_step_message(self, step_message: dict) -> str | None:
-        """Extract session_id from step message content (matches frontend logic)"""
-        try:
-            # Step messages can contain tool responses
-            if step_message.get("role") == "tool":
-                content = step_message.get("content", {})
-
-                # Handle string content (try to parse as JSON)
-                if isinstance(content, str):
-                    try:
-                        content = json.loads(content)
-                    except (json.JSONDecodeError, ValueError):
-                        # If not JSON, check for session_id pattern in string
-                        session_id_match = re.search(
-                            r'session_id[\'\":][\s]*[\'\""]?([^\'\"",\s]+)[\'\""]?',
-                            content,
-                        )
-                        if session_id_match:
-                            return session_id_match.group(1)
-                        return None
-
-                # Extract session_id from different possible field names
-                return (
-                    content.get("session_id")
-                    or content.get("sessionId")
-                    or content.get("id")
-                    or content.get("result", {}).get("session_id")
-                    or content.get("data", {}).get("session_id")
-                )
-        except Exception as e:
-            logger.warning(f"Error extracting session_id from step message: {e}")
-
-        return None
-
-    async def _process_notebook_detection_hook(self, step_message: dict):
-        """Hook to detect and auto-store notebook sessions from step messages"""
-        try:
-            chat_id = step_message.get("chat_id")
-            if not chat_id:
-                return
-
-            # Check if this is a tool response for notebook session creation
-            if step_message.get("role") == "tool":
-                tool_call_id = step_message.get("tool_call_id")
-
-                # We need to find the corresponding tool call to check the function name
-                # For now, try to extract session_id and assume it's notebook-related if found
-                session_id = self._extract_session_id_from_step_message(step_message)
-
-                if session_id:
-                    # Auto-store the detected session
-                    await self.manage_notebook_session(
-                        chat_id=chat_id,
-                        action="add",
-                        session_data={
-                            "session_id": session_id,
-                            "kernel_spec": "python3",  # Default, could be extracted from args
-                            "created_by": "agent",
-                            "tool_call_id": tool_call_id,
-                            "detected_at": datetime.now().isoformat(),
-                        },
-                    )
-                    logger.info(
-                        f"Auto-detected and stored notebook session {session_id} for chat {chat_id}"
-                    )
-
-        except Exception as e:
-            logger.error(f"Error in notebook detection hook: {e}")
-
-    @tool
-    async def manage_notebook_session(
-        self, chat_id: str, action: str, session_data: dict | None = None
-    ) -> dict:
-        """Manage notebook sessions for a specific chat.
-
-        Args:
-            chat_id: The chat ID to manage sessions for.
-            action: The action to perform ('add', 'remove', 'update', 'list').
-            session_data: The session data for add/update/remove operations.
-
-        Returns:
-            A dictionary with success status and session information.
-        """
-        try:
-            memory = await run_func(self.memory_manager.get_memory, chat_id)
-            if not hasattr(memory, "extra_data"):
-                memory.extra_data = {}
-
-            if "chat_context" not in memory.extra_data:
-                memory.extra_data["chat_context"] = {}
-
-            if "notebook_sessions" not in memory.extra_data["chat_context"]:
-                memory.extra_data["chat_context"]["notebook_sessions"] = []
-
-            sessions = memory.extra_data["chat_context"]["notebook_sessions"]
-
-            if action == "add":
-                if session_data:
-                    new_session = {
-                        **session_data,
-                        "created_at": datetime.now().isoformat(),
-                        "status": "active",
-                    }
-                    sessions.append(new_session)
-                    logger.info(
-                        f"Added notebook session {session_data.get('session_id')} to chat {chat_id}"
-                    )
-
-            elif action == "remove":
-                if session_data and "session_id" in session_data:
-                    sessions_before = len(sessions)
-                    sessions = [
-                        s
-                        for s in sessions
-                        if s.get("session_id") != session_data["session_id"]
-                    ]
-                    memory.extra_data["chat_context"]["notebook_sessions"] = sessions
-                    sessions_removed = sessions_before - len(sessions)
-                    logger.info(
-                        f"Removed {sessions_removed} notebook session(s) from chat {chat_id}"
-                    )
-
-            elif action == "update":
-                if session_data and "session_id" in session_data:
-                    for session in sessions:
-                        if session.get("session_id") == session_data["session_id"]:
-                            session.update(session_data)
-                            session["updated_at"] = datetime.now().isoformat()
-                            logger.info(
-                                f"Updated notebook session {session_data['session_id']} in chat {chat_id}"
-                            )
-                            break
-
-            elif action == "list":
-                # Enhance session data with real-time information from toolsets
-                try:
-                    # Try to get live session information from integrated_notebook toolset
-                    live_sessions = []
-                    try:
-                        # Call integrated_notebook toolset to get current active sessions
-                        notebook_result = await self.proxy_toolset(
-                            method_name="list_notebook_sessions",
-                            toolset_name="integrated_notebook",
-                        )
-                        if notebook_result and notebook_result.get("success"):
-                            live_sessions = notebook_result.get("sessions", [])
-                    except Exception as e:
-                        logger.warning(f"Failed to get live notebook sessions: {e}")
-
-                    # Merge stored metadata with live session data
-                    enhanced_sessions = []
-                    for stored_session in sessions:
-                        session_id = stored_session.get("session_id")
-
-                        # Find corresponding live session
-                        live_session = None
-                        for live in live_sessions:
-                            if live.get("session_id") == session_id:
-                                live_session = live
-                                break
-
-                        # Merge data: stored metadata + live status
-                        enhanced_session = {
-                            **stored_session,  # Basic metadata from chat memory
-                        }
-
-                        if live_session:
-                            # Add live information
-                            enhanced_session.update(
-                                {
-                                    "notebook_path": live_session.get("notebook_path"),
-                                    "notebook_title": live_session.get(
-                                        "notebook_title"
-                                    ),
-                                    "kernel_status": live_session.get("kernel_status"),
-                                    "execution_count": live_session.get(
-                                        "execution_count"
-                                    ),
-                                    "is_active": True,
-                                }
-                            )
-                        else:
-                            # Session exists in memory but not in toolset (may be dead)
-                            enhanced_session.update(
-                                {"kernel_status": "dead", "is_active": False}
-                            )
-
-                        enhanced_sessions.append(enhanced_session)
-
-                    # Also add any live sessions not in stored memory
-                    stored_session_ids = {s.get("session_id") for s in sessions}
-                    for live in live_sessions:
-                        live_session_id = live.get("session_id")
-                        if live_session_id not in stored_session_ids:
-                            # This is a session created directly via toolset, add it
-                            enhanced_sessions.append(
-                                {
-                                    "session_id": live_session_id,
-                                    "notebook_path": live.get("notebook_path"),
-                                    "notebook_title": live.get("notebook_title"),
-                                    "kernel_status": live.get("kernel_status"),
-                                    "execution_count": live.get("execution_count"),
-                                    "created_by": "user",  # Default, could be enhanced
-                                    "status": "active",
-                                    "is_active": True,
-                                    "created_at": datetime.now().isoformat(),
-                                }
-                            )
-
-                    # Update sessions to return enhanced data
-                    sessions = enhanced_sessions
-
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to enhance session data with live information: {e}"
-                    )
-                    # Fallback to stored sessions only
-                    pass
-            else:
-                return {
-                    "success": False,
-                    "error": f"Unknown action: {action}. Supported actions: add, remove, update, list",
-                }
-
-            await run_func(self.memory_manager.save)
-            return {
-                "success": True,
-                "action": action,
-                "chat_id": chat_id,
-                "sessions": sessions,
-            }
-
-        except Exception as e:
-            logger.error(f"Error managing notebook session for chat {chat_id}: {e}")
             return {"success": False, "error": str(e)}

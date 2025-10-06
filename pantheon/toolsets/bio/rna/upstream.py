@@ -5,35 +5,50 @@ import subprocess
 import json
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
-from ...utils.log import logger
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from pantheon.utils.log import logger
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+)
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
-from ...utils.toolset import ToolSet, tool
+from pantheon.toolset import ToolSet, tool
 from rich.console import Console
+
 
 class RNASeqUpstreamToolSet(ToolSet):
     """RNA-seq Upstream Analysis Toolset - From FASTQ to quantified expression"""
-    
+
     def __init__(
         self,
         name: str = "rna_upstream",
         workspace_path: str | Path | None = None,
-        worker_params: dict | None = None,
         **kwargs,
     ):
-        super().__init__(name, worker_params, **kwargs)
+        super().__init__(name, **kwargs)
         self.workspace_path = Path(workspace_path) if workspace_path else Path.cwd()
         self.pipeline_config = self._initialize_config()
         self.console = Console()
-        
+
     def _initialize_config(self) -> Dict[str, Any]:
         """Initialize RNA-seq pipeline configuration"""
         return {
             "file_extensions": {
-                "raw_reads": [".fastq", ".fq", ".fastq.gz", ".fq.gz", ".fastq.bz2", 
-                             ".fq.bz2", ".fastq.zst", ".fq.zst", ".sra"],
+                "raw_reads": [
+                    ".fastq",
+                    ".fq",
+                    ".fastq.gz",
+                    ".fq.gz",
+                    ".fastq.bz2",
+                    ".fq.bz2",
+                    ".fastq.zst",
+                    ".fq.zst",
+                    ".sra",
+                ],
                 "barcodes": [".whitelist.txt", ".tsv"],
                 "genome": [".fa", ".fasta", ".fai", ".dict"],
                 "transcriptome": [".fa", ".fasta", ".cdna.fa"],
@@ -43,17 +58,29 @@ class RNASeqUpstreamToolSet(ToolSet):
                 "alignment": [".sam", ".bam", ".cram", ".bam.bai", ".cram.crai"],
                 "quantification": [".txt", ".sf", ".tsv", ".h5", ".mtx"],
                 "tracks": [".bw", ".bigwig", ".tdf"],
-                "reports": [".html", ".json", ".txt", ".tsv", ".csv", ".pdf", ".png"]
+                "reports": [".html", ".json", ".txt", ".tsv", ".csv", ".pdf", ".png"],
             },
             "tools": {
                 "acquisition": ["sra-tools", "pigz", "pbzip2", "zstd", "seqtk"],
-                "qc": ["fastqc", "multiqc", "fastp", "trim_galore", "cutadapt", "rseqc"],
-                "alignment": ["star", "hisat2", "bwa", "minimap2"],  # STAR first for RNA-seq
+                "qc": [
+                    "fastqc",
+                    "multiqc",
+                    "fastp",
+                    "trim_galore",
+                    "cutadapt",
+                    "rseqc",
+                ],
+                "alignment": [
+                    "star",
+                    "hisat2",
+                    "bwa",
+                    "minimap2",
+                ],  # STAR first for RNA-seq
                 "quantification": ["featurecounts", "kallisto", "rsem", "htseq-count"],
                 "sam_processing": ["samtools", "sambamba", "picard"],
                 "rna_qc": ["rseqc", "qualimap", "preseq", "dupradar"],
                 "coverage": ["deeptools", "bedtools", "ucsc-tools"],
-                "annotation": ["stringtie", "cufflinks", "gffcompare"]
+                "annotation": ["stringtie", "cufflinks", "gffcompare"],
             },
             "default_params": {
                 "threads": 8,
@@ -61,10 +88,9 @@ class RNASeqUpstreamToolSet(ToolSet):
                 "quality_threshold": 20,
                 "min_mapping_quality": 10,
                 "strandedness": "unstranded",  # or "forward", "reverse"
-                "read_length": 150
-            }
+                "read_length": 150,
+            },
         }
-    
 
     @tool
     def RNA_Upstream(self, workflow_type: str, description: str = None):
@@ -91,7 +117,7 @@ class RNASeqUpstreamToolSet(ToolSet):
             return self.run_upstream_workflow_rna_qc()
         else:
             return "Invalid workflow type"
-    
+
     def run_upstream_workflow_init(self):
         """Run project initialization workflow"""
         logger.info("Running RNA-seq project initialization workflow")
@@ -133,7 +159,7 @@ echo "  2. Update samples.tsv with your sample information"
 echo "  3. Run: /bio rna upstream ./"
         """
         return init_response
-    
+
     def run_upstream_workflow_check_dependencies(self):
         """Run dependency check workflow"""
         logger.info("Running RNA-seq dependency check workflow")
@@ -159,7 +185,7 @@ samtools --version 2>/dev/null | head -1
 featureCounts -v 2>&1 | head -1
         """
         return check_dependencies_response
-    
+
     def run_upstream_workflow_setup_genome_resources(self):
         """Run genome setup workflow"""
         logger.info("Running RNA-seq genome setup workflow")
@@ -195,7 +221,7 @@ samtools faidx genome/fasta/hg38.fa
 cut -f1,2 genome/fasta/hg38.fa.fai > genome/hg38.chrom.sizes
         """
         return setup_genome_response
-    
+
     def run_upstream_workflow_run_fastqc(self):
         """Run FastQC workflow"""
         logger.info("Running RNA-seq FastQC workflow")
@@ -215,7 +241,7 @@ fastqc *.fastq.gz -o qc/fastqc/ -t 8
 multiqc qc/fastqc/ -o qc/multiqc/
         """
         return fastqc_response
-    
+
     def run_upstream_workflow_trim_adapters(self):
         """Run adapter trimming workflow"""
         logger.info("Running RNA-seq adapter trimming workflow")
@@ -235,7 +261,7 @@ trim_galore --paired sample_R1.fastq.gz sample_R2.fastq.gz -o fastq_trimmed/ --q
 cutadapt -a AGATCGGAAGAGCACACGTCTGAACTCCAGTCA -A AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT -q 20 --minimum-length 20 -o trimmed_R1.fastq.gz -p trimmed_R2.fastq.gz sample_R1.fastq.gz sample_R2.fastq.gz
         """
         return trim_adapters_response
-    
+
     def run_upstream_workflow_align_star(self):
         """Run STAR alignment workflow"""
         logger.info("Running STAR alignment workflow")
@@ -281,7 +307,7 @@ STAR --genomeDir genome/index/star/ \
     --outSAMattributes Standard
         """
         return align_star_response
-    
+
     def run_upstream_workflow_align_hisat2(self):
         """Run HISAT2 alignment workflow"""
         logger.info("Running HISAT2 alignment workflow")
@@ -311,7 +337,7 @@ samtools index sample_sorted.bam
 samtools flagstat sample_sorted.bam > sample_alignment_stats.txt
         """
         return align_hisat2_response
-    
+
     def run_upstream_workflow_quantify_featurecounts(self):
         """Run featureCounts quantification workflow"""
         logger.info("Running featureCounts quantification workflow")
@@ -353,8 +379,7 @@ featureCounts -a genome/gtf/gencode.v39.annotation.gtf \
 cut -f1,7- all_samples_counts.txt > counts_matrix.txt
         """
         return quantify_featurecounts_response
-    
-    
+
     def run_upstream_workflow_process_bam_smart(self):
         """Run smart BAM processing workflow"""
         logger.info("Running smart BAM processing workflow")
@@ -390,7 +415,7 @@ infer_experiment.py -r genome/gtf/gencode.v39.annotation.bed -i sample_dedup.bam
 geneBody_coverage.py -r genome/gtf/gencode.v39.annotation.bed -i sample_dedup.bam -o sample_genebody
         """
         return process_bam_smart_response
-    
+
     def run_upstream_workflow_rna_qc(self):
         """Run RNA-seq specific QC workflow"""
         logger.info("Running RNA-seq QC workflow")

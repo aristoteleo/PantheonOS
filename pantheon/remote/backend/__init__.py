@@ -16,13 +16,6 @@ try:
 except ImportError:
     pass
 
-try:
-    from .hypha import HyphaBackend
-
-    BackendRegistry.register("hypha", HyphaBackend)
-except ImportError:
-    pass
-
 __all__ = [
     "RemoteBackend",
     "RemoteService",

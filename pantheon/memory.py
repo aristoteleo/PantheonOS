@@ -199,7 +199,7 @@ class MemoryManager:
         for file in self.path.glob("*.json"):
             try:
                 memory = Memory.load(str(file))
-                logger.info(f"Loaded memory: {memory.name} from {file}")
+                logger.debug(f"Loaded memory: {memory.name} from {file}")
                 self.memory_store[memory.id] = memory
                 if memory.extra_data.get("running"):
                     memory.extra_data["running"] = False

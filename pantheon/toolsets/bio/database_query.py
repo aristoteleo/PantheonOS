@@ -8,8 +8,8 @@ formats (pandas, AnnData, MuData) for downstream analysis.
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 
-from ..utils.toolset import ToolSet, tool
-from ..utils.log import logger
+from pantheon.toolset import ToolSet, tool
+from pantheon.utils.log import logger
 
 
 def _import_datacollect():
@@ -32,6 +32,7 @@ def _import_datacollect():
     # Fallback to direct import
     try:
         import importlib
+
         dc = importlib.import_module("omicverse.external.datacollect")
         return dc, None
     except Exception as e:  # pragma: no cover - environment dependent
@@ -53,10 +54,9 @@ class DatabaseQueryToolSet(ToolSet):
         self,
         name: str = "database_query",
         workspace_path: str | None = None,
-        worker_params: dict | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(name, worker_params, **kwargs)
+        super().__init__(name, **kwargs)
         self.workspace_path = Path(workspace_path) if workspace_path else Path.cwd()
 
     @tool(name="database_query")
@@ -76,13 +76,19 @@ class DatabaseQueryToolSet(ToolSet):
         decision = None
         # Try LLM routing first if requested
         if use_llm:
-            decision = self._route_with_llm(query, to_format=to_format, llm_service_id=llm_service_id)
+            decision = self._route_with_llm(
+                query, to_format=to_format, llm_service_id=llm_service_id
+            )
         if decision is None:
             decision = self._route_with_heuristics(query, to_format=to_format)
 
         # No decision made
         if decision is None:
-            return {"success": False, "error": "Could not interpret query", "query": query}
+            return {
+                "success": False,
+                "error": "Could not interpret query",
+                "query": query,
+            }
 
         # Execute based on decision
         category = decision.get("category")
@@ -94,7 +100,13 @@ class DatabaseQueryToolSet(ToolSet):
 
         # Use high-level wrappers when possible
         try:
-            if category == "protein" and source in {"uniprot", "pdb", "alphafold", "interpro", "string"}:
+            if category == "protein" and source in {
+                "uniprot",
+                "pdb",
+                "alphafold",
+                "interpro",
+                "string",
+            }:
                 resp = self.protein(identifier, source=source, to_format=fmt)
             elif category == "expression" and source in {"geo", "ccre"}:
                 resp = self.expression(identifier, source=source, to_format=fmt)
@@ -109,7 +121,12 @@ class DatabaseQueryToolSet(ToolSet):
             resp.setdefault("query", query)
             return resp
         except Exception as e:  # pragma: no cover - runtime dependent
-            return {"success": False, "error": str(e), "decision": decision, "query": query}
+            return {
+                "success": False,
+                "error": str(e),
+                "decision": decision,
+                "query": query,
+            }
 
     # --- Routing helpers ---
     def _route_with_llm(
@@ -130,6 +147,7 @@ class DatabaseQueryToolSet(ToolSet):
 
         # Service ID can be passed explicitly or via env var
         import os, asyncio, json
+
         service_id = llm_service_id or os.getenv("PANTHEON_AGENT_SERVICE_ID")
         if not service_id:
             return None
@@ -143,16 +161,22 @@ class DatabaseQueryToolSet(ToolSet):
                 "identifier(main identifier e.g., P04637, GSE12345, rs429358, hsa04110), "
                 "to_format(one of pandas|anndata|mudata|dict), and rationale(short)."
             ),
-            "user": f"Query: {query}\nPreferred format: {to_format or 'auto'}"
+            "user": f"Query: {query}\nPreferred format: {to_format or 'auto'}",
         }
 
         async def _ask() -> Optional[Dict[str, Any]]:
             try:
                 svc = await connect_remote(service_id)
-                resp = await svc.invoke("chat", {"messages": [
-                    {"role": "system", "content": prompt["system"]},
-                    {"role": "user", "content": prompt["user"]},
-                ], "response_format": {"type": "json_object"}})
+                resp = await svc.invoke(
+                    "chat",
+                    {
+                        "messages": [
+                            {"role": "system", "content": prompt["system"]},
+                            {"role": "user", "content": prompt["user"]},
+                        ],
+                        "response_format": {"type": "json_object"},
+                    },
+                )
                 content = resp.get("content") if isinstance(resp, dict) else resp
                 if isinstance(content, str):
                     data = json.loads(content)
@@ -170,15 +194,26 @@ class DatabaseQueryToolSet(ToolSet):
         except Exception:
             return None
 
-    def _route_with_heuristics(self, query: str, to_format: Optional[str]) -> Optional[Dict[str, Any]]:
+    def _route_with_heuristics(
+        self, query: str, to_format: Optional[str]
+    ) -> Optional[Dict[str, Any]]:
         import re
 
         q = query.lower()
-        fmt = (to_format or ("anndata" if any(k in q for k in ["expression", "gse", "rna"]) else "pandas")).lower()
+        fmt = (
+            to_format
+            or (
+                "anndata"
+                if any(k in q for k in ["expression", "gse", "rna"])
+                else "pandas"
+            )
+        ).lower()
 
         # Identifiers
         m_pdb = re.search(r"\b[0-9][a-z0-9]{3}\b", q)
-        m_uniprot = re.search(r"\b[opq][0-9][a-z0-9]{3}[0-9]\b|\b[a-nr-z][0-9][a-z0-9]{3}[0-9]\b", q)
+        m_uniprot = re.search(
+            r"\b[opq][0-9][a-z0-9]{3}[0-9]\b|\b[a-nr-z][0-9][a-z0-9]{3}[0-9]\b", q
+        )
         m_gene = re.search(r"\b[a-z0-9]{2,6}\d{0,2}\b", q)
         m_gse = re.search(r"\bGSE\d{3,}\b", query)
         m_react = re.search(r"\bR-HSA-\d+\b", query)
@@ -188,42 +223,118 @@ class DatabaseQueryToolSet(ToolSet):
 
         # Protein/structure
         if any(k in q for k in ["pdb", "structure"]) and m_pdb:
-            return {"category": "protein", "client": "PDBClient", "source": "pdb", "identifier": m_pdb.group(0), "to_format": fmt, "strategy": "heuristic", "rationale": "PDB-like identifier with structure intent"}
+            return {
+                "category": "protein",
+                "client": "PDBClient",
+                "source": "pdb",
+                "identifier": m_pdb.group(0),
+                "to_format": fmt,
+                "strategy": "heuristic",
+                "rationale": "PDB-like identifier with structure intent",
+            }
         if any(k in q for k in ["alphafold", "af-"]):
-            ident = (m_uniprot or m_gene)
+            ident = m_uniprot or m_gene
             if ident:
-                return {"category": "protein", "client": "AlphaFoldClient", "source": "alphafold", "identifier": ident.group(0).upper(), "to_format": fmt, "strategy": "heuristic", "rationale": "AlphaFold requested"}
+                return {
+                    "category": "protein",
+                    "client": "AlphaFoldClient",
+                    "source": "alphafold",
+                    "identifier": ident.group(0).upper(),
+                    "to_format": fmt,
+                    "strategy": "heuristic",
+                    "rationale": "AlphaFold requested",
+                }
         if any(k in q for k in ["string", "interaction"]) and (m_uniprot or m_gene):
             ident = (m_uniprot or m_gene).group(0).upper()
-            return {"category": "protein", "client": "STRINGClient", "source": "string", "identifier": ident, "to_format": fmt, "strategy": "heuristic", "rationale": "Protein interaction via STRING"}
+            return {
+                "category": "protein",
+                "client": "STRINGClient",
+                "source": "string",
+                "identifier": ident,
+                "to_format": fmt,
+                "strategy": "heuristic",
+                "rationale": "Protein interaction via STRING",
+            }
         if any(k in q for k in ["uniprot", "protein"]) and (m_uniprot or m_gene):
             ident = (m_uniprot or m_gene).group(0).upper()
-            return {"category": "protein", "client": "UniProtClient", "source": "uniprot", "identifier": ident, "to_format": fmt, "strategy": "heuristic", "rationale": "Protein info via UniProt"}
+            return {
+                "category": "protein",
+                "client": "UniProtClient",
+                "source": "uniprot",
+                "identifier": ident,
+                "to_format": fmt,
+                "strategy": "heuristic",
+                "rationale": "Protein info via UniProt",
+            }
 
         # Expression
         if m_gse or "geo" in q or "expression" in q or "rna" in q:
-            ident = (m_gse.group(0) if m_gse else query)
-            return {"category": "expression", "client": "GEOClient", "source": "geo", "identifier": ident, "to_format": fmt if fmt in {"anndata", "pandas", "mudata", "dict"} else "anndata", "strategy": "heuristic", "rationale": "Expression/GEO detected"}
+            ident = m_gse.group(0) if m_gse else query
+            return {
+                "category": "expression",
+                "client": "GEOClient",
+                "source": "geo",
+                "identifier": ident,
+                "to_format": fmt
+                if fmt in {"anndata", "pandas", "mudata", "dict"}
+                else "anndata",
+                "strategy": "heuristic",
+                "rationale": "Expression/GEO detected",
+            }
 
         # Pathways
         if m_kegg or "kegg" in q:
-            ident = (m_kegg.group(0) if m_kegg else query)
-            return {"category": "pathway", "client": "KEGGClient", "source": "kegg", "identifier": ident, "to_format": fmt, "strategy": "heuristic", "rationale": "KEGG pathway requested"}
+            ident = m_kegg.group(0) if m_kegg else query
+            return {
+                "category": "pathway",
+                "client": "KEGGClient",
+                "source": "kegg",
+                "identifier": ident,
+                "to_format": fmt,
+                "strategy": "heuristic",
+                "rationale": "KEGG pathway requested",
+            }
         if m_react or "reactome" in q:
-            ident = (m_react.group(0) if m_react else query)
-            return {"category": "pathway", "client": "ReactomeClient", "source": "reactome", "identifier": ident, "to_format": fmt, "strategy": "heuristic", "rationale": "Reactome pathway requested"}
+            ident = m_react.group(0) if m_react else query
+            return {
+                "category": "pathway",
+                "client": "ReactomeClient",
+                "source": "reactome",
+                "identifier": ident,
+                "to_format": fmt,
+                "strategy": "heuristic",
+                "rationale": "Reactome pathway requested",
+            }
 
         # Genomics/variants
         if m_rs:
-            return {"category": "genomics", "client": "dbSNPClient", "source": None, "identifier": m_rs.group(0), "to_format": fmt, "strategy": "heuristic", "rationale": "dbSNP variant detected"}
+            return {
+                "category": "genomics",
+                "client": "dbSNPClient",
+                "source": None,
+                "identifier": m_rs.group(0),
+                "to_format": fmt,
+                "strategy": "heuristic",
+                "rationale": "dbSNP variant detected",
+            }
         if m_ensg or "ensembl" in q:
-            ident = (m_ensg.group(0) if m_ensg else query)
-            return {"category": "genomics", "client": "EnsemblClient", "source": None, "identifier": ident, "to_format": fmt, "strategy": "heuristic", "rationale": "Ensembl gene requested"}
+            ident = m_ensg.group(0) if m_ensg else query
+            return {
+                "category": "genomics",
+                "client": "EnsemblClient",
+                "source": None,
+                "identifier": ident,
+                "to_format": fmt,
+                "strategy": "heuristic",
+                "rationale": "Ensembl gene requested",
+            }
 
         return None
 
     # --- Direct client invocation ---
-    def _invoke_client_direct(self, client_name: str, identifier: str, to_format: str = "pandas") -> Dict[str, Any]:
+    def _invoke_client_direct(
+        self, client_name: str, identifier: str, to_format: str = "pandas"
+    ) -> Dict[str, Any]:
         dc, err = _import_datacollect()
         if err or dc is None:
             return {"success": False, "error": err or "datacollect unavailable"}
@@ -236,7 +347,12 @@ class DatabaseQueryToolSet(ToolSet):
 
             # Attempt conversion using adapters
             try:
-                from omicverse.external.datacollect.utils.omicverse_adapters import to_pandas, to_anndata, to_mudata
+                from omicverse.external.datacollect.utils.omicverse_adapters import (
+                    to_pandas,
+                    to_anndata,
+                    to_mudata,
+                )
+
                 if to_format == "pandas":
                     payload = to_pandas(raw)
                 elif to_format == "anndata":
@@ -248,7 +364,12 @@ class DatabaseQueryToolSet(ToolSet):
             except Exception:
                 payload = raw
 
-            return {"success": True, "client": client_name, "to_format": to_format, "payload": payload}
+            return {
+                "success": True,
+                "client": client_name,
+                "to_format": to_format,
+                "payload": payload,
+            }
         except Exception as e:  # pragma: no cover - runtime dependent
             return {"success": False, "error": str(e)}
 
@@ -261,10 +382,33 @@ class DatabaseQueryToolSet(ToolSet):
         # Static map, aligned with datacollect __init__.py
         sources = {
             "proteins": ["uniprot", "pdb", "alphafold", "interpro", "string", "emdb"],
-            "genomics": ["ensembl", "clinvar", "dbsnp", "gnomad", "gwas_catalog", "ucsc", "regulomedb"],
-            "expression": ["geo", "ccre", "opentargets", "opentargets_genetics", "remap"],
+            "genomics": [
+                "ensembl",
+                "clinvar",
+                "dbsnp",
+                "gnomad",
+                "gwas_catalog",
+                "ucsc",
+                "regulomedb",
+            ],
+            "expression": [
+                "geo",
+                "ccre",
+                "opentargets",
+                "opentargets_genetics",
+                "remap",
+            ],
             "pathways": ["kegg", "reactome", "gtopdb"],
-            "specialized": ["blast", "jaspar", "mpd", "iucn", "pride", "cbioportal", "worms", "paleobiology"],
+            "specialized": [
+                "blast",
+                "jaspar",
+                "mpd",
+                "iucn",
+                "pride",
+                "cbioportal",
+                "worms",
+                "paleobiology",
+            ],
         }
         return sources
 
@@ -283,10 +427,22 @@ class DatabaseQueryToolSet(ToolSet):
         if err or dc is None:
             return {"success": False, "error": err or "datacollect unavailable"}
         try:
-            result = dc.collect_protein_data(identifier, source=source, to_format=to_format)
-            return {"success": True, "source": source, "to_format": to_format, "payload": result}
+            result = dc.collect_protein_data(
+                identifier, source=source, to_format=to_format
+            )
+            return {
+                "success": True,
+                "source": source,
+                "to_format": to_format,
+                "payload": result,
+            }
         except Exception as e:
-            return {"success": False, "source": source, "to_format": to_format, "error": str(e)}
+            return {
+                "success": False,
+                "source": source,
+                "to_format": to_format,
+                "error": str(e),
+            }
 
     @tool
     def expression(
@@ -300,10 +456,22 @@ class DatabaseQueryToolSet(ToolSet):
         if err or dc is None:
             return {"success": False, "error": err or "datacollect unavailable"}
         try:
-            result = dc.collect_expression_data(identifier, source=source, to_format=to_format)
-            return {"success": True, "source": source, "to_format": to_format, "payload": result}
+            result = dc.collect_expression_data(
+                identifier, source=source, to_format=to_format
+            )
+            return {
+                "success": True,
+                "source": source,
+                "to_format": to_format,
+                "payload": result,
+            }
         except Exception as e:
-            return {"success": False, "source": source, "to_format": to_format, "error": str(e)}
+            return {
+                "success": False,
+                "source": source,
+                "to_format": to_format,
+                "error": str(e),
+            }
 
     @tool
     def pathway(
@@ -317,10 +485,22 @@ class DatabaseQueryToolSet(ToolSet):
         if err or dc is None:
             return {"success": False, "error": err or "datacollect unavailable"}
         try:
-            result = dc.collect_pathway_data(identifier, source=source, to_format=to_format)
-            return {"success": True, "source": source, "to_format": to_format, "payload": result}
+            result = dc.collect_pathway_data(
+                identifier, source=source, to_format=to_format
+            )
+            return {
+                "success": True,
+                "source": source,
+                "to_format": to_format,
+                "payload": result,
+            }
         except Exception as e:
-            return {"success": False, "source": source, "to_format": to_format, "error": str(e)}
+            return {
+                "success": False,
+                "source": source,
+                "to_format": to_format,
+                "error": str(e),
+            }
 
     @tool
     def client_info(self, client_name: str) -> Dict[str, Any]:
@@ -333,8 +513,10 @@ class DatabaseQueryToolSet(ToolSet):
             if client_cls is None:
                 return {"success": False, "error": f"Client '{client_name}' not found"}
             import inspect
+
             methods = [
-                n for n, m in inspect.getmembers(client_cls)
+                n
+                for n, m in inspect.getmembers(client_cls)
                 if inspect.isfunction(m) and not n.startswith("_")
             ]
             return {"success": True, "client": client_name, "methods": methods}

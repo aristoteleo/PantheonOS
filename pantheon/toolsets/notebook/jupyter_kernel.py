@@ -18,10 +18,10 @@ from jupyter_client import AsyncKernelManager
 from jupyter_client.asynchronous import AsyncKernelClient
 from jupyter_client.session import Session
 
-from ..remote.backend.base import RemoteBackend, StreamMessage, StreamType
-from ..toolset import ToolSet, tool
-from ..utils.log import logger
-from ..utils.misc import run_func
+from pantheon.remote.backend.base import RemoteBackend, StreamMessage, StreamType
+from pantheon.toolset import ToolSet, tool
+from pantheon.utils.log import logger
+from pantheon.utils.misc import run_func
 
 # Terminal control character processing (nbclient-style)
 # Reference: https://github.com/jupyter/nbclient/blob/main/nbclient/client.py
@@ -296,7 +296,13 @@ class KernelListener:
         logger.info("Starting unified IOPub listening loop")
 
         try:
-            while self.is_running and self.session_sockets:
+            while self.is_running:
+                # If no sessions registered yet, wait before checking again
+                # This prevents busy-waiting while allowing the listener to persist
+                if not self.session_sockets:
+                    await asyncio.sleep(0.5)  # Wait 500ms before checking again
+                    continue
+
                 try:
                     # True event-driven waiting - returns only when messages arrive
                     events = await self.poller.poll()  # No timeout - pure event-driven
@@ -454,11 +460,10 @@ class JupyterKernelToolSet(ToolSet):
         self,
         name: str,
         workdir: str | None = None,
-        worker_params: dict | None = None,
         use_unified_listener: bool = True,
         **kwargs,
     ):
-        super().__init__(name, worker_params, **kwargs)
+        super().__init__(name, **kwargs)
         self.workdir = workdir or os.getcwd()
 
         # Event bus will be set by parent toolset during setup

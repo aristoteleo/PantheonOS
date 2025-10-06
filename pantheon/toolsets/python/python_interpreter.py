@@ -22,12 +22,12 @@ def exec_with_echo(code, env=None):
     tree = ast.parse(code)
     for node in tree.body:
         if isinstance(node, ast.Expr):
-            expr_code = compile(ast.Expression(node.value), '<string>', 'eval')
+            expr_code = compile(ast.Expression(node.value), "<string>", "eval")
             result = eval(expr_code, env)
             if result is not None:
                 print(result)
         else:
-            exec(compile(ast.Module([node], []), '<string>', 'exec'), env)
+            exec(compile(ast.Module([node], []), "<string>", "exec"), env)
 
 
 DEFAULT_INIT_CODE = """
@@ -72,20 +72,18 @@ class PythonInterpreterToolSet(ToolSet):
         workdir: The working directory for the interpreter.
         engine: The engine to use for the interpreter.
         init_code: The code to run before the interpreter starts.
-        worker_params: The parameters for the worker.
         **kwargs: Additional keyword arguments.
     """
 
     def __init__(
-            self,
-            name: str,
-            workdir: str | None = None,
-            engine: Engine | None = None,
-            init_code: str | None = DEFAULT_INIT_CODE,
-            worker_params: dict | None = None,
-            **kwargs,
-            ):
-        super().__init__(name, worker_params, **kwargs)
+        self,
+        name: str,
+        workdir: str | None = None,
+        engine: Engine | None = None,
+        init_code: str | None = DEFAULT_INIT_CODE,
+        **kwargs,
+    ):
+        super().__init__(name, **kwargs)
         self.interpreters = {}
         self.jobs = {}
         self._engine = engine
@@ -119,7 +117,7 @@ class PythonInterpreterToolSet(ToolSet):
         Returns:
             A dictionary with the result, stdout, and stderr.
         """
-        #context_variables: The context variables to use.
+        # context_variables: The context variables to use.
         #    "client_id" is used to identify the interpreter.
         #    If not provided will use the default client id.
         #    For each client id, a new interpreter will be created.
@@ -142,28 +140,31 @@ class PythonInterpreterToolSet(ToolSet):
             # Handle BrokenProcessPool and other process failures
             error_str = str(e)
             error_type = type(e).__name__
-            
+
             # Check for various process failure indicators
             is_process_failure = (
-                "BrokenProcessPool" in error_str or 
-                "ProcessPool" in error_str or
-                "loky.process_executor.BrokenProcessPool" in error_str or
-                "TerminatedWorkerError" in error_type or
-                "TerminatedWorkerError" in error_str or
-                "SIGSEGV" in error_str or
-                "segmentation fault" in error_str.lower() or
-                "worker" in error_str.lower() and "terminated" in error_str.lower() or
-                "un-serialize" in error_str or
-                "picklable" in error_str or
-                "KeyboardInterrupt" in error_str or
-                error_type == "BrokenProcessPool" or
-                p_id not in self.interpreters
+                "BrokenProcessPool" in error_str
+                or "ProcessPool" in error_str
+                or "loky.process_executor.BrokenProcessPool" in error_str
+                or "TerminatedWorkerError" in error_type
+                or "TerminatedWorkerError" in error_str
+                or "SIGSEGV" in error_str
+                or "segmentation fault" in error_str.lower()
+                or "worker" in error_str.lower()
+                and "terminated" in error_str.lower()
+                or "un-serialize" in error_str
+                or "picklable" in error_str
+                or "KeyboardInterrupt" in error_str
+                or error_type == "BrokenProcessPool"
+                or p_id not in self.interpreters
             )
-            
+
             if is_process_failure:
-                logger.warning(f"Python interpreter crashed (client_id: {client_id}), restarting...")
+                logger.warning(
+                    f"Python interpreter crashed (client_id: {client_id}), restarting..."
+                )
                 logger.debug(f"Crash details: {error_type}: {error_str[:200]}")
-                
+
                 # Clean up broken interpreter more thoroughly
                 if p_id in self.interpreters:
                     try:
@@ -180,26 +181,30 @@ class PythonInterpreterToolSet(ToolSet):
                                 del self.clientid_to_interpreterid[client_id]
                         except:
                             pass  # Ignore cleanup errors
-                
+
                 # Create new interpreter and retry
                 p_id = await self.new_interpreter()
                 self.clientid_to_interpreterid[client_id] = p_id
                 logger.info(f"Python interpreter restarted (client_id: {client_id})")
-                
+
                 try:
-                    res = await self.run_code_in_interpreter(code, p_id, result_var_name)
+                    res = await self.run_code_in_interpreter(
+                        code, p_id, result_var_name
+                    )
                     logger.info("Code execution successful after interpreter restart")
                     # Add a note to the result that interpreter was restarted
                     res["interpreter_restarted"] = True
                     res["restart_reason"] = f"{error_type}: {error_str[:100]}..."
                 except Exception as retry_error:
-                    logger.error(f"Code execution failed even after interpreter restart: {retry_error}")
+                    logger.error(
+                        f"Code execution failed even after interpreter restart: {retry_error}"
+                    )
                     # Return a more user-friendly error message
                     return {
                         "result": None,
                         "stdout": "",
                         "stderr": f"Python interpreter crashed and restart failed.\nOriginal error: {error_type}\nRetry error: {str(retry_error)[:200]}...\n\nTry using /restart command to fully reset the Python environment.",
-                        "interpreter_crashed": True
+                        "interpreter_crashed": True,
                     }
             else:
                 # Re-raise non-process-related exceptions
@@ -208,14 +213,14 @@ class PythonInterpreterToolSet(ToolSet):
         return res
 
     async def __run_code_in_interpreter(
-            self,
-            code: str,
-            interpreter_id: str,
-            result_var_name: str | None = None,
-            ) -> dict:
+        self,
+        code: str,
+        interpreter_id: str,
+        result_var_name: str | None = None,
+    ) -> dict:
         if interpreter_id not in self.interpreters:
             raise ValueError(f"Interpreter {interpreter_id} not found")
-        #logger.info(f"[DEBUG] Running code in interpreter {interpreter_id}")
+        # logger.info(f"[DEBUG] Running code in interpreter {interpreter_id}")
         g = self.interpreters[interpreter_id]
         result, stdout, stderr = await g.asend((code, result_var_name))
         if isinstance(result, PythonInterpreterError):
@@ -228,11 +233,11 @@ class PythonInterpreterToolSet(ToolSet):
 
     @tool
     async def run_code_in_interpreter(
-            self,
-            code: str,
-            interpreter_id: str,
-            result_var_name: str | None = None,
-            ) -> dict:
+        self,
+        code: str,
+        interpreter_id: str,
+        result_var_name: str | None = None,
+    ) -> dict:
         """Run code in an interpreter.
 
         Args:
@@ -246,9 +251,11 @@ class PythonInterpreterToolSet(ToolSet):
         """
         code = "GLOBAL_FIG_PATH = None\n" + code
         res = await self.__run_code_in_interpreter(
-            code, interpreter_id, result_var_name)
+            code, interpreter_id, result_var_name
+        )
         res2 = await self.__run_code_in_interpreter(
-            "None", interpreter_id, "GLOBAL_FIG_PATH")
+            "None", interpreter_id, "GLOBAL_FIG_PATH"
+        )
         fig_path = res2["result"]
         if fig_path is not None:
             res["fig_storage_path"] = fig_path
@@ -260,14 +267,14 @@ class PythonInterpreterToolSet(ToolSet):
             base64_uri = f"data:image/png;base64,{base64_img}"
             res["base64_uri"] = [base64_uri]
             res["hidden_to_model"] = ["base64_uri"]
-        
+
         return res
 
     @tool
     async def new_interpreter(self) -> str:
         """Create a new Python interpreter and return its id.
         You can use `run_code_in_interpreter` to run code in the interpreter,
-        by providing the interpreter id. """
+        by providing the interpreter id."""
         self._init_engine()
 
         async def interpreter():
@@ -300,7 +307,9 @@ class PythonInterpreterToolSet(ToolSet):
         await g.asend(None)  # Initialize the generator
         self.interpreters[job.id] = g
         if self.workdir is not None:
-            await self.run_code_in_interpreter(f"import os; os.chdir('{self.workdir}')", job.id)
+            await self.run_code_in_interpreter(
+                f"import os; os.chdir('{self.workdir}')", job.id
+            )
         if self.init_code is not None:
             await self.run_code_in_interpreter(self.init_code, job.id)
         return job.id

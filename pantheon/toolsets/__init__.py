@@ -7,15 +7,30 @@ from .file_manager import FileManagerToolSet
 from .web import WebToolSet
 from .latex import LatexToolSet
 from .workflow import WorkflowToolSet
-from .jupyter_kernel import JupyterKernelToolSet
-from .notebook import NotebookToolSet
-from .integrated_notebook import IntegratedNotebookToolSet
+from .notebook import NotebookToolSet, IntegratedNotebookToolSet, JupyterKernelToolSet
 from .file_editor import FileEditorToolSet
 from .code_search import CodeSearchToolSet
 from .scraper import ScraperToolSet
 from .todo import TodoToolSet
-from .ragmanager import RAGManagerToolSet
+from .todolist import TodoListToolSet
+from .plan_mode import PlanModeToolSet
 from .vector_rag import VectorRAGToolSet
+from .knowledge import KnowledgeToolSet
+
+# Bio toolsets
+from .bio import (
+    BioToolsetManager,
+    DatabaseQueryToolSet,
+    GeneAgentToolSet,
+    ATACSeqToolSet,
+    ScATACSeqToolSet,
+    ScRNASeqToolSet,
+    RNASeqToolSet,
+    HiCToolSet,
+    SpatialToolSet,
+    MolecularDockingToolSet,
+    SingleCellAgentToolSet,
+)
 
 __all__ = [
     # Interpreters
@@ -35,11 +50,25 @@ __all__ = [
     "WorkflowToolSet",
     "CodeSearchToolSet",
     "TodoToolSet",
+    "TodoListToolSet",
+    "PlanModeToolSet",
     # Notebooks
     "JupyterKernelToolSet",
     "NotebookToolSet",
     "IntegratedNotebookToolSet",
     # RAG
-    "RAGManagerToolSet",
     "VectorRAGToolSet",
+    "KnowledgeToolSet",
+    # Bio toolsets
+    "BioToolsetManager",
+    "DatabaseQueryToolSet",
+    "GeneAgentToolSet",
+    "ATACSeqToolSet",
+    "ScATACSeqToolSet",
+    "ScRNASeqToolSet",
+    "RNASeqToolSet",
+    "HiCToolSet",
+    "SpatialToolSet",
+    "MolecularDockingToolSet",
+    "SingleCellAgentToolSet",
 ]

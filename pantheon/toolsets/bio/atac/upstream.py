@@ -2,51 +2,71 @@
 
 from pathlib import Path
 from typing import Dict, Any
-from ...utils.log import logger
-from ....toolset import ToolSet, tool
+from pantheon.utils.log import logger
+from pantheon.toolset import ToolSet, tool
 from rich.console import Console
 
 
 class ATACSeqUpstreamToolSet(ToolSet):
     """ATAC-seq Upstream Analysis Toolset - From FASTQ to filtered BAM files"""
-    
+
     def __init__(
         self,
         name: str = "atac_upstream",
         workspace_path: str | Path | None = None,
-        worker_params: dict | None = None,
         **kwargs,
     ):
-        super().__init__(name, worker_params, **kwargs)
+        super().__init__(name, **kwargs)
         self.workspace_path = Path(workspace_path) if workspace_path else Path.cwd()
         self.pipeline_config = self._initialize_config()
         self.console = Console()
-        
+
     def _initialize_config(self) -> Dict[str, Any]:
         """Initialize ATAC-seq pipeline configuration"""
         return {
             "file_extensions": {
-                "raw_reads": [".fastq", ".fq", ".fastq.gz", ".fq.gz", ".fastq.bz2", 
-                             ".fq.bz2", ".fastq.zst", ".fq.zst", ".sra"],
+                "raw_reads": [
+                    ".fastq",
+                    ".fq",
+                    ".fastq.gz",
+                    ".fq.gz",
+                    ".fastq.bz2",
+                    ".fq.bz2",
+                    ".fastq.zst",
+                    ".fq.zst",
+                    ".sra",
+                ],
                 "barcodes": [".whitelist.txt", ".tsv"],
                 "genome": [".fa", ".fasta", ".fai", ".dict"],
                 "bwa_index": [".amb", ".ann", ".bwt", ".pac", ".sa"],
                 "bowtie2_index": [".bt2", ".bt2l"],
                 "regions": [".bed", ".bed.gz", ".chrom.sizes"],
                 "alignment": [".sam", ".bam", ".cram", ".bam.bai", ".cram.crai"],
-                "peaks": [".narrowPeak", ".broadPeak", ".gappedPeak", ".xls", ".bedgraph", ".bdg"],
+                "peaks": [
+                    ".narrowPeak",
+                    ".broadPeak",
+                    ".gappedPeak",
+                    ".xls",
+                    ".bedgraph",
+                    ".bdg",
+                ],
                 "tracks": [".bw", ".bigwig", ".tdf"],
-                "reports": [".html", ".json", ".txt", ".tsv", ".csv", ".pdf", ".png"]
+                "reports": [".html", ".json", ".txt", ".tsv", ".csv", ".pdf", ".png"],
             },
             "tools": {
                 "acquisition": ["sra-tools", "pigz", "pbzip2", "zstd", "seqtk"],
                 "qc": ["fastqc", "multiqc", "fastp", "trim_galore", "cutadapt"],
-                "alignment": ["bowtie2", "bwa", "bwa-mem2", "minimap2"],  # Bowtie2 first for ATAC-seq
+                "alignment": [
+                    "bowtie2",
+                    "bwa",
+                    "bwa-mem2",
+                    "minimap2",
+                ],  # Bowtie2 first for ATAC-seq
                 "sam_processing": ["samtools", "sambamba", "picard", "samblaster"],
                 "atac_qc": ["ataqv", "preseq", "deeptools"],
                 "peak_calling": ["macs2", "genrich", "hmmratac"],
                 "coverage": ["deeptools", "bedtools", "ucsc-tools"],
-                "annotation": ["homer", "meme", "chipseeker", "bedtools"]
+                "annotation": ["homer", "meme", "chipseeker", "bedtools"],
             },
             "default_params": {
                 "threads": 4,
@@ -54,10 +74,9 @@ class ATACSeqUpstreamToolSet(ToolSet):
                 "quality_threshold": 20,
                 "min_mapping_quality": 30,
                 "fragment_size_range": [50, 1000],
-                "peak_calling_fdr": 0.01
-            }
+                "peak_calling_fdr": 0.01,
+            },
         }
-    
 
     @tool
     def ATAC_Upstream(self, workflow_type: str, description: str = None):
@@ -84,7 +103,7 @@ class ATACSeqUpstreamToolSet(ToolSet):
             return self.run_upstream_workflow_process_bam_smart()
         else:
             return "Invalid workflow type"
-    
+
     def run_upstream_workflow_init(self):
         """Run project initialization workflow"""
         logger.info("Running project initialization workflow")
@@ -113,7 +132,7 @@ sample_id	fastq_r1	fastq_r2	condition	replicate
 EOF
         """
         return init_response
-    
+
     def run_upstream_workflow_check_dependencies(self):
         """Run dependency check workflow"""
         logger.info("Running dependency check workflow")
@@ -138,7 +157,7 @@ samtools --version 2>/dev/null | head -1
 macs2 --version 2>/dev/null
         """
         return check_dependencies_response
-    
+
     def run_upstream_workflow_setup_genome_resources(self):
         """Run genome setup workflow"""
         logger.info("Running genome setup workflow")
@@ -166,7 +185,7 @@ samtools faidx genomes/hg38.fa
 cut -f1,2 genomes/hg38.fa.fai > genomes/hg38.chrom.sizes
         """
         return setup_genome_response
-    
+
     def run_upstream_workflow_run_fastqc(self):
         """Run FastQC workflow"""
         logger.info("Running FastQC workflow")
@@ -186,7 +205,7 @@ fastqc *.fastq.gz -o qc/fastqc/ -t 4
 multiqc qc/fastqc/ -o qc/multiqc/
         """
         return fastqc_response
-    
+
     def run_upstream_workflow_trim_adapters(self):
         """Run adapter trimming workflow"""
         logger.info("Running adapter trimming workflow")
@@ -206,7 +225,7 @@ trim_galore --paired sample_R1.fastq.gz sample_R2.fastq.gz -o fastq_trimmed/ --q
 cutadapt -a AGATCGGAAGAGCACACGTCTGAACTCCAGTCA -A AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT -q 20 --minimum-length 20 -o trimmed_R1.fastq.gz -p trimmed_R2.fastq.gz sample_R1.fastq.gz sample_R2.fastq.gz
         """
         return trim_adapters_response
-    
+
     def run_upstream_workflow_align_bowtie2(self):
         """Run Bowtie2 alignment workflow"""
         logger.info("Running Bowtie2 alignment workflow")
@@ -227,7 +246,7 @@ samtools index sample_sorted.bam
 samtools flagstat sample_sorted.bam > sample_alignment_stats.txt
         """
         return align_bowtie2_response
-    
+
     def run_upstream_workflow_align_bwa(self):
         """Run BWA alignment workflow"""
         logger.info("Running BWA alignment workflow")
@@ -248,7 +267,7 @@ samtools index sample_sorted.bam
 samtools flagstat sample_sorted.bam > sample_alignment_stats.txt
         """
         return align_bwa_response
-    
+
     def run_upstream_workflow_filter_bam(self):
         """Run BAM filtering workflow"""
         logger.info("Running BAM filtering workflow")
@@ -269,7 +288,7 @@ samtools sort sample_filtered_clean.bam -o sample_filtered_sorted.bam
 samtools index sample_filtered_sorted.bam
         """
         return filter_bam_response
-    
+
     def run_upstream_workflow_mark_duplicates(self):
         """Run duplicate marking workflow"""
         logger.info("Running duplicate marking workflow")
@@ -293,7 +312,7 @@ samtools index sample_dedup_sorted.bam
 samtools flagstat sample_dedup_sorted.bam > sample_final_stats.txt
         """
         return mark_duplicates_response
-    
+
     def run_upstream_workflow_process_bam_smart(self):
         """Run smart BAM processing workflow"""
         logger.info("Running smart BAM processing workflow")

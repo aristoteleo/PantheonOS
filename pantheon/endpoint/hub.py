@@ -16,7 +16,7 @@ class EndpointHub(ToolSet):
         self,
         config_dir: str | Path,
         workspace_base_path: str | Path,
-        worker_params: dict | None = None,
+        **kwargs,
     ):
         self.config_dir = Path(config_dir)
         self.endpoint_config_paths: dict[str, str] = {}
@@ -27,7 +27,7 @@ class EndpointHub(ToolSet):
         self.workspace_base_path.mkdir(parents=True, exist_ok=True)
         self.engine = Engine()
         self.jobs: dict[str, SubprocessJob] = {}
-        super().__init__("endpoint-hub", worker_params=worker_params)
+        super().__init__("endpoint-hub", **kwargs)
 
     def load_endpoint_config_paths(self):
         print(self.config_dir)
@@ -136,60 +136,74 @@ class EndpointHub(ToolSet):
                 ["docker", "ps", "-q", "--format", "{{.ID}}:{{.Names}}"],
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
             )
-            
+
             if result.returncode != 0:
                 logger.warning(f"Failed to list Docker containers: {result.stderr}")
                 return
-                
+
             containers_to_kill = []
-            for line in result.stdout.strip().split('\n'):
-                if line and ':' in line:
-                    container_id, container_name = line.split(':', 1)
+            for line in result.stdout.strip().split("\n"):
+                if line and ":" in line:
+                    container_id, container_name = line.split(":", 1)
                     # Check if container name contains the id_hash
                     if id_hash in container_name:
                         containers_to_kill.append(container_id)
-            
+
             # Kill matching containers
             for container_id in containers_to_kill:
                 try:
-                    logger.info(f"Stopping Docker container {container_id} for id_hash: {id_hash}")
+                    logger.info(
+                        f"Stopping Docker container {container_id} for id_hash: {id_hash}"
+                    )
                     subprocess.run(
                         ["docker", "stop", container_id],
                         capture_output=True,
                         text=True,
-                        timeout=30
+                        timeout=30,
                     )
-                    logger.info(f"Removing Docker container {container_id} for id_hash: {id_hash}")
+                    logger.info(
+                        f"Removing Docker container {container_id} for id_hash: {id_hash}"
+                    )
                     subprocess.run(
                         ["docker", "rm", container_id],
                         capture_output=True,
                         text=True,
-                        timeout=10
+                        timeout=10,
                     )
-                    logger.info(f"Successfully cleaned up Docker container {container_id}")
+                    logger.info(
+                        f"Successfully cleaned up Docker container {container_id}"
+                    )
                 except subprocess.TimeoutExpired:
-                    logger.warning(f"Timeout stopping Docker container {container_id}, force killing")
+                    logger.warning(
+                        f"Timeout stopping Docker container {container_id}, force killing"
+                    )
                     try:
                         subprocess.run(
                             ["docker", "kill", container_id],
                             capture_output=True,
                             text=True,
-                            timeout=10
+                            timeout=10,
                         )
                         subprocess.run(
                             ["docker", "rm", container_id],
                             capture_output=True,
                             text=True,
-                            timeout=10
+                            timeout=10,
                         )
-                        logger.info(f"Force killed and removed Docker container {container_id}")
+                        logger.info(
+                            f"Force killed and removed Docker container {container_id}"
+                        )
                     except Exception as e:
-                        logger.error(f"Failed to force kill Docker container {container_id}: {e}")
+                        logger.error(
+                            f"Failed to force kill Docker container {container_id}: {e}"
+                        )
                 except Exception as e:
-                    logger.error(f"Failed to cleanup Docker container {container_id}: {e}")
-                    
+                    logger.error(
+                        f"Failed to cleanup Docker container {container_id}: {e}"
+                    )
+
         except subprocess.TimeoutExpired:
             logger.error(f"Timeout listing Docker containers for id_hash: {id_hash}")
         except Exception as e:
@@ -202,10 +216,10 @@ class EndpointHub(ToolSet):
         if job:
             logger.info(f"Start Deleting endpoint id_hash: {id_hash}")
             endpoint_id = self.endpoints[id_hash]["service_id"]
-            
+
             # Clean up Docker containers first
             await self._cleanup_docker_containers(id_hash)
-            
+
             try:
                 await asyncio.wait_for(job.cancel(), timeout=5.0)
                 logger.info(f"Job cancelled for endpoint id_hash: {id_hash}")

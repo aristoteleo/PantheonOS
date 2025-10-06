@@ -1,0 +1,16 @@
+Plain Text Sample Document
+
+This is a simple text file for testing the knowledge base.
+
+It contains multiple paragraphs with different topics.
+
+Topic 1: Machine Learning
+Machine learning is a subset of artificial intelligence that focuses on building systems that can learn from data.
+
+Topic 2: Natural Language Processing
+NLP enables computers to understand, interpret, and generate human language.
+
+Topic 3: Information Retrieval
+Information retrieval systems help users find relevant information from large document collections.
+
+The end.

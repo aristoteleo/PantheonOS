@@ -1,0 +1,18 @@
+Document 2: Data Science Workflow
+
+Data science involves extracting insights from structured and unstructured data.
+
+Steps in Data Science:
+1. Data Collection
+2. Data Cleaning
+3. Exploratory Data Analysis
+4. Feature Engineering
+5. Model Building
+6. Model Evaluation
+7. Deployment
+
+Tools commonly used:
+- Jupyter Notebooks
+- Python/R
+- SQL
+- Tableau/Power BI

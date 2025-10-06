@@ -3,8 +3,8 @@
 import json
 from pathlib import Path
 from typing import List, Union
-from ..toolset import ToolSet, tool
-from ..utils.log import logger
+from pantheon.toolset import ToolSet, tool
+from pantheon.utils.log import logger
 
 
 class NotebookToolSet(ToolSet):
@@ -20,7 +20,6 @@ class NotebookToolSet(ToolSet):
     Args:
         name: The name of the toolset.
         workspace_path: The path to the workspace.
-        worker_params: The parameters for the worker.
         **kwargs: Additional keyword arguments.
     """
     
@@ -28,7 +27,6 @@ class NotebookToolSet(ToolSet):
         self,
         name: str,
         workspace_path: str | Path | None = None,
-        worker_params: dict | None = None,
         **kwargs,
     ):
         """
@@ -37,10 +35,9 @@ class NotebookToolSet(ToolSet):
         Args:
             name: Name of the toolset
             workspace_path: Base directory for notebook operations (default: current directory)
-            worker_params: Parameters for the worker
             **kwargs: Additional keyword arguments
         """
-        super().__init__(name, worker_params, **kwargs)
+        super().__init__(name, **kwargs)
         self.workspace_path = Path(workspace_path) if workspace_path else Path.cwd()
         
     def _resolve_path(self, file_path: str) -> Path:

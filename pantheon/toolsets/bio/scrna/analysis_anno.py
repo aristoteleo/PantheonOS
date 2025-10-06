@@ -10,43 +10,42 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from .base import ScRNASeqBase
-from ...utils.toolset import tool
-from ...utils.log import logger
-
+from pantheon.toolset import tool
+from pantheon.utils.log import logger
 
 
 class ScRNASeqAnalysisToolSet(ScRNASeqBase):
     """Single-cell RNA-seq downstream analysis toolset with omicverse integration"""
-    
+
     def __init__(
         self,
         name: str = "scrna_analysis",
         workspace_path: str = None,
         launch_directory: str = None,
-        worker_params: dict = None,
-        **kwargs
+        **kwargs,
     ):
-        super().__init__(name, workspace_path, launch_directory, worker_params, **kwargs)
-    
+        super().__init__(name, workspace_path, launch_directory, **kwargs)
+
     @tool
-    def load_and_inspect_data(self, data_path: str, output_dir: str = None) -> Dict[str, Any]:
+    def load_and_inspect_data(
+        self, data_path: str, output_dir: str = None
+    ) -> Dict[str, Any]:
         """Load and inspect scRNA-seq data with comprehensive analysis"""
-        
+
         data_path = Path(data_path)
-        logger.info(f"\n📊 [bold cyan]Loading and inspecting data: {data_path.name}[/bold cyan]")
-        
+        logger.info(
+            f"\n📊 [bold cyan]Loading and inspecting data: {data_path.name}[/bold cyan]"
+        )
+
         if not data_path.exists():
-            return {
-                "status": "failed",
-                "error": f"Data file not found: {data_path}"
-            }
-        
+            return {"status": "failed", "error": f"Data file not found: {data_path}"}
+
         # Prepare output directory
         if output_dir is None:
             output_dir = self.workspace_path / "analysis" / "data_inspection"
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         inspection_results = {
             "data_path": str(data_path),
             "data_type": self._detect_data_type(data_path),
@@ -57,113 +56,137 @@ class ScRNASeqAnalysisToolSet(ScRNASeqBase):
             "qc_metrics_present": False,
             "cell_type_annotations_present": False,
             "batch_info": {},
-            "recommendations": []
+            "recommendations": [],
         }
-        
+
         try:
             # Import required packages
             import scanpy as sc
             import omicverse as ov
-            
+
             # Load data based on file type
             logger.info("Loading data file...")
-            if data_path.suffix.lower() == '.h5ad':
+            if data_path.suffix.lower() == ".h5ad":
                 adata = sc.read_h5ad(data_path)
-            elif data_path.suffix.lower() == '.h5':
+            elif data_path.suffix.lower() == ".h5":
                 adata = sc.read_10x_h5(data_path, genome=None, gex_only=True)
                 adata.var_names_unique()
-            elif data_path.suffix.lower() == '.csv':
+            elif data_path.suffix.lower() == ".csv":
                 adata = sc.read_csv(data_path).T
-            elif data_path.suffix.lower() == '.tsv':
-                adata = sc.read_csv(data_path, delimiter='\t').T
+            elif data_path.suffix.lower() == ".tsv":
+                adata = sc.read_csv(data_path, delimiter="\t").T
             else:
                 return {
                     "status": "failed",
-                    "error": f"Unsupported file format: {data_path.suffix}"
+                    "error": f"Unsupported file format: {data_path.suffix}",
                 }
-            
+
             logger.info("Examining data structure...")
-            
+
             # Basic information
             basic_info = {
                 "n_cells": adata.n_obs,
                 "n_genes": adata.n_vars,
                 "data_shape": f"({adata.n_obs}, {adata.n_vars})",
-                "max_value": float(adata.X.max()) if hasattr(adata.X, 'max') else float(adata.X.toarray().max()),
-                "data_type": "Normalized" if float(adata.X.max()) < 50 else "Raw counts",
-                "sparse_format": str(type(adata.X))
+                "max_value": float(adata.X.max())
+                if hasattr(adata.X, "max")
+                else float(adata.X.toarray().max()),
+                "data_type": "Normalized"
+                if float(adata.X.max()) < 50
+                else "Raw counts",
+                "sparse_format": str(type(adata.X)),
             }
-            
+
             # Observation (cell) metadata
             obs_columns = list(adata.obs.columns)
-            
+
             # Variable (gene) information
             var_info = {
-                "gene_symbols_present": 'gene_symbols' in adata.var.columns or adata.var.index.name == 'gene_symbols',
-                "gene_ids_present": 'gene_ids' in adata.var.columns or 'ensembl_id' in adata.var.columns,
-                "highly_variable_marked": 'highly_variable' in adata.var.columns,
-                "var_columns": list(adata.var.columns)
+                "gene_symbols_present": "gene_symbols" in adata.var.columns
+                or adata.var.index.name == "gene_symbols",
+                "gene_ids_present": "gene_ids" in adata.var.columns
+                or "ensembl_id" in adata.var.columns,
+                "highly_variable_marked": "highly_variable" in adata.var.columns,
+                "var_columns": list(adata.var.columns),
             }
-            
+
             # Check for mitochondrial and ribosomal genes
-            var_info["mt_genes_detected"] = any(adata.var_names.str.startswith('MT-')) or any(adata.var_names.str.startswith('mt-'))
-            var_info["rp_genes_detected"] = any(adata.var_names.str.contains('^RP[SL]', case=False))
-            
+            var_info["mt_genes_detected"] = any(
+                adata.var_names.str.startswith("MT-")
+            ) or any(adata.var_names.str.startswith("mt-"))
+            var_info["rp_genes_detected"] = any(
+                adata.var_names.str.contains("^RP[SL]", case=False)
+            )
+
             # Embedding information
             obsm_keys = list(adata.obsm.keys())
-            
+
             # QC metrics detection
-            qc_metrics_present = any(col in obs_columns for col in ['n_genes', 'n_counts', 'total_counts', 'n_genes_by_counts'])
-            
+            qc_metrics_present = any(
+                col in obs_columns
+                for col in ["n_genes", "n_counts", "total_counts", "n_genes_by_counts"]
+            )
+
             # Cell type annotations
-            cell_type_annotations_present = any(col in obs_columns for col in ['cell_type', 'celltype', 'leiden', 'louvain', 'clusters'])
-            
+            cell_type_annotations_present = any(
+                col in obs_columns
+                for col in ["cell_type", "celltype", "leiden", "louvain", "clusters"]
+            )
+
             # Batch information
             batch_info = {
-                "batch_column_exists": 'batch' in obs_columns or 'sample' in obs_columns,
-                "batch_columns": [col for col in obs_columns if 'batch' in col.lower() or col in ['sample', 'condition', 'treatment']]
+                "batch_column_exists": "batch" in obs_columns
+                or "sample" in obs_columns,
+                "batch_columns": [
+                    col
+                    for col in obs_columns
+                    if "batch" in col.lower()
+                    or col in ["sample", "condition", "treatment"]
+                ],
             }
-            
+
             if batch_info["batch_column_exists"]:
-                batch_col = 'batch' if 'batch' in obs_columns else 'sample'
+                batch_col = "batch" if "batch" in obs_columns else "sample"
                 batch_info["n_batches"] = len(adata.obs[batch_col].unique())
                 batch_info["batch_values"] = list(adata.obs[batch_col].unique())
-            
-            inspection_results.update({
-                "basic_info": basic_info,
-                "obs_columns": obs_columns,
-                "var_info": var_info,
-                "obsm_keys": obsm_keys,
-                "qc_metrics_present": qc_metrics_present,
-                "cell_type_annotations_present": cell_type_annotations_present,
-                "batch_info": batch_info
-            })
-            
+
+            inspection_results.update(
+                {
+                    "basic_info": basic_info,
+                    "obs_columns": obs_columns,
+                    "var_info": var_info,
+                    "obsm_keys": obsm_keys,
+                    "qc_metrics_present": qc_metrics_present,
+                    "cell_type_annotations_present": cell_type_annotations_present,
+                    "batch_info": batch_info,
+                }
+            )
+
             # Generate recommendations based on inspection
             self._generate_inspection_recommendations(inspection_results)
-            
+
             # Display inspection summary
             self._display_inspection_summary(inspection_results)
-            
+
             # Save inspection results
             results_file = output_dir / "data_inspection_results.json"
-            with open(results_file, 'w') as f:
+            with open(results_file, "w") as f:
                 json.dump(inspection_results, f, indent=2, default=str)
-            
+
             return {
                 "status": "success",
                 "inspection_results": inspection_results,
                 "output_dir": str(output_dir),
-                "results_file": str(results_file)
+                "results_file": str(results_file),
             }
-            
+
         except Exception as e:
             return {
                 "status": "failed",
                 "error": f"Data inspection failed: {str(e)}",
-                "data_path": str(data_path)
+                "data_path": str(data_path),
             }
-    
+
     def _detect_data_type(self, data_path: Path) -> str:
         """Detect the type of scRNA-seq data file"""
         suffix = data_path.suffix.lower()
@@ -177,81 +200,107 @@ class ScRNASeqAnalysisToolSet(ScRNASeqBase):
             return "Matrix_Market"
         else:
             return "Unknown"
-    
+
     def _generate_inspection_recommendations(self, results: Dict):
         """Generate recommendations based on data inspection"""
-        
+
         recommendations = []
-        
+
         # QC recommendations
         if not results["qc_metrics_present"]:
-            recommendations.append("Run QC analysis with omicverse.pp.qc to calculate quality metrics")
-        
+            recommendations.append(
+                "Run QC analysis with omicverse.pp.qc to calculate quality metrics"
+            )
+
         # Preprocessing recommendations
         if results["basic_info"].get("data_type") == "Raw counts":
-            recommendations.append("Data appears to be raw counts - run preprocessing with omicverse.pp.preprocess")
-        
+            recommendations.append(
+                "Data appears to be raw counts - run preprocessing with omicverse.pp.preprocess"
+            )
+
         # PCA recommendations
         if "X_pca" not in results["obsm_keys"]:
-            recommendations.append("No PCA found - run omicverse.pp.pca for dimensionality reduction")
-        
+            recommendations.append(
+                "No PCA found - run omicverse.pp.pca for dimensionality reduction"
+            )
+
         # Batch correction recommendations
         if results["batch_info"]["batch_effects_likely"]:
-            recommendations.append("Batch effects detected - consider batch correction with omicverse.single.batch_correction")
-        
+            recommendations.append(
+                "Batch effects detected - consider batch correction with omicverse.single.batch_correction"
+            )
+
         # Clustering recommendations
         if not results["cell_type_annotations_present"]:
-            recommendations.append("No cell type annotations found - run clustering and annotation workflow")
-        
+            recommendations.append(
+                "No cell type annotations found - run clustering and annotation workflow"
+            )
+
         results["recommendations"] = recommendations
-    
+
     def _display_inspection_summary(self, results: Dict):
         """Display data inspection summary"""
-        
+
         from rich.table import Table
-        
+
         # Basic info table
         basic_table = Table(title="Dataset Overview")
         basic_table.add_column("Property", style="cyan")
         basic_table.add_column("Value", style="green")
-        
+
         for key, value in results["basic_info"].items():
             basic_table.add_row(key.replace("_", " ").title(), str(value))
-        
+
         logger.info("", rich=basic_table)
-        
+
         # Data structure table
         structure_table = Table(title="Data Structure")
         structure_table.add_column("Component", style="cyan")
         structure_table.add_column("Status", style="green")
         structure_table.add_column("Details", style="dim")
-        
+
         qc_status = "✅ Present" if results["qc_metrics_present"] else "❌ Missing"
-        structure_table.add_row("QC Metrics", qc_status, f"{len(results['obs_columns'])} obs columns")
-        
-        embeddings_status = "✅ Present" if results["obsm_keys"] else "❌ Missing" 
-        embeddings_detail = ", ".join(results["obsm_keys"]) if results["obsm_keys"] else "No embeddings"
+        structure_table.add_row(
+            "QC Metrics", qc_status, f"{len(results['obs_columns'])} obs columns"
+        )
+
+        embeddings_status = "✅ Present" if results["obsm_keys"] else "❌ Missing"
+        embeddings_detail = (
+            ", ".join(results["obsm_keys"]) if results["obsm_keys"] else "No embeddings"
+        )
         structure_table.add_row("Embeddings", embeddings_status, embeddings_detail)
-        
-        annotations_status = "✅ Present" if results["cell_type_annotations_present"] else "❌ Missing"
+
+        annotations_status = (
+            "✅ Present" if results["cell_type_annotations_present"] else "❌ Missing"
+        )
         structure_table.add_row("Cell Types", annotations_status, "")
-        
-        batch_status = "✅ Present" if results["batch_info"]["batch_column_exists"] else "❌ Missing"
-        batch_detail = f"{results['batch_info']['n_batches']} batches" if results["batch_info"]["batch_column_exists"] else ""
+
+        batch_status = (
+            "✅ Present"
+            if results["batch_info"]["batch_column_exists"]
+            else "❌ Missing"
+        )
+        batch_detail = (
+            f"{results['batch_info']['n_batches']} batches"
+            if results["batch_info"]["batch_column_exists"]
+            else ""
+        )
         structure_table.add_row("Batch Info", batch_status, batch_detail)
-        
+
         logger.info("", rich=structure_table)
-        
+
         # Recommendations
         if results["recommendations"]:
-            recommendations_text = "\n".join([f"• {rec}" for rec in results["recommendations"]])
+            recommendations_text = "\n".join(
+                [f"• {rec}" for rec in results["recommendations"]]
+            )
             recommendations_panel = Panel(
                 recommendations_text,
                 title="Next Steps Recommendations",
-                border_style="blue"
+                border_style="blue",
             )
             logger.info("", rich=recommendations_panel)
-    
+
     @tool
     def run_scrna_workflow(self, workflow_type: str, description: str = None):
         """Run a specific workflow"""
@@ -277,38 +326,38 @@ class ScRNASeqAnalysisToolSet(ScRNASeqBase):
             return self.run_workflow_llm_anno(description)
         else:
             return "Invalid workflow type"
-    
+
     def run_workflow_qc(self):
         """Run QC workflow"""
         logger.info("Running QC workflow")
         return qc_response
-    
+
     def run_workflow_preprocessing(self):
         """Run preprocessing workflow"""
         logger.info("Running preprocessing workflow")
         return preprocessing_response
-    
+
     def run_workflow_pca(self):
         """Run PCA workflow"""
         logger.info("Running PCA workflow")
         return pca_response
-    
+
     def run_workflow_batch_correction(self):
         """Run batch correction workflow"""
         logger.info("Running batch correction workflow")
         return batch_correction_response
-    
+
     def run_workflow_clustering(self):
         """Run clustering workflow"""
         logger.info("Running clustering workflow")
         return clustering_response
-    
+
     def run_workflow_umap(self):
         """Run UMAP workflow"""
         logger.info("Running UMAP workflow")
         return umap_response
-    
-    def run_workflow_marker_from_desc(self,description:str):
+
+    def run_workflow_marker_from_desc(self, description: str):
         """Run marker from data workflow"""
         logger.info("Running marker from data workflow")
 
@@ -329,8 +378,10 @@ class ScRNASeqAnalysisToolSet(ScRNASeqBase):
         Please generate the expected_cell_types dictionary in python format as return:
         """
         return marker_from_data_response
-    
-    def run_workflow_marker_from_data(self,):
+
+    def run_workflow_marker_from_data(
+        self,
+    ):
         """Run marker from data workflow"""
         logger.info("Running marker from data workflow")
         marker_from_data_response = f"""
@@ -367,8 +418,8 @@ class ScRNASeqAnalysisToolSet(ScRNASeqBase):
         adata.uns['cluster_markers'] = cluster_markers
         """
         return marker_from_data_response
-    
-    def run_workflow_aucell(self,cell_markers:dict):
+
+    def run_workflow_aucell(self, cell_markers: dict):
         """Run AUCell workflow"""
         logger.info("Running AUCell workflow")
         aucell_response = f"""  
@@ -402,8 +453,8 @@ class ScRNASeqAnalysisToolSet(ScRNASeqBase):
         ```
         """
         return aucell_response
-    
-    def run_workflow_llm_anno(self,description:str):
+
+    def run_workflow_llm_anno(self, description: str):
         """Run LLM annotation workflow"""
         logger.info("Running LLM annotation workflow")
         llm_anno_response = f"""
@@ -466,18 +517,6 @@ class ScRNASeqAnalysisToolSet(ScRNASeqBase):
         ```
         """
         return llm_anno_response
-    
-    
-    
-
-    
-
-
-
-
-
-
-
 
 
 qc_response = f"""
@@ -905,4 +944,3 @@ if needs_umap:
 ```
 
 """
-

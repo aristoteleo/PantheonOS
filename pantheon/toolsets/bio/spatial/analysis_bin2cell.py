@@ -1,5 +1,3 @@
-
-
 import json
 import numpy as np
 import pandas as pd
@@ -10,18 +8,22 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from .base import SpatialBase
-from ...utils.toolset import tool
-from ...utils.log import logger
-
+from pantheon.toolset import tool
+from pantheon.utils.log import logger
 
 
 class SpatialBin2CellAnalysisToolSet(SpatialBase):
     """Spatial bin2cell analysis toolset"""
-    
-    def __init__(self, name: str = "spatial_bin2cell_analysis", workspace_path: str = None, launch_directory: str = None, worker_params: dict = None, **kwargs):
-        super().__init__(name, workspace_path, launch_directory, worker_params, **kwargs)
-        
-        
+
+    def __init__(
+        self,
+        name: str = "spatial_bin2cell_analysis",
+        workspace_path: str = None,
+        launch_directory: str = None,
+        **kwargs,
+    ):
+        super().__init__(name, workspace_path, launch_directory, **kwargs)
+
     @tool
     def Spatial_Bin2Cell_Analysis(self, workflow_type: str, description: str = None):
         """Run a specific workflow"""
@@ -40,7 +42,7 @@ class SpatialBin2CellAnalysisToolSet(SpatialBase):
         else:
             logger.error(f"Invalid workflow type: {workflow_type}")
             return None
-        
+
     def run_workflow_read_visium(self):
         logger.info("\nRunning read_visium workflow")
         """Run the read_visium workflow"""
@@ -62,31 +64,32 @@ class SpatialBin2CellAnalysisToolSet(SpatialBase):
             ```
         """
         return read_visium_response
-        
+
     def run_workflow_cellpose_he(self):
         logger.info("\nRunning cellpose_he workflow")
         """Run the cellpose_he workflow"""
         return cellpose_he_response
-        
+
     def run_workflow_expand_labels(self):
         logger.info("\nRunning expand_labels workflow")
         """Run the expand_labels workflow"""
         return expand_labels_response
-    
+
     def run_workflow_cellpose_gex(self):
         logger.info("\nRunning cellpose_gex workflow")
         """Run the cellpose_gex workflow"""
         return cellpose_gex_response
-    
+
     def run_workflow_salvage_secondary_labels(self):
         logger.info("\nRunning salvage_secondary_labels workflow")
         """Run the salvage_secondary_labels workflow"""
         return salvage_secondary_labels_response
-    
+
     def run_workflow_bin2cell(self):
         logger.info("\nRunning bin2cell workflow")
         """Run the bin2cell workflow"""
         return bin2cell_response
+
 
 cellpose_he_response = f"""
 
@@ -174,8 +177,6 @@ except Exception as e:
     print(f"❌ Cellpose GEX failed: {{e}}, please check the argument is correct using help()?")
 ```
 """
-
-
 
 
 bin2cell_response = f"""

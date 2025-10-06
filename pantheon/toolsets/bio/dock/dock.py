@@ -4,26 +4,26 @@ import os
 import subprocess
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
-from ...utils.log import logger
-from ...utils.toolset import ToolSet, tool
+from pantheon.utils.log import logger
+from pantheon.toolset import ToolSet, tool
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+
 class MolecularDockingToolSet(ToolSet):
     """Molecular Docking Toolset for protein-ligand interactions"""
-    
+
     def __init__(
         self,
         name: str = "dock",
         workspace_path: str | Path | None = None,
-        worker_params: dict | None = None,
         **kwargs,
     ):
-        super().__init__(name, worker_params, **kwargs)
+        super().__init__(name, **kwargs)
         self.workspace_path = Path(workspace_path) if workspace_path else Path.cwd()
         self.console = Console()
-        
+
     @tool
     def Dock_Workflow(self, workflow_type: str, description: str = None):
         """Run a specific molecular docking workflow"""
@@ -43,7 +43,7 @@ class MolecularDockingToolSet(ToolSet):
             return self.run_workflow_batch_docking()
         else:
             return "Invalid workflow type"
-    
+
     def run_workflow_init(self):
         """Initialize molecular docking project structure"""
         logger.info("Running molecular docking project initialization")
@@ -75,7 +75,7 @@ echo "  3. Update docking_pairs.tsv with your targets"
 echo "  4. Run: /bio dock check_dependencies"
         """
         return init_response
-    
+
     def run_workflow_check_dependencies(self):
         """Check molecular docking dependencies"""
         logger.info("Running dependency check for molecular docking")
@@ -101,7 +101,7 @@ echo ""
 echo "Dependency check complete!"
         """
         return check_deps_response
-    
+
     def run_workflow_prepare_receptor(self):
         """Prepare receptor for docking"""
         logger.info("Running receptor preparation workflow")
@@ -137,7 +137,7 @@ done
 echo "Receptor preparation complete!"
         """
         return prepare_receptor_response
-    
+
     def run_workflow_prepare_ligand(self):
         """Prepare ligand for docking"""
         logger.info("Running ligand preparation workflow")
@@ -179,7 +179,7 @@ done
 echo "Ligand preparation complete!"
         """
         return prepare_ligand_response
-    
+
     def run_workflow_docking_vina(self):
         """Run Vina docking"""
         logger.info("Running Vina docking workflow")
@@ -314,7 +314,7 @@ obabel output/docked_poses.pdbqt -O output/docked_poses.pdb -m
 echo "Docking complete! Check output/ directory for results"
         """
         return docking_vina_response
-    
+
     def run_workflow_analyze_interactions(self):
         """Analyze protein-ligand interactions"""
         logger.info("Running interaction analysis workflow")
@@ -381,7 +381,7 @@ EOF
 echo "Interaction analysis complete!"
         """
         return analyze_interactions_response
-    
+
     def run_workflow_batch_docking(self):
         """Run batch docking for multiple protein-ligand pairs"""
         logger.info("Running batch docking workflow")
@@ -516,7 +516,7 @@ for pdbqt in glob.glob('output/*.pdbqt'):
                 parts = line.split()
                 energy = float(parts[3])
                 results.append({
-                    'file': os.path.basename(pdbqt),
+            "file": os.path.basename(pdbqt),
                     'binding_energy': energy
                 })
                 break

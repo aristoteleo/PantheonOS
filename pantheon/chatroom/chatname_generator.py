@@ -65,7 +65,6 @@ class ChatNameGenerator:
                 instructions="Generate a 3-6 word chat title. Return only the title, no quotes or explanation.",
                 model="gpt-4o-mini"
             )
-            self._name_agent.disable_rich_conversations()
 
         # Build simple context (last 4 messages)
         context_messages = messages[-4:]

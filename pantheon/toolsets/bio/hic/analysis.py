@@ -5,29 +5,35 @@ import subprocess
 import json
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
-from ...utils.log import logger
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from pantheon.utils.log import logger
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+)
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
-from ...utils.toolset import ToolSet, tool
+from pantheon.toolset import ToolSet, tool
 from rich.console import Console
+
 
 class HiCAnalysisToolSet(ToolSet):
     """Hi-C Analysis Toolset - TAD calling, compartment analysis, and visualization"""
-    
+
     def __init__(
         self,
         name: str = "hic_analysis",
         workspace_path: str | Path | None = None,
-        worker_params: dict | None = None,
         **kwargs,
     ):
-        super().__init__(name, worker_params, **kwargs)
+        super().__init__(name, **kwargs)
         self.workspace_path = Path(workspace_path) if workspace_path else Path.cwd()
         self.analysis_config = self._initialize_config()
         self.console = Console()
-        
+
     def _initialize_config(self) -> Dict[str, Any]:
         """Initialize Hi-C analysis configuration"""
         return {
@@ -38,28 +44,33 @@ class HiCAnalysisToolSet(ToolSet):
                 "loops": [".bedpe", ".hichip", ".loops"],
                 "tracks": [".bw", ".bigwig", ".bedgraph"],
                 "plots": [".png", ".pdf", ".svg"],
-                "tables": [".tsv", ".csv", ".txt"]
+                "tables": [".tsv", ".csv", ".txt"],
             },
             "tools": {
                 "tad_calling": ["hicexplorer", "tadtool", "armatus", "insulation"],
                 "compartment_analysis": ["hicexplorer", "cooltools", "fanc"],
                 "loop_calling": ["hiccups", "chromosight", "mustache"],
-                "visualization": ["hicexplorer", "pygenometracks", "cooler", "juicebox"],
+                "visualization": [
+                    "hicexplorer",
+                    "pygenometracks",
+                    "cooler",
+                    "juicebox",
+                ],
                 "differential": ["hiccompare", "multicomp", "diffhic"],
-                "integration": ["epic2", "chipseeker", "genomicranges"]
+                "integration": ["epic2", "chipseeker", "genomicranges"],
             },
             "default_params": {
                 "tad_resolution": 50000,
-                "compartment_resolution": 100000, 
+                "compartment_resolution": 100000,
                 "loop_resolution": 10000,
                 "min_tad_size": 100000,
                 "max_tad_size": 2000000,
                 "pvalue_threshold": 0.05,
-                "fdr_threshold": 0.1
-            }
+                "fdr_threshold": 0.1,
+            },
         }
-    
-    @tool 
+
+    @tool
     def HiC_Analysis(self, workflow_type: str, description: str = None):
         """Run a specific Hi-C analysis workflow"""
         if workflow_type == "call_tads":
@@ -80,7 +91,7 @@ class HiCAnalysisToolSet(ToolSet):
             return self.run_analysis_workflow_generate_tracks()
         else:
             return "Invalid workflow type"
-    
+
     def run_analysis_workflow_call_tads(self):
         """Run TAD calling workflow"""
         logger.info("Running Hi-C TAD calling workflow")
@@ -125,7 +136,7 @@ done
 echo "TAD calling complete! Check tads/ folder for domain and boundary files."
         """
         return call_tads_response
-    
+
     def run_analysis_workflow_find_compartments(self):
         """Run compartment analysis workflow"""
         logger.info("Running Hi-C compartment analysis workflow")
@@ -162,9 +173,9 @@ done
 echo "Compartment analysis complete! Check compartments/ folder for PC1/PC2 tracks and A/B compartment regions."
         """
         return find_compartments_response
-    
+
     def run_analysis_workflow_call_loops(self):
-        """Run loop calling workflow"""  
+        """Run loop calling workflow"""
         logger.info("Running Hi-C loop calling workflow")
         call_loops_response = f"""
 # Call Chromatin Loops
@@ -202,7 +213,7 @@ done
 echo "Loop calling complete! Check loops/ folder for detected chromatin loops."
         """
         return call_loops_response
-    
+
     def run_analysis_workflow_plot_matrix(self):
         """Run Hi-C matrix plotting workflow"""
         logger.info("Running Hi-C matrix plotting workflow")
@@ -250,7 +261,7 @@ hicCorrelate \\
 echo "Hi-C matrix plotting complete! Check visualization/ folder for matrix plots."
         """
         return plot_matrix_response
-    
+
     def run_analysis_workflow_plot_tads(self):
         """Run TAD plotting workflow"""
         logger.info("Running Hi-C TAD plotting workflow")
@@ -315,10 +326,10 @@ done
 echo "TAD plotting complete! Check visualization/ folder for TAD plots with Hi-C matrices."
         """
         return plot_tads_response
-    
+
     def run_analysis_workflow_differential_analysis(self):
         """Run differential Hi-C analysis workflow"""
-        logger.info("Running differential Hi-C analysis workflow") 
+        logger.info("Running differential Hi-C analysis workflow")
         differential_analysis_response = f"""
 # Differential Hi-C Analysis
 
@@ -378,7 +389,7 @@ EOF
 echo "Differential Hi-C analysis complete! Check differential/ folder for results."
         """
         return differential_analysis_response
-    
+
     def run_analysis_workflow_integration_analysis(self):
         """Run multi-omics integration analysis workflow"""
         logger.info("Running Hi-C integration analysis workflow")
@@ -462,7 +473,7 @@ done
 echo "Multi-omics integration analysis complete! Check integration/ folder for results."
         """
         return integration_analysis_response
-    
+
     def run_analysis_workflow_generate_tracks(self):
         """Run genome browser track generation workflow"""
         logger.info("Running Hi-C track generation workflow")

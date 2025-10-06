@@ -7,7 +7,7 @@ Provides clean completion and inspection using pure Jedi approach
 from jedi.api import Script
 from typing import Dict, List, Any, Tuple
 import time
-from ..utils.log import logger
+from pantheon.utils.log import logger
 
 
 class SessionContextManager:

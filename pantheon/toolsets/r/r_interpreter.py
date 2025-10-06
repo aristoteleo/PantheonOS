@@ -17,17 +17,17 @@ class RInterpreterToolSet(ToolSet):
         init_code: The code to run to initialize the R environment.
         workdir: The working directory to use for the R interpreter.
     """
+
     def __init__(
-            self,
-            name: str,
-            worker_params: dict | None = None,
-            r_executable: str = "R",
-            r_args: list[str] | None = None,
-            init_code: str | None = None,
-            workdir: str | None = None,
-            **kwargs,
-            ):
-        super().__init__(name, worker_params, **kwargs)
+        self,
+        name: str,
+        r_executable: str = "R",
+        r_args: list[str] | None = None,
+        init_code: str | None = None,
+        workdir: str | None = None,
+        **kwargs,
+    ):
+        super().__init__(name, **kwargs)
         self.interpreters = {}
         self.clientid_to_interpreterid = {}
         self.r_executable = r_executable
@@ -37,11 +37,11 @@ class RInterpreterToolSet(ToolSet):
 
     @tool
     async def run_r_code(
-            self,
-            code: str,
-            timeout: int | None = None,
-            context_variables: dict | None = None,
-            ):
+        self,
+        code: str,
+        timeout: int | None = None,
+        context_variables: dict | None = None,
+    ):
         """Run R code in a new interpreter and return the output with enhanced functionality.
         Automatically handles figures, provides sample data functions, and includes Seurat support.
         If you use this function, don't need to use `new_interpreter` and `delete_interpreter`.
@@ -49,16 +49,16 @@ class RInterpreterToolSet(ToolSet):
         Args:
             code: The R code to run.
             timeout: The timeout for the code to run. Use None for no timeout (long-running commands).
-        
+
         Returns:
             A dictionary with result, stdout, stderr, and optionally figure information.
         """
         # Reset figure path
         reset_code = "GLOBAL_FIG_PATH <- NULL"
-        
+
         # Show R execution status
         logger.info("Starting R execution...")
-        
+
         initial_output = ""
 
         if context_variables is None:
@@ -83,29 +83,29 @@ class RInterpreterToolSet(ToolSet):
             # But if it still fails, we should log it and re-raise
             logger.error(f"Error executing R code: {e}")
             raise
-        
+
         # Check for generated figures
         fig_check_output = await self.run_code_in_interpreter("GLOBAL_FIG_PATH", p_id)
-        
+
         # Format result similar to Python toolset
         full_output = output
         if initial_output:
             full_output = initial_output + "\n" + output
-            
+
         result = {
             "result": None,  # R doesn't return specific variables like Python
             "stdout": full_output,
             "stderr": "",  # R stderr is usually mixed with stdout
-            "code_executed": code  # Add the executed code for display
+            "code_executed": code,  # Add the executed code for display
         }
-            
+
         # Handle figure output
         fig_path_line = None
-        for line in fig_check_output.split('\n'):
-            if line.strip().startswith('[1]') and '.png' in line:
+        for line in fig_check_output.split("\n"):
+            if line.strip().startswith("[1]") and ".png" in line:
                 fig_path_line = line.strip()[4:].strip('"').strip()
                 break
-                
+
         if fig_path_line and fig_path_line != "NULL" and os.path.exists(fig_path_line):
             result["fig_storage_path"] = fig_path_line
             logger.info(f"Figure saved: {fig_path_line}")
@@ -118,23 +118,23 @@ class RInterpreterToolSet(ToolSet):
             except Exception as e:
                 logger.warning(f"⚠️ Warning: Failed to read figure file: {e}")
                 logger.warning(f"Failed to read figure file {fig_path_line}: {e}")
-        
+
         # Show execution completion
         if "Error" in full_output or "error" in full_output.lower():
             logger.error("❌ R execution completed with errors")
         else:
             logger.info("R execution completed successfully")
-        
+
         return result
 
     @tool
     async def new_interpreter(self) -> dict:
         """Create a new R interpreter and return its id and the initial output.
         You can use `run_code_in_interpreter` to run code in the interpreter,
-        by providing the interpreter id. """
+        by providing the interpreter id."""
         # Show R interpreter creation status
         logger.info("Creating new R interpreter...")
-        
+
         interpreter = AsyncRInterpreter(
             self.r_executable,
             self.r_args,
@@ -142,11 +142,13 @@ class RInterpreterToolSet(ToolSet):
         interpreter.id = str(uuid.uuid4())
         self.interpreters[interpreter.id] = interpreter
         initial_output = await interpreter.start()
-        
+
         # Set working directory if specified
         if self.workdir is not None:
-            await self.run_code_in_interpreter(f'setwd("{self.workdir}")', interpreter.id)
-            
+            await self.run_code_in_interpreter(
+                f'setwd("{self.workdir}")', interpreter.id
+            )
+
         # Run initialization code
         if self.init_code is not None:
             logger.info("Setting up R environment...")
@@ -173,11 +175,11 @@ class RInterpreterToolSet(ToolSet):
 
     @tool
     async def run_code_in_interpreter(
-            self,
-            code: str,
-            interpreter_id: str,
-            timeout: int | None = None,
-            ) -> str:
+        self,
+        code: str,
+        interpreter_id: str,
+        timeout: int | None = None,
+    ) -> str:
         """Run R code in an interpreter and return the output.
 
         Args:
@@ -188,21 +190,25 @@ class RInterpreterToolSet(ToolSet):
         interpreter = self.interpreters.get(interpreter_id)
         if interpreter is None:
             raise ValueError(f"Interpreter {interpreter_id} not found")
-        
+
         # Check if process has terminated before running command
-        was_terminated = interpreter.process and interpreter.process.returncode is not None
-        
+        was_terminated = (
+            interpreter.process and interpreter.process.returncode is not None
+        )
+
         # Run the command (restart will happen automatically if needed)
         output, finished = await interpreter.run_command(code, timeout=timeout)
-        
+
         # Check if the interpreter was restarted and needs reinitialization
-        if (was_terminated or getattr(interpreter, '_was_restarted', False)) and (self.workdir is not None or self.init_code is not None):
+        if (was_terminated or getattr(interpreter, "_was_restarted", False)) and (
+            self.workdir is not None or self.init_code is not None
+        ):
             logger.info("Detected interpreter restart, reinitializing...")
             interpreter._was_restarted = False  # Reset the flag
             await self._reinitialize_interpreter(interpreter_id)
             # Re-run the original command after reinitialization
             output, finished = await interpreter.run_command(code, timeout=timeout)
-        
+
         if timeout is not None and not finished:
             output += "\n[Warning] The execution of the command was interrupted because of the timeout. "
             output += "You can try to run get_interpreter_output to get the remaining output of the interpreter."
@@ -213,23 +219,25 @@ class RInterpreterToolSet(ToolSet):
         interpreter = self.interpreters.get(interpreter_id)
         if interpreter is None:
             return
-            
+
         logger.info("Reinitializing R interpreter after restart...")
-        
+
         # Set working directory if specified
         if self.workdir is not None:
             output, _ = await interpreter.run_command(f'setwd("{self.workdir}")')
             logger.info(f"Set workdir output: {output}")
-            
+
         # Run initialization code
         if self.init_code is not None:
             output, _ = await interpreter.run_command(self.init_code)
             logger.info(f"Initialization code output: {output}")
-            
+
         logger.info("R interpreter reinitialized")
 
     @tool
-    async def get_interpreter_output(self, interpreter_id: str, timeout: int | None = None) -> str:
+    async def get_interpreter_output(
+        self, interpreter_id: str, timeout: int | None = None
+    ) -> str:
         """Get the output of an R interpreter. Don't use this function unless you need to get the remaining output of an interrupted command.
 
         Args:

@@ -58,6 +58,7 @@ class MagiqueService(RemoteService):
 
     def __init__(self, service: ServiceProxy):
         self._service: ServiceProxy = service
+        self.service_id = service.service_info.service_id
 
     async def invoke(self, method: str, parameters: Dict[str, Any] = None) -> Any:
         """调用远程方法"""

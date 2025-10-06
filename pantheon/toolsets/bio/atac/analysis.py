@@ -6,41 +6,43 @@ from ....utils.log import logger
 from ....toolset import ToolSet, tool
 from rich.console import Console
 
+
 class ATACSeqAnalysisToolSet(ToolSet):
     """ATAC-seq Downstream Analysis Toolset - Peak calling to final reports"""
-    
+
     def __init__(
         self,
         name: str = "atac_analysis",
         workspace_path: str | Path | None = None,
-        worker_params: dict | None = None,
         **kwargs,
     ):
-        super().__init__(name, worker_params, **kwargs)
+        super().__init__(name, **kwargs)
         self.workspace_path = Path(workspace_path) if workspace_path else Path.cwd()
         self.console = Console()
 
-        
     def _initialize_config(self) -> Dict[str, Any]:
         """Initialize ATAC-seq pipeline configuration for downstream analysis"""
         return {
             "file_extensions": {
                 "alignment": [".sam", ".bam", ".cram", ".bam.bai", ".cram.crai"],
-                "peaks": [".narrowPeak", ".broadPeak", ".gappedPeak", ".xls", ".bedgraph", ".bdg"],
+                "peaks": [
+                    ".narrowPeak",
+                    ".broadPeak",
+                    ".gappedPeak",
+                    ".xls",
+                    ".bedgraph",
+                    ".bdg",
+                ],
                 "tracks": [".bw", ".bigwig", ".tdf"],
-                "reports": [".html", ".json", ".txt", ".tsv", ".csv", ".pdf", ".png"]
+                "reports": [".html", ".json", ".txt", ".tsv", ".csv", ".pdf", ".png"],
             },
             "tools": {
                 "peak_calling": ["macs2", "genrich", "hmmratac"],
                 "coverage": ["deeptools", "bedtools", "ucsc-tools"],
                 "annotation": ["homer", "meme", "chipseeker", "bedtools"],
-                "qc": ["multiqc"]
+                "qc": ["multiqc"],
             },
-            "default_params": {
-                "threads": 4,
-                "memory": "8G",
-                "peak_calling_fdr": 0.01
-            }
+            "default_params": {"threads": 4, "memory": "8G", "peak_calling_fdr": 0.01},
         }
 
     @tool
@@ -64,7 +66,7 @@ class ATACSeqAnalysisToolSet(ToolSet):
             return self.run_workflow_run_full_pipeline()
         else:
             return "Invalid workflow type"
-    
+
     def run_workflow_call_peaks_macs2(self):
         """Run MACS2 peak calling workflow"""
         logger.info("Running MACS2 peak calling workflow")
@@ -86,7 +88,7 @@ macs2 callpeak -t treatment.bam -n sample_name --outdir peaks/macs2 -g hs -q 0.0
 # - sample_name_treat_pileup.bdg
         """
         return call_peaks_macs2_response
-    
+
     def run_workflow_call_peaks_genrich(self):
         """Run Genrich peak calling workflow"""
         logger.info("Running Genrich peak calling workflow")
@@ -110,7 +112,7 @@ Genrich -t treatment1.bam,treatment2.bam -c control1.bam,control2.bam -o peaks.n
 # -v: Verbose output
         """
         return call_peaks_genrich_response
-    
+
     def run_workflow_bam_to_bigwig(self):
         """Run BAM to BigWig conversion workflow"""
         logger.info("Running BAM to BigWig conversion workflow")
@@ -133,7 +135,7 @@ bamCoverage -b input.bam -o output.bw --normalizeUsing RPKM --binSize 10 -p 4 --
 bamCoverage -b input.bam -o output.bw --normalizeUsing RPKM --binSize 10 -p 4 --minMappingQuality 30
         """
         return bam_to_bigwig_response
-    
+
     def run_workflow_compute_matrix(self):
         """Run compute matrix workflow"""
         logger.info("Running compute matrix workflow")
@@ -153,7 +155,7 @@ computeMatrix reference-point -S sample1.bw sample2.bw -R peaks.bed -o matrix.ma
 computeMatrix reference-point -S sample.bw -R peaks.bed genes.bed -o matrix.mat.gz -a 3000 -b 3000 -p 4
         """
         return compute_matrix_response
-    
+
     def run_workflow_plot_heatmap(self):
         """Run plot heatmap workflow"""
         logger.info("Running plot heatmap workflow")
@@ -173,7 +175,7 @@ plotHeatmap -m matrix.mat.gz -o heatmap.png --colorMap RdBu_r --whatToShow "heat
 plotProfile -m matrix.mat.gz -o profile.png --colors red blue
         """
         return plot_heatmap_response
-    
+
     def run_workflow_find_motifs(self):
         """Run motif finding workflow"""
         logger.info("Running motif finding workflow")
@@ -196,7 +198,7 @@ findMotifsGenome.pl peaks.bed hg38 motifs_output/ -size 200 -mask -nomotif
 findMotifsGenome.pl peaks.bed hg38 motifs_output/ -size 200 -mask -bg background_peaks.bed
         """
         return find_motifs_response
-    
+
     def run_workflow_generate_atac_qc_report(self):
         """Run ATAC-seq QC report generation workflow"""
         logger.info("Running ATAC-seq QC report generation workflow")
@@ -223,7 +225,7 @@ plotProfile -m tss_matrix.mat.gz -o tss_enrichment.png
 multiqc --outdir reports/ --filename multiqc_report.html .
         """
         return generate_atac_qc_response
-    
+
     def run_workflow_run_full_pipeline(self):
         """Run full ATAC-seq pipeline workflow"""
         logger.info("Running full ATAC-seq pipeline workflow")

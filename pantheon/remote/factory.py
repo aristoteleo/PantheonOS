@@ -24,12 +24,6 @@ def resolve_backend_config(
         # Default config
         config = {"server_urls": SERVER_URLS}
         servers_env = os.getenv("MAGIQUE_SERVERS", "")
-    elif backend == "hypha":
-        config = {
-            "server_url": os.getenv("HYPHA_SERVER_URL", "https://ai.imjoy.io"),
-            "workspace": os.getenv("HYPHA_WORKSPACE"),
-            "token": os.getenv("HYPHA_TOKEN"),
-        }
     else:
         raise ValueError(f"Unknown backend: {backend}")
 
@@ -83,11 +77,9 @@ class RemoteBackendFactory:
         """Register all available backends"""
         from .backend.magique import MagiqueBackend
         from .backend.nats import NATSBackend
-        from .backend.hypha import HyphaBackend
 
         BackendRegistry.register("magique", MagiqueBackend)
         BackendRegistry.register("nats", NATSBackend)
-        BackendRegistry.register("hypha", HyphaBackend)
 
 
 # Auto-register backends on import

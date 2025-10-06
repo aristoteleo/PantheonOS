@@ -90,7 +90,13 @@ class RemoteBackend(ABC):
 
 
 class RemoteService(ABC):
-    """Abstract remote service interface"""
+    """Abstract remote service interface
+
+    Attributes:
+        service_id (str): Service identifier, should be set by subclasses in __init__
+    """
+
+    service_id: str  # Subclasses should set this in __init__
 
     @abstractmethod
     async def invoke(self, method: str, parameters: Dict[str, Any] = None) -> Any:
