@@ -1,0 +1,129 @@
+{
+  "base_url": "https://api.genome.ucsc.edu",
+  "endpoints": {
+    "list/ucscGenomes": {
+      "description": "List all available UCSC genomes",
+      "required_params": [],
+      "optional_params": []
+    },
+    "list/publicHubs": {
+      "description": "List all available public track hubs",
+      "required_params": [],
+      "optional_params": []
+    },
+    "list/hubGenomes": {
+      "description": "List all available genomes in a track hub",
+      "required_params": [
+        "hubUrl"
+      ],
+      "optional_params": []
+    },
+    "list/tracks": {
+      "description": "List all tracks in a genome",
+      "required_params": [
+        "genome"
+      ],
+      "optional_params": [
+        "trackLeavesOnly"
+      ]
+    },
+    "list/chromosomes": {
+      "description": "List all chromosomes in a genome",
+      "required_params": [
+        "genome"
+      ],
+      "optional_params": [
+        "track"
+      ]
+    },
+    "list/schema": {
+      "description": "Get schema for a track",
+      "required_params": [
+        "genome",
+        "track"
+      ],
+      "optional_params": []
+    },
+    "getData/sequence": {
+      "description": "Get DNA sequence for a genomic region",
+      "required_params": [
+        "genome",
+        "chrom"
+      ],
+      "optional_params": [
+        "start",
+        "end",
+        "revComp"
+      ]
+    },
+    "getData/track": {
+      "description": "Get data from a track for a genomic region",
+      "required_params": [
+        "genome",
+        "track",
+        "chrom"
+      ],
+      "optional_params": [
+        "start",
+        "end",
+        "maxItemsOutput",
+        "jsonOutputArrays"
+      ]
+    },
+    "search": {
+      "description": "Search for terms in the UCSC Genome Browser",
+      "required_params": [
+        "search",
+        "genome"
+      ],
+      "optional_params": [
+        "categories"
+      ]
+    }
+  },
+  "common_genomes": {
+    "hg38": "Human genome (GRCh38/hg38)",
+    "hg19": "Human genome (GRCh37/hg19)",
+    "mm39": "Mouse genome (GRCm39/mm39)",
+    "mm10": "Mouse genome (GRCm38/mm10)",
+    "danRer11": "Zebrafish genome (GRCz11/danRer11)",
+    "dm6": "Fruit fly genome (BDGP6/dm6)",
+    "sacCer3": "Yeast genome (sacCer3)"
+  },
+  "example_queries": [
+    {
+      "description": "Get list of all available genomes",
+      "endpoint": "list/ucscGenomes",
+      "parameters": {}
+    },
+    {
+      "description": "Get DNA sequence of mitochondrial chromosome from positions 1-100 in human genome",
+      "endpoint": "getData/sequence",
+      "parameters": {
+        "genome": "hg38",
+        "chrom": "chrM",
+        "start": 1,
+        "end": 100
+      }
+    },
+    {
+      "description": "List all genes on chromosome 1 in human genome",
+      "endpoint": "getData/track",
+      "parameters": {
+        "genome": "hg38",
+        "track": "refGene",
+        "chrom": "chr1",
+        "start": 1,
+        "end": 10000000
+      }
+    },
+    {
+      "description": "Search for BRCA1 in human genome",
+      "endpoint": "search",
+      "parameters": {
+        "genome": "hg38",
+        "search": "BRCA1"
+      }
+    }
+  ]
+}

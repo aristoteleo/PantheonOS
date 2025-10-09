@@ -1,0 +1,168 @@
+{
+  "metadata": {
+    "name": "InterPro REST API",
+    "base_url": "https://www.ebi.ac.uk/interpro/api",
+    "description": "API for accessing InterPro protein domains, families, and functional sites data"
+  },
+  "main_data_types": {
+    "entry": {
+      "description": "Predicted functional and structural domains on proteins",
+      "sources": [
+        "interpro",
+        "cath-gene3d",
+        "cdd",
+        "hamap",
+        "panther",
+        "pfam",
+        "pirsf",
+        "prints",
+        "prosite",
+        "smart",
+        "sfld",
+        "superfamily",
+        "ncbifam"
+      ],
+      "example_ids": {
+        "interpro": "IPR023411",
+        "pfam": "PF06235"
+      }
+    },
+    "protein": {
+      "description": "Protein sequence",
+      "sources": [
+        "uniprot"
+      ],
+      "subtypes": [
+        "reviewed",
+        "unreviewed"
+      ],
+      "example_ids": {
+        "uniprot": "P04637"
+      }
+    },
+    "structure": {
+      "description": "Macromolecular structures involving proteins",
+      "sources": [
+        "pdb"
+      ],
+      "example_ids": {
+        "pdb": "1ABC"
+      }
+    },
+    "set": {
+      "description": "Sets describing relationships between entries",
+      "sources": [
+        "pfam",
+        "cdd"
+      ],
+      "example_ids": {
+        "pfam": "cl0001"
+      }
+    },
+    "taxonomy": {
+      "description": "Taxonomic information about proteins",
+      "sources": [
+        "uniprot"
+      ],
+      "example_ids": {
+        "uniprot": "9606"
+      }
+    },
+    "proteome": {
+      "description": "Collections of proteins defined from whole genome sequencing",
+      "sources": [
+        "uniprot"
+      ],
+      "example_ids": {
+        "uniprot": "UP000005640"
+      }
+    }
+  },
+  "endpoints": {
+    "basic": {
+      "description": "Basic endpoints to retrieve counts or lists of entities",
+      "patterns": [
+        {
+          "path": "/{data_type}",
+          "description": "Get counts of entities by source",
+          "example": "/entry",
+          "response_type": "count_list"
+        },
+        {
+          "path": "/{data_type}/{source}",
+          "description": "Get a list of entities from a specific source",
+          "example": "/entry/interpro",
+          "response_type": "entity_list"
+        },
+        {
+          "path": "/{data_type}/{source}/{accession}",
+          "description": "Get detailed information about a specific entity",
+          "example": "/entry/interpro/IPR023411",
+          "response_type": "detailed_object"
+        }
+      ]
+    },
+    "filtered": {
+      "description": "Endpoints with filters to narrow down results",
+      "patterns": [
+        {
+          "path": "/{main_type}/{filter_type}",
+          "description": "Filter by another data type",
+          "example": "/entry/protein",
+          "response_type": "count_list"
+        },
+        {
+          "path": "/{main_type}/{filter_type}/{filter_source}",
+          "description": "Filter by another data type from a specific source",
+          "example": "/entry/protein/uniprot",
+          "response_type": "count_list"
+        },
+        {
+          "path": "/{main_type}/{main_source}/protein/{protein_source}/{protein_accession}",
+          "description": "Get entities from a specific source that map to a specific protein",
+          "example": "/entry/interpro/protein/uniprot/P04637",
+          "response_type": "entity_list"
+        },
+        {
+          "path": "/protein/{protein_source}/entry/{entry_source}/{entry_accession}",
+          "description": "Get proteins containing a specific entry",
+          "example": "/protein/reviewed/entry/interpro/ipr002117",
+          "response_type": "entity_list"
+        },
+        {
+          "path": "/taxonomy/{taxonomy_source}/entry/{entry_source}/{entry_accession}",
+          "description": "Get organisms with proteins containing a specific entry",
+          "example": "/taxonomy/uniprot/entry/interpro/IPR026381",
+          "response_type": "entity_list"
+        }
+      ]
+    }
+  },
+  "response_types": {
+    "count_list": "List of counts of entities grouped by data source",
+    "entity_list": "Paginated list of entities with basic information",
+    "detailed_object": "Detailed information about a specific entity"
+  },
+  "examples": {
+    "get_all_interpro_entries": {
+      "description": "Get a list of all InterPro entries",
+      "url": "https://www.ebi.ac.uk/interpro/api/entry/interpro"
+    },
+    "get_entry_details": {
+      "description": "Get detailed information about a specific InterPro entry",
+      "url": "https://www.ebi.ac.uk/interpro/api/entry/interpro/IPR023411"
+    },
+    "get_proteins_with_domain": {
+      "description": "Get reviewed proteins containing a specific InterPro domain",
+      "url": "https://www.ebi.ac.uk/interpro/api/protein/reviewed/entry/interpro/ipr002117"
+    },
+    "get_organisms_with_entry": {
+      "description": "Get organisms with proteins containing a specific InterPro entry",
+      "url": "https://www.ebi.ac.uk/interpro/api/taxonomy/uniprot/entry/interpro/IPR026381"
+    },
+    "get_entries_for_protein": {
+      "description": "Get InterPro entries found in a specific protein",
+      "url": "https://www.ebi.ac.uk/interpro/api/entry/interpro/protein/uniprot/P04637"
+    }
+  }
+}

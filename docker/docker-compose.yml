@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  # NATS Server with WebSocket support
+  nats:
+    image: nats:2.10-alpine
+    container_name: pantheon-nats
+    command: -c /etc/nats/nats-ws.conf
+    ports:
+      - "4222:4222"  # NATS client
+      - "8080:8080"  # WebSocket for frontend
+      - "6222:6222"  # Cluster routing
+    volumes:
+      - ./nats-ws.conf:/etc/nats/nats-ws.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - pantheon-network
+
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: pantheon-qdrant
+    ports:
+      - "6333:6333"  # HTTP API
+      - "6334:6334"  # gRPC API
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - pantheon-network
+
+  # Pantheon ChatRoom Service
+  pantheon:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: pantheon-chatroom
+    depends_on:
+      nats:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    environment:
+      # ID Hash for chatroom instance
+      - ID_HASH=${ID_HASH:-default}
+      # Override backend config for Docker (use container DNS names)
+      - PANTHEON_REMOTE_BACKEND=nats
+      - NATS_SERVERS=nats://nats:4222
+      - QDRANT_LOCATION=http://qdrant:6333
+    env_file:
+      - ${ENV_FILE:-../.env}
+    volumes:
+      # Mount workspace directory
+      - ${WORKSPACE_DIR:-../workspace}:/workspace
+    working_dir: /workspace
+    restart: unless-stopped
+    networks:
+      - pantheon-network
+    # Expose additional ports if needed
+    # ports:
+    #   - "8000:8000"  # Example: API port
+
+volumes:
+  qdrant_data:
+    driver: local
+
+networks:
+  pantheon-network:
+    driver: bridge

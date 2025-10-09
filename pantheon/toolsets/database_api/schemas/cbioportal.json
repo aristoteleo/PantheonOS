@@ -1,0 +1,296 @@
+{
+  "metadata": {
+    "name": "cBioPortal REST API",
+    "version": "1.0 (beta)",
+    "base_url": "https://www.cbioportal.org/api",
+    "description": "A web service for supplying JSON formatted data to cBioPortal clients",
+    "status": "Alpha/Beta - subject to change"
+  },
+  "categories": {
+    "health": {
+      "description": "API health check endpoint",
+      "endpoints": [
+        {
+          "path": "/health",
+          "method": "GET",
+          "description": "Get the running status of the server"
+        }
+      ]
+    },
+    "clinical_data": {
+      "description": "Clinical data for patients and samples",
+      "endpoints": [
+        {
+          "path": "/studies/{studyId}/samples/{sampleId}/clinical-data",
+          "method": "GET",
+          "description": "Get all clinical data of a sample in a study"
+        },
+        {
+          "path": "/studies/{studyId}/patients/{patientId}/clinical-data",
+          "method": "GET",
+          "description": "Get all clinical data of a patient in a study"
+        },
+        {
+          "path": "/studies/{studyId}/clinical-data",
+          "method": "GET",
+          "description": "Get all clinical data in a study"
+        }
+      ]
+    },
+    "studies": {
+      "description": "Cancer studies",
+      "endpoints": [
+        {
+          "path": "/studies",
+          "method": "GET",
+          "description": "Get all studies"
+        },
+        {
+          "path": "/studies/{studyId}",
+          "method": "GET",
+          "description": "Get a study by ID"
+        },
+        {
+          "path": "/studies/{studyId}/tags",
+          "method": "GET",
+          "description": "Get the tags of a study"
+        }
+      ]
+    },
+    "samples": {
+      "description": "Samples from cancer studies",
+      "endpoints": [
+        {
+          "path": "/studies/{studyId}/samples",
+          "method": "GET",
+          "description": "Get all samples in a study"
+        },
+        {
+          "path": "/studies/{studyId}/samples/{sampleId}",
+          "method": "GET",
+          "description": "Get a sample in a study"
+        },
+        {
+          "path": "/studies/{studyId}/patients/{patientId}/samples",
+          "method": "GET",
+          "description": "Get all samples of a patient in a study"
+        },
+        {
+          "path": "/samples",
+          "method": "GET",
+          "description": "Get all samples"
+        }
+      ]
+    },
+    "sample_lists": {
+      "description": "Lists of samples (e.g., all samples with mutation data)",
+      "endpoints": [
+        {
+          "path": "/studies/{studyId}/sample-lists",
+          "method": "GET",
+          "description": "Get all sample lists in a study"
+        },
+        {
+          "path": "/sample-lists",
+          "method": "GET",
+          "description": "Get all sample lists"
+        },
+        {
+          "path": "/sample-lists/{sampleListId}",
+          "method": "GET",
+          "description": "Get a sample list"
+        },
+        {
+          "path": "/sample-lists/{sampleListId}/sample-ids",
+          "method": "GET",
+          "description": "Get all sample IDs in a sample list"
+        }
+      ]
+    },
+    "patients": {
+      "description": "Patients from cancer studies",
+      "endpoints": [
+        {
+          "path": "/studies/{studyId}/patients",
+          "method": "GET",
+          "description": "Get all patients in a study"
+        },
+        {
+          "path": "/studies/{studyId}/patients/{patientId}",
+          "method": "GET",
+          "description": "Get a patient in a study"
+        },
+        {
+          "path": "/patients",
+          "method": "GET",
+          "description": "Get all patients"
+        }
+      ]
+    },
+    "mutations": {
+      "description": "Genetic mutations",
+      "endpoints": [
+        {
+          "path": "/molecular-profiles/{molecularProfileId}/mutations",
+          "method": "GET",
+          "description": "Get all mutations in a molecular profile"
+        }
+      ]
+    },
+    "molecular_data": {
+      "description": "Molecular data (gene expression, methylation, etc.)",
+      "endpoints": [
+        {
+          "path": "/molecular-profiles/{molecularProfileId}/molecular-data",
+          "method": "GET",
+          "description": "Get all molecular data in a molecular profile"
+        }
+      ]
+    },
+    "discrete_copy_number": {
+      "description": "Discrete copy number alterations",
+      "endpoints": [
+        {
+          "path": "/molecular-profiles/{molecularProfileId}/discrete-copy-number",
+          "method": "GET",
+          "description": "Get all discrete copy number alterations in a molecular profile"
+        }
+      ]
+    },
+    "molecular_profiles": {
+      "description": "Molecular profiles (e.g., mutations, CNA, expression)",
+      "endpoints": [
+        {
+          "path": "/studies/{studyId}/molecular-profiles",
+          "method": "GET",
+          "description": "Get all molecular profiles in a study"
+        },
+        {
+          "path": "/molecular-profiles",
+          "method": "GET",
+          "description": "Get all molecular profiles"
+        },
+        {
+          "path": "/molecular-profiles/{molecularProfileId}",
+          "method": "GET",
+          "description": "Get a molecular profile"
+        }
+      ]
+    },
+    "genes": {
+      "description": "Genes",
+      "endpoints": [
+        {
+          "path": "/genes",
+          "method": "GET",
+          "description": "Get all genes"
+        },
+        {
+          "path": "/genes/{geneId}",
+          "method": "GET",
+          "description": "Get a gene"
+        },
+        {
+          "path": "/genes/{geneId}/aliases",
+          "method": "GET",
+          "description": "Get all aliases of a gene"
+        }
+      ]
+    },
+    "generic_assays": {
+      "description": "Generic assays (e.g., proteomics, metabolomics)",
+      "endpoints": [
+        {
+          "path": "/generic-assay-meta/{molecularProfileId}",
+          "method": "GET",
+          "description": "Get all generic assay meta in a molecular profile"
+        },
+        {
+          "path": "/generic-assay-meta/generic-assay/{genericAssayStableId}",
+          "method": "GET",
+          "description": "Get generic assay meta by ID"
+        }
+      ]
+    },
+    "generic_assay_data": {
+      "description": "Generic assay data (e.g., proteomics, metabolomics data)",
+      "endpoints": [
+        {
+          "path": "/generic-assay-data/{molecularProfileId}/generic-assay/{genericAssayStableId}",
+          "method": "GET",
+          "description": "Get generic assay data by ID"
+        }
+      ]
+    },
+    "gene_panels": {
+      "description": "Gene panels (collections of genes)",
+      "endpoints": [
+        {
+          "path": "/gene-panels",
+          "method": "GET",
+          "description": "Get all gene panels"
+        },
+        {
+          "path": "/gene-panels/{genePanelId}",
+          "method": "GET",
+          "description": "Get a gene panel"
+        }
+      ]
+    },
+    "copy_number_segments": {
+      "description": "Copy number segments",
+      "endpoints": [
+        {
+          "path": "/studies/{studyId}/samples/{sampleId}/copy-number-segments",
+          "method": "GET",
+          "description": "Get all copy number segments in a sample in a study"
+        }
+      ]
+    },
+    "clinical_attributes": {
+      "description": "Clinical attributes (e.g., age, gender, survival)",
+      "endpoints": [
+        {
+          "path": "/studies/{studyId}/clinical-attributes",
+          "method": "GET",
+          "description": "Get all clinical attributes in a study"
+        },
+        {
+          "path": "/studies/{studyId}/clinical-attributes/{clinicalAttributeId}",
+          "method": "GET",
+          "description": "Get a clinical attribute in a study"
+        },
+        {
+          "path": "/clinical-attributes",
+          "method": "GET",
+          "description": "Get all clinical attributes"
+        }
+      ]
+    },
+    "info": {
+      "description": "API information",
+      "endpoints": [
+        {
+          "path": "/info",
+          "method": "GET",
+          "description": "Get information about the API"
+        }
+      ]
+    },
+    "cancer_types": {
+      "description": "Cancer types",
+      "endpoints": [
+        {
+          "path": "/cancer-types",
+          "method": "GET",
+          "description": "Get all cancer types"
+        },
+        {
+          "path": "/cancer-types/{cancerTypeId}",
+          "method": "GET",
+          "description": "Get a cancer type"
+        }
+      ]
+    }
+  }
+}

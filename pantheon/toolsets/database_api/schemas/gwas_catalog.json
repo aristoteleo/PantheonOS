@@ -1,0 +1,98 @@
+{
+  "base_url": "https://www.ebi.ac.uk/gwas/rest/api",
+  "endpoints": {
+    "studies": {
+      "description": "Information about GWAS studies",
+      "search_endpoints": {
+        "findByPublicationIdPubmedId{?pubmedId,page,size,sort,projection}": "Search for a study using pubmedId parameter",
+        "findByAccessionId{?accessionId,projection}": "Search for a study using accessionId parameter",
+        "findByDiseaseTrait{?diseaseTrait,page,size,sort,projection}": "Search for a study via disease trait using diseaseTrait parameter",
+        "findByEfoTrait{?efoTrait,page,size,sort,projection}": "Search for a study via EFO trait using efoTrait parameter",
+        "findByFullPvalueSet{?fullPvalueSet,page,size,sort,projection}": "Search for studies with full p-value sets using fullPvalueSet parameter",
+        "findByUserRequested{?userRequested,page,size,sort,projection}": "Search for studies requested by users using userRequested parameter"
+      },
+      "parameters": {
+        "page": "Page number (default: 0)",
+        "size": "Number of records per page (max: 500)",
+        "sort": "Sort field and direction",
+        "projection": "Detail level (optional)"
+      }
+    },
+    "associations": {
+      "description": "Genetic associations from GWAS studies",
+      "search_endpoints": {
+        "findByStudyAccessionId{?accessionId,projection}": "Search for associations by study accessionId",
+        "findByPubmedId{?pubmedId,projection}": "Search for associations via study pubmedId",
+        "findByEfoTrait{?efoTrait,projection}": "Search for associations by efoTrait parameter",
+        "findByRsId{?rsId,projection}": "Search for associations by SNP rsId",
+        "findByRsIdAndAccessionId{?rsId,accessionId,page,size,sort,projection}": "Search for associations by SNP rsId and study accessionId"
+      },
+      "parameters": {
+        "page": "Page number (default: 0)",
+        "size": "Number of records per page (max: 500)",
+        "sort": "Sort field and direction",
+        "projection": "Detail level (optional)"
+      }
+    },
+    "singleNucleotidePolymorphisms": {
+      "description": "SNP information",
+      "search_endpoints": {
+        "findByRsId{?rsId,projection}": "Search for SNPs using rsId parameter",
+        "findByBpLocation{?bpLocation,projection}": "Search for SNPs by base pair location",
+        "findByChromBpLocationRange{?chrom,bpStart,bpEnd,page,size,sort,projection}": "Search for SNPs on a chromosome within a bp range",
+        "findByEfoTrait{?efoTrait,projection}": "Search for SNPs associated with an EFO trait",
+        "findByPubmedId{?pubmedId,page,size,sort,projection}": "Search for SNPs associated with studies by pubmedId",
+        "findByGene{?geneName,page,size,sort,projection}": "Search for SNPs by gene name",
+        "findIdsByLocationsChromosomeNameAndLocationsChromosomePositionBetween{?chrom,bpStart,bpEnd,page,size,sort,projection}": "Search for SNPs by chromosome, base pair start, and base pair end",
+        "findByDiseaseTrait{?diseaseTrait,projection}": "Search for SNPs associated with a disease trait"
+      },
+      "parameters": {
+        "page": "Page number (default: 0)",
+        "size": "Number of records per page (max: 500)",
+        "sort": "Sort field and direction",
+        "projection": "Detail level (optional)"
+      }
+    },
+    "efoTraits": {
+      "description": "EFO trait information",
+      "search_endpoints": {
+        "findByEfoUri{?uri,page,size,sort,projection}": "Search for EFO traits by URI",
+        "findByShortForm{?shortForm,projection}": "Search for EFO traits by shortForm ID (e.g., EFO_0001060)",
+        "findByPubmedId{?pubmedId,page,size,sort,projection}": "Search for EFO traits associated with studies by pubmedId",
+        "findByEfoTrait{?trait,page,size,sort,projection}": "Search for EFO traits by name"
+      },
+      "parameters": {
+        "page": "Page number (default: 0)",
+        "size": "Number of records per page (max: 500)",
+        "sort": "Sort field and direction",
+        "projection": "Detail level (optional)"
+      }
+    }
+  },
+  "example_queries": [
+    {
+      "question": "Find studies related to Type 2 Diabetes",
+      "endpoint": "studies/search/findByEfoTrait",
+      "params": {
+        "efoTrait": "type 2 diabetes"
+      }
+    },
+    {
+      "question": "Get information about SNP rs7329174",
+      "endpoint": "singleNucleotidePolymorphisms/rs7329174",
+      "params": {}
+    },
+    {
+      "question": "Find associations for the APOE gene",
+      "endpoint": "singleNucleotidePolymorphisms/search/findByGene",
+      "params": {
+        "geneName": "APOE"
+      }
+    },
+    {
+      "question": "Get information about Celiac Disease",
+      "endpoint": "efoTraits/EFO_0001060",
+      "params": {}
+    }
+  ]
+}

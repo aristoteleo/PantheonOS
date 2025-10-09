@@ -1,0 +1,389 @@
+{
+  "base_url": "https://rest.uniprot.org",
+  "web_url": "https://www.uniprot.org",
+  "version": "2023",
+  "categories": {
+    "UniProtKB": {
+      "description": "The UniProt Knowledgebase (UniProtKB)",
+      "endpoints": {
+        "GET /uniprotkb/{id}": {
+          "description": "Retrieve a single UniProtKB entry",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [
+            "format",
+            "include"
+          ],
+          "example": "/uniprotkb/P12345"
+        },
+        "GET /uniprotkb/search": {
+          "description": "Search UniProtKB entries",
+          "required_params": [
+            "query"
+          ],
+          "optional_params": [
+            "format",
+            "fields",
+            "includeIsoform",
+            "compressed",
+            "size",
+            "cursor"
+          ],
+          "example": "/uniprotkb/search?query=organism_id:9606"
+        },
+        "GET /uniprotkb/stream": {
+          "description": "Stream search results (for large result sets)",
+          "required_params": [
+            "query"
+          ],
+          "optional_params": [
+            "format",
+            "fields",
+            "includeIsoform",
+            "compressed"
+          ],
+          "example": "/uniprotkb/stream?query=organism_id:9606"
+        }
+      },
+      "formats": [
+        "json",
+        "xml",
+        "txt",
+        "fasta",
+        "gff",
+        "rdf",
+        "tsv",
+        "xlsx",
+        "list"
+      ],
+      "entry_pattern": "P\\d{5}",
+      "entry_examples": [
+        "P12345",
+        "P99999"
+      ]
+    },
+    "UniRef": {
+      "description": "The UniProt Reference Clusters",
+      "endpoints": {
+        "GET /uniref/{id}": {
+          "description": "Retrieve a single UniRef entry",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [
+            "format"
+          ],
+          "example": "/uniref/UniRef90_P99999"
+        },
+        "GET /uniref/search": {
+          "description": "Search UniRef entries",
+          "required_params": [
+            "query"
+          ],
+          "optional_params": [
+            "format",
+            "fields",
+            "size",
+            "cursor"
+          ],
+          "example": "/uniref/search?query=uniprot_id:P99999"
+        }
+      },
+      "formats": [
+        "xml",
+        "rdf",
+        "fasta",
+        "tsv"
+      ],
+      "entry_pattern": "UniRef\\d+_[A-Z0-9]+",
+      "entry_examples": [
+        "UniRef90_P99999"
+      ]
+    },
+    "UniParc": {
+      "description": "The UniProt Archive",
+      "endpoints": {
+        "GET /uniparc/{id}": {
+          "description": "Retrieve a single UniParc entry",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [
+            "format"
+          ],
+          "example": "/uniparc/UPI000000001F"
+        },
+        "GET /uniparc/search": {
+          "description": "Search UniParc entries",
+          "required_params": [
+            "query"
+          ],
+          "optional_params": [
+            "format",
+            "fields",
+            "size",
+            "cursor"
+          ],
+          "example": "/uniparc/search?query=upi:UPI000000001F"
+        }
+      },
+      "formats": [
+        "xml",
+        "rdf",
+        "fasta",
+        "tsv"
+      ],
+      "entry_pattern": "UPI[A-F0-9]+",
+      "entry_examples": [
+        "UPI000000001F"
+      ]
+    },
+    "Taxonomy": {
+      "description": "Taxonomy database",
+      "endpoints": {
+        "GET /taxonomy/{id}": {
+          "description": "Retrieve a single Taxonomy entry",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [
+            "format"
+          ],
+          "example": "/taxonomy/9606"
+        },
+        "GET /taxonomy/search": {
+          "description": "Search Taxonomy entries",
+          "required_params": [
+            "query"
+          ],
+          "optional_params": [
+            "format",
+            "fields",
+            "size",
+            "cursor"
+          ],
+          "example": "/taxonomy/search?query=name:human"
+        }
+      },
+      "formats": [
+        "json",
+        "xml",
+        "rdf",
+        "tsv"
+      ],
+      "entry_pattern": "\\d+",
+      "entry_examples": [
+        "9606"
+      ]
+    }
+  },
+  "query_fields": {
+    "UniProtKB": {
+      "accession": {
+        "description": "UniProtKB primary/canonical accession",
+        "example": "accession:P62988"
+      },
+      "sec_acc": {
+        "description": "UniProtKB secondary accession",
+        "example": "sec_acc:P02023"
+      },
+      "id": {
+        "description": "UniProtKB entry name",
+        "example": "id:UBIQ_HUMAN"
+      },
+      "gene": {
+        "description": "Gene name (includes all gene name types)",
+        "example": "gene:HPSE"
+      },
+      "gene_exact": {
+        "description": "Exact gene name match (excludes variations)",
+        "example": "gene_exact:HPSE"
+      },
+      "protein_name": {
+        "description": "Protein name",
+        "example": "protein_name:\"prion protein\""
+      },
+      "organism_name": {
+        "description": "Organism name",
+        "example": "organism_name:\"Homo sapiens\""
+      },
+      "organism_id": {
+        "description": "Organism identifier (NCBI taxonomy)",
+        "example": "organism_id:9606"
+      },
+      "taxonomy_name": {
+        "description": "Taxonomy name (any rank)",
+        "example": "taxonomy_name:mammal"
+      },
+      "taxonomy_id": {
+        "description": "Taxonomy identifier (any rank)",
+        "example": "taxonomy_id:40674"
+      },
+      "reviewed": {
+        "description": "Swiss-Prot reviewed status",
+        "example": "reviewed:true"
+      },
+      "active": {
+        "description": "Entry active status",
+        "example": "active:true"
+      },
+      "database": {
+        "description": "Cross-referenced database",
+        "example": "database:pdb"
+      },
+      "xref": {
+        "description": "Cross-reference to specific entry in database",
+        "example": "xref:pdb-1aut"
+      },
+      "xref_count": {
+        "description": "Number of cross-references to database",
+        "example": "xref_count_pdb:[20 TO *]"
+      },
+      "length": {
+        "description": "Sequence length",
+        "example": "length:[500 TO 700]"
+      },
+      "mass": {
+        "description": "Protein mass in Daltons",
+        "example": "mass:[50000 TO 100000]"
+      },
+      "ec": {
+        "description": "Enzyme Commission number",
+        "example": "ec:3.2.1.23"
+      },
+      "go": {
+        "description": "Gene Ontology ID",
+        "example": "go:0015629"
+      },
+      "keyword": {
+        "description": "UniProtKB keyword",
+        "example": "keyword:toxin"
+      },
+      "existence": {
+        "description": "Protein existence level",
+        "example": "existence:1"
+      },
+      "family": {
+        "description": "Protein family",
+        "example": "family:serpin"
+      },
+      "fragment": {
+        "description": "Fragment status",
+        "example": "fragment:true"
+      },
+      "interactor": {
+        "description": "Interacting protein",
+        "example": "interactor:P00520"
+      },
+      "organelle": {
+        "description": "Encoding organelle",
+        "example": "organelle:mitochondrion"
+      },
+      "proteome": {
+        "description": "Proteome ID",
+        "example": "proteome:UP000005640"
+      },
+      "date_created": {
+        "description": "Entry creation date",
+        "example": "date_created:[2020-01-01 TO 2020-12-31]"
+      },
+      "date_modified": {
+        "description": "Entry modification date",
+        "example": "date_modified:[2020-01-01 TO 2020-12-31]"
+      },
+      "date_sequence_modified": {
+        "description": "Sequence modification date",
+        "example": "date_sequence_modified:[2020-01-01 TO 2020-12-31]"
+      }
+    }
+  },
+  "return_fields": {
+    "UniProtKB": {
+      "names_taxonomy": {
+        "accession": "Entry accession",
+        "id": "Entry name",
+        "gene_names": "Gene names",
+        "gene_primary": "Gene names (primary)",
+        "gene_synonym": "Gene names (synonym)",
+        "gene_oln": "Gene names (ordered locus)",
+        "gene_orf": "Gene names (ORF)",
+        "organism_name": "Organism",
+        "organism_id": "Organism ID",
+        "protein_name": "Protein names",
+        "xref_proteomes": "Proteomes",
+        "lineage": "Taxonomic lineage",
+        "lineage_ids": "Taxonomic lineage (IDs)",
+        "virus_hosts": "Virus hosts"
+      },
+      "sequences": {
+        "cc_alternative_products": "Alternative products",
+        "ft_var_seq": "Alternative sequence",
+        "error_gmodel_pred": "Erroneous gene model prediction",
+        "fragment": "Fragment",
+        "organelle": "Gene encoded by",
+        "length": "Length",
+        "mass": "Mass",
+        "cc_mass_spectrometry": "Mass spectrometry",
+        "ft_variant": "Natural variant",
+        "ft_non_cons": "Non-adjacent residues",
+        "ft_non_std": "Non-standard residue",
+        "ft_non_ter": "Non-terminal residue",
+        "cc_polymorphism": "Polymorphism",
+        "cc_rna_editing": "RNA editing",
+        "sequence": "Sequence",
+        "cc_sequence_caution": "Sequence caution",
+        "ft_conflict": "Sequence conflict",
+        "ft_unsure": "Sequence uncertainty",
+        "sequence_version": "Sequence version"
+      },
+      "function": {
+        "absorption": "Absorption",
+        "ft_act_site": "Active site",
+        "cc_activity_regulation": "Activity regulation",
+        "ft_binding": "Binding site",
+        "cc_catalytic_activity": "Catalytic activity",
+        "cc_cofactor": "Cofactor",
+        "ft_dna_bind": "DNA binding",
+        "ec": "EC number",
+        "cc_function": "Function [CC]",
+        "kinetics": "Kinetics",
+        "cc_pathway": "Pathway",
+        "ph_dependence": "pH dependence",
+        "redox_potential": "Redox potential",
+        "rhea": "Rhea ID",
+        "ft_site": "Site",
+        "temp_dependence": "Temperature dependence"
+      },
+      "miscellaneous": {
+        "annotation_score": "Annotation",
+        "cc_caution": "Caution",
+        "comment_count": "Comment Count",
+        "feature_count": "Features",
+        "keywordid": "Keyword ID",
+        "keyword": "Keywords",
+        "cc_miscellaneous": "Miscellaneous [CC]",
+        "protein_existence": "Protein existence",
+        "reviewed": "Reviewed",
+        "tools": "Tools",
+        "uniparc_id": "UniParc"
+      },
+      "interaction": {
+        "cc_interaction": "Interacts with",
+        "cc_subunit": "Subunit structure [CC]"
+      },
+      "expression": {
+        "cc_developmental_stage": "Developmental stage",
+        "cc_induction": "Induction",
+        "cc_tissue_specificity": "Tissue specificity"
+      },
+      "gene_ontology": {
+        "go_p": "Gene Ontology (biological process)",
+        "go_c": "Gene Ontology (cellular component)",
+        "go": "Gene Ontology (GO)",
+        "go_f": "Gene Ontology (molecular function)",
+        "go_id": "Gene Ontology IDs"
+      }
+    }
+  }
+}

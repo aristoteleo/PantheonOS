@@ -1,0 +1,185 @@
+{
+  "base_url": "https://www.ebi.ac.uk",
+  "endpoints": {
+    "entry": {
+      "url": "{base_url}/emdb/api/entry/{id}",
+      "description": "EMDB entry information",
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "entry_admin": {
+      "url": "{base_url}/emdb/api/entry/admin/{id}",
+      "description": "EMDB entry admin information",
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "entry_publications": {
+      "url": "{base_url}/emdb/api/entry/publications/{id}",
+      "description": "EMDB entry publications information",
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "entry_map": {
+      "url": "{base_url}/emdb/api/entry/map/{id}",
+      "description": "EMDB entry map information",
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "entry_supplement": {
+      "url": "{base_url}/emdb/api/entry/supplement/{id}",
+      "description": "EMDB entry supplement information",
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "entry_sample": {
+      "url": "{base_url}/emdb/api/entry/sample/{id}",
+      "description": "EMDB entry sample information",
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "entry_vitrification": {
+      "url": "{base_url}/emdb/api/entry/vitrification/{id}",
+      "description": "EMDB entry vitrification information",
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "entry_imaging": {
+      "url": "{base_url}/emdb/api/entry/imaging/{id}",
+      "description": "EMDB entry imaging information",
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "entry_image_acquisition": {
+      "url": "{base_url}/emdb/api/entry/image_acquisition/{id}",
+      "description": "EMDB entry image acquisition information",
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "entry_processing": {
+      "url": "{base_url}/emdb/api/entry/processing/{id}",
+      "description": "EMDB entry processing information",
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "entry_experiment": {
+      "url": "{base_url}/emdb/api/entry/experiment/{id}",
+      "description": "EMDB entry experiment information",
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "entry_fitted": {
+      "url": "{base_url}/emdb/api/entry/fitted/{id}",
+      "description": "EMDB entry fitted model information",
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "analysis": {
+      "url": "{base_url}/emdb/api/analysis/{id}",
+      "description": "EMDB validation analysis",
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "search": {
+      "url": "{base_url}/emdb/api/search/{query}",
+      "description": "EMDB search",
+      "required": [
+        "query"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "facet": {
+      "url": "{base_url}/emdb/api/facet/{query}",
+      "description": "EMDB facet",
+      "required": [
+        "query"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "yearly": {
+      "url": "{base_url}/emdb/api/yearly/{query}",
+      "description": "EMDB Yearly facet",
+      "required": [
+        "query"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "empiar_search": {
+      "url": "{base_url}/emdb/api/empiar/search/{query}",
+      "description": "EMPIAR search",
+      "required": [
+        "query"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "empiar_facet": {
+      "url": "{base_url}/emdb/api/empiar/facet/{query}",
+      "description": "EMPIAR facet",
+      "required": [
+        "query"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "empiar_yearly": {
+      "url": "{base_url}/emdb/api/empiar/yearly/{query}",
+      "description": "EMPIAR Yearly facet",
+      "required": [
+        "query"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "annotations": {
+      "url": "{base_url}/emdb/api/annotations/{id}",
+      "description": "EMDB annotations",
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "method": "GET"
+    }
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "search_services": {
+    "text": "Performs attribute searches against specific textual fields. Requires attribute, operator, and value parameters.",
+    "full_text": "Performs searches across multiple textual fields. Only requires value parameter.",
+    "sequence": "Searches for protein or nucleic acid sequences (BLAST-like).",
+    "structure": "Searches for 3D structural similarity using BioZernike descriptors.",
+    "seqmotif": "Searches for sequence motifs using simple, prosite or regex patterns.",
+    "chemical": "Searches for chemical structures using SMILES, InChI, or formula."
+  },
+  "return_types": {
+    "entry": "Returns PDB IDs (e.g., 4HHB)",
+    "assembly": "Returns biological assemblies (e.g., 4HHB-1)",
+    "polymer_entity": "Returns polymer entities (e.g., 4HHB_1)",
+    "non_polymer_entity": "Returns non-polymer entities/ligands (e.g., 4HHB_1)",
+    "polymer_instance": "Returns chains (e.g., 4HHB.A)",
+    "mol_definition": "Returns molecular definition IDs (e.g., ATP)"
+  },
+  "common_attributes": {
+    "rcsb_entry_info.resolution_combined": "Resolution in Angstroms",
+    "rcsb_primary_citation.title": "Title of the primary citation",
+    "rcsb_entry_info.experimental_method": "Experimental method used",
+    "rcsb_entity_source_organism.rcsb_gene_name.value": "Gene name",
+    "rcsb_entity_source_organism.scientific_name": "Scientific name of source organism",
+    "rcsb_polymer_entity.rcsb_ec_lineage.id": "Enzyme classification ID",
+    "rcsb_polymer_entity_container_identifiers.reference_sequence_identifiers.database_accession": "UniProt ID",
+    "rcsb_polymer_entity.rcsb_macromolecular_names_combined.name": "Macromolecule name",
+    "rcsb_entry_container_identifiers.entry_id": "PDB/Entry ID",
+    "rcsb_entry_container_identifiers.rcsb_id": "RCSB ID"
+  },
+  "operators": {
+    "exact_match": "Exact match, case-insensitive by default",
+    "in": "Match any value in list, case-sensitive",
+    "contains_words": "Full-text search for any of the words",
+    "contains_phrase": "Full-text search for the exact phrase",
+    "greater": "Greater than (numeric/date)",
+    "less": "Less than (numeric/date)",
+    "greater_or_equal": "Greater than or equal to (numeric/date)",
+    "less_or_equal": "Less than or equal to (numeric/date)",
+    "range": "Between min and max values (numeric/date)",
+    "exists": "Field exists and is not null"
+  },
+  "example_queries": {
+    "basic_keyword": {
+      "query": {
+        "type": "terminal",
+        "service": "full_text",
+        "parameters": {
+          "value": "thymidine kinase"
+        }
+      },
+      "return_type": "entry"
+    },
+    "attribute_search": {
+      "query": {
+        "type": "terminal",
+        "service": "text",
+        "parameters": {
+          "attribute": "rcsb_entity_source_organism.rcsb_gene_name.value",
+          "operator": "exact_match",
+          "value": "BRCA1"
+        }
+      },
+      "return_type": "polymer_entity"
+    },
+    "resolution_filter": {
+      "query": {
+        "type": "terminal",
+        "service": "text",
+        "parameters": {
+          "attribute": "rcsb_entry_info.resolution_combined",
+          "operator": "less_or_equal",
+          "value": 2.0
+        }
+      },
+      "return_type": "entry"
+    },
+    "combined_search": {
+      "query": {
+        "type": "group",
+        "logical_operator": "and",
+        "nodes": [
+          {
+            "type": "terminal",
+            "service": "text",
+            "parameters": {
+              "attribute": "rcsb_entity_source_organism.rcsb_organism_scientific_name.value",
+              "operator": "exact_match",
+              "value": "Homo sapiens"
+            }
+          },
+          {
+            "type": "terminal",
+            "service": "text",
+            "parameters": {
+              "attribute": "rcsb_entry_info.resolution_combined",
+              "operator": "less_or_equal",
+              "value": 2.0
+            }
+          }
+        ]
+      },
+      "return_type": "entry"
+    }
+  }
+}

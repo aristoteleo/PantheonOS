@@ -1,0 +1,128 @@
+{
+  "base_url": "https://remap2022.univ-amu.fr/api/v1",
+  "endpoints": {
+    "list_targets": {
+      "url": "{base_url}/list/targets/taxid={taxid}",
+      "description": "Retrieve all targets from a specific taxid",
+      "required": [
+        "taxid"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "list_biotypes": {
+      "url": "{base_url}/list/biotypes/taxid={taxid}",
+      "description": "Retrieve all biotypes from a specific taxid",
+      "required": [
+        "taxid"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "list_experiments": {
+      "url": "{base_url}/list/experiments/taxid={taxid}",
+      "description": "Retrieve all experiments from a specific taxid",
+      "required": [
+        "taxid"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "list_species": {
+      "url": "{base_url}/list/species",
+      "description": "Retrieve all species available in ReMap",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "find_datasets_by_target": {
+      "url": "{base_url}/datasets/findByTarget/target={target}&taxid={taxid}",
+      "description": "Retrieve all datasets from a target with a specific taxid",
+      "required": [
+        "target",
+        "taxid"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "find_datasets_by_biotype": {
+      "url": "{base_url}/datasets/findByBiotype/biotype={biotype}&taxid={taxid}",
+      "description": "Retrieve all datasets from a biotype with a specific taxid",
+      "required": [
+        "biotype",
+        "taxid"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "find_datasets_by_experiment": {
+      "url": "{base_url}/datasets/findByExperiment/experiment={experiment}&taxid={taxid}",
+      "description": "Retrieve all datasets from an experiment with a specific taxid",
+      "required": [
+        "experiment",
+        "taxid"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "find_datasets_by_taxid": {
+      "url": "{base_url}/datasets/findByTaxid/taxid={taxid}",
+      "description": "Retrieve all datasets from a specific taxid",
+      "required": [
+        "taxid"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "advanced_query": {
+      "url": "{base_url}/advancedQuery/target={target}&biotype={biotype}&taxid={taxid}",
+      "description": "Retrieve all datasets from multiple query parameters",
+      "required": [
+        "target",
+        "biotype",
+        "taxid"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "info_by_target": {
+      "url": "{base_url}/info/byTarget/target={target}&taxid={taxid}",
+      "description": "Retrieve all information from a target with a specific taxid",
+      "required": [
+        "target",
+        "taxid"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "info_by_biotype": {
+      "url": "{base_url}/info/byBiotype/biotype={biotype}&taxid={taxid}",
+      "description": "Retrieve all information from a biotype with a specific taxid",
+      "required": [
+        "biotype",
+        "taxid"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "info_get_all_biotypes": {
+      "url": "{base_url}/info/getAllBiotypes/taxid={taxid}",
+      "description": "Retrieve all information from all biotypes with a specific taxid",
+      "required": [
+        "taxid"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "info_by_experiment": {
+      "url": "{base_url}/info/byExperiment/experiment={experiment}&taxid={taxid}",
+      "description": "Retrieve all information from an experiment with a specific taxid",
+      "required": [
+        "experiment",
+        "taxid"
+      ],
+      "optional": [],
+      "method": "GET"
+    }
+  }
+}

@@ -16,6 +16,7 @@ from .todolist import TodoListToolSet
 from .plan_mode import PlanModeToolSet
 from .vector_rag import VectorRAGToolSet
 from .knowledge import KnowledgeToolSet
+from .database_api import DatabaseAPIQueryToolSet
 
 # Bio toolsets
 from .bio import (
@@ -71,4 +72,5 @@ __all__ = [
     "SpatialToolSet",
     "MolecularDockingToolSet",
     "SingleCellAgentToolSet",
+    "DatabaseAPIQueryToolSet",
 ]

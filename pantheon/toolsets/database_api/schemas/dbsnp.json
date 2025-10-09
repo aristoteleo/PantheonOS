@@ -1,0 +1,68 @@
+{
+  "search_fields": {
+    "all_fields": "[ALL]",
+    "base_position": "[POSITION]",
+    "base_position_grch37": "[POSITION_GRCH37]",
+    "chromosome": "[CHR]",
+    "clinical_significance": "[CLIN]",
+    "function_class": "[FXN]",
+    "gene_name": "[GENE]",
+    "gene_id": "[GENE_ID]",
+    "global_minor_allele_frequency": "[GMAF]",
+    "project_or_submitter_handle": "[HAN]",
+    "reference_snp_id": "[RS]",
+    "snp_class": "[SCLS]",
+    "submitter_snp_id": "[SS]",
+    "validation_status": "[VALI]"
+  },
+  "common_properties": {
+    "clinical_significance": {
+      "affects": "affects[CLIN]",
+      "benign": "benign[CLIN]",
+      "conflicting_interpretations": "conflicting interpretations of pathogenicity[CLIN]",
+      "drug_response": "drug response[CLIN]",
+      "likely_benign": "likely benign[CLIN]",
+      "likely_pathogenic": "likely pathogenic[CLIN]",
+      "other": "other[CLIN]",
+      "pathogenic": "pathogenic[CLIN]",
+      "pathogenic_likely_pathogenic": "pathogenic likely pathogenic[CLIN]",
+      "protective": "protective[CLIN]",
+      "risk_factor": "risk factor[CLIN]"
+    },
+    "function_class": {
+      "frameshift": "frameshift[FXN]",
+      "inframe_deletion": "inframe deletion[FXN]",
+      "inframe_indel": "inframe indel[FXN]",
+      "inframe_insertion": "inframe insertion[FXN]",
+      "initiator_codon_variant": "initiator codon variant[FXN]",
+      "intron": "intron[FXN]",
+      "missense": "missense[FXN]",
+      "nonsense": "nonsense[FXN]",
+      "non_coding_transcript_variant": "non coding transcript variant[FXN]",
+      "synonymous": "synonymous[FXN]"
+    },
+    "snp_class": {
+      "del": "del[SCLS]",
+      "delins": "delins[SCLS]",
+      "ins": "ins[SCLS]",
+      "mnv": "mnv[SCLS]",
+      "snv": "snv[SCLS]"
+    },
+    "validation_status": {
+      "by_cluster": "by cluster[VALI]",
+      "by_frequency": "by frequency[VALI]"
+    }
+  },
+  "filters": {
+    "all": "all[sb]",
+    "splice_5_snp": "splice 5 snp[Filter]",
+    "splice_3_snp": "splice 3 snp[Filter]",
+    "coding_nonsynonymous": "coding nonsynonymous[Filter]",
+    "coding_synonymous": "coding synonymous[Filter]",
+    "intron": "intron[Filter]",
+    "human": "human[Filter]",
+    "organism_homo_sapiens": "organism homo sapiens[Filter]",
+    "common": "common[Filter]",
+    "functional": "functional[Filter]"
+  }
+}

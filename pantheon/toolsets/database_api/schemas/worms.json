@@ -1,0 +1,299 @@
+{
+  "base_url": "https://www.marinespecies.org/rest",
+  "endpoints": {
+    "attribute_keys_by_id": {
+      "url": "{base_url}/AphiaAttributeKeysByID/{ID}",
+      "description": "Get attribute definitions",
+      "required": [
+        "ID"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "attributes_by_aphia_id": {
+      "url": "{base_url}/AphiaAttributesByAphiaID/{ID}",
+      "description": "Get a list of attributes for a given AphiaID",
+      "required": [
+        "ID"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "attribute_values_by_category_id": {
+      "url": "{base_url}/AphiaAttributeValuesByCategoryID/{ID}",
+      "description": "Get list values that are grouped by an CateogryID",
+      "required": [
+        "ID"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "aphia_ids_by_attribute_key_id": {
+      "url": "{base_url}/AphiaIDsByAttributeKeyID/{ID}",
+      "description": "Get a list of AphiaID's (max 50) with attribute tree for a given attribute definition ID",
+      "required": [
+        "ID"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "distributions_by_aphia_id": {
+      "url": "{base_url}/AphiaDistributionsByAphiaID/{ID}",
+      "description": "Get all distributions for a given AphiaID",
+      "required": [
+        "ID"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "external_id_by_aphia_id": {
+      "url": "{base_url}/AphiaExternalIDByAphiaID/{ID}",
+      "description": "Get any external identifier(s) for a given AphiaID",
+      "required": [
+        "ID"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "aphia_record_by_external_id": {
+      "url": "{base_url}/AphiaRecordByExternalID/{ID}",
+      "description": "Get the Aphia Record for a given external identifier",
+      "required": [
+        "ID"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "sources_by_aphia_id": {
+      "url": "{base_url}/AphiaSourcesByAphiaID/{ID}",
+      "description": "Get one or more sources/references including links, for one AphiaID",
+      "required": [
+        "ID"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "children_by_aphia_id": {
+      "url": "{base_url}/AphiaChildrenByAphiaID/{ID}",
+      "description": "Get the direct children (max. 50) for a given AphiaID",
+      "required": [
+        "ID"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "classification_by_aphia_id": {
+      "url": "{base_url}/AphiaClassificationByAphiaID/{ID}",
+      "description": "Get the complete classification for one taxon. This also includes any sub or super ranks.",
+      "required": [
+        "ID"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "aphia_id_by_name": {
+      "url": "{base_url}/AphiaIDByName/{ScientificName}",
+      "description": "Get the AphiaID for a given name.",
+      "required": [
+        "ScientificName"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "name_by_aphia_id": {
+      "url": "{base_url}/AphiaNameByAphiaID/{ID}",
+      "description": "Get the name for a given AphiaID",
+      "required": [
+        "ID"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "record_by_aphia_id": {
+      "url": "{base_url}/AphiaRecordByAphiaID/{ID}",
+      "description": "Get the complete AphiaRecord for a given AphiaID",
+      "required": [
+        "ID"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "record_full_by_aphia_id": {
+      "url": "{base_url}/AphiaRecordFullByAphiaID/{ID}",
+      "description": "Get the complete AphiaFullRecord for a given AphiaID",
+      "required": [
+        "ID"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "records_by_aphia_ids": {
+      "url": "{base_url}/AphiaRecordsByAphiaIDs",
+      "description": "Get an AphiaRecord for multiple AphiaIDs in one go (max: 50)",
+      "required": [],
+      "optional": [
+        "aphiaids"
+      ],
+      "method": "GET"
+    },
+    "records_by_date": {
+      "url": "{base_url}/AphiaRecordsByDate",
+      "description": "Lists all AphiaRecords (taxa) that have their last edit action (modified or added) during the specified period",
+      "required": [],
+      "optional": [
+        "startdate",
+        "enddate",
+        "marine_only",
+        "offset"
+      ],
+      "method": "GET"
+    },
+    "records_by_match_names": {
+      "url": "{base_url}/AphiaRecordsByMatchNames",
+      "description": "Try to find AphiaRecords using the TAXAMATCH fuzzy matching algorithm by Tony Rees",
+      "required": [],
+      "optional": [
+        "scientificnames",
+        "marine_only"
+      ],
+      "method": "GET"
+    },
+    "records_by_name": {
+      "url": "{base_url}/AphiaRecordsByName/{ScientificName}",
+      "description": "Get one or more matching (max. 50) AphiaRecords for a given name",
+      "required": [
+        "ScientificName"
+      ],
+      "optional": [
+        "like",
+        "fuzzy",
+        "marine_only",
+        "offset"
+      ],
+      "method": "GET"
+    },
+    "records_by_names": {
+      "url": "{base_url}/AphiaRecordsByNames",
+      "description": "For each given scientific name, try to find one or more AphiaRecords",
+      "required": [],
+      "optional": [
+        "scientificnames",
+        "like",
+        "fuzzy",
+        "marine_only"
+      ],
+      "method": "GET"
+    },
+    "records_by_taxon_rank_id": {
+      "url": "{base_url}/AphiaRecordsByTaxonRankID/{ID}",
+      "description": "Get the AphiaRecords for a given taxonRankID (max 50)",
+      "required": [
+        "ID"
+      ],
+      "optional": [
+        "offset"
+      ],
+      "method": "GET"
+    },
+    "synonyms_by_aphia_id": {
+      "url": "{base_url}/AphiaSynonymsByAphiaID/{ID}",
+      "description": "Get all synonyms for a given AphiaID",
+      "required": [
+        "ID"
+      ],
+      "optional": [
+        "offset"
+      ],
+      "method": "GET"
+    },
+    "taxon_ranks_by_id": {
+      "url": "{base_url}/AphiaTaxonRanksByID/{ID}",
+      "description": "Get taxonomic ranks by their identifier",
+      "required": [
+        "ID"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "taxon_ranks_by_name": {
+      "url": "{base_url}/AphiaTaxonRanksByName/{taxonRank}",
+      "description": "Get taxonomic ranks by their name",
+      "required": [
+        "taxonRank"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "records_by_vernacular": {
+      "url": "{base_url}/AphiaRecordsByVernacular/{Vernacular}",
+      "description": "Get one or more Aphia Records (max. 50) for a given vernacular",
+      "required": [
+        "Vernacular"
+      ],
+      "optional": [
+        "like",
+        "offset"
+      ],
+      "method": "GET"
+    },
+    "vernaculars_by_aphia_id": {
+      "url": "{base_url}/AphiaVernacularsByAphiaID/{ID}",
+      "description": "Get all vernaculars for a given AphiaID",
+      "required": [
+        "ID"
+      ],
+      "optional": [],
+      "method": "GET"
+    }
+  },
+  "parameter_details": {
+    "ID": {
+      "description": "Numeric identifier for various WoRMS entities",
+      "format": "Integer"
+    },
+    "ScientificName": {
+      "description": "Scientific name of a taxon",
+      "format": "String"
+    },
+    "taxonRank": {
+      "description": "Taxonomic rank name",
+      "format": "String"
+    },
+    "Vernacular": {
+      "description": "Common/vernacular name of a taxon",
+      "format": "String"
+    },
+    "aphiaids": {
+      "description": "Multiple AphiaIDs separated by comma",
+      "format": "String (comma-separated integers)"
+    },
+    "scientificnames": {
+      "description": "Multiple scientific names separated by pipe (|)",
+      "format": "String (pipe-separated names)"
+    },
+    "startdate": {
+      "description": "Start date for record filtering (format: yyyy-mm-dd)",
+      "format": "String (date)"
+    },
+    "enddate": {
+      "description": "End date for record filtering (format: yyyy-mm-dd)",
+      "format": "String (date)"
+    },
+    "marine_only": {
+      "description": "Flag to restrict results to marine taxa only",
+      "format": "Boolean (true/false)"
+    },
+    "offset": {
+      "description": "Starting record number for pagination",
+      "format": "Integer"
+    },
+    "like": {
+      "description": "Flag to use SQL LIKE matching instead of exact matching",
+      "format": "Boolean (true/false)"
+    },
+    "fuzzy": {
+      "description": "Flag to use fuzzy matching algorithms",
+      "format": "Boolean (true/false)"
+    }
+  }
+}

@@ -1,0 +1,271 @@
+{
+  "base_url": "https://www.ebi.ac.uk/pride/ws/archive/v3",
+  "endpoints": {
+    "get_project_status": {
+      "url": "{base_url}/status/{accession}",
+      "description": "Get project status by accession",
+      "required": [
+        "accession"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "search_projects": {
+      "url": "{base_url}/search/projects",
+      "description": "Search projects",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "search_autocomplete": {
+      "url": "{base_url}/search/autocomplete",
+      "description": "Autocomplete search for projects",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_project_by_accession": {
+      "url": "{base_url}/projects/{projectAccession}",
+      "description": "Get project by accession",
+      "required": [
+        "projectAccession"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_project_files_count": {
+      "url": "{base_url}/projects/{projectAccession}/files/count",
+      "description": "Get count of files for a project",
+      "required": [
+        "projectAccession"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_project_all_files": {
+      "url": "{base_url}/projects/{projectAccession}/files/all",
+      "description": "Get all files for a project",
+      "required": [
+        "projectAccession"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_project_files": {
+      "url": "{base_url}/projects/{projectAccession}/files",
+      "description": "Get files for a project",
+      "required": [
+        "projectAccession"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_similar_projects": {
+      "url": "{base_url}/projects/{accession}/similarProjects",
+      "description": "Get similar projects",
+      "required": [
+        "accession"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_project_reanalysis": {
+      "url": "{base_url}/projects/reanalysis/{projectAccession}",
+      "description": "Get project reanalysis",
+      "required": [
+        "projectAccession"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_projects_metadata": {
+      "url": "{base_url}/projects/metadata",
+      "description": "Get projects metadata",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_projects_files_path": {
+      "url": "{base_url}/projects/files-path/{projectAccession}",
+      "description": "Get project files path",
+      "required": [
+        "projectAccession"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "download_projects": {
+      "url": "{base_url}/projects/download",
+      "description": "Download projects",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "download_projects_by_keyword": {
+      "url": "{base_url}/projects/download/by/keyword",
+      "description": "Download projects by keyword",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_projects_count": {
+      "url": "{base_url}/projects/count",
+      "description": "Get count of projects",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_all_projects": {
+      "url": "{base_url}/projects/all",
+      "description": "Get all projects",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_projects": {
+      "url": "{base_url}/projects",
+      "description": "Get projects",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_files_checksum": {
+      "url": "{base_url}/files/checksum/{projectAccession}",
+      "description": "Get files checksum for a project",
+      "required": [
+        "projectAccession"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "facet_projects": {
+      "url": "{base_url}/facet/projects",
+      "description": "Get facet information for projects",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_stats_by_name": {
+      "url": "{base_url}/stats/{name}",
+      "description": "Get statistics by name",
+      "required": [
+        "name"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_submitted_data_stats": {
+      "url": "{base_url}/stats/submitted-data",
+      "description": "Get submitted data statistics",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_submissions_monthly_tsv": {
+      "url": "{base_url}/stats/submissions-monthly-tsv",
+      "description": "Get monthly submissions in TSV format",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_submissions_monthly": {
+      "url": "{base_url}/stats/submissions-monthly",
+      "description": "Get monthly submissions",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "search_affinity_projects": {
+      "url": "{base_url}/pride-ap/search/projects",
+      "description": "Search affinity projects",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "affinity_search_autocomplete": {
+      "url": "{base_url}/pride-ap/search/autocomplete",
+      "description": "Autocomplete search for affinity projects",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_similar_affinity_projects": {
+      "url": "{base_url}/pride-ap/projects/{accession}/similarProjects",
+      "description": "Get similar affinity projects",
+      "required": [
+        "accession"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_affinity_projects": {
+      "url": "{base_url}/pride-ap/projects",
+      "description": "Get affinity projects",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "facet_affinity_projects": {
+      "url": "{base_url}/pride-ap/facet/projects",
+      "description": "Get facet information for affinity projects",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_chat_history": {
+      "url": "{base_url}/getChatHistory",
+      "description": "Get chat history",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_benchmark": {
+      "url": "{base_url}/getBenchmark",
+      "description": "Get benchmark information",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_file_by_accession": {
+      "url": "{base_url}/files/{fileAccession}",
+      "description": "Get file by accession",
+      "required": [
+        "fileAccession"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_sdrf_files": {
+      "url": "{base_url}/files/sdrf/{projectAccession}",
+      "description": "Get SDRF files for a project",
+      "required": [
+        "projectAccession"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_count_files_by_type": {
+      "url": "{base_url}/files/getCountOfFilesByType/{projectAccession}",
+      "description": "Get count of files by type for a project",
+      "required": [
+        "projectAccession"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_files_count": {
+      "url": "{base_url}/files/count",
+      "description": "Get count of files",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "get_all_files": {
+      "url": "{base_url}/files/all",
+      "description": "Get all files",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    }
+  }
+}

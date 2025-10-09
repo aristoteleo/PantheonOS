@@ -1,0 +1,231 @@
+{
+  "metadata": {
+    "name": "JASPAR REST API",
+    "version": "v1",
+    "base_url": "https://jaspar.elixir.no/api/v1",
+    "description": "A RESTful API to programmatically access the latest version of the JASPAR database"
+  },
+  "categories": {
+    "collections": {
+      "description": "JASPAR collections",
+      "endpoints": [
+        {
+          "path": "/collections/",
+          "method": "GET",
+          "description": "List all the collections available in JASPAR"
+        },
+        {
+          "path": "/collections/{collection}/",
+          "method": "GET",
+          "description": "Returns a list of all matrix profiles based on collection name",
+          "parameters": [
+            {
+              "name": "collection",
+              "in": "path",
+              "description": "Name of the collection",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "infer": {
+      "description": "Infer matrix profiles from protein sequences",
+      "endpoints": [
+        {
+          "path": "/infer/{sequence}/",
+          "method": "GET",
+          "description": "Infer matrix profiles, given a protein sequence",
+          "parameters": [
+            {
+              "name": "sequence",
+              "in": "path",
+              "description": "Protein sequence",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "matrix": {
+      "description": "Matrix profiles in JASPAR",
+      "endpoints": [
+        {
+          "path": "/matrix/",
+          "method": "GET",
+          "description": "Returns a list of all matrix profiles"
+        },
+        {
+          "path": "/matrix/{base_id}/versions/",
+          "method": "GET",
+          "description": "List matrix profile versions based on base_id",
+          "parameters": [
+            {
+              "name": "base_id",
+              "in": "path",
+              "description": "Base ID of the matrix",
+              "required": true
+            }
+          ]
+        },
+        {
+          "path": "/matrix/{matrix_id}/",
+          "method": "GET",
+          "description": "Gets profile detail information",
+          "parameters": [
+            {
+              "name": "matrix_id",
+              "in": "path",
+              "description": "ID of the matrix (e.g. MA0001.1)",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "releases": {
+      "description": "JASPAR database releases",
+      "endpoints": [
+        {
+          "path": "/releases/",
+          "method": "GET",
+          "description": "Returns all releases of JASPAR database"
+        },
+        {
+          "path": "/releases/{release_number}/",
+          "method": "GET",
+          "description": "Gets JASPAR release information based on release number",
+          "parameters": [
+            {
+              "name": "release_number",
+              "in": "path",
+              "description": "Release number",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "sites": {
+      "description": "Matrix profile sites",
+      "endpoints": [
+        {
+          "path": "/sites/{matrix_id}/",
+          "method": "GET",
+          "description": "List matrix profile sites based on matrix_id",
+          "parameters": [
+            {
+              "name": "matrix_id",
+              "in": "path",
+              "description": "ID of the matrix (e.g. MA0001.1)",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "species": {
+      "description": "Species information",
+      "endpoints": [
+        {
+          "path": "/species/",
+          "method": "GET",
+          "description": "Returns a list of all species"
+        },
+        {
+          "path": "/species/{tax_id}/",
+          "method": "GET",
+          "description": "Returns a list of all matrix profiles based on species",
+          "parameters": [
+            {
+              "name": "tax_id",
+              "in": "path",
+              "description": "Taxonomy ID",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "taxon": {
+      "description": "Taxonomic groups",
+      "endpoints": [
+        {
+          "path": "/taxon/",
+          "method": "GET",
+          "description": "List all the taxonomic groups that are available in JASPAR"
+        },
+        {
+          "path": "/taxon/{tax_group}/",
+          "method": "GET",
+          "description": "Returns a list of all matrix profiles based on taxonomic group",
+          "parameters": [
+            {
+              "name": "tax_group",
+              "in": "path",
+              "description": "Taxonomic group (e.g. vertebrates, plants, insects)",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    "tffm": {
+      "description": "Transcription Factor Flexible Models (TFFM)",
+      "endpoints": [
+        {
+          "path": "/tffm/",
+          "method": "GET",
+          "description": "Returns a list of all TFFM profiles"
+        },
+        {
+          "path": "/tffm/{tffm_id}/",
+          "method": "GET",
+          "description": "Gets TFFM detail information",
+          "parameters": [
+            {
+              "name": "tffm_id",
+              "in": "path",
+              "description": "ID of the TFFM (e.g. TF0001.1)",
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "examples": {
+    "get_all_matrices": {
+      "description": "Get a list of all matrix profiles",
+      "url": "https://jaspar.elixir.no/api/v1/matrix/"
+    },
+    "get_matrix_by_id": {
+      "description": "Get details for a specific matrix",
+      "url": "https://jaspar.elixir.no/api/v1/matrix/MA0002.2/"
+    },
+    "get_matrices_by_species": {
+      "description": "Get matrices for human (taxonomy ID 9606)",
+      "url": "https://jaspar.elixir.no/api/v1/species/9606/"
+    },
+    "get_matrices_by_collection": {
+      "description": "Get matrices from the CORE collection",
+      "url": "https://jaspar.elixir.no/api/v1/collections/CORE/"
+    },
+    "get_matrices_by_taxon": {
+      "description": "Get matrices for vertebrates",
+      "url": "https://jaspar.elixir.no/api/v1/taxon/vertebrates/"
+    },
+    "get_matrix_sites": {
+      "description": "Get sites for a specific matrix",
+      "url": "https://jaspar.elixir.no/api/v1/sites/MA0002.2/"
+    },
+    "get_matrix_versions": {
+      "description": "Get all versions of a specific matrix",
+      "url": "https://jaspar.elixir.no/api/v1/matrix/MA0002/versions/"
+    },
+    "infer_from_sequence": {
+      "description": "Infer matrices from a protein sequence",
+      "url": "https://jaspar.elixir.no/api/v1/infer/MAASVLCHDDICEDPSVLPCNMTCEHITQPWPVVTGQYRLTQDAYWKQPMDL/"
+    }
+  }
+}

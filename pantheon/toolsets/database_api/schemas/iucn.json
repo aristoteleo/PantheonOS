@@ -1,0 +1,395 @@
+{
+  "base_url": "https://apiv3.iucnredlist.org/api/v4",
+  "endpoints": {
+    "assessment": {
+      "url": "{base_url}/assessment/{assessment_id}",
+      "description": "Retrieves an assessment",
+      "required": [
+        "assessment_id"
+      ],
+      "method": "GET"
+    },
+    "biogeographical_realms_list": {
+      "url": "{base_url}/biogeographical_realms",
+      "description": "Returns a list of biogeographic realm codes",
+      "required": [],
+      "method": "GET"
+    },
+    "biogeographical_realms_assessments": {
+      "url": "{base_url}/biogeographical_realms/{code}",
+      "description": "Returns a collection of assessments for a biogeographical realm code",
+      "required": [
+        "code"
+      ],
+      "method": "GET"
+    },
+    "comprehensive_groups_list": {
+      "url": "{base_url}/comprehensive_groups",
+      "description": "Returns a list of comprehensive groups",
+      "required": [],
+      "method": "GET"
+    },
+    "comprehensive_groups_assessments": {
+      "url": "{base_url}/comprehensive_groups/{name}",
+      "description": "Returns a collection of assessments for a comprehensive group name",
+      "required": [
+        "name"
+      ],
+      "method": "GET"
+    },
+    "conservation_actions_list": {
+      "url": "{base_url}/conservation_actions",
+      "description": "Returns a list of conservation actions",
+      "required": [],
+      "method": "GET"
+    },
+    "conservation_actions_assessments": {
+      "url": "{base_url}/conservation_actions/{code}",
+      "description": "Returns a collection of assessments for a conservation action code",
+      "required": [
+        "code"
+      ],
+      "method": "GET"
+    },
+    "countries_list": {
+      "url": "{base_url}/countries",
+      "description": "Returns a list of countries by ISO alpha-2 code",
+      "required": [],
+      "method": "GET"
+    },
+    "countries_assessments": {
+      "url": "{base_url}/countries/{code}",
+      "description": "Returns a collection of assessments for a given country ISO alpha-2 code",
+      "required": [
+        "code"
+      ],
+      "method": "GET"
+    },
+    "faos_list": {
+      "url": "{base_url}/faos",
+      "description": "Returns a list of FAOs",
+      "required": [],
+      "method": "GET"
+    },
+    "faos_assessments": {
+      "url": "{base_url}/faos/{code}",
+      "description": "Returns a collection of assessments for an FAO code",
+      "required": [
+        "code"
+      ],
+      "method": "GET"
+    },
+    "growth_forms_list": {
+      "url": "{base_url}/growth_forms",
+      "description": "Returns a list of growth forms",
+      "required": [],
+      "method": "GET"
+    },
+    "growth_forms_assessments": {
+      "url": "{base_url}/growth_forms/{code}",
+      "description": "Returns a collection of assessments for a given growth form code",
+      "required": [
+        "code"
+      ],
+      "method": "GET"
+    },
+    "green_status_all": {
+      "url": "{base_url}/green_status/all",
+      "description": "Returns a list of all Green Status assessments",
+      "required": [],
+      "method": "GET"
+    },
+    "habitats_list": {
+      "url": "{base_url}/habitats",
+      "description": "Returns a list of habitat codes",
+      "required": [],
+      "method": "GET"
+    },
+    "habitats_assessments": {
+      "url": "{base_url}/habitats/{code}",
+      "description": "Returns a collection of assessments for a given habitat code",
+      "required": [
+        "code"
+      ],
+      "method": "GET"
+    },
+    "information_api_version": {
+      "url": "{base_url}/information/api_version",
+      "description": "Returns the current version number of the IUCN Red List of Threatened Species API",
+      "required": [],
+      "method": "GET"
+    },
+    "information_red_list_version": {
+      "url": "{base_url}/information/red_list_version",
+      "description": "Returns the current IUCN Red List of Threatened Species version",
+      "required": [],
+      "method": "GET"
+    },
+    "population_trends_list": {
+      "url": "{base_url}/population_trends",
+      "description": "Returns a list of population trends",
+      "required": [],
+      "method": "GET"
+    },
+    "population_trends_assessments": {
+      "url": "{base_url}/population_trends/{code}",
+      "description": "Returns a collection of assessments for a given population trend code",
+      "required": [
+        "code"
+      ],
+      "method": "GET"
+    },
+    "red_list_categories_list": {
+      "url": "{base_url}/red_list_categories",
+      "description": "Returns a list of Red List categories",
+      "required": [],
+      "method": "GET"
+    },
+    "red_list_categories_assessments": {
+      "url": "{base_url}/red_list_categories/{code}",
+      "description": "Returns a collection of assessments for a given Red List category code",
+      "required": [
+        "code"
+      ],
+      "method": "GET"
+    },
+    "research_list": {
+      "url": "{base_url}/research",
+      "description": "Returns a list of research codes",
+      "required": [],
+      "method": "GET"
+    },
+    "research_assessments": {
+      "url": "{base_url}/research/{code}",
+      "description": "Returns a collection of assessments for a given research code",
+      "required": [
+        "code"
+      ],
+      "method": "GET"
+    },
+    "scopes_list": {
+      "url": "{base_url}/scopes",
+      "description": "Returns a list of scopes",
+      "required": [],
+      "method": "GET"
+    },
+    "scopes_assessments": {
+      "url": "{base_url}/scopes/{code}",
+      "description": "Returns a collection of assessments for a given scope code",
+      "required": [
+        "code"
+      ],
+      "method": "GET"
+    },
+    "statistics_count": {
+      "url": "{base_url}/statistics/count",
+      "description": "Return count of the number of species with assessments",
+      "required": [],
+      "method": "GET"
+    },
+    "stresses_list": {
+      "url": "{base_url}/stresses",
+      "description": "Returns a list of stressors",
+      "required": [],
+      "method": "GET"
+    },
+    "stresses_assessments": {
+      "url": "{base_url}/stresses/{code}",
+      "description": "Returns a collection of assessments for a given stress code",
+      "required": [
+        "code"
+      ],
+      "method": "GET"
+    },
+    "systems_list": {
+      "url": "{base_url}/systems",
+      "description": "Returns a list of systems",
+      "required": [],
+      "method": "GET"
+    },
+    "systems_assessments": {
+      "url": "{base_url}/systems/{code}",
+      "description": "Returns a collection of assessments for a given system code",
+      "required": [
+        "code"
+      ],
+      "method": "GET"
+    },
+    "taxa_by_sis": {
+      "url": "{base_url}/taxa/sis/{sis_id}",
+      "description": "Returns a collection of assessments for a given SIS id",
+      "required": [
+        "sis_id"
+      ],
+      "method": "GET"
+    },
+    "taxa_by_scientific_name": {
+      "url": "{base_url}/taxa/scientific_name",
+      "description": "Returns a collection of assessments for a given genus_name and species_name and optional infra_name",
+      "required": [
+        "genus_name",
+        "species_name"
+      ],
+      "method": "GET"
+    },
+    "taxa_kingdom_list": {
+      "url": "{base_url}/taxa/kingdom",
+      "description": "Returns a list of all kingdom names",
+      "method": "GET"
+    },
+    "taxa_kingdom_assessments": {
+      "url": "{base_url}/taxa/kingdom/{kingdom_name}",
+      "description": "Returns a collection of the latest assessments for a given kingdom_name",
+      "required": [
+        "kingdom_name"
+      ],
+      "method": "GET"
+    },
+    "taxa_phylum_list": {
+      "url": "{base_url}/taxa/phylum",
+      "description": "Returns a list of all phylum names",
+      "required": [],
+      "method": "GET"
+    },
+    "taxa_phylum_assessments": {
+      "url": "{base_url}/taxa/phylum/{phylum_name}",
+      "description": "Returns a collection of the latest assessments for a given phylum_name",
+      "required": [
+        "phylum_name"
+      ],
+      "method": "GET"
+    },
+    "taxa_class_list": {
+      "url": "{base_url}/taxa/class",
+      "description": "Returns a list of all class names",
+      "required": [],
+      "method": "GET"
+    },
+    "taxa_class_assessments": {
+      "url": "{base_url}/taxa/class/{class_name}",
+      "description": "Returns a collection of the latest assessments for a given class_name",
+      "required": [
+        "class_name"
+      ],
+      "method": "GET"
+    },
+    "taxa_order_list": {
+      "url": "{base_url}/taxa/order",
+      "description": "Returns a list of all order names",
+      "required": [],
+      "method": "GET"
+    },
+    "taxa_order_assessments": {
+      "url": "{base_url}/taxa/order/{order_name}",
+      "description": "Returns a collection of the latest assessments for a given order_name",
+      "required": [
+        "order_name"
+      ],
+      "method": "GET"
+    },
+    "taxa_family_list": {
+      "url": "{base_url}/taxa/family",
+      "description": "Returns a list of all family names",
+      "required": [],
+      "method": "GET"
+    },
+    "taxa_family_assessments": {
+      "url": "{base_url}/taxa/family/{family_name}",
+      "description": "Returns a collection of the latest assessments for a given family_name",
+      "required": [
+        "family_name"
+      ],
+      "method": "GET"
+    },
+    "taxa_possibly_extinct": {
+      "url": "{base_url}/taxa/possibly_extinct",
+      "description": "Returns a collection of all latest global assessments for taxa that are possibly extinct",
+      "required": [],
+      "method": "GET"
+    },
+    "taxa_possibly_extinct_in_the_wild": {
+      "url": "{base_url}/taxa/possibly_extinct_in_the_wild",
+      "description": "Returns a collection of all latest global assessments for taxa that are possibly extinct in the wild",
+      "required": [],
+      "method": "GET"
+    },
+    "threats_list": {
+      "url": "{base_url}/threats",
+      "description": "Returns a list of threats",
+      "required": [],
+      "method": "GET"
+    },
+    "threats_assessments": {
+      "url": "{base_url}/threats/{code}",
+      "description": "Returns a collection of assessments for a given threat code",
+      "required": [
+        "code"
+      ],
+      "method": "GET"
+    },
+    "use_and_trade_list": {
+      "url": "{base_url}/use_and_trade",
+      "description": "Returns a list of use and trades",
+      "required": [],
+      "method": "GET"
+    },
+    "use_and_trade_assessments": {
+      "url": "{base_url}/use_and_trade/{code}",
+      "description": "Returns a collection of assessments for a given use and trade code",
+      "required": [
+        "code"
+      ],
+      "method": "GET"
+    }
+  },
+  "parameter_details": {
+    "assessment_id": {
+      "description": "Unique identifier for an assessment",
+      "format": "String"
+    },
+    "code": {
+      "description": "Code identifier for various classification schemes",
+      "format": "String"
+    },
+    "name": {
+      "description": "Name identifier for various taxonomic groups",
+      "format": "String"
+    },
+    "sis_id": {
+      "description": "Species Information Service (SIS) identifier",
+      "format": "String"
+    },
+    "genus_name": {
+      "description": "Genus component of scientific name",
+      "format": "String"
+    },
+    "species_name": {
+      "description": "Species component of scientific name",
+      "format": "String"
+    },
+    "infra_name": {
+      "description": "Infraspecific component of scientific name (e.g. subspecies)",
+      "format": "String"
+    },
+    "kingdom_name": {
+      "description": "Kingdom taxonomic name",
+      "format": "String"
+    },
+    "phylum_name": {
+      "description": "Phylum taxonomic name",
+      "format": "String"
+    },
+    "class_name": {
+      "description": "Class taxonomic name",
+      "format": "String"
+    },
+    "order_name": {
+      "description": "Order taxonomic name",
+      "format": "String"
+    },
+    "family_name": {
+      "description": "Family taxonomic name",
+      "format": "String"
+    }
+  }
+}

@@ -1,0 +1,373 @@
+{
+  "base_url": "https://rest.kegg.jp",
+  "version": "December 1, 2024",
+  "categories": {
+    "Info": {
+      "description": "Display database release information and linked database information",
+      "endpoints": {
+        "GET /info/<database>": {
+          "description": "Displays the database release information with statistics for the specified database",
+          "required_params": [
+            "database"
+          ],
+          "optional_params": [],
+          "example": "/info/kegg"
+        }
+      }
+    },
+    "List": {
+      "description": "Obtain a list of entry identifiers and associated names",
+      "endpoints": {
+        "GET /list/<database>": {
+          "description": "Obtain a list of all entries in the specified database",
+          "required_params": [
+            "database"
+          ],
+          "optional_params": [],
+          "example": "/list/pathway"
+        },
+        "GET /list/pathway/<org>": {
+          "description": "Obtain a list of organism-specific pathways",
+          "required_params": [
+            "org"
+          ],
+          "optional_params": [],
+          "example": "/list/pathway/hsa"
+        },
+        "GET /list/brite/<option>": {
+          "description": "Obtain a list of brite hierarchies with the specified option",
+          "required_params": [
+            "option"
+          ],
+          "optional_params": [],
+          "example": "/list/brite/br"
+        },
+        "GET /list/<dbentries>": {
+          "description": "Obtain a list of definitions for a given set of database entry identifiers",
+          "required_params": [
+            "dbentries"
+          ],
+          "optional_params": [],
+          "example": "/list/hsa:10458+ece:Z5100"
+        }
+      }
+    },
+    "Find": {
+      "description": "Find entries with matching query keyword or other query data",
+      "endpoints": {
+        "GET /find/<database>/<query>": {
+          "description": "Searches entry identifier and associated fields for matching keywords",
+          "required_params": [
+            "database",
+            "query"
+          ],
+          "optional_params": [],
+          "example": "/find/genes/shiga+toxin"
+        },
+        "GET /find/<database>/<query>/<option>": {
+          "description": "Searches chemical compounds with specific properties",
+          "required_params": [
+            "database",
+            "query",
+            "option"
+          ],
+          "optional_params": [],
+          "example": "/find/compound/C7H10O5/formula"
+        }
+      }
+    },
+    "Get": {
+      "description": "Retrieve given database entries",
+      "endpoints": {
+        "GET /get/<dbentries>": {
+          "description": "Retrieves database entries in flat file format",
+          "required_params": [
+            "dbentries"
+          ],
+          "optional_params": [],
+          "example": "/get/C01290+G00092"
+        },
+        "GET /get/<dbentries>/<option>": {
+          "description": "Retrieves database entries in specific format based on the option",
+          "required_params": [
+            "dbentries"
+          ],
+          "optional_params": [
+            "option"
+          ],
+          "example": "/get/hsa:10458+ece:Z5100/aaseq"
+        }
+      }
+    },
+    "Conv": {
+      "description": "Convert KEGG identifiers to/from outside identifiers",
+      "endpoints": {
+        "GET /conv/<target_db>/<source_db>": {
+          "description": "Converts identifiers between databases",
+          "required_params": [
+            "target_db",
+            "source_db"
+          ],
+          "optional_params": [],
+          "example": "/conv/eco/ncbi-geneid"
+        },
+        "GET /conv/<target_db>/<dbentries>": {
+          "description": "Converts identifiers for specific entries",
+          "required_params": [
+            "target_db",
+            "dbentries"
+          ],
+          "optional_params": [],
+          "example": "/conv/ncbi-proteinid/hsa:10458+ece:Z5100"
+        }
+      }
+    },
+    "Link": {
+      "description": "Find related entries by using database cross-references",
+      "endpoints": {
+        "GET /link/<target_db>/<source_db>": {
+          "description": "Retrieves database to database cross-references",
+          "required_params": [
+            "target_db",
+            "source_db"
+          ],
+          "optional_params": [],
+          "example": "/link/pathway/hsa"
+        },
+        "GET /link/<target_db>/<dbentries>": {
+          "description": "Retrieves cross-references for specific entries",
+          "required_params": [
+            "target_db",
+            "dbentries"
+          ],
+          "optional_params": [],
+          "example": "/link/pathway/hsa:10458+ece:Z5100"
+        },
+        "GET /link/<target_db>/<source_db>/<option>": {
+          "description": "Retrieves database to database cross-references in RDF format",
+          "required_params": [
+            "target_db",
+            "source_db"
+          ],
+          "optional_params": [
+            "option"
+          ],
+          "example": "/link/atc/D01441/n-triple"
+        },
+        "GET /link/<target_db>/<dbentries>/<option>": {
+          "description": "Retrieves cross-references for specific entries in RDF format",
+          "required_params": [
+            "target_db",
+            "dbentries"
+          ],
+          "optional_params": [
+            "option"
+          ],
+          "example": "/link/jtc/D01441/turtle"
+        }
+      }
+    },
+    "DDI": {
+      "description": "Find adverse drug-drug interactions",
+      "endpoints": {
+        "GET /ddi/<dbentry>": {
+          "description": "Reports all known interactions for a given drug",
+          "required_params": [
+            "dbentry"
+          ],
+          "optional_params": [],
+          "example": "/ddi/D00564"
+        },
+        "GET /ddi/<dbentries>": {
+          "description": "Checks if any drug pair in a given set of drugs has interactions",
+          "required_params": [
+            "dbentries"
+          ],
+          "optional_params": [],
+          "example": "/ddi/D00564+D00100+D00109"
+        }
+      }
+    }
+  },
+  "databases": {
+    "KEGG databases": {
+      "pathway": {
+        "description": "KEGG pathway maps",
+        "kid_prefix": [
+          "map",
+          "ko",
+          "ec",
+          "rn",
+          "<org>"
+        ]
+      },
+      "brite": {
+        "description": "BRITE functional hierarchies",
+        "kid_prefix": [
+          "br",
+          "jp",
+          "ko",
+          "<org>"
+        ]
+      },
+      "module": {
+        "description": "KEGG modules",
+        "kid_prefix": [
+          "M",
+          "<org>_M"
+        ]
+      },
+      "orthology": {
+        "description": "KO functional orthologs",
+        "kid_prefix": [
+          "K"
+        ]
+      },
+      "genes": {
+        "description": "Genes in KEGG organisms",
+        "kid_prefix": []
+      },
+      "genome": {
+        "description": "KEGG organisms",
+        "kid_prefix": [
+          "T"
+        ]
+      },
+      "compound": {
+        "description": "Small molecules",
+        "kid_prefix": [
+          "C"
+        ]
+      },
+      "glycan": {
+        "description": "Glycans",
+        "kid_prefix": [
+          "G"
+        ]
+      },
+      "reaction": {
+        "description": "Biochemical reactions",
+        "kid_prefix": [
+          "R"
+        ]
+      },
+      "rclass": {
+        "description": "Reaction class",
+        "kid_prefix": [
+          "RC"
+        ]
+      },
+      "enzyme": {
+        "description": "Enzyme nomenclature",
+        "kid_prefix": []
+      },
+      "network": {
+        "description": "Network elements",
+        "kid_prefix": [
+          "N"
+        ]
+      },
+      "variant": {
+        "description": "Human gene variants",
+        "kid_prefix": []
+      },
+      "disease": {
+        "description": "Human diseases",
+        "kid_prefix": [
+          "H"
+        ]
+      },
+      "drug": {
+        "description": "Drugs",
+        "kid_prefix": [
+          "D"
+        ]
+      },
+      "dgroup": {
+        "description": "Drug groups",
+        "kid_prefix": [
+          "DG"
+        ]
+      }
+    },
+    "Outside databases": {
+      "pubmed": {
+        "description": "NCBI PubMed",
+        "id_format": "PubMed ID"
+      },
+      "ncbi-geneid": {
+        "description": "NCBI Gene",
+        "id_format": "Gene ID",
+        "usage": "conv only"
+      },
+      "ncbi-proteinid": {
+        "description": "NCBI Protein",
+        "id_format": "Protein ID",
+        "usage": "conv only"
+      },
+      "uniprot": {
+        "description": "UniProt",
+        "id_format": "UniProt Accession",
+        "usage": "conv only"
+      },
+      "pubchem": {
+        "description": "NCBI PubChem",
+        "id_format": "PubChem SID",
+        "usage": "conv only"
+      },
+      "chebi": {
+        "description": "ChEBI",
+        "id_format": "ChEBI ID",
+        "usage": "conv only"
+      },
+      "atc": {
+        "description": "ATC classification",
+        "id_format": "7-letter ATC code",
+        "usage": "link only"
+      },
+      "jtc": {
+        "description": "Therapeutic category in Japan",
+        "id_format": "Therapeutic category code",
+        "usage": "link only"
+      },
+      "ndc": {
+        "description": "Drug products in the USA",
+        "id_format": "National Drug Code",
+        "usage": "link, ddi only"
+      },
+      "yj": {
+        "description": "Drug products in Japan",
+        "id_format": "YJ code",
+        "usage": "ddi only"
+      },
+      "yk": {
+        "description": "Drug products in Japan",
+        "id_format": "Part of Korosho code",
+        "usage": "link only"
+      }
+    }
+  },
+  "options": {
+    "get_options": {
+      "aaseq": "Amino acid sequence",
+      "ntseq": "Nucleotide sequence",
+      "mol": "Molecular structure data",
+      "kcf": "KEGG Chemical Function format",
+      "image": "GIF/PNG image files",
+      "image2x": "Double-sized PNG image (for pathway maps)",
+      "conf": "Configuration file (for pathway maps)",
+      "kgml": "KEGG Markup Language file (for pathway maps)",
+      "json": "JSON file (for brite hierarchies)"
+    },
+    "find_options": {
+      "formula": "Chemical formula search",
+      "exact_mass": "Search by exact mass",
+      "mol_weight": "Search by molecular weight",
+      "nop": "Disable partial match processing"
+    },
+    "link_rdf_options": {
+      "turtle": "Turtle RDF format",
+      "n-triple": "N-Triples RDF format"
+    }
+  }
+}

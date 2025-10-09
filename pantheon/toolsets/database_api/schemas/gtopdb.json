@@ -1,0 +1,777 @@
+{
+  "base_url": "https://www.guidetopharmacology.org/services",
+  "endpoints": {
+    "list_targets": {
+      "url": "{base_url}/targets",
+      "description": "List of targets",
+      "required": [],
+      "optional": [
+        "type",
+        "name",
+        "geneSymbol",
+        "ecNumber",
+        "accession",
+        "database",
+        "immuno",
+        "malaria"
+      ],
+      "method": "GET"
+    },
+    "single_target": {
+      "url": "{base_url}/targets/{targetId}",
+      "description": "Single target",
+      "required": [
+        "targetId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "list_target_families": {
+      "url": "{base_url}/targets/families",
+      "description": "List of target families",
+      "required": [],
+      "optional": [
+        "type",
+        "name"
+      ],
+      "method": "GET"
+    },
+    "single_family": {
+      "url": "{base_url}/targets/families/{familyId}",
+      "description": "Single family",
+      "required": [
+        "familyId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "component_subunits": {
+      "url": "{base_url}/targets/{targetId}/subunits",
+      "description": "Component subunits",
+      "required": [
+        "targetId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "complexes": {
+      "url": "{base_url}/targets/{targetId}/complexes",
+      "description": "Complexes",
+      "required": [
+        "targetId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "synonyms": {
+      "url": "{base_url}/targets/{targetId}/synonyms",
+      "description": "Synonyms",
+      "required": [
+        "targetId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "gene_protein_information": {
+      "url": "{base_url}/targets/{targetId}/geneProteinInformation",
+      "description": "Gene and protein information",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "database_links": {
+      "url": "{base_url}/targets/{targetId}/databaseLinks",
+      "description": "Database links",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species",
+        "database"
+      ],
+      "method": "GET"
+    },
+    "natural_ligands": {
+      "url": "{base_url}/targets/{targetId}/naturalLigands",
+      "description": "Natural/endogenous ligands",
+      "required": [
+        "targetId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "target_interactions": {
+      "url": "{base_url}/targets/{targetId}/interactions",
+      "description": "Interactions",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "type",
+        "affinityParameter",
+        "species",
+        "affinity",
+        "ligandType",
+        "approved",
+        "primaryTarget"
+      ],
+      "method": "GET"
+    },
+    "rank_order": {
+      "url": "{base_url}/targets/{targetId}/rankOrder",
+      "description": "Rank order lists of ligands and other activators",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "function": {
+      "url": "{base_url}/targets/{targetId}/function",
+      "description": "Function",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "tissue_distribution": {
+      "url": "{base_url}/targets/{targetId}/tissueDistribution",
+      "description": "Tissue distribution",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "functional_assay": {
+      "url": "{base_url}/targets/{targetId}/functionalAssay",
+      "description": "Functional assay",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "gene_expression_pathophysiology": {
+      "url": "{base_url}/targets/{targetId}/geneExpressionPathophysiology",
+      "description": "Gene expression and pathophysiology",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "altered_expression": {
+      "url": "{base_url}/targets/{targetId}/alteredExpression",
+      "description": "Physiological consequences of altering gene expression",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "xenobiotics_gene_expression": {
+      "url": "{base_url}/targets/{targetId}/xenobioticsGeneExpression",
+      "description": "Xenobiotics influencing gene expression",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "pathophysiology": {
+      "url": "{base_url}/targets/{targetId}/pathophysiology",
+      "description": "Clinically-relevant mutations and pathophysiology",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "diseases": {
+      "url": "{base_url}/targets/{targetId}/diseases",
+      "description": "Diseases",
+      "required": [
+        "targetId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "variants": {
+      "url": "{base_url}/targets/{targetId}/variants",
+      "description": "Variants",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "pdb_structure": {
+      "url": "{base_url}/targets/{targetId}/pdbStructure",
+      "description": "PDB structures",
+      "required": [
+        "targetId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "associated_proteins": {
+      "url": "{base_url}/targets/{targetId}/associatedProteins",
+      "description": "Associated proteins",
+      "required": [
+        "targetId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "ion_selectivity": {
+      "url": "{base_url}/targets/{targetId}/ionSelectivity",
+      "description": "Ion selectivity",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "ion_conductance": {
+      "url": "{base_url}/targets/{targetId}/ionConductance",
+      "description": "Ion conductance",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "voltage_dependence": {
+      "url": "{base_url}/targets/{targetId}/voltageDependence",
+      "description": "Ion channel voltage dependence",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "transduction": {
+      "url": "{base_url}/targets/{targetId}/transduction",
+      "description": "GPCR transduction mechanisms",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "binding_partners": {
+      "url": "{base_url}/targets/{targetId}/bindingPartners",
+      "description": "NHR binding partners",
+      "required": [
+        "targetId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "coregulators": {
+      "url": "{base_url}/targets/{targetId}/coregulators",
+      "description": "NHR co-regulators",
+      "required": [
+        "targetId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "target_genes": {
+      "url": "{base_url}/targets/{targetId}/targetGenes",
+      "description": "NHR target genes",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "dna_binding": {
+      "url": "{base_url}/targets/{targetId}/dnaBinding",
+      "description": "NHR DNA binding sequence",
+      "required": [
+        "targetId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "reactions": {
+      "url": "{base_url}/targets/{targetId}/reactions",
+      "description": "Enzyme reaction",
+      "required": [
+        "targetId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "substrates": {
+      "url": "{base_url}/targets/{targetId}/substrates",
+      "description": "Substrates",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "products": {
+      "url": "{base_url}/targets/{targetId}/products",
+      "description": "Products",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "cofactors": {
+      "url": "{base_url}/targets/{targetId}/cofactors",
+      "description": "Cofactors",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "target_comments": {
+      "url": "{base_url}/targets/{targetId}/comments",
+      "description": "Target comments",
+      "required": [
+        "targetId"
+      ],
+      "optional": [
+        "species",
+        "database"
+      ],
+      "method": "GET"
+    },
+    "immuno_processes": {
+      "url": "{base_url}/targets/{targetId}/immunoProcesses",
+      "description": "Immunological Processes",
+      "required": [
+        "targetId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "immuno_celltypes": {
+      "url": "{base_url}/targets/{targetId}/immunoCelltypes",
+      "description": "Immunological Celltypes",
+      "required": [
+        "targetId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "target_contributors": {
+      "url": "{base_url}/targets/{targetId}/contributors",
+      "description": "Target contributing authors",
+      "required": [
+        "targetId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "family_contributors": {
+      "url": "{base_url}/targets/families/{familyId}/contributors",
+      "description": "Family contributing authors",
+      "required": [
+        "familyId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "family_subcommittee": {
+      "url": "{base_url}/targets/families/{familyId}/subcommittee",
+      "description": "Family NC-IUPHAR subcommittee",
+      "required": [
+        "familyId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "family_overview": {
+      "url": "{base_url}/targets/families/{familyId}/overview",
+      "description": "Family overview",
+      "required": [
+        "familyId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "family_comments": {
+      "url": "{base_url}/targets/families/{familyId}/comments",
+      "description": "Family comments",
+      "required": [
+        "familyId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "family_introduction": {
+      "url": "{base_url}/targets/families/{familyId}/introduction",
+      "description": "Family introduction",
+      "required": [
+        "familyId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "introduction_contributors": {
+      "url": "{base_url}/targets/families/{familyId}/introduction/contributors",
+      "description": "Introduction contributing authors",
+      "required": [
+        "familyId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "list_ligands": {
+      "url": "{base_url}/ligands",
+      "description": "List of ligands",
+      "required": [],
+      "optional": [
+        "type",
+        "name",
+        "geneSymbol",
+        "accession",
+        "database",
+        "inchikey",
+        "lipinskyGt",
+        "lipinskyLt",
+        "logpGt",
+        "logpLt",
+        "molWeightGt",
+        "molWeightLt",
+        "hBondAcceptorsGt",
+        "hBondAcceptorsLt",
+        "hBondDonorsGt",
+        "hBondDonorsLt",
+        "rotatableBondsGt",
+        "rotatableBondsLt",
+        "tpsaGt",
+        "tpsaLt",
+        "immuno",
+        "malaria",
+        "antibacterial"
+      ],
+      "method": "GET"
+    },
+    "exact_structure_search": {
+      "url": "{base_url}/ligands/exact",
+      "description": "Exact match structure search",
+      "required": [
+        "smiles"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "substructure_search": {
+      "url": "{base_url}/ligands/substructure",
+      "description": "Substructure search",
+      "required": [
+        "smiles"
+      ],
+      "optional": [
+        "lipinskyGt",
+        "lipinskyLt",
+        "logpGt",
+        "logpLt",
+        "molWeightGt",
+        "molWeightLt",
+        "hBondAcceptorsGt",
+        "hBondAcceptorsLt",
+        "hBondDonorsGt",
+        "hBondDonorsLt",
+        "rotatableBondsGt",
+        "rotatableBondsLt",
+        "tpsaGt",
+        "tpsaLt"
+      ],
+      "method": "GET"
+    },
+    "structure_similarity_search": {
+      "url": "{base_url}/ligands/similarity",
+      "description": "Structure similarity search",
+      "required": [
+        "smiles"
+      ],
+      "optional": [
+        "similarityGt",
+        "lipinskyGt",
+        "lipinskyLt",
+        "logpGt",
+        "logpLt",
+        "molWeightGt",
+        "molWeightLt",
+        "hBondAcceptorsGt",
+        "hBondAcceptorsLt",
+        "hBondDonorsGt",
+        "hBondDonorsLt",
+        "rotatableBondsGt",
+        "rotatableBondsLt",
+        "tpsaGt",
+        "tpsaLt"
+      ],
+      "method": "GET"
+    },
+    "list_ligand_families": {
+      "url": "{base_url}/ligands/families",
+      "description": "List of ligand families/groups",
+      "required": [],
+      "optional": [
+        "name"
+      ],
+      "method": "GET"
+    },
+    "single_ligand": {
+      "url": "{base_url}/ligands/{ligandId}",
+      "description": "Single ligand",
+      "required": [
+        "ligandId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "ligand_image": {
+      "url": "{base_url}/ligands/{ligandId}/image",
+      "description": "Path to image file",
+      "required": [
+        "ligandId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "ligand_structure": {
+      "url": "{base_url}/ligands/{ligandId}/structure",
+      "description": "Ligand structure",
+      "required": [
+        "ligandId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "ligand_subunits": {
+      "url": "{base_url}/ligands/{ligandId}/subunits",
+      "description": "Component subunits",
+      "required": [
+        "ligandId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "ligand_complexes": {
+      "url": "{base_url}/ligands/{ligandId}/complexes",
+      "description": "Complexes",
+      "required": [
+        "ligandId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "ligand_precursors": {
+      "url": "{base_url}/ligands/{ligandId}/precursors",
+      "description": "Precursors (endogenous peptides)",
+      "required": [
+        "ligandId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "molecular_properties": {
+      "url": "{base_url}/ligands/{ligandId}/molecularProperties",
+      "description": "Molecular properties (non-peptides)",
+      "required": [
+        "ligandId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "ligand_synonyms": {
+      "url": "{base_url}/ligands/{ligandId}/synonyms",
+      "description": "Synonyms",
+      "required": [
+        "ligandId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "ligand_database_links": {
+      "url": "{base_url}/ligands/{ligandId}/databaseLinks",
+      "description": "Database links",
+      "required": [
+        "ligandId"
+      ],
+      "optional": [
+        "species",
+        "database"
+      ],
+      "method": "GET"
+    },
+    "ligand_interactions": {
+      "url": "{base_url}/ligands/{ligandId}/interactions",
+      "description": "Interactions",
+      "required": [
+        "ligandId"
+      ],
+      "optional": [
+        "type",
+        "affinityParameter",
+        "species",
+        "affinity",
+        "asTarget",
+        "asLigand",
+        "targetType",
+        "primaryTarget"
+      ],
+      "method": "GET"
+    },
+    "ligand_rank_order": {
+      "url": "{base_url}/ligands/{ligandId}/rankOrder",
+      "description": "Rank order lists of ligands at targets",
+      "required": [
+        "ligandId"
+      ],
+      "optional": [
+        "species"
+      ],
+      "method": "GET"
+    },
+    "ligand_comments": {
+      "url": "{base_url}/ligands/{ligandId}/comments",
+      "description": "Ligand comments and clinical use information",
+      "required": [
+        "ligandId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "list_interactions": {
+      "url": "{base_url}/interactions",
+      "description": "List of interactions",
+      "required": [],
+      "optional": [
+        "type",
+        "affinityParameter",
+        "species",
+        "Plasmodium species",
+        "affinity",
+        "ligandType",
+        "approved",
+        "primaryTarget",
+        "targetType",
+        "structureSearchType",
+        "smiles",
+        "similarityGt",
+        "inchikey"
+      ],
+      "method": "GET"
+    },
+    "single_interaction": {
+      "url": "{base_url}/interactions/{interactionId}",
+      "description": "Single interaction",
+      "required": [
+        "interactionId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "list_diseases": {
+      "url": "{base_url}/diseases",
+      "description": "List of diseases",
+      "required": [],
+      "optional": [
+        "name",
+        "synonym",
+        "database",
+        "accession"
+      ],
+      "method": "GET"
+    },
+    "single_disease": {
+      "url": "{base_url}/diseases/{diseaseId}",
+      "description": "Single disease",
+      "required": [
+        "diseaseId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "disease_targets": {
+      "url": "{base_url}/diseases/{diseaseId}/diseaseTargets",
+      "description": "Targets associated with disease",
+      "required": [
+        "diseaseId"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "disease_ligands": {
+      "url": "{base_url}/diseases/{diseaseId}/diseaseLigands",
+      "description": "Ligands associated with disease",
+      "required": [
+        "diseaseId"
+      ],
+      "optional": [
+        "approved"
+      ],
+      "method": "GET"
+    },
+    "list_references": {
+      "url": "{base_url}/refs",
+      "description": "List of references",
+      "required": [],
+      "optional": [
+        "filter"
+      ],
+      "method": "GET"
+    },
+    "single_reference": {
+      "url": "{base_url}/refs/{referenceId}",
+      "description": "Single reference",
+      "required": [
+        "referenceId"
+      ],
+      "optional": [],
+      "method": "GET"
+    }
+  }
+}

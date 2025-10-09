@@ -1,0 +1,297 @@
+{
+  "base_url": "https://api.fda.gov",
+  "endpoints": {
+    "drug_event": {
+      "path": "/drug/event.json",
+      "description": "Adverse event reports for drugs",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/drug/event.json?search=patient.drug.medicinalproduct:lipitor&limit=10"
+    },
+    "drug_label": {
+      "path": "/drug/label.json",
+      "description": "Drug labeling information",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/drug/label.json?search=openfda.brand_name:lipitor&limit=5"
+    },
+    "drug_enforcement": {
+      "path": "/drug/enforcement.json",
+      "description": "Drug recalls and enforcement reports",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/drug/enforcement.json?search=product_description:lipitor&limit=5"
+    },
+    "drug_ndc": {
+      "path": "/drug/ndc.json",
+      "description": "NDC Directory containing information on the National Drug Code",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/drug/ndc.json?search=brand_name:lipitor&limit=5"
+    },
+    "drug_drugsfda": {
+      "path": "/drug/drugsfda.json",
+      "description": "Drugs@FDA database including approved drug products since 1939",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/drug/drugsfda.json?search=products.brand_name:lipitor&limit=5"
+    },
+    "drug_shortages": {
+      "path": "/drug/shortages.json",
+      "description": "Drug shortages information including manufacturing problems and delays",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/drug/shortages.json?search=product_description:insulin&limit=5"
+    },
+    "device_event": {
+      "path": "/device/event.json",
+      "description": "Adverse event reports for medical devices",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/device/event.json?search=device.generic_name:pacemaker&limit=5"
+    },
+    "device_510k": {
+      "path": "/device/510k.json",
+      "description": "510(k) premarket clearances for medical devices",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/device/510k.json?search=device_name:pacemaker&limit=5"
+    },
+    "device_classification": {
+      "path": "/device/classification.json",
+      "description": "Medical device names, product codes, medical specialty areas and classifications",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/device/classification.json?search=device_name:pacemaker&limit=5"
+    },
+    "device_enforcement": {
+      "path": "/device/enforcement.json",
+      "description": "Medical device recalls and enforcement reports",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/device/enforcement.json?search=product_description:pacemaker&limit=5"
+    },
+    "device_pma": {
+      "path": "/device/pma.json",
+      "description": "Premarket approval (PMA) for Class III medical devices",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/device/pma.json?search=device_name:pacemaker&limit=5"
+    },
+    "device_recall": {
+      "path": "/device/recall.json",
+      "description": "Medical device recalls addressing defective or risky devices",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/device/recall.json?search=product_description:pacemaker&limit=5"
+    },
+    "device_registrationlisting": {
+      "path": "/device/registrationlisting.json",
+      "description": "Medical device establishment locations and manufactured devices",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/device/registrationlisting.json?search=establishment_type:manufacturer&limit=5"
+    },
+    "device_udi": {
+      "path": "/device/udi.json",
+      "description": "Global Unique Device Identification Database (GUDID) for medical devices",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/device/udi.json?search=brand_name:acme&limit=5"
+    },
+    "device_covid19serology": {
+      "path": "/device/covid19serology.json",
+      "description": "Independent evaluations of COVID-19 serological tests",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/device/covid19serology.json?search=manufacturer:abbott&limit=5"
+    },
+    "food_enforcement": {
+      "path": "/food/enforcement.json",
+      "description": "Food recalls and enforcement reports",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/food/enforcement.json?search=product_description:peanut&limit=5"
+    },
+    "food_event": {
+      "path": "/food/event.json",
+      "description": "Food, dietary supplement, and cosmetic adverse event reports (CAERS)",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/food/event.json?search=products.industry_name:\"Soft Drink/Water\"&limit=5"
+    },
+    "animalandveterinary_event": {
+      "path": "/animalandveterinary/event.json",
+      "description": "Animal and veterinary drug adverse event reports",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/animalandveterinary/event.json?search=primary_reporter:Veterinarian&limit=5"
+    },
+    "tobacco_problem": {
+      "path": "/tobacco/problem.json",
+      "description": "Reports about tobacco products that are damaged, defective, contaminated, or cause health effects",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/tobacco/problem.json?search=tobacco_products:\"Electronic cigarette\"&limit=5"
+    },
+    "other_nsde": {
+      "path": "/other/nsde.json",
+      "description": "NDC SPL Data Element (NSDE) file containing product information",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/other/nsde.json?search=product_name:aspirin&limit=5"
+    },
+    "other_substance": {
+      "path": "/other/substance.json",
+      "description": "Substance data and registration information",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/other/substance.json?search=substance_name:caffeine&limit=5"
+    },
+    "other_unii": {
+      "path": "/other/unii.json",
+      "description": "Unique Ingredient Identifier (UNII) database",
+      "search_param": "search",
+      "limit_param": "limit",
+      "example": "/other/unii.json?search=substance_name:caffeine&limit=5"
+    }
+  },
+  "common_parameters": {
+    "search": {
+      "description": "Search parameter for filtering results",
+      "type": "string",
+      "example": "search=brand_name:lipitor"
+    },
+    "limit": {
+      "description": "Number of results to return (default: 1, max: varies by endpoint - typically 99-1000)",
+      "type": "integer",
+      "default": 1,
+      "example": "limit=10"
+    },
+    "skip": {
+      "description": "Number of results to skip for pagination",
+      "type": "integer",
+      "default": 0,
+      "example": "skip=20"
+    },
+    "count": {
+      "description": "Count records by specified field instead of returning individual records",
+      "type": "string",
+      "example": "count=patient.drug.medicinalproduct.exact"
+    },
+    "api_key": {
+      "description": "API key for authentication (optional but recommended for regular use)",
+      "type": "string",
+      "example": "api_key=your_api_key_here"
+    }
+  },
+  "search_examples": {
+    "basic_search": "search=brand_name:lipitor",
+    "date_range": "search=receivedate:[20200101+TO+20201231]",
+    "exact_match": "search=patient.drug.medicinalproduct.exact:\"LIPITOR\"",
+    "multiple_conditions": "search=brand_name:lipitor+AND+serious:1",
+    "wildcard": "search=brand_name:lip*",
+    "animal_vet_example": "search=primary_reporter:Veterinarian"
+  },
+  "id_examples": {
+    "drug_name": "lipitor",
+    "brand_name": "lipitor",
+    "generic_name": "atorvastatin calcium",
+    "recall_number": "D-1234-2020",
+    "ndc": "0071-0155-23",
+    "device_name": "pacemaker",
+    "product_code": "DXH",
+    "unii": "48A5M73Z4Q",
+    "primary_reporter": "Veterinarian"
+  },
+  "field_examples": {
+    "drug_events": [
+      "patient.drug.medicinalproduct",
+      "patient.drug.openfda.brand_name",
+      "patient.reaction.reactionmeddrapt",
+      "serious",
+      "receivedate"
+    ],
+    "drug_labels": [
+      "openfda.brand_name",
+      "openfda.generic_name",
+      "indications_and_usage",
+      "contraindications",
+      "dosage_and_administration"
+    ],
+    "device_events": [
+      "device.generic_name",
+      "device.brand_name",
+      "event_type",
+      "date_received"
+    ],
+    "food_events": [
+      "products.industry_name",
+      "reactions",
+      "date_started"
+    ],
+    "animal_vet_events": [
+      "primary_reporter",
+      "drug.brand_name",
+      "drug.active_ingredients.name",
+      "outcome.medical_status",
+      "original_receive_date"
+    ]
+  },
+  "verified_endpoints_from_official_source": {
+    "note": "Based on FDA's official GitHub repository ENDPOINT_INDEX_MAP",
+    "source": "https://github.com/FDA/openfda/blob/master/openfda/export/pipeline.py",
+    "confirmed_endpoints": [
+      "/animalandveterinary/event",
+      "/drug/event",
+      "/drug/label",
+      "/drug/enforcement",
+      "/drug/ndc",
+      "/drug/drugsfda",
+      "/device/enforcement",
+      "/food/enforcement",
+      "/food/event",
+      "/device/event",
+      "/device/classification",
+      "/device/510k",
+      "/device/pma",
+      "/device/recall",
+      "/device/registrationlisting",
+      "/device/udi",
+      "/device/covid19serology",
+      "/other/nsde",
+      "/other/substance",
+      "/tobacco/problem"
+    ],
+    "additional_confirmed": [
+      "/drug/shortages",
+      "/other/unii"
+    ]
+  },
+  "notes": [
+    "Use the 'search' parameter for queries, e.g., search=patient.drug.medicinalproduct:lipitor",
+    "Use 'limit' to restrict the number of results (max varies by endpoint)",
+    "Use 'skip' for pagination when retrieving large datasets",
+    "All endpoints return JSON by default",
+    "URL-encode all search terms and special characters",
+    "For exact matches, use .exact suffix on field names",
+    "Date ranges use format [YYYYMMDD+TO+YYYYMMDD]",
+    "Use AND, OR, NOT operators for complex queries",
+    "Wildcard searches supported with * character",
+    "API key recommended for regular use (240 requests/min vs 40 without key)",
+    "Some endpoints may have different field structures - check documentation",
+    "Use count parameter to get aggregated statistics instead of individual records",
+    "Maximum skip limit is typically 5000 records for pagination",
+    "Animal/vet endpoint corrected to use primary_reporter:Veterinarian as example"
+  ],
+  "rate_limits": {
+    "with_api_key": {
+      "requests_per_minute": 240,
+      "requests_per_day": 120000
+    },
+    "without_api_key": {
+      "requests_per_minute": 40,
+      "requests_per_day": 1000
+    }
+  }
+}

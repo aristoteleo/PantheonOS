@@ -1,0 +1,326 @@
+{
+  "base_urls": {
+    "default": "https://string-db.org/api",
+    "stable": "https://version-12-0.string-db.org/api"
+  },
+  "output_formats": {
+    "text": [
+      "tsv",
+      "tsv-no-header",
+      "json",
+      "xml",
+      "psi-mi",
+      "psi-mi-tab"
+    ],
+    "image": [
+      "image",
+      "highres_image",
+      "svg"
+    ]
+  },
+  "endpoints": {
+    "get_string_ids": {
+      "url": "{base_url}/{output_format}/get_string_ids",
+      "description": "Maps common protein names, synonyms and UniProt identifiers into STRING identifiers",
+      "required": [
+        "identifiers"
+      ],
+      "optional": [
+        "species",
+        "echo_query",
+        "limit",
+        "caller_identity"
+      ],
+      "output_formats": [
+        "tsv",
+        "tsv-no-header",
+        "json",
+        "xml"
+      ]
+    },
+    "network_image": {
+      "url": "{base_url}/{output_format}/network",
+      "description": "Retrieves the network image with input proteins highlighted in color",
+      "required": [
+        "identifiers"
+      ],
+      "optional": [
+        "species",
+        "add_color_nodes",
+        "add_white_nodes",
+        "required_score",
+        "network_type",
+        "network_flavor",
+        "hide_node_labels",
+        "hide_disconnected_nodes",
+        "show_query_node_labels",
+        "block_structure_pics_in_bubbles",
+        "flat_node_design",
+        "center_node_labels",
+        "custom_label_font_size",
+        "caller_identity"
+      ],
+      "output_formats": [
+        "image",
+        "highres_image",
+        "svg"
+      ]
+    },
+    "get_link": {
+      "url": "{base_url}/{output_format}/get_link",
+      "description": "Get the link to STRING webpage showing the network",
+      "required": [
+        "identifiers"
+      ],
+      "optional": [
+        "species",
+        "add_color_nodes",
+        "add_white_nodes",
+        "required_score",
+        "network_flavor",
+        "network_type",
+        "hide_node_labels",
+        "hide_disconnected_nodes",
+        "show_query_node_labels",
+        "block_structure_pics_in_bubbles",
+        "caller_identity"
+      ],
+      "output_formats": [
+        "tsv",
+        "tsv-no-header",
+        "json",
+        "xml"
+      ]
+    },
+    "network_interactions": {
+      "url": "{base_url}/{output_format}/network",
+      "description": "Retrieves the network interactions for input proteins in text formats",
+      "required": [
+        "identifiers"
+      ],
+      "optional": [
+        "species",
+        "required_score",
+        "network_type",
+        "add_nodes",
+        "show_query_node_labels",
+        "caller_identity"
+      ],
+      "output_formats": [
+        "tsv",
+        "tsv-no-header",
+        "json",
+        "xml",
+        "psi-mi",
+        "psi-mi-tab"
+      ]
+    },
+    "interaction_partners": {
+      "url": "{base_url}/{output_format}/interaction_partners",
+      "description": "Gets all the STRING interaction partners of proteins",
+      "required": [
+        "identifiers"
+      ],
+      "optional": [
+        "species",
+        "limit",
+        "required_score",
+        "network_type",
+        "caller_identity"
+      ],
+      "output_formats": [
+        "tsv",
+        "tsv-no-header",
+        "json",
+        "xml",
+        "psi-mi",
+        "psi-mi-tab"
+      ]
+    },
+    "homology": {
+      "url": "{base_url}/{output_format}/homology",
+      "description": "Retrieve the protein similarity scores between input proteins",
+      "required": [
+        "identifiers"
+      ],
+      "optional": [
+        "species",
+        "caller_identity"
+      ],
+      "output_formats": [
+        "tsv",
+        "tsv-no-header",
+        "json",
+        "xml"
+      ]
+    },
+    "homology_best": {
+      "url": "{base_url}/{output_format}/homology_best",
+      "description": "Retrieve the similarity to the best similar protein from each STRING species",
+      "required": [
+        "identifiers"
+      ],
+      "optional": [
+        "species",
+        "species_b",
+        "caller_identity"
+      ],
+      "output_formats": [
+        "tsv",
+        "tsv-no-header",
+        "json",
+        "xml"
+      ]
+    },
+    "enrichment": {
+      "url": "{base_url}/{output_format}/enrichment",
+      "description": "Performs the enrichment analysis of protein set for various annotations",
+      "required": [
+        "identifiers"
+      ],
+      "optional": [
+        "species",
+        "background_string_identifiers",
+        "caller_identity"
+      ],
+      "output_formats": [
+        "tsv",
+        "tsv-no-header",
+        "json",
+        "xml"
+      ]
+    },
+    "functional_annotation": {
+      "url": "{base_url}/{output_format}/functional_annotation",
+      "description": "Gets the functional annotation of protein list",
+      "required": [
+        "identifiers"
+      ],
+      "optional": [
+        "species",
+        "allow_pubmed",
+        "only_pubmed",
+        "caller_identity"
+      ],
+      "output_formats": [
+        "tsv",
+        "tsv-no-header",
+        "json",
+        "xml"
+      ]
+    },
+    "enrichmentfigure": {
+      "url": "{base_url}/{output_format}/enrichmentfigure",
+      "description": "Generates the enrichment figure for a specific category",
+      "required": [
+        "identifiers",
+        "species"
+      ],
+      "optional": [
+        "category",
+        "group_by_similarity",
+        "color_palette",
+        "number_of_term_shown",
+        "x_axis",
+        "caller_identity"
+      ],
+      "output_formats": [
+        "image",
+        "highres_image",
+        "svg"
+      ]
+    },
+    "ppi_enrichment": {
+      "url": "{base_url}/{output_format}/ppi_enrichment",
+      "description": "Tests if network has more interactions than expected",
+      "required": [
+        "identifiers"
+      ],
+      "optional": [
+        "species",
+        "required_score",
+        "background_string_identifiers",
+        "caller_identity"
+      ],
+      "output_formats": [
+        "tsv",
+        "tsv-no-header",
+        "json",
+        "xml"
+      ]
+    },
+    "version": {
+      "url": "{base_url}/{output_format}/version",
+      "description": "Prints the current STRING version and its stable address",
+      "required": [],
+      "optional": [
+        "caller_identity"
+      ],
+      "output_formats": [
+        "tsv",
+        "tsv-no-header",
+        "json",
+        "xml"
+      ]
+    },
+    "search_results": {
+      "url": "https://string-db.org/cgi/network",
+      "description": "Create the link to the search results page",
+      "required": [
+        "identifiers"
+      ],
+      "optional": [
+        "species",
+        "add_color_nodes",
+        "add_white_nodes",
+        "required_score",
+        "network_flavor",
+        "network_type",
+        "hide_node_labels",
+        "hide_disconnected_nodes",
+        "show_query_node_labels",
+        "block_structure_pics_in_bubbles",
+        "caller_identity"
+      ],
+      "output_formats": [
+        "html"
+      ]
+    }
+  },
+  "parameter_details": {
+    "identifiers": {
+      "description": "Protein identifiers separated by carriage return",
+      "format": "String with identifiers separated by \\r or %0d",
+      "example": "DRD1_HUMAN\\rDRD2_HUMAN or PTCH1%0dSHH%0dGLI1"
+    },
+    "species": {
+      "description": "NCBI/STRING taxon ID",
+      "format": "Integer",
+      "example": "9606 (human), 4932 (yeast), 7227 (fruit fly)"
+    },
+    "required_score": {
+      "description": "Threshold of significance for interactions",
+      "format": "Integer between 0 and 1000",
+      "default": "Depends on network"
+    },
+    "network_type": {
+      "description": "Type of network to retrieve",
+      "format": "String",
+      "values": [
+        "functional",
+        "physical"
+      ],
+      "default": "functional"
+    },
+    "network_flavor": {
+      "description": "Style of edges in the network",
+      "format": "String",
+      "values": [
+        "evidence",
+        "confidence",
+        "actions"
+      ],
+      "default": "evidence"
+    }
+  }
+}

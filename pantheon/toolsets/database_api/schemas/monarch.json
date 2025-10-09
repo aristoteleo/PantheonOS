@@ -1,0 +1,434 @@
+{
+  "base_url": "https://api.monarchinitiative.org",
+  "endpoints": {
+    "get_associations": {
+      "url": "{base_url}/v3/api/association",
+      "description": "Retrieves all associations for a given entity, or between two entities.",
+      "required": [],
+      "optional": [
+        "category",
+        "subject",
+        "subject_category",
+        "subject_namespace",
+        "subject_taxon",
+        "predicate",
+        "object",
+        "object_category",
+        "object_namespace",
+        "object_taxon",
+        "entity",
+        "direct",
+        "facet_fields",
+        "facet_queries",
+        "filter_queries",
+        "compact",
+        "format",
+        "limit",
+        "offset"
+      ],
+      "method": "GET"
+    },
+    "get_entity": {
+      "url": "{base_url}/v3/api/entity/{id}",
+      "description": "Retrieves the entity with the specified id",
+      "required": [
+        "id"
+      ],
+      "optional": [
+        "format"
+      ],
+      "method": "GET"
+    },
+    "association_table": {
+      "url": "{base_url}/v3/api/entity/{id}/{category}",
+      "description": "Retrieves association table data for a given entity and association type",
+      "required": [
+        "id",
+        "category"
+      ],
+      "optional": [
+        "query",
+        "traverse_orthologs",
+        "sort",
+        "format",
+        "download",
+        "direct",
+        "facet_fields",
+        "facet_queries",
+        "filter_queries",
+        "limit",
+        "offset"
+      ],
+      "method": "GET"
+    },
+    "get_histopheno": {
+      "url": "{base_url}/v3/api/histopheno/{id}",
+      "description": "Retrieves the entity with the specified id",
+      "required": [
+        "id"
+      ],
+      "optional": [
+        "format"
+      ],
+      "method": "GET"
+    },
+    "search": {
+      "url": "{base_url}/v3/api/search",
+      "description": "Search for entities by label, with optional filters",
+      "required": [],
+      "optional": [
+        "q",
+        "category",
+        "in_taxon_label",
+        "limit",
+        "offset"
+      ],
+      "method": "GET"
+    },
+    "autocomplete": {
+      "url": "{base_url}/v3/api/autocomplete",
+      "description": "Autocomplete for entities by label",
+      "required": [],
+      "optional": [
+        "q"
+      ],
+      "method": "GET"
+    },
+    "mappings": {
+      "url": "{base_url}/v3/api/mappings",
+      "description": "Get mappings between entities",
+      "required": [],
+      "optional": [
+        "entity_id",
+        "subject_id",
+        "predicate_id",
+        "object_id",
+        "mapping_justification",
+        "format",
+        "limit",
+        "offset"
+      ],
+      "method": "GET"
+    },
+    "semsim_autocomplete": {
+      "url": "{base_url}/v3/api/semsim/autocomplete",
+      "description": "Autocomplete for semantic similarity lookups, prioritizes entities which have direct phenotype associations.",
+      "required": [],
+      "optional": [
+        "q"
+      ],
+      "method": "GET"
+    },
+    "semsim_compare": {
+      "url": "{base_url}/v3/api/semsim/compare/{subjects}/{objects}",
+      "description": "Get pairwise similarity between two sets of terms",
+      "required": [
+        "subjects",
+        "objects"
+      ],
+      "optional": [
+        "metric"
+      ],
+      "method": "GET"
+    },
+    "semsim_compare_post": {
+      "url": "{base_url}/v3/api/semsim/compare",
+      "description": "Pairwise similarity between two sets of terms",
+      "required": [],
+      "optional": [],
+      "method": "POST"
+    },
+    "semsim_multicompare": {
+      "url": "{base_url}/v3/api/semsim/multicompare",
+      "description": "Pairwise similarity between two sets of terms",
+      "required": [],
+      "optional": [],
+      "method": "POST"
+    },
+    "semsim_search": {
+      "url": "{base_url}/v3/api/semsim/search/{termset}/{group}",
+      "description": "Search for terms in a termset",
+      "required": [
+        "termset",
+        "group"
+      ],
+      "optional": [
+        "metric",
+        "directionality",
+        "limit"
+      ],
+      "method": "GET"
+    },
+    "semsim_search_post": {
+      "url": "{base_url}/v3/api/semsim/search",
+      "description": "Search for terms in a termset",
+      "required": [],
+      "optional": [],
+      "method": "POST"
+    },
+    "annotate": {
+      "url": "{base_url}/v3/api/annotate",
+      "description": "Annotate text content",
+      "required": [],
+      "optional": [
+        "text"
+      ],
+      "method": "GET"
+    },
+    "annotate_post": {
+      "url": "{base_url}/v3/api/annotate",
+      "description": "Annotate text content",
+      "required": [],
+      "optional": [],
+      "method": "POST"
+    },
+    "annotate_entities": {
+      "url": "{base_url}/v3/api/annotate/entities",
+      "description": "Extract entities from text",
+      "required": [],
+      "optional": [
+        "text"
+      ],
+      "method": "GET"
+    },
+    "annotate_entities_post": {
+      "url": "{base_url}/v3/api/annotate/entities",
+      "description": "Extract entities from text",
+      "required": [],
+      "optional": [],
+      "method": "POST"
+    },
+    "root": {
+      "url": "{base_url}/",
+      "description": "Root endpoint",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "api": {
+      "url": "{base_url}/api",
+      "description": "API endpoint",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "releases": {
+      "url": "{base_url}/v3/api/releases",
+      "description": "Get release information",
+      "required": [],
+      "optional": [
+        "dev",
+        "limit",
+        "release"
+      ],
+      "method": "GET"
+    }
+  },
+  "parameter_details": {
+    "id": {
+      "description": "ID for the entity to retrieve",
+      "format": "String",
+      "example": "MONDO:0019391"
+    },
+    "category": {
+      "description": "Category of association to retrieve",
+      "format": "String (enum)",
+      "example": "biolink:DiseaseToPhenotypicFeatureAssociation"
+    },
+    "subject": {
+      "description": "Subject entity ID(s)",
+      "format": "Array of strings"
+    },
+    "subject_category": {
+      "description": "Category of subject entity",
+      "format": "Array of strings (enum)"
+    },
+    "subject_namespace": {
+      "description": "Namespace of subject entity",
+      "format": "Array of strings"
+    },
+    "subject_taxon": {
+      "description": "Taxon of subject entity",
+      "format": "Array of strings"
+    },
+    "predicate": {
+      "description": "Association predicate",
+      "format": "Array of strings (enum)"
+    },
+    "object": {
+      "description": "Object entity ID(s)",
+      "format": "Array of strings"
+    },
+    "object_category": {
+      "description": "Category of object entity",
+      "format": "Array of strings (enum)"
+    },
+    "object_namespace": {
+      "description": "Namespace of object entity",
+      "format": "Array of strings"
+    },
+    "object_taxon": {
+      "description": "Taxon of object entity",
+      "format": "Array of strings"
+    },
+    "entity": {
+      "description": "Entity ID(s) for associations",
+      "format": "Array of strings"
+    },
+    "direct": {
+      "description": "Only return direct associations",
+      "format": "Boolean",
+      "default": false
+    },
+    "facet_fields": {
+      "description": "Facet fields to include in response",
+      "format": "Array of strings"
+    },
+    "facet_queries": {
+      "description": "Facet queries to include in response",
+      "format": "Array of strings"
+    },
+    "filter_queries": {
+      "description": "Filter queries to limit response",
+      "format": "Array of strings"
+    },
+    "compact": {
+      "description": "Return compact format",
+      "format": "Boolean",
+      "default": false
+    },
+    "format": {
+      "description": "Output format for response",
+      "format": "String (enum)",
+      "options": [
+        "json",
+        "tsv"
+      ],
+      "default": "json"
+    },
+    "limit": {
+      "description": "Maximum number of results to return",
+      "format": "Integer",
+      "minimum": 0,
+      "maximum": 500,
+      "default": 20
+    },
+    "offset": {
+      "description": "Number of results to skip",
+      "format": "Integer",
+      "minimum": 0,
+      "default": 0
+    },
+    "q": {
+      "description": "Query string for search",
+      "format": "String",
+      "default": "*:*"
+    },
+    "in_taxon_label": {
+      "description": "Filter by taxon label",
+      "format": "Array of strings"
+    },
+    "query": {
+      "description": "Query string to limit results to subset",
+      "format": "String",
+      "example": "thumb"
+    },
+    "traverse_orthologs": {
+      "description": "Traverse orthologs to get associations",
+      "format": "Boolean",
+      "default": false
+    },
+    "sort": {
+      "description": "Sort results by field + direction statements",
+      "format": "Array of strings",
+      "example": [
+        "subject_label asc",
+        "predicate asc",
+        "object_label asc"
+      ]
+    },
+    "download": {
+      "description": "Download results as file",
+      "format": "Boolean",
+      "default": false
+    },
+    "entity_id": {
+      "description": "Entity ID(s) for mappings",
+      "format": "Array of strings"
+    },
+    "subject_id": {
+      "description": "Subject ID(s) for mappings",
+      "format": "Array of strings"
+    },
+    "predicate_id": {
+      "description": "Predicate ID(s) for mappings",
+      "format": "Array of strings (enum)"
+    },
+    "object_id": {
+      "description": "Object ID(s) for mappings",
+      "format": "Array of strings"
+    },
+    "mapping_justification": {
+      "description": "Mapping justification",
+      "format": "Array of strings"
+    },
+    "subjects": {
+      "description": "List of subjects for comparison",
+      "format": "String (comma-separated)"
+    },
+    "objects": {
+      "description": "List of objects for comparison",
+      "format": "String (comma-separated)"
+    },
+    "metric": {
+      "description": "Similarity metric to use",
+      "format": "String (enum)",
+      "options": [
+        "ancestor_information_content",
+        "jaccard_similarity",
+        "phenodigm_score"
+      ],
+      "default": "ancestor_information_content"
+    },
+    "termset": {
+      "description": "Comma separated list of term IDs to find matches for",
+      "format": "String"
+    },
+    "group": {
+      "description": "Group of entities to search within",
+      "format": "String (enum)",
+      "options": [
+        "Human Genes",
+        "Mouse Genes",
+        "Rat Genes",
+        "Zebrafish Genes",
+        "C. Elegans Genes",
+        "Human Diseases"
+      ]
+    },
+    "directionality": {
+      "description": "Directionality of the search",
+      "format": "String (enum)",
+      "options": [
+        "bidirectional",
+        "subject_to_object",
+        "object_to_subject"
+      ],
+      "default": "bidirectional"
+    },
+    "text": {
+      "description": "Text content to annotate",
+      "format": "String",
+      "default": ""
+    },
+    "dev": {
+      "description": "Get dev releases of the KG",
+      "format": "Boolean",
+      "default": false
+    },
+    "release": {
+      "description": "Get metadata for a specific release",
+      "format": "String"
+    }
+  }
+}

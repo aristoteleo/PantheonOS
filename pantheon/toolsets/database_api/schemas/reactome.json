@@ -1,0 +1,816 @@
+{
+  "base_url": "https://reactome.org",
+  "web_url": "https://reactome.org",
+  "version": "2023",
+  "services": {
+    "AnalysisService": {
+      "version": "2.0",
+      "url": "/AnalysisService",
+      "description": "Provides an API for pathway over-representation and expression analysis as well as species comparison tool.",
+      "categories": {
+        "database": {
+          "description": "Database info queries",
+          "endpoints": {
+            "GET /database/name": {
+              "description": "The name of current database",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/database/name"
+            },
+            "GET /database/version": {
+              "description": "The version number of current database",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/database/version"
+            }
+          }
+        },
+        "download": {
+          "description": "Methods to download different views of a result",
+          "endpoints": {
+            "GET /download/{token}/entities/found/{resource}/{filename}.csv": {
+              "description": "Downloads found identifiers for a given analysis and resource",
+              "required_params": [
+                "token",
+                "resource",
+                "filename"
+              ],
+              "optional_params": [],
+              "example": "/download/MjAxODAyMTQxMTI5MzRfMQ/entities/found/TOTAL/result.csv"
+            },
+            "GET /download/{token}/entities/notfound/{filename}.csv": {
+              "description": "Downloads a list of the not found identifiers",
+              "required_params": [
+                "token",
+                "filename"
+              ],
+              "optional_params": [],
+              "example": "/download/MjAxODAyMTQxMTI5MzRfMQ/entities/notfound/result.csv"
+            },
+            "GET /download/{token}/pathways/{resource}/{filename}.csv": {
+              "description": "Downloads all hit pathways for a given analysis",
+              "required_params": [
+                "token",
+                "resource",
+                "filename"
+              ],
+              "optional_params": [],
+              "example": "/download/MjAxODAyMTQxMTI5MzRfMQ/pathways/TOTAL/result.csv"
+            },
+            "GET /download/{token}/result.json": {
+              "description": "Returns the complete result in json format",
+              "required_params": [
+                "token"
+              ],
+              "optional_params": [],
+              "example": "/download/MjAxODAyMTQxMTI5MzRfMQ/result.json"
+            },
+            "GET /download/{token}/result.json.gz": {
+              "description": "Returns the complete result in json format (gzipped)",
+              "required_params": [
+                "token"
+              ],
+              "optional_params": [],
+              "example": "/download/MjAxODAyMTQxMTI5MzRfMQ/result.json.gz"
+            }
+          }
+        },
+        "identifier": {
+          "description": "Queries for only one identifier",
+          "endpoints": {
+            "GET /identifier/{id}": {
+              "description": "Analyse the identifier over the different species in the database",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/identifier/P53"
+            },
+            "GET /identifier/{id}/projection": {
+              "description": "Analyse the identifier over the different species in the database and projects the result to Homo Sapiens",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/identifier/P53/projection"
+            }
+          }
+        },
+        "report": {
+          "description": "Retrieves report files in PDF format",
+          "endpoints": {
+            "GET /report/{token}/{species}/{filename}.pdf": {
+              "description": "Downloads a report for a given pathway analysis result",
+              "required_params": [
+                "token",
+                "species",
+                "filename"
+              ],
+              "optional_params": [],
+              "example": "/report/MjAxODAyMTQxMTI5MzRfMQ/Homo sapiens/report.pdf"
+            }
+          }
+        },
+        "species": {
+          "description": "Species comparison",
+          "endpoints": {
+            "GET /species/homoSapiens/{species}": {
+              "description": "Compares Homo sapiens to the specified species",
+              "required_params": [
+                "species"
+              ],
+              "optional_params": [],
+              "example": "/species/homoSapiens/Mus musculus"
+            }
+          }
+        },
+        "token": {
+          "description": "Previous queries filter",
+          "endpoints": {
+            "GET /token/{token}": {
+              "description": "Returns the result associated with the token",
+              "required_params": [
+                "token"
+              ],
+              "optional_params": [],
+              "example": "/token/MjAxODAyMTQxMTI5MzRfMQ"
+            },
+            "GET /token/{token}/filter/species/{species}": {
+              "description": "Filters the result by species",
+              "required_params": [
+                "token",
+                "species"
+              ],
+              "optional_params": [],
+              "example": "/token/MjAxODAyMTQxMTI5MzRfMQ/filter/species/Homo sapiens"
+            },
+            "GET /token/{token}/found/all/{pathway}": {
+              "description": "Returns a summary of the contained identifiers and interactors for a given pathway and token",
+              "required_params": [
+                "token",
+                "pathway"
+              ],
+              "optional_params": [],
+              "example": "/token/MjAxODAyMTQxMTI5MzRfMQ/found/all/R-HSA-73843"
+            },
+            "GET /token/{token}/found/entities/{pathway}": {
+              "description": "Returns a summary of the found curated identifiers for a given pathway and token",
+              "required_params": [
+                "token",
+                "pathway"
+              ],
+              "optional_params": [],
+              "example": "/token/MjAxODAyMTQxMTI5MzRfMQ/found/entities/R-HSA-73843"
+            },
+            "GET /token/{token}/found/interactors/{pathway}": {
+              "description": "Returns a summary of the found interactors for a given pathway and token",
+              "required_params": [
+                "token",
+                "pathway"
+              ],
+              "optional_params": [],
+              "example": "/token/MjAxODAyMTQxMTI5MzRfMQ/found/interactors/R-HSA-73843"
+            },
+            "GET /token/{token}/notFound": {
+              "description": "Returns a list of the identifiers not found for a given token",
+              "required_params": [
+                "token"
+              ],
+              "optional_params": [],
+              "example": "/token/MjAxODAyMTQxMTI5MzRfMQ/notFound"
+            },
+            "GET /token/{token}/page/{pathway}": {
+              "description": "Returns the page where the corresponding pathway is taking into account the passed parameters",
+              "required_params": [
+                "token",
+                "pathway"
+              ],
+              "optional_params": [],
+              "example": "/token/MjAxODAyMTQxMTI5MzRfMQ/page/R-HSA-73843"
+            },
+            "GET /token/{token}/pathways/binned": {
+              "description": "Returns a list of binned hit pathway sizes associated with the token",
+              "required_params": [
+                "token"
+              ],
+              "optional_params": [],
+              "example": "/token/MjAxODAyMTQxMTI5MzRfMQ/pathways/binned"
+            },
+            "GET /token/{token}/reactions/{pathway}": {
+              "description": "Returns the reaction ids of the provided pathway id that are present in the original result",
+              "required_params": [
+                "token",
+                "pathway"
+              ],
+              "optional_params": [],
+              "example": "/token/MjAxODAyMTQxMTI5MzRfMQ/reactions/R-HSA-73843"
+            },
+            "GET /token/{token}/resources": {
+              "description": "Returns the resources summary associated with the token",
+              "required_params": [
+                "token"
+              ],
+              "optional_params": [],
+              "example": "/token/MjAxODAyMTQxMTI5MzRfMQ/resources"
+            }
+          }
+        }
+      }
+    },
+    "ContentService": {
+      "version": "1.2",
+      "url": "/ContentService",
+      "description": "REST API for Reactome content",
+      "categories": {
+        "database": {
+          "description": "Reactome Data: Database info queries",
+          "endpoints": {
+            "GET /data/database/name": {
+              "description": "The name of current database",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/data/database/name"
+            },
+            "GET /data/database/version": {
+              "description": "The version number of current database",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/data/database/version"
+            }
+          }
+        },
+        "discover": {
+          "description": "Reactome Data: Search engines discovery schema",
+          "endpoints": {
+            "GET /data/discover/{identifier}": {
+              "description": "The schema.org for an Event in Reactome knowledgebase",
+              "required_params": [
+                "identifier"
+              ],
+              "optional_params": [],
+              "example": "/data/discover/R-HSA-5673001"
+            }
+          }
+        },
+        "diseases": {
+          "description": "Reactome Data: Disease related queries",
+          "endpoints": {
+            "GET /data/diseases": {
+              "description": "The list of disease objects",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/data/diseases"
+            },
+            "GET /data/diseases/doid": {
+              "description": "The list of diseases DOID",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/data/diseases/doid"
+            }
+          }
+        },
+        "entities": {
+          "description": "Reactome Data: PhysicalEntity queries",
+          "endpoints": {
+            "GET /data/complex/{id}/subunits": {
+              "description": "A list with the entities contained in a given complex",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/complex/R-HSA-5674003/subunits"
+            },
+            "GET /data/complexes/{resource}/{identifier}": {
+              "description": "A list of complexes containing the pair (identifier, resource)",
+              "required_params": [
+                "resource",
+                "identifier"
+              ],
+              "optional_params": [],
+              "example": "/data/complexes/UniProt/P00533"
+            },
+            "GET /data/entity/{id}/componentOf": {
+              "description": "A list of larger structures containing the entity",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/entity/R-HSA-199420/componentOf"
+            },
+            "GET /data/entity/{id}/in-depth": {
+              "description": "In-depth information about an entity",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/entity/R-HSA-199420/in-depth"
+            },
+            "GET /data/entity/{id}/otherForms": {
+              "description": "All other forms of a PhysicalEntity",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/entity/R-HSA-199420/otherForms"
+            }
+          }
+        },
+        "events": {
+          "description": "Reactome Data: Queries related to events",
+          "endpoints": {
+            "GET /data/event/{id}/ancestors": {
+              "description": "The ancestors of a given event",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/event/R-HSA-5673001/ancestors"
+            },
+            "GET /data/eventsHierarchy/{species}": {
+              "description": "The full event hierarchy for a given species",
+              "required_params": [
+                "species"
+              ],
+              "optional_params": [],
+              "example": "/data/eventsHierarchy/homo sapiens"
+            }
+          }
+        },
+        "exporter": {
+          "description": "Reactome Data: Format Exporter",
+          "endpoints": {
+            "GET /exporter/diagram/{identifier}.{ext}": {
+              "description": "Exports a given pathway diagram to the specified image format (png, jpg, jpeg, svg, gif)",
+              "required_params": [
+                "identifier",
+                "ext"
+              ],
+              "optional_params": [],
+              "example": "/exporter/diagram/R-HSA-5673001.png"
+            },
+            "GET /exporter/document/event/{identifier}.pdf": {
+              "description": "Exports the content of a given event (pathway or reaction) to a PDF document",
+              "required_params": [
+                "identifier"
+              ],
+              "optional_params": [],
+              "example": "/exporter/document/event/R-HSA-5673001.pdf"
+            },
+            "GET /exporter/event/{identifier}.sbgn": {
+              "description": "Exports a given pathway or reaction to SBGN",
+              "required_params": [
+                "identifier"
+              ],
+              "optional_params": [],
+              "example": "/exporter/event/R-HSA-5673001.sbgn"
+            },
+            "GET /exporter/event/{identifier}.sbml": {
+              "description": "Exports a given pathway or reaction to SBML",
+              "required_params": [
+                "identifier"
+              ],
+              "optional_params": [],
+              "example": "/exporter/event/R-HSA-5673001.sbml"
+            },
+            "GET /exporter/fireworks/{species}.{ext}": {
+              "description": "Exports a given pathway overview to the specified image format (png, jpg, jpeg, svg, gif)",
+              "required_params": [
+                "species",
+                "ext"
+              ],
+              "optional_params": [],
+              "example": "/exporter/fireworks/Homo sapiens.svg"
+            },
+            "GET /exporter/reaction/{identifier}.{ext}": {
+              "description": "Exports a given reaction to the specified image format (png, jpg, jpeg, svg, gif)",
+              "required_params": [
+                "identifier",
+                "ext"
+              ],
+              "optional_params": [],
+              "example": "/exporter/reaction/R-HSA-5673001.png"
+            }
+          }
+        },
+        "interactors": {
+          "description": "Molecule interactors",
+          "endpoints": {
+            "GET /interactors/psicquic/molecule/{resource}/{acc}/details": {
+              "description": "Retrieve clustered interaction, sorted by score, of a given accession by resource.",
+              "required_params": [
+                "resource",
+                "acc"
+              ],
+              "optional_params": [],
+              "example": "/interactors/psicquic/molecule/intact/P00533/details"
+            },
+            "GET /interactors/psicquic/molecule/{resource}/{acc}/summary": {
+              "description": "Retrieve a summary of a given accession by resource",
+              "required_params": [
+                "resource",
+                "acc"
+              ],
+              "optional_params": [],
+              "example": "/interactors/psicquic/molecule/intact/P00533/summary"
+            },
+            "GET /interactors/psicquic/resources": {
+              "description": "Retrieve a list of all Psicquic Registries services",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/interactors/psicquic/resources"
+            },
+            "GET /interactors/static/molecule/enhanced/{acc}/details": {
+              "description": "Retrieve a custom interaction information of a given accession in Reactome knowledgebase for UI to use, including Reactome entity number",
+              "required_params": [
+                "acc"
+              ],
+              "optional_params": [],
+              "example": "/interactors/static/molecule/enhanced/P00533/details"
+            },
+            "GET /interactors/static/molecule/{acc}/details": {
+              "description": "Retrieve a detailed interaction information of a given accession",
+              "required_params": [
+                "acc"
+              ],
+              "optional_params": [],
+              "example": "/interactors/static/molecule/P00533/details"
+            },
+            "GET /interactors/static/molecule/{acc}/pathways": {
+              "description": "Retrieve a list of lower level pathways where the interacting molecules can be found",
+              "required_params": [
+                "acc"
+              ],
+              "optional_params": [],
+              "example": "/interactors/static/molecule/P00533/pathways"
+            },
+            "GET /interactors/static/molecule/{acc}/summary": {
+              "description": "Retrieve a summary of a given accession",
+              "required_params": [
+                "acc"
+              ],
+              "optional_params": [],
+              "example": "/interactors/static/molecule/P00533/summary"
+            }
+          }
+        },
+        "mapping": {
+          "description": "Reactome Data: Mapping related queries",
+          "endpoints": {
+            "GET /data/mapping/{resource}/{identifier}/pathways": {
+              "description": "The lower level pathways where an identifier can be mapped to",
+              "required_params": [
+                "resource",
+                "identifier"
+              ],
+              "optional_params": [],
+              "example": "/data/mapping/UniProt/P00533/pathways"
+            },
+            "GET /data/mapping/{resource}/{identifier}/reactions": {
+              "description": "The reactions where an identifier can be mapped to",
+              "required_params": [
+                "resource",
+                "identifier"
+              ],
+              "optional_params": [],
+              "example": "/data/mapping/UniProt/P00533/reactions"
+            }
+          }
+        },
+        "participants": {
+          "description": "Reactome Data: Queries related to participants",
+          "endpoints": {
+            "GET /data/participants/{id}": {
+              "description": "A list of participants for a given event",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/participants/R-HSA-5673001"
+            },
+            "GET /data/participants/{id}/participatingPhysicalEntities": {
+              "description": "A list of participating PhysicalEntities for a given event",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/participants/R-HSA-5673001/participatingPhysicalEntities"
+            },
+            "GET /data/participants/{id}/referenceEntities": {
+              "description": "A list of participating ReferenceEntities for a given event",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/participants/R-HSA-5673001/referenceEntities"
+            }
+          }
+        },
+        "pathways": {
+          "description": "Reactome Data: Pathway related queries",
+          "endpoints": {
+            "GET /data/pathway/{id}/containedEvents": {
+              "description": "All the events contained in the given event",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/pathway/R-HSA-5673001/containedEvents"
+            },
+            "GET /data/pathway/{id}/containedEvents/{attributeName}": {
+              "description": "A single property for each event contained in the given event",
+              "required_params": [
+                "id",
+                "attributeName"
+              ],
+              "optional_params": [],
+              "example": "/data/pathway/R-HSA-5673001/containedEvents/displayName"
+            },
+            "GET /data/pathways/low/diagram/entity/{id}": {
+              "description": "A list of lower level pathways with diagram containing a given entity or event",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/pathways/low/diagram/entity/R-HSA-199420"
+            },
+            "GET /data/pathways/low/diagram/entity/{id}/allForms": {
+              "description": "A list of lower level pathways with diagram containing any form of a given entity",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/pathways/low/diagram/entity/R-HSA-199420/allForms"
+            },
+            "GET /data/pathways/low/entity/{id}": {
+              "description": "A list of lower level pathways containing a given entity or event",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/pathways/low/entity/R-HSA-199420"
+            },
+            "GET /data/pathways/low/entity/{id}/allForms": {
+              "description": "A list of lower level pathways containing any form of a given entity",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/pathways/low/entity/R-HSA-199420/allForms"
+            },
+            "GET /data/pathways/top/{species}": {
+              "description": "All Reactome top level pathways",
+              "required_params": [
+                "species"
+              ],
+              "optional_params": [],
+              "example": "/data/pathways/top/homo sapiens"
+            }
+          }
+        },
+        "person": {
+          "description": "Reactome Data: Person queries",
+          "endpoints": {
+            "GET /data/people/name/{name}": {
+              "description": "A list of people with first or last name partly matching a given string",
+              "required_params": [
+                "name"
+              ],
+              "optional_params": [],
+              "example": "/data/people/name/steve"
+            },
+            "GET /data/people/name/{name}/exact": {
+              "description": "A list of people with first AND last name exactly matching a given string",
+              "required_params": [
+                "name"
+              ],
+              "optional_params": [],
+              "example": "/data/people/name/steve jupe/exact"
+            },
+            "GET /data/person/{id}": {
+              "description": "A person by his/her identifier",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/person/75380"
+            },
+            "GET /data/person/{id}/authoredPathways": {
+              "description": "A list of pathways authored by a given person",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/person/75380/authoredPathways"
+            },
+            "GET /data/person/{id}/publications": {
+              "description": "A list of publications authored by a given person",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/person/75380/publications"
+            },
+            "GET /data/person/{id}/{attributeName}": {
+              "description": "A person's property by his/her identifier",
+              "required_params": [
+                "id",
+                "attributeName"
+              ],
+              "optional_params": [],
+              "example": "/data/person/75380/displayName"
+            }
+          }
+        },
+        "query": {
+          "description": "Reactome Data: Common data retrieval",
+          "endpoints": {
+            "GET /data/query/enhanced/{id}": {
+              "description": "More information on an entry in Reactome knowledgebase",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/query/enhanced/R-HSA-5673001"
+            },
+            "GET /data/query/{id}": {
+              "description": "An entry in Reactome knowledgebase",
+              "required_params": [
+                "id"
+              ],
+              "optional_params": [],
+              "example": "/data/query/R-HSA-5673001"
+            },
+            "GET /data/query/{id}/{attributeName}": {
+              "description": "A single property of an entry in Reactome knowledgebase",
+              "required_params": [
+                "id",
+                "attributeName"
+              ],
+              "optional_params": [],
+              "example": "/data/query/R-HSA-5673001/displayName"
+            }
+          }
+        },
+        "references": {
+          "description": "Reactome xRefs: ReferenceEntity queries",
+          "endpoints": {
+            "GET /references/mapping/{identifier}": {
+              "description": "All ReferenceEntities for a given identifier",
+              "required_params": [
+                "identifier"
+              ],
+              "optional_params": [],
+              "example": "/references/mapping/P00533"
+            },
+            "GET /references/mapping/{identifier}/xrefs": {
+              "description": "All cross references and physical entities associated with a given identifier",
+              "required_params": [
+                "identifier"
+              ],
+              "optional_params": [],
+              "example": "/references/mapping/P00533/xrefs"
+            }
+          }
+        },
+        "schema": {
+          "description": "Reactome Data: Schema class queries",
+          "endpoints": {
+            "GET /data/schema/model": {
+              "description": "A list of Reactome data model",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/data/schema/model"
+            },
+            "GET /data/schema/{className}": {
+              "description": "A list of entries corresponding to a given schema class",
+              "required_params": [
+                "className"
+              ],
+              "optional_params": [],
+              "example": "/data/schema/Pathway"
+            },
+            "GET /data/schema/{className}/count": {
+              "description": "Number of entries belonging to the specified schema class",
+              "required_params": [
+                "className"
+              ],
+              "optional_params": [],
+              "example": "/data/schema/Pathway/count"
+            },
+            "GET /data/schema/{className}/min": {
+              "description": "A list of simplified entries corresponding to a given schema class",
+              "required_params": [
+                "className"
+              ],
+              "optional_params": [],
+              "example": "/data/schema/Pathway/min"
+            },
+            "GET /data/schema/{className}/reference": {
+              "description": "A list of simplified reference objects corresponding to a given schema class",
+              "required_params": [
+                "className"
+              ],
+              "optional_params": [],
+              "example": "/data/schema/Pathway/reference"
+            }
+          }
+        },
+        "search": {
+          "description": "Reactome Search",
+          "endpoints": {
+            "GET /search/diagram/{diagram}": {
+              "description": "Performs a Solr query (diagram widget scoped) for a given QueryObject",
+              "required_params": [
+                "diagram"
+              ],
+              "optional_params": [],
+              "example": "/search/diagram/R-HSA-5673001"
+            },
+            "GET /search/diagram/{diagram}/occurrences/{instance}": {
+              "description": "Performs a Solr query (diagram widget scoped) for a given QueryObject",
+              "required_params": [
+                "diagram",
+                "instance"
+              ],
+              "optional_params": [],
+              "example": "/search/diagram/R-HSA-5673001/occurrences/R-HSA-199420"
+            },
+            "GET /search/diagram/{pathwayId}/flag": {
+              "description": "A list of diagram entities plus pathways from the provided list containing the specified identifier",
+              "required_params": [
+                "pathwayId"
+              ],
+              "optional_params": [],
+              "example": "/search/diagram/R-HSA-5673001/flag"
+            },
+            "GET /search/facet": {
+              "description": "A list of facets corresponding to the whole Reactome search data",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/search/facet"
+            },
+            "GET /search/facet_query": {
+              "description": "A list of facets corresponding to a specific query",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/search/facet_query"
+            },
+            "GET /search/fireworks": {
+              "description": "Performs a Solr query (fireworks widget scoped) for a given QueryObject",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/search/fireworks"
+            },
+            "GET /search/fireworks/flag": {
+              "description": "Performs a Solr query (fireworks widget scoped) for a given QueryObject",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/search/fireworks/flag"
+            },
+            "GET /search/query": {
+              "description": "Queries Solr against the Reactome knowledgebase",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/search/query?query=EGFR"
+            },
+            "GET /search/query/paginated": {
+              "description": "Queries Solr against the Reactome knowledgebase",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/search/query/paginated?query=EGFR&page=1&rows=10"
+            },
+            "GET /search/spellcheck": {
+              "description": "Spell-check suggestions for a given query",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/search/spellcheck?query=kinas"
+            },
+            "GET /search/suggest": {
+              "description": "Auto-suggestions for a given query",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/search/suggest?query=egf"
+            }
+          }
+        },
+        "species": {
+          "description": "Reactome Data: Species related queries",
+          "endpoints": {
+            "GET /data/species/all": {
+              "description": "The list of all species in Reactome",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/data/species/all"
+            },
+            "GET /data/species/main": {
+              "description": "The list of main species in Reactome",
+              "required_params": [],
+              "optional_params": [],
+              "example": "/data/species/main"
+            }
+          }
+        }
+      }
+    }
+  }
+}

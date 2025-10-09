@@ -1,0 +1,306 @@
+{
+  "base_url": "https://phenome.jax.org",
+  "endpoints": {
+    "list_projects": {
+      "url": "{base_url}/api/projects",
+      "description": "Fetch a list of MPD projects / data sets",
+      "required": [],
+      "optional": [
+        "investigator",
+        "projsym",
+        "projid",
+        "mpdsector",
+        "largecollab",
+        "panelsym",
+        "csv"
+      ],
+      "method": "GET"
+    },
+    "project_filters": {
+      "url": "{base_url}/api/project_filters/{filtername}",
+      "description": "Provides allowed filtering values for the /api/projects endpoint",
+      "required": [
+        "filtername"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "project_dataset": {
+      "url": "{base_url}/api/projects/{projsym}/dataset",
+      "description": "Return the project's entire dataset of measured phenotype animal values",
+      "required": [
+        "projsym"
+      ],
+      "optional": [
+        "json"
+      ],
+      "method": "GET"
+    },
+    "project_strains": {
+      "url": "{base_url}/api/projects/{projsym}/strains",
+      "description": "List the strains that were tested in the project with attributes",
+      "required": [
+        "projsym"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "project_publications": {
+      "url": "{base_url}/api/projects/{projsym}/publications",
+      "description": "Fetch the publications associated with the project",
+      "required": [
+        "projsym"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "project_markers": {
+      "url": "{base_url}/api/projects/{projsym}/markers",
+      "description": "Fetch the markers that have been associated with the project",
+      "required": [
+        "projsym"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "list_investigators": {
+      "url": "{base_url}/api/investigators",
+      "description": "Fetch a list of contributing investigators",
+      "required": [],
+      "optional": [
+        "name",
+        "csv"
+      ],
+      "method": "GET"
+    },
+    "pheno_animal_vals": {
+      "url": "{base_url}/api/pheno/animalvals/{measnum}",
+      "description": "Fetch numeric individual animal data for MPD strain survey phenotype measure(s)",
+      "required": [
+        "measnum"
+      ],
+      "optional": [
+        "covariate",
+        "csv",
+        "gxl_format1"
+      ],
+      "method": "GET"
+    },
+    "pheno_animal_vals_series": {
+      "url": "{base_url}/api/pheno/animalvals/series/{measnum}",
+      "description": "Fetch numeric individual animal data for the measure series",
+      "required": [
+        "measnum"
+      ],
+      "optional": [
+        "csv"
+      ],
+      "method": "GET"
+    },
+    "pheno_shared_animals": {
+      "url": "{base_url}/api/pheno/shared_animals/{measlist}",
+      "description": "Verify if all measure IDs in measlist are for animal-granularity measures that could have some animals in common",
+      "required": [
+        "measlist"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "pheno_lsmeans": {
+      "url": "{base_url}/api/pheno/lsmeans/{selector}",
+      "description": "Get model-adjusted least-square strain means for phenotype measure(s)",
+      "required": [
+        "selector"
+      ],
+      "optional": [
+        "csv"
+      ],
+      "method": "GET"
+    },
+    "pheno_strain_means": {
+      "url": "{base_url}/api/pheno/strainmeans/{selector}",
+      "description": "Get unadjusted strain means for one or more MPD phenotype measures",
+      "required": [
+        "selector"
+      ],
+      "optional": [
+        "csv"
+      ],
+      "method": "GET"
+    },
+    "pheno_measure_info": {
+      "url": "{base_url}/api/pheno/measureinfo/{selector}",
+      "description": "Get descriptions, units, and other metadata for one or more MPD measures",
+      "required": [
+        "selector"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "pheno_series_info": {
+      "url": "{base_url}/api/pheno/seriesinfo/{measnum}",
+      "description": "Get descriptions, units, and other metadata for the measure series",
+      "required": [
+        "measnum"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "pheno_measures_by_ontology": {
+      "url": "{base_url}/api/pheno/measures_by_ontology/{ont_term}",
+      "description": "Get measure IDs and metadata for all measures annotated to an ontology term or its descendants",
+      "required": [
+        "ont_term"
+      ],
+      "optional": [
+        "this_term_only",
+        "omit_baseline",
+        "collapse_series",
+        "csv"
+      ],
+      "method": "GET"
+    },
+    "limsdata": {
+      "url": "{base_url}/api/limsdata",
+      "description": "Get a list of all JaxLIMS procedures for which data is captured",
+      "required": [],
+      "optional": [],
+      "method": "GET"
+    },
+    "limsdata_procedure": {
+      "url": "{base_url}/api/limsdata/{procedure}",
+      "description": "Get names and data types of all fields captured from JaxLIMS for a procedure",
+      "required": [
+        "procedure"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "limsdata_measures": {
+      "url": "{base_url}/api/limsdata/measures/{procedure}",
+      "description": "Get a list of accessioned MPD measures available for a procedure",
+      "required": [
+        "procedure"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "limsdata_procedure_parameters": {
+      "url": "{base_url}/api/limsdata/{procedure}/{parameters}",
+      "description": "Get the JaxLIMS individual animal data for the given procedure and parameter(s)",
+      "required": [
+        "procedure",
+        "parameters"
+      ],
+      "optional": [
+        "alltime",
+        "genotype_id",
+        "startdate",
+        "enddate",
+        "jrnum",
+        "gene",
+        "maxrows",
+        "newest_first",
+        "wkomp_animal_attrs",
+        "trait_colname",
+        "csv"
+      ],
+      "method": "GET"
+    },
+    "limsdata_any_measnum": {
+      "url": "{base_url}/api/limsdata/any/{measnum}",
+      "description": "Get the JaxLIMS individual animal data for the given measure number",
+      "required": [
+        "measnum"
+      ],
+      "optional": [
+        "alltime",
+        "genotype_id",
+        "startdate",
+        "enddate",
+        "jrnum",
+        "gene",
+        "maxrows",
+        "newest_first",
+        "wkomp_animal_attrs",
+        "trait_colname",
+        "csv"
+      ],
+      "method": "GET"
+    },
+    "limsdata_komp_genotypes": {
+      "url": "{base_url}/api/limsdata/komp_genotypes",
+      "description": "Get info on strains/genotypes tested in KOMP",
+      "required": [],
+      "optional": [
+        "id",
+        "gene",
+        "jr",
+        "desclike"
+      ],
+      "method": "GET"
+    },
+    "limsdata_kompeff": {
+      "url": "{base_url}/api/limsdata/kompeff/{measnums}",
+      "description": "Get the precomputed effect sizes for one or more KOMP measures by measure ID",
+      "required": [
+        "measnums"
+      ],
+      "optional": [
+        "csv"
+      ],
+      "method": "GET"
+    },
+    "limsdata_kompeff_by_genotype": {
+      "url": "{base_url}/api/limsdata/kompeff_by_genotype/{genotype_ids}",
+      "description": "Get the precomputed effect sizes for all loaded KOMP measures for requested genotype_ids",
+      "required": [
+        "genotype_ids"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "snpdata": {
+      "url": "{base_url}/api/snpdata",
+      "description": "Retrieve rows from an MPD SNP dataset",
+      "required": [
+        "dataset",
+        "region",
+        "strains"
+      ],
+      "optional": [
+        "indels"
+      ],
+      "method": "GET"
+    },
+    "geneinfo": {
+      "url": "{base_url}/api/geneinfo/{sym}",
+      "description": "Get basepair coordinates and other attributes for a mouse gene/marker",
+      "required": [
+        "sym"
+      ],
+      "optional": [],
+      "method": "GET"
+    },
+    "straininfo": {
+      "url": "{base_url}/api/straininfo",
+      "description": "See what info is available for a given mouse strain",
+      "required": [],
+      "optional": [
+        "name",
+        "stocknum",
+        "mginum"
+      ],
+      "method": "GET"
+    },
+    "generate_uuids": {
+      "url": "{base_url}/api/generate_uuids",
+      "description": "Generate one or more TCI JMUS 36-char unique identifiers (uuids)",
+      "required": [],
+      "optional": [
+        "n_ids"
+      ],
+      "method": "GET"
+    }
+  }
+}

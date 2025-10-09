@@ -1,0 +1,759 @@
+{
+  "base_url": "https://paleobiodb.org/data1.2",
+  "formats": {
+    "json": ".json",
+    "txt": ".txt",
+    "csv": ".csv",
+    "tsv": ".tsv",
+    "larkin": ".larkin",
+    "ris": ".ris",
+    "png": ".png"
+  },
+  "vocabularies": {
+    "pbdb": "pbdb",
+    "com": "com",
+    "bibjson": "bibjson"
+  },
+  "endpoints": {
+    "occurrences_list": {
+      "url": "{base_url}/occs/list{format}",
+      "description": "Returns a list of fossil occurrences",
+      "required": [],
+      "optional": [
+        "base_name",
+        "taxon_name",
+        "id",
+        "coll_id",
+        "interval",
+        "max_interval",
+        "min_interval",
+        "level",
+        "country",
+        "continent",
+        "state",
+        "county",
+        "formation",
+        "member",
+        "group",
+        "lithology",
+        "environment",
+        "bbox",
+        "loc",
+        "lngmin",
+        "lngmax",
+        "latmin",
+        "latmax",
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "occurrences_single": {
+      "url": "{base_url}/occs/single{format}",
+      "description": "Returns a single fossil occurrence",
+      "required": [
+        "id"
+      ],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "occurrences_refs": {
+      "url": "{base_url}/occs/refs{format}",
+      "description": "Returns references associated with fossil occurrences",
+      "required": [],
+      "optional": [
+        "base_name",
+        "taxon_name",
+        "id",
+        "coll_id",
+        "interval",
+        "max_interval",
+        "min_interval",
+        "level",
+        "country",
+        "continent",
+        "state",
+        "county",
+        "formation",
+        "member",
+        "group",
+        "lithology",
+        "environment",
+        "bbox",
+        "loc",
+        "lngmin",
+        "lngmax",
+        "latmin",
+        "latmax",
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "collections_list": {
+      "url": "{base_url}/colls/list{format}",
+      "description": "Returns a list of fossil collections",
+      "required": [],
+      "optional": [
+        "base_name",
+        "taxon_name",
+        "id",
+        "interval",
+        "max_interval",
+        "min_interval",
+        "level",
+        "country",
+        "continent",
+        "state",
+        "county",
+        "formation",
+        "member",
+        "group",
+        "lithology",
+        "environment",
+        "bbox",
+        "loc",
+        "lngmin",
+        "lngmax",
+        "latmin",
+        "latmax",
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "collections_single": {
+      "url": "{base_url}/colls/single{format}",
+      "description": "Returns a single fossil collection",
+      "required": [
+        "id"
+      ],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "collections_refs": {
+      "url": "{base_url}/colls/refs{format}",
+      "description": "Returns references associated with fossil collections",
+      "required": [],
+      "optional": [
+        "base_name",
+        "taxon_name",
+        "id",
+        "interval",
+        "max_interval",
+        "min_interval",
+        "level",
+        "country",
+        "continent",
+        "state",
+        "county",
+        "formation",
+        "member",
+        "group",
+        "lithology",
+        "environment",
+        "bbox",
+        "loc",
+        "lngmin",
+        "lngmax",
+        "latmin",
+        "latmax",
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "specimens_list": {
+      "url": "{base_url}/specs/list{format}",
+      "description": "Returns a list of specimens",
+      "required": [],
+      "optional": [
+        "base_name",
+        "taxon_name",
+        "id",
+        "coll_id",
+        "specimen_id",
+        "interval",
+        "max_interval",
+        "min_interval",
+        "level",
+        "country",
+        "continent",
+        "state",
+        "county",
+        "formation",
+        "member",
+        "group",
+        "lithology",
+        "environment",
+        "bbox",
+        "loc",
+        "lngmin",
+        "lngmax",
+        "latmin",
+        "latmax",
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "specimens_single": {
+      "url": "{base_url}/specs/single{format}",
+      "description": "Returns a single specimen",
+      "required": [
+        "id"
+      ],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "measurements_list": {
+      "url": "{base_url}/meas/list{format}",
+      "description": "Returns a list of measurements",
+      "required": [],
+      "optional": [
+        "base_name",
+        "taxon_name",
+        "id",
+        "coll_id",
+        "specimen_id",
+        "interval",
+        "max_interval",
+        "min_interval",
+        "level",
+        "country",
+        "continent",
+        "state",
+        "county",
+        "formation",
+        "member",
+        "group",
+        "lithology",
+        "environment",
+        "bbox",
+        "loc",
+        "lngmin",
+        "lngmax",
+        "latmin",
+        "latmax",
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "taxa_list": {
+      "url": "{base_url}/taxa/list{format}",
+      "description": "Returns a list of taxonomic names",
+      "required": [],
+      "optional": [
+        "name",
+        "id",
+        "rank",
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "taxa_single": {
+      "url": "{base_url}/taxa/single{format}",
+      "description": "Returns information about a single taxonomic name",
+      "required": [
+        "name"
+      ],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "taxa_auto": {
+      "url": "{base_url}/taxa/auto{format}",
+      "description": "Auto-completes a partial taxonomic name",
+      "required": [
+        "name"
+      ],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "taxa_refs": {
+      "url": "{base_url}/taxa/refs{format}",
+      "description": "Returns references associated with taxonomic names",
+      "required": [],
+      "optional": [
+        "name",
+        "id",
+        "rank",
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "opinions_list": {
+      "url": "{base_url}/opinions/list{format}",
+      "description": "Returns a list of taxonomic opinions",
+      "required": [],
+      "optional": [
+        "name",
+        "id",
+        "rank",
+        "ref_id",
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "opinions_single": {
+      "url": "{base_url}/opinions/single{format}",
+      "description": "Returns a single taxonomic opinion",
+      "required": [
+        "id"
+      ],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "intervals_list": {
+      "url": "{base_url}/intervals/list{format}",
+      "description": "Returns a list of geological time intervals",
+      "required": [],
+      "optional": [
+        "scale",
+        "min_ma",
+        "max_ma",
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "intervals_single": {
+      "url": "{base_url}/intervals/single{format}",
+      "description": "Returns a single geological time interval",
+      "required": [
+        "id"
+      ],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "timescales_list": {
+      "url": "{base_url}/timescales/list{format}",
+      "description": "Returns a list of geological timescales",
+      "required": [],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "timescales_single": {
+      "url": "{base_url}/timescales/single{format}",
+      "description": "Returns a single geological timescale",
+      "required": [
+        "id"
+      ],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "bounds_list": {
+      "url": "{base_url}/bounds/list{format}",
+      "description": "Returns a list of interval bounds",
+      "required": [],
+      "optional": [
+        "scale",
+        "min_ma",
+        "max_ma",
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "places_list": {
+      "url": "{base_url}/places/list{format}",
+      "description": "Returns a list of geographic places",
+      "required": [],
+      "optional": [
+        "name",
+        "bbox",
+        "loc",
+        "lngmin",
+        "lngmax",
+        "latmin",
+        "latmax",
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "places_single": {
+      "url": "{base_url}/places/single{format}",
+      "description": "Returns a single geographic place",
+      "required": [
+        "id"
+      ],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "strata_list": {
+      "url": "{base_url}/strata/list{format}",
+      "description": "Returns a list of geological strata",
+      "required": [],
+      "optional": [
+        "name",
+        "type",
+        "rank",
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "strata_single": {
+      "url": "{base_url}/strata/single{format}",
+      "description": "Returns a single geological stratum",
+      "required": [
+        "id"
+      ],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "refs_list": {
+      "url": "{base_url}/refs/list{format}",
+      "description": "Returns a list of bibliographic references",
+      "required": [],
+      "optional": [
+        "author",
+        "year",
+        "title",
+        "id",
+        "ref_id",
+        "pubid",
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "refs_single": {
+      "url": "{base_url}/refs/single{format}",
+      "description": "Returns a single bibliographic reference",
+      "required": [
+        "id"
+      ],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "pubs_list": {
+      "url": "{base_url}/pubs/list{format}",
+      "description": "Returns a list of official publications",
+      "required": [],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "pubs_single": {
+      "url": "{base_url}/pubs/single{format}",
+      "description": "Returns a single official publication",
+      "required": [
+        "id"
+      ],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "archives_list": {
+      "url": "{base_url}/archives/list{format}",
+      "description": "Returns a list of data archives",
+      "required": [],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "archives_single": {
+      "url": "{base_url}/archives/single{format}",
+      "description": "Returns a single data archive",
+      "required": [
+        "id"
+      ],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "config": {
+      "url": "{base_url}/config{format}",
+      "description": "Returns configuration information for client applications",
+      "required": [],
+      "optional": [
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "combined_records": {
+      "url": "{base_url}/combined/records{format}",
+      "description": "Returns multiple types of data records",
+      "required": [],
+      "optional": [
+        "base_name",
+        "taxon_name",
+        "id",
+        "interval",
+        "max_interval",
+        "min_interval",
+        "level",
+        "country",
+        "continent",
+        "state",
+        "county",
+        "formation",
+        "member",
+        "group",
+        "lithology",
+        "environment",
+        "bbox",
+        "loc",
+        "lngmin",
+        "lngmax",
+        "latmin",
+        "latmax",
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "combined_auto": {
+      "url": "{base_url}/combined/auto{format}",
+      "description": "Auto-completes a partial name across multiple data types",
+      "required": [
+        "name"
+      ],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "people_list": {
+      "url": "{base_url}/people/list{format}",
+      "description": "Returns a list of database contributors",
+      "required": [],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "people_single": {
+      "url": "{base_url}/people/single{format}",
+      "description": "Returns information about a single database contributor",
+      "required": [
+        "id"
+      ],
+      "optional": [
+        "show",
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "stats_summary": {
+      "url": "{base_url}/stats/summary{format}",
+      "description": "Returns summary statistics about the database",
+      "required": [],
+      "optional": [
+        "vocab"
+      ],
+      "method": "GET"
+    },
+    "stats_taxa": {
+      "url": "{base_url}/stats/taxa{format}",
+      "description": "Returns statistics about taxonomic coverage",
+      "required": [],
+      "optional": [
+        "rank",
+        "vocab"
+      ],
+      "method": "GET"
+    }
+  },
+  "parameter_details": {
+    "base_name": {
+      "description": "Base taxonomic name to match",
+      "format": "String"
+    },
+    "taxon_name": {
+      "description": "Taxonomic name to match",
+      "format": "String"
+    },
+    "name": {
+      "description": "Name to match (depending on context)",
+      "format": "String"
+    },
+    "id": {
+      "description": "Record identifier (context-specific)",
+      "format": "Number or String"
+    },
+    "coll_id": {
+      "description": "Collection identifier",
+      "format": "Number"
+    },
+    "specimen_id": {
+      "description": "Specimen identifier",
+      "format": "Number"
+    },
+    "ref_id": {
+      "description": "Reference identifier",
+      "format": "Number"
+    },
+    "pubid": {
+      "description": "Publication identifier",
+      "format": "String"
+    },
+    "interval": {
+      "description": "Geological time interval name",
+      "format": "String"
+    },
+    "max_interval": {
+      "description": "Maximum geological time interval",
+      "format": "String"
+    },
+    "min_interval": {
+      "description": "Minimum geological time interval",
+      "format": "String"
+    },
+    "level": {
+      "description": "Taxonomic level to return",
+      "format": "String"
+    },
+    "country": {
+      "description": "Country name",
+      "format": "String"
+    },
+    "continent": {
+      "description": "Continent name",
+      "format": "String"
+    },
+    "state": {
+      "description": "State/province name",
+      "format": "String"
+    },
+    "county": {
+      "description": "County name",
+      "format": "String"
+    },
+    "formation": {
+      "description": "Formation name",
+      "format": "String"
+    },
+    "member": {
+      "description": "Member name",
+      "format": "String"
+    },
+    "group": {
+      "description": "Group name",
+      "format": "String"
+    },
+    "lithology": {
+      "description": "Lithology description",
+      "format": "String"
+    },
+    "environment": {
+      "description": "Environmental setting",
+      "format": "String"
+    },
+    "bbox": {
+      "description": "Bounding box in format 'lng1,lat1,lng2,lat2'",
+      "format": "String"
+    },
+    "loc": {
+      "description": "Location point in format 'lng,lat'",
+      "format": "String"
+    },
+    "lngmin": {
+      "description": "Minimum longitude",
+      "format": "Number"
+    },
+    "lngmax": {
+      "description": "Maximum longitude",
+      "format": "Number"
+    },
+    "latmin": {
+      "description": "Minimum latitude",
+      "format": "Number"
+    },
+    "latmax": {
+      "description": "Maximum latitude",
+      "format": "Number"
+    },
+    "rank": {
+      "description": "Taxonomic rank",
+      "format": "String"
+    },
+    "scale": {
+      "description": "Time scale identifier",
+      "format": "String"
+    },
+    "min_ma": {
+      "description": "Minimum age in millions of years",
+      "format": "Number"
+    },
+    "max_ma": {
+      "description": "Maximum age in millions of years",
+      "format": "Number"
+    },
+    "author": {
+      "description": "Author name for reference search",
+      "format": "String"
+    },
+    "year": {
+      "description": "Publication year for reference search",
+      "format": "Number"
+    },
+    "title": {
+      "description": "Title for reference search",
+      "format": "String"
+    },
+    "type": {
+      "description": "Stratum type (e.g., 'formation', 'member', 'group')",
+      "format": "String"
+    },
+    "show": {
+      "description": "Comma-separated list of additional fields to include",
+      "format": "String"
+    },
+    "vocab": {
+      "description": "Response vocabulary (pbdb, com, bibjson)",
+      "format": "String"
+    }
+  }
+}

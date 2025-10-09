@@ -1,0 +1,986 @@
+{
+  "base_url": "https://rest.ensembl.org",
+  "version": "15.9",
+  "categories": {
+    "Archive": {
+      "description": "Archive resource endpoints",
+      "endpoints": {
+        "GET archive/id/:id": {
+          "description": "Uses the given identifier to return its latest version",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [],
+          "example": "/archive/id/ENSG00000157764"
+        }
+      }
+    },
+    "Comparative Genomics": {
+      "description": "Endpoints for comparative genomics data",
+      "endpoints": {
+        "GET cafe/genetree/id/:id": {
+          "description": "Retrieves a cafe tree of the gene tree using the gene tree stable identifier",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [],
+          "example": "/cafe/genetree/id/ENSGT00390000003602"
+        },
+        "GET cafe/genetree/member/symbol/:species/:symbol": {
+          "description": "Retrieves the cafe tree of the gene tree that contains the gene identified by a symbol",
+          "required_params": [
+            "species",
+            "symbol"
+          ],
+          "optional_params": [],
+          "example": "/cafe/genetree/member/symbol/homo_sapiens/BRCA2"
+        },
+        "GET cafe/genetree/member/id/:species/:id": {
+          "description": "Retrieves the cafe tree of the gene tree that contains the gene / transcript / translation stable identifier in the given species",
+          "required_params": [
+            "species",
+            "id"
+          ],
+          "optional_params": [],
+          "example": "/cafe/genetree/member/id/homo_sapiens/ENSG00000139618"
+        },
+        "GET genetree/id/:id": {
+          "description": "Retrieves a gene tree for a gene tree stable identifier",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [
+            "aligned",
+            "sequence",
+            "nh_format"
+          ],
+          "example": "/genetree/id/ENSGT00390000003602"
+        },
+        "GET genetree/member/symbol/:species/:symbol": {
+          "description": "Retrieves the gene tree that contains the gene identified by a symbol",
+          "required_params": [
+            "species",
+            "symbol"
+          ],
+          "optional_params": [
+            "aligned",
+            "sequence",
+            "nh_format"
+          ],
+          "example": "/genetree/member/symbol/homo_sapiens/BRCA2"
+        },
+        "GET genetree/member/id/:species/:id": {
+          "description": "Retrieves the gene tree that contains the gene / transcript / translation stable identifier in the given species",
+          "required_params": [
+            "species",
+            "id"
+          ],
+          "optional_params": [
+            "aligned",
+            "sequence",
+            "nh_format"
+          ],
+          "example": "/genetree/member/id/homo_sapiens/ENSG00000139618"
+        },
+        "GET alignment/region/:species/:region": {
+          "description": "Retrieves genomic alignments as separate blocks based on a region and species",
+          "required_params": [
+            "species",
+            "region"
+          ],
+          "optional_params": [
+            "method",
+            "species_set",
+            "display_species_set"
+          ],
+          "example": "/alignment/region/homo_sapiens/2:106040000-106040050"
+        },
+        "GET homology/id/:species/:id": {
+          "description": "Retrieves homology information (orthologs) by species and Ensembl gene id",
+          "required_params": [
+            "species",
+            "id"
+          ],
+          "optional_params": [
+            "compara",
+            "aligned",
+            "sequence",
+            "type",
+            "format",
+            "target_species"
+          ],
+          "example": "/homology/id/homo_sapiens/ENSG00000139618"
+        },
+        "GET homology/symbol/:species/:symbol": {
+          "description": "Retrieves homology information (orthologs) by symbol",
+          "required_params": [
+            "species",
+            "symbol"
+          ],
+          "optional_params": [
+            "compara",
+            "aligned",
+            "sequence",
+            "type",
+            "format",
+            "target_species"
+          ],
+          "example": "/homology/symbol/homo_sapiens/BRCA2"
+        }
+      }
+    },
+    "Cross References": {
+      "description": "Cross-reference lookup endpoints",
+      "endpoints": {
+        "GET xrefs/symbol/:species/:symbol": {
+          "description": "Looks up an external symbol and returns all Ensembl objects linked to it",
+          "required_params": [
+            "species",
+            "symbol"
+          ],
+          "optional_params": [
+            "external_db",
+            "db_type"
+          ],
+          "example": "/xrefs/symbol/homo_sapiens/BRCA2"
+        },
+        "GET xrefs/id/:id": {
+          "description": "Perform lookups of Ensembl Identifiers and retrieve their external references in other databases",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [
+            "external_db",
+            "db_type"
+          ],
+          "example": "/xrefs/id/ENSG00000139618"
+        },
+        "GET xrefs/name/:species/:name": {
+          "description": "Performs a lookup based upon the primary accession or display label of an external reference",
+          "required_params": [
+            "species",
+            "name"
+          ],
+          "optional_params": [
+            "external_db",
+            "db_type"
+          ],
+          "example": "/xrefs/name/homo_sapiens/BRCA2"
+        }
+      }
+    },
+    "Information": {
+      "description": "Information resource endpoints",
+      "endpoints": {
+        "GET info/analysis/:species": {
+          "description": "List the names of analyses involved in generating Ensembl data",
+          "required_params": [
+            "species"
+          ],
+          "optional_params": [],
+          "example": "/info/analysis/homo_sapiens"
+        },
+        "GET info/assembly/:species": {
+          "description": "List the currently available assemblies for a species",
+          "required_params": [
+            "species"
+          ],
+          "optional_params": [
+            "bands"
+          ],
+          "example": "/info/assembly/homo_sapiens"
+        },
+        "GET info/assembly/:species/:region_name": {
+          "description": "Returns information about the specified toplevel sequence region",
+          "required_params": [
+            "species",
+            "region_name"
+          ],
+          "optional_params": [],
+          "example": "/info/assembly/homo_sapiens/X"
+        },
+        "GET info/biotypes/:species": {
+          "description": "List the functional classifications of gene models",
+          "required_params": [
+            "species"
+          ],
+          "optional_params": [],
+          "example": "/info/biotypes/homo_sapiens"
+        },
+        "GET info/biotypes/groups/:group/:object_type": {
+          "description": "List the properties of biotypes within a group",
+          "required_params": [
+            "group",
+            "object_type"
+          ],
+          "optional_params": [],
+          "example": "/info/biotypes/groups/coding/gene"
+        },
+        "GET info/biotypes/name/:name/:object_type": {
+          "description": "List the properties of biotypes with a given name",
+          "required_params": [
+            "name",
+            "object_type"
+          ],
+          "optional_params": [],
+          "example": "/info/biotypes/name/protein_coding/gene"
+        },
+        "GET info/compara/methods": {
+          "description": "List all compara analyses available",
+          "required_params": [],
+          "optional_params": [
+            "class"
+          ],
+          "example": "/info/compara/methods"
+        },
+        "GET info/compara/species_sets/:method": {
+          "description": "List all collections of species analysed with the specified compara method",
+          "required_params": [
+            "method"
+          ],
+          "optional_params": [],
+          "example": "/info/compara/species_sets/EPO"
+        },
+        "GET info/data": {
+          "description": "Shows the data releases available on this REST server",
+          "required_params": [],
+          "optional_params": [],
+          "example": "/info/data"
+        },
+        "GET info/eg_version": {
+          "description": "Returns the Ensembl Genomes version of the databases backing this service",
+          "required_params": [],
+          "optional_params": [],
+          "example": "/info/eg_version"
+        },
+        "GET info/external_dbs/:species": {
+          "description": "Lists all available external sources for a species",
+          "required_params": [
+            "species"
+          ],
+          "optional_params": [
+            "filter"
+          ],
+          "example": "/info/external_dbs/homo_sapiens"
+        },
+        "GET info/divisions": {
+          "description": "Get list of all Ensembl divisions",
+          "required_params": [],
+          "optional_params": [],
+          "example": "/info/divisions"
+        },
+        "GET info/genomes/:genome_name": {
+          "description": "Find information about a given genome",
+          "required_params": [
+            "genome_name"
+          ],
+          "optional_params": [
+            "expand"
+          ],
+          "example": "/info/genomes/homo_sapiens"
+        },
+        "GET info/genomes/accession/:accession": {
+          "description": "Find information about genomes containing a specified INSDC accession",
+          "required_params": [
+            "accession"
+          ],
+          "optional_params": [
+            "expand"
+          ],
+          "example": "/info/genomes/accession/U00096.3"
+        },
+        "GET info/genomes/assembly/:assembly_id": {
+          "description": "Find information about a genome with a specified assembly",
+          "required_params": [
+            "assembly_id"
+          ],
+          "optional_params": [
+            "expand"
+          ],
+          "example": "/info/genomes/assembly/GRCh38"
+        },
+        "GET info/genomes/division/:division_name": {
+          "description": "Find information about all genomes in a given division",
+          "required_params": [
+            "division_name"
+          ],
+          "optional_params": [
+            "expand"
+          ],
+          "example": "/info/genomes/division/EnsemblVertebrates"
+        },
+        "GET info/genomes/taxonomy/:taxon_name": {
+          "description": "Find information about all genomes beneath a given node of the taxonomy",
+          "required_params": [
+            "taxon_name"
+          ],
+          "optional_params": [
+            "expand"
+          ],
+          "example": "/info/genomes/taxonomy/Homo"
+        },
+        "GET info/ping": {
+          "description": "Checks if the service is alive",
+          "required_params": [],
+          "optional_params": [],
+          "example": "/info/ping"
+        },
+        "GET info/rest": {
+          "description": "Shows the current version of the Ensembl REST API",
+          "required_params": [],
+          "optional_params": [],
+          "example": "/info/rest"
+        },
+        "GET info/software": {
+          "description": "Shows the current version of the Ensembl API used by the REST server",
+          "required_params": [],
+          "optional_params": [],
+          "example": "/info/software"
+        },
+        "GET info/species": {
+          "description": "Lists all available species, their aliases, available adaptor groups and data release",
+          "required_params": [],
+          "optional_params": [
+            "hide_strain",
+            "content-type"
+          ],
+          "example": "/info/species"
+        },
+        "GET info/variation/:species": {
+          "description": "List the variation sources used in Ensembl for a species",
+          "required_params": [
+            "species"
+          ],
+          "optional_params": [
+            "filter"
+          ],
+          "example": "/info/variation/homo_sapiens"
+        },
+        "GET info/variation/consequence_types": {
+          "description": "Lists all variant consequence types",
+          "required_params": [],
+          "optional_params": [],
+          "example": "/info/variation/consequence_types"
+        },
+        "GET info/variation/populations/:species:/:population_name": {
+          "description": "List all individuals for a population from a species",
+          "required_params": [
+            "species",
+            "population_name"
+          ],
+          "optional_params": [],
+          "example": "/info/variation/populations/homo_sapiens/1000GENOMES:phase_3:CEU"
+        },
+        "GET info/variation/populations/:species": {
+          "description": "List all populations for a species",
+          "required_params": [
+            "species"
+          ],
+          "optional_params": [],
+          "example": "/info/variation/populations/homo_sapiens"
+        }
+      }
+    },
+    "Linkage Disequilibrium": {
+      "description": "Linkage disequilibrium endpoints",
+      "endpoints": {
+        "GET ld/:species/:id/:population_name": {
+          "description": "Computes and returns LD values between the given variant and all other variants in a window",
+          "required_params": [
+            "species",
+            "id",
+            "population_name"
+          ],
+          "optional_params": [
+            "window_size",
+            "d_prime"
+          ],
+          "example": "/ld/homo_sapiens/rs1042779/1000GENOMES:phase_3:CEU"
+        },
+        "GET ld/:species/pairwise/:id1/:id2": {
+          "description": "Computes and returns LD values between the given variants",
+          "required_params": [
+            "species",
+            "id1",
+            "id2"
+          ],
+          "optional_params": [
+            "population_name",
+            "d_prime"
+          ],
+          "example": "/ld/homo_sapiens/pairwise/rs1042779/rs1042781"
+        },
+        "GET ld/:species/region/:region/:population_name": {
+          "description": "Computes and returns LD values between all pairs of variants in the defined region",
+          "required_params": [
+            "species",
+            "region",
+            "population_name"
+          ],
+          "optional_params": [
+            "d_prime"
+          ],
+          "example": "/ld/homo_sapiens/region/1:15000000-15100000/1000GENOMES:phase_3:CEU"
+        }
+      }
+    },
+    "Lookup": {
+      "description": "Lookup resource endpoints",
+      "endpoints": {
+        "GET lookup/id/:id": {
+          "description": "Find the species and database for a single identifier",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [
+            "db_type",
+            "expand",
+            "format",
+            "phenotypes"
+          ],
+          "example": "/lookup/id/ENSG00000139618"
+        },
+        "GET lookup/symbol/:species/:symbol": {
+          "description": "Find the species and database for a symbol in a linked external database",
+          "required_params": [
+            "species",
+            "symbol"
+          ],
+          "optional_params": [
+            "db_type",
+            "expand",
+            "format",
+            "phenotypes"
+          ],
+          "example": "/lookup/symbol/homo_sapiens/BRCA2"
+        }
+      }
+    },
+    "Mapping": {
+      "description": "Coordinate mapping endpoints",
+      "endpoints": {
+        "GET map/cdna/:id/:region": {
+          "description": "Convert from cDNA coordinates to genomic coordinates",
+          "required_params": [
+            "id",
+            "region"
+          ],
+          "optional_params": [],
+          "example": "/map/cdna/ENST00000288602/100..300"
+        },
+        "GET map/cds/:id/:region": {
+          "description": "Convert from CDS coordinates to genomic coordinates",
+          "required_params": [
+            "id",
+            "region"
+          ],
+          "optional_params": [],
+          "example": "/map/cds/ENST00000288602/1..1000"
+        },
+        "GET map/:species/:asm_one/:region/:asm_two": {
+          "description": "Convert the co-ordinates of one assembly to another",
+          "required_params": [
+            "species",
+            "asm_one",
+            "region",
+            "asm_two"
+          ],
+          "optional_params": [],
+          "example": "/map/homo_sapiens/GRCh37/X:1000000..1000100/GRCh38"
+        },
+        "GET map/translation/:id/:region": {
+          "description": "Convert from protein coordinates to genomic coordinates",
+          "required_params": [
+            "id",
+            "region"
+          ],
+          "optional_params": [],
+          "example": "/map/translation/ENSP00000288602/100..300"
+        }
+      }
+    },
+    "Ontologies and Taxonomy": {
+      "description": "Ontology and taxonomy resource endpoints",
+      "endpoints": {
+        "GET ontology/ancestors/:id": {
+          "description": "Reconstruct the entire ancestry of a term from is_a and part_of relationships",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [],
+          "example": "/ontology/ancestors/GO:0005667"
+        },
+        "GET ontology/ancestors/chart/:id": {
+          "description": "Reconstruct the entire ancestry of a term from is_a and part_of relationships",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [],
+          "example": "/ontology/ancestors/chart/GO:0005667"
+        },
+        "GET ontology/descendants/:id": {
+          "description": "Find all the terms descended from a given term",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [
+            "ontology",
+            "subset"
+          ],
+          "example": "/ontology/descendants/GO:0005667"
+        },
+        "GET ontology/id/:id": {
+          "description": "Search for an ontological term by its namespaced identifier",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [
+            "relation",
+            "simple"
+          ],
+          "example": "/ontology/id/GO:0005667"
+        },
+        "GET ontology/name/:name": {
+          "description": "Search for a list of ontological terms by their name",
+          "required_params": [
+            "name"
+          ],
+          "optional_params": [
+            "ontology",
+            "subset"
+          ],
+          "example": "/ontology/name/transcription"
+        },
+        "GET taxonomy/classification/:id": {
+          "description": "Return the taxonomic classification of a taxon node",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [],
+          "example": "/taxonomy/classification/9606"
+        },
+        "GET taxonomy/id/:id": {
+          "description": "Search for a taxonomic term by its identifier or name",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [],
+          "example": "/taxonomy/id/9606"
+        },
+        "GET taxonomy/name/:name": {
+          "description": "Search for a taxonomic id by a non-scientific name",
+          "required_params": [
+            "name"
+          ],
+          "optional_params": [],
+          "example": "/taxonomy/name/human"
+        }
+      }
+    },
+    "Overlap": {
+      "description": "Feature overlap endpoints",
+      "endpoints": {
+        "GET overlap/id/:id": {
+          "description": "Retrieves features that overlap a region defined by the given identifier",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [
+            "feature",
+            "db_type",
+            "species",
+            "biotype",
+            "logic_name",
+            "variant_set"
+          ],
+          "example": "/overlap/id/ENSG00000157764"
+        },
+        "GET overlap/region/:species/:region": {
+          "description": "Retrieves features that overlap a given region",
+          "required_params": [
+            "species",
+            "region"
+          ],
+          "optional_params": [
+            "feature",
+            "db_type",
+            "biotype",
+            "logic_name",
+            "variant_set"
+          ],
+          "example": "/overlap/region/homo_sapiens/7:140424943-140624564"
+        },
+        "GET overlap/translation/:id": {
+          "description": "Retrieve features related to a specific Translation",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [
+            "feature",
+            "db_type",
+            "species",
+            "type"
+          ],
+          "example": "/overlap/translation/ENSP00000288602"
+        }
+      }
+    },
+    "Phenotype annotations": {
+      "description": "Phenotype annotation endpoints",
+      "endpoints": {
+        "GET /phenotype/accession/:species/:accession": {
+          "description": "Return phenotype annotations for genomic features given a phenotype ontology accession",
+          "required_params": [
+            "species",
+            "accession"
+          ],
+          "optional_params": [
+            "include_children",
+            "include_pubmed",
+            "include_review",
+            "include_submitter"
+          ],
+          "example": "/phenotype/accession/homo_sapiens/HP:0000118"
+        },
+        "GET /phenotype/gene/:species/:gene": {
+          "description": "Return phenotype annotations for a given gene",
+          "required_params": [
+            "species",
+            "gene"
+          ],
+          "optional_params": [
+            "include_overlap",
+            "include_pubmed",
+            "include_review",
+            "include_submitter"
+          ],
+          "example": "/phenotype/gene/homo_sapiens/BRCA2"
+        },
+        "GET /phenotype/region/:species/:region": {
+          "description": "Return phenotype annotations that overlap a given genomic region",
+          "required_params": [
+            "species",
+            "region"
+          ],
+          "optional_params": [
+            "feature_type",
+            "include_pubmed",
+            "include_review",
+            "include_submitter"
+          ],
+          "example": "/phenotype/region/homo_sapiens/13:32889611-32973805"
+        },
+        "GET /phenotype/term/:species/:term": {
+          "description": "Return phenotype annotations for genomic features given a phenotype ontology term",
+          "required_params": [
+            "species",
+            "term"
+          ],
+          "optional_params": [
+            "include_children",
+            "include_pubmed",
+            "include_review",
+            "include_submitter"
+          ],
+          "example": "/phenotype/term/homo_sapiens/breast%20cancer"
+        }
+      }
+    },
+    "Regulation": {
+      "description": "Regulation resource endpoints",
+      "endpoints": {
+        "GET species/:species/binding_matrix/:binding_matrix_stable_id/": {
+          "description": "Return the specified binding matrix",
+          "required_params": [
+            "species",
+            "binding_matrix_stable_id"
+          ],
+          "optional_params": [
+            "unit"
+          ],
+          "example": "/species/homo_sapiens/binding_matrix/MA0139.1"
+        }
+      }
+    },
+    "Sequence": {
+      "description": "Sequence resource endpoints",
+      "endpoints": {
+        "GET sequence/id/:id": {
+          "description": "Request multiple types of sequence by stable identifier",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [
+            "type",
+            "species",
+            "db_type",
+            "object_type",
+            "format",
+            "mask",
+            "mask_feature",
+            "expand_3prime",
+            "expand_5prime"
+          ],
+          "example": "/sequence/id/ENSG00000157764"
+        },
+        "GET sequence/region/:species/:region": {
+          "description": "Returns the genomic sequence of the specified region",
+          "required_params": [
+            "species",
+            "region"
+          ],
+          "optional_params": [
+            "format",
+            "mask",
+            "mask_feature",
+            "expand_3prime",
+            "expand_5prime"
+          ],
+          "example": "/sequence/region/homo_sapiens/X:1000000..1000100"
+        }
+      }
+    },
+    "Transcript Haplotypes": {
+      "description": "Transcript haplotype endpoints",
+      "endpoints": {
+        "GET transcript_haplotypes/:species/:id": {
+          "description": "Computes observed transcript haplotype sequences based on phased genotype data",
+          "required_params": [
+            "species",
+            "id"
+          ],
+          "optional_params": [
+            "population_name",
+            "sample_name"
+          ],
+          "example": "/transcript_haplotypes/homo_sapiens/ENST00000288602"
+        }
+      }
+    },
+    "VEP": {
+      "description": "Variant Effect Predictor endpoints",
+      "endpoints": {
+        "GET vep/:species/hgvs/:hgvs_notation": {
+          "description": "Fetch variant consequences based on a HGVS notation",
+          "required_params": [
+            "species",
+            "hgvs_notation"
+          ],
+          "optional_params": [
+            "consequences",
+            "domains",
+            "numbers",
+            "protein",
+            "xref_refseq"
+          ],
+          "example": "/vep/homo_sapiens/hgvs/ENST00000257290.5:c.4G>T"
+        },
+        "GET vep/:species/id/:id": {
+          "description": "Fetch variant consequences based on a variant identifier",
+          "required_params": [
+            "species",
+            "id"
+          ],
+          "optional_params": [
+            "consequences",
+            "domains",
+            "numbers",
+            "protein",
+            "xref_refseq"
+          ],
+          "example": "/vep/homo_sapiens/id/rs116035550"
+        },
+        "GET vep/:species/region/:region/:allele/": {
+          "description": "Fetch variant consequences",
+          "required_params": [
+            "species",
+            "region",
+            "allele"
+          ],
+          "optional_params": [
+            "consequences",
+            "domains",
+            "numbers",
+            "protein",
+            "xref_refseq"
+          ],
+          "example": "/vep/homo_sapiens/region/9:22125503-22125502:1/C"
+        }
+      }
+    },
+    "Variation": {
+      "description": "Variation resource endpoints",
+      "endpoints": {
+        "GET variant_recoder/:species/:id": {
+          "description": "Translate a variant identifier, HGVS notation or genomic SPDI notation",
+          "required_params": [
+            "species",
+            "id"
+          ],
+          "optional_params": [
+            "fields"
+          ],
+          "example": "/variant_recoder/homo_sapiens/rs116035550"
+        },
+        "GET variation/:species/:id": {
+          "description": "Uses a variant identifier to return the variation features",
+          "required_params": [
+            "species",
+            "id"
+          ],
+          "optional_params": [
+            "genotypes",
+            "phenotypes",
+            "population_genotypes"
+          ],
+          "example": "/variation/homo_sapiens/rs116035550"
+        },
+        "GET variation/:species/pmcid/:pmcid": {
+          "description": "Fetch variants by publication using PubMed Central reference number",
+          "required_params": [
+            "species",
+            "pmcid"
+          ],
+          "optional_params": [],
+          "example": "/variation/homo_sapiens/pmcid/PMC123456"
+        },
+        "GET variation/:species/pmid/:pmid": {
+          "description": "Fetch variants by publication using PubMed reference number",
+          "required_params": [
+            "species",
+            "pmid"
+          ],
+          "optional_params": [],
+          "example": "/variation/homo_sapiens/pmid/12345678"
+        }
+      }
+    },
+    "Variation GA4GH": {
+      "description": "GA4GH variation resource endpoints",
+      "endpoints": {
+        "GET ga4gh/beacon": {
+          "description": "Return Beacon information",
+          "required_params": [],
+          "optional_params": [],
+          "example": "/ga4gh/beacon"
+        },
+        "GET ga4gh/beacon/query": {
+          "description": "Return the Beacon response for allele information",
+          "required_params": [
+            "referenceName",
+            "start",
+            "alternateBases",
+            "assemblyId"
+          ],
+          "optional_params": [
+            "includeDatasets"
+          ],
+          "example": "/ga4gh/beacon/query?referenceName=1&start=1000&alternateBases=A&assemblyId=GRCh38"
+        },
+        "GET ga4gh/features/:id": {
+          "description": "Return the GA4GH record for a specific sequence feature",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [],
+          "example": "/ga4gh/features/ENSG00000157764"
+        },
+        "GET ga4gh/callsets/:id": {
+          "description": "Return the GA4GH record for a specific CallSet",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [],
+          "example": "/ga4gh/callsets/1000GENOMES:phase_3:HG00096"
+        },
+        "GET ga4gh/datasets/:id": {
+          "description": "Return the GA4GH record for a specific dataset",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [],
+          "example": "/ga4gh/datasets/1000GENOMES"
+        },
+        "GET ga4gh/featuresets/:id": {
+          "description": "Return the GA4GH record for a specific featureSet",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [],
+          "example": "/ga4gh/featuresets/Ensembl"
+        },
+        "GET ga4gh/variants/:id": {
+          "description": "Return the GA4GH record for a specific variant",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [],
+          "example": "/ga4gh/variants/rs116035550"
+        },
+        "GET ga4gh/variantsets/:id": {
+          "description": "Return the GA4GH record for a specific VariantSet",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [],
+          "example": "/ga4gh/variantsets/1000GENOMES"
+        },
+        "GET ga4gh/references/:id": {
+          "description": "Return data for a specific reference in GA4GH format",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [],
+          "example": "/ga4gh/references/1"
+        },
+        "GET ga4gh/referencesets/:id": {
+          "description": "Return data for a specific reference set in GA4GH format",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [],
+          "example": "/ga4gh/referencesets/GRCh38"
+        },
+        "GET ga4gh/variantannotationsets/:id": {
+          "description": "Return meta data for a specific annotation set in GA4GH format",
+          "required_params": [
+            "id"
+          ],
+          "optional_params": [],
+          "example": "/ga4gh/variantannotationsets/Ensembl"
+        }
+      }
+    }
+  },
+  "common_parameters": {
+    "content-type": [
+      "application/json",
+      "text/xml"
+    ],
+    "format": [
+      "condensed",
+      "full"
+    ],
+    "db_type": [
+      "core",
+      "cdna",
+      "otherfeatures",
+      "variation"
+    ],
+    "expand": [
+      0,
+      1
+    ]
+  },
+  "http_status_codes": {
+    "200": "OK - The request was successful.",
+    "400": "Bad Request - The request could not be understood.",
+    "404": "Not Found - The requested resource could not be found.",
+    "429": "Too Many Requests - You have exceeded your rate limit.",
+    "503": "Service Unavailable - The server is temporarily unavailable."
+  },
+  "authentication": {
+    "required": false,
+    "method": "None"
+  }
+}
