@@ -272,11 +272,50 @@ def remove_extra_fields(messages: list[dict]) -> list[dict]:
     return messages
 
 
+def remove_ui_fields(messages: list[dict]) -> list[dict]:
+    """
+    Remove UI-only fields that should not be sent to LLM.
+
+    These fields are added for frontend display/processing and would waste tokens
+    if sent to the LLM. They can also confuse the LLM model.
+
+    Fields removed:
+    - Attachment metadata (detected_attachments - only kept for UI/frontend)
+    - Timing information (timestamp, start_timestamp, end_timestamp, generation_duration, execution_duration)
+    - Internal IDs (id, message_id, chunk_index, transfer)
+    """
+    UI_ONLY_FIELDS = {
+        # Attachment field (UI-only)
+        "detected_attachments",
+
+        # Timing fields
+        "timestamp",
+        "start_timestamp",
+        "end_timestamp",
+        "generation_duration",
+        "execution_duration",
+
+        # Internal IDs and metadata
+        "id",
+        "message_id",
+        "chunk_index",
+        "transfer",
+    }
+
+    for msg in messages:
+        for field in UI_ONLY_FIELDS:
+            if field in msg:
+                del msg[field]
+
+    return messages
+
+
 def process_messages_for_model(messages: list[dict], model: str) -> list[dict]:
     messages = deepcopy(messages)
     messages = remove_parsed(messages)
     messages = remove_raw_content(messages)
     messages = remove_extra_fields(messages)
+    messages = remove_ui_fields(messages)  # Remove UI-only fields
     return messages
 
 

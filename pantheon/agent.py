@@ -1069,19 +1069,29 @@ class Agent:
             context_variables = msg.context_variables
         context_variables[_CLIENT_ID_NAME] = memory.id
 
+        async def _detect_attachments(step_message: dict) -> None:
+            """Helper: Detect attachments in a message (independent of memory saving)."""
+            try:
+                from .message.attachment_pipeline import get_message_processor
+                processor = get_message_processor()
+                processed = await processor.process_message_with_attachments(step_message)
+
+                step_message["detected_attachments"] = processed.get("detected_attachments", [])
+            except Exception as e:
+                logger.warning(f"Error in attachment detection: {e}")
+
         if update_memory:
             memory.add_messages(new_input_messages)
+
+        # ============ Unified message processing: Always detect attachments ============
+        async def _process_step_message(step_message: dict):
+            await _detect_attachments(step_message)
+
+            if update_memory:
+                memory.add_messages([step_message])
+
             if process_step_message is not None:
-
-                async def _process_step_message(step_message: dict):
-                    memory.add_messages([step_message])
-                    await run_func(process_step_message, step_message)
-            else:
-
-                async def _process_step_message(step_message: dict):
-                    memory.add_messages([step_message])
-        else:
-            _process_step_message = process_step_message
+                await run_func(process_step_message, step_message)
 
         try:
             details = await self._run_stream(

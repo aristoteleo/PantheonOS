@@ -29,6 +29,7 @@ templates:
         toolsets:
           - python_interpreter
           - file_manager
+          - shell
       web_search:
         name: Web Search Agent
         instructions: You are a web search agent that can search the web for information.
@@ -71,6 +72,7 @@ templates:
         toolsets:
           - python_interpreter
           - file_manager
+          - shell
       statistician:
         name: Statistician
         instructions: |

@@ -156,7 +156,7 @@ class ToolSet(ABC):
         """Setup the toolset before running it. Can be overridden by subclasses."""
         pass
 
-    @tool
+    @tool(exclude=True)
     async def list_tools(self) -> dict:
         """
         List all available tools in this toolset (for LLM consumption)
