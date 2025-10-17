@@ -91,7 +91,7 @@ class ProxyWrapperBuilder:
             proxy: ToolsetProxy instance for RPC calls
             tool_desc: Tool description dict (funcdesc format) from proxy.list_tools()
             agent_callback: Agent instance implementing AgentCallback protocol
-            chat_id: Optional chat_id to auto-inject (ChatRoom-specific logic)
+            chat_id: Optional chat_id to auto-inject as session_id (ChatRoom-specific logic)
 
         Returns:
             Async callable wrapper function with function_descriptions attribute
@@ -104,24 +104,30 @@ class ProxyWrapperBuilder:
             ...         proxy, tool_desc, agent, chat_id="chat-123"
             ...     )
             ...     agent.tool(wrapper, key=tool_desc["name"])
+
+        Note:
+            chat_id is always injected as session_id when provided.
+            The @tool decorator on the remote side automatically handles session_id
+            extraction and context injection.
         """
         tool_name = tool_desc["name"]
         param_names = [inp["name"] for inp in tool_desc.get("inputs", [])]
-        has_chat_id_param = "chat_id" in param_names
 
         # Create async wrapper function
         async def proxy_tool_wrapper(**kwargs):
             """Wrapper that calls through ToolsetProxy.invoke()."""
-            # 1. Auto-inject chat_id if needed (ChatRoom-specific logic)
-            if has_chat_id_param and "chat_id" not in kwargs and chat_id is not None:
-                kwargs["chat_id"] = chat_id
+            # 1. Auto-inject session_id from chat_id (always, if chat_id provided)
+            # The @tool decorator on remote side handles session_id extraction
+            if chat_id is not None and "session_id" not in kwargs:
+                kwargs["session_id"] = chat_id
                 logger.debug(
-                    f"Auto-injected chat_id={chat_id} for remote tool {tool_name}"
+                    f"Auto-injected session_id={chat_id} for remote tool {tool_name}"
                 )
 
             # 2. Parameter filtering (extract remote parameters)
+            # Include session_id for @tool decorator on remote side
             remote_params = {
-                k: v for k, v in kwargs.items() if k in param_names or k in _SKIP_PARAMS
+                k: v for k, v in kwargs.items() if k in param_names or k == "session_id" or k in _SKIP_PARAMS
             }
 
             # 3. Call remote tool via proxy
@@ -139,16 +145,10 @@ class ProxyWrapperBuilder:
         # Set function metadata
         proxy_tool_wrapper.__name__ = tool_name
         proxy_tool_wrapper.__doc__ = tool_desc.get("doc", "")
-        # Filter chat_id from function description if auto-inject is enabled
-        filtered_tool_desc = {
-            **tool_desc,
-            "inputs": [
-                inp for inp in tool_desc.get("inputs", []) if inp["name"] != "chat_id"
-            ],
-        }
-
+        # Note: session_id is NOT in tool_desc.inputs (filtered by @tool decorator)
+        # No need to filter it out - it's already not present in the remote tool description
         proxy_tool_wrapper.function_descriptions = Description.from_json(
-            json.dumps(filtered_tool_desc)
+            json.dumps(tool_desc)
         )
 
         return proxy_tool_wrapper

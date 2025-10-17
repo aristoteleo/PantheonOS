@@ -32,7 +32,6 @@ class TodoListToolSet(ToolSet):
         title: str,
         description: str = "",
         initial_todos: list[str] = None,
-        chat_id: str = None,
     ) -> dict:
         """Create a new task with optional initial todos.
 
@@ -47,8 +46,9 @@ class TodoListToolSet(ToolSet):
         if not self.manager:
             return {"success": False, "error": "Manager not initialized"}
 
+        chat_id = self.get_current_session_id()
         if not chat_id:
-            return {"success": False, "error": "chat_id is required"}
+            return {"success": False, "error": "No session_id provided"}
 
         try:
             task = self.manager.create_task(
@@ -83,7 +83,6 @@ class TodoListToolSet(ToolSet):
         add_todos: list[str] = None,
         update_todos: list[dict] = None,
         remove_todos: list[str] = None,
-        chat_id: str = None,
     ) -> dict:
         """Manage a task's todos with incremental updates.
 
@@ -102,8 +101,9 @@ class TodoListToolSet(ToolSet):
         if not self.manager:
             return {"success": False, "error": "Manager not initialized"}
 
+        chat_id = self.get_current_session_id()
         if not chat_id:
-            return {"success": False, "error": "chat_id is required"}
+            return {"success": False, "error": "No session_id provided"}
 
         # Get target task
         if task_id:
@@ -180,7 +180,7 @@ class TodoListToolSet(ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool
-    async def complete_task(self, task_id: str = None, chat_id: str = None) -> dict:
+    async def complete_task(self, task_id: str = None) -> dict:
         """Complete a task (defaults to current task).
 
         Args:
@@ -192,8 +192,9 @@ class TodoListToolSet(ToolSet):
         if not self.manager:
             return {"success": False, "error": "Manager not initialized"}
 
+        chat_id = self.get_current_session_id()
         if not chat_id:
-            return {"success": False, "error": "chat_id is required"}
+            return {"success": False, "error": "No session_id provided"}
 
         # Get target task
         if task_id:
@@ -251,7 +252,6 @@ class TodoListToolSet(ToolSet):
         status: str = None,
         include_todos: bool = True,
         current_only: bool = False,
-        chat_id: str = None,
     ) -> dict:
         """List tasks for the current session.
 
@@ -266,8 +266,9 @@ class TodoListToolSet(ToolSet):
         if not self.manager:
             return {"success": False, "error": "Manager not initialized"}
 
+        chat_id = self.get_current_session_id()
         if not chat_id:
-            return {"success": False, "error": "chat_id is required"}
+            return {"success": False, "error": "No session_id provided"}
 
         try:
             if current_only:

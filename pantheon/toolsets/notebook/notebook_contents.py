@@ -1,10 +1,12 @@
 """Notebook Contents ToolSet - File-based notebook content management using nbformat standard library"""
 
 import time
+import uuid
 from pathlib import Path
 from typing import Optional
 
 import nbformat
+
 try:
     from nbformat import ValidationError
 except ImportError:
@@ -27,7 +29,7 @@ class NotebookContentsToolSet(ToolSet):
     - Full compliance with Jupyter notebook format standards
     """
 
-    def __init__(self, name: str, workdir: str = None, **kwargs):
+    def __init__(self, name: str, workdir: Optional[str] = None, **kwargs):
         super().__init__(name, **kwargs)
         self.workdir = Path(workdir) if workdir else Path.cwd()
         logger.info(f"NotebookContentsToolSet initialized with workdir: {self.workdir}")
@@ -55,18 +57,28 @@ class NotebookContentsToolSet(ToolSet):
         return True, "", resolved_path
 
     def _load_and_validate_notebook(
-        self, path: str, must_exist: bool = True
+        self, path: str, must_exist: bool = True, validate: bool = True
     ) -> tuple[bool, str, Path | None, nbformat.NotebookNode | None]:
-        """Combined path validation and notebook loading"""
+        """Combined path validation and notebook loading
+
+        Args:
+            path: Notebook path
+            must_exist: Require file to exist
+            validate: Perform nbformat schema validation
+        """
         is_valid, error_msg, resolved_path = self._validate_path(path)
         if not is_valid:
             return False, error_msg, None, None
 
+        # At this point, resolved_path should be valid
+        assert resolved_path is not None
         if must_exist and not resolved_path.exists():
             return False, f"Notebook file not found: {path}", resolved_path, None
 
         if must_exist:
-            success, error_msg, notebook = self._load_notebook(resolved_path)
+            success, error_msg, notebook = self._load_notebook(
+                resolved_path, validate=validate
+            )
             if not success:
                 return False, error_msg, resolved_path, None
             return True, "", resolved_path, notebook
@@ -88,19 +100,52 @@ class NotebookContentsToolSet(ToolSet):
             return "".join(source) if source else ""
         return ""
 
+    def _collect_cell_ids(self, notebook: nbformat.NotebookNode) -> set[str]:
+        """Collect existing cell ids (if any)"""
+        ids: set[str] = set()
+        for cell in notebook.get("cells", []):
+            cid = cell.get("id")
+            if isinstance(cid, str) and cid:
+                ids.add(cid)
+        return ids
+
+    def _find_cell(
+        self, notebook: nbformat.NotebookNode, cell_id: str
+    ) -> tuple[int | None, nbformat.NotebookNode | None]:
+        """Find cell by cell_id and return (index, cell_object)
+
+        Args:
+            notebook: Notebook object
+            cell_id: Cell identifier to find
+
+        Returns:
+            tuple of (cell_index, cell_object) if found, (None, None) otherwise
+        """
+        cells = notebook.get("cells", [])
+        for idx, cell in enumerate(cells):
+            if cell.get("id") == cell_id:
+                return idx, cell
+        return None, None
+
     def _load_notebook(
-        self, file_path: Path
+        self, file_path: Path, validate: bool = True
     ) -> tuple[bool, str, nbformat.NotebookNode | None]:
-        """Load and parse a Jupyter notebook file using nbformat"""
+        """Load and parse a Jupyter notebook file using nbformat
+
+        Args:
+            file_path: Path to notebook file
+            validate: Perform nbformat schema validation (default: True)
+        """
         try:
-            # Use nbformat to read and validate notebook
+            # Use nbformat to read notebook
             notebook = nbformat.read(file_path, as_version=4)
 
-            # Additional validation using nbformat
-            nbformat.validate(notebook)
+            # Optionally validate using nbformat
+            if validate:
+                nbformat.validate(notebook)
 
             logger.debug(
-                f"Successfully loaded notebook with {len(notebook.cells)} cells"
+                f"Successfully loaded notebook with {len(notebook.cells)} cells (validated={validate})"
             )
             return True, "", notebook
 
@@ -109,14 +154,61 @@ class NotebookContentsToolSet(ToolSet):
         except Exception as e:
             return False, f"Error loading notebook: {str(e)}", None
 
-    @tool
-    async def read_notebook(self, path: str) -> dict:
-        """Read complete notebook content with version tracking"""
-        logger.info(f"Reading notebook: {path}")
+    async def _ensure_cell_ids_and_upgrade(
+        self,
+        resolved_path: Path,
+        notebook: nbformat.NotebookNode,
+        upgrade_minor: bool = True,
+    ) -> bool:
+        """Internal: Ensure nbformat 4.5+ and stable cell ids.
 
-        # Load and validate
+        Note: This method only mutates the in-memory notebook and returns whether
+        a change occurred. The caller (usually _save_notebook) is responsible for persistence.
+        """
+        changed = False
+
+        # Upgrade minor version to support cell ids
+        try:
+            if (
+                upgrade_minor
+                and getattr(notebook, "nbformat", 4) == 4
+                and getattr(notebook, "nbformat_minor", 4) < 5
+            ):
+                notebook.nbformat_minor = 5
+                changed = True
+        except Exception:
+            # Defensive: ignore if attributes not present as expected
+            pass
+
+        existing_ids = self._collect_cell_ids(notebook)
+
+        for cell in notebook.get("cells", []):
+            if not isinstance(cell.get("id"), str) or not cell.get("id"):
+                # Generate unique id
+                new_id = uuid.uuid4().hex
+                while new_id in existing_ids:
+                    new_id = uuid.uuid4().hex
+                cell["id"] = new_id
+                existing_ids.add(new_id)
+                changed = True
+
+        return changed
+
+    @tool
+    async def read_notebook(self, path: str, validate: bool = True) -> dict:
+        """Read complete notebook content with version tracking
+
+        Args:
+            path: Path to notebook file
+            validate: Perform nbformat schema validation (default: True)
+                     Set False for faster reads when validation is not needed
+                     (e.g., periodic polling of trusted content)
+        """
+        logger.info(f"Reading notebook: {path} (validate={validate})")
+
+        # Load with optional validation
         success, error_msg, resolved_path, notebook = self._load_and_validate_notebook(
-            path
+            path, validate=validate
         )
         if not success or not resolved_path or not notebook:
             return {"success": False, "error": error_msg}
@@ -126,6 +218,8 @@ class NotebookContentsToolSet(ToolSet):
                 "success": False,
                 "error": f"File is not a Jupyter notebook: {path}",
             }
+
+        # Do not auto-upgrade on read to avoid implicit writes; save path will enforce
 
         # Add version info for change detection
         try:
@@ -151,13 +245,24 @@ class NotebookContentsToolSet(ToolSet):
     async def update_cell(
         self,
         path: str,
-        cell_index: int,
+        cell_id: str,
         source: str,
         cell_type: Optional[str] = None,
         metadata: Optional[dict] = None,
     ) -> dict:
-        """Update single cell content - SSOT: only updates source, never outputs"""
-        logger.info(f"Updating cell {cell_index} in: {path}")
+        """Update single cell content using cell_id - SSOT: only updates source, never outputs
+
+        Args:
+            path: Path to notebook file
+            cell_id: Cell identifier
+            source: New source code
+            cell_type: Optional new cell type
+            metadata: Optional metadata updates
+
+        Returns:
+            Minimal dict: {"success": bool, "cell_id": str, "file_path": str}
+        """
+        logger.info(f"Updating cell {cell_id} in: {path}")
 
         # Load and validate
         success, error_msg, resolved_path, notebook = self._load_and_validate_notebook(
@@ -166,16 +271,12 @@ class NotebookContentsToolSet(ToolSet):
         if not success or not resolved_path or not notebook:
             return {"success": False, "error": error_msg}
 
-        cells = notebook.cells
-
-        # Validate cell index
-        index_valid, index_error = self._validate_cell_index(cell_index, cells)
-        if not index_valid:
-            return {"success": False, "error": index_error}
+        # Find cell by cell_id
+        cell_index, cell = self._find_cell(notebook, cell_id)
+        if cell_index is None or cell is None:
+            return {"success": False, "error": f"Cell with id '{cell_id}' not found"}
 
         try:
-            cell = cells[cell_index]
-
             # Update source using helper method
             cell.source = self._format_source(source)
 
@@ -213,12 +314,11 @@ class NotebookContentsToolSet(ToolSet):
             if not save_result["success"]:
                 return save_result
 
+            # Return minimal response
             return {
                 "success": True,
+                "cell_id": cell_id,
                 "file_path": str(resolved_path),
-                "cell_index": cell_index,
-                "cell_type": cell.cell_type,
-                "updated_at": time.time(),
             }
 
         except Exception as e:
@@ -231,11 +331,24 @@ class NotebookContentsToolSet(ToolSet):
         path: str,
         cell_type: str,
         source: str = "",
-        position: Optional[int] = None,
+        cell_id: Optional[str] = None,
+        below_cell_id: Optional[str] = None,
         metadata: Optional[dict] = None,
     ) -> dict:
-        """Add new cell to notebook"""
-        logger.info(f"Adding {cell_type} cell to: {path} at position {position}")
+        """Add new cell to notebook using cell_id positioning
+
+        Args:
+            path: Path to notebook file
+            cell_type: Type of cell ('code', 'markdown', or 'raw')
+            source: Cell source code
+            cell_id: Optional cell identifier (auto-generated if not provided)
+            below_cell_id: Cell id to insert after. If None, append to end.
+            metadata: Optional cell metadata
+
+        Returns:
+            Minimal dict: {"success": bool, "cell_id": str, "file_path": str}
+        """
+        logger.info(f"Adding {cell_type} cell to: {path}")
 
         if cell_type not in ["code", "markdown", "raw"]:
             return {
@@ -251,6 +364,20 @@ class NotebookContentsToolSet(ToolSet):
             return {"success": False, "error": error_msg}
 
         try:
+            # Determine id for new cell (prefer provided, else generate)
+            existing_ids = self._collect_cell_ids(notebook)
+            if cell_id:
+                if cell_id in existing_ids:
+                    return {
+                        "success": False,
+                        "error": f"cell_id already exists: {cell_id}",
+                    }
+                new_id = cell_id
+            else:
+                new_id = uuid.uuid4().hex
+                while new_id in existing_ids:
+                    new_id = uuid.uuid4().hex
+
             # Create new cell using nbformat helpers
             if cell_type == "code":
                 new_cell = nbformat.v4.new_code_cell(
@@ -267,42 +394,41 @@ class NotebookContentsToolSet(ToolSet):
             else:
                 return {"success": False, "error": f"Invalid cell_type: {cell_type}"}
 
-            # For compatibility with existing notebooks, match their format version
-            # Check if existing notebook supports id fields
-            supports_id = getattr(notebook, "nbformat_minor", 4) >= 5
-
-            # Remove 'id' field if target notebook doesn't support it
-            if not supports_id:
+            # Assign stable id
+            try:
+                new_cell["id"] = new_id
+            except Exception:
+                # Fallback to attribute assignment if needed
                 try:
-                    if "id" in new_cell:
-                        del new_cell["id"]
-                except (KeyError, TypeError, AttributeError):
-                    try:
-                        if hasattr(new_cell, "id"):
-                            delattr(new_cell, "id")
-                    except (AttributeError, TypeError):
-                        pass
+                    setattr(new_cell, "id", new_id)
+                except Exception:
+                    return {"success": False, "error": "Failed to assign cell id"}
 
-            # Insert at position
-            if position is None or position >= len(notebook.cells):
+            # Determine insertion position
+            if below_cell_id is None:
+                # Append to end
                 notebook.cells.append(new_cell)
-                cell_index = len(notebook.cells) - 1
             else:
-                position = max(0, position)
-                notebook.cells.insert(position, new_cell)
-                cell_index = position
+                # Find target cell and insert after it
+                target_index, _ = self._find_cell(notebook, below_cell_id)
+                if target_index is None:
+                    return {
+                        "success": False,
+                        "error": f"Target cell with id '{below_cell_id}' not found",
+                    }
+                # Insert after target cell
+                notebook.cells.insert(target_index + 1, new_cell)
 
             # Save notebook
             save_result = await self._save_notebook(resolved_path, notebook)
             if not save_result["success"]:
                 return save_result
 
+            # Return minimal response
             return {
                 "success": True,
+                "cell_id": new_id,
                 "file_path": str(resolved_path),
-                "cell_index": cell_index,
-                "cell_type": cell_type,
-                "total_cells": len(notebook.cells),
             }
 
         except Exception as e:
@@ -310,9 +436,17 @@ class NotebookContentsToolSet(ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool
-    async def delete_cell(self, path: str, cell_index: int) -> dict:
-        """Delete cell from notebook"""
-        logger.info(f"Deleting cell {cell_index} from: {path}")
+    async def delete_cell(self, path: str, cell_id: str) -> dict:
+        """Delete cell from notebook using cell_id
+
+        Args:
+            path: Path to notebook file
+            cell_id: Cell identifier
+
+        Returns:
+            Minimal dict: {"success": bool, "cell_id": str, "file_path": str}
+        """
+        logger.info(f"Deleting cell {cell_id} from: {path}")
 
         # Load and validate
         success, error_msg, resolved_path, notebook = self._load_and_validate_notebook(
@@ -321,15 +455,14 @@ class NotebookContentsToolSet(ToolSet):
         if not success or not resolved_path or not notebook:
             return {"success": False, "error": error_msg}
 
-        cells = notebook.cells
-
-        # Validate cell index
-        index_valid, index_error = self._validate_cell_index(cell_index, cells)
-        if not index_valid:
-            return {"success": False, "error": index_error}
+        # Find cell by cell_id
+        cell_index, cell = self._find_cell(notebook, cell_id)
+        if cell_index is None or cell is None:
+            return {"success": False, "error": f"Cell with id '{cell_id}' not found"}
 
         try:
             # Remove cell
+            cells = notebook.cells
             deleted_cell = cells.pop(cell_index)
 
             # Save notebook
@@ -337,12 +470,11 @@ class NotebookContentsToolSet(ToolSet):
             if not save_result["success"]:
                 return save_result
 
+            # Return minimal response
             return {
                 "success": True,
+                "cell_id": cell_id,
                 "file_path": str(resolved_path),
-                "deleted_cell_index": cell_index,
-                "deleted_cell_type": deleted_cell.cell_type,
-                "remaining_cells": len(cells),
             }
 
         except Exception as e:
@@ -350,9 +482,20 @@ class NotebookContentsToolSet(ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool
-    async def move_cell(self, path: str, from_index: int, to_index: int) -> dict:
-        """Move cell to different position"""
-        logger.info(f"Moving cell from {from_index} to {to_index} in: {path}")
+    async def move_cell(
+        self, path: str, cell_id: str, below_cell_id: Optional[str] = None
+    ) -> dict:
+        """Move cell to different position using cell_id
+
+        Args:
+            path: Path to notebook file
+            cell_id: Cell identifier to move
+            below_cell_id: Cell id to move after. If None, move to top.
+
+        Returns:
+            Minimal dict: {"success": bool, "cell_id": str, "file_path": str}
+        """
+        logger.info(f"Moving cell {cell_id} in: {path}")
 
         # Load and validate
         success, error_msg, resolved_path, notebook = self._load_and_validate_notebook(
@@ -361,21 +504,38 @@ class NotebookContentsToolSet(ToolSet):
         if not success or not resolved_path or not notebook:
             return {"success": False, "error": error_msg}
 
-        cells = notebook.cells
-
-        # Validate both indices
-        from_valid, from_error = self._validate_cell_index(from_index, cells)
-        if not from_valid:
-            return {"success": False, "error": f"Source {from_error.lower()}"}
-
-        to_valid, to_error = self._validate_cell_index(to_index, cells)
-        if not to_valid:
-            return {"success": False, "error": f"Target {to_error.lower()}"}
-
-        if from_index == to_index:
-            return {"success": True, "message": "No movement needed"}
+        # Find source cell
+        from_index, cell = self._find_cell(notebook, cell_id)
+        if from_index is None or cell is None:
+            return {"success": False, "error": f"Cell with id '{cell_id}' not found"}
 
         try:
+            cells = notebook.cells
+
+            # Determine target position
+            if below_cell_id is None:
+                # Move to top
+                to_index = 0
+            else:
+                # Find target cell
+                target_index, _ = self._find_cell(notebook, below_cell_id)
+                if target_index is None:
+                    return {
+                        "success": False,
+                        "error": f"Target cell with id '{below_cell_id}' not found",
+                    }
+                # Move after target cell
+                to_index = target_index + 1
+
+            # Check if move is needed
+            if from_index == to_index or from_index + 1 == to_index:
+                return {
+                    "success": True,
+                    "cell_id": cell_id,
+                    "file_path": str(resolved_path),
+                    "message": "No movement needed",
+                }
+
             # Move cell
             cell = cells.pop(from_index)
             # Adjust target index if moving down (after removal)
@@ -387,12 +547,11 @@ class NotebookContentsToolSet(ToolSet):
             if not save_result["success"]:
                 return save_result
 
+            # Return minimal response
             return {
                 "success": True,
+                "cell_id": cell_id,
                 "file_path": str(resolved_path),
-                "from_index": from_index,
-                "to_index": adjusted_to,
-                "cell_type": cell.cell_type,
             }
 
         except Exception as e:
@@ -403,13 +562,24 @@ class NotebookContentsToolSet(ToolSet):
     async def update_cell_outputs(
         self,
         path: str,
-        cell_index: int,
+        cell_id: str,
         outputs: list,
         execution_count: Optional[int] = None,
         execution_timing: Optional[dict] = None,
     ) -> dict:
-        """Update cell outputs after execution - only called by backend execution"""
-        logger.info(f"Updating outputs for cell {cell_index} in: {path}")
+        """Update cell outputs after execution using cell_id - only called by backend execution
+
+        Args:
+            path: Path to notebook file
+            cell_id: Cell identifier
+            outputs: Cell outputs
+            execution_count: Execution counter
+            execution_timing: Execution timing metadata
+
+        Returns:
+            Minimal dict: {"success": bool, "cell_id": str, "file_path": str}
+        """
+        logger.info(f"Updating outputs for cell {cell_id} in: {path}")
 
         # Load and validate
         success, error_msg, resolved_path, notebook = self._load_and_validate_notebook(
@@ -418,14 +588,11 @@ class NotebookContentsToolSet(ToolSet):
         if not success or not resolved_path or not notebook:
             return {"success": False, "error": error_msg}
 
-        cells = notebook.cells
+        # Find cell by cell_id
+        cell_index, cell = self._find_cell(notebook, cell_id)
+        if cell_index is None or cell is None:
+            return {"success": False, "error": f"Cell with id '{cell_id}' not found"}
 
-        # Validate cell index
-        index_valid, index_error = self._validate_cell_index(cell_index, cells)
-        if not index_valid:
-            return {"success": False, "error": index_error}
-
-        cell = cells[cell_index]
         if cell.cell_type != "code":
             return {"success": False, "error": "Can only update outputs for code cells"}
 
@@ -458,7 +625,7 @@ class NotebookContentsToolSet(ToolSet):
                 # Timestamps are already cleaned by jupyter_kernel.py's make_json_serializable
                 cell.metadata["execution"].update(execution_timing)
                 logger.debug(
-                    f"Updated cell {cell_index} with execution timing: {list(execution_timing.keys())}"
+                    f"Updated cell {cell_id} with execution timing: {list(execution_timing.keys())}"
                 )
 
             # Save notebook
@@ -466,13 +633,11 @@ class NotebookContentsToolSet(ToolSet):
             if not save_result["success"]:
                 return save_result
 
+            # Return minimal response
             return {
                 "success": True,
+                "cell_id": cell_id,
                 "file_path": str(resolved_path),
-                "cell_index": cell_index,
-                "execution_count": execution_count,
-                "output_count": len(outputs or []),
-                "timing_updated": bool(execution_timing),
             }
 
         except Exception as e:
@@ -525,9 +690,9 @@ class NotebookContentsToolSet(ToolSet):
             # Users should add title cells manually if needed
             # Empty notebook should have empty cells array: cells: []
 
-            # Set compatible nbformat version (4.4 for compatibility)
+            # Set nbformat version to 4.5 to support stable cell ids
             notebook.nbformat = 4
-            notebook.nbformat_minor = 4
+            notebook.nbformat_minor = 5
 
             # Save notebook
             save_result = await self._save_notebook(resolved_path, notebook)
@@ -558,6 +723,14 @@ class NotebookContentsToolSet(ToolSet):
             dict with success status
         """
         try:
+            # Enforce nbformat 4.5 and ensure cell ids before writing
+            try:
+                await self._ensure_cell_ids_and_upgrade(
+                    resolved_path, notebook, upgrade_minor=True
+                )
+            except Exception as e:
+                logger.warning(f"Failed to enforce ids/format before save: {e}")
+
             # Skip strict validation for compatibility - nbformat.write will handle basic validation
             # nbformat.validate(notebook) - commenting out to avoid version conflicts
 
@@ -574,10 +747,26 @@ class NotebookContentsToolSet(ToolSet):
             temp_path.replace(resolved_path)
 
             logger.debug(f"Notebook saved successfully: {resolved_path}")
+            # Collect fresh file stats for callers that need versioning info
+            try:
+                stat = resolved_path.stat()
+                mtime = stat.st_mtime
+                size = stat.st_size
+                version = int(stat.st_mtime * 1000)
+            except Exception:
+                mtime = None
+                size = None
+                version = None
+
             return {
                 "success": True,
                 "file_path": str(resolved_path),
                 "saved_at": time.time(),
+                "notebook": notebook,
+                "mtime": mtime,
+                "size": size,
+                "version": version,
+                "cell_count": len(notebook.get("cells", [])) if isinstance(notebook, dict) else len(getattr(notebook, "cells", [])),
             }
 
         except ValidationError as e:

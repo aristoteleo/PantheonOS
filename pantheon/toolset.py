@@ -1,35 +1,108 @@
-from typing import Callable
-from functools import partial
 import inspect
 import sys
+import json
 from abc import ABC
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
+from functools import partial, wraps
+from typing import Callable, Optional
 
 from executor.engine import Engine, ProcessJob
-from .remote import RemoteBackendFactory
+from funcdesc import parse_func
 
+from .remote import RemoteBackendFactory
 from .utils.log import logger
+from .utils.misc import run_func
+
+# Global context variable for session_id
+current_session_id: ContextVar[Optional[str]] = ContextVar(
+    "current_session_id", default=None
+)
+
+
+def parse_tool_desc(func: Callable) -> dict:
+    desc = parse_func(func)
+    tool_dict = json.loads(desc.to_json())
+    # Remove framework-only params from the cached description
+    tool_dict["inputs"] = [
+        inp
+        for inp in tool_dict.get("inputs", [])
+        if inp.get("name") not in ("self", "session_id")
+    ]
+
+    return tool_dict
 
 
 def tool(func: Callable | None = None, *, exclude: bool = False, **kwargs):
-    """Mark tool in a ToolSet class
+    """
+    Mark tool in a ToolSet class with automatic session_id injection
+
+    The decorator automatically:
+    1. Adds a 'session_id' parameter as the last argument
+    2. Extracts session_id from kwargs before calling the function
+    3. Injects it into contextvars for the function's execution
+    4. Cleans up the context after execution
+
+    This allows tools to access session_id via self.get_current_session_id()
+    without declaring it as a parameter.
 
     Args:
         exclude: bool
             If True, this tool will not be exposed to LLM agents.
             Useful for tools that are only meant for frontend/API use.
             Default False
-        job_type: "local", "thread" or "process"
-            Different job types will be executed in different ways.
-            Default "local"
         **kwargs: Additional parameters for tool execution
+
+    Example:
+        @tool
+        async def execute_cell(self, notebook_path: str, code: str):
+            # No need to declare session_id parameter
+            session_id = self.get_current_session_id()
+            # session_id is automatically available via context
+            ...
+
+        # Usage (session_id automatically injected):
+        await toolset.execute_cell(
+            notebook_path="test.ipynb",
+            code="x = 1",
+            session_id="chat-123"  # <- automatically injected into context
+        )
     """
     if func is None:
         return partial(tool, exclude=exclude, **kwargs)
-    func._is_tool = True
-    func._exclude = exclude
-    func._tool_params = kwargs
-    return func
+
+    # Unified wrapper for both sync and async functions
+    @wraps(func)
+    async def wrapper(*args, **func_kwargs):
+        # Extract session_id from kwargs (not passed to original function)
+        session_id = func_kwargs.pop("session_id", None)
+
+        # Set session_id to contextvars
+        token = None
+        if session_id is not None:
+            token = current_session_id.set(session_id)
+
+        try:
+            # Call original function (handles both sync and async via run_func)
+            result = await run_func(func, *args, **func_kwargs)
+            return result
+        finally:
+            # Clean up context
+            if token is not None:
+                current_session_id.reset(token)
+
+    # Mark as tool and keep reference to original function
+    wrapper._is_tool = True
+    wrapper._exclude = exclude
+    wrapper._tool_params = kwargs
+    tool_desc = None
+    try:
+        tool_desc = parse_tool_desc(func)
+    except Exception:
+        pass
+    wrapper._tool_desc = tool_desc
+
+    return wrapper
 
 
 class ToolSet(ABC):
@@ -70,17 +143,32 @@ class ToolSet(ABC):
     def service_id(self):
         return self.worker.service_id if self.worker else None
 
+    def get_current_session_id(self) -> Optional[str]:
+        """
+        Get current session ID from context (similar to getting HTTP header in MCP)
+
+        Returns:
+            Session ID if set in current context, None otherwise
+        """
+        return current_session_id.get()
+
     async def run_setup(self):
         """Setup the toolset before running it. Can be overridden by subclasses."""
         pass
 
     @tool
     async def list_tools(self) -> dict:
-        """List all available tools in this toolset.
+        """
+        List all available tools in this toolset (for LLM consumption)
 
         This method is used by ToolsetProxy to discover available tools.
         Uses funcdesc for unified type extraction (same as local tools).
         Named to match MCP's list_tools convention.
+
+        Note:
+            - Parses the original function signature (before @tool wrapping)
+            - Does NOT include session_id parameter (transparent to LLM)
+            - session_id is automatically injected by the framework
 
         Returns:
             dict: {
@@ -102,8 +190,6 @@ class ToolSet(ABC):
                 ]
             }
         """
-        import json
-        from funcdesc import parse_func
 
         tools = []
 
@@ -114,13 +200,11 @@ class ToolSet(ABC):
                 continue
 
             try:
-                # Use funcdesc.parse_func() - same as local tools
-                desc = parse_func(method)
-
-                # Serialize using Description's built-in to_json()
-                tool_dict = json.loads(desc.to_json())
-
-                tools.append(tool_dict)
+                cached = getattr(method, "_tool_desc", None)
+                if cached is not None:
+                    tools.append(cached)
+                else:
+                    tools.append(parse_tool_desc(method))
 
             except Exception as e:
                 logger.warning(f"Failed to parse tool '{name}': {e}")

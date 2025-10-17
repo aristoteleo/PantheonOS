@@ -202,19 +202,16 @@ class KnowledgeToolSet(ToolSet):
     # ============================================================================
 
     @tool(exclude=True)
-    async def list_collections(self, chat_id: Optional[str] = None) -> dict:
+    async def list_collections(self) -> dict:
         """
         列出所有集合
-
-        Args:
-            chat_id: 可选，如果提供则返回该 chat 激活的集合
 
         Returns:
             {
                 "success": bool,
                 "collections": List[CollectionInfo],
                 "total": int,
-                "active_for_chat": List[str]  # 如果提供了 chat_id
+                "active_for_chat": List[str]  # 当前 session 激活的集合
             }
         """
         try:
@@ -229,6 +226,8 @@ class KnowledgeToolSet(ToolSet):
                 "total": len(collections),
             }
 
+            # Get chat_id from session context
+            chat_id = self.get_current_session_id()
             if chat_id:
                 chat_config = self._get_chat_config(chat_id)
                 result["active_for_chat"] = chat_config.active_collection_ids
@@ -507,12 +506,9 @@ class KnowledgeToolSet(ToolSet):
     # ============================================================================
 
     @tool(exclude=True)
-    async def get_chat_knowledge(self, chat_id: str) -> dict:
+    async def get_chat_knowledge(self) -> dict:
         """
-        获取 Chat 的知识库配置
-
-        Args:
-            chat_id: Chat ID
+        获取当前 session 的知识库配置
 
         Returns:
             {
@@ -521,6 +517,10 @@ class KnowledgeToolSet(ToolSet):
                 "collections": List[CollectionInfo]
             }
         """
+        chat_id = self.get_current_session_id()
+        if not chat_id:
+            return {"success": False, "error": "No session_id provided"}
+
         try:
             config = self._get_chat_config(chat_id)
 
@@ -542,12 +542,11 @@ class KnowledgeToolSet(ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool(exclude=True)
-    async def enable_collection(self, chat_id: str, collection_id: str) -> dict:
+    async def enable_collection(self, collection_id: str) -> dict:
         """
-        为 Chat 启用集合
+        为当前 session 启用集合
 
         Args:
-            chat_id: Chat ID
             collection_id: 集合 ID
 
         Returns:
@@ -556,6 +555,10 @@ class KnowledgeToolSet(ToolSet):
                 "config": ChatKnowledgeConfig
             }
         """
+        chat_id = self.get_current_session_id()
+        if not chat_id:
+            return {"success": False, "error": "No session_id provided"}
+
         try:
             # 检查集合是否存在
             if not self._get_collection(collection_id):
@@ -577,12 +580,11 @@ class KnowledgeToolSet(ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool(exclude=True)
-    async def disable_collection(self, chat_id: str, collection_id: str) -> dict:
+    async def disable_collection(self, collection_id: str) -> dict:
         """
-        为 Chat 禁用集合
+        为当前 session 禁用集合
 
         Args:
-            chat_id: Chat ID
             collection_id: 集合 ID
 
         Returns:
@@ -591,6 +593,10 @@ class KnowledgeToolSet(ToolSet):
                 "config": ChatKnowledgeConfig
             }
         """
+        chat_id = self.get_current_session_id()
+        if not chat_id:
+            return {"success": False, "error": "No session_id provided"}
+
         try:
             config = self._get_chat_config(chat_id)
 
@@ -608,12 +614,11 @@ class KnowledgeToolSet(ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool(exclude=True)
-    async def set_auto_search(self, chat_id: str, enabled: bool) -> dict:
+    async def set_auto_search(self, enabled: bool) -> dict:
         """
-        设置 Chat 的自动搜索开关
+        设置当前 session 的自动搜索开关
 
         Args:
-            chat_id: Chat ID
             enabled: 是否启用自动搜索
 
         Returns:
@@ -622,6 +627,10 @@ class KnowledgeToolSet(ToolSet):
                 "config": ChatKnowledgeConfig
             }
         """
+        chat_id = self.get_current_session_id()
+        if not chat_id:
+            return {"success": False, "error": "No session_id provided"}
+
         try:
             config = self._get_chat_config(chat_id)
             config.auto_search = enabled
@@ -647,7 +656,6 @@ class KnowledgeToolSet(ToolSet):
         top_k: int = 5,
         collection_ids: Optional[List[str]] = None,
         use_hybrid: bool = True,
-        chat_id: Optional[str] = None,
     ) -> dict:
         """
         搜索知识库
@@ -655,7 +663,7 @@ class KnowledgeToolSet(ToolSet):
         Args:
             query: 查询文本
             top_k: 返回结果数量
-            collection_ids: 可选, 集合ID
+            collection_ids: 可选, 集合ID列表（如果不指定则使用当前 session 的激活集合）
             use_hybrid: 是否使用混合检索
 
         Returns:
@@ -670,12 +678,15 @@ class KnowledgeToolSet(ToolSet):
             target_collections = []
             if collection_ids:
                 target_collections = collection_ids
-            elif chat_id:
-                config = self._get_chat_config(chat_id)
-                target_collections = config.active_collection_ids
             else:
-                # 搜索所有集合
-                target_collections = list(self._metadata["collections"].keys())
+                # Get chat_id from session context
+                chat_id = self.get_current_session_id()
+                if chat_id:
+                    config = self._get_chat_config(chat_id)
+                    target_collections = config.active_collection_ids
+                else:
+                    # 搜索所有集合
+                    target_collections = list(self._metadata["collections"].keys())
 
             if not target_collections:
                 return {"success": True, "results": [], "searched_collections": []}

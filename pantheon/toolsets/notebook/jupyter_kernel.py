@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 import time
+import urllib.parse
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
@@ -114,8 +115,11 @@ class RemoteIOPubEventBus(IOPubEventBus):
     ) -> None:
         """Convert Jupyter message to stream message and publish with optional metadata"""
         try:
-            # Use consistent stream ID pattern matching frontend
-            stream_id = f"notebook_iopub_{session_id}"
+            # Encode session_id to avoid NATS subject special characters (. : * >)
+            # NATS treats . as token separator in subjects, so "chat:analysis.ipynb"
+            # would be parsed incorrectly. URL encoding ensures proper handling.
+            safe_session_id = urllib.parse.quote(session_id, safe='')
+            stream_id = f"notebook_iopub_{safe_session_id}"
 
             # Get or create stream channel
             if stream_id not in self.stream_channels:
@@ -514,12 +518,12 @@ class JupyterKernelToolSet(ToolSet):
 
     @tool
     async def create_session(
-        self, kernel_spec: str = "python3", session_id: str = None
+        self, kernel_spec: str = "python3", kernel_session_id: str = None
     ) -> dict:
         """Create new kernel session"""
         try:
-            if session_id is None:
-                session_id = str(uuid.uuid4())
+            if kernel_session_id is None:
+                kernel_session_id = str(uuid.uuid4())
 
             # Try to create kernel manager with the specified kernel, fallback to default
             try:
@@ -553,28 +557,28 @@ class JupyterKernelToolSet(ToolSet):
                 return {"success": False, "error": f"Kernel failed to start: {e}"}
 
             # Store references
-            self.kernel_managers[session_id] = km
-            self.clients[session_id] = kc
+            self.kernel_managers[kernel_session_id] = km
+            self.clients[kernel_session_id] = kc
 
             # Create session info
             session_info = SessionInfo(
-                session_id=session_id,
+                session_id=kernel_session_id,
                 kernel_spec=kernel_spec,
                 status=KernelStatus.IDLE,
                 created_at=datetime.now(timezone.utc).isoformat(),
                 execution_count=0,
             )
-            self.sessions[session_id] = session_info
+            self.sessions[kernel_session_id] = session_info
 
             # Start IOPub monitoring
             if self.event_bus:
-                await self._setup_iopub_monitoring(session_id, km, kc)
+                await self._setup_iopub_monitoring(kernel_session_id, km, kc)
 
-            logger.info(f"Created Jupyter kernel session: {session_id}")
+            logger.info(f"Created Jupyter kernel session: {kernel_session_id}")
 
             return {
                 "success": True,
-                "session_id": session_id,
+                "session_id": kernel_session_id,
                 "kernel_spec": kernel_spec,
                 "status": session_info.status.value,
                 "created_at": session_info.created_at,
@@ -837,7 +841,7 @@ class JupyterKernelToolSet(ToolSet):
             logger.info(
                 f"Session {session_id} not found, creating new session with same ID"
             )
-            result = await self.create_session(session_id=session_id)
+            result = await self.create_session(kernel_session_id=session_id)
 
             if result["success"]:
                 logger.info(
