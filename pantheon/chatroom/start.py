@@ -24,16 +24,29 @@ async def start_services(
         memory_dir: The directory to store the memory.
         id_hash: The hash of the ID, if you want a stable service ID please provide it.
         endpoint_service_id: The service ID of the remote endpoint.
-        workspace_path: The path to the workspace.
+        workspace_path: The path to the workspace. Endpoint will chdir to this directory.
         agents_template: The template of the agents.
         log_level: The level of the log.
         endpoint_wait_time: The time to wait for the endpoint to start.
         speech_to_text_model: The model to use for speech to text.
     """
+    # Convert all relative paths to absolute paths
+    # (Endpoint will chdir to its own workspace_path in __init__)
+    memory_dir = str(Path(memory_dir).resolve())
+    workspace_path = str(Path(workspace_path).resolve())
+
+    # Handle agents_template if it's a file path
+    if agents_template and isinstance(agents_template, str):
+        agents_template = str(Path(agents_template).resolve())
+
+    # Convert any other Path-like kwargs to absolute paths
+    for key in list(kwargs.keys()):
+        if key.endswith("_path") or key.endswith("_dir"):
+            if isinstance(kwargs[key], str):
+                kwargs[key] = str(Path(kwargs[key]).resolve())
+
     if endpoint_service_id is None:
-        w_path = Path(workspace_path)
-        w_path.mkdir(parents=True, exist_ok=True)
-        endpoint = Endpoint(config=None)
+        endpoint = Endpoint(config=None, workspace_path=workspace_path)
         asyncio.create_task(endpoint.run())
 
         # Wait for endpoint to be ready

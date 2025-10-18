@@ -26,48 +26,50 @@ CLI_HISTORY_FILE = os.path.join(PANTHEON_DIR, "cli_history")
 
 
 # ==================== System Prompts ====================
+#
+# Priority modes for token optimization:
+# - "compact":   ~1,500 tokens (work strategy only)
+# - "balanced":  ~2,500 tokens (default - strategy + format + tools)
+# - "detailed":  ~3,500 tokens (all components enabled)
+#
+# Components:
+# - WORK_STRATEGY_PROMPT       (~30 tokens)  [merged from decision_flow + react_mode]
+# - OUTPUT_FORMAT_PROMPT       (~90 tokens)  [Claude Code style formatting]
+# - TOOLS_GUIDANCE_PROMPT      (~25 tokens)  [tool definitions]
+# - PLAN_MODE_ACTIVE_PROMPT    (~60 tokens)  [exclusive plan mode]
+#
+# ==================== Prompt Definitions ====================
 
-DECISION_FLOW_PROMPT = """
+WORK_STRATEGY_PROMPT = """
 
-## Approach Strategy
+## Work Strategy & Execution
 
-**Core principle: Break down non-trivial work into steps**
+**Task Assessment:**
+- Is this simple (single-step) or complex (multi-part)?
+- Are requirements clear, or are there unknowns/risks?
+- Assess complexity before committing to an approach
 
-**Assess the task:**
-- Is this a simple, single-step action?
-- Or can it be broken into multiple parts?
-- Are requirements clear? Any unknowns or risks?
+**Strategy Selection:**
+- **Execute directly** - Only for simple, single-step tasks with clear requirements
+- **Break down & track** - Most tasks → decompose into small pieces, track progress with todos
+- **Plan first** - Complex/unfamiliar tasks → research and analyze before execution
 
-**Choose your approach:**
-- **Execute directly** - Only for simple, single-step tasks
-- **Break down & track** - Most tasks → create task, update status as you progress
-- **Plan first** - Complex/unfamiliar → research first, then create task and track
-
-**Defaults:**
-- Prefer breaking down over doing all-at-once
-- When in doubt, plan before acting
-"""
-
-REACT_MODE_PROMPT = """
-
-## How to Work
-
-**Incremental cycle:**
+**Execution Cycle:**
 Gather info → Analyze → Act → Validate → Repeat
 
-**Communication (REQUIRED):**
-- **Before tools**: Always explain what you're about to do and why
-- **After tools**: Always summarize what you learned and next steps
-- **Never send empty messages with only tool calls** - users need context
-- **When using tasks**: Report details in messages, update todo status to track progress
+For each piece:
+1. Explain what you're about to do and why (BEFORE tools)
+2. Execute the piece
+3. Summarize findings and next steps (AFTER tools)
+4. Mark progress (update todo status)
+5. Adapt based on discoveries
 
-**Core practices:**
-- Decompose work into small, testable pieces
-- Execute one piece at a time
-- Mark progress after each step (update todo status if using tasks)
-- Adapt based on discoveries
-
-**Avoid doing everything in one go - break it down.**
+**Core Principles:**
+- Break down non-trivial work into small, testable pieces
+- Execute one piece at a time, never "all-at-once"
+- Communicate progress in messages, not just in tool calls
+- Mark and update progress after each step (update todo status)
+- When in doubt, plan before acting
 """
 
 PLAN_MODE_ACTIVE_PROMPT = """
@@ -89,7 +91,7 @@ You are in **Plan Mode** - a safe, read-only environment for thorough analysis a
 
 ### Workflow:
 1. **Research**: Explore codebase (if tools available) or discuss with user
-2. **Analyze**: Identify technical challenges and constraints
+2. **Analyze**: Identify technical challenges and constraints (use todos to organize if needed)
 3. **Plan**: Create detailed strategy with file references (if known) or high-level approach
 4. **Exit**: Call `exit_plan_mode(plan="...")` with your complete plan
 
@@ -155,6 +157,67 @@ TOOLS_GUIDANCE_PROMPT = """
 **Recommended workflow**: Plan complex work → create task → execute with status tracking
 """
 
+OUTPUT_FORMAT_PROMPT = """
+
+## Output Format Standard
+
+Use GitHub Flavored Markdown (GFM) for clear structure, strategic visuals, and text-based diagrams.
+
+### MANDATORY FORMATTING RULES
+
+**Headings:** Use `##` and `###` only. No plain text or underlined headings.
+
+**File & Code References:**
+- Files/code: `` `filename.py:42` ``
+- Commands: `` `npm install` ``
+- Variables: `` `variable_name` ``
+
+**Images:** ALWAYS use `![description](path_or_url)`. Never text-only descriptions.
+
+**Code Blocks:** Always include language tag: `` ```python\ncode\n``` ``
+
+**Links:** Use `[descriptive text](url)` format.
+
+**Lists vs Paragraphs:** Prefer lists for items, steps, and key points. Use tables for structured data (≤20 rows).
+
+**Text-Based Diagrams (Optional):** When helpful, use ASCII art for flows/structures, tables for comparisons, or Mermaid for complex diagrams in markdown code blocks.
+
+### VISUAL EMPHASIS (5-10% of content)
+
+Use emoji sparingly to enhance clarity:
+
+| Type | Usage | Examples |
+|------|-------|----------|
+| Status | Completion/state | ✅ ❌ ⚠️ 🔄 |
+| Context | Topic markers | 💡 📊 🔧 🚀 |
+| Structure | Key points | 📌 📋 🎯 |
+
+**Placement Rules:**
+- ✅ In headers: `## 📊 Results`
+- ✅ Before items: `⚠️ Important note`
+- ❌ Every line (cluttered)
+- ❌ In code/sentences (disruptive)
+- ❌ Replacing actual content
+
+### CONTENT ORGANIZATION (Optional for Results/Analysis)
+
+For analysis or results, consider this structure (adapt as needed):
+- **Summary**: 1-2 sentence overview
+- **Key Findings**: Primary results as lists or tables
+- **Analysis**: Detailed explanation or reasoning
+- **Artifacts**: Generated files or resources
+- **Next Steps**: Actions or recommendations
+
+### KEY PRINCIPLES
+
+- Mix prose with structured elements (headings, code blocks, tables) - let content determine the format
+- Use text formatting (bold, italics) for emphasis and organization
+- Create tables and Text-Based Diagrams for comparisons and structured information
+- Add images and links for visual references and context
+- Avoid excessive formatting - prioritize clarity and conciseness
+
+"""
+
 
 # ==================== System Prompt Builder ====================
 
@@ -163,31 +226,22 @@ def build_system_prompt(
     base_instructions: str,
     *,
     plan_mode: bool = False,
-    decision_flow: bool = True,
-    react_mode: bool = True,
-    tools_guidance: bool = True,
 ) -> str:
     """
-    Build a complete system prompt by combining base instructions with optional components.
+    Build a complete system prompt by combining base instructions with core components.
     """
     prompt = base_instructions
 
-    # Plan Mode is exclusive - if active, only add Plan Mode prompt
+    # Plan Mode: Architecture + Output + Tools (read-only analysis environment)
     if plan_mode:
         prompt += PLAN_MODE_ACTIVE_PROMPT
+        prompt += OUTPUT_FORMAT_PROMPT
+        prompt += TOOLS_GUIDANCE_PROMPT
         return prompt
 
-    # Normal mode: compose components in logical order
-    # 1. Strategy: how to approach tasks
-    if decision_flow:
-        prompt += DECISION_FLOW_PROMPT
-
-    # 2. Execution: how to work incrementally
-    if react_mode:
-        prompt += REACT_MODE_PROMPT
-
-    # 3. Tools: available planning and tracking tools
-    if tools_guidance:
-        prompt += TOOLS_GUIDANCE_PROMPT
+    # Normal Mode: Strategy + Output + Tools (execution environment)
+    prompt += WORK_STRATEGY_PROMPT
+    prompt += OUTPUT_FORMAT_PROMPT
+    prompt += TOOLS_GUIDANCE_PROMPT
 
     return prompt

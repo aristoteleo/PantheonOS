@@ -47,16 +47,25 @@ class Endpoint(FileTransferToolSet):
     def __init__(
         self,
         config: EndpointConfig | None = None,
+        workspace_path: str | None = None,
         **kwargs,
     ):
         if config is None:
             config = self.default_config()
         self.config = config
         name = self.config.get("service_name", "pantheon-chatroom-endpoint")
-        workspace_path = self.config.get(
-            "workspace_path", "./.pantheon-chatroom-workspace"
-        )
+
+        # Priority: parameter > config > default
+        if workspace_path is None:
+            workspace_path = self.config.get(
+                "workspace_path", "./.pantheon-chatroom-workspace"
+            )
+
         Path(workspace_path).mkdir(parents=True, exist_ok=True)
+
+        # Switch to workspace directory for this Endpoint instance
+        os.chdir(str(workspace_path))
+
         self.log_dir = Path(workspace_path) / ".endpoint-logs"
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -539,6 +548,10 @@ class Endpoint(FileTransferToolSet):
                 # Setup logging and environment
                 log_file = self.log_dir / f"{service_type}.log"
                 env = os.environ.copy()
+                # Store current working directory in environment variable for subprocess
+                # Endpoint instance chdir to workspace_path in __init__
+                # Subprocess will inherit parent's cwd by default
+                env["PANTHEON_WORKSPACE"] = os.getcwd()
 
                 if self.redirect_log:
                     job = SubprocessJob(

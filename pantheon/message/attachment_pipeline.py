@@ -7,10 +7,12 @@ attachments (images, files, links, etc.) from message content.
 Also includes message processor for integration with the agent system.
 """
 
-from typing import Dict, List, Set, Optional, Any
+from pathlib import Path
+from typing import Dict, List, Set, Optional, Any, Tuple
 from ..utils.log import logger
 from .attachment_detection import (
     AttachmentType,
+    AttachmentSourceType,
     DetectedAttachment,
     AttachmentDetector,
     StructuredAttachmentExtractor,
@@ -95,19 +97,11 @@ class AttachmentProcessingPipeline:
         # Sort by confidence (highest first)
         all_attachments.sort(key=lambda x: x.confidence, reverse=True)
 
-        # Group by type
-        grouped = self._group_by_type(all_attachments)
-
         # Convert to serializable format for JSON
         serializable_attachments = self._convert_to_serializable(all_attachments)
-        serializable_grouped = {}
-        for type_key, attachments in grouped.items():
-            serializable_grouped[type_key] = self._convert_to_serializable(attachments)
 
         # Add to message
         message["detected_attachments"] = serializable_attachments
-        message["attachments_by_type"] = serializable_grouped
-        message["has_attachments"] = len(all_attachments) > 0
 
         # Log completion summary
         if all_attachments:
@@ -149,20 +143,6 @@ class AttachmentProcessingPipeline:
                 unique.append(att)
 
         return unique
-
-    def _group_by_type(
-        self, attachments: List[DetectedAttachment]
-    ) -> Dict[str, List[DetectedAttachment]]:
-        """Group attachments by type"""
-        grouped: Dict[str, List[DetectedAttachment]] = {}
-
-        for att in attachments:
-            type_key = att.attachment_type.value
-            if type_key not in grouped:
-                grouped[type_key] = []
-            grouped[type_key].append(att)
-
-        return grouped
 
     def _convert_to_serializable(
         self, attachments: List[DetectedAttachment]

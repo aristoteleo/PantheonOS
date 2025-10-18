@@ -833,13 +833,7 @@ class Agent:
         history = copy.deepcopy(messages)
         tool_timeout = tool_timeout or self.tool_timeout
 
-        system_prompt = build_system_prompt(
-            self.instructions,
-            plan_mode=self.plan_mode,
-            decision_flow=True,
-            react_mode=True,
-            tools_guidance=True,
-        )
+        system_prompt = build_system_prompt(self.instructions, plan_mode=self.plan_mode)
         current_timestamp = time.time()
 
         if (len(history) > 0) and (history[0]["role"] == "system"):
@@ -1073,10 +1067,15 @@ class Agent:
             """Helper: Detect attachments in a message (independent of memory saving)."""
             try:
                 from .message.attachment_pipeline import get_message_processor
-                processor = get_message_processor()
-                processed = await processor.process_message_with_attachments(step_message)
 
-                step_message["detected_attachments"] = processed.get("detected_attachments", [])
+                processor = get_message_processor()
+                processed = await processor.process_message_with_attachments(
+                    step_message
+                )
+
+                step_message["detected_attachments"] = processed.get(
+                    "detected_attachments", []
+                )
             except Exception as e:
                 logger.warning(f"Error in attachment detection: {e}")
 
