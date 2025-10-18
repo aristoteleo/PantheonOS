@@ -1,3 +1,4 @@
+import base64
 import uuid
 from pathlib import Path
 
@@ -68,13 +69,14 @@ class FileTransferToolSet(FileManagerToolSetBase):
             return {"success": False, "error": "File does not exist"}
 
         if receive_chunk is None:
-            # Non-streaming mode: return full file content for proxy calls
+            # Non-streaming mode: return full file content for proxy calls (base64 encoded for JSON compatibility)
             with open(path, "rb") as f:
                 file_data = f.read()
                 return {
                     "success": True,
-                    "data": file_data,
+                    "data": base64.b64encode(file_data).decode("utf-8"),
                     "total_size": len(file_data),
+                    "encoding": "base64",
                 }
         else:
             # Streaming mode: use callback function for direct connections
