@@ -22,6 +22,10 @@ from .suggestion_generator import get_centralized_suggestion_manager
 from .thread import Thread
 
 
+BUILTIN_TOOLSETS = ["todolist"]
+BUILTIN_MCP_SERVERS = ["context7"]
+
+
 class ChatRoom(ToolSet):
     """
     ChatRoom is a service that allow user to interact with a team of agents.
@@ -143,40 +147,51 @@ class ChatRoom(ToolSet):
 
         return team
 
-    async def _add_remote_toolset_to_agent(
-        self, agent: Agent, endpoint_service, toolset_name: str, chat_id: str = None
+    async def _ensure_services(
+        self,
+        endpoint_service,
+        service_type: str,
+        required_services: list[str],
     ):
-        """Add remote toolset tools to agent via ChatRoom layer."""
-        from ..utils.proxy_wrapper import ProxyWrapperBuilder
+        """Ensure required services (MCP servers or ToolSets) are started.
 
-        # 1. Create ToolsetProxy
-        proxy = ToolsetProxy.from_endpoint(endpoint_service, toolset_name)
+        This unified method handles starting both MCP servers and ToolSets
+        with consistent error handling and logging.
 
-        # 2. Get tool list from remote toolset
-        try:
-            tools = await proxy.list_tools()
-        except Exception as e:
-            logger.warning(
-                f"Failed to load toolset '{toolset_name}' for agent '{agent.name}': {e}"
-            )
+        Args:
+            endpoint_service: The endpoint service to use
+            service_type: Type of service ("mcp" or "toolset")
+            required_services: List of service names to start
+        """
+        if not required_services:
             return
 
-        # 3. Create wrapper for each tool and add to agent
-        for tool_desc in tools:
-            tool_name = tool_desc["name"]
+        service_name_plural = "MCP servers" if service_type == "mcp" else "ToolSets"
+        service_name_past = "started" if service_type == "mcp" else "started"
 
-            # Create wrapper using ProxyWrapperBuilder (with chat_id injection)
-            wrapper = ProxyWrapperBuilder.create_wrapper(
-                proxy, tool_desc, agent, chat_id=chat_id
+        try:
+            logger.info(
+                f"Ensuring {service_name_plural} are started: {required_services}"
             )
+            result = await endpoint_service.invoke(
+                "manage_service",
+                {
+                    "action": "start",
+                    "service_type": service_type,
+                    "name": required_services,
+                },
+            )
+            if not result.get("success"):
+                logger.warning(
+                    f"Failed to start some {service_name_plural}: {result.get('errors', [])}"
+                )
+            else:
+                logger.info(
+                    f"{service_name_plural} {service_name_past}: {result.get('started', [])}"
+                )
 
-            # Add to agent via agent.tool() (unified @tool logic)
-            agent.tool(wrapper, key=tool_name)
-
-        logger.info(
-            f"Agent '{agent.name}': Added {len(tools)} tools from remote toolset '{toolset_name}'"
-            + (f" (chat_id={chat_id})" if chat_id else "")
-        )
+        except Exception as e:
+            logger.warning(f"Error ensuring {service_name_plural}: {e}")
 
     async def _create_team_from_template(
         self, team_template: dict, chat_id: str = None
@@ -197,28 +212,60 @@ class ChatRoom(ToolSet):
         # Connect to endpoint service
         endpoint_service = await self._backend.connect(self.endpoint_service_id)
 
-        # Create agents from template
+        # Add per-chat services if chat_id is provided
+        if chat_id:
+            # Add per-chat toolset and MCP server to config for factory to handle
+            for agent_config in agents_config.values():
+                toolsets = agent_config.get("toolsets", [])
+                for toolset in BUILTIN_TOOLSETS:
+                    if toolset not in toolsets:
+                        toolsets.append(toolset)
+                agent_config["toolsets"] = toolsets
+                mcp_servers = agent_config.get("mcp_servers", [])
+                for mcp_server in BUILTIN_MCP_SERVERS:
+                    if mcp_server not in mcp_servers:
+                        mcp_servers.append(mcp_server)
+                agent_config["mcp_servers"] = mcp_servers
+
+        # Create temporary template object to get computed required services
+        from ..factory.template_manager import ChatroomTemplate
+
+        temp_template = ChatroomTemplate(
+            id="temp",
+            name="",
+            description="",
+            icon="",
+            category="",
+            version="1.0.0",
+            agents_config=agents_config,
+            tags=[],
+        )
+
+        # ===== Ensure all required services are started =====
+        await self._ensure_services(
+            endpoint_service, "mcp", temp_template.required_mcp_servers
+        )
+        await self._ensure_services(
+            endpoint_service, "toolset", temp_template.required_toolsets
+        )
+
+        # ===== Create agents from template =====
+        # All MCP and ToolSet providers will be added by factory
         agents = await create_agents_from_template(
             endpoint_service, agents_config, chat_id
         )
         triage_agent = agents["triage"]
         other_agents = agents["other"]
 
-        # Add per-chat local toolsets if chat_id is provided
+        # ===== Add per-chat local toolsets =====
         if chat_id:
-            # Add TodoListToolSet to all agents (remote toolset via wrapper with chat_id)
-            for agent in [triage_agent, *other_agents]:
-                await self._add_remote_toolset_to_agent(
-                    agent, endpoint_service, "todolist", chat_id=chat_id
-                )
-
             # PlanModeToolSet (per-agent instance for individual plan mode control)
             for agent in [triage_agent, *other_agents]:
                 plan_mode_toolset = PlanModeToolSet(agent=agent, name="plan_mode")
                 await agent.toolset(plan_mode_toolset)
                 logger.info(f"Agent '{agent.name}': Added PlanModeToolSet")
 
-        # Create and setup team
+        # ===== Create and setup team =====
         team = PantheonTeam(triage=triage_agent, agents=other_agents)
         await team.async_setup()
 
@@ -405,7 +452,9 @@ class ChatRoom(ToolSet):
         """
         try:
             s = await self._backend.connect(self.endpoint_service_id)
-            result = await s.invoke("list_services")
+            result = await s.invoke(
+                "manage_service", {"action": "list", "service_type": "toolset"}
+            )
             if isinstance(result, dict) and "success" in result:
                 return result
             else:
@@ -737,7 +786,7 @@ class ChatRoom(ToolSet):
                 logger.error(f"Error in check_before_chat: {e}")
                 return {"success": False, "message": str(e)}
 
-        logger.error(f"Received message: {chat_id}|{message}")
+        logger.info(f"Received message: {chat_id}|{message}")
 
         if chat_id in self.threads:
             return {"success": False, "message": "Chat is already running"}
@@ -1007,7 +1056,6 @@ class ChatRoom(ToolSet):
                 category=template.get("category", ""),
                 version=template.get("version", "1.0"),
                 agents_config=template.get("agents_config", {}),
-                required_toolsets=template.get("required_toolsets", []),
                 tags=template.get("tags", []),
             )
 
@@ -1022,9 +1070,10 @@ class ChatRoom(ToolSet):
                 }
 
             # Check toolset availability
-
             s = await self._backend.connect(self.endpoint_service_id)
-            available_toolsets_resp = await s.invoke("list_services")
+            available_toolsets_resp = await s.invoke(
+                "manage_service", {"action": "list", "service_type": "toolset"}
+            )
 
             if (
                 isinstance(available_toolsets_resp, dict)
@@ -1069,18 +1118,19 @@ class ChatRoom(ToolSet):
 
         s = await self._backend.connect(self.endpoint_service_id)
         result = await s.invoke(
-            "ensure_toolsets", {"required_toolsets": missing_toolsets}
+            "manage_service",
+            {"action": "start", "service_type": "toolset", "name": missing_toolsets},
         )
 
         if result.get("success", False):
-            started = result.get("starting_toolsets", [])
-            still_missing = result.get("missing_toolsets", [])
+            started = result.get("started", [])
+            errors = result.get("errors", [])
 
             if started:
                 logger.info(f"✅ Successfully started toolsets: {', '.join(started)}")
-            if still_missing:
+            if errors:
                 logger.warning(
-                    f"⚠️ Could not start toolsets: {', '.join(still_missing)} (they may not exist or have errors)"
+                    f"⚠️ Could not start some toolsets:\n" + "\n".join(errors)
                 )
         else:
             error_msg = result.get("error", "Unknown error")

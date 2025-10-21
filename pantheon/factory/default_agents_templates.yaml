@@ -26,3 +26,12 @@ web_search:
   icon: 🔍
   toolsets:
     - web
+
+context7_agent:
+  name: Context7 Agent
+  instructions: You are a context7 agent that can search and retrieve information from context7.
+  model: openai/gpt-5-mini
+  icon: 🔗
+  mcp_servers:
+    - context7
+

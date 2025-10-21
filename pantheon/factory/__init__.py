@@ -1,8 +1,9 @@
 import os
 
 from ..agent import Agent
-from ..utils.proxy_wrapper import ProxyWrapperBuilder
 from ..endpoint import ToolsetProxy
+from ..endpoint.mcp import MCPServerConfig
+from ..providers import MCPProvider, ToolSetProvider
 from ..utils.log import logger
 
 
@@ -17,12 +18,13 @@ async def create_agent(
     instructions: str,
     model: str,
     icon: str,
-    toolsets: list[str] | None = None,
+    toolsets: list[str] = [],
+    mcp_servers: list[str] = [],
     toolful: bool = False,
     chat_id=None,
     **kwargs,
 ) -> Agent:
-    """Create an agent from a template.
+    """Create an agent from a template with all providers (toolsets and MCP servers).
 
     Args:
         endpoint_service: The endpoint service to use for the agent.
@@ -30,8 +32,10 @@ async def create_agent(
         instructions: The instructions for the agent.
         model: The model to use for the agent.
         icon: The icon to use for the agent.
-        toolsets: The toolsets to use for the agent.
+        toolsets: List of toolset names to add to the agent.
+        mcp_servers: List of MCP server names to add to the agent.
         toolful: Whether the agent is toolful.
+        chat_id: Optional chat ID for per-chat session isolation.
     """
     agent = Agent(
         name=name,
@@ -41,33 +45,86 @@ async def create_agent(
     )
     agent.toolful = toolful
     agent.not_loaded_toolsets = []
-
-    if toolsets is None:
-        return agent
-
-    logger.info(f"Agent '{name}': Adding {len(toolsets)} remote toolsets")
+    toolsets_added = []
+    mcp_server_added = []
+    # ===== Add ToolSet providers from config =====
 
     for toolset_name in toolsets:
         try:
-            # Add remote toolset via helper function (ChatRoom-style management)
+            # Create ToolsetProxy
             proxy = ToolsetProxy.from_endpoint(endpoint_service, toolset_name)
 
-            wrapped_tools = await ProxyWrapperBuilder.wrap_tools(proxy, agent, chat_id)
-            num_tools = len(wrapped_tools.keys())
-            for tool_name, tool in wrapped_tools.items():
-                agent.tool(tool, key=tool_name)
+            # Create ToolSetProvider with chat_id for session isolation
+            # chat_id enables per-chat data isolation in remote toolsets
+            toolset_provider = ToolSetProvider(
+                proxy,
+                chat_id=chat_id,
+            )
+            await toolset_provider.initialize()
 
-            if num_tools > 0:
-                logger.info(
-                    f"Agent '{name}': Added {num_tools} tools from '{toolset_name}'"
-                )
-            else:
-                agent.not_loaded_toolsets.append(toolset_name)
+            # Add provider to agent
+            await agent.toolset(toolset_provider)
+            toolsets_added.append(toolset_name)
 
         except Exception as e:
             logger.error(f"Agent '{name}': Failed to add toolset '{toolset_name}': {e}")
             agent.not_loaded_toolsets.append(toolset_name)
 
+    # ===== Add MCP providers from config =====
+
+    for mcp_name in mcp_servers:
+        try:
+            # Get MCP server config from endpoint using unified manage_service()
+            service_result = await endpoint_service.invoke(
+                "manage_service",
+                {"action": "get", "service_type": "mcp", "name": mcp_name},
+            )
+
+            if not service_result.get("success"):
+                logger.warning(
+                    f"Agent '{name}': Failed to get MCP config for '{mcp_name}': "
+                    f"{service_result.get('message', 'Unknown error')}"
+                )
+                continue
+
+            # Extract service details
+            service_info = service_result.get("service", {})
+            mcp_uri = service_info.get("uri")
+
+            if not mcp_uri:
+                logger.warning(
+                    f"Agent '{name}': MCP server '{mcp_name}' has no URI configured"
+                )
+                continue
+
+            # Create MCPServerConfig with minimal info (URI from running service)
+            mcp_config = MCPServerConfig(
+                name=mcp_name,
+                type="http",
+                uri=mcp_uri,
+                description=service_info.get("description", ""),
+            )
+
+            # Create and initialize MCPProvider with agent's model for sampling
+            mcp_provider = MCPProvider(
+                mcp_config,
+                model=model,  # Use agent's model for sampling requests
+            )
+            await mcp_provider.initialize()
+
+            # Add to agent
+            await agent.mcp(mcp_name, mcp_provider)
+            mcp_server_added.append(mcp_name)
+
+        except Exception as e:
+            agent.not_loaded_toolsets.append(mcp_name)
+            logger.error(
+                f"Agent '{name}': Failed to add MCP provider '{mcp_name}': {e}"
+            )
+
+    logger.info(
+        f"Agent {name} added toolsets: {toolsets_added} mcp_servers: {mcp_server_added}"
+    )
     return agent
 
 

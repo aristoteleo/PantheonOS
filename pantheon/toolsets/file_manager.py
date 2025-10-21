@@ -8,6 +8,7 @@ from PIL import Image
 
 
 from ..toolset import ToolSet, tool
+from ..utils.log import logger
 
 
 class FileManagerToolSetBase(ToolSet):
@@ -343,6 +344,96 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 "success": False,
                 "error": f"Unexpected error reading PDF: {str(e)}",
             }
+
+    @tool
+    async def fetch_image_base64(self, image_path: str) -> dict:
+        """Fetch an image and return the base64 encoded image.
+
+        Args:
+            image_path: Path to the image file (relative to workspace)
+
+        Returns:
+            Dict with success status and either data_uri or error message
+
+        Raises:
+            Returns error dict for invalid paths, unsupported formats, or file issues
+        """
+        # Security: Maximum image size (10MB)
+        MAX_IMAGE_SIZE = 10 * 1024 * 1024
+
+        # Security: Validate path doesn't contain directory traversal
+        if ".." in image_path:
+            return {"success": False, "error": "Image path cannot contain '..'"}
+
+        try:
+            i_path = self.path / image_path
+
+            # Security: Check if path is within allowed workspace
+            try:
+                resolved_path = i_path.resolve()
+                allowed_path = self.path.resolve()
+                if not str(resolved_path).startswith(str(allowed_path)):
+                    return {"success": False, "error": "Path outside allowed workspace"}
+            except Exception:
+                return {"success": False, "error": "Invalid path"}
+
+            # Security: Reject symbolic links
+            if resolved_path.is_symlink():
+                return {"success": False, "error": "Symbolic links are not allowed"}
+
+            # Check file existence
+            if not resolved_path.exists():
+                return {"success": False, "error": "Image does not exist"}
+
+            # Check if it's a file (not directory)
+            if not resolved_path.is_file():
+                return {"success": False, "error": "Path is not a file"}
+
+            # Validate format
+            format = resolved_path.suffix.lower()
+            if format not in [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"]:
+                return {
+                    "success": False,
+                    "error": "Image format must be jpg, jpeg, png, gif, webp, bmp, or svg",
+                }
+
+            # Check file size
+            try:
+                file_size = resolved_path.stat().st_size
+                if file_size == 0:
+                    return {"success": False, "error": "Image file is empty"}
+                if file_size > MAX_IMAGE_SIZE:
+                    return {
+                        "success": False,
+                        "error": f"Image size ({file_size / 1024 / 1024:.1f}MB) exceeds maximum ({MAX_IMAGE_SIZE / 1024 / 1024:.0f}MB)",
+                    }
+            except OSError as e:
+                return {"success": False, "error": f"Cannot access file: {str(e)}"}
+
+            # Encode image to base64
+            try:
+                with open(resolved_path, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode("utf-8")
+            except PermissionError:
+                return {"success": False, "error": "Permission denied reading image"}
+            except IOError as e:
+                return {"success": False, "error": f"IO error reading image: {str(e)}"}
+
+            # Map format to MIME type
+            mime_format = format.lstrip(".")
+            if mime_format == "jpg":
+                mime_format = "jpeg"
+
+            data_uri = f"data:image/{mime_format};base64,{b64}"
+            return {
+                "success": True,
+                "image_path": image_path,
+                "data_uri": data_uri,
+            }
+
+        except Exception as e:
+            logger.error(f"Error fetching image base64 for {image_path}: {str(e)}")
+            return {"success": False, "error": f"Unexpected error: {str(e)}"}
 
 
 __all__ = ["FileManagerToolSet"]

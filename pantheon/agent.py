@@ -4,7 +4,8 @@ import json
 import os
 import sys
 import time
-from typing import Any, Callable, Optional, Protocol
+from abc import ABC, abstractmethod
+from typing import Any, Callable, Optional, Protocol, Union
 from uuid import uuid4
 
 from fastmcp import Client
@@ -34,6 +35,61 @@ from .utils.vision import VisionInput, vision_to_openai
 DEFAULT_MODEL = "gpt-5-mini"
 
 
+# ===== Tool Provider Base Class =====
+
+
+class ToolInfo(BaseModel):
+    """Information about a tool"""
+
+    name: str
+    description: str
+    inputSchema: Optional[dict] = None  # JSON Schema format (OpenAI function schema)
+
+
+class ToolProvider(ABC):
+    """Abstract base class for tool providers (MCP, ToolSet, etc.)
+
+    Tool providers abstract away the source of tools, allowing agents to
+    work uniformly with tools from different sources.
+    """
+
+    @abstractmethod
+    async def list_tools(self) -> list[ToolInfo]:
+        """List all available tools from this provider
+
+        Returns:
+            List of ToolInfo objects describing available tools
+        """
+        pass
+
+    @abstractmethod
+    async def call_tool(self, name: str, args: dict) -> Any:
+        """Call a tool by name with the given arguments
+
+        Args:
+            name: Name of the tool to call
+            args: Arguments to pass to the tool
+
+        Returns:
+            Result from the tool call
+        """
+        pass
+
+    async def initialize(self):
+        """Optional: Initialize the provider (e.g., connect to remote server)
+
+        Called once when the provider is added to an agent.
+        """
+        pass
+
+    async def shutdown(self):
+        """Optional: Clean up provider resources
+
+        Called when the agent is being shut down.
+        """
+        pass
+
+
 # Protocol for legacy toolset compatibility (objects with tool_functions attribute)
 class ToolsetLike(Protocol):
     """Protocol for objects that can be used as toolsets.
@@ -45,8 +101,7 @@ class ToolsetLike(Protocol):
 
 
 _CTX_VARS_NAME = "context_variables"
-_AGENT_RUN_NAME = "agent_run"
-_SKIP_PARAMS = [_CTX_VARS_NAME, _AGENT_RUN_NAME]
+_SKIP_PARAMS = [_CTX_VARS_NAME]
 _CLIENT_ID_NAME = "client_id"
 
 
@@ -299,6 +354,10 @@ class Agent:
         self.icon = icon
         self.max_tool_content_length = max_tool_content_length
 
+        # Provider management (MCP, ToolSet, etc.)
+        self.providers: dict[str, ToolProvider] = {}  # name -> ToolProvider instance
+        self.not_loaded_toolsets: list[str] = []  # Track which toolsets failed to load
+
         # Plan Mode support
         self.plan_mode = False
 
@@ -325,20 +384,6 @@ class Agent:
                 key = func.name
             else:
                 raise ValueError(f"Invalid tool: {func}")
-
-        # Unified approach: Ensure all functions have function_descriptions
-        # Skip if already has function_descriptions (e.g., proxy wrappers)
-        # Skip if has __schema__ (e.g., MCP tools - different format)
-        if not hasattr(func, "function_descriptions") and not hasattr(
-            func, "__schema__"
-        ):
-            # Parse function to create Description object
-            if hasattr(func, "parameters") and isinstance(func.parameters, list):
-                # Reverse callable - create Description manually
-                func.function_descriptions = Description(
-                    inputs=[Value(type_=str, name=p) for p in func.parameters],
-                    name=getattr(func, "name", key),
-                )
 
         # Add to _base_functions
         self._base_functions[key] = func
@@ -388,52 +433,165 @@ class Agent:
             f"🔓 [Agent:{self.name}] Exited Plan Mode. Full tool access restored."
         )
 
-    async def toolset(self, toolset: "ToolSet") -> "Agent":
-        """Add a local toolset to the agent."""
+    async def toolset(self, toolset: Union["ToolSet", "ToolProvider"]) -> "Agent":
+        """Add a toolset to the agent (supports both ToolSet and ToolSetProvider)
+
+        Behavior depends on type:
+        - ToolSet: Local tools loaded directly into _base_functions
+        - ToolSetProvider: Dynamic routing - tools retrieved on-demand, no pre-wrapping
+
+        Args:
+            toolset: Either a ToolSet instance (local tools loaded directly)
+                    or a ToolSetProvider instance (provider-based tool access)
+
+        Returns:
+            The agent instance
+        """
+        # Import here to avoid circular imports
+        from .providers import ToolSetProvider
+
         if isinstance(toolset, ToolSet):
-            # Local ToolSet - immediately load all tools
+            # Local ToolSet - immediately load all tools via agent.tool()
             for name, (func, _) in toolset.tool_functions.items():
                 self.tool(func, key=name)
-            logger.info(
+            logger.debug(
                 f"Agent '{self.name}': Added local toolset with {len(toolset.functions)} tools"
+            )
+        elif isinstance(toolset, ToolSetProvider):
+            self.providers[toolset.toolset_name] = toolset
+            logger.debug(
+                f"Agent '{self.name}': Added ToolSetProvider (dynamic routing)"
             )
         else:
             raise TypeError(
                 f"Invalid toolset type: {type(toolset)}. "
-                f"ToolsetProxy should be managed at ChatRoom/Factory level."
+                f"Expected ToolSet or ToolSetProvider instance."
             )
 
         return self
 
-    async def mcp(self, client: Client):
-        """Add a MCP toolset to the agent.
+    # ===== New Provider-Based Tool Management =====
+
+    async def mcp(self, name: str, provider: "ToolProvider") -> "Agent":
+        """Add a MCP provider to the agent (one at a time)
+
+        Dynamic routing approach: Provider tools are retrieved on-demand via get_tools_for_llm()
+        and called via call_tool() with prefix routing. No pre-wrapping.
 
         Args:
-            client: The FastMCP client to add to the agent.
+            name: Name/identifier for this provider (e.g., 'biomcp')
+            provider: ToolProvider instance (MCPProvider recommended, already initialized)
 
         Returns:
-            The agent instance.
+            The agent instance
         """
-        tools = await client.list_tools()
-        for tool in tools:
+        # Store the provider for dynamic routing
+        self.providers[name] = provider
 
-            async def _wrap_tool(**kwargs):
-                res = await client.call_tool(tool.name, kwargs)
-                return res.structured_output["result"]
+        logger.debug(
+            f"Agent '{self.name}': Added MCP provider '{name}' (dynamic routing)"
+        )
 
-            params = tool.inputSchema
-            params["additionalProperties"] = False
-            _wrap_tool.__schema__ = {
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "strict": True,
-                    "parameters": params,
-                },
-            }
-            self.tool(_wrap_tool, key=tool.name)
         return self
+
+    async def get_tools_for_llm(self) -> list[dict]:
+        """Get all tools for LLM - includes _base_functions and provider tools
+
+        Dynamically retrieves tools from providers (utilizing their caching mechanisms).
+        Provider tools are prefixed with {provider_name}_ to distinguish them from agent's own tools.
+
+        Returns:
+            List of tool definitions in OpenAI format
+        """
+        # 1. Get tools from _base_functions (Agent's own tools - no prefix)
+        base_tools = self._convert_functions(
+            litellm_mode=self.force_litellm, allow_transfer=True
+        )
+
+        # 2. Get tools from providers (dynamic retrieval - uses provider caching)
+        # Providers return ToolInfo with pre-generated inputSchema (the "function" part)
+        logger.info(f"get tools for llm: {self.providers} ")
+        provider_tools = []
+        for provider_name, provider in self.providers.items():
+            try:
+                # Get tools from provider (uses cached list if available)
+                tools = await provider.list_tools()
+
+                # All providers must provide inputSchema as the complete "function" part
+                for tool_info in tools:
+                    # inputSchema must be present (design contract with providers)
+                    assert tool_info.inputSchema is not None, (
+                        f"Provider '{provider_name}': Tool '{tool_info.name}' missing inputSchema"
+                    )
+
+                    # Make a copy to avoid modifying cached data
+                    function_schema = tool_info.inputSchema.copy()
+
+                    # Add provider prefix to tool name
+                    function_schema["name"] = f"{provider_name}_{tool_info.name}"
+
+                    # Build complete OpenAI tool dict
+                    provider_tools.append(
+                        {
+                            "type": "function",
+                            "function": function_schema,
+                        }
+                    )
+
+                logger.info(
+                    f"Agent '{self.name}': Added {len(tools)} tools from provider '{provider_name}'"
+                )
+
+            except Exception as e:
+                logger.warning(
+                    f"Agent '{self.name}': Failed to get tools from provider '{provider_name}': {e}"
+                )
+
+        return base_tools + provider_tools
+
+    async def call_tool(self, prefixed_name: str, args: dict) -> Any:
+        """Call a tool by prefixed name, routing to appropriate source
+
+        Tool routing order:
+        1. Agent's own _base_functions (unprefixed)
+        2. Provider tools with prefix format: {provider_name}_{tool_name}
+
+        Args:
+            prefixed_name: Tool name (possibly with prefix)
+            args: Arguments to pass to the tool
+
+        Returns:
+            Result from the tool call
+
+        Raises:
+            ValueError: If tool not found in any source
+        """
+        logger.info(f"Calling tool {prefixed_name}({args})")
+        # 1. Try Agent's own _base_functions first (no prefix required)
+        if prefixed_name in self._base_functions:
+            func = self._base_functions[prefixed_name]
+            return await run_func(func, args, self.tool_timeout)
+
+        # 2. Try prefix-based routing: {provider_name}_{tool_name}
+        if "_" not in prefixed_name:
+            raise ValueError(
+                f"Tool '{prefixed_name}' not found in _base_functions or providers (no provider prefix)"
+            )
+
+        # Split on first _ only (tool_name may contain underscores)
+        source, tool_name = prefixed_name.split("_", 1)
+
+        if source not in self.providers:
+            raise ValueError(f"Provider '{source}' not found (tool: '{prefixed_name}')")
+
+        provider = self.providers[source]
+        try:
+            return await provider.call_tool(tool_name, args)
+        except Exception as e:
+            logger.error(f"Provider '{source}' failed to call tool '{tool_name}': {e}")
+            raise
+
+    # ===== Legacy MCP method (deprecated, kept for backward compatibility) =====
 
     def _convert_functions(
         self, litellm_mode: bool, allow_transfer: bool
@@ -442,21 +600,7 @@ class Agent:
         functions = []
 
         for func in self.functions.values():
-            # Special case: MCP tools with __schema__
-            if hasattr(func, "__schema__"):
-                schema = copy.deepcopy(func.__schema__)
-                if litellm_mode:
-                    schema["function"]["strict"] = False
-                    del schema["function"]["parameters"]["additionalProperties"]
-                functions.append(func.__schema__)
-                continue
-
-            if hasattr(func, "function_descriptions"):
-                # This is a remote function wrapper with stored descriptions
-                desc = func.function_descriptions
-            else:
-                # All other functions (local) can be parsed normally
-                desc = parse_func(func)
+            desc = parse_func(func)
 
             assert isinstance(desc.name, str), "Function name must be a string"
 
@@ -479,6 +623,47 @@ class Agent:
 
         return functions
 
+    async def _call_tool_with_context(
+        self, func_name: str, params: dict, context_variables: dict
+    ) -> Any:
+        """Call tool with context variable injection and prefix routing support.
+
+        This method provides a unified interface for calling both base functions
+        and provider tools. It handles:
+        1. Context variable injection for base functions that need it
+        2. Prefix-based routing to provider tools (e.g., context7_search_docs)
+        3. Unified error handling
+
+        Args:
+            func_name: Tool name (may have {provider}_ prefix for provider tools)
+            params: Tool arguments
+            context_variables: Context variables to inject if needed by base functions
+
+        Returns:
+            Tool execution result
+
+        Raises:
+            ValueError: If tool not found
+        """
+        # For base functions, handle context variable injection
+        if func_name in self._base_functions:
+            func = self._base_functions[func_name]
+
+            # Detect which parameters the function needs
+            var_names = []
+            if hasattr(func, "__code__"):
+                var_names = func.__code__.co_varnames
+
+            # Inject context_variables if the function needs it
+            if _CTX_VARS_NAME in var_names:
+                params[_CTX_VARS_NAME] = context_variables
+
+        # Use unified call_tool() method which supports prefix routing
+        # call_tool handles:
+        # - Direct calls to base functions: func_name not in _base_functions
+        # - Prefix-based routing to providers: {provider}_{tool_name}
+        return await self.call_tool(func_name, params)
+
     async def _handle_tool_calls(
         self,
         tool_calls: list,
@@ -489,45 +674,21 @@ class Agent:
     ) -> list[dict]:
         tool_messages = []
 
-        async def agent_run(msg: AgentInput):
-            """Remote function for toolset call agent."""
-            logger.info(f"Running agent {self.name} with message {msg}")
-            resp = await self.run(
-                msg,
-                allow_transfer=False,
-                update_memory=False,
-            )
-            return resp.content
-
-        # Fully unified tool calling - all functions handled identically
+        # Unified tool calling with support for both base functions and provider tools
         for call in tool_calls:
             try:
                 func_name = call["function"]["name"]
                 params = json.loads(call["function"]["arguments"]) or {}
 
-                # All functions are now in self.functions (unified approach)
-                assert func_name in self.functions, (
-                    f"Function `{func_name}` is not found in self.functions"
-                )
-
-                func = self.functions[func_name]
-
-                # Handle parameter injection - unified approach
-                # All functions now have function_descriptions (except MCP with __schema__)
-                if hasattr(func, "__schema__"):
-                    var_names = func.__code__.co_varnames
-                elif hasattr(func, "function_descriptions"):
-                    var_names = [v.name for v in func.function_descriptions.inputs]
-                else:
-                    var_names = func.__code__.co_varnames
-
-                if _CTX_VARS_NAME in var_names:
-                    params[_CTX_VARS_NAME] = context_variables
-                if _AGENT_RUN_NAME in var_names:
-                    params[_AGENT_RUN_NAME] = agent_run
-
+                # Use unified _call_tool_with_context() method
+                # This method handles:
+                # 1. Context variable injection for base functions
+                # 2. Prefix-based routing for provider tools (e.g., context7_search_docs)
+                # 3. Proper error handling
                 start_time = time.time()
-                task = asyncio.create_task(run_func(func, **params))
+                task = asyncio.create_task(
+                    self._call_tool_with_context(func_name, params, context_variables)
+                )
                 while True:
                     if task.done() or (task.cancelled()):
                         result = task.result()
@@ -600,178 +761,135 @@ class Agent:
         process_chunk: Callable | None = None,
         allow_transfer: bool = True,
     ) -> dict:
-        import time
+        """Get LLM completion for messages (simplified and optimized).
 
-        # Start timing
+        This method orchestrates the LLM completion workflow:
+        1. Process messages for the model
+        2. Detect provider and load configuration
+        3. Convert functions to tools
+        4. Create enhanced chunk processor
+        5. Call LLM provider
+        6. Add metadata to response
+
+        Args:
+            messages: Chat message history
+            model: Model identifier (e.g., "gpt-4", "zhipu/glm-4")
+            tool_use: Whether to include tools
+            response_format: Response format specification
+            process_chunk: Optional callback for streaming chunks
+            allow_transfer: Whether to allow agent transfers
+
+        Returns:
+            Message dictionary with id, timestamps, and generation_duration
+        """
+        from .utils.llm import TimingTracker
+        from .utils.llm_providers import (
+            detect_provider,
+            get_base_url,
+            create_enhanced_process_chunk,
+            call_llm_provider,
+        )
+
+        # Initialize timing tracker
+        tracker = TimingTracker()
+        tracker.start("total")
         request_start_time = time.time()
+
         logger.info(f"🚀 [Agent:{self.name}] Starting LLM request for model: {model}")
 
-        # Time message processing
-        msg_start = time.time()
-        messages = process_messages_for_model(messages, model)
-        msg_time = time.time() - msg_start
+        # Step 1: Process messages for the model
+        async with tracker.measure("message_processing"):
+            messages = process_messages_for_model(messages, model)
 
-        force_litellm = self.force_litellm
+        # Step 2: Detect provider and get configuration
+        provider_config = detect_provider(model, self.force_litellm)
 
-        provider = "openai"
-        if "/" in model:
-            provider = model.split("/")[0]
-            model_name = model.split("/")[1]
-        else:
-            model_name = model
-        litellm_mode = (provider != "openai") or force_litellm
+        # Step 3: Get base URL from environment if available
+        base_url = get_base_url(provider_config.provider_type)
+        if base_url:
+            provider_config.base_url = base_url
 
-        # Get custom base_url from environment variable if set
-        base_url = None
-        env_var = f"{provider.upper()}_API_BASE"
-        if env_var in os.environ:
-            base_url = os.environ[env_var]
-
-        # Time tool conversion
+        # Step 4: Get unified tools (base functions + provider tools)
         tools = None
         if tool_use:
-            tools_start = time.time()
-            tools = self._convert_functions(litellm_mode, allow_transfer) or None
-            tools_time = time.time() - tools_start
+            async with tracker.measure("tools_conversion"):
+                # Use get_tools_for_llm() for unified tool access
+                # This includes both base_functions and provider tools
+                tools = await self.get_tools_for_llm() or None
+
+                # For non-OpenAI providers (litellm mode), adjust tool format
+                if provider_config.provider_type.value != "openai" and tools:
+                    for tool in tools:
+                        if "function" in tool:
+                            # litellm requires strict=False
+                            tool["function"]["strict"] = False
+                            # Remove unsupported additionalProperties
+                            if "parameters" in tool["function"]:
+                                tool["function"]["parameters"].pop(
+                                    "additionalProperties", None
+                                )
+
             tool_count = len(tools) if tools else 0
             logger.info(
-                f"⚙️  [Agent:{self.name}] Tool conversion: {tools_time:.3f}s for {tool_count} tools"
+                f"⚙️  [Agent:{self.name}] Tool conversion: "
+                f"{tracker.timings['tools_conversion']:.3f}s for {tool_count} tools "
+                f"(base + providers)"
             )
-        else:
-            tools_time = 0
-            tool_count = 0
 
-        # Generate unique message_id for this LLM request
+        # Step 5: Create message ID and enhanced chunk processor
         message_id = str(uuid4())
-        chunk_index = 0
+        enhanced_process_chunk = create_enhanced_process_chunk(
+            process_chunk, message_id
+        )
 
-        # Create enhanced process_chunk for this specific request
-        enhanced_process_chunk = None
-        if process_chunk:
-
-            async def enhanced_process_chunk(chunk: dict):
-                nonlocal chunk_index
-                enhanced_chunk = {
-                    **chunk,
-                    "message_id": message_id,
-                    "chunk_index": chunk_index,
-                    "timestamp": time.time(),
-                }
-                chunk_index += 1
-                await run_func(process_chunk, enhanced_chunk)
-
-        # Send begin chunk and time it
+        # Step 6: Send begin chunk
         if enhanced_process_chunk:
-            begin_start = time.time()
-            await enhanced_process_chunk({"begin": True})
-            begin_time = time.time() - begin_start
-            logger.info(f"📤 [Agent:{self.name}] Begin chunk sent: {begin_time:.3f}s")
-        else:
-            begin_time = 0
+            async with tracker.measure("begin_chunk"):
+                await enhanced_process_chunk({"begin": True})
+            logger.info(
+                f"📤 [Agent:{self.name}] Begin chunk sent: "
+                f"{tracker.timings['begin_chunk']:.3f}s"
+            )
 
-        # Start LLM API timing
-        llm_start_time = time.time()
+        # Step 7: Call LLM provider (unified interface)
         logger.info(
-            f"🤖 [Agent:{self.name}] Calling {provider} API (model: {model_name})"
+            f"🤖 [Agent:{self.name}] Calling {provider_config.provider_type.value} API "
+            f"(model: {provider_config.model_name})"
         )
 
-        if provider == "zhipu":
-            # Use dedicated Zhipu AI function
-            complete_resp = await acompletion_zhipu(
+        async with tracker.measure("llm_api"):
+            message = await call_llm_provider(
+                config=provider_config,
                 messages=messages,
-                model=model_name,
                 tools=tools,
                 response_format=response_format,
                 process_chunk=enhanced_process_chunk,
-                base_url=base_url or "https://open.bigmodel.cn/api/paas/v4/",
             )
-            if (
-                complete_resp
-                and hasattr(complete_resp, "choices")
-                and complete_resp.choices
-                and len(complete_resp.choices) > 0
-            ):
-                message = complete_resp.choices[0].message.model_dump()
-                if "parsed" in message:
-                    message.pop("parsed")
-                if "tool_calls" in message:
-                    if message["tool_calls"] == []:
-                        message["tool_calls"] = None
-            else:
-                message = {
-                    "role": "assistant",
-                    "content": "Error: Empty response from Zhipu AI",
-                }
-        elif not litellm_mode:
-            complete_resp = await acompletion_openai(
-                messages=messages,
-                model=model_name,
-                tools=tools,
-                response_format=response_format,
-                process_chunk=enhanced_process_chunk,
-                base_url=base_url,
-            )
-            if (
-                complete_resp
-                and hasattr(complete_resp, "choices")
-                and complete_resp.choices
-                and len(complete_resp.choices) > 0
-            ):
-                message = complete_resp.choices[0].message.model_dump()
-                if "parsed" in message:
-                    message.pop("parsed")
-                if "tool_calls" in message:
-                    if message["tool_calls"] == []:
-                        message["tool_calls"] = None
-            else:
-                message = {
-                    "role": "assistant",
-                    "content": "Error: Empty response from API",
-                }
-        else:
-            complete_resp = await acompletion_litellm(
-                messages=messages,
-                model=model,
-                tools=tools,
-                response_format=response_format,
-                process_chunk=enhanced_process_chunk,
-                base_url=base_url,
-            )
-            if (
-                complete_resp
-                and hasattr(complete_resp, "choices")
-                and complete_resp.choices
-                and len(complete_resp.choices) > 0
-            ):
-                message = complete_resp.choices[0].message.model_dump()
-            else:
-                message = {
-                    "role": "assistant",
-                    "content": "Error: Empty response from API",
-                }
 
-        # Log total LLM timing
-        llm_total_time = time.time() - llm_start_time
-        request_total_time = time.time() - request_start_time
-
-        logger.info(
-            f"⏱️  [Agent:{self.name}] LLM response received: {llm_total_time:.3f}s"
-        )
-        logger.info(
-            f"📊 [Agent:{self.name}] Request breakdown - Total: {request_total_time:.3f}s | "
-            f"Message: {msg_time:.3f}s | Tools: {tools_time:.3f}s | "
-            f"Begin: {begin_time:.3f}s | LLM: {llm_total_time:.3f}s"
-        )
-
-        # Add streaming fields directly to step_message
+        # Step 8: Add metadata to message
         end_timestamp = time.time()
-        generation_duration = end_timestamp - request_start_time
+        total_time = tracker.end("total")
 
         message["id"] = message_id
         message["timestamp"] = end_timestamp  # 保持兼容性
-        message["start_timestamp"] = request_start_time  # 新增：开始时间
-        message["end_timestamp"] = end_timestamp  # 新增：结束时间
-        message["generation_duration"] = generation_duration  # 新增：生成时长（秒）
+        message["start_timestamp"] = request_start_time
+        message["end_timestamp"] = end_timestamp
+        message["generation_duration"] = total_time
+
+        # Step 9: Log timing breakdown
+        timings = tracker.get_all()
+        logger.info(
+            f"⏱️  [Agent:{self.name}] LLM response received: {timings['llm_api']:.3f}s"
+        )
+        logger.info(
+            f"📊 [Agent:{self.name}] Request breakdown - "
+            f"Total: {total_time:.3f}s | "
+            f"Message: {timings.get('message_processing', 0):.3f}s | "
+            f"Tools: {timings.get('tools_conversion', 0):.3f}s | "
+            f"Begin: {timings.get('begin_chunk', 0):.3f}s | "
+            f"LLM: {timings['llm_api']:.3f}s"
+        )
+
         return message
 
     async def _acompletion_with_models(

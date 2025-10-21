@@ -23,7 +23,11 @@ def generate_config(output_path: str = "endpoint.yaml", overwrite: bool = False)
     logger.info(f"Config file generated at {output_path}")
 
 
-async def start_endpoint(config_path: str | None = None):
+async def start_endpoint(
+    config_path: str | None = None,
+    workspace_path: str | None = None,
+    id_hash: str | None = None,
+):
     if config_path is not None and os.path.exists(config_path):
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
@@ -37,7 +41,13 @@ async def start_endpoint(config_path: str | None = None):
             "please run `python -m pantheon.toolsets.endpoint config` to generate a config file"
         )
         config = None
-    endpoint = Endpoint(config)
+
+    # Create endpoint with optional workspace_path and id_hash
+    kwargs = {}
+    if id_hash is not None:
+        kwargs["id_hash"] = id_hash
+
+    endpoint = Endpoint(config, workspace_path=workspace_path, **kwargs)
     await endpoint.run()
 
 

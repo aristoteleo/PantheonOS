@@ -356,3 +356,94 @@ def remove_hidden_fields(content: dict) -> dict:
             if field in content:
                 content.pop(field)
     return content
+
+
+# ============ Timing Tracker ============
+
+import time
+from contextlib import asynccontextmanager
+
+
+class TimingTracker:
+    """Track execution time for different phases.
+
+    Provides:
+    - Manual start/end tracking
+    - Context manager for automatic timing
+    - Aggregate timing report
+
+    Examples:
+        >>> tracker = TimingTracker()
+        >>> tracker.start("phase1")
+        >>> time.sleep(0.1)
+        >>> duration = tracker.end("phase1")
+        >>> print(tracker.get_all())
+        {'phase1': 0.10...}
+
+        >>> async with tracker.measure("phase2"):
+        ...     await asyncio.sleep(0.1)
+        >>> tracker.get_all()
+        {'phase1': 0.10..., 'phase2': 0.10...}
+    """
+
+    def __init__(self):
+        """Initialize timing tracker."""
+        self.timings: dict[str, float] = {}
+        self._start_times: dict[str, float] = {}
+
+    def start(self, phase: str) -> None:
+        """Mark the start of a phase.
+
+        Args:
+            phase: Phase name
+
+        Raises:
+            ValueError: If phase already started
+        """
+        if phase in self._start_times:
+            raise ValueError(f"Phase '{phase}' already started")
+        self._start_times[phase] = time.time()
+
+    def end(self, phase: str) -> float:
+        """End a phase and record duration.
+
+        Args:
+            phase: Phase name
+
+        Returns:
+            Duration in seconds
+
+        Raises:
+            ValueError: If phase not started
+        """
+        if phase not in self._start_times:
+            raise ValueError(f"Phase '{phase}' not started")
+        duration = time.time() - self._start_times[phase]
+        self.timings[phase] = duration
+        del self._start_times[phase]
+        return duration
+
+    def get_all(self) -> dict[str, float]:
+        """Get all recorded timings.
+
+        Returns:
+            Dictionary of phase -> duration
+        """
+        return self.timings.copy()
+
+    @asynccontextmanager
+    async def measure(self, phase: str):
+        """Measure timing for a phase using context manager.
+
+        Args:
+            phase: Phase name
+
+        Examples:
+            >>> async with tracker.measure("api_call"):
+            ...     await some_async_function()
+        """
+        self.start(phase)
+        try:
+            yield
+        finally:
+            self.end(phase)

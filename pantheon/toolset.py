@@ -212,6 +212,9 @@ class ToolSet(ABC):
 
         return {"success": True, "tools": tools}
 
+    async def cleanup(self):
+        pass
+
     async def run(self, log_level: str | None = None):
         if log_level is not None:
             logger.set_level(log_level)
@@ -233,8 +236,11 @@ class ToolSet(ABC):
         logger.info(f"Remote Server: {getattr(self.worker, 'servers', 'N/A')}")
         logger.info(f"Service Name: {self.worker.service_name}")
         logger.info(f"Service ID: {self.service_id}")
-
-        return await self.worker.run()
+        try:
+            await self.worker.run()
+        finally:
+            # Cleanup on shutdown
+            await self.cleanup()
 
     def to_mcp(self, mcp_kwargs: dict = {}):
         from fastmcp import FastMCP

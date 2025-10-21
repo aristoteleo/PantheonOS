@@ -22,9 +22,26 @@ class ChatroomTemplate:
     category: str
     version: str
     agents_config: Dict[str, Any]
-    required_toolsets: List[str]
     tags: List[str]
-    
+
+    @property
+    def required_toolsets(self) -> List[str]:
+        """Dynamically compute all toolsets required by agents in this template"""
+        toolsets = set()
+        for agent_config in self.agents_config.values():
+            if isinstance(agent_config, dict) and "toolsets" in agent_config:
+                toolsets.update(agent_config["toolsets"])
+        return sorted(list(toolsets))
+
+    @property
+    def required_mcp_servers(self) -> List[str]:
+        """Dynamically compute all MCP servers required by agents in this template"""
+        mcp_servers = set()
+        for agent_config in self.agents_config.values():
+            if isinstance(agent_config, dict) and "mcp_servers" in agent_config:
+                mcp_servers.update(agent_config["mcp_servers"])
+        return sorted(list(mcp_servers))
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert template to dictionary format"""
         return {
@@ -36,6 +53,7 @@ class ChatroomTemplate:
             "version": self.version,
             "agents_config": self.agents_config,
             "required_toolsets": self.required_toolsets,
+            "required_mcp_servers": self.required_mcp_servers,
             "tags": self.tags
         }
 
@@ -100,7 +118,6 @@ class TemplateManager:
             category=data.get("category", "general"),
             version=data.get("version", "1.0.0"),
             agents_config=data.get("agents_config", {}),
-            required_toolsets=data.get("required_toolsets", []),
             tags=data.get("tags", [])
         )
     
@@ -164,18 +181,6 @@ class TemplateManager:
             if "model" not in agent_config:
                 errors.append(f"Agent '{agent_id}' must have a model")
         
-        # Validate toolsets exist in required_toolsets if used by agents
-        all_agent_toolsets = set()
-        for agent_config in template.agents_config.values():
-            if isinstance(agent_config, dict) and "toolsets" in agent_config:
-                all_agent_toolsets.update(agent_config["toolsets"])
-        
-        for toolset in all_agent_toolsets:
-            if toolset not in template.required_toolsets:
-                logger.warning(
-                    f"Toolset '{toolset}' used by agents but not in required_toolsets"
-                )
-        
         return errors
     
     def get_default_template(self) -> ChatroomTemplate:
@@ -203,7 +208,6 @@ class TemplateManager:
                     "icon": "🤖"
                 }
             },
-            required_toolsets=[],
             tags=["fallback", "system"]
         )
     

@@ -224,8 +224,13 @@ class ToolsetProxy:
             )
             logger.debug(f"Connected to {service_type} service: {self.service_id}")
 
-    async def list_tools(self, force_refresh: bool = False) -> List[Dict]:
-        """List available tools (permanently cached until force_refresh)."""
+    async def list_tools(self, force_refresh: bool = False) -> dict:
+        """List available tools (permanently cached until force_refresh).
+
+        Returns:
+            dict: {"success": True, "tools": [...]}}
+                  Complete response from ToolSet.list_tools()
+        """
         await self._ensure_connected()
 
         async with self._lock:
@@ -235,17 +240,18 @@ class ToolsetProxy:
                 return self._tools_cache
 
             # Fetch fresh tools
-            logger.info(
+            logger.debug(
                 f"Fetching tools for {self.toolset_name} (mode: {self.mode.value})"
             )
 
             result = await self._call_toolset_method("list_tools", {})
 
             if result.get("success"):
-                tools = result.get("tools", [])
-                self._tools_cache = tools  # Cache permanently
-                logger.debug(f"Cached {len(tools)} tools for {self.toolset_name}")
-                return tools
+                # Cache and return the complete result dict
+                self._tools_cache = result
+                tools_count = len(result.get("tools", []))
+                logger.debug(f"Cached {tools_count} tools for {self.toolset_name}")
+                return result
             else:
                 error = result.get("error", "Unknown error")
                 raise Exception(f"Failed to list tools: {error}")

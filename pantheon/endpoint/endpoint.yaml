@@ -70,3 +70,36 @@ builtin_services:
   # - single_cell_agent   # Single-cell comprehensive analysis
 
 # All available ToolSets are in pantheon/toolsets/__init__.py
+
+# ===== MCP Server Configuration =====
+# Model Context Protocol servers for extended tool capabilities
+# Each server is exposed at a unique URL path for independent access
+# Two types supported:
+# - stdio: Local subprocess with STDIO transport (Endpoint manages lifecycle)
+#          Exposed at: http://localhost:3000/mcp/{server_name}
+# - http: Connect to existing remote HTTP endpoint (no process management)
+
+mcp_servers:
+  # Example 1: Local STDIO Server (Endpoint manages startup)
+  biomcp:
+    type: stdio
+    command: uv run --with biomcp-python biomcp run
+    env:
+      # NCI_API_KEY: ${NCI_API_KEY}  # Reference to environment variable
+    description: "BioMCP - Bioinformatics tools via MCP"
+
+  context7:
+    type: stdio
+    command: npx -y @upstash/context7-mcp
+    description: "Context7"
+
+  # Example 2: Remote HTTP Endpoint (Already running)
+  # web_search:
+  #   type: http
+  #   uri: https://api.example.com/mcp
+  #   description: "Web Search - Remote MCP service"
+
+# MCP servers to auto-start when endpoint starts
+# auto_start_mcp_servers:
+#   - biomcp
+#   - other_mcp_server

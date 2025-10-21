@@ -29,7 +29,10 @@ if __name__ == "__main__":
     asyncio.run(mcp.run())
         """)
     async with Client(tmp_file) as client:
-        await agent.mcp(client)
+        from pantheon.providers import MCPProvider
+        mcp_provider = MCPProvider(client=client)
+        await mcp_provider.initialize()
+        await agent.mcp("mcp", mcp_provider)
     resp = await agent.run("What is 2 + 2?, call add tool to calculate the result")
     assert "4" in resp.content
     os.remove(tmp_file)

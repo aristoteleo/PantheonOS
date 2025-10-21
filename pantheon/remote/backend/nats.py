@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import cloudpickle
 import nats
+from nats.js.errors import NotFoundError, KeyNotFoundError
 from funcdesc import parse_func, Description
 
 from ...utils.log import logger
@@ -173,13 +174,34 @@ class NATSBackend(RemoteBackend):
 
     # RPC interface implementation
     async def connect(self, service_id: str, **kwargs) -> "NATSService":
-        """Connect to remote service"""
+        """Connect to remote service
+
+        Args:
+            service_id: The service ID to connect to
+
+        Returns:
+            NATSService instance
+
+        Raises:
+            ValueError: If service_id is invalid
+            ConnectionError: If unable to connect to service or fetch service info
+        """
         if not service_id:
             raise ValueError("service_id cannot be None")
 
         nc, _ = await self._get_connection()
         service = NATSService(nc, service_id, kv_store=self._kv, **kwargs)
-        await service.fetch_service_info()
+
+        try:
+            await service.fetch_service_info()
+        except Exception as e:
+            # Convert any fetch_service_info error to ConnectionError
+            # This abstracts away KV Store implementation details
+            # External code only cares: "can I connect to this service_id?"
+            raise ConnectionError(
+                f"Failed to connect to service '{service_id}': {str(e)}"
+            ) from e
+
         return service
 
     def create_worker(self, service_name: str, **kwargs) -> "NATSRemoteWorker":
@@ -323,6 +345,8 @@ class NATSService(RemoteService):
                     description=service_data.get("description", ""),
                     functions_description=functions_description,
                 )
+            except (NotFoundError, KeyNotFoundError) as e:
+                raise e
             except Exception as e:
                 import traceback
 
@@ -446,7 +470,9 @@ class NATSRemoteWorker(RemoteWorker):
             await self.kv_store.put(
                 self._service_id, json.dumps(service_data).encode("utf-8")
             )
-            logger.debug(f"Service {self._service_id} registered to KV store using JSON")
+            logger.debug(
+                f"Service {self._service_id} registered to KV store using JSON"
+            )
         except Exception as e:
             logger.error(f"Failed to register to KV store: {e}")
 

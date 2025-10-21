@@ -119,14 +119,11 @@ class VectorStoreBackend:
             )
             logger.info("Semantic chunking initialized")
 
-            # 4. 初始化 Reranker
+            # 4. Reranker 延迟加载（仅在需要时初始化）
+            # 这样可以避免启动时因为模型文件缺失而失败
             if self.retrieval_config["use_rerank"]:
-                self._reranker = FlashRankRerank(
-                    model=self.retrieval_config["rerank_model"],
-                    top_n=self.retrieval_config["rerank_top_n"],
-                )
                 logger.info(
-                    f"FlashRank reranker initialized: {self.retrieval_config['rerank_model']}"
+                    f"FlashRank reranker lazy loading enabled for: {self.retrieval_config['rerank_model']}"
                 )
 
             self._setup_completed = True
@@ -247,9 +244,10 @@ class VectorStoreBackend:
                 retriever_kwargs["vector_store_query_mode"] = "hybrid"
                 retriever_kwargs["sparse_top_k"] = self.retrieval_config["sparse_top_k"]
 
-            # 添加 reranker 作为 postprocessor
-            if self._reranker:
-                retriever_kwargs["node_postprocessors"] = [self._reranker]
+            # 添加 reranker 作为 postprocessor（延迟加载）
+            reranker = self._get_reranker()
+            if reranker:
+                retriever_kwargs["node_postprocessors"] = [reranker]
 
             retriever = index.as_retriever(**retriever_kwargs)
 
@@ -355,6 +353,35 @@ class VectorStoreBackend:
         except Exception as e:
             logger.error(f"Failed to delete source vectors for {source_id}: {e}")
             return {"success": False, "error": str(e)}
+
+    def _get_reranker(self):
+        """
+        延迟加载 Reranker
+        仅在第一次需要时初始化，避免启动时模型加载失败
+
+        Returns:
+            FlashRankRerank 实例或 None
+        """
+        if not self.retrieval_config["use_rerank"]:
+            return None
+
+        # 如果已经初始化过，直接返回
+        if self._reranker is not None:
+            return self._reranker
+
+        try:
+            from llama_index.postprocessor.flashrank_rerank import FlashRankRerank
+
+            logger.info(f"Initializing FlashRank reranker: {self.retrieval_config['rerank_model']}")
+            self._reranker = FlashRankRerank(
+                model=self.retrieval_config["rerank_model"],
+                top_n=self.retrieval_config["rerank_top_n"],
+            )
+            logger.info(f"FlashRank reranker initialized successfully")
+            return self._reranker
+        except Exception as e:
+            logger.warning(f"Failed to initialize reranker, continuing without reranking: {e}")
+            return None
 
     def parse_nodes(self, documents: List) -> List[TextNode]:
         """

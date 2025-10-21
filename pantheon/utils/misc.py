@@ -1,3 +1,4 @@
+import hashlib
 import inspect
 import json
 from typing import Callable, List
@@ -8,6 +9,31 @@ from openai import pydantic_function_tool
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
+
+
+def generate_service_id(id_hash: str) -> str:
+    """
+    Generate a service ID from id_hash using SHA256.
+
+    This function matches the logic in NATSRemoteWorker (pantheon/remote/backend/nats.py)
+    to ensure consistent service_id generation across different components.
+
+    Args:
+        id_hash: The hash string to generate service_id from
+
+    Returns:
+        A 64-character hexadecimal string (SHA256 hash)
+
+    Example:
+        >>> service_id = generate_service_id("my-stable-id-123")
+        >>> len(service_id)
+        64
+        >>> all(c in '0123456789abcdef' for c in service_id)
+        True
+    """
+    id_hash_str = str(id_hash)
+    hash_obj = hashlib.sha256(id_hash_str.encode())
+    return hash_obj.hexdigest()
 
 
 async def run_func(func: Callable, *args, **kwargs):
