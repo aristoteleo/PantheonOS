@@ -74,10 +74,16 @@ async def create_agent(
 
     for mcp_name in mcp_servers:
         try:
-            # Get MCP server config from endpoint using unified manage_service()
-            service_result = await endpoint_service.invoke(
-                "manage_service",
-                {"action": "get", "service_type": "mcp", "name": mcp_name},
+            # Get MCP server config from endpoint
+            # endpoint_service can be either Endpoint instance or remote service
+            from ..utils.misc import call_endpoint_method
+
+            service_result = await call_endpoint_method(
+                endpoint_service,
+                endpoint_method_name="manage_service",
+                action="get",
+                service_type="mcp",
+                name=mcp_name,
             )
 
             if not service_result.get("success"):

@@ -1,7 +1,7 @@
 import hashlib
 import inspect
 import json
-from typing import Callable, List
+from typing import Any, Callable, List
 
 from funcdesc.desc import NotDef
 from funcdesc.pydantic import Description, desc_to_pydantic
@@ -36,10 +36,32 @@ def generate_service_id(id_hash: str) -> str:
     return hash_obj.hexdigest()
 
 
+async def call_endpoint_method(
+    endpoint_service: Any, endpoint_method_name: str, **kwargs
+) -> Any:
+    """
+    Call a method on endpoint service, supporting both Endpoint instances and remote services.
+
+    This function handles both:
+    - Direct Endpoint instances: calls method directly
+    - Remote services: uses invoke() for RPC
+    """
+    # Import here to avoid circular imports
+    from ..endpoint.core import Endpoint
+
+    if isinstance(endpoint_service, Endpoint):
+        # Direct Endpoint instance - call method directly
+        method = getattr(endpoint_service, endpoint_method_name)
+        return await method(**kwargs)
+    else:
+        # Remote service - use invoke() for RPC
+        return await endpoint_service.invoke(endpoint_method_name, kwargs)
+
+
 async def run_func(func: Callable, *args, **kwargs):
     # Import here to avoid circular imports
     from magique.worker import ReverseCallable
-    
+
     # Check if it's a regular coroutine function or ReverseCallable
     if inspect.iscoroutinefunction(func) or isinstance(func, ReverseCallable):
         return await func(*args, **kwargs)
@@ -136,8 +158,8 @@ def print_agent_message(
 
     if print_tool_call and (tool_calls := message.get("tool_calls")):
         for call in tool_calls:
-            func_name = call.get('function', {}).get('name')
-            func_args = call.get('function', {}).get('arguments')
+            func_name = call.get("function", {}).get("name")
+            func_args = call.get("function", {}).get("arguments")
             _print(
                 f"[bold]Agent [blue]{agent_name}[/blue] is using tool "
                 f"[green]{func_name}[/green]:[/bold] "
@@ -153,7 +175,7 @@ def print_agent_message(
         if max_tool_call_message_length is not None:
             formatted_content = formatted_content[:max_tool_call_message_length]
             formatted_content += "......"
-        func_name = message.get('tool_name')
+        func_name = message.get("tool_name")
         _print(
             f"[bold]Agent [blue]{agent_name}[/blue] is using tool "
             f"[green]{func_name}[/green]:[/bold] "
@@ -171,5 +193,3 @@ def print_agent_message(
                     f"[yellow]{message.get('content')}[/yellow]",
                     "Agent Message",
                 )
-
-

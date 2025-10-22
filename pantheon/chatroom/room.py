@@ -42,23 +42,58 @@ class ChatRoom(ToolSet):
         description: The description of the chatroom.
         speech_to_text_model: The model to use for speech to text.
         check_before_chat: The function to check before chat.
-        get_db_info: The function to get the database info.
         **kwargs: Additional parameters passed to ToolSet (e.g., id_hash).
     """
 
     def __init__(
         self,
-        endpoint_service_id: str,
+        endpoint: "Endpoint | None" = None,
+        endpoint_service_id: str | None = None,
         memory_dir: str = "./.pantheon-chatroom",
         name: str = "pantheon-chatroom",
         description: str = "Chatroom for Pantheon agents",
         speech_to_text_model: str = "gpt-4o-mini-transcribe",
         check_before_chat: Callable | None = None,
-        get_db_info: Callable | None = None,
+        agents_template: dict | str | None = None,
         **kwargs,
     ):
+        """
+        Initialize ChatRoom.
+
+        Args:
+            endpoint: Endpoint instance (for embed mode)
+            endpoint_service_id: Endpoint service ID (for process mode)
+            memory_dir: Directory to store memory
+            name: Name of the chatroom
+            description: Description of the chatroom
+            speech_to_text_model: Model for speech to text
+            check_before_chat: Function to check before chat
+            **kwargs: Additional parameters for ToolSet
+        """
         # Initialize ToolSet (will handle worker creation in run())
         super().__init__(name=name, **kwargs)
+
+        # Determine endpoint connection mode
+        if endpoint is not None:
+            # Embed mode: directly hold Endpoint instance
+            self._endpoint_embed = True
+            self._endpoint = endpoint
+            self.endpoint_service_id = None
+        elif endpoint_service_id is not None:
+            # Process mode: hold endpoint service_id, connect lazily
+            self._endpoint_embed = False
+            self._endpoint = None
+            self.endpoint_service_id = endpoint_service_id
+        else:
+            raise ValueError("Must provide either 'endpoint' or 'endpoint_service_id'")
+
+        self._endpoint_service = None
+        self._backend = None
+
+        # ChatRoom self startup mode: will be set in run_setup() based on remote parameter
+        # True: ChatRoom itself is started as a remote service (streams needed)
+        # False: ChatRoom itself is embedded (no need for stream publish)
+        self._embed = True  # Default to True, will be updated by run_setup()
 
         # ChatRoom specific initialization
         self.memory_dir = Path(memory_dir)
@@ -67,7 +102,6 @@ class ChatRoom(ToolSet):
         # Initialize template manager
         self.template_manager = get_template_manager()
 
-        self.endpoint_service_id = endpoint_service_id
         self.description = description
 
         # Per-chat team management
@@ -75,13 +109,92 @@ class ChatRoom(ToolSet):
         self.chat_teams: dict[str, PantheonTeam] = {}  # Per-chat teams cache
 
         self.speech_to_text_model = speech_to_text_model
+        self.agents_template = agents_template
         self.threads: dict[str, Thread] = {}
         self.check_before_chat = check_before_chat
-        self._get_db_info_func = get_db_info
+
+    async def _get_endpoint_service(self):
+        """Get endpoint service object (instance or RemoteService)."""
+        if self._endpoint_embed:
+            # Embed mode: directly return instance
+            return self._endpoint
+        else:
+            # Process mode: lazy connect to remote service
+            if self._endpoint_service is None:
+                from pantheon.remote import RemoteBackendFactory
+
+                self._backend = RemoteBackendFactory.create_backend()
+                self._endpoint_service = await self._backend.connect(
+                    self.endpoint_service_id
+                )
+            return self._endpoint_service
+
+    async def _call_endpoint_method(self, endpoint_method_name: str, **kwargs):
+        from pantheon.utils.misc import call_endpoint_method
+
+        endpoint_service = await self._get_endpoint_service()
+        return await call_endpoint_method(
+            endpoint_service, endpoint_method_name=endpoint_method_name, **kwargs
+        )
+
+    async def _publish_stream(self, chat_id: str, message_type: str, data: dict):
+        """
+        Unified method to publish stream messages.
+
+        Args:
+            chat_id: Chat ID
+            message_type: Type of message ("chunk" or "step")
+            data: Message data
+        """
+        # Embed mode: ChatRoom is embedded (not started as remote service), no need to send stream
+        if self._embed:
+            logger.debug(f"Embed mode: skip stream publish for {message_type}")
+            return
+
+        # Remote mode: ChatRoom is started as a remote service, need to send stream
+        if self._backend is None:
+            from pantheon.remote import RemoteBackendFactory
+
+            self._backend = RemoteBackendFactory.create_backend()
+
+        import time
+        from pantheon.remote.backend.base import StreamMessage, StreamType
+
+        stream_type = StreamType.CHAT
+        message = StreamMessage(
+            type=stream_type,
+            session_id=f"chat_{chat_id}",
+            timestamp=time.time(),
+            data={**data, "chat_id": chat_id},
+        )
+
+        stream_channel = await self._backend.get_or_create_stream(
+            f"chat_{chat_id}", stream_type
+        )
+        await stream_channel.publish(message)
+
+    async def run(self, log_level: str | None = None, remote: bool = True):
+        self._embed = not remote
+
+        # Call parent's run method with the original parameters
+        return await super().run(log_level=log_level, remote=remote)
 
     async def run_setup(self):
         """Setup the chatroom (ToolSet hook called before run)."""
-        logger.info(f"ChatRoom: endpoint_id={self.endpoint_service_id}")
+        if self._endpoint_embed:
+            logger.info(
+                f"ChatRoom: endpoint_mode=embed, endpoint_id={self._endpoint.service_id}"
+            )
+        else:
+            logger.info(
+                f"ChatRoom: endpoint_mode=process, endpoint_id={self.endpoint_service_id}"
+            )
+
+        # Log ChatRoom's own startup mode
+        if self._embed:
+            logger.info("ChatRoom: startup_mode=embed (no stream publish)")
+        else:
+            logger.info("ChatRoom: startup_mode=remote (stream publish enabled)")
 
     async def get_team_for_chat(self, chat_id: str) -> PantheonTeam:
         """Get the team for a specific chat, creating from memory if needed."""
@@ -121,7 +234,9 @@ class ChatRoom(ToolSet):
             f"No team template in memory, creating default team for chat {chat_id}"
         )
 
-        default_template = self.template_manager.get_template("default")
+        default_template = self.template_manager.get_template(
+            "default", self.agents_template
+        )
         if not default_template:
             raise RuntimeError("Default template not found in template manager")
 
@@ -173,13 +288,11 @@ class ChatRoom(ToolSet):
             logger.info(
                 f"Ensuring {service_name_plural} are started: {required_services}"
             )
-            result = await endpoint_service.invoke(
-                "manage_service",
-                {
-                    "action": "start",
-                    "service_type": service_type,
-                    "name": required_services,
-                },
+            result = await self._call_endpoint_method(
+                endpoint_method_name="manage_service",
+                action="start",
+                service_type=service_type,
+                name=required_services,
             )
             if not result.get("success"):
                 logger.warning(
@@ -210,7 +323,7 @@ class ChatRoom(ToolSet):
         logger.info(f"🏗️ Creating team from template '{template_name}'")
 
         # Connect to endpoint service
-        endpoint_service = await self._backend.connect(self.endpoint_service_id)
+        endpoint_service = await self._get_endpoint_service()
 
         # Add per-chat services if chat_id is provided
         if chat_id:
@@ -301,14 +414,6 @@ class ChatRoom(ToolSet):
             if chat_id in self.chat_teams:
                 del self.chat_teams[chat_id]
 
-            # Start missing toolsets in background (non-blocking)
-            required_toolsets = template_obj.get("required_toolsets", [])
-            if required_toolsets:
-                logger.info(
-                    f"Template requires toolsets: {required_toolsets}. Starting them in background..."
-                )
-                asyncio.create_task(self._start_toolsets_background(required_toolsets))
-
             return {
                 "success": True,
                 "message": f"Team template '{template_obj.get('name', 'Custom')}' prepared for chat",
@@ -319,16 +424,6 @@ class ChatRoom(ToolSet):
         except Exception as e:
             return {"success": False, "message": f"Template setup failed: {str(e)}"}
 
-    @tool
-    async def get_db_info(self) -> dict:
-        """Get the database info."""
-        if hasattr(self, "_get_db_info_func") and self._get_db_info_func is not None:
-            return {
-                "success": True,
-                "info": await self._get_db_info_func(),
-            }
-        return {"success": False, "message": "Not implemented"}
-
     async def _publish_chunk(self, chat_id: str, chunk: dict):
         """Publish a chunk to stream.
 
@@ -337,42 +432,10 @@ class ChatRoom(ToolSet):
             chunk: The chunk data to publish
         """
         try:
-            import time
-
-            publish_start = time.time()
-
-            from pantheon.remote.backend.base import StreamMessage, StreamType
-
-            message = StreamMessage(
-                type=StreamType.CHAT,
-                session_id=f"chat_{chat_id}",
-                timestamp=time.time(),  # Use actual timestamp for ordering
-                data={"type": "chunk", "chunk": chunk, "chat_id": chat_id},
+            # Use unified stream publish method
+            await self._publish_stream(
+                chat_id, "chunk", {"type": "chunk", "chunk": chunk}
             )
-            # Get or create stream channel (simplified with new API)
-            stream_channel = await self._backend.get_or_create_stream(
-                f"chat_{chat_id}", StreamType.CHAT
-            )
-            await stream_channel.publish(message)
-
-            publish_time = time.time() - publish_start
-            chunk_type = chunk.get("begin", chunk.get("stop", "content"))
-
-            if chunk.get("begin"):
-                logger.info(
-                    f"📤 [ChatRoom] Published BEGIN chunk to stream: {publish_time:.3f}s"
-                )
-            elif chunk.get("stop"):
-                logger.info(
-                    f"📤 [ChatRoom] Published STOP chunk to stream: {publish_time:.3f}s"
-                )
-            elif chunk.get("content"):
-                content_preview = chunk.get("content", "")[:20]
-                logger.debug(
-                    f"📤 [ChatRoom] Published content chunk: {publish_time:.3f}s ('{content_preview}...')"
-                )
-            else:
-                logger.debug(f"📤 [ChatRoom] Published chunk: {publish_time:.3f}s")
 
         except Exception as e:
             logger.error(
@@ -387,24 +450,16 @@ class ChatRoom(ToolSet):
             step_message: The step message data to publish
         """
         try:
-            from pantheon.remote.backend.base import StreamMessage, StreamType
-
-            message = StreamMessage(
-                type=StreamType.CHAT,
-                session_id=f"chat_{chat_id}",
-                timestamp=0,  # Will be set automatically
-                data={
+            # Use unified stream publish method
+            await self._publish_stream(
+                chat_id,
+                "step",
+                {
                     "type": "step_message",
                     "step_message": step_message,
-                    "chat_id": chat_id,
                 },
             )
-            # Get or create stream channel (simplified with new API)
-            stream_channel = await self._backend.get_or_create_stream(
-                f"chat_{chat_id}", StreamType.CHAT
-            )
-            await stream_channel.publish(message)
-            logger.info(f"ChatRoom: Published step message to NATS for chat {chat_id}")
+            logger.debug(f"ChatRoom: Published step message to NATS for chat {chat_id}")
         except Exception as e:
             logger.error(
                 f"ChatRoom: Failed to publish step message to NATS for chat {chat_id}: {e}"
@@ -414,15 +469,41 @@ class ChatRoom(ToolSet):
     async def get_endpoint(self) -> dict:
         """Get the endpoint service info."""
         try:
-            s = await self._backend.connect(self.endpoint_service_id)
-            info = await s.fetch_service_info()
-            return {
-                "success": True,
-                "service_name": info.service_name if info else self.endpoint_service_id,
-                "service_id": info.service_id if info else self.endpoint_service_id,
-            }
+            if self._endpoint_embed:
+                # Embed mode: directly access endpoint properties
+                endpoint = await self._get_endpoint_service()
+                return {
+                    "success": True,
+                    "service_name": endpoint.service_name
+                    if hasattr(endpoint, "service_name")
+                    else "endpoint",
+                    "service_id": endpoint.service_id
+                    if hasattr(endpoint, "service_id")
+                    else "unknown",
+                }
+            else:
+                # Process mode: fetch through RPC
+                s = await self._get_endpoint_service()
+                try:
+                    info = await s.fetch_service_info()
+                    return {
+                        "success": True,
+                        "service_name": info.service_name
+                        if info
+                        else self.endpoint_service_id,
+                        "service_id": info.service_id
+                        if info
+                        else self.endpoint_service_id,
+                    }
+                except Exception:
+                    # Fallback if fetch_service_info not available
+                    return {
+                        "success": True,
+                        "service_name": "endpoint",
+                        "service_id": self.endpoint_service_id,
+                    }
         except Exception as e:
-            logger.error(f"Error getting remote service info: {e}")
+            logger.error(f"Error getting endpoint service info: {e}")
             return {"success": False, "message": str(e)}
 
     @tool
@@ -451,9 +532,10 @@ class ChatRoom(ToolSet):
             - error: Error message if operation failed.
         """
         try:
-            s = await self._backend.connect(self.endpoint_service_id)
-            result = await s.invoke(
-                "manage_service", {"action": "list", "service_type": "toolset"}
+            result = await self._call_endpoint_method(
+                endpoint_method_name="manage_service",
+                action="list",
+                service_type="toolset",
             )
             if isinstance(result, dict) and "success" in result:
                 return result
@@ -482,21 +564,17 @@ class ChatRoom(ToolSet):
             The result from the toolset method call.
         """
         try:
-            endpoint = await self._backend.connect(self.endpoint_service_id)
-
             # Add debug logging
             logger.debug(
                 f"chatroom proxy_toolset: method_name={method_name}, toolset_name={toolset_name}, args={args}"
             )
 
-            # Use endpoint's proxy_toolset method for unified handling
-            result = await endpoint.invoke(
-                "proxy_toolset",
-                {
-                    "method_name": method_name,
-                    "args": args or {},
-                    "toolset_name": toolset_name,
-                },
+            # Use unified endpoint call method
+            result = await self._call_endpoint_method(
+                endpoint_method_name="proxy_toolset",
+                method_name=method_name,
+                args=args or {},
+                toolset_name=toolset_name,
             )
 
             return result
@@ -543,7 +621,9 @@ class ChatRoom(ToolSet):
             # Lazy load default_team on first access (avoids startup race condition)
             if self.default_team is None:
                 logger.info("Creating default_team on demand")
-                default_template = self.template_manager.get_template("default")
+                default_template = self.template_manager.get_template(
+                    "default", self.agents_template
+                )
                 if not default_template:
                     return {
                         "success": False,
@@ -1069,83 +1149,18 @@ class ChatRoom(ToolSet):
                     "validation_errors": validation_errors,
                 }
 
-            # Check toolset availability
-            s = await self._backend.connect(self.endpoint_service_id)
-            available_toolsets_resp = await s.invoke(
-                "manage_service", {"action": "list", "service_type": "toolset"}
-            )
-
-            if (
-                isinstance(available_toolsets_resp, dict)
-                and "success" in available_toolsets_resp
-            ):
-                if available_toolsets_resp["success"]:
-                    available_services = available_toolsets_resp.get("services", [])
-                    available_toolsets = [
-                        svc.get("name", svc.get("id", "")) for svc in available_services
-                    ]
-                else:
-                    available_toolsets = []
-            else:
-                available_toolsets = (
-                    available_toolsets_resp
-                    if isinstance(available_toolsets_resp, list)
-                    else []
-                )
-
-            missing_toolsets = []
-            for required_toolset in template_obj.required_toolsets:
-                if required_toolset not in available_toolsets:
-                    missing_toolsets.append(required_toolset)
-
+            # Services will be automatically started via _ensure_services when template is loaded
             return {
                 "success": True,
-                "compatible": len(missing_toolsets) == 0,
+                "compatible": True,
                 "required_toolsets": template_obj.required_toolsets,
-                "available_toolsets": available_toolsets,
-                "missing_toolsets": missing_toolsets,
+                "required_mcp_servers": template_obj.required_mcp_servers,
                 "template": template_obj.to_dict(),
             }
 
         except Exception as e:
             logger.error(f"Error validating template compatibility: {e}")
             return {"success": False, "message": str(e)}
-
-    async def _start_toolsets_background(self, missing_toolsets: list[str]):
-        """Start missing toolsets in background without blocking."""
-
-        logger.info(f"🚀 Background task: Starting toolsets {missing_toolsets}")
-
-        s = await self._backend.connect(self.endpoint_service_id)
-        result = await s.invoke(
-            "manage_service",
-            {"action": "start", "service_type": "toolset", "name": missing_toolsets},
-        )
-
-        if result.get("success", False):
-            started = result.get("started", [])
-            errors = result.get("errors", [])
-
-            if started:
-                logger.info(f"✅ Successfully started toolsets: {', '.join(started)}")
-            if errors:
-                logger.warning(
-                    f"⚠️ Could not start some toolsets:\n" + "\n".join(errors)
-                )
-        else:
-            error_msg = result.get("error", "Unknown error")
-            logger.warning(f"⚠️ Toolset startup failed: {error_msg}")
-
-    async def run(self, log_level: str = "INFO"):
-        """Run the chatroom service.
-
-        Args:
-            log_level: The level of the log.
-        """
-        # Call parent ToolSet.run() which handles worker creation and registration
-        return await super().run(log_level=log_level)
-
-    # Chat context and Notebook sessions Methods
 
     @tool
     async def get_chat_context(self, chat_id: str) -> dict:

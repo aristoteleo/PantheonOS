@@ -143,7 +143,7 @@ async def _start_endpoint_process(
 async def _start_endpoint_embedded(
     endpoint_id_hash: str,
     workspace_path: str,
-) -> str:
+) -> "Endpoint":
     """
     Start Endpoint in embedded mode (same event loop).
 
@@ -152,7 +152,7 @@ async def _start_endpoint_embedded(
         workspace_path: Endpoint workspace directory
 
     Returns:
-        endpoint_service_id for connecting to the endpoint
+        Endpoint instance (not service_id)
 
     Raises:
         RuntimeError: If endpoint fails to start within timeout
@@ -162,7 +162,8 @@ async def _start_endpoint_embedded(
     endpoint = Endpoint(
         config=None, workspace_path=workspace_path, id_hash=endpoint_id_hash
     )
-    asyncio.create_task(endpoint.run())
+    # Start endpoint in background with remote=False (only setup, no worker)
+    asyncio.create_task(endpoint.run(remote=False))
 
     # Wait for endpoint to be ready
     logger.info("Waiting for Endpoint to be ready (embedded mode)")
@@ -172,10 +173,11 @@ async def _start_endpoint_embedded(
     while retry_count < max_retries:
         try:
             # Check if endpoint is ready
-            if await endpoint.services_ready():
-                endpoint_service_id = endpoint.service_id
-                logger.info(f"Endpoint is ready! service_id={endpoint_service_id}")
-                return endpoint_service_id
+            if endpoint._setup_completed:
+                logger.info(
+                    f"✓ Endpoint initialized (embedded mode, service_id={endpoint.service_id})"
+                )
+                return endpoint
         except Exception as e:
             logger.debug(f"Endpoint not ready yet: {e}")
 
@@ -198,10 +200,9 @@ async def start_services(
     workspace_path: str = "./.pantheon-chatroom-workspace",
     agents_template: dict | str | None = None,
     log_level: str = "INFO",
-    endpoint_wait_time: int = 5,
     speech_to_text_model: str = "gpt-4o-mini-transcribe",
     endpoint_id_hash: str | None = None,
-    endpoint_mode: str = "embedded",
+    endpoint_mode: str = "process",
     **kwargs,
 ):
     """Start the chatroom service.
@@ -214,11 +215,10 @@ async def start_services(
         workspace_path: The path to the workspace. Endpoint will chdir to this directory.
         agents_template: The template of the agents.
         log_level: The level of the log.
-        endpoint_wait_time: The time to wait for the endpoint to start.
         speech_to_text_model: The model to use for speech to text.
         endpoint_id_hash: Fixed id_hash for endpoint to generate stable service_id. If not provided, auto-generated.
-        endpoint_mode: How to start the endpoint. Options: "process" (default, independent subprocess),
-                      "embedded" (same event loop, shared resources).
+        endpoint_mode: How to start the endpoint. Options: "embedded" (same event loop),
+                      "process" (independent subprocess).
     """
     # Convert all relative paths to absolute paths
     memory_dir = str(Path(memory_dir).resolve())
@@ -234,37 +234,49 @@ async def start_services(
             if isinstance(kwargs[key], str):
                 kwargs[key] = str(Path(kwargs[key]).resolve())
 
-    # Start Endpoint if not provided
-    if endpoint_service_id is None:
+    # ===== Step 1: Start or connect Endpoint =====
+    endpoint = None
+    final_endpoint_service_id = endpoint_service_id
+
+    if final_endpoint_service_id is None:
         # Generate id_hash if not provided
         if endpoint_id_hash is None:
             endpoint_id_hash = str(uuid.uuid4())
 
         # Start endpoint based on mode
-        if endpoint_mode == "process":
+        if endpoint_mode == "embedded":
+            # Embed mode: return Endpoint instance
+            endpoint = await _start_endpoint_embedded(
+                endpoint_id_hash=endpoint_id_hash,
+                workspace_path=workspace_path,
+            )
+        elif endpoint_mode == "process":
+            # Process mode: return service_id
             log_dir = Path(memory_dir) / ".chatroom-logs"
-            endpoint_service_id = await _start_endpoint_process(
+            final_endpoint_service_id = await _start_endpoint_process(
                 endpoint_id_hash=endpoint_id_hash,
                 workspace_path=workspace_path,
                 log_dir=log_dir,
-            )
-        elif endpoint_mode == "embedded":
-            endpoint_service_id = await _start_endpoint_embedded(
-                endpoint_id_hash=endpoint_id_hash,
-                workspace_path=workspace_path,
             )
         else:
             raise ValueError(
                 f"Invalid endpoint_mode: {endpoint_mode}. "
                 f"Must be 'process' or 'embedded'"
             )
+    else:
+        # Using existing endpoint_service_id
+        endpoint_mode = "process"
 
+    # ===== Step 2: Create ChatRoom =====
     chat_room = ChatRoom(
-        endpoint_service_id=endpoint_service_id,
+        endpoint=endpoint,  # Embed mode: has value; Process mode: None
+        endpoint_service_id=final_endpoint_service_id,  # Process mode: has value; Embed mode: None
         agents_template=agents_template,
         memory_dir=memory_dir,
         name=service_name,
         speech_to_text_model=speech_to_text_model,
         **kwargs,
     )
-    await chat_room.run(log_level=log_level)
+
+    # ===== Step 3: Start ChatRoom (always as remote service) =====
+    return await chat_room.run(log_level=log_level, remote=True)

@@ -215,32 +215,53 @@ class ToolSet(ABC):
     async def cleanup(self):
         pass
 
-    async def run(self, log_level: str | None = None):
+    async def run(self, log_level: str | None = None, remote: bool = True):
+        """
+        Run the ToolSet.
+
+        Args:
+            log_level: Log level for this run
+            remote: Whether to start RemoteWorker and register as service
+                - True (default): Start RemoteWorker, register as service, blocking run
+                - False: Only run setup, no worker, return immediately
+
+        Returns:
+            self: The ToolSet instance
+        """
         if log_level is not None:
             logger.set_level(log_level)
 
-        # Create backend and worker in run method
-        self._backend = RemoteBackendFactory.create_backend()
-        self.worker = self._backend.create_worker(
-            self._service_name, **self._worker_kwargs
-        )
+        if remote:
+            # ===== Remote mode: Start RemoteWorker =====
+            # Create backend and worker in run method
+            self._backend = RemoteBackendFactory.create_backend()
+            self.worker = self._backend.create_worker(
+                self._service_name, **self._worker_kwargs
+            )
 
-        # Register all tools with the worker
-        for name, (method, tool_kwargs) in self._functions.items():
-            self.worker.register(method, **tool_kwargs)
+            # Register all tools with the worker
+            for name, (method, tool_kwargs) in self._functions.items():
+                self.worker.register(method, **tool_kwargs)
 
-        # Run custom setup
-        await self.run_setup()
-        self._setup_completed = True
+            # Run custom setup
+            await self.run_setup()
+            self._setup_completed = True
 
-        logger.info(f"Remote Server: {getattr(self.worker, 'servers', 'N/A')}")
-        logger.info(f"Service Name: {self.worker.service_name}")
-        logger.info(f"Service ID: {self.service_id}")
-        try:
-            await self.worker.run()
-        finally:
-            # Cleanup on shutdown
-            await self.cleanup()
+            logger.info(f"Remote Server: {getattr(self.worker, 'servers', 'N/A')}")
+            logger.info(f"Service Name: {self.worker.service_name}")
+            logger.info(f"Service ID: {self.service_id}")
+            try:
+                await self.worker.run()
+            finally:
+                # Cleanup on shutdown
+                await self.cleanup()
+        else:
+            # ===== Embed mode: Only setup, no worker =====
+            await self.run_setup()
+            self._setup_completed = True
+            logger.info(f"Embed mode initialized: {self._service_name} (service_id={self.service_id})")
+
+        return self
 
     def to_mcp(self, mcp_kwargs: dict = {}):
         from fastmcp import FastMCP
