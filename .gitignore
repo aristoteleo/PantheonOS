@@ -178,6 +178,9 @@ tmp/
 # Ignore all JSON files in root (configs, session data, etc.)
 /*.json
 
+# Ignore test files in project root (test_*.py)
+/test_*.py
+
 # ====================
 # Other
 # ====================

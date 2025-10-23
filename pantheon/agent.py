@@ -527,8 +527,8 @@ class Agent:
                     # Make a copy to avoid modifying cached data
                     function_schema = tool_info.inputSchema.copy()
 
-                    # Add provider prefix to tool name
-                    function_schema["name"] = f"{provider_name}_{tool_info.name}"
+                    # Add provider prefix to tool name (using __ as separator to support provider names with _)
+                    function_schema["name"] = f"{provider_name}__{tool_info.name}"
 
                     # Build complete OpenAI tool dict
                     provider_tools.append(
@@ -554,7 +554,8 @@ class Agent:
 
         Tool routing order:
         1. Agent's own _base_functions (unprefixed)
-        2. Provider tools with prefix format: {provider_name}_{tool_name}
+        2. Provider tools with prefix format: {provider_name}__{tool_name}
+           Uses __ (double underscore) as separator to support provider names with underscores
 
         Args:
             prefixed_name: Tool name (possibly with prefix)
@@ -572,14 +573,15 @@ class Agent:
             func = self._base_functions[prefixed_name]
             return await run_func(func, args, self.tool_timeout)
 
-        # 2. Try prefix-based routing: {provider_name}_{tool_name}
-        if "_" not in prefixed_name:
+        # 2. Try prefix-based routing: {provider_name}__{tool_name}
+        # Using __ (double underscore) as separator allows provider names to contain single underscores
+        if "__" not in prefixed_name:
             raise ValueError(
                 f"Tool '{prefixed_name}' not found in _base_functions or providers (no provider prefix)"
             )
 
-        # Split on first _ only (tool_name may contain underscores)
-        source, tool_name = prefixed_name.split("_", 1)
+        # Split on first __ only (tool_name may contain underscores)
+        source, tool_name = prefixed_name.split("__", 1)
 
         if source not in self.providers:
             raise ValueError(f"Provider '{source}' not found (tool: '{prefixed_name}')")
@@ -661,7 +663,7 @@ class Agent:
         # Use unified call_tool() method which supports prefix routing
         # call_tool handles:
         # - Direct calls to base functions: func_name not in _base_functions
-        # - Prefix-based routing to providers: {provider}_{tool_name}
+        # - Prefix-based routing to providers: {provider}__{tool_name}
         return await self.call_tool(func_name, params)
 
     async def _handle_tool_calls(
@@ -683,7 +685,7 @@ class Agent:
                 # Use unified _call_tool_with_context() method
                 # This method handles:
                 # 1. Context variable injection for base functions
-                # 2. Prefix-based routing for provider tools (e.g., context7_search_docs)
+                # 2. Prefix-based routing for provider tools (e.g., context7__search_docs)
                 # 3. Proper error handling
                 start_time = time.time()
                 task = asyncio.create_task(
