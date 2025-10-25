@@ -143,40 +143,40 @@ class BioToolsetManager(ToolSet):
             **spatial_kwargs,
         )
         # Copy all ATAC tools to this manager - simple and direct
-        for name, (func, desc) in self.atac.worker.functions.items():
-            self.worker.functions[name] = (func, desc)
+        for name, (func, desc) in self.atac..functions.items():
+            self..functions[name] = (func, desc)
             setattr(self, name, func)
 
         # Copy all scATAC tools to this manager - simple and direct
-        for name, (func, desc) in self.scatac.worker.functions.items():
-            self.worker.functions[name] = (func, desc)
+        for name, (func, desc) in self.scatac..functions.items():
+            self..functions[name] = (func, desc)
             setattr(self, name, func)
 
         # Copy all scRNA tools to this manager - simple and direct
-        for name, (func, desc) in self.scrna.worker.functions.items():
-            self.worker.functions[name] = (func, desc)
+        for name, (func, desc) in self.scrna..functions.items():
+            self..functions[name] = (func, desc)
             setattr(self, name, func)
 
         # Copy all RNA tools to this manager - simple and direct
-        for name, (func, desc) in self.rna.worker.functions.items():
-            self.worker.functions[name] = (func, desc)
+        for name, (func, desc) in self.rna..functions.items():
+            self..functions[name] = (func, desc)
             setattr(self, name, func)
 
         # Copy all GeneAgent tools to this manager
-        for name, (func, desc) in self.gene_agent.worker.functions.items():
-            self.worker.functions[name] = (func, desc)
+        for name, (func, desc) in self.gene_agent..functions.items():
+            self..functions[name] = (func, desc)
             setattr(self, name, func)
 
         # Copy all SingleCellAgent tools to this manager
         if self.single_cell_agent is not None:
-            for name, (func, desc) in self.single_cell_agent.worker.functions.items():
-                self.worker.functions[name] = (func, desc)
+            for name, (func, desc) in self.single_cell_agent..functions.items():
+                self..functions[name] = (func, desc)
                 setattr(self, name, func)
 
         # Copy all DatabaseQuery tools to this manager
         if self.database_query is not None:
-            for name, (func, desc) in self.database_query.worker.functions.items():
-                self.worker.functions[name] = (func, desc)
+            for name, (func, desc) in self.database_query..functions.items():
+                self..functions[name] = (func, desc)
                 setattr(self, name, func)
 
         # Track loaded tools for reporting
@@ -199,18 +199,18 @@ class BioToolsetManager(ToolSet):
             "database_query",
         ]
         # Copy all Dock tools to this manager
-        for name, (func, desc) in self.dock.worker.functions.items():
-            self.worker.functions[name] = (func, desc)
+        for name, (func, desc) in self.dock..functions.items():
+            self..functions[name] = (func, desc)
             setattr(self, name, func)
 
         # Copy all HiC tools to this manager
-        for name, (func, desc) in self.hic.worker.functions.items():
-            self.worker.functions[name] = (func, desc)
+        for name, (func, desc) in self.hic..functions.items():
+            self..functions[name] = (func, desc)
             setattr(self, name, func)
 
         # Copy all Spatial tools to this manager
-        for name, (func, desc) in self.spatial.worker.functions.items():
-            self.worker.functions[name] = (func, desc)
+        for name, (func, desc) in self.spatial..functions.items():
+            self..functions[name] = (func, desc)
             setattr(self, name, func)
 
         self.loaded_tools = {
@@ -379,8 +379,8 @@ Available Commands:
                 name="single_cell_agent", workspace_path=workspace_path, **kwargs
             )
             # Register its tools
-            for name, (func, desc) in sca.worker.functions.items():
-                self.worker.functions[name] = (func, desc)
+            for name, (func, desc) in sca..functions.items():
+                self..functions[name] = (func, desc)
                 setattr(self, name, func)
             self.loaded_tools["single_cell_agent"] = sca
             if "single_cell_agent" not in self.available_tools:

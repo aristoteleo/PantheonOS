@@ -35,13 +35,13 @@ class HiCToolSet(ToolSet):
     def _expose_tools(self):
         """Expose all tools from upstream and analysis toolsets"""
         # Copy tools from upstream worker
-        for name, (func, desc) in self.upstream.worker.functions.items():
-            self.worker.functions[name] = (func, desc)
+        for name, (func, desc) in self.upstream..functions.items():
+            self..functions[name] = (func, desc)
             setattr(self, name, func)
 
         # Copy tools from analysis worker
-        for name, (func, desc) in self.analysis.worker.functions.items():
-            self.worker.functions[name] = (func, desc)
+        for name, (func, desc) in self.analysis..functions.items():
+            self..functions[name] = (func, desc)
             setattr(self, name, func)
 
 

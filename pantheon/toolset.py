@@ -139,6 +139,11 @@ class ToolSet(ABC):
         """Get all functions (including excluded ones)"""
         return self._functions
 
+    @functions.setter
+    def functions(self, value):
+        """Set functions dictionary"""
+        self._functions = value
+
     @property
     def service_id(self):
         return self.worker.service_id if self.worker else None
@@ -259,7 +264,9 @@ class ToolSet(ABC):
             # ===== Embed mode: Only setup, no worker =====
             await self.run_setup()
             self._setup_completed = True
-            logger.info(f"Embed mode initialized: {self._service_name} (service_id={self.service_id})")
+            logger.info(
+                f"Embed mode initialized: {self._service_name} (service_id={self.service_id})"
+            )
 
         return self
 
