@@ -18,20 +18,6 @@ from .vector_rag import VectorRAGToolSet
 from .knowledge import KnowledgeToolSet
 from .database_api import DatabaseAPIQueryToolSet
 
-# Bio toolsets
-from .bio import (
-    BioToolsetManager,
-    DatabaseQueryToolSet,
-    GeneAgentToolSet,
-    ATACSeqToolSet,
-    ScATACSeqToolSet,
-    ScRNASeqToolSet,
-    RNASeqToolSet,
-    HiCToolSet,
-    SpatialToolSet,
-    MolecularDockingToolSet,
-    SingleCellAgentToolSet,
-)
 
 __all__ = [
     # Interpreters
@@ -60,17 +46,5 @@ __all__ = [
     # RAG
     "VectorRAGToolSet",
     "KnowledgeToolSet",
-    # Bio toolsets
-    "BioToolsetManager",
-    "DatabaseQueryToolSet",
-    "GeneAgentToolSet",
-    "ATACSeqToolSet",
-    "ScATACSeqToolSet",
-    "ScRNASeqToolSet",
-    "RNASeqToolSet",
-    "HiCToolSet",
-    "SpatialToolSet",
-    "MolecularDockingToolSet",
-    "SingleCellAgentToolSet",
     "DatabaseAPIQueryToolSet",
 ]

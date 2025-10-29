@@ -18,6 +18,10 @@ dependencies = [
     "nats-py>=2.6.0",
     "httpx>=0.28.1",
     "diskcache",
+    "nbformat",
+    "zmq",
+    "jupyter-client",
+    "llama_index"
 ]
 dynamic = ["version"]
 
