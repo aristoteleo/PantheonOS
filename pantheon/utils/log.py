@@ -11,65 +11,50 @@ LEVEL_MAP = {
     "ERROR": 40,
 }
 
-class CustomLogger:
-    def __init__(self, rich_mode: bool = False):
-        self.rich_mode = rich_mode
-        self.level = LEVEL_MAP["INFO"]
 
-    def use_rich_mode(self):
-        self.rich_mode = True
+class RichLogger:
+    def __init__(self):
+        self.level = LEVEL_MAP["INFO"]
 
     def set_level(self, level: str):
         self.level = LEVEL_MAP[level]
-        if not self.rich_mode:
-            loguru_logger.remove()
-            loguru_logger.add(sys.stdout, level=self.level)
 
-    def disable(self, name: str):
-        loguru_logger.disable(name)
-
-    def info(self, message: str, rich = None):
+    def info(self, message: str):
         if self.level > LEVEL_MAP["INFO"]:
             return
-        if self.rich_mode:
-            console.print(message)
-        else:
-            loguru_logger.info(message)
-        if rich is not None:
-            console.print(rich)
+        console.print(message)
 
-    def error(self, message: str, rich = None):
+    def error(self, message: str):
         if self.level > LEVEL_MAP["ERROR"]:
             return
-        if self.rich_mode:
-            console.print(message)
-        else:
-            loguru_logger.error(message)
-        if rich is not None:
-            console.print(rich)
+        console.print(message)
 
-    def warning(self, message: str, rich = None):
+    def warning(self, message: str):
         if self.level > LEVEL_MAP["WARNING"]:
             return
-        if self.rich_mode:
-            console.print(message)
-        else:
-            loguru_logger.warning(message)
-        if rich is not None:
-            console.print(rich)
+        console.print(message)
 
-    def debug(self, message: str, rich = None):
+    def debug(self, message: str):
         if self.level > LEVEL_MAP["DEBUG"]:
             return
-        if self.rich_mode:
-            console.print(message)
-        else:
-            loguru_logger.debug(message)
-        if rich is not None:
-            console.print(rich)
+        console.print(message)
 
 
-logger = CustomLogger()
+logger = loguru_logger
 
 
-__all__ = ["logger"]
+def use_rich_mode():
+    global logger
+    logger = RichLogger()
+
+
+def set_level(level: str):
+    if isinstance(logger, RichLogger):
+        logger.set_level(level)
+    else:
+        loguru_logger.remove()
+        loguru_logger.add(sys.stdout, level=level)
+
+
+def disable(name: str):
+    loguru_logger.disable(name)

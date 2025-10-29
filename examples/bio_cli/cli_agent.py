@@ -1,7 +1,7 @@
 import os
 
 import fire
-from pantheon.utils.log import logger
+import pantheon.utils.log as log
 from pantheon.agent import Agent
 from pantheon.repl import Repl
 from pantheon.toolsets.todo import TodoToolSet
@@ -13,10 +13,11 @@ from pantheon.toolsets.workflow import WorkflowToolSet
 
 HERE = os.path.dirname(__file__)
 
+
 async def main():
-    logger.use_rich_mode()
-    logger.set_level("INFO")
-    logger.disable("executor.engine")
+    log.use_rich_mode()
+    log.set_level("INFO")
+    log.disable("executor.engine")
 
     bio_workflow_path = os.path.join(HERE, "bio_workflows")
 

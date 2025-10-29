@@ -52,23 +52,6 @@ builtin_services:
   # Workflows:
   - workflow            # Agentic workflow service
 
-  # Bioinformatics (Specialized - add only for bio workloads):
-  # - gene_agent          # Gene set analysis
-  - database_query      # Bio database queries (OmicVerse)
-  # - rna_upstream        # RNA-seq upstream (FASTQ → expression)
-  # - rna_analysis        # RNA-seq downstream analysis
-  # - atac_upstream       # ATAC-seq upstream
-  # - atac_analysis       # ATAC-seq downstream
-  # - hic_upstream        # Hi-C upstream
-  # - hic_analysis        # Hi-C analysis
-  # - scrna_upstream      # Single-cell RNA upstream
-  # - scrna_analysis      # Single-cell RNA analysis
-  # - scatac_upstream     # Single-cell ATAC upstream
-  # - scatac_analysis     # Single-cell ATAC analysis
-  # - spatial_analysis    # Spatial transcriptomics
-  # - molecular_docking   # Protein-ligand docking
-  # - single_cell_agent   # Single-cell comprehensive analysis
-
 # All available ToolSets are in pantheon/toolsets/__init__.py
 
 # ===== MCP Server Configuration =====

@@ -11,7 +11,6 @@ from .notebook import NotebookToolSet, IntegratedNotebookToolSet, JupyterKernelT
 from .file_editor import FileEditorToolSet
 from .code_search import CodeSearchToolSet
 from .scraper import ScraperToolSet
-from .todo import TodoToolSet
 from .todolist import TodoListToolSet
 from .plan_mode import PlanModeToolSet
 from .vector_rag import VectorRAGToolSet
@@ -36,7 +35,6 @@ __all__ = [
     # Workflows & code
     "WorkflowToolSet",
     "CodeSearchToolSet",
-    "TodoToolSet",
     "TodoListToolSet",
     "PlanModeToolSet",
     # Notebooks

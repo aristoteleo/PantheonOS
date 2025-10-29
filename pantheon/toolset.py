@@ -11,7 +11,8 @@ from executor.engine import Engine, ProcessJob
 from funcdesc import parse_func
 
 from .remote import RemoteBackendFactory
-from .utils.log import logger
+import pantheon.utils.log as log
+from pantheon.utils.log import logger
 from .utils.misc import run_func
 
 # Global context variable for session_id
@@ -234,7 +235,7 @@ class ToolSet(ABC):
             self: The ToolSet instance
         """
         if log_level is not None:
-            logger.set_level(log_level)
+            log.set_level(log_level)
 
         if remote:
             # ===== Remote mode: Start RemoteWorker =====
@@ -280,7 +281,7 @@ class ToolSet(ABC):
 
     async def run_as_mcp(self, log_level: str | None = None, **mcp_kwargs):
         if log_level is not None:
-            logger.set_level(log_level)
+            log.set_level(log_level)
         mcp = self.to_mcp(mcp_kwargs)
         transport = mcp_kwargs.get("transport", "http")
         show_banner = mcp_kwargs.get("show_banner", True)
