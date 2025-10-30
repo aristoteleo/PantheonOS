@@ -202,7 +202,7 @@ async def start_services(
     log_level: str = "INFO",
     speech_to_text_model: str = "gpt-4o-mini-transcribe",
     endpoint_id_hash: str | None = None,
-    endpoint_mode: str = "process",
+    endpoint_mode: str = "embedded",
     **kwargs,
 ):
     """Start the chatroom service.

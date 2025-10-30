@@ -12,7 +12,7 @@ def resolve_backend_config(
 ):
     """Resolve backend configuration with clear precedence: explicit > env > defaults"""
     if backend is None:
-        backend = os.getenv("PANTHEON_REMOTE_BACKEND", "magique")
+        backend = os.getenv("PANTHEON_REMOTE_BACKEND", "nats")
 
     # default and env
     servers_env = ""

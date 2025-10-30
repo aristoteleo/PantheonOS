@@ -394,7 +394,6 @@ templates:
         - julia_interpreter
         - shell
         - workflow
-        - todo
         - file_manager
         mcp_servers:
         - biomcp

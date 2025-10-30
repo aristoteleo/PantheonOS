@@ -256,7 +256,7 @@ async def call_llm_provider(
         error_prefix = "Zhipu AI"
 
     elif config.provider_type == ProviderType.OPENAI:
-        complete_resp = await acompletion_openai(
+        complete_resp = await acompletion_litellm(
             messages=messages,
             model=config.model_name,
             tools=tools,

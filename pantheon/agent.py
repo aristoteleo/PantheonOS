@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import inspect
 import json
 import os
 import sys
@@ -21,9 +22,6 @@ from .remote import (
 )
 from .toolset import ToolSet
 from .utils.llm import (
-    acompletion_litellm,
-    acompletion_openai,
-    acompletion_zhipu,
     process_messages_for_hook_func,
     process_messages_for_model,
     remove_hidden_fields,
@@ -571,7 +569,16 @@ class Agent:
         # 1. Try Agent's own _base_functions first (no prefix required)
         if prefixed_name in self._base_functions:
             func = self._base_functions[prefixed_name]
-            return await run_func(func, args, self.tool_timeout)
+            try:
+                # Unpack args dict as keyword arguments to the function
+                return await run_func(func, **args)
+            except TypeError as e:
+                logger.error(
+                    f"Failed to call tool '{prefixed_name}': {e}\n"
+                    f"  Function: {func}\n"
+                    f"  Arguments: {args}\n"
+                )
+                raise
 
         # 2. Try prefix-based routing: {provider_name}__{tool_name}
         # Using __ (double underscore) as separator allows provider names to contain single underscores

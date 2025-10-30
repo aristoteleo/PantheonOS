@@ -205,7 +205,9 @@ class MCPProvider(ToolProvider):
               but actual connections are managed per-use within async with blocks.
         """
         if not self.config:
-            raise ValueError("MCPProvider was not initialized with config. Use client parameter instead.")
+            raise ValueError(
+                "MCPProvider was not initialized with config. Use client parameter instead."
+            )
 
         uri = self.config.uri
         if not uri:
@@ -295,7 +297,7 @@ class MCPProvider(ToolProvider):
                     function_schema = {
                         "name": tool.name,
                         "description": tool.description,
-                        "strict": True,
+                        "strict": False,
                         "parameters": params,
                     }
 
@@ -317,9 +319,7 @@ class MCPProvider(ToolProvider):
 
         except Exception as e:
             provider_name = self.config.name if self.config else "unknown"
-            logger.error(
-                f"Failed to list tools from MCP server '{provider_name}': {e}"
-            )
+            logger.error(f"Failed to list tools from MCP server '{provider_name}': {e}")
             raise
 
     async def call_tool(self, name: str, args: dict) -> Any:
@@ -420,9 +420,7 @@ class MCPProvider(ToolProvider):
                 logger.info(f"MCPProvider '{provider_name}' shut down")
             except Exception as e:
                 provider_name = self.config.name if self.config else "unknown"
-                logger.error(
-                    f"Error shutting down MCPProvider '{provider_name}': {e}"
-                )
+                logger.error(f"Error shutting down MCPProvider '{provider_name}': {e}")
 
 
 class ToolSetProvider(ToolProvider):
@@ -515,7 +513,9 @@ class ToolSetProvider(ToolProvider):
                     desc = Description.from_json(tool_json)
 
                     # Generate OpenAI format schema using desc_to_openai_dict
-                    oai_dict = desc_to_openai_dict(desc, skip_params=[])
+                    oai_dict = desc_to_openai_dict(
+                        desc, skip_params=[], litellm_mode=True
+                    )
 
                     # Extract the "function" part (without "type": "function")
                     function_schema = oai_dict.get("function", {})
