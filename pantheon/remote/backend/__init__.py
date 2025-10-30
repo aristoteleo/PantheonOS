@@ -3,13 +3,6 @@ from .registry import BackendRegistry
 
 # Import and register available backends
 try:
-    from .magique import MagiqueBackend
-
-    BackendRegistry.register("magique", MagiqueBackend)
-except ImportError:
-    pass
-
-try:
     from .nats import NATSBackend
 
     BackendRegistry.register("nats", NATSBackend)

@@ -182,7 +182,7 @@ Constructor Parameters
 * ``name``: Service name for the toolset
 * ``db_directory``: Directory containing LanceDB databases (default: "./lancedb")
 * ``write_enabled``: Enable insert/delete operations (default: False)
-* ``worker_params``: Additional parameters for the Magique worker
+* ``worker_params``: Additional parameters for the NATS worker
 * ``endpoint_service_id``: Optional specific service ID
 
 Command Line Arguments
@@ -255,4 +255,3 @@ See Also
 
 * :doc:`rag_system` - Automatic vector database building from documentation
 * :doc:`custom_toolsets` - Creating custom toolsets
-* :doc:`magique_infrastructure` - Understanding the service architecture

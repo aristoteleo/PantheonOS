@@ -36,7 +36,6 @@ chapters:
       sections:
       - file: toolsets/vector_rag
     - file: toolsets/custom_toolsets
-    - file: toolsets/magique_infrastructure
   - file: endpoint_chatroom/index
     sections:
     - file: endpoint_chatroom/architecture

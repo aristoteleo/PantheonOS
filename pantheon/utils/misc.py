@@ -59,11 +59,8 @@ async def call_endpoint_method(
 
 
 async def run_func(func: Callable, *args, **kwargs):
-    # Import here to avoid circular imports
-    from magique.worker import ReverseCallable
-
-    # Check if it's a regular coroutine function or ReverseCallable
-    if inspect.iscoroutinefunction(func) or isinstance(func, ReverseCallable):
+    # Check if it's a regular coroutine function
+    if inspect.iscoroutinefunction(func):
         return await func(*args, **kwargs)
     # Check if it's a callable object with async __call__ method
     elif hasattr(func, "__call__") and inspect.iscoroutinefunction(func.__call__):

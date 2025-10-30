@@ -4,7 +4,6 @@ from .backend.base import RemoteBackend, RemoteService
 import os
 from typing import Dict, Any
 from dataclasses import dataclass, field
-from ..constant import SERVER_URLS
 
 
 def resolve_backend_config(
@@ -20,10 +19,6 @@ def resolve_backend_config(
         # Default config
         config = {"server_urls": ["nats://localhost:4222"]}
         servers_env = os.getenv("NATS_SERVERS", "")
-    elif backend == "magique":
-        # Default config
-        config = {"server_urls": SERVER_URLS}
-        servers_env = os.getenv("MAGIQUE_SERVERS", "")
     else:
         raise ValueError(f"Unknown backend: {backend}")
 
@@ -41,7 +36,7 @@ def resolve_backend_config(
 class RemoteConfig:
     """Configuration for remote backend"""
 
-    backend: str = "magique"  # Default to magique for backward compatibility
+    backend: str = "nats"  # Default to NATS
     backend_config: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -75,10 +70,8 @@ class RemoteBackendFactory:
     @staticmethod
     def register_backends():
         """Register all available backends"""
-        from .backend.magique import MagiqueBackend
         from .backend.nats import NATSBackend
 
-        BackendRegistry.register("magique", MagiqueBackend)
         BackendRegistry.register("nats", NATSBackend)
 
 

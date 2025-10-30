@@ -1,6 +1,5 @@
 import sys
 
-from magique.client import MagiqueError
 from pantheon.toolset import tool, ToolSet, run_toolsets
 from pantheon.remote import connect_remote
 from pantheon.toolsets.web import WebToolSet
@@ -46,7 +45,7 @@ async def test_web_toolset():
         s = await connect_remote(toolset.service_id)
         try:
             await s.invoke("duckduckgo_search", {"query": "Hello, world!"})
-        except MagiqueError as e:
+        except Exception as e:
             print(e)
         finally:
             await job.cancel()
@@ -64,7 +63,7 @@ async def test_python_interpreter_toolset():
         await engine.submit_async(job)
         await job.wait_until_status("running")
         s = await connect_remote(toolset.service_id)
-        with pytest.raises(MagiqueError):
+        with pytest.raises(Exception):
             resp = await s.invoke("run_python_code", {"code": "xxxxx"})
         resp = await s.invoke(
             "run_python_code", {"code": "res = 1 + 1", "result_var_name": "res"}

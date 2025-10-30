@@ -13,7 +13,6 @@ dependencies = [
     "pillow>=10.4.0",
     "rich>=13.9.4",
     "rich-pyfiglet",
-    "magique>=0.6.7",
     "fastmcp>=2.11.0",
     "nats-py>=2.6.0",
     "httpx>=0.28.1",

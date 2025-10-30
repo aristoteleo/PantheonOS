@@ -4,7 +4,6 @@ from .backend.base import StreamType, StreamMessage, StreamChannel
 from .factory import RemoteBackendFactory, RemoteConfig
 from .remote import connect_remote
 from .backend.nats import NATSBackend
-from .backend.magique import MagiqueBackend
 
 # 统一远程后端接口
 __all__ = [
@@ -17,7 +16,6 @@ __all__ = [
     "BackendRegistry",
     # 统一后的后端实现
     "NATSBackend",
-    "MagiqueBackend",
     "StreamType",
     "StreamMessage",
     "StreamChannel",

@@ -3,21 +3,6 @@ import os
 # Jupyter path migration: use platformdirs standard (future-proof for jupyter_core v6)
 os.environ.setdefault("JUPYTER_PLATFORM_DIRS", "1")
 
-_SEP = "|"
-DEFAULT_MAGIQUE_SERVER_URL = (
-    f"wss://magique1.aristoteleo.com/ws{_SEP}"
-    f"wss://magique2.aristoteleo.com/ws{_SEP}"
-    f"wss://magique3.aristoteleo.com/ws"
-)
-
-_SERVER_URL = os.environ.get("MAGIQUE_SERVER_URL", DEFAULT_MAGIQUE_SERVER_URL)
-
-SERVER_URLS = []
-if _SEP in _SERVER_URL:
-    SERVER_URLS = _SERVER_URL.split(_SEP)
-else:
-    SERVER_URLS = [_SERVER_URL]
-
 PANTHEON_DIR = os.path.realpath(
     os.path.expanduser(os.environ.get("CONFIG_DIR", "~/.pantheon"))
 )

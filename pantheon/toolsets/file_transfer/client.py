@@ -1,5 +1,3 @@
-# Use generic Exception instead of MagiqueError for remote interface compatibility
-
 from ...remote import connect_remote
 
 
@@ -131,5 +129,5 @@ class FileTransferClient:
                 },
             )
             if resp.get("error"):
-                raise MagiqueError(resp["error"])
+                raise Exception(resp["error"])
         return resp

@@ -270,7 +270,7 @@ All 7 tests should pass.
 
 - `httpx` - HTTP client
 - `pantheon.toolset` - ToolSet base class
-- Remote LLM service via magique
+- Remote LLM service via NATS
 
 ## Contributing
 
