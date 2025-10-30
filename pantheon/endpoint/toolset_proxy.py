@@ -35,7 +35,6 @@ class ToolsetProxy:
 
     # Class-level instance pool: {pool_key: instance}
     _instance_pool: Dict[str, "ToolsetProxy"] = {}
-    _pool_lock = asyncio.Lock()
 
     def __new__(
         cls,
@@ -114,10 +113,6 @@ class ToolsetProxy:
             self.service_id = kwargs.get("service_id")
         else:  # TOOLSET_ID
             self.service_id = kwargs.get("service_id")
-
-        # Cache (simple permanent cache, no TTL)
-        self._tools_cache: Optional[List[Dict]] = None
-        self._lock = asyncio.Lock()
 
         # Mark as initialized
         self._is_initialized = True
@@ -224,8 +219,8 @@ class ToolsetProxy:
             )
             logger.debug(f"Connected to {service_type} service: {self.service_id}")
 
-    async def list_tools(self, force_refresh: bool = False) -> dict:
-        """List available tools (permanently cached until force_refresh).
+    async def list_tools(self) -> dict:
+        """List available tools.
 
         Returns:
             dict: {"success": True, "tools": [...]}}
@@ -233,34 +228,19 @@ class ToolsetProxy:
         """
         await self._ensure_connected()
 
-        async with self._lock:
-            # Return cached tools if available (unless force refresh)
-            if not force_refresh and self._tools_cache is not None:
-                logger.debug(f"Using cached tools for {self.toolset_name}")
-                return self._tools_cache
+        logger.debug(
+            f"Fetching tools for {self.toolset_name} (mode: {self.mode.value})"
+        )
 
-            # Fetch fresh tools
-            logger.debug(
-                f"Fetching tools for {self.toolset_name} (mode: {self.mode.value})"
-            )
+        result = await self._call_toolset_method("list_tools", {})
 
-            result = await self._call_toolset_method("list_tools", {})
-
-            if result.get("success"):
-                # Cache and return the complete result dict
-                self._tools_cache = result
-                tools_count = len(result.get("tools", []))
-                logger.debug(f"Cached {tools_count} tools for {self.toolset_name}")
-                return result
-            else:
-                error = result.get("error", "Unknown error")
-                raise Exception(f"Failed to list tools: {error}")
-
-    def invalidate_cache(self):
-        """Invalidate cache (force refresh on next list_tools)."""
-        if self._tools_cache:
-            logger.debug(f"Invalidating cache for {self.toolset_name}")
-        self._tools_cache = None
+        if result.get("success"):
+            tools_count = len(result.get("tools", []))
+            logger.debug(f"Fetched {tools_count} tools for {self.toolset_name}")
+            return result
+        else:
+            error = result.get("error", "Unknown error")
+            raise Exception(f"Failed to list tools: {error}")
 
     async def _call_toolset_method(self, method_name: str, args: Dict) -> Dict:
         """Call toolset method (mode-dependent routing)."""
@@ -300,5 +280,4 @@ class ToolsetProxy:
 
     def __repr__(self) -> str:
         """String representation."""
-        cache_info = "cached" if self._tools_cache else "no cache"
-        return f"ToolsetProxy(toolset={self.toolset_name}, {cache_info})"
+        return f"ToolsetProxy(toolset={self.toolset_name})"

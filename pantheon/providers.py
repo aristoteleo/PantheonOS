@@ -23,47 +23,9 @@ _CTX_VARS_NAME = "context_variables"
 _SKIP_PARAMS = [_CTX_VARS_NAME]
 
 
-class _ToolListChangeHandler(MessageHandler):
-    """Handler for MCP tool list change notifications
-
-    Listens for ToolListChangedNotification from MCP server and clears
-    the tool cache to force refresh on next list_tools() call.
-    """
-
-    def __init__(self, on_change_callback):
-        """Initialize handler with callback
-
-        Args:
-            on_change_callback: Async callable to invoke when tools change
-        """
-        super().__init__()
-        self.on_change_callback = on_change_callback
-
-    async def on_tool_list_changed(self) -> None:
-        """Called when MCP server's tool list changes
-
-        Clears the cached tools to force refresh on next access.
-        """
-        logger.debug("ToolListChangedNotification received - clearing tool cache")
-        if self.on_change_callback:
-            await self.on_change_callback()
-
-
 class MCPProvider(ToolProvider):
-    """Tool Provider for Model Context Protocol (MCP) servers
+    """Tool Provider for Model Context Protocol (MCP) servers"""
 
-    Manages HTTP connections to MCP servers and provides tool access through
-    the HTTP interface. Uses thread-safe global caching of HTTP clients.
-
-    Supports MCP sampling via Agent - MCP servers can request LLM completions
-    during tool execution by calling ctx.sample().
-
-    Can be initialized in two ways:
-    1. With config: MCPProvider(config=my_config) - creates client from config
-    2. With client: MCPProvider(client=my_client) - uses pre-initialized client
-    """
-
-    # Class-level cache for HTTP clients (thread-safe)
     _client_cache: dict[str, Client] = {}
     _cache_lock = Lock()
 
@@ -73,50 +35,19 @@ class MCPProvider(ToolProvider):
         model: str = "gpt-4",
         client: Optional[Client] = None,
     ):
-        """Initialize MCPProvider with sampling support
-
-        Args:
-            config: MCPServerConfig with connection details (for HTTP-based clients)
-            model: LLM model to use for sampling requests (default: gpt-4)
-            client: FastMCP Client instance (for direct client initialization, e.g., stdio)
-                   If provided, config is not needed.
-        """
+        """Initialize MCPProvider"""
         self.config = config
         self.model = model
-        self._client: Client = client  # Can be pre-initialized client
+        self._client: Client = client
         self._tools_cache: Optional[list[ToolInfo]] = None
-        self._tool_change_handler: Optional[_ToolListChangeHandler] = None
-
-    async def _on_tools_changed(self):
-        """Callback when MCP server's tool list changes
-
-        Clears the cached tools to force refresh on next list_tools() call.
-        """
-        provider_name = self.config.name if self.config else "unknown"
-        logger.debug(
-            f"MCPProvider '{provider_name}': Clearing tool cache due to server update"
-        )
-        self._tools_cache = None
 
     async def _sampling_handler(
         self,
-        messages: list,  # list[SamplingMessage]
-        params,  # SamplingParams
-        context,  # RequestContext
+        messages: list,
+        params,
+        context,
     ) -> str:
-        """Handle MCP sampling requests using Agent directly
-
-        Called when MCP server requests LLM completions via ctx.sample().
-        Creates a temporary Agent, runs it with the sampled query, and returns the response.
-
-        Args:
-            messages: Conversation history as SamplingMessage objects
-            params: SamplingParams containing systemPrompt, temperature, max_tokens, etc.
-            context: RequestContext with request_id, client_session, etc.
-
-        Returns:
-            LLM-generated response as string
-        """
+        """Handle MCP sampling requests"""
         try:
             from .agent import Agent  # Import here to avoid circular imports
 
@@ -178,11 +109,6 @@ class MCPProvider(ToolProvider):
             else:
                 response_text = str(result)
 
-            logger.debug(
-                f"MCPProvider '{provider_name}': Sampling completed - "
-                f"Response: {response_text[:50]}..."
-            )
-
             return response_text
 
         except Exception as e:
@@ -195,15 +121,7 @@ class MCPProvider(ToolProvider):
             return f"Error during sampling: {str(e)}"
 
     async def _get_client(self) -> Client:
-        """Get or create cached HTTP client for this MCP server (thread-safe)
-
-        Returns:
-            Client instance (use with async with context manager)
-
-        Note: FastMCP clients MUST be used within an async with block.
-              Caching here stores the client object for connection reuse setup,
-              but actual connections are managed per-use within async with blocks.
-        """
+        """Get or create cached HTTP client"""
         if not self.config:
             raise ValueError(
                 "MCPProvider was not initialized with config. Use client parameter instead."
@@ -220,21 +138,15 @@ class MCPProvider(ToolProvider):
                 # Connection state will be checked when used in async with block
                 return client
 
-        # Create tool list change handler to listen for server updates
-        self._tool_change_handler = _ToolListChangeHandler(self._on_tools_changed)
-
-        # Create new client with sampling handler and message handler
+        # Create new client with sampling handler
         logger.info(f"Creating new MCP client for {uri}")
         client = Client(
             uri,  # First parameter: transport (URI string, FastMCP will infer HTTP transport)
             name="pantheon-agent",  # Second parameter: client name
             sampling_handler=self._sampling_handler,
-            message_handler=self._tool_change_handler,
         )
 
-        logger.info(
-            f"MCP client created for {uri} with sampling and tool change monitoring"
-        )
+        logger.info(f"MCP client created for {uri} with sampling support")
 
         # Cache it (connection will be established on first use within async with)
         with self._cache_lock:
@@ -243,14 +155,7 @@ class MCPProvider(ToolProvider):
         return client
 
     async def initialize(self):
-        """Initialize the provider
-
-        Gets the HTTP client and sets up:
-        - MCP sampling support via Agent
-        - Tool list change monitoring to auto-refresh cache
-
-        Note: If client was already provided during __init__, this is a no-op.
-        """
+        """Initialize the provider"""
         try:
             if not self._client:
                 # Only get client if not already provided
@@ -258,8 +163,7 @@ class MCPProvider(ToolProvider):
 
             provider_name = self.config.name if self.config else "unknown"
             logger.debug(
-                f"MCPProvider '{provider_name}' initialized with sampling support "
-                f"and tool change monitoring (model: {self.model})"
+                f"MCPProvider '{provider_name}' initialized with sampling support (model: {self.model})"
             )
 
         except Exception as e:
@@ -268,11 +172,7 @@ class MCPProvider(ToolProvider):
             raise
 
     async def list_tools(self) -> list[ToolInfo]:
-        """List all available tools from the MCP server
-
-        Returns:
-            List of ToolInfo describing available tools
-        """
+        """List all available tools from the MCP server"""
         if self._tools_cache is not None:
             return self._tools_cache
 
@@ -323,22 +223,7 @@ class MCPProvider(ToolProvider):
             raise
 
     async def call_tool(self, name: str, args: dict) -> Any:
-        """Call a tool on the MCP server
-
-        Handles CallToolResult extraction using universal JSON format.
-
-        Priority order prioritizes universal, portable formats:
-        1. Try .structured_content first (raw MCP JSON - universal, portable)
-        2. Try parsing .content[0].text (fallback for unstructured content)
-        3. Try .data (Python objects - useful when JSON deserialization fails)
-
-        Args:
-            name: Name of the tool to call
-            args: Arguments to pass to the tool
-
-        Returns:
-            Result from the tool call
-        """
+        """Call a tool on the MCP server"""
         if not self._client:
             await self.initialize()
 
@@ -407,11 +292,7 @@ class MCPProvider(ToolProvider):
             raise
 
     async def shutdown(self):
-        """Clean up provider resources
-
-        Note: FastMCP client connections are managed per-operation within async with blocks.
-              No persistent connection to close. This method is kept for future cleanup needs.
-        """
+        """Clean up provider resources"""
         if self._client:
             try:
                 # Clear the tool cache to ensure fresh listings on next use
@@ -424,26 +305,14 @@ class MCPProvider(ToolProvider):
 
 
 class ToolSetProvider(ToolProvider):
-    """Tool Provider for Pantheon ToolSets
-
-    Wraps ToolSetProxy to provide tool access with:
-    - Session isolation via chat_id (auto-injects session_id)
-    - Parameter filtering (only pass expected parameters)
-
-    Migrated from ProxyWrapperBuilder to consolidate tool invocation logic.
-    """
+    """Tool Provider for Pantheon ToolSets"""
 
     def __init__(
         self,
         toolset_proxy: ToolsetProxy,
         chat_id: Optional[str] = None,
     ):
-        """Initialize ToolSetProvider
-
-        Args:
-            toolset_proxy: ToolsetProxy instance for RPC calls
-            chat_id: Optional chat_id to auto-inject as session_id (enables session isolation)
-        """
+        """Initialize ToolSetProvider"""
         self.toolset_proxy = toolset_proxy
         self.chat_id = chat_id
         self._tools_cache: Optional[list[ToolInfo]] = None
@@ -456,13 +325,7 @@ class ToolSetProvider(ToolProvider):
         return self.toolset_proxy.toolset_name
 
     async def initialize(self):
-        """Initialize the provider
-
-        Caches tool descriptions for later use in parameter filtering.
-
-        Note:
-            ToolsetProxy.list_tools() returns: {"success": True, "tools": [...]}
-        """
+        """Initialize the provider"""
         try:
             # Cache tool descriptions for parameter filtering
             tools_response = await self.toolset_proxy.list_tools()
@@ -480,16 +343,7 @@ class ToolSetProvider(ToolProvider):
             logger.warning("Continuing without cached tool descriptions")
 
     async def list_tools(self) -> list[ToolInfo]:
-        """List all available tools from the ToolSet
-
-        Returns:
-            List of ToolInfo with pre-generated OpenAI schema
-
-        Note:
-            Converts funcdesc format to OpenAI function schema using desc_to_openai_dict().
-            ToolSet.list_tools() returns: {"success": True, "tools": [...]}}
-            where each tool is already serialized from Description.to_json()
-        """
+        """List all available tools from the ToolSet"""
         if self._tools_cache is not None:
             return self._tools_cache
 
@@ -530,18 +384,7 @@ class ToolSetProvider(ToolProvider):
                     logger.warning(
                         f"Failed to convert ToolSet tool '{tool.get('name', 'unknown')}': {e}"
                     )
-                    # Fallback: provide basic but complete ToolInfo with schema
-                    tool_name = tool.get("name", "unknown")
-                    tool_info = ToolInfo(
-                        name=tool_name,
-                        description=tool.get("doc", ""),
-                        inputSchema={
-                            "name": tool_name,
-                            "description": tool.get("doc", ""),
-                            "parameters": {},
-                        },
-                    )
-                    tool_infos.append(tool_info)
+                    # Skip this tool instead of adding a fake ToolInfo
 
             # Cache results
             self._tools_cache = tool_infos
@@ -554,20 +397,7 @@ class ToolSetProvider(ToolProvider):
             raise
 
     async def call_tool(self, name: str, args: dict) -> Any:
-        """Call a tool on the ToolSet
-
-        Handles:
-        1. Auto-injection of session_id from chat_id (session isolation)
-        2. Parameter filtering (only pass recognized parameters)
-        3. Remote tool invocation via proxy
-
-        Args:
-            name: Name of the tool to call
-            args: Arguments to pass to the tool
-
-        Returns:
-            Result from the tool call
-        """
+        """Call a tool on the ToolSet"""
         try:
             logger.debug(f"Calling ToolSet tool '{name}' with chat_id={self.chat_id}")
 
@@ -589,16 +419,11 @@ class ToolSetProvider(ToolProvider):
                 if k in param_names or k == "session_id" or k in _SKIP_PARAMS
             }
 
-            # 3. Call remote tool via proxy
+            # 3. Call remote tool via proxy and return raw result
             result = await self.toolset_proxy.invoke(name, remote_params)
 
-            # 4. Handle result format
-            if isinstance(result, dict):
-                if "content" in result:
-                    return result["content"]
-                elif "error" in result:
-                    raise RuntimeError(result["error"])
-
+            # Return raw result directly without any format transformation
+            # This ensures remote ToolSet calls have the same return format as local ToolSet calls
             return result
 
         except Exception as e:
