@@ -181,7 +181,12 @@ def get_agents_manager(agents_path: Optional[str] = None) -> AgentsManager:
 
 @dataclass
 class ChatroomTemplate:
-    """Represents a chatroom template with unified configuration format."""
+    """Represents a chatroom template with unified configuration format.
+
+    The template supports two types of agents:
+    - Inline agents: Defined directly in agents_config (at least one required)
+    - Sub-agents: Loaded from agents.yaml library via sub_agents specification (optional)
+    """
 
     id: str
     name: str
@@ -189,8 +194,8 @@ class ChatroomTemplate:
     icon: str
     category: str
     version: str
-    agents_config: Dict[str, Any]  # Always required, must have 'triage'
-    sub_agents: Optional[str | List[str]] = None  # Optional library agents
+    agents_config: Dict[str, Any]  # Required: inline agent definitions
+    sub_agents: Optional[str | List[str]] = None  # Optional: library agents reference
     tags: List[str] = field(default_factory=list)
 
     @property
@@ -266,7 +271,7 @@ class TemplateManager:
         """Parse template data into ChatroomTemplate object
 
         Unified configuration format:
-        - agents_config: Required, contains agent definitions (must include 'triage')
+        - agents_config: Required, contains inline agent definitions (at least one agent)
         - sub_agents: Optional, for loading agents from agents.yaml library
 
         Args:
@@ -325,7 +330,7 @@ class TemplateManager:
 
         Validates:
         - Required template metadata (id, name)
-        - agents_config is present and has 'triage' agent
+        - agents_config is present with at least one agent
         - All agent configurations are valid
         - Optional sub_agents field format if present
 
@@ -340,11 +345,9 @@ class TemplateManager:
         if not template.name:
             errors.append("Template name is required")
 
-        # Validate agents_config (required)
+        # Validate agents_config (required, must have at least one agent)
         if not template.agents_config:
-            errors.append("Template must have agents_config with agent definitions")
-        elif "triage" not in template.agents_config:
-            errors.append("agents_config must have a 'triage' agent")
+            errors.append("Template must have agents_config with at least one agent")
         else:
             # Validate all agent configurations in agents_config
             for agent_id, agent_config in template.agents_config.items():
@@ -520,11 +523,11 @@ class TemplateManager:
 
         Returns:
             Tuple of (inline_agents_config, sub_agents_config)
-            - inline_agents_config: Dict of inline agent configs (triage first by dict order)
+            - inline_agents_config: Dict of inline agent configs
             - sub_agents_config: Dict of sub-agent configs
 
         Raises:
-            ValueError: If template is invalid (missing agents_config or triage)
+            ValueError: If template is invalid (missing agents_config)
         """
         template_name = team_template.get("template_name") or team_template.get(
             "name", "unknown"
