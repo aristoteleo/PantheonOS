@@ -35,7 +35,7 @@ except ImportError:
                     os.environ[key] = value
 
 from pantheon.memory import Memory
-from pantheon.chatroom.chatname_generator import ChatNameGenerator
+from pantheon.chatroom.special_agents import ChatNameGenerator
 
 
 @pytest.mark.asyncio

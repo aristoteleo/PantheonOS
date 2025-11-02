@@ -1,16 +1,14 @@
 import asyncio
 import copy
-import inspect
 import json
-import os
 import sys
 import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any, Callable, Optional, Protocol, Union
 from uuid import uuid4
 
-from fastmcp import Client
-from funcdesc import Description, Value, parse_func
+from funcdesc import parse_func
 from pydantic import BaseModel, create_model
 
 from .constant import build_system_prompt
@@ -31,6 +29,21 @@ from .utils.misc import desc_to_openai_dict, run_func
 from .utils.vision import VisionInput, vision_to_openai
 
 DEFAULT_MODEL = "gpt-5-mini"
+
+
+# ===== Execution Context =====
+
+
+@dataclass
+class ExecutionContext:
+    """Prepared execution context for agent run."""
+
+    conversation_history: list[dict]
+    runtime_context: dict
+    should_use_memory: bool
+    memory_instance: "Memory | None"
+    execution_context_id: str | None = None
+    input_messages: list[dict] | None = None
 
 
 # ===== Tool Provider Base Class =====
@@ -86,16 +99,6 @@ class ToolProvider(ABC):
         Called when the agent is being shut down.
         """
         pass
-
-
-# Protocol for legacy toolset compatibility (objects with tool_functions attribute)
-class ToolsetLike(Protocol):
-    """Protocol for objects that can be used as toolsets.
-
-    Any object with a tool_functions attribute is considered toolset-compatible.
-    """
-
-    tool_functions: dict[str, tuple[Callable, dict]]
 
 
 _CTX_VARS_NAME = "context_variables"
@@ -228,25 +231,16 @@ class RemoteAgentMessageQueue:
 class ResponseDetails(BaseModel):
     """
     The ResponseDetails class is used to store the details of the agent response.
-
-    Args:
-        messages: The messages of the agent response.
-        context_variables: The context variables of the agent response.
     """
 
     messages: list[dict]
     context_variables: dict
+    execution_context_id: str | None = None  # NEW: Context ID for message filtering
 
 
 class AgentResponse(BaseModel):
     """
     The AgentResponse class is used to store the agent response.
-
-    Args:
-        agent_name: The name of the agent.
-        content: The main final content of the agent response.
-        details: The details of the agent response, which contains the history of the agent response.
-        interrupt: Whether the agent is interrupted.
     """
 
     agent_name: str
@@ -258,13 +252,6 @@ class AgentResponse(BaseModel):
 class AgentTransfer(BaseModel):
     """
     The AgentTransfer class is used to transfer the agent response to another agent.
-
-    Args:
-        from_agent: The name of the agent that is transferring.
-        to_agent: The name of the agent that is receiving the transfer.
-        history: The history of the agent response.
-        context_variables: The context variables of the agent response.
-        init_message_length: The length of the initial message.
     """
 
     from_agent: str
@@ -272,6 +259,9 @@ class AgentTransfer(BaseModel):
     history: list[dict]
     context_variables: dict
     init_message_length: int
+    instruction: str = ""  # NEW: Task description for call_agent delegation
+    execution_context_id: str | None = None  # NEW: Context ID for message filtering
+    tool_call_id: str | None = None
 
 
 AgentInput = (
@@ -358,6 +348,10 @@ class Agent:
 
         # Plan Mode support
         self.plan_mode = False
+
+        # Can delegate to other agents - set by Team if this agent can delegate/coordinate
+        # Used in unified architecture: True when has_transfer_agents or has_sub_agents
+        self.can_delegate = False
 
     @property
     def functions(self) -> dict[str, Callable]:
@@ -722,19 +716,22 @@ class Agent:
             end_timestamp = time.time()
             execution_duration = end_timestamp - start_time
 
+            tool_message = {
+                "role": "tool",
+                "tool_name": func_name,
+                "id": tool_message_id,
+                "tool_call_id": call["id"],
+                "timestamp": end_timestamp,  # 保持兼容性
+                "start_timestamp": start_time,  # 新增：开始时间
+                "end_timestamp": end_timestamp,  # 新增：结束时间
+                "execution_duration": execution_duration,  # 新增：执行时长（秒）
+            }
+
             if isinstance(result, (Agent, RemoteAgent)):
-                tool_messages.append(
+                tool_message.update(
                     {
-                        "role": "tool",
-                        "tool_call_id": call["id"],
-                        "tool_name": func_name,
-                        "content": result.name,
                         "transfer": True,
-                        "id": tool_message_id,
-                        "timestamp": end_timestamp,  # 保持兼容性
-                        "start_timestamp": start_time,  # 新增：开始时间
-                        "end_timestamp": end_timestamp,  # 新增：结束时间
-                        "execution_duration": execution_duration,  # 新增：执行时长（秒）
+                        "content": result.name,
                     }
                 )
             else:
@@ -745,20 +742,14 @@ class Agent:
                 content = repr(processed_result)
                 if self.max_tool_content_length is not None:
                     content = content[: self.max_tool_content_length]
-                tool_messages.append(
+                tool_message.update(
                     {
-                        "role": "tool",
-                        "tool_call_id": call["id"],
-                        "tool_name": func_name,
                         "raw_content": result,
                         "content": content,
-                        "id": tool_message_id,
-                        "timestamp": end_timestamp,  # 保持兼容性
-                        "start_timestamp": start_time,  # 新增：开始时间
-                        "end_timestamp": end_timestamp,  # 新增：结束时间
-                        "execution_duration": execution_duration,  # 新增：执行时长（秒）
                     }
                 )
+            tool_messages.append(tool_message)
+
         return tool_messages
 
     async def _acompletion(
@@ -793,10 +784,10 @@ class Agent:
         """
         from .utils.llm import TimingTracker
         from .utils.llm_providers import (
+            call_llm_provider,
+            create_enhanced_process_chunk,
             detect_provider,
             get_base_url,
-            create_enhanced_process_chunk,
-            call_llm_provider,
         )
 
         # Initialize timing tracker
@@ -955,12 +946,30 @@ class Agent:
         tool_timeout: int | None = None,
         model: str | list[str] | None = None,
         allow_transfer: bool = True,
+        execution_context_id: str
+        | None = None,  # NEW: Context ID for message filtering
     ) -> ResponseDetails | AgentTransfer:
         response_format = response_format or self.response_format
         history = copy.deepcopy(messages)
         tool_timeout = tool_timeout or self.tool_timeout
 
-        system_prompt = build_system_prompt(self.instructions, plan_mode=self.plan_mode)
+        if history and any("execution_context_id" in msg for msg in history):
+            # History contains messages with execution_context_id, need to filter
+            filtered_messages = []
+            for msg in history:
+                if execution_context_id is not None:
+                    # Sub-agent: only include messages tagged with our execution_context_id
+                    if msg.get("execution_context_id") == execution_context_id:
+                        filtered_messages.append(msg)
+                else:
+                    # Inline agent: only include messages without execution_context_id
+                    if msg.get("execution_context_id") is None:
+                        filtered_messages.append(msg)
+            history = filtered_messages
+
+        system_prompt = build_system_prompt(
+            self.instructions, plan_mode=self.plan_mode, can_delegate=self.can_delegate
+        )
         current_timestamp = time.time()
 
         if (len(history) > 0) and (history[0]["role"] == "system"):
@@ -968,16 +977,20 @@ class Agent:
             history[0]["timestamp"] = current_timestamp  # 添加时间戳
             if "id" not in history[0]:
                 history[0]["id"] = str(uuid4())  # 添加唯一ID（如果没有的话）
+            # Mark system message with execution_context_id (not done in _process_step_message)
+            if execution_context_id is not None:
+                history[0]["execution_context_id"] = execution_context_id
         else:
-            history.insert(
-                0,
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                    "timestamp": current_timestamp,  # 添加时间戳
-                    "id": str(uuid4()),  # 添加唯一ID
-                },
-            )
+            system_msg = {
+                "role": "system",
+                "content": system_prompt,
+                "timestamp": current_timestamp,  # 添加时间戳
+                "id": str(uuid4()),  # 添加唯一ID
+            }
+            # Mark system message with execution_context_id (not done in _process_step_message)
+            if execution_context_id is not None:
+                system_msg["execution_context_id"] = execution_context_id
+            history.insert(0, system_msg)
         init_len = len(history)
         context_variables = context_variables or {}
 
@@ -1029,23 +1042,38 @@ class Agent:
                 timeout=tool_timeout,
                 check_stop=check_stop,
             )
-            history.extend(tool_messages)
-            for msg in tool_messages:
-                self.events_queue.put_nowait(msg)
 
-            if process_step_message:
-                for msg in process_messages_for_hook_func(tool_messages):
-                    await run_func(process_step_message, msg)
+            # Filter out all transfer messages - they will be handled in _prepare_execution_context()
+            # Both call_agent and transfer_to_* transfers should skip history addition here
+            non_transfer_messages = []
+            transfer_message = None
 
             for msg in tool_messages:
                 if msg.get("transfer"):
-                    return AgentTransfer(
-                        from_agent=self.name,
-                        to_agent=msg["content"],
-                        history=history,
-                        context_variables=context_variables,
-                        init_message_length=init_len,
-                    )
+                    # Skip all transfer messages
+                    transfer_message = msg
+                else:
+                    # Keep regular tool messages
+                    non_transfer_messages.append(msg)
+
+            history.extend(non_transfer_messages)
+            for msg in non_transfer_messages:
+                self.events_queue.put_nowait(msg)
+
+            if process_step_message:
+                for msg in process_messages_for_hook_func(non_transfer_messages):
+                    await run_func(process_step_message, msg)
+
+            if transfer_message:
+                transfer = AgentTransfer(
+                    from_agent=self.name,
+                    to_agent=transfer_message["content"],
+                    history=history,
+                    context_variables=context_variables,
+                    init_message_length=init_len,
+                    tool_call_id=transfer_message.get("tool_call_id"),
+                )
+                return transfer
 
             # Check for exit_plan_mode tool call - stop execution for user approval
             for msg in tool_messages:
@@ -1063,74 +1091,200 @@ class Agent:
         return ResponseDetails(
             messages=history[init_len:],
             context_variables=context_variables,
+            execution_context_id=execution_context_id,  # NEW: Pass context ID through response
         )
 
-    def _input_to_openai_messages(
+    async def _create_delegation_task_message(
+        self,
+        transfer: AgentTransfer,
+        execution_context_id: str | None = None,
+    ) -> dict | None:
+        """Create task context message for call_agent delegation with summary."""
+        if not transfer.instruction:
+            return None
+
+        # Generate summary if execution_context_id is provided (call_agent delegation)
+        summary_text = None
+        if execution_context_id and transfer.history:
+            try:
+                from .chatroom.special_agents import get_summary_generator
+
+                summary_gen = get_summary_generator()
+                summary_text = await summary_gen.generate_summary(
+                    transfer.history, max_tokens=1000
+                )
+            except Exception as e:
+                logger.warning(f"Failed to generate summary for delegation: {e}")
+
+        # Merge summary and instruction for context isolation
+        content_parts = []
+        if summary_text:
+            content_parts.append(f"Context Summary:\n{summary_text}")
+        content_parts.append(f"Task: {transfer.instruction}")
+        combined_content = "\n\n".join(content_parts)
+
+        return {
+            "role": "user",
+            "content": combined_content,
+            "timestamp": time.time(),
+            "id": str(uuid4()),
+            "execution_context_id": transfer.execution_context_id,
+        }
+
+    async def _input_to_openai_messages(
         self,
         msg: AgentInput,
+        execution_context_id: str
+        | None = None,  # NEW: Context ID for generating summary
     ) -> list[dict]:
+        """Convert input to OpenAI message format.
+
+        Handles conversion of user input types to standardized message dicts:
+        - VisionInput: Converts vision input to messages
+        - BaseModel: Converts to JSON user message
+        - str: Wraps in user message dict
+        - list: Processes each item and accumulates messages
+
+        Note: AgentTransfer is NOT handled here - it's processed directly in
+        _prepare_execution_context() before calling this method.
+
+        Args:
+            msg: The input message (user input types, not AgentTransfer)
+            execution_context_id: Context ID for generating summary in delegation
+
+        Returns:
+            List of message dicts in OpenAI format
+        """
         assert isinstance(
-            msg, (list, str, BaseModel, AgentResponse, AgentTransfer, VisionInput)
+            msg, (list, str, BaseModel, AgentResponse, VisionInput, dict)
         ), (
-            "Message must be a list, string, BaseModel or AgentResponse, AgentTransfer, VisionInput"
+            "Message must be a list, string, BaseModel, AgentResponse, VisionInput, or dict"
         )
         if isinstance(msg, AgentResponse):
-            # For acceping the result of previous run or other agent
+            # For accepting the result of previous run or other agent
             msg = msg.content
 
-        # Convert message to the openai message format
-        if isinstance(msg, AgentTransfer):
-            messages = msg.history
+        # Convert message to OpenAI message format based on type
+        if isinstance(msg, dict):
+            # Handle dict messages (e.g., tool_message from team.run() loop)
+            # These are already in OpenAI message format
+            if msg.get("role") == "tool":
+                # Tool message from sub-agent completion
+                converted_messages = [msg]
+            else:
+                # Regular dict message, wrap as user message
+                converted_messages = [_create_user_message(msg)]
         elif isinstance(msg, VisionInput):
-            messages = vision_to_openai(msg)
+            # Vision input: use specialized converter
+            converted_messages = vision_to_openai(msg)
+
         elif isinstance(msg, BaseModel):
-            messages = [
-                {
-                    "role": "user",
-                    "content": msg.model_dump_json(),
-                    "timestamp": time.time(),
-                    "id": str(uuid4()),
-                }
-            ]
+            # BaseModel input: convert to JSON user message
+            converted_messages = [_create_user_message(msg.model_dump_json())]
+
         elif isinstance(msg, str):
-            messages = [
-                {
-                    "role": "user",
-                    "content": msg,
-                    "timestamp": time.time(),
-                    "id": str(uuid4()),
-                }
-            ]
+            # String input: wrap in user message
+            converted_messages = [_create_user_message(msg)]
+
         elif isinstance(msg, list):
-            new_messages = []
-            for m in msg:
-                if isinstance(m, str):
-                    new_messages.append(
-                        {
-                            "role": "user",
-                            "content": m,
-                            "timestamp": time.time(),
-                            "id": str(uuid4()),
-                        }
-                    )
-                elif isinstance(m, VisionInput):
-                    new_messages.extend(vision_to_openai(m))
-                elif isinstance(m, BaseModel):
-                    new_messages.append(
-                        {
-                            "role": "user",
-                            "content": m.model_dump_json(),
-                            "timestamp": time.time(),
-                            "id": str(uuid4()),
-                        }
+            # List input: process each item and accumulate
+            converted_messages = []
+            for item in msg:
+                if isinstance(item, str):
+                    # String item: create user message
+                    converted_messages.append(_create_user_message(item))
+                elif isinstance(item, VisionInput):
+                    # Vision input: extend with converted vision messages
+                    converted_messages.extend(vision_to_openai(item))
+                elif isinstance(item, BaseModel):
+                    # BaseModel item: convert to JSON user message
+                    converted_messages.append(
+                        _create_user_message(item.model_dump_json())
                     )
                 else:
-                    assert isinstance(m, dict), (
+                    # Dict item: use as-is
+                    assert isinstance(item, dict), (
                         "Message must be a string, BaseModel or dict"
                     )
-                    new_messages.append(m)
-            messages = new_messages
-        return messages
+                    converted_messages.append(item)
+
+        return converted_messages
+
+    def _merge_with_memory(
+        self,
+        input_messages: list[dict],
+        memory: Memory | None,
+        use_memory: bool,
+    ) -> list[dict]:
+        """Merge input messages with memory if enabled.
+
+        Note: No cleanup is performed. In flat memory model, all messages
+        are preserved as they represent the complete history. Agents filter
+        messages by execution_context_id to get their relevant context.
+        """
+        if not use_memory or not memory:
+            return input_messages
+
+        # Preserve complete history - cleanup() violated flat memory principles
+        # by deleting messages that are part of the true history
+        historical_messages = memory.get_messages()
+        return historical_messages + input_messages
+
+    async def _prepare_execution_context(
+        self,
+        msg: AgentInput,
+        execution_context_id: str | None = None,
+        context_variables: dict | None = None,
+        memory: Memory | None = None,
+        use_memory: bool | None = None,
+    ) -> ExecutionContext:
+        """Prepare execution context based on input type.
+
+        Handles two paths:
+        1. AgentTransfer (delegated from another agent): Uses transfer's history and context
+        2. Normal user input: Converts input to messages and optionally merges with memory
+        """
+        # Determine whether to use memory
+        should_use_memory = use_memory if use_memory is not None else self.use_memory
+        memory_instance = memory or self.memory
+
+        input_messages = None  # Only set for normal user input, not AgentTransfer
+
+        if isinstance(msg, AgentTransfer):
+            # Delegation path: use transfer's history and context
+            conversation_history = msg.history
+            runtime_context = msg.context_variables
+
+            # If instruction provided (from call_agent delegation), create task context message
+            if msg.instruction:
+                task_msg = await self._create_delegation_task_message(
+                    msg, execution_context_id=execution_context_id
+                )
+                if task_msg:
+                    # Only use task_msg, discard conversation_history from parent
+                    # because _run_stream filtering will exclude messages without matching execution_context_id
+                    conversation_history = [task_msg]
+                    # Set input_messages for call_agent case for proper message processing
+                    input_messages = [task_msg]
+            # For transfer_to_* (no instruction), tool_message will be created in team.py
+        else:
+            # User input path: convert input to messages
+            input_messages = await self._input_to_openai_messages(
+                msg, execution_context_id=execution_context_id
+            )
+            conversation_history = self._merge_with_memory(
+                input_messages, memory_instance, should_use_memory
+            )
+            runtime_context = context_variables or {}
+
+        return ExecutionContext(
+            conversation_history=conversation_history,
+            runtime_context=runtime_context,
+            execution_context_id=execution_context_id,
+            should_use_memory=should_use_memory,
+            memory_instance=memory_instance,
+            input_messages=input_messages,  # NEW: Pass converted messages for memory update
+        )
 
     async def run(
         self,
@@ -1147,6 +1301,7 @@ class Agent:
         tool_timeout: int | None = None,
         model: str | list[str] | None = None,
         allow_transfer: bool = True,
+        execution_context_id: str | None = None,
     ) -> AgentResponse | AgentTransfer:
         """Run the agent.
 
@@ -1154,7 +1309,10 @@ class Agent:
             msg: The input message to the agent.
             response_format: The response format to use.
             tool_use: Whether to use tools.
-            context_variables: The context variables to use.
+            context_variables: Runtime variables available to tools during execution.
+                These are stored in ExecutionContext.runtime_context and injected
+                into tools that request them via the 'context_variables' parameter.
+                Example: {'user_id': '123', 'session_id': 'abc'}
             process_chunk: The function to process the chunk.
             process_step_message: The function to process the step message.
             check_stop: The function to check if the agent should stop.
@@ -1166,76 +1324,70 @@ class Agent:
                 Could be a list of models for fallback.
                 If not provided, the model will be selected from the agent's models.
             allow_transfer: Whether to allow transfer to another agent.
+            execution_context_id: Unique identifier for sub-agent delegation contexts.
+                Used for message filtering in _run_stream to isolate messages by
+                delegation context. None for inline agents.
 
         Returns:
             The agent response. Either an AgentResponse or an AgentTransfer.
             If the agent is interrupted, the AgentResponse will have the interrupt flag set to True.
             If the agent is transferring to another agent, the AgentTransfer will be returned.
         """
-        _use_m = self.use_memory
-        if use_memory is not None:
-            _use_m = use_memory
-        new_input_messages = self._input_to_openai_messages(msg)
-        memory = memory or self.memory
-        if _use_m:
-            memory.cleanup()
-            old_messages = memory.get_messages()
-            messages = old_messages + new_input_messages
-        else:
-            messages = new_input_messages
-        response_format = response_format or self.response_format
-        context_variables = context_variables or {}
-        if isinstance(msg, AgentTransfer):
-            new_input_messages = []
-            context_variables = msg.context_variables
-        context_variables[_CLIENT_ID_NAME] = memory.id
+        # Prepare execution context based on input type
+        # This handles both AgentTransfer delegation and normal user input paths
+        exec_context = await self._prepare_execution_context(
+            msg,
+            execution_context_id=execution_context_id,
+            context_variables=context_variables,
+            memory=memory,
+            use_memory=use_memory,
+        )
 
-        async def _detect_attachments(step_message: dict) -> None:
-            """Helper: Detect attachments in a message (independent of memory saving)."""
-            try:
-                from .message.attachment_pipeline import get_message_processor
+        # Prepare response format
+        response_format_to_use = response_format or self.response_format
 
-                processor = get_message_processor()
-                processed = await processor.process_message_with_attachments(
-                    step_message
-                )
-
-                step_message["detected_attachments"] = processed.get(
-                    "detected_attachments", []
-                )
-            except Exception as e:
-                logger.warning(f"Error in attachment detection: {e}")
-
-        if update_memory:
-            memory.add_messages(new_input_messages)
+        # Add client ID to runtime context
+        exec_context.runtime_context[_CLIENT_ID_NAME] = (
+            exec_context.memory_instance.id if exec_context.memory_instance else ""
+        )
 
         # ============ Unified message processing: Always detect attachments ============
         async def _process_step_message(step_message: dict):
+            # Get execution_context_id from ExecutionContext
+            if exec_context.execution_context_id is not None:
+                step_message["execution_context_id"] = exec_context.execution_context_id
+
             await _detect_attachments(step_message)
 
-            if update_memory:
-                memory.add_messages([step_message])
+            if update_memory and exec_context.memory_instance:
+                exec_context.memory_instance.add_messages([step_message])
 
             if process_step_message is not None:
                 await run_func(process_step_message, step_message)
 
+        # now user input also goes through the pipeline
+        # all messages: (user input, sub agent mock user input, sub agent transfer tool response)
+        for msg in exec_context.input_messages or []:
+            await _process_step_message(msg)
+
         try:
-            details = await self._run_stream(
-                messages=messages,
-                response_format=response_format,
+            run_result = await self._run_stream(
+                messages=exec_context.conversation_history,
+                response_format=response_format_to_use,
                 tool_use=tool_use,
-                context_variables=context_variables,
+                context_variables=exec_context.runtime_context,
                 process_chunk=process_chunk,
                 process_step_message=_process_step_message,
                 check_stop=check_stop,
                 tool_timeout=tool_timeout,
                 model=model,
                 allow_transfer=allow_transfer,
+                execution_context_id=exec_context.execution_context_id,
             )
         except StopRunning:
             logger.info("StopRunning")
-            if update_memory:
-                memory.cleanup()
+            if update_memory and exec_context.memory_instance:
+                exec_context.memory_instance.cleanup()
             return AgentResponse(
                 agent_name=self.name,
                 content="",
@@ -1243,18 +1395,20 @@ class Agent:
                 interrupt=True,
             )
 
-        if isinstance(details, AgentTransfer):
-            return details
+        # Handle response - could be AgentTransfer or ResponseDetails
+        if isinstance(run_result, AgentTransfer):
+            return run_result
         else:
-            final_msg = details.messages[-1]
-            if response_format:
-                content = final_msg.get("parsed")
+            # Extract content from the last message
+            last_message = run_result.messages[-1]
+            if response_format_to_use:
+                content = last_message.get("parsed")
             else:
-                content = final_msg.get("content")
+                content = last_message.get("content")
             return AgentResponse(
                 agent_name=self.name,
                 content=content,
-                details=details,
+                details=run_result,
             )
 
     # FIX: agent should not call REPL, REPL call agent instead
@@ -1270,3 +1424,47 @@ class Agent:
 
         service = AgentService(self, **kwargs)
         return await service.run()
+
+
+# ===== Utility Functions =====
+
+
+def _create_user_message(content: str) -> dict:
+    """Create a standard user message dict."""
+    return {
+        "role": "user",
+        "content": content,
+        "timestamp": time.time(),
+        "id": str(uuid4()),
+    }
+
+
+async def _detect_attachments(step_message: dict) -> None:
+    """Helper: Detect attachments in a message (independent of memory saving)."""
+    try:
+        from .message.attachment_pipeline import get_message_processor
+
+        processor = get_message_processor()
+        processed = await processor.process_message_with_attachments(step_message)
+
+        step_message["detected_attachments"] = processed.get("detected_attachments", [])
+    except Exception as e:
+        logger.warning(f"Error in attachment detection: {e}")
+
+
+def filter_inline_messages(messages: list[dict]) -> list[dict]:
+    """Filter out sub-agent messages, keeping only inline agent messages."""
+    inline_messages = []
+
+    for msg in messages:
+        # Always keep system messages - they apply to all agents
+        if msg.get("role") == "system":
+            inline_messages.append(msg)
+            continue
+
+        # Keep messages without execution_context_id (inline agent messages)
+        # Skip messages with execution_context_id (sub-agent messages)
+        if msg.get("execution_context_id") is None:
+            inline_messages.append(msg)
+
+    return inline_messages

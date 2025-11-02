@@ -7,14 +7,181 @@ import os
 import yaml
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ..utils.log import logger
+
+# Built-in services added to all agents when chat_id is provided
+BUILTIN_TOOLSETS = ["todolist"]
+BUILTIN_MCP_SERVERS = ["context7"]
+
+# Default agents configuration path
+DEFAULT_AGENTS_PATH = os.path.join(os.path.dirname(__file__), "agents.yaml")
+
+
+class AgentsManager:
+    """Manages the agents library (agents.yaml)"""
+
+    def __init__(self, agents_path: Optional[str] = None):
+        """Initialize agents manager"""
+        if agents_path is None:
+            # Default location: pantheon/factory/agents.yaml
+            agents_path = DEFAULT_AGENTS_PATH
+
+        self.agents_path = Path(agents_path)
+        self._agents: Dict[str, Dict[str, Any]] = {}
+        self._load_agents()
+
+    def _load_agents(self) -> None:
+        """Load agents from YAML file
+
+        Parses the agents.yaml file and caches agent definitions.
+        Gracefully handles missing files and parsing errors.
+        """
+        try:
+            if not self.agents_path.exists():
+                logger.warning(
+                    f"Agents library not found at {self.agents_path}. "
+                    f"Create {self.agents_path} to define sub-agents."
+                )
+                self._agents = {}
+                return
+
+            with open(self.agents_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+
+            if not data:
+                logger.warning(f"Agents file is empty: {self.agents_path}")
+                self._agents = {}
+                return
+
+            if "agents" not in data:
+                logger.warning(
+                    f"Agents file format invalid (missing 'agents' key): {self.agents_path}"
+                )
+                self._agents = {}
+                return
+
+            # Parse agents
+            agents_data = data.get("agents", {})
+            self._agents = {}
+
+            for agent_name, agent_config in agents_data.items():
+                try:
+                    # Validate required fields
+                    errors = self.validate_agent_config(agent_config)
+                    if errors:
+                        logger.error(
+                            f"Agent '{agent_name}' has validation errors: {errors}"
+                        )
+                        continue
+
+                    self._agents[agent_name] = agent_config
+                    logger.debug(f"Loaded agent: {agent_name}")
+
+                except Exception as e:
+                    logger.error(f"Failed to parse agent '{agent_name}': {e}")
+
+            logger.info(f"Loaded {len(self._agents)} agents from {self.agents_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to load agents library: {e}")
+            self._agents = {}
+
+    def get_agent_config(self, agent_name: str) -> Optional[Dict[str, Any]]:
+        """Get agent configuration by name"""
+        if agent_name not in self._agents:
+            logger.warning(f"Agent '{agent_name}' not found in agents library")
+            return None
+
+        return self._agents.get(agent_name)
+
+    def list_agents(self) -> List[str]:
+        """Get list of all available agent names"""
+        return sorted(list(self._agents.keys()))
+
+    def validate_agent_config(self, config: Dict[str, Any]) -> List[str]:
+        """Validate agent configuration"""
+        errors = []
+
+        if not isinstance(config, dict):
+            errors.append("Agent configuration must be a dictionary")
+            return errors
+
+        # Check required fields
+        if not config.get("name"):
+            errors.append("Agent 'name' is required and cannot be empty")
+
+        if not config.get("instructions"):
+            errors.append("Agent 'instructions' is required and cannot be empty")
+
+        if not config.get("model"):
+            errors.append("Agent 'model' is required and cannot be empty")
+
+        # Validate optional fields if present
+        if "icon" in config and not isinstance(config["icon"], str):
+            errors.append("Agent 'icon' must be a string if provided")
+
+        if "toolsets" in config:
+            if not isinstance(config["toolsets"], list):
+                errors.append("Agent 'toolsets' must be a list if provided")
+            elif not all(isinstance(t, str) for t in config["toolsets"]):
+                errors.append("Agent 'toolsets' must contain only strings")
+
+        if "mcp_servers" in config:
+            if not isinstance(config["mcp_servers"], list):
+                errors.append("Agent 'mcp_servers' must be a list if provided")
+            elif not all(isinstance(s, str) for s in config["mcp_servers"]):
+                errors.append("Agent 'mcp_servers' must contain only strings")
+
+        return errors
+
+    def get_required_toolsets(self, agent_names: List[str]) -> List[str]:
+        """Get all toolsets required by a list of agents"""
+        toolsets = set()
+        for agent_name in agent_names:
+            config = self.get_agent_config(agent_name)
+            if config:
+                toolsets.update(config.get("toolsets", []))
+        return sorted(list(toolsets))
+
+    def get_required_mcp_servers(self, agent_names: List[str]) -> List[str]:
+        """Get all MCP servers required by a list of agents"""
+        servers = set()
+        for agent_name in agent_names:
+            config = self.get_agent_config(agent_name)
+            if config:
+                servers.update(config.get("mcp_servers", []))
+        return sorted(list(servers))
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Export agents library as dictionary"""
+        return {"agents": self._agents}
+
+    def reload(self) -> None:
+        """Reload agents from file"""
+        logger.info(f"Reloading agents from {self.agents_path}")
+        self._load_agents()
+
+
+# Global agents manager instance
+_agents_manager: Optional[AgentsManager] = None
+
+
+def get_agents_manager(agents_path: Optional[str] = None) -> AgentsManager:
+    """Get or create the global agents manager instance"""
+    global _agents_manager
+    if agents_path is not None:
+        # Create new instance with custom path
+        return AgentsManager(agents_path)
+    if _agents_manager is None:
+        _agents_manager = AgentsManager()
+    return _agents_manager
 
 
 @dataclass
 class ChatroomTemplate:
-    """Represents a chatroom template with metadata and configuration"""
+    """Represents a chatroom template with unified configuration format."""
 
     id: str
     name: str
@@ -22,30 +189,38 @@ class ChatroomTemplate:
     icon: str
     category: str
     version: str
-    agents_config: Dict[str, Any]
-    tags: List[str]
+    agents_config: Dict[str, Any]  # Always required, must have 'triage'
+    sub_agents: Optional[str | List[str]] = None  # Optional library agents
+    tags: List[str] = field(default_factory=list)
 
     @property
     def required_toolsets(self) -> List[str]:
-        """Dynamically compute all toolsets required by agents in this template"""
+        """Dynamically compute all toolsets required by agents in this template."""
         toolsets = set()
+
         for agent_config in self.agents_config.values():
             if isinstance(agent_config, dict) and "toolsets" in agent_config:
                 toolsets.update(agent_config["toolsets"])
+
         return sorted(list(toolsets))
 
     @property
     def required_mcp_servers(self) -> List[str]:
-        """Dynamically compute all MCP servers required by agents in this template"""
+        """Dynamically compute all MCP servers required by agents in this template."""
         mcp_servers = set()
+
         for agent_config in self.agents_config.values():
             if isinstance(agent_config, dict) and "mcp_servers" in agent_config:
                 mcp_servers.update(agent_config["mcp_servers"])
+
         return sorted(list(mcp_servers))
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert template to dictionary format"""
-        return {
+        """Convert template to dictionary format.
+
+        Returns unified format dictionary representation.
+        """
+        result = {
             "id": self.id,
             "name": self.name,
             "description": self.description,
@@ -58,60 +233,52 @@ class ChatroomTemplate:
             "tags": self.tags,
         }
 
+        if self.sub_agents:
+            result["sub_agents"] = self.sub_agents
+
+        return result
+
 
 class TemplateManager:
     """Manages chatroom templates including loading, validation, and providing access"""
 
-    def __init__(self, templates_path: Optional[str] = None):
+    def __init__(self, chatrooms_path: Optional[str] = None):
         """
         Initialize template manager
 
         Args:
-            templates_path: Path to templates YAML file. If None, uses default path.
+            chatrooms_path: Path to chatrooms.yaml. If None, uses default (pantheon/factory/chatrooms.yaml).
         """
-        if templates_path is None:
-            templates_path = os.path.join(
-                os.path.dirname(__file__), "chatroom_templates.yaml"
-            )
+        if chatrooms_path is None:
+            chatrooms_path = os.path.join(os.path.dirname(__file__), "chatrooms.yaml")
 
-        self.templates_path = Path(templates_path)
+        self.chatrooms_path = Path(chatrooms_path)
+
+        # Initialize agents manager (now defined in this module)
+        self.agents_manager = get_agents_manager()
+
         self._templates: Dict[str, ChatroomTemplate] = {}
-        self._load_templates()
-
-    def _load_templates(self) -> None:
-        """Load templates from YAML file"""
-        try:
-            if not self.templates_path.exists():
-                logger.error(f"Templates file not found: {self.templates_path}")
-                return
-
-            with open(self.templates_path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-
-            if not data or "templates" not in data:
-                logger.error("Invalid template file format")
-                return
-
-            templates_data = data["templates"]
-            self._templates = {}
-
-            for template_id, template_data in templates_data.items():
-                try:
-                    template = self._parse_template(template_id, template_data)
-                    self._templates[template_id] = template
-                    logger.debug(f"Loaded template: {template_id}")
-                except Exception as e:
-                    logger.error(f"Failed to parse template {template_id}: {e}")
-
-            logger.info(f"Loaded {len(self._templates)} chatroom templates")
-
-        except Exception as e:
-            logger.error(f"Failed to load templates: {e}")
+        self._load_chatrooms()
 
     def _parse_template(
         self, template_id: str, data: Dict[str, Any]
     ) -> ChatroomTemplate:
-        """Parse template data into ChatroomTemplate object"""
+        """Parse template data into ChatroomTemplate object
+
+        Unified configuration format:
+        - agents_config: Required, contains agent definitions (must include 'triage')
+        - sub_agents: Optional, for loading agents from agents.yaml library
+
+        Args:
+            template_id: Template identifier
+            data: Template data dictionary
+
+        Returns:
+            ChatroomTemplate instance
+        """
+        # Unified format: use agents_config as-is
+        agents_config = data.get("agents_config", {})
+
         return ChatroomTemplate(
             id=data.get("id", template_id),
             name=data.get("name", template_id),
@@ -119,7 +286,8 @@ class TemplateManager:
             icon=data.get("icon", "🏠"),
             category=data.get("category", "general"),
             version=data.get("version", "1.0.0"),
-            agents_config=data.get("agents_config", {}),
+            agents_config=agents_config,
+            sub_agents=data.get("sub_agents"),
             tags=data.get("tags", []),
         )
 
@@ -153,8 +321,13 @@ class TemplateManager:
         return results
 
     def validate_template(self, template: ChatroomTemplate) -> List[str]:
-        """
-        Validate template configuration
+        """Validate template configuration in unified format.
+
+        Validates:
+        - Required template metadata (id, name)
+        - agents_config is present and has 'triage' agent
+        - All agent configurations are valid
+        - Optional sub_agents field format if present
 
         Returns:
             List of validation errors (empty if valid)
@@ -166,26 +339,57 @@ class TemplateManager:
             errors.append("Template ID is required")
         if not template.name:
             errors.append("Template name is required")
+
+        # Validate agents_config (required)
         if not template.agents_config:
-            errors.append("Template must have at least one agent")
+            errors.append("Template must have agents_config with agent definitions")
+        elif "triage" not in template.agents_config:
+            errors.append("agents_config must have a 'triage' agent")
+        else:
+            # Validate all agent configurations in agents_config
+            for agent_id, agent_config in template.agents_config.items():
+                errors.extend(self._validate_agent_config(agent_config, agent_id))
 
-        # Validate triage agent exists
-        if "triage" not in template.agents_config:
-            errors.append("Template must have a 'triage' agent")
+        # Validate sub_agents format (optional field)
+        if template.sub_agents is not None:
+            if isinstance(template.sub_agents, str):
+                if template.sub_agents not in ["all", ""]:
+                    errors.append(
+                        f"sub_agents string value must be 'all' or empty, got: {template.sub_agents}"
+                    )
+            elif isinstance(template.sub_agents, list):
+                if not all(isinstance(name, str) for name in template.sub_agents):
+                    errors.append("sub_agents list must contain only strings")
+            else:
+                errors.append(
+                    "sub_agents must be a string ('all' or empty) or a list of agent names"
+                )
 
-        # Validate agent configurations
-        for agent_id, agent_config in template.agents_config.items():
-            if not isinstance(agent_config, dict):
-                errors.append(f"Agent '{agent_id}' configuration must be a dictionary")
-                continue
+        return errors
 
-            # Check required agent fields
-            if "name" not in agent_config:
-                errors.append(f"Agent '{agent_id}' must have a name")
-            if "instructions" not in agent_config:
-                errors.append(f"Agent '{agent_id}' must have instructions")
-            if "model" not in agent_config:
-                errors.append(f"Agent '{agent_id}' must have a model")
+    def _validate_agent_config(self, agent_config: Any, agent_id: str) -> List[str]:
+        """Validate a single agent configuration
+
+        Args:
+            agent_config: Agent configuration to validate
+            agent_id: Agent identifier (for error messages)
+
+        Returns:
+            List of validation errors for this agent
+        """
+        errors = []
+
+        if not isinstance(agent_config, dict):
+            errors.append(f"Agent '{agent_id}' configuration must be a dictionary")
+            return errors
+
+        # Check required agent fields
+        if "name" not in agent_config or not agent_config["name"]:
+            errors.append(f"Agent '{agent_id}' must have a non-empty name")
+        if "instructions" not in agent_config or not agent_config["instructions"]:
+            errors.append(f"Agent '{agent_id}' must have non-empty instructions")
+        if "model" not in agent_config or not agent_config["model"]:
+            errors.append(f"Agent '{agent_id}' must have a non-empty model")
 
         return errors
 
@@ -217,10 +421,176 @@ class TemplateManager:
             tags=["fallback", "system"],
         )
 
+    def _load_chatrooms(self) -> None:
+        """Load unified format chatrooms from chatrooms.yaml
+
+        Extends templates loaded from chatroom_templates.yaml with unified format templates.
+        Uses the same _parse_template method for consistency.
+        """
+        try:
+            if not self.chatrooms_path.exists():
+                logger.debug(f"Chatrooms file not found: {self.chatrooms_path}")
+                return
+
+            with open(self.chatrooms_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+
+            if not data or "chatrooms" not in data:
+                logger.debug(f"Chatrooms file empty or invalid: {self.chatrooms_path}")
+                return
+
+            chatrooms_data = data.get("chatrooms", {})
+
+            for chatroom_id, chatroom_data in chatrooms_data.items():
+                try:
+                    # Use unified parsing for all chatroom formats
+                    template = self._parse_template(chatroom_id, chatroom_data)
+
+                    if template is None:
+                        continue
+
+                    # Handle "all" keyword expansion for sub_agents
+                    if self.agents_manager and template.sub_agents == "all":
+                        all_agents = self.agents_manager.list_agents()
+                        template.sub_agents = all_agents
+                        logger.debug(
+                            f"Expanded 'all' in chatroom '{chatroom_id}' to {len(all_agents)} agents"
+                        )
+
+                    self._templates[chatroom_id] = template
+                    logger.debug(f"Loaded chatroom: {chatroom_id}")
+
+                except Exception as e:
+                    logger.error(f"Failed to parse chatroom '{chatroom_id}': {e}")
+
+            logger.info(
+                f"Loaded {len(chatrooms_data)} chatrooms from {self.chatrooms_path}"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to load chatrooms: {e}")
+
+    def resolve_sub_agents_spec(self, sub_agents_spec) -> List[str]:
+        """Resolve sub_agents specification to list of agent names from agents.yaml library.
+
+        Args:
+            sub_agents_spec: Specification value - can be:
+                - "all": Load all agents from agents.yaml
+                - [list]: Load specific agents from library
+                - None or []: No library agents
+
+        Returns:
+            List of agent names to load from library
+
+        Raises:
+            ValueError: If spec format is invalid
+        """
+        if sub_agents_spec == "all":
+            if self.agents_manager is None:
+                logger.warning(
+                    "agents_manager not available, cannot load all sub-agents"
+                )
+                return []
+            agent_names = self.agents_manager.list_agents()
+            logger.debug(f"Loading all sub-agents from agents.yaml: {agent_names}")
+            return agent_names
+
+        elif isinstance(sub_agents_spec, list):
+            logger.debug(f"Loading specific sub-agents: {sub_agents_spec}")
+            return sub_agents_spec
+
+        elif sub_agents_spec is None or sub_agents_spec == []:
+            logger.debug("No sub-agents specified")
+            return []
+
+        else:
+            raise ValueError(
+                f"sub_agents must be 'all', a list, or null/empty, got: {sub_agents_spec}"
+            )
+
+    def collect_agent_configs(
+        self, team_template: Dict[str, Any]
+    ) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        """Collect and validate agent configs from template.
+
+        Separates inline agents (from agents_config) and sub-agents (from agents.yaml).
+
+        Args:
+            team_template: Template configuration dict with agents_config and optional sub_agents
+
+        Returns:
+            Tuple of (inline_agents_config, sub_agents_config)
+            - inline_agents_config: Dict of inline agent configs (triage first by dict order)
+            - sub_agents_config: Dict of sub-agent configs
+
+        Raises:
+            ValueError: If template is invalid (missing agents_config or triage)
+        """
+        template_name = team_template.get("template_name") or team_template.get(
+            "name", "unknown"
+        )
+
+        # Get inline agents config (required)
+        inline_agents_config = team_template.get("agents_config", {})
+        if not inline_agents_config:
+            raise ValueError(f"Template '{template_name}' missing agents_config")
+
+        # Get sub-agents config (optional)
+        sub_agents_spec = team_template.get("sub_agents")
+        sub_agents_config = {}
+
+        if sub_agents_spec and sub_agents_spec != []:
+            resolved_sub_agents = self.resolve_sub_agents_spec(sub_agents_spec)
+            logger.debug(
+                f"Resolved sub_agents spec ('{sub_agents_spec}') to: {resolved_sub_agents}"
+            )
+
+            if self.agents_manager:
+                for agent_name in resolved_sub_agents:
+                    agent_config = self.agents_manager.get_agent_config(agent_name)
+                    if agent_config is None:
+                        logger.warning(
+                            f"Sub-agent '{agent_name}' not found in agents.yaml, skipping"
+                        )
+                        continue
+                    sub_agents_config[agent_name] = agent_config
+
+        logger.debug(
+            f"Collected {len(inline_agents_config)} inline agents, "
+            f"{len(sub_agents_config)} sub-agents"
+        )
+
+        return inline_agents_config, sub_agents_config
+
+    def add_default_services_to_configs(self, agent_configs: Dict[str, Any]) -> None:
+        """Add built-in toolsets and MCP servers to agent configs.
+
+        Modifies agent configs in-place, adding BUILTIN_TOOLSETS and BUILTIN_MCP_SERVERS
+        if they're not already present.
+
+        Args:
+            agent_configs: Dict of agent configurations to update
+        """
+        for agent_config in agent_configs.values():
+            # Add built-in toolsets
+            toolsets = agent_config.get("toolsets", [])
+            for toolset in BUILTIN_TOOLSETS:
+                if toolset not in toolsets:
+                    toolsets.append(toolset)
+            agent_config["toolsets"] = toolsets
+
+            # Add built-in MCP servers
+            mcp_servers = agent_config.get("mcp_servers", [])
+            for mcp_server in BUILTIN_MCP_SERVERS:
+                if mcp_server not in mcp_servers:
+                    mcp_servers.append(mcp_server)
+            agent_config["mcp_servers"] = mcp_servers
+
     def reload_templates(self) -> None:
-        """Reload templates from file"""
-        logger.info("Reloading chatroom templates")
-        self._load_templates()
+        """Reload templates from chatrooms.yaml"""
+        logger.info("Reloading chatroom templates from chatrooms.yaml")
+        self._templates = {}
+        self._load_chatrooms()
 
 
 # Global template manager instance

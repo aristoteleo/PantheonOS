@@ -1,11 +1,11 @@
 import asyncio
-from abc import ABC
 import uuid
+from abc import ABC
 
-from .agent import Agent, AgentTransfer, AgentInput, AgentResponse, RemoteAgent
-from .utils.misc import run_func
+from .agent import Agent, AgentInput, AgentResponse, AgentTransfer, RemoteAgent
 from .memory import Memory
 from .utils.log import logger
+from .utils.misc import run_func
 
 
 class Team(ABC):
@@ -93,11 +93,21 @@ class SwarmCenterTeam(SwarmTeam):
         assert isinstance(agent.name, str), "Agent name must be a string"
         agent_func_name = agent.name.replace(" ", "_").lower()
         func_name = f"transfer_to_{agent_func_name}"
-        exec(f"def {func_name}(): return self.agents['{agent.name}']", locals())
-        transfer_func = eval(func_name)
+
+        # Create transfer function using closure (no exec needed)
+        # Note: No return type annotation to avoid Pydantic serialization issues
+        def transfer_func(target_name: str = agent.name):
+            """Transfer to the target agent."""
+            return self.agents[target_name]
+
+        transfer_func.__name__ = func_name
+        transfer_func.__doc__ = f"Transfer to {agent.name}."
         await run_func(self.triage.tool, transfer_func)
 
+        # Transfer back to triage
+        # Note: No return type annotation to avoid Pydantic serialization issues
         def transfer_back_to_triage():
+            """Transfer back to the triage agent."""
             return self.triage
 
         await run_func(agent.tool, transfer_back_to_triage)
@@ -119,14 +129,65 @@ class SwarmCenterTeam(SwarmTeam):
 
 
 class PantheonTeam(Team):
-    """Pantheon team structure."""
+    """Pantheon team structure with two types of agents.
 
-    def __init__(self, triage: Agent, agents: list[Agent | RemoteAgent]):
-        super().__init__([triage])
-        self.triage = triage
-        self._agents_to_add = agents
-        self._toolful_agents: set[str] = set()
-        self._call_stack: list[str] = []
+    Unified architecture with no special agent roles:
+    - Inline Agents: Defined in agents_config
+      * All treated equally - all have list_agents(), call_agent(), transfer_to_*()
+      * Can control their own execution and delegate to other agents
+    - Sub-Agents: Loaded from agents.yaml library
+      * Computation frameworks/tools
+      * Support: call_agent() from inline agents only
+      * Stateless, reusable, cannot be transferred to
+
+    Features enabled based on composition:
+    - Agent Transfer: When multiple inline agents (len > 1)
+    - Sub-Agent Discovery: When sub_agents are loaded
+    """
+
+    def __init__(
+        self,
+        inline_agents: list[Agent | RemoteAgent],
+        sub_agents: list[Agent | RemoteAgent] = None,
+    ):
+        """Initialize PantheonTeam with clear agent type separation.
+
+        Args:
+            inline_agents: Agents from agents_config
+            sub_agents: Agents loaded from agents.yaml library (computation frameworks)
+
+        Note:
+            All inline agents are equal - the first one is commonly called triage for convention,
+            but receives no special treatment or capabilities.
+        """
+        if not inline_agents:
+            raise ValueError("Team must have at least one inline agent")
+
+        self.inline_agents = inline_agents  # All inline agents
+        self.sub_agents = sub_agents or []  # Track sub-agents separately
+
+        # Initialize parent with all agents (inline + sub)
+        all_agents = inline_agents + (sub_agents or [])
+        super().__init__(all_agents)
+
+        # Mark which agents are inline vs sub (used to determine tool availability)
+        self._inline_agent_names: set[str] = {a.name for a in inline_agents}
+        self._sub_agent_names: set[str] = {a.name for a in self.sub_agents}
+        # Call stack stores dicts with delegation context for proper return routing and message filtering
+        # Each entry: {"caller_name": str, "instruction": str, "execution_context_id": str, "timestamp": float}
+        self._call_stack: list[dict] = []
+
+        # Determine which features to enable based on team composition
+        self.has_transfer_agents = len(inline_agents) > 1  # More than just one agent
+        self.has_sub_agents = len(self.sub_agents) > 0
+
+        # Mark all inline agents as capable of delegating if there are other agents
+        for agent in inline_agents:
+            if isinstance(agent, Agent):
+                agent.can_delegate = self.has_transfer_agents or self.has_sub_agents
+
+        # Keep triage reference for backward compatibility (it's the first inline agent)
+        self.triage = inline_agents[0]
 
     def get_active_agent(self, memory: Memory) -> Agent | RemoteAgent:
         active_agent_name = memory.extra_data.get("active_agent")
@@ -142,71 +203,187 @@ class PantheonTeam(Team):
     def set_active_agent(self, memory: Memory, agent_name: str):
         memory.extra_data["active_agent"] = agent_name
 
-    async def add_agent(self, agent: Agent | RemoteAgent, toolful: bool = False):
-        if isinstance(agent, RemoteAgent):
-            await agent.fetch_info()
-        assert isinstance(agent.name, str), "Agent name must be a string"
-        if toolful:
-            self._toolful_agents.add(agent.name)
-        agent_func_name = agent.name.replace(" ", "_").lower()
-        func_name = f"transfer_to_{agent_func_name}"
-        exec(f"def {func_name}(): return self.agents['{agent.name}']", locals())
-        transfer_func = eval(func_name)
-        await run_func(self.triage.tool, transfer_func)
+    def list_agents_descriptions(self) -> list[dict]:
+        """Get structured information about all available sub-agents.
 
-        self.agents[agent.name] = agent
-        await self.update_toolful_funcs()
+        Returns only sub-agent name and description - inline agents use this
+        to discover which agents can be delegated to via call_agent().
 
-    async def add_toolful_call_func(
-        self, agent: Agent | RemoteAgent, toolful_agent_name: str
-    ):
-        assert isinstance(agent.name, str), "Agent name must be a string"
-        agent_name = agent.name
-
-        def _call_toolful_agent(instruction: str):
-            self._call_stack.append(agent_name)  # push caller's name
-            return self.agents[toolful_agent_name]
-
-        _call_toolful_agent.__name__ = (
-            f"call_agent_{toolful_agent_name.replace(' ', '_')}"
-        )
-        _call_toolful_agent.__doc__ = (
-            f"Call {toolful_agent_name} agent to handle the instruction."
-        )
-        await run_func(agent.tool, _call_toolful_agent)
-
-    async def update_toolful_funcs(self):
-        for agent in self.agents.values():
-            is_toolful = agent.name in self._toolful_agents
-            if is_toolful:
+        Returns:
+            List of dicts with sub-agent name and description only.
+        """
+        agents_info = []
+        for agent_name, agent in self.agents.items():
+            # Only include sub-agents (not inline agents)
+            if agent_name not in self._sub_agent_names:
                 continue
-            if agent is self.triage:
-                continue
-            # Remove existing call_agent_* functions using standard API
-            for func_name in list(agent.functions.keys()):
-                if func_name.startswith("call_agent_"):
-                    agent.remove_tool(func_name)
-            for toolful_agent_name in self._toolful_agents:
-                await self.add_toolful_call_func(agent, toolful_agent_name)
 
-    async def remove_agent(self, agent: Agent | RemoteAgent):
-        assert isinstance(agent.name, str), "Agent name must be a string"
-        del self.agents[agent.name]
-        # Remove transfer function using standard API
-        transfer_func_name = f"transfer_to_{agent.name.replace(' ', '_').lower()}"
-        self.triage.remove_tool(transfer_func_name)
+            agent_info = {
+                "name": agent_name,
+            }
 
-        if agent.name in self._toolful_agents:
-            self._toolful_agents.remove(agent.name)
-        await self.update_toolful_funcs()
+            # Add description if available (main focus for parent agent)
+            if hasattr(agent, "description") and agent.description:
+                agent_info["description"] = agent.description
+
+            agents_info.append(agent_info)
+
+        return agents_info
+
+    async def add_list_agents_tool(self):
+        """Add list_agents() tool to all inline agents.
+
+        This tool allows inline agents to dynamically discover available sub-agents
+        at runtime without hardcoded knowledge of the team composition.
+        """
+
+        def list_agents():
+            """List all available sub-agents and their capabilities."""
+            agents_info = self.list_agents_descriptions()
+            if not agents_info:
+                return "No sub-agents available."
+
+            # Format for readability - show name and description only
+            output = "**Available Sub-Agents:**\n\n"
+            for agent in agents_info:
+                output += f"- **{agent['name']}**"
+                if "description" in agent:
+                    output += f": {agent['description']}"
+                output += "\n"
+
+            return output
+
+        list_agents.__name__ = "list_agents"
+        list_agents.__doc__ = (
+            "List all available sub-agents and their capabilities. "
+            "Use this to understand which agents you can delegate to via call_agent(). "
+            "Returns agent names and descriptions of their expertise."
+        )
+
+        # Add list_agents() to all inline agents (not just triage)
+        for agent in self.inline_agents:
+            await run_func(agent.tool, list_agents)
+
+    async def add_unified_call_agent_tool(self):
+        """Add unified call_agent(agent_name, instruction) tool for inline agents.
+
+        This tool allows inline agents to delegate tasks to sub-agents in the team.
+        Only inline agents get this capability - sub-agents are computation frameworks.
+        call_agent() can ONLY target sub-agents, not other inline agents.
+        """
+
+        async def _add_call_agent_tool_to_inline_agent(
+            calling_agent: Agent | RemoteAgent,
+        ):
+            """Add call_agent() tool to an inline agent."""
+            calling_agent_name = calling_agent.name
+
+            def call_agent(agent_name: str, instruction: str):
+                """Delegate a task to a sub-agent in the team.
+
+                Args:
+                    agent_name: Name of the target sub-agent to delegate to
+                    instruction: Clear task description for the target agent
+
+                Returns:
+                    Agent instance (triggers transfer and execution)
+                """
+                # Validate agent exists and is a sub-agent
+                if agent_name not in self.agents:
+                    raise ValueError(
+                        f"Agent '{agent_name}' not found. Available agents: {list(self.agents.keys())}"
+                    )
+
+                if agent_name not in self._sub_agent_names:
+                    raise ValueError(
+                        f"'{agent_name}' is not a sub-agent. Can only delegate to sub-agents via call_agent()."
+                    )
+
+                if not instruction or not instruction.strip():
+                    raise ValueError("Instruction cannot be empty")
+
+                # Track the call in the call stack for proper return routing
+                # Note: call_id will be set by the LLM tool calling mechanism (call["id"])
+                # We store it when we receive the tool call result
+                from uuid import uuid4
+
+                self._call_stack.append(
+                    {
+                        "caller_name": calling_agent_name,
+                        "instruction": instruction,
+                        "tool_call_id": None,  # Will be set when tool call is processed
+                        "execution_context_id": f"ctx_{str(uuid4())[:12]}",  # NEW: Context ID for message filtering
+                        "timestamp": __import__("time").time(),
+                    }
+                )
+
+                # Return the target agent instance (triggers transfer in team.run())
+                return self.agents[agent_name]
+
+            # Set proper function metadata for LLM
+            call_agent.__name__ = "call_agent"
+            call_agent.__doc__ = (
+                "Delegate a task to a sub-agent in the team. "
+                "Pass the agent_name and clear instruction describing what to do. "
+                "The instruction will be passed to the sub-agent as context."
+            )
+
+            # Register tool
+            await run_func(calling_agent.tool, call_agent)
+
+        # Add call_agent() to all inline agents (not sub-agents)
+        for agent in self.inline_agents:
+            await _add_call_agent_tool_to_inline_agent(agent)
+
+    async def add_transfer_tools_to_inline_agents(self):
+        """Add transfer_to_* tools to all inline agents for inter-agent communication.
+
+        Each inline agent can transfer to other inline agents (not sub-agents).
+        This enables agents to hand off tasks to each other.
+        """
+        # For each target agent, create a transfer function and register it with all source agents
+        for target_agent in self.inline_agents:
+            # Create transfer function using closure
+            # Capture target_agent.name via default parameter to avoid late binding issues
+            def transfer_func(
+                target_name: str = target_agent.name,
+            ):
+                """Transfer to the target agent."""
+                return self.agents[target_name]
+
+            agent_func_name = target_agent.name.replace(" ", "_").lower()
+            func_name = f"transfer_to_{agent_func_name}"
+            transfer_func.__name__ = func_name
+            transfer_func.__doc__ = f"Transfer to {target_agent.name}."
+
+            # Register this transfer function with all source agents (except the target itself)
+            for source_agent in self.inline_agents:
+                if source_agent.name == target_agent.name:
+                    continue  # Can't transfer to self
+
+                # Register the same function as a tool for each source agent
+                await run_func(source_agent.tool, transfer_func)
 
     async def async_setup(self):
-        while self._agents_to_add:
-            agent = self._agents_to_add.pop(0)
-            if getattr(agent, "toolful", False):
-                await self.add_agent(agent, toolful=True)
-            else:
-                await self.add_agent(agent, toolful=False)
+        """Setup team by enabling appropriate tools based on team composition.
+
+        All agents are already initialized in __init__.
+        This method adds tools based on feature enablement:
+        - transfer_to_*(): Inline agents can transfer to other inline agents
+        - list_agents(): All inline agents can discover available sub-agents
+        - call_agent(): All inline agents can delegate tasks to sub-agents
+        """
+        # Add transfer_to_* tools to enable inline agent communication
+        if self.has_transfer_agents:
+            await self.add_transfer_tools_to_inline_agents()
+
+        # Add list_agents() to all inline agents if there are sub-agents to discover
+        if self.has_sub_agents:
+            await self.add_list_agents_tool()
+
+        # Add call_agent() to all inline agents if there are agents to delegate to
+        if self.has_transfer_agents or self.has_sub_agents:
+            await self.add_unified_call_agent_tool()
 
     async def run(self, msg: AgentInput, memory: Memory | None = None, **kwargs):
         await self.async_setup()
@@ -214,41 +391,72 @@ class PantheonTeam(Team):
             memory = Memory(name="pantheon-team")
         while True:
             active_agent = self.get_active_agent(memory)
-            resp = await active_agent.run(msg, memory=memory, **kwargs)
+            # Pass execution_context_id from call stack if delegating via call_agent
+            current_context_id = None
+            if self._call_stack:
+                current_context_id = self._call_stack[-1].get("execution_context_id")
+
+            resp = await active_agent.run(
+                msg, memory=memory, execution_context_id=current_context_id, **kwargs
+            )
             if isinstance(resp, AgentTransfer):
-                self.set_active_agent(memory, resp.to_agent)
-                msg = resp
-            else:
+                # Unified transfer handling in team.py
+                # Two cases:
+                # 1. call_agent delegation (has call_stack): will create tool_message after sub-agent completes
+                # 2. transfer_to_* (no call_stack): create tool_message now and continue loop
+
                 if self._call_stack:
-                    process_step_message = kwargs.get("process_step_message", None)
-                    caller_name = self._call_stack.pop()
-                    call_id = "call_" + str(uuid.uuid4())[:20]
-                    transfer_message = {
-                        "role": "assistant",
-                        "content": f"Transfer back to {caller_name}.",
-                        "tool_calls": [
-                            {
-                                "id": call_id,
-                                "type": "function",
-                                "function": {
-                                    "name": f"transfer_to_{caller_name.replace(' ', '_')}",
-                                    "arguments": "{}",
-                                },
-                            }
-                        ],
-                        "agent_name": self.get_active_agent(memory).name,
-                    }
+                    # call_agent delegation case
+                    delegation_context = self._call_stack[-1]
+                    instruction = delegation_context["instruction"]
+                    logger.info(f"[CALL_AGENT] {active_agent.name} -> {resp.to_agent} | tool_call_id: {resp.tool_call_id}")
+                    logger.info(f"  instruction: {instruction[:100]}..." if len(instruction) > 100 else f"  instruction: {instruction}")
+                    # Attach context to the transfer - receiving agent knows what task and context
+                    resp.instruction = instruction
+                    resp.execution_context_id = delegation_context[
+                        "execution_context_id"
+                    ]
+                    # Store the original call_id from the AgentTransfer
+                    # This will be used when creating the tool_message after sub-agent completes
+                    if resp.tool_call_id:
+                        delegation_context["tool_call_id"] = resp.tool_call_id
+
+                    self.set_active_agent(memory, resp.to_agent)
+                    msg = resp
+                else:
+                    # transfer_to_* case: create tool_message to respond to the tool_call
+                    logger.info(f"[TRANSFER] {active_agent.name} -> {resp.to_agent} | tool_call_id: {resp.tool_call_id}")
                     tool_message = {
                         "role": "tool",
-                        "tool_call_id": call_id,
-                        "tool_name": "transfer_to_" + caller_name.replace(" ", "_"),
-                        "content": caller_name,
+                        "tool_call_id": resp.tool_call_id
+                        or ("call_" + str(uuid.uuid4())[:20]),
+                        "tool_name": "transfer",
+                        "content": resp.to_agent,
                     }
+                    # Switch to target agent and continue loop with tool_message
+                    self.set_active_agent(memory, resp.to_agent)
+                    msg = tool_message
+            else:
+                # Sub-agent completed and returned AgentResponse
+                if self._call_stack:
+                    delegation_context = self._call_stack.pop()
+                    caller_name = delegation_context["caller_name"]
+                    call_id = delegation_context.get("tool_call_id")
+                    response_content = str(resp.content) if resp else ""
+
+                    logger.info(f"[CALL_AGENT_RESPONSE] {active_agent.name} -> {caller_name} | tool_call_id: {call_id}")
+                    logger.info(f"  response: {response_content[:100]}..." if len(response_content) > 100 else f"  response: {response_content}")
+                    tool_message = {
+                        "role": "tool",
+                        "tool_call_id": call_id or ("call_" + str(uuid.uuid4())[:20]),
+                        "tool_name": "call_agent",
+                        "content": response_content,
+                    }
+
+                    # Switch back to caller
                     self.set_active_agent(memory, caller_name)
-                    if process_step_message is not None:
-                        await process_step_message(transfer_message)
-                        await process_step_message(tool_message)
-                    memory.add_messages([transfer_message, tool_message])
+
+                    msg = tool_message
                 else:
                     return resp
 

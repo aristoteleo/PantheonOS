@@ -1,0 +1,272 @@
+# Pantheon Chatroom Configuration - Unified Format
+#
+# All chatrooms use unified configuration format:
+# - agents_config (required): Dict with agent definitions, must have 'triage'
+# - sub_agents (optional): Specification to load agents from agents.yaml library
+#
+# Feature Enablement (automatic, based on configuration):
+# - Agent Transfer: When agents_config has multiple agents (len > 1)
+# - Sub-Agent Discovery: When sub_agents spec is non-empty
+#
+# Sub-agents spec can be:
+# - "all": Load all agents from agents.yaml
+# - [list]: Load specific agents from library
+# - None or []: No library agents (default)
+
+chatrooms:
+  # ============================================================================
+  # Default: Simple coordinator with all library agents (recommended)
+  # ============================================================================
+
+  default:
+    id: default
+    name: Default Chatroom
+    description: |
+      The default chatroom with Team Coordinator that delegates to all
+      available agents from agents.yaml for comprehensive task handling.
+    icon: 🏠
+    category: general
+    version: 2.0.0
+
+    # Required: All agents must have 'triage' in agents_config
+    agents_config:
+      triage:
+        name: Team Coordinator
+        instructions: |
+          You are the default Team Coordinator, responsible for:
+          1. Understanding the user's request comprehensively
+          2. Planning which team members (sub-agents) are needed
+          3. Delegating tasks to appropriate agents
+          4. Coordinating results and synthesizing findings
+
+          You have access to a complete team of specialists from agents.yaml:
+          - Data Scientists: data_analyst, statistician, ml_engineer, data_science_assistant
+          - Researchers: researcher, scraper, content_analyst, web_search_agent
+          - Developers: python_dev, frontend_dev, data_engineer
+          - Specialists: workflow_specialist, notebook_assistant
+          - General Assistant: general_assistant
+
+          Always consider the complexity of the task and leverage the right agents.
+          You can handle simple tasks yourself or delegate to specialists as needed.
+        model: openai/gpt-4o-mini
+        icon: 🤖
+
+    # Optional: Load all agents from agents.yaml
+    sub_agents: "all"
+
+  # ============================================================================
+  # Full-Featured Team - All agents
+  # ============================================================================
+
+  full_featured_team:
+    id: full_featured_team
+    name: Full Featured Team
+    description: |
+      A versatile team with a main coordinator agent that delegates to
+      ALL available agents from agents.yaml for comprehensive task handling.
+      Best for complex multi-domain problems requiring various expertise.
+    icon: 🚀
+    category: enterprise
+    version: 2.0.0
+
+    agents_config:
+      triage:
+        name: Team Coordinator
+        instructions: |
+          You are the Team Coordinator, responsible for:
+          1. Understanding the user's request comprehensively
+          2. Planning which team members (sub-agents) are needed
+          3. Delegating tasks to appropriate agents
+          4. Coordinating results and synthesizing findings
+
+          You have access to a diverse team of specialists:
+          - Data Scientists: data_analyst, statistician, ml_engineer, data_science_assistant
+          - Researchers: researcher, scraper, content_analyst
+          - Developers: python_dev, frontend_dev, data_engineer
+          - Specialists: workflow_specialist, notebook_assistant, web_search_agent
+          - General Assistant: general_assistant
+
+          Always consider the complexity of the task and leverage the right agents.
+        model: openai/gpt-4o-mini
+        icon: 👔
+
+    sub_agents: "all"
+
+  # ============================================================================
+  # Specialized Teams - Specific agents
+  # ============================================================================
+
+  # Data Science Team
+  data_science_team:
+    id: data_science_team
+    name: Data Science Team
+    description: |
+      Specialized team for data science and analytics workflows.
+      Main coordinator delegates to data analysis specialists.
+    icon: 📊
+    category: data_science
+    version: 2.0.0
+
+    agents_config:
+      triage:
+        name: Data Science Lead
+        instructions: |
+          You are the Data Science Lead coordinating the analysis team.
+          Your team includes:
+          - Data Analyst: EDA, visualization, statistical analysis
+          - ML Engineer: Model development and training
+          - Data Scientist Assistant: Notebook-based interactive analysis
+
+          Lead the team through data analysis projects step by step.
+        model: openai/gpt-4o-mini
+        icon: 👨‍💼
+
+    sub_agents:
+      - data_analyst
+      - ml_engineer
+      - data_science_assistant
+      - statistician
+
+  # Developer Team
+  developer_team:
+    id: developer_team
+    name: Developer Team
+    description: |
+      Engineering team for software development, automation, and infrastructure.
+      Coordinates Python, Frontend, and Data Engineering specialists.
+    icon: 👨‍💻
+    category: engineering
+    version: 2.0.0
+
+    agents_config:
+      triage:
+        name: Engineering Manager
+        instructions: |
+          You are the Engineering Manager leading a development team.
+          Team members available:
+          - Python Developer: Backend, APIs, automation
+          - Frontend Developer: Web UIs, responsive design
+          - Data Engineer: Pipelines, ETL, infrastructure
+
+          Coordinate technical tasks and ensure code quality.
+        model: openai/gpt-4o-mini
+        icon: 👔
+
+    sub_agents:
+      - python_dev
+      - frontend_dev
+      - data_engineer
+
+  # Research Team
+  research_team:
+    id: research_team
+    name: Research & Content Team
+    description: |
+      Team for research, web content analysis, and information synthesis.
+      Coordinates researcher, scraper, and content analyst specialists.
+    icon: 🔍
+    category: research
+    version: 2.0.0
+
+    agents_config:
+      triage:
+        name: Research Director
+        instructions: |
+          You are the Research Director managing content and information discovery.
+          Your team includes:
+          - Web Researcher: Finding and evaluating sources
+          - Data Scraper: Extracting structured data from web
+          - Content Analyst: Analyzing and summarizing content
+
+          Lead research initiatives and ensure information quality.
+        model: openai/gpt-4o-mini
+        icon: 📚
+
+    sub_agents:
+      - researcher
+      - scraper
+      - content_analyst
+      - web_search_agent
+
+  # ============================================================================
+  # Simple Single-Agent Chatroom
+  # ============================================================================
+
+  simple_assistant:
+    id: simple_assistant
+    name: Simple Assistant
+    description: |
+      Minimal configuration with just triage agent.
+      Good for simple queries and basic tasks without sub-agent complexity.
+    icon: 🤖
+    category: general
+    version: 2.0.0
+
+    agents_config:
+      triage:
+        name: AI Assistant
+        instructions: |
+          You are a helpful AI assistant.
+          Handle a variety of tasks with basic tooling support.
+          Keep responses concise and focused.
+        model: openai/gpt-4o-mini
+        icon: 🤖
+
+    # Optional: No sub_agents specified - single agent only
+    # sub_agents: []  # Commented out - same as not specifying
+
+  # ============================================================================
+  # Hybrid Example - Inline agents + Library sub-agents
+  # ============================================================================
+
+  hybrid_team:
+    id: hybrid_team
+    name: Hybrid Team (Inline + Library)
+    description: |
+      Demonstrates unified architecture supporting both features:
+      - Agent Transfer: Multiple agents defined inline
+      - Sub-Agent Discovery: Can delegate to library agents
+      This shows how both mechanisms can coexist in one team.
+    icon: ⚙️
+    category: advanced
+    version: 2.0.0
+
+    agents_config:
+      triage:
+        name: Main Coordinator
+        instructions: |
+          You are the Main Coordinator managing a hybrid team.
+          You can:
+          1. Transfer to inline agents (specialist_analyst, specialist_engineer)
+          2. Delegate to library sub-agents (data_analyst, python_dev, etc.)
+
+          Choose the right team member based on task requirements.
+        model: openai/gpt-4o-mini
+        icon: 🎯
+
+      # Inline specialist agents (for transfer)
+      specialist_analyst:
+        name: Specialist Analyst
+        instructions: |
+          You are a specialist analyst focused on detailed analysis.
+        model: openai/gpt-4o-mini
+        icon: 📊
+        toolsets:
+          - python_interpreter
+          - file_manager
+
+      specialist_engineer:
+        name: Specialist Engineer
+        instructions: |
+          You are a specialist engineer focused on implementation.
+        model: openai/gpt-4o-mini
+        icon: 🔧
+        toolsets:
+          - python_interpreter
+          - file_manager
+
+    # Can also delegate to library agents
+    sub_agents:
+      - data_analyst
+      - python_dev
+      - researcher

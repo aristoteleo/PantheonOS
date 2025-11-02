@@ -135,33 +135,13 @@ async def create_agent(
 
 
 async def create_agents_from_template(
-    endpoint_service, template: dict, chat_id=None
-) -> dict:
-    """Create agents from a template.
-
-    Args:
-        endpoint_service: The endpoint service to use for the agents.
-        template: The template of the agents.
-
-    Returns:
-        A dictionary with the following keys:
-        - triage: The triage agent.
-        - other: The other agents.
-    """
+    endpoint_service, agent_configs: dict, chat_id=None
+) -> list:
+    """Create agents from agent configs."""
     agents = []
-    triage_agent = None
-    for name, agent_template in template.items():
-        if name == "triage":
-            triage_agent = await create_agent(
-                endpoint_service, **agent_template, chat_id=chat_id
-            )
-        else:
-            agents.append(
-                await create_agent(endpoint_service, **agent_template, chat_id=chat_id)
-            )
-    if triage_agent is None:
-        raise ValueError("Triage agent not found")
-    return {
-        "triage": triage_agent,
-        "other": agents,
-    }
+
+    for agent_config in agent_configs.values():
+        agent = await create_agent(endpoint_service, **agent_config, chat_id=chat_id)
+        agents.append(agent)
+
+    return agents

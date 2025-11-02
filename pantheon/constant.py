@@ -142,6 +142,67 @@ TOOLS_GUIDANCE_PROMPT = """
 **Recommended workflow**: Plan complex work → create task → execute with status tracking
 """
 
+SUBAGENT_DISCOVERY_PROMPT = """
+
+## Sub-Agent Team Coordination
+
+You lead a team of specialized sub-agents. Your role is to assess tasks and decide whether to handle them directly or delegate to the best-suited agent.
+
+### Available Tools:
+1. **`list_agents()`** - Discover all available sub-agents and their capabilities
+2. **`call_agent(agent_name, instruction)`** - Delegate a specific task to a sub-agent
+
+### When to Use Sub-Agents:
+
+**Handle Directly:**
+- Simple tasks within your core capability
+- Coordination or synthesis work requiring your overall judgment
+- Tasks that require your context about the full conversation
+
+**Delegate to Sub-Agents:**
+- Data analysis or research work
+- Specialized domain tasks (writing, coding, design, etc.)
+- Large or time-consuming processing
+- Tasks that benefit from focused attention on a specific area
+
+**Coordinate Multiple Agents:**
+- Complex projects requiring multiple specialized skills
+- Gather results from relevant agents, then synthesize into a cohesive response
+
+### Best Practices:
+
+1. **Start with discovery**: Use `list_agents()` first to see what experts are available
+2. **Be clear**: When delegating, provide complete context and expected output format
+3. **Integrate results**: After delegation, review results and incorporate into your response
+4. **Follow up**: If results are incomplete, provide additional context and ask for revision
+
+### Delegation Protocol:
+
+When you decide to delegate a task:
+1. Call `list_agents()` to see available agents
+2. Identify the best-suited agent for the task
+3. Call `call_agent(agent_name, clear_instruction)`
+4. The agent will handle the task and return results
+5. You receive the results and can integrate them into your response
+
+### Example Workflow:
+
+User asks: "I need analysis of sales data and a summary report"
+
+Your thinking:
+- This requires two specialists: data analysis + report writing
+- I should coordinate both
+
+Your actions:
+1. Call `list_agents()` → Find Data Analyst and Report Writer
+2. Call `call_agent("Data Analyst", "Analyze the sales data...")`
+3. Receive analysis results
+4. Call `call_agent("Report Writer", "Write a summary based on: [analysis]")`
+5. Receive report
+6. Present the complete solution to user
+
+"""
+
 OUTPUT_FORMAT_PROMPT = """
 
 ## Output Format Standard
@@ -211,18 +272,35 @@ def build_system_prompt(
     base_instructions: str,
     *,
     plan_mode: bool = False,
+    can_delegate: bool = False,
 ) -> str:
-    """
-    Build a complete system prompt by combining base instructions with core components.
+    """Build a complete system prompt by combining base instructions with core components.
+
+    Args:
+        base_instructions: Core system instructions specific to the agent or role
+        plan_mode: If True, inject plan mode restrictions (read-only environment).
+                  Overrides all other components for architectural planning.
+        can_delegate: If True, inject team delegation and coordination guidance.
+                      Set when agent can delegate to inline agents (transfer) or sub-agents (discovery).
+
+    Returns:
+        Complete system prompt combining base instructions with appropriate components
+        based on the mode and agent role.
     """
     prompt = base_instructions
 
     # Plan Mode: Architecture + Output + Tools (read-only analysis environment)
+    # Plan mode takes priority and returns immediately
     if plan_mode:
         prompt += PLAN_MODE_ACTIVE_PROMPT
         prompt += OUTPUT_FORMAT_PROMPT
         prompt += TOOLS_GUIDANCE_PROMPT
         return prompt
+
+    # Delegation-capable Agent: Gets team coordination guidance
+    # This provides agents that can delegate with knowledge of team capabilities
+    if can_delegate:
+        prompt += SUBAGENT_DISCOVERY_PROMPT
 
     # Normal Mode: Strategy + Output + Tools (execution environment)
     prompt += WORK_STRATEGY_PROMPT

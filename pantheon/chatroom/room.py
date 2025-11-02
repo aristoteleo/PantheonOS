@@ -9,7 +9,6 @@ from typing import Callable
 import openai
 
 from ..agent import Agent
-from ..endpoint import ToolsetProxy
 from ..factory import create_agents_from_template
 from ..factory.template_manager import get_template_manager
 from ..memory import MemoryManager
@@ -18,12 +17,8 @@ from ..toolset import ToolSet, tool
 from ..toolsets import PlanModeToolSet
 from ..utils.log import logger
 from ..utils.misc import run_func
-from .suggestion_generator import get_centralized_suggestion_manager
+from .special_agents import get_suggestion_generator
 from .thread import Thread
-
-
-BUILTIN_TOOLSETS = ["todolist"]
-BUILTIN_MCP_SERVERS = ["context7"]
 
 
 class ChatRoom(ToolSet):
@@ -57,19 +52,6 @@ class ChatRoom(ToolSet):
         agents_template: dict | str | None = None,
         **kwargs,
     ):
-        """
-        Initialize ChatRoom.
-
-        Args:
-            endpoint: Endpoint instance (for embed mode)
-            endpoint_service_id: Endpoint service ID (for process mode)
-            memory_dir: Directory to store memory
-            name: Name of the chatroom
-            description: Description of the chatroom
-            speech_to_text_model: Model for speech to text
-            check_before_chat: Function to check before chat
-            **kwargs: Additional parameters for ToolSet
-        """
         # Initialize ToolSet (will handle worker creation in run())
         super().__init__(name=name, **kwargs)
 
@@ -99,7 +81,7 @@ class ChatRoom(ToolSet):
         self.memory_dir = Path(memory_dir)
         self.memory_manager = MemoryManager(self.memory_dir)
 
-        # Initialize template manager
+        # Initialize template manager (supports old and new formats, manages agents.yaml library)
         self.template_manager = get_template_manager()
 
         self.description = description
@@ -171,7 +153,10 @@ class ChatRoom(ToolSet):
         stream_channel = await self._backend.get_or_create_stream(
             f"chat_{chat_id}", stream_type
         )
-        await stream_channel.publish(message)
+        try:
+            await stream_channel.publish(message)
+        except Exception as e:
+            logger.error(f"Error publishing stream: {e}")
 
     async def run(self, log_level: str | None = None, remote: bool = True):
         self._embed = not remote
@@ -196,6 +181,26 @@ class ChatRoom(ToolSet):
         else:
             logger.info("ChatRoom: startup_mode=remote (stream publish enabled)")
 
+    def _save_team_template_to_memory(self, memory, template_obj: dict) -> None:
+        """Save complete team template to memory for persistence."""
+        if not hasattr(memory, "extra_data"):
+            memory.extra_data = {}
+
+        # Save complete template configuration
+        memory.extra_data["team_template"] = {
+            # Identifiers
+            "template_id": template_obj.get("id", "custom"),
+            "template_name": template_obj.get("name", "Custom Template"),
+            # Core agent configuration (unified architecture)
+            "agents_config": template_obj.get("agents_config", {}),
+            "sub_agents": template_obj.get("sub_agents", []),
+            # Service requirements
+            "required_toolsets": template_obj.get("required_toolsets", []),
+            "required_mcp_servers": template_obj.get("required_mcp_servers", []),
+            # Metadata
+            "created_at": datetime.now().isoformat(),
+        }
+
     async def get_team_for_chat(self, chat_id: str) -> PantheonTeam:
         """Get the team for a specific chat, creating from memory if needed."""
         # FIX for performance, history chat will get team even not needed.
@@ -218,66 +223,40 @@ class ChatRoom(ToolSet):
         memory = await run_func(self.memory_manager.get_memory, chat_id)
 
         # Check for stored team template
+        team_template = None
         if hasattr(memory, "extra_data") and memory.extra_data:
             team_template = memory.extra_data.get("team_template")
-            if team_template:
-                logger.info(
-                    f"Loading team from stored template '{team_template.get('template_name', 'unknown')}' for chat {chat_id}"
-                )
-                # Create team with per-chat toolsets
-                return await self._create_team_from_template(
-                    team_template, chat_id=chat_id
-                )
 
-        # No template found in memory, use default template
-        logger.info(
-            f"No team template in memory, creating default team for chat {chat_id}"
-        )
+        # If no template found, use default template
+        if not team_template:
+            logger.info(
+                f"No team template in memory, creating default team for chat {chat_id}"
+            )
+            default_template = self.template_manager.get_template(
+                "default", self.agents_template
+            )
+            if not default_template:
+                raise RuntimeError("Default template not found in template manager")
 
-        default_template = self.template_manager.get_template(
-            "default", self.agents_template
-        )
-        if not default_template:
-            raise RuntimeError("Default template not found in template manager")
+            team_template = default_template.to_dict()
+            # Save default template to memory for this chat
+            self._save_team_template_to_memory(memory, team_template)
+            await run_func(self.memory_manager.save)
+            logger.info(f"Saved default template to memory for chat {chat_id}")
+        else:
+            logger.info(
+                f"Loading team from stored template '{team_template.get('template_name', 'unknown')}' for chat {chat_id}"
+            )
 
-        # Create team with per-chat toolsets for this chat
-        team = await self._create_team_from_template(
-            default_template.to_dict(), chat_id=chat_id
-        )
-
-        # Save default template to memory for this chat
-        if not hasattr(memory, "extra_data"):
-            memory.extra_data = {}
-
-        memory.extra_data["team_template"] = {
-            "template_id": default_template.id,
-            "template_name": default_template.name,
-            "agents_config": default_template.agents_config,
-            "required_toolsets": default_template.required_toolsets,
-            "created_at": datetime.now().isoformat(),
-        }
-        await run_func(self.memory_manager.save)
-
-        logger.info(f"Saved default template to memory for chat {chat_id}")
-
-        return team
+        # Create team with per-chat toolsets
+        return await self._create_team_from_template(team_template, chat_id=chat_id)
 
     async def _ensure_services(
         self,
-        endpoint_service,
         service_type: str,
         required_services: list[str],
     ):
-        """Ensure required services (MCP servers or ToolSets) are started.
-
-        This unified method handles starting both MCP servers and ToolSets
-        with consistent error handling and logging.
-
-        Args:
-            endpoint_service: The endpoint service to use
-            service_type: Type of service ("mcp" or "toolset")
-            required_services: List of service names to start
-        """
+        """Ensure required services (MCP servers or ToolSets) are started."""
         if not required_services:
             return
 
@@ -309,80 +288,88 @@ class ChatRoom(ToolSet):
     async def _create_team_from_template(
         self, team_template: dict, chat_id: str = None
     ) -> PantheonTeam:
-        """Create a team from template configuration (default or custom).
-
-        Args:
-            team_template: Template configuration dict
-            chat_id: Optional chat ID for per-chat toolset isolation
-        """
+        """Create a team from unified template configuration."""
         template_name = team_template.get("template_name") or team_template.get(
             "name", "unknown"
         )
-        agents_config = team_template.get("agents_config", {})
 
         logger.info(f"🏗️ Creating team from template '{template_name}'")
 
         # Connect to endpoint service
         endpoint_service = await self._get_endpoint_service()
 
-        # Add per-chat services if chat_id is provided
+        # ===== STEP 1: Collect agent configs =====
+        # Use template_manager to collect and validate configs
+        inline_agents_config, sub_agents_config = (
+            self.template_manager.collect_agent_configs(team_template)
+        )
+
+        # Merge configs for unified processing (inline agents first, then sub-agents)
+        all_agents_config = {**inline_agents_config, **sub_agents_config}
+
+        logger.debug(
+            f"Collected {len(inline_agents_config)} inline agents, "
+            f"{len(sub_agents_config)} sub-agents"
+        )
+
+        # ===== STEP 2: Add default services to all configs (if chat_id provided) =====
         if chat_id:
-            # Add per-chat toolset and MCP server to config for factory to handle
-            for agent_config in agents_config.values():
-                toolsets = agent_config.get("toolsets", [])
-                for toolset in BUILTIN_TOOLSETS:
-                    if toolset not in toolsets:
-                        toolsets.append(toolset)
-                agent_config["toolsets"] = toolsets
-                mcp_servers = agent_config.get("mcp_servers", [])
-                for mcp_server in BUILTIN_MCP_SERVERS:
-                    if mcp_server not in mcp_servers:
-                        mcp_servers.append(mcp_server)
-                agent_config["mcp_servers"] = mcp_servers
+            # Add built-in toolsets and MCP servers to all agent configs
+            self.template_manager.add_default_services_to_configs(all_agents_config)
 
-        # Create temporary template object to get computed required services
-        from ..factory.template_manager import ChatroomTemplate
+        # ===== STEP 3: Compute and ensure all required services =====
+        # Collect all toolsets and mcp servers from all agents (one loop)
+        required_toolsets = set()
+        required_mcp_servers = set()
 
-        temp_template = ChatroomTemplate(
-            id="temp",
-            name="",
-            description="",
-            icon="",
-            category="",
-            version="1.0.0",
-            agents_config=agents_config,
-            tags=[],
+        for agent_config in all_agents_config.values():
+            required_toolsets.update(agent_config.get("toolsets", []))
+            required_mcp_servers.update(agent_config.get("mcp_servers", []))
+
+        await self._ensure_services("mcp", list(required_mcp_servers))
+        await self._ensure_services("toolset", list(required_toolsets))
+
+        logger.debug(
+            f"Ensured services: {len(required_mcp_servers)} MCP servers, "
+            f"{len(required_toolsets)} toolsets"
         )
 
-        # ===== Ensure all required services are started =====
-        await self._ensure_services(
-            endpoint_service, "mcp", temp_template.required_mcp_servers
+        # ===== STEP 4: Create agents =====
+        # Create inline agents (triage is first, ensured by dict order)
+        inline_agents = await create_agents_from_template(
+            endpoint_service, inline_agents_config, chat_id
         )
-        await self._ensure_services(
-            endpoint_service, "toolset", temp_template.required_toolsets
+        logger.info(f"Created {len(inline_agents)} inline agents")
+
+        # Create sub-agents (empty dict produces empty list)
+        sub_agents_list = await create_agents_from_template(
+            endpoint_service, sub_agents_config, chat_id
         )
 
-        # ===== Create agents from template =====
-        # All MCP and ToolSet providers will be added by factory
-        agents = await create_agents_from_template(
-            endpoint_service, agents_config, chat_id
-        )
-        triage_agent = agents["triage"]
-        other_agents = agents["other"]
+        logger.info(f"Created {len(sub_agents_list)} sub-agents")
 
-        # ===== Add per-chat local toolsets =====
+        # ===== STEP 5: Add plan toolset to inline agents (if chat_id provided) =====
         if chat_id:
-            # PlanModeToolSet (per-agent instance for individual plan mode control)
-            for agent in [triage_agent, *other_agents]:
+            for agent in inline_agents:
                 plan_mode_toolset = PlanModeToolSet(agent=agent, name="plan_mode")
                 await agent.toolset(plan_mode_toolset)
-                logger.info(f"Agent '{agent.name}': Added PlanModeToolSet")
+                logger.debug(f"Agent '{agent.name}': Added PlanModeToolSet")
 
-        # ===== Create and setup team =====
-        team = PantheonTeam(triage=triage_agent, agents=other_agents)
+        # ===== STEP 6: Create and setup team =====
+        team = PantheonTeam(
+            inline_agents=inline_agents,
+            sub_agents=sub_agents_list,
+        )
         await team.async_setup()
 
-        logger.info(f"✅ Team '{template_name}' created with {len(team.agents)} agents")
+        feature_list = []
+        if team.has_transfer_agents:
+            feature_list.append(f"transfer ({len(team.inline_agents)} inline agents)")
+        if team.has_sub_agents:
+            feature_list.append(f"discovery ({len(team.sub_agents)} sub-agents)")
+        features = " + ".join(feature_list) if feature_list else "none"
+
+        logger.info(f"✅ Team '{template_name}' created (Features: {features})")
         return team
 
     @tool
@@ -393,19 +380,10 @@ class ChatRoom(ToolSet):
                 f"Setting up team for chat {chat_id} with template: {template_obj.get('name', 'unknown')}"
             )
 
-            # Store full template in memory
+            # Store full template in memory using consolidated method
             memory = await run_func(self.memory_manager.get_memory, chat_id)
-            if not hasattr(memory, "extra_data"):
-                memory.extra_data = {}
+            self._save_team_template_to_memory(memory, template_obj)
 
-            # Store complete template configuration
-            memory.extra_data["team_template"] = {
-                "template_id": template_obj.get("id", "custom"),
-                "template_name": template_obj.get("name", "Custom Template"),
-                "agents_config": template_obj.get("agents_config", {}),
-                "required_toolsets": template_obj.get("required_toolsets", []),
-                "created_at": datetime.now().isoformat(),
-            }
             if "active_agent" in memory.extra_data:
                 del memory.extra_data["active_agent"]
             await run_func(self.memory_manager.save)
@@ -423,47 +401,6 @@ class ChatRoom(ToolSet):
 
         except Exception as e:
             return {"success": False, "message": f"Template setup failed: {str(e)}"}
-
-    async def _publish_chunk(self, chat_id: str, chunk: dict):
-        """Publish a chunk to stream.
-
-        Args:
-            chat_id: The chat ID
-            chunk: The chunk data to publish
-        """
-        try:
-            # Use unified stream publish method
-            await self._publish_stream(
-                chat_id, "chunk", {"type": "chunk", "chunk": chunk}
-            )
-
-        except Exception as e:
-            logger.error(
-                f"ChatRoom: Failed to publish chunk to NATS for chat {chat_id}: {e}"
-            )
-
-    async def _publish_step_message(self, chat_id: str, step_message: dict):
-        """Publish a step message to stream.
-
-        Args:
-            chat_id: The chat ID
-            step_message: The step message data to publish
-        """
-        try:
-            # Use unified stream publish method
-            await self._publish_stream(
-                chat_id,
-                "step",
-                {
-                    "type": "step_message",
-                    "step_message": step_message,
-                },
-            )
-            logger.debug(f"ChatRoom: Published step message to NATS for chat {chat_id}")
-        except Exception as e:
-            logger.error(
-                f"ChatRoom: Failed to publish step message to NATS for chat {chat_id}: {e}"
-            )
 
     @tool
     async def get_endpoint(self) -> dict:
@@ -587,16 +524,7 @@ class ChatRoom(ToolSet):
 
     @tool
     async def get_agents(self, chat_id: str = None) -> dict:
-        """Get the agents info for a specific chat or default team.
-
-        Args:
-            chat_id: The chat ID to get agents for. If None, uses default team.
-
-        Returns:
-            A dictionary with the following keys:
-            - success: Whether the operation was successful.
-            - agents: A list of dictionaries, each containing the info of an agent.
-        """
+        """Get the inline agents info for a specific chat or default team."""
 
         def get_agent_info(agent: Agent):
             if hasattr(agent, "not_loaded_toolsets"):
@@ -614,59 +542,69 @@ class ChatRoom(ToolSet):
             }
 
         logger.info(f"get agents {chat_id}")
+
+        # chat_id must be provided - this is a per-chat operation
+        if not chat_id:
+            logger.warning(
+                "get_agents called without chat_id - returning empty mock data"
+            )
+            return {
+                "success": True,
+                "agents": [],
+                "can_switch_agents": False,
+                "has_sub_agents": False,
+                "has_transfer_agents": False,
+            }
+
         # Get the appropriate team for this chat
-        if chat_id:
-            team = await self.get_team_for_chat(chat_id)
-        else:
-            # Lazy load default_team on first access (avoids startup race condition)
-            if self.default_team is None:
-                logger.info("Creating default_team on demand")
-                default_template = self.template_manager.get_template(
-                    "default", self.agents_template
-                )
-                if not default_template:
-                    return {
-                        "success": False,
-                        "message": "Default template not found in template manager",
-                    }
+        team = await self.get_team_for_chat(chat_id)
 
-                self.default_team = await self._create_team_from_template(
-                    default_template.to_dict(), chat_id=None
-                )
-                logger.info("Default team created successfully")
-
-            team = self.default_team
+        # Only expose inline agents (not sub-agents)
+        # Sub-agents are internal implementation, managed by inline agents
+        agents_to_expose = team.inline_agents
+        logger.debug(f"Team has {len(team.inline_agents)} inline agents")
 
         return {
             "success": True,
-            "agents": [get_agent_info(a) for a in team.agents.values()],
+            "agents": [get_agent_info(a) for a in agents_to_expose],
+            "can_switch_agents": len(team.inline_agents) > 1,
+            "has_sub_agents": team.has_sub_agents,
+            "has_transfer_agents": team.has_transfer_agents,
         }
 
     @tool
     async def set_active_agent(self, chat_name: str, agent_name: str):
-        """Set the active agent for a chat.
-
-        Args:
-            chat_name: The name of the chat.
-            agent_name: The name of the agent.
-        """
+        """Set the active agent for a chat."""
         # Get the team for this specific chat
         team = await self.get_team_for_chat(chat_name)
-        memory = await run_func(self.memory_manager.get_memory, chat_name)
 
-        agent = next((a for a in team.agents.values() if a.name == agent_name), None)
+        # Verify agent is an inline agent (not a sub-agent)
+        if agent_name not in team._inline_agent_names:
+            return {
+                "success": False,
+                "message": f"'{agent_name}' is not an inline agent. Can only switch between inline agents.",
+            }
+
+        # Verify agent exists
+        memory = await run_func(self.memory_manager.get_memory, chat_name)
+        agent = team.agents.get(agent_name)
         if agent is None:
-            return {"success": False, "message": "Agent not found"}
+            return {
+                "success": False,
+                "message": f"Agent '{agent_name}' not found in team",
+            }
+
+        # Set active agent
         team.set_active_agent(memory, agent_name)
-        return {"success": True, "message": "Agent set as active"}
+        logger.info(f"Set active agent to '{agent_name}' for chat '{chat_name}'")
+        return {
+            "success": True,
+            "message": f"Agent '{agent_name}' set as active",
+        }
 
     @tool
     async def get_active_agent(self, chat_name: str) -> dict:
-        """Get the active agent for a chat.
-
-        Args:
-            chat_name: The name of the chat.
-        """
+        """Get the active agent for a chat."""
         # Get the team for this specific chat
         team = await self.get_team_for_chat(chat_name)
         memory = await run_func(self.memory_manager.get_memory, chat_name)
@@ -886,10 +824,19 @@ class ChatRoom(ToolSet):
 
         # Add streaming hooks (will fail silently if backend doesn't support streaming)
         async def nats_chunk_processor(chunk: dict):
-            await self._publish_chunk(chat_id, chunk)
+            await self._publish_stream(
+                chat_id, "chunk", {"type": "chunk", "chunk": chunk}
+            )
 
         async def nats_step_processor(step_message: dict):
-            await self._publish_step_message(chat_id, step_message)
+            await self._publish_stream(
+                chat_id,
+                "step",
+                {
+                    "type": "step_message",
+                    "step_message": step_message,
+                },
+            )
 
         thread.add_chunk_hook(nats_chunk_processor)
         thread.add_step_message_hook(nats_step_processor)
@@ -901,7 +848,7 @@ class ChatRoom(ToolSet):
 
         # Generate or update chat name after conversation
         try:
-            from .chatname_generator import get_chat_name_generator
+            from .special_agents import get_chat_name_generator
 
             chat_name_generator = get_chat_name_generator()
             memory.name = await chat_name_generator.generate_or_update_name(memory)
@@ -1032,7 +979,7 @@ class ChatRoom(ToolSet):
                     )
 
             # Use centralized suggestion generator
-            suggestion_generator = get_centralized_suggestion_manager()
+            suggestion_generator = get_suggestion_generator()
             suggestions_objects = await suggestion_generator.generate_suggestions(
                 formatted_messages
             )
@@ -1099,7 +1046,11 @@ class ChatRoom(ToolSet):
                         "id": team_template.get("template_id", "custom"),
                         "name": team_template.get("template_name", "Custom Template"),
                         "agents_config": team_template.get("agents_config", {}),
+                        "sub_agents": team_template.get("sub_agents", []),
                         "required_toolsets": team_template.get("required_toolsets", []),
+                        "required_mcp_servers": team_template.get(
+                            "required_mcp_servers", []
+                        ),
                         "created_at": team_template.get("created_at"),
                         "partial_setup": team_template.get("partial_setup", False),
                     },
@@ -1136,6 +1087,7 @@ class ChatRoom(ToolSet):
                 category=template.get("category", ""),
                 version=template.get("version", "1.0"),
                 agents_config=template.get("agents_config", {}),
+                sub_agents=template.get("sub_agents", []),
                 tags=template.get("tags", []),
             )
 
@@ -1161,57 +1113,3 @@ class ChatRoom(ToolSet):
         except Exception as e:
             logger.error(f"Error validating template compatibility: {e}")
             return {"success": False, "message": str(e)}
-
-    @tool
-    async def get_chat_context(self, chat_id: str) -> dict:
-        """Get chat context information including notebook sessions and other metadata.
-
-        Args:
-            chat_id: The chat ID to get context for.
-
-        Returns:
-            A dictionary containing the chat context information.
-        """
-        try:
-            memory = await run_func(self.memory_manager.get_memory, chat_id)
-            if not hasattr(memory, "extra_data"):
-                memory.extra_data = {}
-
-            context = memory.extra_data.get("chat_context", {})
-            return {"success": True, "chat_id": chat_id, "context": context}
-        except Exception as e:
-            logger.error(f"Error getting chat context for {chat_id}: {e}")
-            return {"success": False, "error": str(e)}
-
-    @tool
-    async def update_chat_context(self, chat_id: str, context_data: dict) -> dict:
-        """Update chat context information.
-
-        Args:
-            chat_id: The chat ID to update context for.
-            context_data: The context data to update.
-
-        Returns:
-            A dictionary with success status and updated context.
-        """
-        try:
-            memory = await run_func(self.memory_manager.get_memory, chat_id)
-            if not hasattr(memory, "extra_data"):
-                memory.extra_data = {}
-
-            if "chat_context" not in memory.extra_data:
-                memory.extra_data["chat_context"] = {}
-
-            # Merge new context data
-            memory.extra_data["chat_context"].update(context_data)
-            memory.extra_data["last_context_update"] = datetime.now().isoformat()
-
-            await run_func(self.memory_manager.save)
-            return {
-                "success": True,
-                "chat_id": chat_id,
-                "updated_context": memory.extra_data["chat_context"],
-            }
-        except Exception as e:
-            logger.error(f"Error updating chat context for {chat_id}: {e}")
-            return {"success": False, "error": str(e)}
