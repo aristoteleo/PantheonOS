@@ -592,6 +592,311 @@ class TemplateManager:
         self._templates = {}
         self._load_chatrooms()
 
+    # ============================================================================
+    # CRUD Operations for Template Management
+    # ============================================================================
+
+    def create_template(
+        self, template_data: Dict[str, Any]
+    ) -> tuple[bool, str, Optional[ChatroomTemplate]]:
+        """Create a new template.
+
+        Args:
+            template_data: Template data dict with name, description, agents_config, etc.
+
+        Returns:
+            Tuple of (success, message, template_object)
+        """
+        try:
+            # Validate required fields
+            name = template_data.get("name", "").strip()
+            if not name:
+                return False, "Template name is required", None
+
+            agents_config = template_data.get("agents_config", {})
+            if not agents_config:
+                return False, "At least one agent is required in agents_config", None
+
+            # Generate template ID from timestamp
+            import time
+
+            template_id = f"tpl_{int(time.time() * 1000)}"
+
+            # Create new template object
+            new_template = ChatroomTemplate(
+                id=template_id,
+                name=name,
+                description=template_data.get("description", ""),
+                icon=template_data.get("icon", "📋"),
+                category=template_data.get("category", "custom"),
+                version="1.0.0",
+                agents_config=agents_config,
+                sub_agents=template_data.get("sub_agents"),
+                tags=template_data.get("tags", []),
+            )
+
+            # Validate template
+            validation_errors = self.validate_template(new_template)
+            if validation_errors:
+                error_msg = "; ".join(validation_errors)
+                return False, f"Template validation failed: {error_msg}", None
+
+            # Store template
+            self._templates[template_id] = new_template
+            logger.info(f"Created template: {template_id} ({name})")
+            return True, template_id, new_template
+
+        except Exception as e:
+            logger.error(f"Error creating template: {e}")
+            return False, str(e), None
+
+    def update_template(
+        self, template_id: str, template_data: Dict[str, Any]
+    ) -> tuple[bool, str, Optional[ChatroomTemplate]]:
+        """Update an existing template.
+
+        Args:
+            template_id: ID of template to update
+            template_data: Updated template data
+
+        Returns:
+            Tuple of (success, message, template_object)
+        """
+        try:
+            # Check if template exists
+            existing = self.get_template(template_id)
+            if not existing:
+                return False, f"Template '{template_id}' not found", None
+
+            # Merge with existing data
+            updated_template = ChatroomTemplate(
+                id=template_id,
+                name=template_data.get("name", existing.name),
+                description=template_data.get("description", existing.description),
+                icon=template_data.get("icon", existing.icon),
+                category=template_data.get("category", existing.category),
+                version=template_data.get("version", existing.version),
+                agents_config=template_data.get(
+                    "agents_config", existing.agents_config
+                ),
+                sub_agents=template_data.get("sub_agents", existing.sub_agents),
+                tags=template_data.get("tags", existing.tags),
+            )
+
+            # Validate updated template
+            validation_errors = self.validate_template(updated_template)
+            if validation_errors:
+                error_msg = "; ".join(validation_errors)
+                return False, f"Template validation failed: {error_msg}", None
+
+            # Replace template
+            self._templates[template_id] = updated_template
+            logger.info(f"Updated template: {template_id}")
+            return True, "Template updated successfully", updated_template
+
+        except Exception as e:
+            logger.error(f"Error updating template {template_id}: {e}")
+            return False, str(e), None
+
+    def delete_template(self, template_id: str) -> tuple[bool, str]:
+        """Delete a template.
+
+        Args:
+            template_id: ID of template to delete
+
+        Returns:
+            Tuple of (success, message)
+        """
+        try:
+            if template_id not in self._templates:
+                return False, f"Template '{template_id}' not found"
+
+            del self._templates[template_id]
+            logger.info(f"Deleted template: {template_id}")
+            return True, "Template deleted successfully"
+
+        except Exception as e:
+            logger.error(f"Error deleting template {template_id}: {e}")
+            return False, str(e)
+
+    # ============================================================================
+    # CRUD Operations for Agent Management
+    # ============================================================================
+
+    # Optional fields that can be included in agent config
+    _OPTIONAL_AGENT_FIELDS = ["icon", "description", "toolsets", "mcp_servers"]
+    # Required fields that must have non-empty values
+    _REQUIRED_AGENT_FIELDS = {
+        "name": "Agent name is required",
+        "instructions": "Agent instructions are required",
+        "model": "Agent model is required",
+    }
+
+    def _validate_required_agent_fields(
+        self, agent_data: Dict[str, Any]
+    ) -> Optional[str]:
+        """Validate that all required agent fields are present and non-empty.
+
+        Args:
+            agent_data: Agent data dict to validate
+
+        Returns:
+            Error message if validation fails, None otherwise
+        """
+        for field, error_msg in self._REQUIRED_AGENT_FIELDS.items():
+            value = (
+                agent_data.get(field, "").strip()
+                if isinstance(agent_data.get(field), str)
+                else ""
+            )
+            if not value:
+                return error_msg
+        return None
+
+    def _build_agent_config(
+        self, agent_data: Dict[str, Any], required_only: bool = False
+    ) -> Dict[str, Any]:
+        """Build agent config from agent data, filtering valid fields.
+
+        Args:
+            agent_data: Source agent data
+            required_only: If True, only include required fields; otherwise include optional fields
+
+        Returns:
+            Agent config dict with valid fields
+        """
+        config = {}
+
+        # Always include required fields (with trimming for strings)
+        for field in self._REQUIRED_AGENT_FIELDS:
+            if field in agent_data:
+                value = agent_data[field]
+                config[field] = value.strip() if isinstance(value, str) else value
+
+        # Add optional fields if not required_only
+        if not required_only:
+            for field in self._OPTIONAL_AGENT_FIELDS:
+                if field in agent_data and agent_data[field]:
+                    config[field] = agent_data[field]
+
+        return config
+
+    def create_agent(
+        self, agent_data: Dict[str, Any]
+    ) -> tuple[bool, str, Optional[Dict[str, Any]]]:
+        """Create a new agent.
+
+        Args:
+            agent_data: Agent data dict with name, instructions, model, etc.
+
+        Returns:
+            Tuple of (success, agent_id, agent_config)
+        """
+        try:
+            # Validate required fields
+            validation_error = self._validate_required_agent_fields(agent_data)
+            if validation_error:
+                return False, validation_error, None
+
+            # Generate agent ID
+            import time
+
+            agent_id = f"agent_{int(time.time() * 1000)}"
+
+            # Build agent config
+            agent_config = self._build_agent_config(agent_data)
+
+            # Validate agent config
+            validation_errors = self.agents_manager.validate_agent_config(agent_config)
+            if validation_errors:
+                error_msg = "; ".join(validation_errors)
+                return False, f"Agent validation failed: {error_msg}", None
+
+            # Store agent
+            self.agents_manager._agents[agent_id] = agent_config
+            logger.info(f"Created agent: {agent_id} ({agent_config['name']})")
+            return True, agent_id, agent_config
+
+        except Exception as e:
+            logger.error(f"Error creating agent: {e}")
+            return False, str(e), None
+
+    def update_agent(
+        self, agent_id: str, agent_data: Dict[str, Any]
+    ) -> tuple[bool, str, Optional[Dict[str, Any]]]:
+        """Update an existing agent.
+
+        Args:
+            agent_id: ID of agent to update
+            agent_data: Updated agent data
+
+        Returns:
+            Tuple of (success, message, agent_config)
+        """
+        try:
+            # Check if agent exists
+            existing = self.agents_manager.get_agent_config(agent_id)
+            if not existing:
+                return False, f"Agent '{agent_id}' not found", None
+
+            # Merge with existing data
+            updated_config = {**existing}
+            new_config = self._build_agent_config(agent_data)
+            updated_config.update(new_config)
+
+            # Validate updated config
+            validation_errors = self.agents_manager.validate_agent_config(
+                updated_config
+            )
+            if validation_errors:
+                error_msg = "; ".join(validation_errors)
+                return False, f"Agent validation failed: {error_msg}", None
+
+            # Update agent
+            self.agents_manager._agents[agent_id] = updated_config
+            logger.info(f"Updated agent: {agent_id}")
+            return True, "Agent updated successfully", updated_config
+
+        except Exception as e:
+            logger.error(f"Error updating agent {agent_id}: {e}")
+            return False, str(e), None
+
+    def delete_agent(self, agent_id: str) -> tuple[bool, str]:
+        """Delete an agent.
+
+        Args:
+            agent_id: ID of agent to delete
+
+        Returns:
+            Tuple of (success, message)
+        """
+        try:
+            if agent_id not in self.agents_manager._agents:
+                return False, f"Agent '{agent_id}' not found"
+
+            del self.agents_manager._agents[agent_id]
+            logger.info(f"Deleted agent: {agent_id}")
+            return True, "Agent deleted successfully"
+
+        except Exception as e:
+            logger.error(f"Error deleting agent {agent_id}: {e}")
+            return False, str(e)
+
+    def get_all_agents(self) -> List[Dict[str, Any]]:
+        """Get all agents with their IDs included.
+
+        Returns:
+            List of agent configurations with 'id' field included
+        """
+        agents_list = []
+        for agent_id, agent_config in self.agents_manager._agents.items():
+            agent_dict = {
+                "id": agent_id,
+                **agent_config,
+            }
+            agents_list.append(agent_dict)
+        return agents_list
+
 
 # Global template manager instance
 _template_manager: Optional[TemplateManager] = None

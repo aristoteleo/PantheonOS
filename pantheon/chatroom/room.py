@@ -1016,21 +1016,6 @@ class ChatRoom(ToolSet):
     # Template Management Methods
 
     @tool
-    async def list_templates(self) -> dict:
-        """List all available chatroom templates."""
-        try:
-            template_manager = get_template_manager()
-            templates = template_manager.list_templates()
-
-            return {
-                "success": True,
-                "templates": [template.to_dict() for template in templates],
-            }
-        except Exception as e:
-            logger.error(f"Error listing templates: {e}")
-            return {"success": False, "message": str(e)}
-
-    @tool
     async def get_chat_template(self, chat_id: str) -> dict:
         """Get the current template for a specific chat."""
         memory = await run_func(self.memory_manager.get_memory, chat_id)
@@ -1113,3 +1098,227 @@ class ChatRoom(ToolSet):
         except Exception as e:
             logger.error(f"Error validating template compatibility: {e}")
             return {"success": False, "message": str(e)}
+
+    # Template and Agent Management (CRUD operations)
+
+    @tool
+    async def manage_template(
+        self,
+        operation: str,
+        template_id: str | None = None,
+        template_data: dict | None = None,
+    ) -> dict:
+        """
+        Unified template management interface for CRUD operations.
+
+        Delegates to template_manager for all template CRUD operations.
+
+        Args:
+            operation: "list", "read", "create", "update", "delete", or "clone"
+            template_id: Template ID (required for read, update, delete, clone)
+            template_data: Template data dict (required for create, update, clone)
+
+        Returns:
+            Response dict with operation results
+        """
+        try:
+            template_manager = get_template_manager()
+
+            if operation == "list":
+                templates = template_manager.list_templates()
+                return {
+                    "success": True,
+                    "operation": "list",
+                    "templates": [t.to_dict() for t in templates],
+                    "total": len(templates),
+                }
+
+            elif operation == "read":
+                if not template_id:
+                    return {
+                        "success": False,
+                        "operation": "read",
+                        "error": "template_id is required",
+                    }
+                template = template_manager.get_template(template_id)
+                if not template:
+                    return {
+                        "success": False,
+                        "operation": "read",
+                        "error": f"Template '{template_id}' not found",
+                    }
+                return {
+                    "success": True,
+                    "operation": "read",
+                    "template": template.to_dict(),
+                }
+
+            elif operation == "create":
+                if not template_data:
+                    return {
+                        "success": False,
+                        "operation": "create",
+                        "error": "template_data is required",
+                    }
+                success, msg, template = template_manager.create_template(template_data)
+                if not success:
+                    return {"success": False, "operation": "create", "error": msg}
+                return {
+                    "success": True,
+                    "operation": "create",
+                    "template_id": msg,  # msg contains the template_id on success
+                    "template": template.to_dict(),
+                }
+
+            elif operation == "update":
+                if not template_id or not template_data:
+                    return {
+                        "success": False,
+                        "operation": "update",
+                        "error": "template_id and template_data are required",
+                    }
+                success, msg, template = template_manager.update_template(
+                    template_id, template_data
+                )
+                if not success:
+                    return {"success": False, "operation": "update", "error": msg}
+                return {
+                    "success": True,
+                    "operation": "update",
+                    "template": template.to_dict(),
+                }
+
+            elif operation == "delete":
+                if not template_id:
+                    return {
+                        "success": False,
+                        "operation": "delete",
+                        "error": "template_id is required",
+                    }
+                success, msg = template_manager.delete_template(template_id)
+                if not success:
+                    return {"success": False, "operation": "delete", "error": msg}
+                return {"success": True, "operation": "delete"}
+
+            else:
+                return {
+                    "success": False,
+                    "operation": operation,
+                    "error": f"Unknown operation: {operation}",
+                }
+
+        except Exception as e:
+            logger.error(f"Error in manage_template (op={operation}): {e}")
+            return {"success": False, "operation": operation, "error": str(e)}
+
+    @tool
+    async def manage_agents(
+        self,
+        operation: str,
+        agent_id: str | None = None,
+        agent_data: dict | None = None,
+    ) -> dict:
+        """
+        Unified agent management interface for CRUD operations.
+
+        Delegates to template_manager for all agent CRUD operations.
+
+        Args:
+            operation: "list", "read", "create", "update", or "delete"
+            agent_id: Agent ID (required for read, update, delete)
+            agent_data: Agent data dict (required for create, update)
+
+        Returns:
+            Response dict with operation results
+        """
+        try:
+            template_manager = get_template_manager()
+
+            if operation == "list":
+                agents_list = template_manager.get_all_agents()
+                return {
+                    "success": True,
+                    "operation": "list",
+                    "agents": agents_list,
+                    "total": len(agents_list),
+                }
+
+            elif operation == "read":
+                if not agent_id:
+                    return {
+                        "success": False,
+                        "operation": "read",
+                        "error": "agent_id is required",
+                    }
+                agent_config = template_manager.agents_manager.get_agent_config(
+                    agent_id
+                )
+                if not agent_config:
+                    return {
+                        "success": False,
+                        "operation": "read",
+                        "error": f"Agent '{agent_id}' not found",
+                    }
+                return {
+                    "success": True,
+                    "operation": "read",
+                    "agent": {"id": agent_id, **agent_config},
+                }
+
+            elif operation == "create":
+                if not agent_data:
+                    return {
+                        "success": False,
+                        "operation": "create",
+                        "error": "agent_data is required",
+                    }
+                success, msg, agent_config = template_manager.create_agent(agent_data)
+                if not success:
+                    return {"success": False, "operation": "create", "error": msg}
+                return {
+                    "success": True,
+                    "operation": "create",
+                    "agent_id": msg,  # msg contains the agent_id on success
+                    "agent": {"id": msg, **agent_config},
+                }
+
+            elif operation == "update":
+                if not agent_id or not agent_data:
+                    return {
+                        "success": False,
+                        "operation": "update",
+                        "error": "agent_id and agent_data are required",
+                    }
+                success, msg, agent_config = template_manager.update_agent(
+                    agent_id, agent_data
+                )
+                if not success:
+                    return {"success": False, "operation": "update", "error": msg}
+                return {
+                    "success": True,
+                    "operation": "update",
+                    "agent": {"id": agent_id, **agent_config},
+                }
+
+            elif operation == "delete":
+                if not agent_id:
+                    return {
+                        "success": False,
+                        "operation": "delete",
+                        "error": "agent_id is required",
+                    }
+                success, msg = template_manager.delete_agent(agent_id)
+                if not success:
+                    return {"success": False, "operation": "delete", "error": msg}
+                return {"success": True, "operation": "delete"}
+
+            else:
+                return {
+                    "success": False,
+                    "operation": operation,
+                    "error": f"Unknown operation: {operation}",
+                }
+
+        except Exception as e:
+            logger.error(f"Error in manage_agents (op={operation}): {e}")
+            return {"success": False, "operation": operation, "error": str(e)}
