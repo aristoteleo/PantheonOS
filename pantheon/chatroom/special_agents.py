@@ -10,17 +10,17 @@ These agents are used internally by the framework to enhance user experience
 and improve sub-agent delegation.
 """
 
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from ..agent import Agent, filter_inline_messages
 from ..memory import Memory
 from ..utils.log import logger
 
-
 # ===== SummaryGenerator =====
+
 
 class SummaryGenerator:
     """Generate summaries of conversation context for sub-agent delegation.
@@ -34,7 +34,9 @@ class SummaryGenerator:
         """Initialize SummaryGenerator (lazy-creates summary agent on first use)."""
         self._summary_agent: Optional[Agent] = None
 
-    async def generate_summary(self, messages: list[dict], max_tokens: int = 500) -> str:
+    async def generate_summary(
+        self, messages: list[dict], max_tokens: int = 500
+    ) -> str:
         """Generate a concise summary of conversation context.
 
         Extracts key information from message history to provide sub-agents with
@@ -125,7 +127,7 @@ Guidelines:
 4. OUTPUT ONLY the summary text:
    - No preamble, no explanation, no meta-commentary
    - Just clean, usable context for the sub-agent""",
-                model="gpt-4o-mini"
+                model="gpt-4o-mini",
             )
 
         prompt = f"""Please summarize the following conversation context for a sub-agent delegation.
@@ -143,7 +145,7 @@ SUMMARY (concise, maximum {max_tokens} tokens):"""
         try:
             response = await self._summary_agent.run(prompt)
             if response:
-                content = getattr(response, 'content', None) or str(response)
+                content = getattr(response, "content", None) or str(response)
                 summary = str(content).strip()
                 if summary and len(summary) > 10:
                     return summary
@@ -155,9 +157,11 @@ SUMMARY (concise, maximum {max_tokens} tokens):"""
 
 # ===== SuggestionGenerator =====
 
+
 @dataclass
 class SuggestedQuestion:
     """Suggested follow-up question"""
+
     text: str
     category: str  # 'clarification', 'follow_up', 'deep_dive', 'related'
 
@@ -211,9 +215,7 @@ Rules:
             raise
 
     async def generate_suggestions(
-        self,
-        messages: List[Dict[str, Any]],
-        max_suggestions: int = 3
+        self, messages: List[Dict[str, Any]], max_suggestions: int = 3
     ) -> List[SuggestedQuestion]:
         """
         Generate contextual follow-up questions using the centralized suggestion team
@@ -253,13 +255,17 @@ Rules:
                 # Generate suggestions using the agent directly with timeout
                 response = await asyncio.wait_for(
                     self._suggestion_agent.run(prompt),
-                    timeout=30.0  # 30 second timeout for suggestions
+                    timeout=30.0,  # 30 second timeout for suggestions
                 )
 
                 # Parse the response into structured suggestions
-                suggestions = self._parse_suggestions(response.content if response else "")
+                suggestions = self._parse_suggestions(
+                    response.content if response else ""
+                )
 
-                logger.info(f"🔮 Generated {len(suggestions)} suggestions using centralized agent")
+                logger.info(
+                    f"🔮 Generated {len(suggestions)} suggestions using centralized agent"
+                )
                 return suggestions
 
             except asyncio.TimeoutError:
@@ -277,20 +283,20 @@ Rules:
 
         context_parts = []
         for msg in recent_messages:
-            role = msg.get('role', '')
-            content = msg.get('content', '') or msg.get('text', '')
+            role = msg.get("role", "")
+            content = msg.get("content", "") or msg.get("text", "")
 
             # Handle different content types
             if isinstance(content, list):
                 # Handle multimodal content
                 text_content = ""
                 for item in content:
-                    if isinstance(item, dict) and item.get('type') == 'text':
-                        text_content += item.get('text', '')
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        text_content += item.get("text", "")
                 content = text_content
 
             # Skip empty messages, tool messages, or system messages
-            if not content or role in ('tool', 'system'):
+            if not content or role in ("tool", "system"):
                 continue
 
             # Truncate very long messages to avoid token limits
@@ -320,22 +326,23 @@ Questions:"""
             return []
 
         suggestions = []
-        categories = ['clarification', 'follow_up', 'deep_dive']
+        categories = ["clarification", "follow_up", "deep_dive"]
 
-        for i, line in enumerate(response_content.strip().split('\n')):
+        for i, line in enumerate(response_content.strip().split("\n")):
             line = line.strip()
             if not line:
                 continue
 
             # Simple cleanup: remove numbers and common prefixes
-            if line.startswith(('1.', '2.', '3.', '-', '*')):
+            if line.startswith(("1.", "2.", "3.", "-", "*")):
                 line = line[2:].strip()
 
             if line:
-                suggestions.append(SuggestedQuestion(
-                    text=line,
-                    category=categories[i % len(categories)]
-                ))
+                suggestions.append(
+                    SuggestedQuestion(
+                        text=line, category=categories[i % len(categories)]
+                    )
+                )
 
             if len(suggestions) >= 3:
                 break
@@ -344,6 +351,7 @@ Questions:"""
 
 
 # ===== ChatNameGenerator =====
+
 
 class ChatNameGenerator:
     """Simple chat name generator with minimal overhead"""
@@ -378,7 +386,9 @@ class ChatNameGenerator:
         # Fallback to simple extraction
         return self._fallback_name(inline_messages)
 
-    def _should_generate_name(self, memory: Memory, messages: List[Dict[str, Any]]) -> bool:
+    def _should_generate_name(
+        self, memory: Memory, messages: List[Dict[str, Any]]
+    ) -> bool:
         """Simple logic: generate once after first conversation, update every 6 messages"""
         message_count = len(messages)
 
@@ -399,28 +409,34 @@ class ChatNameGenerator:
             self._name_agent = Agent(
                 name="ChatNameGen",
                 instructions="Generate a 3-6 word chat title. Return only the title, no quotes or explanation.",
-                model="gpt-4o-mini"
+                model="gpt-4o-mini",
             )
 
         # Build simple context (last 4 messages)
         context_messages = messages[-4:]
         context = ""
         for msg in context_messages:
-            role = "User" if msg.get('role') == 'user' else "AI"
-            content = msg.get('content', '')
+            role = "User" if msg.get("role") == "user" else "AI"
+            content = msg.get("content", "")
             if isinstance(content, list):
                 # Extract text from multimodal
-                text_parts = [item.get('text', '') for item in content if isinstance(item, dict) and item.get('type') == 'text']
-                content = ' '.join(text_parts)
+                text_parts = [
+                    item.get("text", "")
+                    for item in content
+                    if isinstance(item, dict) and item.get("type") == "text"
+                ]
+                content = " ".join(text_parts)
             if content:
                 context += f"{role}: {content[:200]}\n"
 
         prompt = f"Chat context:\n{context}\nGenerate a short title:"
 
         try:
-            response = await asyncio.wait_for(self._name_agent.run(prompt), timeout=10.0)
+            response = await asyncio.wait_for(
+                self._name_agent.run(prompt), timeout=10.0
+            )
             if response:
-                content = getattr(response, 'content', None) or str(response)
+                content = getattr(response, "content", None) or str(response)
                 name = str(content).strip()
                 # Simple cleaning
                 if name and len(name) > 3 and len(name) < 100:
@@ -433,11 +449,15 @@ class ChatNameGenerator:
     def _fallback_name(self, messages: List[Dict[str, Any]]) -> str:
         """Simple fallback: use first user message"""
         for msg in messages:
-            if msg.get('role') == 'user':
-                content = msg.get('content', '')
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
                 if isinstance(content, list):
-                    text_parts = [item.get('text', '') for item in content if isinstance(item, dict) and item.get('type') == 'text']
-                    content = ' '.join(text_parts)
+                    text_parts = [
+                        item.get("text", "")
+                        for item in content
+                        if isinstance(item, dict) and item.get("type") == "text"
+                    ]
+                    content = " ".join(text_parts)
                 if content:
                     fallback = content[:50].strip()
                     if len(content) > 50:

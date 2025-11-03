@@ -3,6 +3,7 @@ import uuid
 from abc import ABC
 
 from .agent import Agent, AgentInput, AgentResponse, AgentTransfer, RemoteAgent
+from .constant import SystemPromptMode
 from .memory import Memory
 from .utils.log import logger
 from .utils.misc import run_func
@@ -185,6 +186,15 @@ class PantheonTeam(Team):
         for agent in inline_agents:
             if isinstance(agent, Agent):
                 agent.can_delegate = self.has_transfer_agents or self.has_sub_agents
+
+        # Configure sub-agents to use SUBAGENT mode (streamlined for direct execution)
+        # and ensure they cannot delegate to other agents
+        for agent in self.sub_agents:
+            if isinstance(agent, Agent):
+                # Force SUBAGENT mode for sub-agents
+                agent.system_prompt_mode = SystemPromptMode.SUBAGENT
+                # Prevent sub-agents from delegating (no second-level delegation)
+                agent.can_delegate = False
 
         # Keep triage reference for backward compatibility (it's the first inline agent)
         self.triage = inline_agents[0]

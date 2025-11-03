@@ -22,6 +22,7 @@ async def create_agent(
     mcp_servers: list[str] = [],
     toolful: bool = False,
     chat_id=None,
+    description: str | None = None,
     **kwargs,
 ) -> Agent:
     """Create an agent from a template with all providers (toolsets and MCP servers).
@@ -36,12 +37,14 @@ async def create_agent(
         mcp_servers: List of MCP server names to add to the agent.
         toolful: Whether the agent is toolful.
         chat_id: Optional chat ID for per-chat session isolation.
+        description: Optional description of the agent's purpose and capabilities.
     """
     agent = Agent(
         name=name,
         instructions=instructions,
         model=model,
         icon=icon,
+        description=description,
     )
     agent.toolful = toolful
     agent.not_loaded_toolsets = []

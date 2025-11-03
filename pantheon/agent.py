@@ -11,7 +11,7 @@ from uuid import uuid4
 from funcdesc import parse_func
 from pydantic import BaseModel, create_model
 
-from .constant import build_system_prompt
+from .constant import SystemPromptMode, build_system_prompt
 from .memory import Memory
 from .remote import (
     RemoteBackendFactory,
@@ -300,6 +300,7 @@ class Agent:
         tool_timeout: The timeout for the tool. (default: 10 minutes)
         force_litellm: Whether to force using LiteLLM. (default: False)
         max_tool_content_length: The maximum length of the tool content. (default: 100000)
+        description: The description of the agent. (default: None)
     """
 
     def __init__(
@@ -315,10 +316,13 @@ class Agent:
         tool_timeout: int = 10 * 60,
         force_litellm: bool = False,
         max_tool_content_length: int | None = 100000,
+        system_prompt_mode: SystemPromptMode | None = None,
+        description: str | None = None,
     ):
         self.id = uuid4()
         self.name = name
         self.instructions = instructions
+        self.description = description
         if isinstance(model, str):
             self.models = [model]
             if model != DEFAULT_MODEL:
@@ -352,6 +356,9 @@ class Agent:
         # Can delegate to other agents - set by Team if this agent can delegate/coordinate
         # Used in unified architecture: True when has_transfer_agents or has_sub_agents
         self.can_delegate = False
+
+        # System prompt mode
+        self.system_prompt_mode = system_prompt_mode
 
     @property
     def functions(self) -> dict[str, Callable]:
@@ -968,7 +975,10 @@ class Agent:
             history = filtered_messages
 
         system_prompt = build_system_prompt(
-            self.instructions, plan_mode=self.plan_mode, can_delegate=self.can_delegate
+            self.instructions,
+            plan_mode=self.plan_mode,
+            can_delegate=self.can_delegate,
+            system_prompt_mode=self.system_prompt_mode,
         )
         current_timestamp = time.time()
 

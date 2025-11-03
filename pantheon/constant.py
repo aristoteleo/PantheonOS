@@ -1,4 +1,5 @@
 import os
+from enum import Enum
 
 # Jupyter path migration: use platformdirs standard (future-proof for jupyter_core v6)
 os.environ.setdefault("JUPYTER_PLATFORM_DIRS", "1")
@@ -8,6 +9,17 @@ PANTHEON_DIR = os.path.realpath(
 )
 CONFIG_FILE = os.path.join(PANTHEON_DIR, "config.yaml")
 CLI_HISTORY_FILE = os.path.join(PANTHEON_DIR, "cli_history")
+
+
+# ==================== System Prompt Modes ====================
+
+
+class SystemPromptMode(Enum):
+    """Enumeration of system prompt modes for different agent types and roles."""
+
+    NATIVE = "native"  # Base instructions only
+    FULL = "full"  # Complete guidance for main agents
+    SUBAGENT = "subagent"  # Streamlined mode for sub-agents
 
 
 # ==================== System Prompts ====================
@@ -115,11 +127,10 @@ Plan format (markdown, domain-agnostic):
 - Always exit properly: don't loop endlessly
 """
 
-TOOLS_GUIDANCE_PROMPT = """
+TASK_TOOLS_PROMPT = """
 
-## Planning & Tracking Tools
+## Task Tracking Tools
 
-**Task tracking** - for multi-step work:
 **Workflow**:
 1. `create_task(title, description, initial_todos=["Step 1", "Step 2", ...])` - Returns todos with IDs
 2. `manage_task(update_todos=[...], add_todos=[...], remove_todos=[...])`
@@ -127,30 +138,36 @@ TOOLS_GUIDANCE_PROMPT = """
    - `add_todos`: `["New step"]` - Add todos
    - `remove_todos`: `["todo_id"]` - Remove todos
 3. `list_tasks()` - Get detailed tasks
-3. `complete_task()` - Mark entire task as done
+4. `complete_task()` - Mark entire task as done
 
 **Todo states**: pending → in_progress → completed
+
 **Best practices**:
 - Update todo status, don't add completion todos
 - Report execution details in messages, not in todos
+"""
 
-**Plan mode** - for complex/unfamiliar work:
-- **Use when**: unclear requirements, unfamiliar codebase, architectural changes
-- **Process**: `enable_plan_mode()` → research & analyze → `exit_plan_mode(plan="...")`
+PLAN_TOOLS_PROMPT = """
+
+## Plan Mode Tools
+
+**Use when**: Complex/unfamiliar work, architectural changes, need for thorough analysis
+
+**Workflow**:
+- `enable_plan_mode()` → research & analyze → `exit_plan_mode(plan="...")`
 - **While active**: ✅ Read/analyze  ❌ Write/execute
 
 **Recommended workflow**: Plan complex work → create task → execute with status tracking
 """
 
 SUBAGENT_DISCOVERY_PROMPT = """
-
 ## Sub-Agent Team Coordination
 
 You lead a team of specialized sub-agents. Your role is to assess tasks and decide whether to handle them directly or delegate to the best-suited agent.
 
 ### Available Tools:
-1. **`list_agents()`** - Discover all available sub-agents and their capabilities
-2. **`call_agent(agent_name, instruction)`** - Delegate a specific task to a sub-agent
+1. **`list_agents()`** - Discover sub-agents and their capabilities
+2. **`call_agent(agent_name, instruction)`** - Delegate a task
 
 ### When to Use Sub-Agents:
 
@@ -159,48 +176,46 @@ You lead a team of specialized sub-agents. Your role is to assess tasks and deci
 - Coordination or synthesis work requiring your overall judgment
 - Tasks that require your context about the full conversation
 
+
 **Delegate to Sub-Agents:**
-- Data analysis or research work
-- Specialized domain tasks (writing, coding, design, etc.)
-- Large or time-consuming processing
-- Tasks that benefit from focused attention on a specific area
+- Specialized domain tasks (writing, coding, design, research, etc.)
+- Large or time-consuming work
+- Tasks benefiting from focused expertise on a specific area
+- Tasks outside your current context
 
 **Coordinate Multiple Agents:**
 - Complex projects requiring multiple specialized skills
 - Gather results from relevant agents, then synthesize into a cohesive response
 
-### Best Practices:
 
-1. **Start with discovery**: Use `list_agents()` first to see what experts are available
-2. **Be clear**: When delegating, provide complete context and expected output format
-3. **Integrate results**: After delegation, review results and incorporate into your response
-4. **Follow up**: If results are incomplete, provide additional context and ask for revision
+### Crafting Effective Instructions:
 
-### Delegation Protocol:
+When delegating a task, ensure your instructions include:
+- **Task**: What specifically needs to be done (be specific: "Calculate Q1-Q4 growth rates" not "analyze the data")
+- **Context**: User goals, constraints, and why this task matters
+- **Data**: Concrete resources or inputs available to work with
+- **Expected Output**: What format and content you want in the results
+- **Quality Standards**: Accuracy requirements, edge cases to handle
 
-When you decide to delegate a task:
-1. Call `list_agents()` to see available agents
-2. Identify the best-suited agent for the task
-3. Call `call_agent(agent_name, clear_instruction)`
-4. The agent will handle the task and return results
-5. You receive the results and can integrate them into your response
+**Example:**
+"Calculate quarterly growth rates for Q1-Q4: $100K, $120K, $115K, $130K.
+Context: evaluating market expansion feasibility.
+Expected Output: growth percentages, trend analysis, and business interpretation.
+Quality: accuracy to 1 decimal place, flag any seasonal patterns."
 
-### Example Workflow:
+**Anti-patterns to avoid:**
+❌ Too vague: "Do analysis"
+❌ Missing context: Data without explaining why
+❌ No expected output: Not specifying what results you want
+❌ Unclear success: "Give me good results"
+❌ No constraints: Not mentioning time pressure or accuracy needs
 
-User asks: "I need analysis of sales data and a summary report"
+### Delegation Workflow:
 
-Your thinking:
-- This requires two specialists: data analysis + report writing
-- I should coordinate both
-
-Your actions:
-1. Call `list_agents()` → Find Data Analyst and Report Writer
-2. Call `call_agent("Data Analyst", "Analyze the sales data...")`
-3. Receive analysis results
-4. Call `call_agent("Report Writer", "Write a summary based on: [analysis]")`
-5. Receive report
-6. Present the complete solution to user
-
+1. `list_agents()` → identify best agents
+2. Craft instructions with task, context, and expected output
+3. `call_agent(agent_name, instruction)` for each agent
+4. Integrate results into your response
 """
 
 OUTPUT_FORMAT_PROMPT = """
@@ -264,6 +279,40 @@ For analysis or results, consider this structure (adapt as needed):
 
 """
 
+SUBAGENT_STRATEGY_PROMPT = """
+## Task Execution Strategy
+
+You are a specialized agent executing specific tasks autonomously and efficiently.
+
+**Your Role:**
+- Execute tasks directly without hesitation or second-guessing
+- Use your tools and expertise to complete the work
+- Focus on execution - you won't be asked to confirm decisions
+- Return comprehensive results with methodology and limitations documented
+
+**Execution Approach:**
+
+1. **Act immediately** - Start working without seeking permission
+2. **Make decisions independently** - You have authority to execute
+3. **Document your work** - Explain methodology, assumptions, and any limitations
+4. **Handle ambiguity thoughtfully** - Ask clarifying questions only if critical
+5. **Report results comprehensively** - Include enough detail for the coordinator to understand and act
+
+**What Completes a Task:**
+
+You're done when:
+- Task objective is achieved or clearly blocked
+- Results are provided with methodology explained
+- Assumptions and limitations are documented
+- Details are sufficient for coordinator decision-making
+
+**If Blocked:**
+- Try reasonable alternatives before giving up
+- Clearly explain what you couldn't complete and why
+- Suggest what additional information would help
+- Return partial results when applicable
+"""
+
 
 # ==================== System Prompt Builder ====================
 
@@ -273,6 +322,7 @@ def build_system_prompt(
     *,
     plan_mode: bool = False,
     can_delegate: bool = False,
+    system_prompt_mode: "SystemPromptMode | None" = None,
 ) -> str:
     """Build a complete system prompt by combining base instructions with core components.
 
@@ -282,29 +332,53 @@ def build_system_prompt(
                   Overrides all other components for architectural planning.
         can_delegate: If True, inject team delegation and coordination guidance.
                       Set when agent can delegate to inline agents (transfer) or sub-agents (discovery).
+        system_prompt_mode: The mode to use for building the system prompt.
+                           Defaults to NATIVE (base instructions only).
+                           - NATIVE: Base instructions only
+                           - FULL: Complete guidance for main agents
+                           - SUBAGENT: Streamlined mode for sub-agents
 
     Returns:
         Complete system prompt combining base instructions with appropriate components
         based on the mode and agent role.
     """
+    # Default to NATIVE mode if not specified
+    if system_prompt_mode is None:
+        system_prompt_mode = SystemPromptMode.NATIVE
+
+    # NATIVE Mode: Base instructions only
+    if system_prompt_mode == SystemPromptMode.NATIVE:
+        return base_instructions
+
+    # SUBAGENT Mode: Execution + Output + Task Tools
+    if system_prompt_mode == SystemPromptMode.SUBAGENT:
+        prompt = base_instructions
+        prompt += OUTPUT_FORMAT_PROMPT
+        prompt += SUBAGENT_STRATEGY_PROMPT
+        prompt += TASK_TOOLS_PROMPT
+        return prompt
+
+    # FULL Mode: Complete agent with all framework guidance (default, main agents)
     prompt = base_instructions
 
     # Plan Mode: Architecture + Output + Tools (read-only analysis environment)
-    # Plan mode takes priority and returns immediately
+    # Plan mode takes priority and returns immediately (FULL mode only)
     if plan_mode:
         prompt += PLAN_MODE_ACTIVE_PROMPT
         prompt += OUTPUT_FORMAT_PROMPT
-        prompt += TOOLS_GUIDANCE_PROMPT
+        prompt += PLAN_TOOLS_PROMPT
+        prompt += TASK_TOOLS_PROMPT
         return prompt
+
+    # Normal Mode: Strategy + Output + Task Tools + Plan Tools (execution environment)
+    prompt += WORK_STRATEGY_PROMPT
+    prompt += OUTPUT_FORMAT_PROMPT
+    prompt += TASK_TOOLS_PROMPT
+    prompt += PLAN_TOOLS_PROMPT
 
     # Delegation-capable Agent: Gets team coordination guidance
     # This provides agents that can delegate with knowledge of team capabilities
     if can_delegate:
         prompt += SUBAGENT_DISCOVERY_PROMPT
-
-    # Normal Mode: Strategy + Output + Tools (execution environment)
-    prompt += WORK_STRATEGY_PROMPT
-    prompt += OUTPUT_FORMAT_PROMPT
-    prompt += TOOLS_GUIDANCE_PROMPT
 
     return prompt
