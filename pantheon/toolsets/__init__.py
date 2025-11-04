@@ -14,7 +14,7 @@ from .scraper import ScraperToolSet
 from .todolist import TodoListToolSet
 from .plan_mode import PlanModeToolSet
 from .vector_rag import VectorRAGToolSet
-from .knowledge import KnowledgeToolSet
+#from .knowledge import KnowledgeToolSet
 from .database_api import DatabaseAPIQueryToolSet
 
 
@@ -43,6 +43,6 @@ __all__ = [
     "IntegratedNotebookToolSet",
     # RAG
     "VectorRAGToolSet",
-    "KnowledgeToolSet",
+    #"KnowledgeToolSet",
     "DatabaseAPIQueryToolSet",
 ]

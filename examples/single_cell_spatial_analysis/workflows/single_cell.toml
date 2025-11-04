@@ -1,9 +1,10 @@
 [single_cell.basic]
 description = "Basic single-cell analysis workflow, including data loading, preprocessing, clustering, and visualization."
-content = """Basicly, given a single-cell RNA-seq dataset in h5ad / 10x format or other formats,
-you should firstly output your plan with the markdown format with checklists.
-Then, you should execute the code to read the data,
-then preprocess the data, and cluster the data, and finally visualize the data.
-After each step, you should review the checklist and update the checklist, and
-plan the next step.
+content = """
+"""
+
+[single_cell.spatial_mapping]
+description = "Mapping single-cell data to spatial data."
+content = """
+
 """

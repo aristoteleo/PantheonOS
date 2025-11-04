@@ -14,17 +14,20 @@ class TodoListToolSet(ToolSet):
     """TaskGroup-based todo management with session isolation"""
 
     # Global singleton manager (shared across all instances)
-    _global_manager: TaskManager = None
+    _global_manager: TaskManager | None = None
 
-    def __init__(self, name: str = "todolist", **kwargs):
+    def __init__(self, name: str = "todolist", use_global_manager: bool = False, **kwargs):
         super().__init__(name=name, **kwargs)
         self._service_name = name
 
         # Initialize global manager if not exists (uses default workspace)
-        if TodoListToolSet._global_manager is None:
+        if use_global_manager and TodoListToolSet._global_manager is None:
             TodoListToolSet._global_manager = TaskManager()
 
-        self.manager = TodoListToolSet._global_manager
+        if use_global_manager:
+            self.manager = TodoListToolSet._global_manager
+        else:
+            self.manager = TaskManager()
 
     @tool
     async def create_task(

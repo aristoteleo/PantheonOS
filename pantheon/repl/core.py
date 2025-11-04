@@ -61,6 +61,7 @@ class Repl(ReplUI):
         # Setup history file
         self.history_file = Path(CLI_HISTORY_FILE)
         if not self.history_file.exists():
+            self.history_file.parent.mkdir(parents=True, exist_ok=True)
             self.history_file.touch()
         self.command_history = []
         self.history_index = -1
