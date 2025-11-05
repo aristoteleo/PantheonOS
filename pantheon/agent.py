@@ -635,6 +635,10 @@ class Agent:
             # Build complete context_variables with execution metadata
             full_context_variables = context_variables.copy()
             full_context_variables["agent_name"] = self.name
+            # remove call_* variables injected for debug
+            for k in list(full_context_variables.keys()):
+                if k.startswith("call_"):
+                    del full_context_variables[k]
 
             # Merge with any existing context_variables in args
             if _CTX_VARS_NAME in args:
@@ -1415,9 +1419,7 @@ class Agent:
                 step_message["execution_context_id"] = exec_context.execution_context_id
 
             await _detect_attachments(step_message)
-            role = step_message.get("role")
-            if role == "user":
-                return
+
             if update_memory and exec_context.memory_instance:
                 exec_context.memory_instance.add_messages([step_message])
 

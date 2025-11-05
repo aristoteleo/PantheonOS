@@ -227,7 +227,8 @@ class PantheonTeam(Team):
             # Only include sub-agents (not inline agents)
             if agent_name not in self._sub_agent_names:
                 continue
-
+            # convert agent name to lower case
+            agent_name = agent_name.replace(" ", "_").lower()
             agent_info = {
                 "name": agent_name,
             }
@@ -298,15 +299,16 @@ class PantheonTeam(Team):
                 Returns:
                     Agent instance (triggers transfer and execution)
                 """
+                # real agent name is like : Data Analyst, but the llm may call with data_analyst
+                all_agents = {
+                    aname.replace(" ", "_").lower(): agent
+                    for aname, agent in self.agents.items()
+                }
+                agent_name = agent_name.replace(" ", "_").lower()
                 # Validate agent exists and is a sub-agent
-                if agent_name not in self.agents:
+                if agent_name not in all_agents:
                     raise ValueError(
-                        f"Agent '{agent_name}' not found. Available agents: {list(self.agents.keys())}"
-                    )
-
-                if agent_name not in self._sub_agent_names:
-                    raise ValueError(
-                        f"'{agent_name}' is not a sub-agent. Can only delegate to sub-agents via call_agent()."
+                        f"Agent '{agent_name}' not found. Available agents: {list(all_agents.keys())}"
                     )
 
                 if not instruction or not instruction.strip():
@@ -328,7 +330,7 @@ class PantheonTeam(Team):
                 )
 
                 # Return the target agent instance (triggers transfer in team.run())
-                return self.agents[agent_name]
+                return all_agents[agent_name]
 
             # Set proper function metadata for LLM
             call_agent.__name__ = "call_agent"
@@ -419,8 +421,14 @@ class PantheonTeam(Team):
                     # call_agent delegation case
                     delegation_context = self._call_stack[-1]
                     instruction = delegation_context["instruction"]
-                    logger.info(f"[CALL_AGENT] {active_agent.name} -> {resp.to_agent} | tool_call_id: {resp.tool_call_id}")
-                    logger.info(f"  instruction: {instruction[:100]}..." if len(instruction) > 100 else f"  instruction: {instruction}")
+                    logger.info(
+                        f"[CALL_AGENT] {active_agent.name} -> {resp.to_agent} | tool_call_id: {resp.tool_call_id}"
+                    )
+                    logger.info(
+                        f"  instruction: {instruction[:100]}..."
+                        if len(instruction) > 100
+                        else f"  instruction: {instruction}"
+                    )
                     # Attach context to the transfer - receiving agent knows what task and context
                     resp.instruction = instruction
                     resp.execution_context_id = delegation_context[
@@ -435,7 +443,9 @@ class PantheonTeam(Team):
                     msg = resp
                 else:
                     # transfer_to_* case: create tool_message to respond to the tool_call
-                    logger.info(f"[TRANSFER] {active_agent.name} -> {resp.to_agent} | tool_call_id: {resp.tool_call_id}")
+                    logger.info(
+                        f"[TRANSFER] {active_agent.name} -> {resp.to_agent} | tool_call_id: {resp.tool_call_id}"
+                    )
                     tool_message = {
                         "role": "tool",
                         "tool_call_id": resp.tool_call_id
@@ -454,8 +464,14 @@ class PantheonTeam(Team):
                     call_id = delegation_context.get("tool_call_id")
                     response_content = str(resp.content) if resp else ""
 
-                    logger.info(f"[CALL_AGENT_RESPONSE] {active_agent.name} -> {caller_name} | tool_call_id: {call_id}")
-                    logger.info(f"  response: {response_content[:100]}..." if len(response_content) > 100 else f"  response: {response_content}")
+                    logger.info(
+                        f"[CALL_AGENT_RESPONSE] {active_agent.name} -> {caller_name} | tool_call_id: {call_id}"
+                    )
+                    logger.info(
+                        f"  response: {response_content[:100]}..."
+                        if len(response_content) > 100
+                        else f"  response: {response_content}"
+                    )
                     tool_message = {
                         "role": "tool",
                         "tool_call_id": call_id or ("call_" + str(uuid.uuid4())[:20]),

@@ -545,7 +545,7 @@ class ChatRoom(ToolSet):
 
         # chat_id must be provided - this is a per-chat operation
         if not chat_id:
-            logger.warning(
+            logger.debug(
                 "get_agents called without chat_id - returning empty mock data"
             )
             return {
@@ -829,6 +829,10 @@ class ChatRoom(ToolSet):
             )
 
         async def nats_step_processor(step_message: dict):
+            role = step_message.get("role", None)
+            # Fix front end duplicate user message
+            if role == "user":
+                return
             await self._publish_stream(
                 chat_id,
                 "step",
