@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import inspect
 import json
 import sys
 import time
@@ -20,21 +21,20 @@ from .remote import (
 )
 from .toolset import ToolSet
 from .utils.llm import (
+    TimingTracker,
     process_messages_for_hook_func,
     process_messages_for_model,
     remove_hidden_fields,
 )
-from .utils.log import logger
-from .utils.misc import desc_to_openai_dict, run_func
-from .utils.vision import VisionInput, vision_to_openai
-from .utils.llm import TimingTracker
 from .utils.llm_providers import (
     call_llm_provider,
     create_enhanced_process_chunk,
     detect_provider,
     get_base_url,
 )
-
+from .utils.log import logger
+from .utils.misc import desc_to_openai_dict, run_func
+from .utils.vision import VisionInput, vision_to_openai
 
 DEFAULT_MODEL = "gpt-5-mini"
 
@@ -331,6 +331,8 @@ class Agent:
         self.name = name
         self.instructions = instructions
         self.description = description
+        if not model:
+            model = DEFAULT_MODEL
         if isinstance(model, str):
             self.models = [model]
             if model != DEFAULT_MODEL:
@@ -517,7 +519,7 @@ class Agent:
 
         # 2. Get tools from providers (dynamic retrieval - uses provider caching)
         # Providers return ToolInfo with pre-generated inputSchema (the "function" part)
-        logger.info(f"get tools for llm: {self.providers} ")
+        logger.debug(f"get tools for llm: {self.providers} ")
         provider_tools = []
         for provider_name, provider in self.providers.items():
             try:
@@ -545,7 +547,7 @@ class Agent:
                         }
                     )
 
-                logger.info(
+                logger.debug(
                     f"Agent '{self.name}': Added {len(tools)} tools from provider '{provider_name}'"
                 )
 
@@ -556,8 +558,60 @@ class Agent:
 
         return base_tools + provider_tools
 
-    async def call_tool(self, prefixed_name: str, args: dict) -> Any:
-        """Call a tool by prefixed name, routing to appropriate source
+    def _should_inject_context_variables(self, prefixed_name: str) -> bool:
+        """Determine if context_variables should be injected for a tool.
+
+        Returns True for:
+        1. ToolSet base functions (has _is_tool attribute)
+        2. ToolSetProvider calls
+        3. Functions that explicitly declare context_variables parameter
+
+        Args:
+            prefixed_name: Tool name (possibly with prefix)
+
+        Returns:
+            bool: Whether to inject context_variables
+        """
+        # Check 1: Is it a ToolSet base function with _is_tool attribute?
+        if prefixed_name in self._base_functions:
+            func = self._base_functions[prefixed_name]
+            if hasattr(func, "_is_tool"):
+                return True
+            else:
+                # Check 3: Does the function explicitly declare context_variables parameter?
+                try:
+                    sig = inspect.signature(func)
+                    if "context_variables" in sig.parameters:
+                        return True
+                except (ValueError, TypeError):
+                    pass
+                return False
+
+        # Check 2: Is it a ToolSetProvider call (prefix routing)?
+        if "__" in prefixed_name:
+            provider_name = prefixed_name.split("__", 1)[0]
+            if provider_name in self.providers:
+                provider = self.providers[provider_name]
+                # Check if it's a ToolSetProvider
+                from .providers import ToolSetProvider
+
+                if isinstance(provider, ToolSetProvider):
+                    return True
+
+        return False
+
+    async def call_tool(
+        self,
+        prefixed_name: str,
+        args: dict,
+        context_variables: dict | None = None,
+    ) -> Any:
+        """Call a tool by prefixed name, with conditional context_variables injection.
+
+        Only injects context_variables for:
+        1. ToolSet base functions (has _is_tool attribute)
+        2. ToolSetProvider calls
+        3. Functions that explicitly declare context_variables parameter
 
         Tool routing order:
         1. Agent's own _base_functions (unprefixed)
@@ -567,6 +621,7 @@ class Agent:
         Args:
             prefixed_name: Tool name (possibly with prefix)
             args: Arguments to pass to the tool
+            context_variables: Context variables to conditionally inject
 
         Returns:
             Result from the tool call
@@ -574,7 +629,35 @@ class Agent:
         Raises:
             ValueError: If tool not found in any source
         """
-        logger.info(f"Calling tool {prefixed_name}({args})")
+        # Determine if we should inject context_variables
+        should_inject_context = self._should_inject_context_variables(prefixed_name)
+
+        # Only inject context_variables if needed
+        if should_inject_context and context_variables is not None:
+            # Build complete context_variables with execution metadata
+            full_context_variables = context_variables.copy()
+            full_context_variables["agent_name"] = self.name
+            # remove call_* variables injected for debug
+            for k in list(full_context_variables.keys()):
+                if k.startswith("call_"):
+                    del full_context_variables[k]
+            # add _call_agent callback
+            full_context_variables["_call_agent"] = _call_agent
+            # Merge with any existing context_variables in args
+            if _CTX_VARS_NAME in args:
+                existing = args[_CTX_VARS_NAME]
+                if isinstance(existing, dict):
+                    merged = dict(existing)
+                    merged.update(full_context_variables)
+                    args[_CTX_VARS_NAME] = merged
+                else:
+                    args[_CTX_VARS_NAME] = full_context_variables
+            else:
+                args[_CTX_VARS_NAME] = full_context_variables
+
+        # print shrinked args
+        short_args = f"{args}"[:100]
+        logger.info(f"Calling tool {prefixed_name} | {short_args}")
         # 1. Try Agent's own _base_functions first (no prefix required)
         if prefixed_name in self._base_functions:
             func = self._base_functions[prefixed_name]
@@ -600,19 +683,25 @@ class Agent:
             source, tool_name = prefixed_name.split("__", 1)
 
             if source not in self.providers:
-                raise ValueError(f"Provider '{source}' not found (tool: '{prefixed_name}')")
+                raise ValueError(
+                    f"Provider '{source}' not found (tool: '{prefixed_name}')"
+                )
 
             provider = self.providers[source]
             try:
                 result = await provider.call_tool(tool_name, args)
             except Exception as e:
-                logger.error(f"Provider '{source}' failed to call tool '{tool_name}': {e}")
+                logger.error(
+                    f"Provider '{source}' failed to call tool '{tool_name}': {e}"
+                )
                 raise
 
         if isinstance(result, dict) and "inner_call" in result:
             name = result["inner_call"]["name"]
             if name == "__agent_run__":
-                resp = await self.run(result["inner_call"]["args"], use_memory=False, update_memory=False)
+                resp = await self.run(
+                    result["inner_call"]["args"], use_memory=False, update_memory=False
+                )
                 result = resp.content
 
         return result
@@ -649,47 +738,6 @@ class Agent:
 
         return functions
 
-    async def _call_tool_with_context(
-        self, func_name: str, params: dict, context_variables: dict
-    ) -> Any:
-        """Call tool with context variable injection and prefix routing support.
-
-        This method provides a unified interface for calling both base functions
-        and provider tools. It handles:
-        1. Context variable injection for base functions that need it
-        2. Prefix-based routing to provider tools (e.g., context7_search_docs)
-        3. Unified error handling
-
-        Args:
-            func_name: Tool name (may have {provider}_ prefix for provider tools)
-            params: Tool arguments
-            context_variables: Context variables to inject if needed by base functions
-
-        Returns:
-            Tool execution result
-
-        Raises:
-            ValueError: If tool not found
-        """
-        # For base functions, handle context variable injection
-        if func_name in self._base_functions:
-            func = self._base_functions[func_name]
-
-            # Detect which parameters the function needs
-            var_names = []
-            if hasattr(func, "__code__"):
-                var_names = func.__code__.co_varnames
-
-            # Inject context_variables if the function needs it
-            if _CTX_VARS_NAME in var_names:
-                params[_CTX_VARS_NAME] = context_variables
-
-        # Use unified call_tool() method which supports prefix routing
-        # call_tool handles:
-        # - Direct calls to base functions: func_name not in _base_functions
-        # - Prefix-based routing to providers: {provider}__{tool_name}
-        return await self.call_tool(func_name, params)
-
     async def _handle_tool_calls(
         self,
         tool_calls: list,
@@ -706,14 +754,14 @@ class Agent:
                 func_name = call["function"]["name"]
                 params = json.loads(call["function"]["arguments"]) or {}
 
-                # Use unified _call_tool_with_context() method
+                # Use unified call_tool() method for all tool calls
                 # This method handles:
-                # 1. Context variable injection for base functions
-                # 2. Prefix-based routing for provider tools (e.g., context7__search_docs)
+                # 1. Conditional context variable injection (ToolSet, ToolSetProvider, explicit params)
+                # 2. Prefix-based routing for provider tools (e.g., mcp__search_docs)
                 # 3. Proper error handling
                 start_time = time.time()
                 task = asyncio.create_task(
-                    self._call_tool_with_context(func_name, params, context_variables)
+                    self.call_tool(func_name, params, context_variables)
                 )
                 while True:
                     if task.done() or (task.cancelled()):
@@ -844,13 +892,6 @@ class Agent:
                                     "additionalProperties", None
                                 )
 
-            tool_count = len(tools) if tools else 0
-            logger.info(
-                f"⚙️  [Agent:{self.name}] Tool conversion: "
-                f"{tracker.timings['tools_conversion']:.3f}s for {tool_count} tools "
-                f"(base + providers)"
-            )
-
         # Step 5: Create message ID and enhanced chunk processor
         message_id = str(uuid4())
         enhanced_process_chunk = create_enhanced_process_chunk(
@@ -861,16 +902,8 @@ class Agent:
         if enhanced_process_chunk:
             async with tracker.measure("begin_chunk"):
                 await enhanced_process_chunk({"begin": True})
-            logger.info(
-                f"📤 [Agent:{self.name}] Begin chunk sent: "
-                f"{tracker.timings['begin_chunk']:.3f}s"
-            )
 
         # Step 7: Call LLM provider (unified interface)
-        logger.info(
-            f"🤖 [Agent:{self.name}] Calling {provider_config.provider_type.value} API "
-            f"(model: {provider_config.model_name})"
-        )
 
         async with tracker.measure("llm_api"):
             message = await call_llm_provider(
@@ -894,15 +927,12 @@ class Agent:
         # Step 9: Log timing breakdown
         timings = tracker.get_all()
         logger.info(
-            f"⏱️  [Agent:{self.name}] LLM response received: {timings['llm_api']:.3f}s"
-        )
-        logger.info(
-            f"📊 [Agent:{self.name}] Request breakdown - "
+            f"📊 [Agent:{self.name}] - "
             f"Total: {total_time:.3f}s | "
             f"Message: {timings.get('message_processing', 0):.3f}s | "
-            f"Tools: {timings.get('tools_conversion', 0):.3f}s | "
             f"Begin: {timings.get('begin_chunk', 0):.3f}s | "
-            f"LLM: {timings['llm_api']:.3f}s"
+            f"LLM: {timings['llm_api']:.3f}s |"
+            f"Tool: {timings.get('tools_conversion', 0):.3f}s for {len(tools or [])} tools"
         )
 
         return message
@@ -924,6 +954,8 @@ class Agent:
                 models = [model] + self.models
             else:
                 models = model + self.models
+        if not models:
+            raise RuntimeError(f"No model is available. models: {models}")
         for model in models:
             if error_count > 0:
                 logger.warning(
@@ -1376,9 +1408,7 @@ class Agent:
                 step_message["execution_context_id"] = exec_context.execution_context_id
 
             await _detect_attachments(step_message)
-            role = step_message.get("role")
-            if role == "user":
-                return
+
             if update_memory and exec_context.memory_instance:
                 exec_context.memory_instance.add_messages([step_message])
 
@@ -1488,3 +1518,36 @@ def filter_inline_messages(messages: list[dict]) -> list[dict]:
             inline_messages.append(msg)
 
     return inline_messages
+
+
+async def _call_agent(
+    messages: list,
+    system_prompt: Optional[str],
+    model: Optional[str] = None,
+    agent_name: str = "sampler",
+) -> dict:
+    """call agent callback to let toolset use llm agent to sample response"""
+    # not tested with remote mode, should work naturally with reverse call support
+    try:
+        # Create temporary Agent
+        agent = Agent(
+            name=agent_name,
+            model=model,
+            instructions=system_prompt or "You are a helpful assistant.",
+        )
+
+        # Run Agent with the user query
+        result = await agent.run(messages, use_memory=False, update_memory=False)
+
+        return {
+            "success": True,
+            "response": result.content,
+        }
+
+    except Exception as e:
+        # log stack trace
+        logger.info(f"Error in agent sampling: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e),
+        }

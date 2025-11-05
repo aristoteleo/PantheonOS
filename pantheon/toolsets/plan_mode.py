@@ -43,15 +43,5 @@ class PlanModeToolSet(ToolSet):
             "success": True,
             "plan": plan,
             "exit_plan_mode": True,  # Signal to stop execution loop
-            "message": "Plan presented. Waiting for user approval to proceed with implementation."
-        }
-
-    @tool
-    async def check_plan_mode_status(self) -> dict:
-        """Check current Plan Mode status and see available tools."""
-        return {
-            "plan_mode": self.agent.plan_mode,
-            "available_tools": list(self.agent.functions.keys()),
-            "tool_count": len(self.agent.functions),
-            "message": "In Plan Mode (read-only)" if self.agent.plan_mode else "In Execute Mode (full access)"
+            "message": "Plan presented. Waiting for user approval to proceed with implementation.",
         }

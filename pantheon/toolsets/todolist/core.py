@@ -8,6 +8,7 @@ Refactored for hierarchical task management:
 
 from ...toolset import ToolSet, tool
 from .task_manager import TaskManager
+from ...utils.log import logger
 
 
 class TodoListToolSet(ToolSet):
@@ -16,7 +17,9 @@ class TodoListToolSet(ToolSet):
     # Global singleton manager (shared across all instances)
     _global_manager: TaskManager | None = None
 
-    def __init__(self, name: str = "todolist", use_global_manager: bool = False, **kwargs):
+    def __init__(
+        self, name: str = "todolist", use_global_manager: bool = False, **kwargs
+    ):
         super().__init__(name=name, **kwargs)
         self._service_name = name
 
@@ -48,8 +51,8 @@ class TodoListToolSet(ToolSet):
         """
         if not self.manager:
             return {"success": False, "error": "Manager not initialized"}
-
-        chat_id = self.get_current_session_id()
+        logger.info(f"Current Context: {self.get_context()}")
+        chat_id = self.get_session_id()
         if not chat_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -104,7 +107,7 @@ class TodoListToolSet(ToolSet):
         if not self.manager:
             return {"success": False, "error": "Manager not initialized"}
 
-        chat_id = self.get_current_session_id()
+        chat_id = self.get_session_id()
         if not chat_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -195,7 +198,7 @@ class TodoListToolSet(ToolSet):
         if not self.manager:
             return {"success": False, "error": "Manager not initialized"}
 
-        chat_id = self.get_current_session_id()
+        chat_id = self.get_session_id()
         if not chat_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -269,7 +272,7 @@ class TodoListToolSet(ToolSet):
         if not self.manager:
             return {"success": False, "error": "Manager not initialized"}
 
-        chat_id = self.get_current_session_id()
+        chat_id = self.get_session_id()
         if not chat_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -299,7 +302,7 @@ class TodoListToolSet(ToolSet):
                 "success": True,
                 "tasks": tasks,
                 "summary": summary,
-                "current_task_id": current_task_id  # Add current_task_id to response
+                "current_task_id": current_task_id,  # Add current_task_id to response
             }
 
         except Exception as e:

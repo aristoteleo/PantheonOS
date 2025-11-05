@@ -23,30 +23,30 @@ Design philosophy (Hybrid Approach):
 API: 7 tools for agents + 3 frontend-only tools (exclude=True)
 """
 
-import asyncio
 import json
-import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, Literal
+from typing import Dict, Literal, Optional
 
 from pantheon.remote.backend.base import RemoteBackend
 from pantheon.remote.factory import RemoteBackendFactory
 from pantheon.toolset import ToolSet, tool
 from pantheon.utils.log import logger
+
+from .jedi_integration import EnhancedCompletionService
 from .jupyter_kernel import (
     IOPubEventBus,
     JupyterKernelToolSet,
     RemoteIOPubEventBus,
 )
 from .notebook_contents import NotebookContentsToolSet
-from .jedi_integration import EnhancedCompletionService
 
 
 @dataclass
 class NotebookContext:
     """Notebook context for a specific (notebook_path, session_id) combination"""
+
     notebook_path: str
     session_id: str
     kernel_session_id: str  # Internal kernel session (hidden from users)
@@ -110,7 +110,9 @@ class IntegratedNotebookToolSet(ToolSet):
 
         # Initialize child toolsets
         self.kernel_toolset = JupyterKernelToolSet(f"{name}_kernel", workdir, **kwargs)
-        self.notebook_contents = NotebookContentsToolSet(f"{name}_contents", workdir, **kwargs)
+        self.notebook_contents = NotebookContentsToolSet(
+            f"{name}_contents", workdir, **kwargs
+        )
 
         # Notebook contexts: (notebook_path, session_id) -> NotebookContext
         self.notebook_contexts: Dict[tuple, NotebookContext] = {}
@@ -144,7 +146,10 @@ class IntegratedNotebookToolSet(ToolSet):
         await self.notebook_contents.run_setup()
 
         # Start unified IOPub listener
-        if self.kernel_toolset.use_unified_listener and self.kernel_toolset.unified_listener:
+        if (
+            self.kernel_toolset.use_unified_listener
+            and self.kernel_toolset.unified_listener
+        ):
             await self.kernel_toolset.unified_listener.start_listening()
             logger.info("Started unified IOPub listener")
 
@@ -204,9 +209,7 @@ class IntegratedNotebookToolSet(ToolSet):
             logger.error(f"Failed to save contexts: {e}")
 
     async def _get_or_create_context(
-        self,
-        notebook_path: str,
-        session_id: str
+        self, notebook_path: str, session_id: str
     ) -> NotebookContext:
         """
         Get or create notebook context for (notebook_path, session_id)
@@ -229,7 +232,9 @@ class IntegratedNotebookToolSet(ToolSet):
                     notebook_path, "New Notebook"
                 )
                 if not create_result["success"]:
-                    raise Exception(f"Failed to create notebook: {create_result['error']}")
+                    raise Exception(
+                        f"Failed to create notebook: {create_result['error']}"
+                    )
 
             # 2. Create kernel session (internal)
             kernel_result = await self.kernel_toolset.create_session("python3")
@@ -266,7 +271,7 @@ class IntegratedNotebookToolSet(ToolSet):
                 # Use keyword arguments with renamed parameter (kernel_session_id)
                 kernel_result = await self.kernel_toolset.create_session(
                     kernel_spec=context.kernel_spec,
-                    kernel_session_id=context.kernel_session_id
+                    kernel_session_id=context.kernel_session_id,
                 )
 
                 if not kernel_result["success"]:
@@ -284,11 +289,15 @@ class IntegratedNotebookToolSet(ToolSet):
 
         return self.notebook_contexts[key]
 
-    def _get_context(self, notebook_path: str, session_id: str) -> Optional[NotebookContext]:
+    def _get_context(
+        self, notebook_path: str, session_id: str
+    ) -> Optional[NotebookContext]:
         """Get existing context (without creating)"""
         return self.notebook_contexts.get((notebook_path, session_id))
 
-    async def _get_cell_by_id(self, notebook_path: str, cell_id: str) -> tuple[Optional[int], Optional[dict]]:
+    async def _get_cell_by_id(
+        self, notebook_path: str, cell_id: str
+    ) -> tuple[Optional[int], Optional[dict]]:
         """Get cell index and data by cell_id"""
         read_result = await self.notebook_contents.read_notebook(notebook_path)
         if not read_result["success"]:
@@ -307,9 +316,7 @@ class IntegratedNotebookToolSet(ToolSet):
 
     @tool
     async def create_notebook(
-        self,
-        notebook_path: str,
-        title: str = "New Notebook"
+        self, notebook_path: str, title: str = "New Notebook"
     ) -> dict:
         """
         Create a new notebook (like VSCode newNotebookTool)
@@ -321,7 +328,8 @@ class IntegratedNotebookToolSet(ToolSet):
         Returns:
             dict with success, notebook_path, session_id
         """
-        session_id = self.get_current_session_id()
+        session_id = self.get_session_id()
+        logger.debug(f"Creating notebook {notebook_path} @ {session_id}")
         if not session_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -333,7 +341,7 @@ class IntegratedNotebookToolSet(ToolSet):
                 "success": True,
                 "notebook_path": notebook_path,
                 "kernel_session_id": context.kernel_session_id,
-                "created_at": context.created_at
+                "created_at": context.created_at,
             }
 
         except Exception as e:
@@ -342,10 +350,7 @@ class IntegratedNotebookToolSet(ToolSet):
 
     @tool
     async def execute_cell(
-        self,
-        notebook_path: str,
-        cell_id: str,
-        code: str = ""
+        self, notebook_path: str, cell_id: str, code: str = ""
     ) -> dict:
         """
         Execute existing notebook cell (like VSCode runNotebookCellTool)
@@ -361,7 +366,7 @@ class IntegratedNotebookToolSet(ToolSet):
         Returns:
             dict with execution results
         """
-        session_id = self.get_current_session_id()
+        session_id = self.get_session_id()
         if not session_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -383,15 +388,14 @@ class IntegratedNotebookToolSet(ToolSet):
 
             # Execute with cell_id (not cell_index for stability)
             exec_result = await self._execute_and_update(
-                context.kernel_session_id,
-                notebook_path,
-                cell_id,
-                code
+                context.kernel_session_id, notebook_path, cell_id, code
             )
             # V2: Return stable identifiers (cell_id + kernel_session_id + notebook_path)
             exec_result["cell_id"] = cell_id
             exec_result["kernel_session_id"] = context.kernel_session_id
-            exec_result["notebook_path"] = notebook_path  # Explicit, avoid frontend parsing
+            exec_result["notebook_path"] = (
+                notebook_path  # Explicit, avoid frontend parsing
+            )
             return exec_result
 
         except Exception as e:
@@ -420,7 +424,7 @@ class IntegratedNotebookToolSet(ToolSet):
         Returns:
             dict with success, cell_id, notebook_path, kernel_session_id
         """
-        session_id = self.get_current_session_id()
+        session_id = self.get_session_id()
         if not session_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -466,7 +470,7 @@ class IntegratedNotebookToolSet(ToolSet):
         Returns:
             dict with success, cell_id, notebook_path, kernel_session_id
         """
-        session_id = self.get_current_session_id()
+        session_id = self.get_session_id()
         if not session_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -508,7 +512,7 @@ class IntegratedNotebookToolSet(ToolSet):
         Returns:
             dict with success, cell_id, notebook_path, kernel_session_id
         """
-        session_id = self.get_current_session_id()
+        session_id = self.get_session_id()
         if not session_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -551,7 +555,7 @@ class IntegratedNotebookToolSet(ToolSet):
         Returns:
             dict with success, cell_id, notebook_path, kernel_session_id
         """
-        session_id = self.get_current_session_id()
+        session_id = self.get_session_id()
         if not session_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -603,14 +607,12 @@ class IntegratedNotebookToolSet(ToolSet):
             validation=False is recommended for periodic polling to reduce latency.
             The frontend can validate on initial load with validation=True.
         """
-        return await self.notebook_contents.read_notebook(notebook_path, validate=validate)
+        return await self.notebook_contents.read_notebook(
+            notebook_path, validate=validate
+        )
 
     @tool
-    async def read_cell(
-        self,
-        notebook_path: str,
-        cell_id: str
-    ) -> dict:
+    async def read_cell(self, notebook_path: str, cell_id: str) -> dict:
         """
         Read complete cell data (source, outputs, metadata)
 
@@ -639,7 +641,7 @@ class IntegratedNotebookToolSet(ToolSet):
             - notebook_path: Path to notebook
             - kernel_session_id: Kernel session ID (if context exists)
         """
-        session_id = self.get_current_session_id()
+        session_id = self.get_session_id()
 
         try:
             cell_index, cell_data = await self._get_cell_by_id(notebook_path, cell_id)
@@ -652,7 +654,9 @@ class IntegratedNotebookToolSet(ToolSet):
                 source = "".join(source)
 
             # Get context if exists
-            context = self._get_context(notebook_path, session_id) if session_id else None
+            context = (
+                self._get_context(notebook_path, session_id) if session_id else None
+            )
 
             result = {
                 "success": True,
@@ -683,7 +687,8 @@ class IntegratedNotebookToolSet(ToolSet):
 
         Automatically filters by session_id from context.
         """
-        session_id = self.get_current_session_id()
+        session_id = self.get_session_id()
+
         if not session_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -693,27 +698,30 @@ class IntegratedNotebookToolSet(ToolSet):
                 # Get kernel status
                 kernel_status = "dead"
                 if context.kernel_session_id in self.kernel_toolset.sessions:
-                    kernel_status = self.kernel_toolset.sessions[context.kernel_session_id].status.value
+                    kernel_status = self.kernel_toolset.sessions[
+                        context.kernel_session_id
+                    ].status.value
 
-                notebooks.append({
-                    "notebook_path": nb_path,
-                    "notebook_title": context.notebook_title,
-                    "created_at": context.created_at,
-                    "kernel_status": kernel_status,
-                    "kernel_session_id": context.kernel_session_id,
-                })
+                notebooks.append(
+                    {
+                        "notebook_path": nb_path,
+                        "notebook_title": context.notebook_title,
+                        "created_at": context.created_at,
+                        "kernel_status": kernel_status,
+                        "kernel_session_id": context.kernel_session_id,
+                    }
+                )
+        logger.debug(f"Listing notebooks for session_id: {session_id} {notebooks}")
 
-        return {
-            "success": True,
-            "notebooks": notebooks,
-            "count": len(notebooks)
-        }
+        return {"success": True, "notebooks": notebooks, "count": len(notebooks)}
 
     @tool
     async def manage_kernel(
         self,
         notebook_path: str,
-        action: Literal["restart", "interrupt", "status", "variables", "shutdown", "delete"]
+        action: Literal[
+            "restart", "interrupt", "status", "variables", "shutdown", "delete"
+        ],
     ) -> dict:
         """
         Manage kernel for a notebook (unified kernel operations)
@@ -731,7 +739,7 @@ class IntegratedNotebookToolSet(ToolSet):
         Returns:
             dict with success status and action-specific data
         """
-        session_id = self.get_current_session_id()
+        session_id = self.get_session_id()
         if not session_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -742,7 +750,9 @@ class IntegratedNotebookToolSet(ToolSet):
         try:
             if action == "restart":
                 # Restart kernel
-                result = await self.kernel_toolset.restart_session(context.kernel_session_id)
+                result = await self.kernel_toolset.restart_session(
+                    context.kernel_session_id
+                )
 
                 # Clear completion context
                 self.completion_service.clear_session_context(context.kernel_session_id)
@@ -756,7 +766,9 @@ class IntegratedNotebookToolSet(ToolSet):
 
             elif action == "interrupt":
                 # Interrupt execution
-                result = await self.kernel_toolset.interrupt_session(context.kernel_session_id)
+                result = await self.kernel_toolset.interrupt_session(
+                    context.kernel_session_id
+                )
 
                 return {
                     "success": result["success"],
@@ -768,7 +780,9 @@ class IntegratedNotebookToolSet(ToolSet):
             elif action == "status":
                 # Get kernel status
                 if context.kernel_session_id in self.kernel_toolset.sessions:
-                    kernel_session = self.kernel_toolset.sessions[context.kernel_session_id]
+                    kernel_session = self.kernel_toolset.sessions[
+                        context.kernel_session_id
+                    ]
                     return {
                         "success": True,
                         "action": "status",
@@ -782,12 +796,14 @@ class IntegratedNotebookToolSet(ToolSet):
                     return {
                         "success": False,
                         "error": "Kernel session not found",
-                        "action": "status"
+                        "action": "status",
                     }
 
             elif action == "variables":
                 # Get variables
-                result = await self.kernel_toolset.get_variables(context.kernel_session_id)
+                result = await self.kernel_toolset.get_variables(
+                    context.kernel_session_id
+                )
                 result["action"] = "variables"
                 result["notebook_path"] = notebook_path
                 result["kernel_session_id"] = context.kernel_session_id
@@ -795,7 +811,9 @@ class IntegratedNotebookToolSet(ToolSet):
 
             elif action == "shutdown":
                 # Shutdown kernel but keep context
-                result = await self.kernel_toolset.shutdown_session(context.kernel_session_id)
+                result = await self.kernel_toolset.shutdown_session(
+                    context.kernel_session_id
+                )
 
                 # Clear completion context
                 self.completion_service.clear_session_context(context.kernel_session_id)
@@ -805,14 +823,16 @@ class IntegratedNotebookToolSet(ToolSet):
                     "action": "shutdown",
                     "notebook_path": notebook_path,
                     "kernel_session_id": context.kernel_session_id,
-                    "message": "Kernel shutdown, context preserved (can restart)"
+                    "message": "Kernel shutdown, context preserved (can restart)",
                 }
 
             elif action == "delete":
                 # Delete context completely (shutdown + remove from memory)
 
                 # 1. Shutdown kernel session
-                result = await self.kernel_toolset.shutdown_session(context.kernel_session_id)
+                result = await self.kernel_toolset.shutdown_session(
+                    context.kernel_session_id
+                )
 
                 # 2. Clear completion context
                 self.completion_service.clear_session_context(context.kernel_session_id)
@@ -833,7 +853,7 @@ class IntegratedNotebookToolSet(ToolSet):
                     "notebook_path": notebook_path,
                     "kernel_session_id": context.kernel_session_id,
                     "kernel_result": result,
-                    "message": "Context deleted (kernel shutdown + removed from memory)"
+                    "message": "Context deleted (kernel shutdown + removed from memory)",
                 }
 
             else:
@@ -848,10 +868,7 @@ class IntegratedNotebookToolSet(ToolSet):
     # ═══════════════════════════════════════════════════════════
 
     async def subscribe_notebook_events(
-        self,
-        notebook_path: str,
-        client_id: str,
-        callback=None
+        self, notebook_path: str, client_id: str, callback=None
     ) -> dict:
         """
         Subscribe to notebook real-time IOPub events (Backend use only, not exposed to agents)
@@ -888,31 +905,26 @@ class IntegratedNotebookToolSet(ToolSet):
             - Requires event_bus to be initialized
             - Client must unsubscribe when done
         """
-        session_id = self.get_current_session_id()
+        session_id = self.get_session_id()
         if not session_id:
             return {"success": False, "error": "No session_id provided"}
 
         # Get context
         context = self._get_context(notebook_path, session_id)
         if not context:
-            return {
-                "success": False,
-                "error": f"Notebook not opened: {notebook_path}"
-            }
+            return {"success": False, "error": f"Notebook not opened: {notebook_path}"}
 
         # Check event bus
         if not self.event_bus:
             return {
                 "success": False,
-                "error": "Event bus not initialized (no streaming support)"
+                "error": "Event bus not initialized (no streaming support)",
             }
 
         try:
             # Subscribe to kernel's IOPub channel
             result = await self.kernel_toolset.subscribe_iopub(
-                context.kernel_session_id,
-                client_id,
-                callback
+                context.kernel_session_id, client_id, callback
             )
 
             if result["success"]:
@@ -926,7 +938,7 @@ class IntegratedNotebookToolSet(ToolSet):
                 "notebook_path": notebook_path,
                 "kernel_session_id": context.kernel_session_id,
                 "client_id": client_id,
-                "subscription_info": result
+                "subscription_info": result,
             }
 
         except Exception as e:
@@ -934,9 +946,7 @@ class IntegratedNotebookToolSet(ToolSet):
             return {"success": False, "error": str(e)}
 
     async def unsubscribe_notebook_events(
-        self,
-        notebook_path: str,
-        client_id: str
+        self, notebook_path: str, client_id: str
     ) -> dict:
         """
         Unsubscribe from notebook IOPub events (Backend use only, not exposed to agents)
@@ -962,7 +972,7 @@ class IntegratedNotebookToolSet(ToolSet):
             - NOT a @tool (backend internal use only)
             - Safe to call even if subscription doesn't exist
         """
-        session_id = self.get_current_session_id()
+        session_id = self.get_session_id()
         if not session_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -976,21 +986,17 @@ class IntegratedNotebookToolSet(ToolSet):
             )
             return {
                 "success": False,
-                "error": f"Notebook context not found: {notebook_path}"
+                "error": f"Notebook context not found: {notebook_path}",
             }
 
         # Check event bus
         if not self.event_bus:
-            return {
-                "success": False,
-                "error": "Event bus not initialized"
-            }
+            return {"success": False, "error": "Event bus not initialized"}
 
         try:
             # Unsubscribe from kernel's IOPub channel
             result = await self.kernel_toolset.unsubscribe_iopub(
-                context.kernel_session_id,
-                client_id
+                context.kernel_session_id, client_id
             )
 
             if result["success"]:
@@ -1004,7 +1010,7 @@ class IntegratedNotebookToolSet(ToolSet):
                 "notebook_path": notebook_path,
                 "kernel_session_id": context.kernel_session_id,
                 "client_id": client_id,
-                "unsubscription_info": result
+                "unsubscription_info": result,
             }
 
         except Exception as e:
@@ -1017,10 +1023,7 @@ class IntegratedNotebookToolSet(ToolSet):
 
     @tool(exclude=True)
     async def complete_request(
-        self,
-        notebook_path: str,
-        code: str,
-        cursor_pos: int
+        self, notebook_path: str, code: str, cursor_pos: int
     ) -> dict:
         """
         Get code completion suggestions (Frontend only)
@@ -1036,11 +1039,13 @@ class IntegratedNotebookToolSet(ToolSet):
         Returns:
             dict with completion suggestions
         """
-        session_id = self.get_current_session_id()
+        session_id = self.get_session_id()
 
         try:
             # Get context if exists, use default otherwise
-            context = self._get_context(notebook_path, session_id) if session_id else None
+            context = (
+                self._get_context(notebook_path, session_id) if session_id else None
+            )
             effective_session_id = context.kernel_session_id if context else "default"
 
             return await self.completion_service.get_completions(
@@ -1056,10 +1061,7 @@ class IntegratedNotebookToolSet(ToolSet):
 
     @tool(exclude=True)
     async def inspect_request(
-        self,
-        notebook_path: str,
-        code: str,
-        cursor_pos: int
+        self, notebook_path: str, code: str, cursor_pos: int
     ) -> dict:
         """
         Get hover documentation/inspection (Frontend only)
@@ -1075,11 +1077,13 @@ class IntegratedNotebookToolSet(ToolSet):
         Returns:
             dict with inspection/documentation data
         """
-        session_id = self.get_current_session_id()
+        session_id = self.get_session_id()
 
         try:
             # Get context if exists, use default otherwise
-            context = self._get_context(notebook_path, session_id) if session_id else None
+            context = (
+                self._get_context(notebook_path, session_id) if session_id else None
+            )
             effective_session_id = context.kernel_session_id if context else "default"
 
             return await self.completion_service.get_inspection(
@@ -1099,9 +1103,7 @@ class IntegratedNotebookToolSet(ToolSet):
 
     @tool
     async def get_notebook_info(
-        self,
-        notebook_path: str,
-        include_variables: bool = False
+        self, notebook_path: str, include_variables: bool = False
     ) -> dict:
         """
         Get notebook information with execution status and output types (VSCode-enhanced)
@@ -1119,7 +1121,7 @@ class IntegratedNotebookToolSet(ToolSet):
         Returns:
             dict with notebook summary, cell info, and optional variables
         """
-        session_id = self.get_current_session_id()
+        session_id = self.get_session_id()
 
         read_result = await self.notebook_contents.read_notebook(notebook_path)
         if not read_result["success"]:
@@ -1198,14 +1200,20 @@ class IntegratedNotebookToolSet(ToolSet):
             "has_context": context is not None,
             "cell_count": len(cells_info),
             "cells": cells_info,
-            "kernel_status": self.kernel_toolset.sessions[context.kernel_session_id].status.value if context else None,
+            "kernel_status": self.kernel_toolset.sessions[
+                context.kernel_session_id
+            ].status.value
+            if context
+            else None,
             "kernel_session_id": context.kernel_session_id if context else None,
         }
 
         # Optionally include variables
         if include_variables and context:
             try:
-                vars_result = await self.kernel_toolset.get_variables(context.kernel_session_id)
+                vars_result = await self.kernel_toolset.get_variables(
+                    context.kernel_session_id
+                )
                 if vars_result.get("success"):
                     result["variables"] = vars_result.get("variables", [])
             except Exception as e:
@@ -1227,14 +1235,10 @@ class IntegratedNotebookToolSet(ToolSet):
         """
         # TODO: Implement logic to detect caller context
         # For now, default to 'user' (can be enhanced with context tracking)
-        return 'user'
+        return "user"
 
     async def _execute_and_update(
-        self,
-        kernel_session_id: str,
-        notebook_path: str,
-        cell_id: str,
-        code: str
+        self, kernel_session_id: str, notebook_path: str, cell_id: str, code: str
     ) -> dict:
         """Execute code and update notebook using cell_id"""
         try:
@@ -1243,13 +1247,16 @@ class IntegratedNotebookToolSet(ToolSet):
             execution_metadata = {
                 "cell_id": cell_id,
                 "notebook_path": notebook_path,
-                "operated_by": self._get_operator_context()
+                "operated_by": self._get_operator_context(),
             }
 
             # Execute with metadata
             exec_result = await self.kernel_toolset.execute_request(
-                code, kernel_session_id, silent=False, user_expressions={},
-                execution_metadata=execution_metadata
+                code,
+                kernel_session_id,
+                silent=False,
+                user_expressions={},
+                execution_metadata=execution_metadata,
             )
 
             # Update notebook with results
@@ -1258,8 +1265,7 @@ class IntegratedNotebookToolSet(ToolSet):
 
             # Remove frontend-specific 'id' field
             notebook_outputs = [
-                {k: v for k, v in output.items() if k != "id"}
-                for output in outputs
+                {k: v for k, v in output.items() if k != "id"} for output in outputs
             ]
 
             # Get timing metadata
@@ -1285,11 +1291,7 @@ class IntegratedNotebookToolSet(ToolSet):
 
         except Exception as e:
             logger.error(f"Execution failed: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "notebook_path": notebook_path
-            }
+            return {"success": False, "error": str(e), "notebook_path": notebook_path}
 
     async def cleanup(self):
         """Cleanup all resources"""
@@ -1307,7 +1309,9 @@ class IntegratedNotebookToolSet(ToolSet):
 
             if self.completion_service:
                 for (_, _), context in self.notebook_contexts.items():
-                    self.completion_service.clear_session_context(context.kernel_session_id)
+                    self.completion_service.clear_session_context(
+                        context.kernel_session_id
+                    )
 
             self.notebook_contexts.clear()
 

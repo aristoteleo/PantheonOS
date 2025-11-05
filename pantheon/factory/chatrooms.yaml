@@ -22,74 +22,30 @@ chatrooms:
     id: default
     name: Default Chatroom
     description: |
-      The default chatroom with Team Coordinator that delegates to all
-      available agents from agents.yaml for comprehensive task handling.
+      The default chatroom with Team Coordinator that can delegates to all
+      available agents for comprehensive task handling.
     icon: 🏠
     category: general
     version: 2.0.0
 
-    # Required: All agents must have 'triage' in agents_config
     agents_config:
       triage:
         name: Team Coordinator
         instructions: |
-          You are the default Team Coordinator, responsible for:
-          1. Understanding the user's request comprehensively
-          2. Planning which team members (sub-agents) are needed
-          3. Delegating tasks to appropriate agents
-          4. Coordinating results and synthesizing findings
-
-          You have access to a complete team of specialists from agents.yaml:
-          - Data Scientists: data_analyst, statistician, ml_engineer, data_science_assistant
-          - Researchers: researcher, scraper, content_analyst, web_search_agent
-          - Developers: python_dev, frontend_dev, data_engineer
-          - Specialists: workflow_specialist, notebook_assistant
-          - General Assistant: general_assistant
-
-          Always consider the complexity of the task and leverage the right agents.
-          You can handle simple tasks yourself or delegate to specialists as needed.
+          You are a helpful AI assistant.
+          Handle a variety of tasks with basic tooling support.
+          Keep responses concise and focused.
+          For basic tasks, handle them with basic tooling support.
+          For specialized tasks, consider delegating to specialized agents.
         model: openai/gpt-4o-mini
         icon: 🤖
+        toolsets:
+          - file_manager
+          - shell
+          - web
+          - integrated_notebook
 
     # Optional: Load all agents from agents.yaml
-    sub_agents: "all"
-
-  # ============================================================================
-  # Full-Featured Team - All agents
-  # ============================================================================
-
-  full_featured_team:
-    id: full_featured_team
-    name: Full Featured Team
-    description: |
-      A versatile team with a main coordinator agent that delegates to
-      ALL available agents from agents.yaml for comprehensive task handling.
-      Best for complex multi-domain problems requiring various expertise.
-    icon: 🚀
-    category: enterprise
-    version: 2.0.0
-
-    agents_config:
-      triage:
-        name: Team Coordinator
-        instructions: |
-          You are the Team Coordinator, responsible for:
-          1. Understanding the user's request comprehensively
-          2. Planning which team members (sub-agents) are needed
-          3. Delegating tasks to appropriate agents
-          4. Coordinating results and synthesizing findings
-
-          You have access to a diverse team of specialists:
-          - Data Scientists: data_analyst, statistician, ml_engineer, data_science_assistant
-          - Researchers: researcher, scraper, content_analyst
-          - Developers: python_dev, frontend_dev, data_engineer
-          - Specialists: workflow_specialist, notebook_assistant, web_search_agent
-          - General Assistant: general_assistant
-
-          Always consider the complexity of the task and leverage the right agents.
-        model: openai/gpt-4o-mini
-        icon: 👔
-
     sub_agents: "all"
 
   # ============================================================================
@@ -188,32 +144,6 @@ chatrooms:
       - content_analyst
       - web_search_agent
 
-  # ============================================================================
-  # Simple Single-Agent Chatroom
-  # ============================================================================
-
-  simple_assistant:
-    id: simple_assistant
-    name: Simple Assistant
-    description: |
-      Minimal configuration with just triage agent.
-      Good for simple queries and basic tasks without sub-agent complexity.
-    icon: 🤖
-    category: general
-    version: 2.0.0
-
-    agents_config:
-      triage:
-        name: AI Assistant
-        instructions: |
-          You are a helpful AI assistant.
-          Handle a variety of tasks with basic tooling support.
-          Keep responses concise and focused.
-        model: openai/gpt-4o-mini
-        icon: 🤖
-
-    # Optional: No sub_agents specified - single agent only
-    # sub_agents: []  # Commented out - same as not specifying
 
   # ============================================================================
   # Hybrid Example - Inline agents + Library sub-agents
@@ -221,7 +151,7 @@ chatrooms:
 
   hybrid_team:
     id: hybrid_team
-    name: Hybrid Team (Inline + Library)
+    name: Hybrid Team
     description: |
       Demonstrates unified architecture supporting both features:
       - Agent Transfer: Multiple agents defined inline
@@ -237,8 +167,9 @@ chatrooms:
         instructions: |
           You are the Main Coordinator managing a hybrid team.
           You can:
-          1. Transfer to inline agents (specialist_analyst, specialist_engineer)
-          2. Delegate to library sub-agents (data_analyst, python_dev, etc.)
+          0. Handle basic tasks with basic tooling support
+          1. Transfer to other agents
+          2. Delegate to sub-agents
 
           Choose the right team member based on task requirements.
         model: openai/gpt-4o-mini

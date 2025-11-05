@@ -227,7 +227,7 @@ class KnowledgeToolSet(ToolSet):
             }
 
             # Get chat_id from session context
-            chat_id = self.get_current_session_id()
+            chat_id = self.get_session_id()
             if chat_id:
                 chat_config = self._get_chat_config(chat_id)
                 result["active_for_chat"] = chat_config.active_collection_ids
@@ -328,9 +328,7 @@ class KnowledgeToolSet(ToolSet):
     # ============================================================================
 
     @tool(exclude=True)
-    async def add_sources(
-        self, collection_id: str, sources: list[dict] | dict
-    ) -> dict:
+    async def add_sources(self, collection_id: str, sources: list[dict] | dict) -> dict:
         """
         添加源到集合（支持单个或批量，后台异步处理）
 
@@ -517,7 +515,7 @@ class KnowledgeToolSet(ToolSet):
                 "collections": List[CollectionInfo]
             }
         """
-        chat_id = self.get_current_session_id()
+        chat_id = self.get_session_id()
         if not chat_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -555,7 +553,7 @@ class KnowledgeToolSet(ToolSet):
                 "config": ChatKnowledgeConfig
             }
         """
-        chat_id = self.get_current_session_id()
+        chat_id = self.get_session_id()
         if not chat_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -593,7 +591,7 @@ class KnowledgeToolSet(ToolSet):
                 "config": ChatKnowledgeConfig
             }
         """
-        chat_id = self.get_current_session_id()
+        chat_id = self.get_session_id()
         if not chat_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -627,7 +625,7 @@ class KnowledgeToolSet(ToolSet):
                 "config": ChatKnowledgeConfig
             }
         """
-        chat_id = self.get_current_session_id()
+        chat_id = self.get_session_id()
         if not chat_id:
             return {"success": False, "error": "No session_id provided"}
 
@@ -680,7 +678,7 @@ class KnowledgeToolSet(ToolSet):
                 target_collections = collection_ids
             else:
                 # Get chat_id from session context
-                chat_id = self.get_current_session_id()
+                chat_id = self.get_session_id()
                 if chat_id:
                     config = self._get_chat_config(chat_id)
                     target_collections = config.active_collection_ids
@@ -876,10 +874,7 @@ class KnowledgeToolSet(ToolSet):
         """构建 Qdrant 原生混合索引（Dense + Sparse Vectors）- 在线程池中运行"""
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
-            None,
-            self._vector_store.build_index_sync,
-            collection_id,
-            nodes
+            None, self._vector_store.build_index_sync, collection_id, nodes
         )
         if not result["success"]:
             raise Exception(result.get("error", "Failed to build index"))

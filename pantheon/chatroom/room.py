@@ -316,7 +316,7 @@ class ChatRoom(ToolSet):
         if chat_id:
             # Add built-in toolsets and MCP servers to all agent configs
             self.template_manager.add_default_services_to_configs(all_agents_config)
-
+        logger.info(f"Inline agents config: {inline_agents_config}")
         # ===== STEP 3: Compute and ensure all required services =====
         # Collect all toolsets and mcp servers from all agents (one loop)
         required_toolsets = set()
@@ -337,13 +337,13 @@ class ChatRoom(ToolSet):
         # ===== STEP 4: Create agents =====
         # Create inline agents (triage is first, ensured by dict order)
         inline_agents = await create_agents_from_template(
-            endpoint_service, inline_agents_config, chat_id
+            endpoint_service, inline_agents_config
         )
         logger.info(f"Created {len(inline_agents)} inline agents")
 
         # Create sub-agents (empty dict produces empty list)
         sub_agents_list = await create_agents_from_template(
-            endpoint_service, sub_agents_config, chat_id
+            endpoint_service, sub_agents_config
         )
 
         logger.info(f"Created {len(sub_agents_list)} sub-agents")
@@ -541,11 +541,11 @@ class ChatRoom(ToolSet):
                 "not_loaded_toolsets": not_loaded_toolsets,
             }
 
-        logger.info(f"get agents {chat_id}")
+        logger.debug(f"get agents {chat_id}")
 
         # chat_id must be provided - this is a per-chat operation
         if not chat_id:
-            logger.warning(
+            logger.debug(
                 "get_agents called without chat_id - returning empty mock data"
             )
             return {
@@ -829,6 +829,10 @@ class ChatRoom(ToolSet):
             )
 
         async def nats_step_processor(step_message: dict):
+            role = step_message.get("role", None)
+            # Fix front end duplicate user message
+            if role == "user":
+                return
             await self._publish_stream(
                 chat_id,
                 "step",
@@ -998,7 +1002,7 @@ class ChatRoom(ToolSet):
                 )
                 await run_func(self.memory_manager.save)
 
-            logger.info(f"Generated {len(suggestions)} suggestions for chat {chat_id}")
+            logger.debug(f"Generated {len(suggestions)} suggestions for chat {chat_id}")
 
             return {
                 "success": True,

@@ -1,6 +1,6 @@
 import inspect
-import sys
 import json
+import sys
 from abc import ABC
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
@@ -10,15 +10,76 @@ from typing import Callable, Optional
 from executor.engine import Engine, ProcessJob
 from funcdesc import parse_func
 
-from .remote import RemoteBackendFactory
 import pantheon.utils.log as log
 from pantheon.utils.log import logger
+
+from .remote import RemoteBackendFactory
 from .utils.misc import run_func
 
-# Global context variable for session_id
-current_session_id: ContextVar[Optional[str]] = ContextVar(
-    "current_session_id", default=None
+
+class ExecutionContext(dict):
+    """
+    Execution context dict for tools.
+
+    Stores metadata like client_id, session_id, and agent_name.
+    Both session_id and client_id are stored as explicit keys for compatibility.
+
+    Automatically created and set to contextvars in the @tool decorator.
+    """
+
+    async def call_agent(
+        self,
+        messages: list,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> str:
+        """
+        Call the LLM agent during tool execution for intermediate sampling.
+        """
+
+        if not self.get("_call_agent"):
+            logger.warning(f"No call_agent callback available in context: {self}")
+            raise RuntimeError("No call_agent callback available in context")
+
+        try:
+            # Call the agent callback with the sampling request
+            result = await self["_call_agent"](
+                messages=messages,
+                system_prompt=system_prompt,
+                model=model,
+            )
+
+            if isinstance(result, str):
+                return result
+            elif isinstance(result, dict):
+                return result.get("response") or result.get("text") or str(result)
+            else:
+                return str(result)
+
+        except Exception as e:
+            logger.error(f"Error calling agent:{e}")
+            raise
+
+
+# Global ContextVar for implicit access to context_variables within tools
+_current_context_variables: ContextVar[Optional[ExecutionContext]] = ContextVar(
+    "_current_context_variables", default=ExecutionContext()
 )
+
+
+def get_current_context_variables() -> Optional[ExecutionContext]:
+    """Get the current context_variables."""
+    return _current_context_variables.get()
+
+
+def set_current_context_variables(context: ExecutionContext) -> object:
+    """Set current context_variables, returns token for later reset"""
+    return _current_context_variables.set(context)
+
+
+def reset_current_context_variables(token: object) -> None:
+    """Reset context_variables to previous state"""
+    _current_context_variables.reset(token)
 
 
 def parse_tool_desc(func: Callable) -> dict:
@@ -28,7 +89,7 @@ def parse_tool_desc(func: Callable) -> dict:
     tool_dict["inputs"] = [
         inp
         for inp in tool_dict.get("inputs", [])
-        if inp.get("name") not in ("self", "session_id")
+        if inp.get("name") not in ("self", "session_id", "context_variables")
     ]
 
     return tool_dict
@@ -36,16 +97,18 @@ def parse_tool_desc(func: Callable) -> dict:
 
 def tool(func: Callable | None = None, *, exclude: bool = False, **kwargs):
     """
-    Mark tool in a ToolSet class with automatic session_id injection
+    Mark tool in a ToolSet class with automatic context_variables and session_id injection.
 
     The decorator automatically:
-    1. Adds a 'session_id' parameter as the last argument
-    2. Extracts session_id from kwargs before calling the function
+    1. Extracts context_variables from kwargs (passed by Agent)
+    2. Converts it to ExecutionContext instance (dict subclass for compatibility)
     3. Injects it into contextvars for the function's execution
-    4. Cleans up the context after execution
+    4. Removes context_variables from kwargs if function doesn't declare it as parameter
+    5. Cleans up the context after execution
 
-    This allows tools to access session_id via self.get_current_session_id()
-    without declaring it as a parameter.
+    This allows tools to access context via multiple methods:
+    - Explicit parameter: def tool_func(self, arg, context_variables/ctx/context): ...
+    - Implicit access: self.get_context_variables() or get_current_context_variables()
 
     Args:
         exclude: bool
@@ -54,43 +117,61 @@ def tool(func: Callable | None = None, *, exclude: bool = False, **kwargs):
             Default False
         **kwargs: Additional parameters for tool execution
 
-    Example:
+    Example (explicit parameter):
         @tool
-        async def execute_cell(self, notebook_path: str, code: str):
-            # No need to declare session_id parameter
-            session_id = self.get_current_session_id()
-            # session_id is automatically available via context
-            ...
+        async def my_tool(self, code: str, context_variables/ctx/context: ExecutionContext):
+            session_id = context_variables['session_id']
+            session_id = context_variables.session_id  # attribute access
 
-        # Usage (session_id automatically injected):
-        await toolset.execute_cell(
-            notebook_path="test.ipynb",
-            code="x = 1",
-            session_id="chat-123"  # <- automatically injected into context
-        )
+        # Example (implicit access):
+        @tool
+        async def my_tool(self, code: str):
+            ctx = self.get_context_variables()
+            session_id = ctx.get('session_id')
     """
     if func is None:
         return partial(tool, exclude=exclude, **kwargs)
 
+    # Check function signature for context parameter names
+    sig = inspect.signature(func)
+    params = sig.parameters
+
+    # Support multiple parameter names for context: context_variables, ctx, or context
+    context_param_name = None
+    if "context_variables" in params:
+        context_param_name = "context_variables"
+    elif "ctx" in params:
+        context_param_name = "ctx"
+    elif "context" in params:
+        context_param_name = "context"
+
     # Unified wrapper for both sync and async functions
     @wraps(func)
     async def wrapper(*args, **func_kwargs):
-        # Extract session_id from kwargs (not passed to original function)
+        # 1. Extract context_variables from kwargs
+        context_variables = func_kwargs.pop("context_variables", {})
+        # backward compatibility: session_id is now an alias for client_id
         session_id = func_kwargs.pop("session_id", None)
+        if session_id:
+            context_variables["client_id"] = session_id
+        # 2. Convert to ExecutionContext (dict subclass for compatibility)
 
-        # Set session_id to contextvars
-        token = None
-        if session_id is not None:
-            token = current_session_id.set(session_id)
+        context_variables = ExecutionContext(context_variables)
+
+        # 3. If function declares a context parameter, re-inject it with appropriate name
+        if context_param_name is not None:
+            func_kwargs[context_param_name] = context_variables
+
+        # 4. Set to contextvars for implicit access
+        token = set_current_context_variables(context_variables)
 
         try:
             # Call original function (handles both sync and async via run_func)
             result = await run_func(func, *args, **func_kwargs)
             return result
         finally:
-            # Clean up context
-            if token is not None:
-                current_session_id.reset(token)
+            # 5. Clean up contextvars
+            reset_current_context_variables(token)
 
     # Mark as tool and keep reference to original function
     wrapper._is_tool = True
@@ -149,14 +230,21 @@ class ToolSet(ABC):
     def service_id(self):
         return self.worker.service_id if self.worker else None
 
-    def get_current_session_id(self) -> Optional[str]:
+    def get_session_id(self) -> Optional[str]:
         """
         Get current session ID from context (similar to getting HTTP header in MCP)
 
         Returns:
             Session ID if set in current context, None otherwise
         """
-        return current_session_id.get()
+        ctx = get_current_context_variables()
+        if ctx:
+            return ctx.get("client_id")
+        return None
+
+    def get_context(self) -> Optional[ExecutionContext]:
+        """Get current execution context"""
+        return get_current_context_variables()
 
     async def run_setup(self):
         """Setup the toolset before running it. Can be overridden by subclasses."""

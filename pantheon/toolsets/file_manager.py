@@ -216,42 +216,60 @@ class FileManagerToolSet(FileManagerToolSetBase):
         return {"success": True}
 
     @tool
-    async def observe_images(self, question: str, image_paths: list[str]) -> str:
+    async def observe_images(self, question: str, image_paths: list[str]) -> dict:
         """Observe images and answer a question about them.
 
         Args:
             question: The question to answer.
             image_paths: The paths to the images to view."""
-        query_msg = {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": question,
-                },
-            ],
-        }
-        images_base64_uri = []
+        context = self.get_context()
+        if context is None:
+            return {"success": False, "error": "ExecutionContext not available"}
+
+        # Build messages with question
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": question,
+                    },
+                ],
+            }
+        ]
+
+        # Add images to the message
         for img_path in image_paths:
             ipath = self.path / img_path
-            base64_uri = path_to_image_url(ipath)
-            images_base64_uri.append(base64_uri)
-            query_msg["content"].append(
+
+            # Validate image path
+            if not ipath.exists():
+                return {
+                    "success": False,
+                    "error": f"Image file does not exist: {img_path}",
+                }
+            if not ipath.is_file():
+                return {"success": False, "error": f"Path is not a file: {img_path}"}
+
+            # Convert image to base64 URI and add to message
+            base64_uri = path_to_image_url(str(ipath))
+            messages[0]["content"].append(
                 {
                     "type": "image_url",
                     "image_url": {"url": base64_uri},
                 }
             )
-        res = {
-            "success": True,
-            "inner_call": {
-                "name": "__agent_run__",
-                "args": [query_msg],
-                "result_field": "content",
-            },
-            "hidden_to_model": ["base64_uri", "inner_call_args"],
-        }
-        return res
+
+        # Call LLM to analyze images
+        try:
+            response = await context.call_agent(messages=messages)
+            return {"success": True, "content": response}
+        except Exception as e:
+            logger.error(
+                f"Error calling agent for image observation: {e}", exc_info=True
+            )
+            return {"success": False, "error": str(e)}
 
     @tool
     async def read_pdf(self, pdf_path: str) -> dict:
@@ -345,8 +363,9 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 "error": f"Unexpected error reading PDF: {str(e)}",
             }
 
+    @tool(exclude=True)
     async def fetch_image_base64(self, image_path: str) -> dict:
-        """Fetch an image and return the base64 encoded image.
+        """Fetch an image and return the base64 encoded image. for frontend display
 
         Args:
             image_path: Path to the image file (relative to workspace)

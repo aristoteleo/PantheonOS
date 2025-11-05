@@ -105,7 +105,7 @@ class AttachmentProcessingPipeline:
 
         # Log completion summary
         if all_attachments:
-            logger.info(
+            logger.debug(
                 f"📎 [Attachment Detection] Completed: {len(all_attachments)} attachments detected"
             )
 

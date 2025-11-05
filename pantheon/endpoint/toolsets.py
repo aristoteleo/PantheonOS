@@ -522,7 +522,14 @@ class ToolSetManager:
         )
 
         try:
-            return getattr(toolsets, class_name)
+            cls = getattr(toolsets, class_name, None)
+            if not cls:
+                import importlib
+
+                # try to load from module not exposed in toolsets.__init__.py
+                module = importlib.import_module(f"pantheon.toolsets.{service_type}")
+                cls = getattr(module, class_name)
+            return cls
         except AttributeError:
             available_classes = [
                 name
