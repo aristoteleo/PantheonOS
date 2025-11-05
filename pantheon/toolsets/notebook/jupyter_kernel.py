@@ -118,7 +118,7 @@ class RemoteIOPubEventBus(IOPubEventBus):
             # Encode session_id to avoid NATS subject special characters (. : * >)
             # NATS treats . as token separator in subjects, so "chat:analysis.ipynb"
             # would be parsed incorrectly. URL encoding ensures proper handling.
-            safe_session_id = urllib.parse.quote(session_id, safe='')
+            safe_session_id = urllib.parse.quote(session_id, safe="")
             stream_id = f"notebook_iopub_{safe_session_id}"
 
             # Get or create stream channel
@@ -708,7 +708,7 @@ class JupyterKernelToolSet(ToolSet):
                     if shell_timestamp:
                         execution_timing["shell.execute_reply"] = shell_timestamp
 
-            logger.info(
+            logger.debug(
                 f"Collected {len(iopub_messages)} IOPub messages and timing info for execution"
             )
             for i, msg in enumerate(iopub_messages):

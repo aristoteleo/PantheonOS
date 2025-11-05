@@ -345,6 +345,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 "error": f"Unexpected error reading PDF: {str(e)}",
             }
 
+    @tool
     async def fetch_image_base64(self, image_path: str) -> dict:
         """Fetch an image and return the base64 encoded image.
 

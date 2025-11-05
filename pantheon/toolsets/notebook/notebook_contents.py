@@ -204,7 +204,7 @@ class NotebookContentsToolSet(ToolSet):
                      Set False for faster reads when validation is not needed
                      (e.g., periodic polling of trusted content)
         """
-        logger.info(f"Reading notebook: {path} (validate={validate})")
+        logger.debug(f"Reading notebook: {path} (validate={validate})")
 
         # Load with optional validation
         success, error_msg, resolved_path, notebook = self._load_and_validate_notebook(
@@ -766,7 +766,9 @@ class NotebookContentsToolSet(ToolSet):
                 "mtime": mtime,
                 "size": size,
                 "version": version,
-                "cell_count": len(notebook.get("cells", [])) if isinstance(notebook, dict) else len(getattr(notebook, "cells", [])),
+                "cell_count": len(notebook.get("cells", []))
+                if isinstance(notebook, dict)
+                else len(getattr(notebook, "cells", [])),
             }
 
         except ValidationError as e:

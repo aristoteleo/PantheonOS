@@ -28,7 +28,6 @@ builtin_services:
   - file_manager          # File operations (read, write, list, delete, etc.)
 
   # === Tier 2: Common Development Tools ===
-  - code_search           # Code search (glob, grep, semantic search)
   # - file_editor           # Advanced file editing (Claude Code-like)
   - web                   # Web search and fetch (using DDGS)
   - python_interpreter    # Python code execution
@@ -36,7 +35,7 @@ builtin_services:
   - knowledge
   # === Tier 3: Advanced Tools (Add as needed) ===
   - integrated_notebook   # Integrated notebook with file ops
-  - jupyter_kernel        # Standard Jupyter kernel
+  # - jupyter_kernel        # Standard Jupyter kernel
 
   # === Additional Available Services (Commented - enable as needed) ===
   # Interpreters:

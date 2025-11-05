@@ -521,7 +521,6 @@ templates:
         icon: 📓
         toolsets:
         - integrated_notebook
-        - jupyter_kernel
         - file_manager
       data_science_assistant:
         name: Data Science Assistant
@@ -574,7 +573,6 @@ templates:
         icon: 🔬
         toolsets:
         - integrated_notebook
-        - jupyter_kernel
         - file_manager
     tags:
     - notebook

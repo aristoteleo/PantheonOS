@@ -310,11 +310,9 @@ class ToolSetProvider(ToolProvider):
     def __init__(
         self,
         toolset_proxy: ToolsetProxy,
-        chat_id: Optional[str] = None,
     ):
         """Initialize ToolSetProvider"""
         self.toolset_proxy = toolset_proxy
-        self.chat_id = chat_id
         self._tools_cache: Optional[list[ToolInfo]] = None
         self._tool_descriptions: dict[
             str, dict
@@ -336,7 +334,6 @@ class ToolSetProvider(ToolProvider):
                 if isinstance(tool, dict):
                     self._tool_descriptions[tool.get("name", "")] = tool
 
-            logger.debug(f"ToolSetProvider initialized with chat_id={self.chat_id}")
         except Exception as e:
             logger.error(f"Failed to initialize ToolSetProvider: {e}")
             # Don't fail initialization, continue anyway
@@ -399,27 +396,18 @@ class ToolSetProvider(ToolProvider):
     async def call_tool(self, name: str, args: dict) -> Any:
         """Call a tool on the ToolSet"""
         try:
-            logger.debug(f"Calling ToolSet tool '{name}' with chat_id={self.chat_id}")
+            logger.debug(f"Calling ToolSet tool '{name}'")
 
-            # 1. Auto-inject session_id from chat_id (session isolation)
-            # This enables per-chat data isolation in the remote toolset
-            if self.chat_id is not None and "session_id" not in args:
-                args = args.copy()  # Don't mutate original
-                args["session_id"] = self.chat_id
-                logger.debug(f"Auto-injected session_id={self.chat_id} for tool {name}")
-
-            # 2. Parameter filtering (extract remote parameters)
+            # Parameter filtering (extract remote parameters)
             # Only pass parameters that the remote tool expects
             tool_desc = self._tool_descriptions.get(name, {})
             param_names = [inp.get("name") for inp in tool_desc.get("inputs", [])]
 
             remote_params = {
-                k: v
-                for k, v in args.items()
-                if k in param_names or k == "session_id" or k in _SKIP_PARAMS
+                k: v for k, v in args.items() if k in param_names or k in _SKIP_PARAMS
             }
 
-            # 3. Call remote tool via proxy and return raw result
+            # Call remote tool via proxy and return raw result
             result = await self.toolset_proxy.invoke(name, remote_params)
 
             # Return raw result directly without any format transformation

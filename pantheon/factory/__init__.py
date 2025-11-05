@@ -21,7 +21,6 @@ async def create_agent(
     toolsets: list[str] = [],
     mcp_servers: list[str] = [],
     toolful: bool = False,
-    chat_id=None,
     description: str | None = None,
     **kwargs,
 ) -> Agent:
@@ -36,7 +35,6 @@ async def create_agent(
         toolsets: List of toolset names to add to the agent.
         mcp_servers: List of MCP server names to add to the agent.
         toolful: Whether the agent is toolful.
-        chat_id: Optional chat ID for per-chat session isolation.
         description: Optional description of the agent's purpose and capabilities.
     """
     agent = Agent(
@@ -57,12 +55,7 @@ async def create_agent(
             # Create ToolsetProxy
             proxy = ToolsetProxy.from_endpoint(endpoint_service, toolset_name)
 
-            # Create ToolSetProvider with chat_id for session isolation
-            # chat_id enables per-chat data isolation in remote toolsets
-            toolset_provider = ToolSetProvider(
-                proxy,
-                chat_id=chat_id,
-            )
+            toolset_provider = ToolSetProvider(proxy)
             await toolset_provider.initialize()
 
             # Add provider to agent
@@ -137,14 +130,12 @@ async def create_agent(
     return agent
 
 
-async def create_agents_from_template(
-    endpoint_service, agent_configs: dict, chat_id=None
-) -> list:
+async def create_agents_from_template(endpoint_service, agent_configs: dict) -> list:
     """Create agents from agent configs."""
     agents = []
 
     for agent_config in agent_configs.values():
-        agent = await create_agent(endpoint_service, **agent_config, chat_id=chat_id)
+        agent = await create_agent(endpoint_service, **agent_config)
         agents.append(agent)
 
     return agents

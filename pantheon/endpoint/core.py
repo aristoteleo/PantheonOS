@@ -227,7 +227,7 @@ class Endpoint(FileTransferToolSet):
 
             # Call endpoint method directly
             if not toolset_name:
-                logger.info(f"Calling endpoint method: {method_name}")
+                logger.debug(f"Calling endpoint method: {method_name}")
                 method = self._get_tool_method(self, method_name, "endpoint")
                 return await method(**args)
 
@@ -305,7 +305,10 @@ class Endpoint(FileTransferToolSet):
             elif action == "remove":
                 # Only support remove for MCP services
                 if not names:
-                    return {"success": False, "error": "name required for 'remove' action"}
+                    return {
+                        "success": False,
+                        "error": "name required for 'remove' action",
+                    }
                 # Remove one at a time (support batch)
                 results = {"success": True, "removed": [], "errors": []}
                 for service_name in names:
@@ -321,7 +324,10 @@ class Endpoint(FileTransferToolSet):
             elif action == "update":
                 # Only support update for MCP services
                 if not names:
-                    return {"success": False, "error": "name required for 'update' action"}
+                    return {
+                        "success": False,
+                        "error": "name required for 'update' action",
+                    }
                 return await self.mcp_manager.update_config(names[0], config)
             elif action == "start":
                 if not names:

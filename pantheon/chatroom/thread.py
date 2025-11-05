@@ -1,15 +1,11 @@
-from typing import Callable, List, Dict, Any, Optional
+from typing import Callable
 import uuid
 import asyncio
-from datetime import datetime
 
 from ..team import Team
 from ..memory import Memory
 from ..utils.misc import run_func
 from ..utils.log import logger
-from ..factory import create_agents_from_template
-from ..factory.template_manager import get_template_manager, ChatroomTemplate
-# Suggestions now handled in room.py
 
 
 class Thread:
@@ -127,7 +123,6 @@ class Thread:
             if not isinstance(self.team, Team):
                 team = await run_func(self.team)
 
-
             resp = await team.run(
                 self.message,
                 memory=self.memory,
@@ -140,7 +135,6 @@ class Thread:
                 "response": resp.content,
                 "chat_id": self.memory.id,
             }
-
 
             # Suggestions are now handled in room.py
         except Exception as e:
