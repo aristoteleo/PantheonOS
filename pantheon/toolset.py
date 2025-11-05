@@ -27,7 +27,38 @@ class ExecutionContext(dict):
     Automatically created and set to contextvars in the @tool decorator.
     """
 
-    pass
+    async def call_agent(
+        self,
+        messages: list,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> str:
+        """
+        Call the LLM agent during tool execution for intermediate sampling.
+        """
+
+        if not self.get("_call_agent"):
+            logger.warning(f"No call_agent callback available in context: {self}")
+            raise RuntimeError("No call_agent callback available in context")
+
+        try:
+            # Call the agent callback with the sampling request
+            result = await self["_call_agent"](
+                messages=messages,
+                system_prompt=system_prompt,
+                model=model,
+            )
+
+            if isinstance(result, str):
+                return result
+            elif isinstance(result, dict):
+                return result.get("response") or result.get("text") or str(result)
+            else:
+                return str(result)
+
+        except Exception as e:
+            logger.error(f"Error calling agent:{e}")
+            raise
 
 
 # Global ContextVar for implicit access to context_variables within tools

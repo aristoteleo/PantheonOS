@@ -20,7 +20,7 @@ from .utils.log import logger
 
 # Constants for special parameters
 _CTX_VARS_NAME = "context_variables"
-_SKIP_PARAMS = [_CTX_VARS_NAME]
+_SKIP_PARAMS = [_CTX_VARS_NAME, "_call_agent"]
 
 
 class MCPProvider(ToolProvider):

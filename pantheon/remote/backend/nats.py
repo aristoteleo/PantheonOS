@@ -629,6 +629,7 @@ class ReverseCallable:
             "name": self.name,
             "parameters": params,
         }
+        logger.info(f"[ReverseCall]Invoking reverse callable {self.name}")
         try:
             resp = await self.nc.request(
                 self.invoke_id,
@@ -682,6 +683,9 @@ class ReverseCallHelper:
 
         for k, v in parameters.items():
             if callable(v):
+                logger.info(
+                    f"[ReverseCall]Detected reverse callable parameter: {k} (type: {type(v)})"
+                )
                 # Store the original callable
                 reverse_callables[k] = v
                 # Replace with metadata for the worker

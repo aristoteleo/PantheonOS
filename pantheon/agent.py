@@ -331,6 +331,8 @@ class Agent:
         self.name = name
         self.instructions = instructions
         self.description = description
+        if not model:
+            model = DEFAULT_MODEL
         if isinstance(model, str):
             self.models = [model]
             if model != DEFAULT_MODEL:
@@ -545,7 +547,7 @@ class Agent:
                         }
                     )
 
-                logger.info(
+                logger.debug(
                     f"Agent '{self.name}': Added {len(tools)} tools from provider '{provider_name}'"
                 )
 
@@ -639,7 +641,8 @@ class Agent:
             for k in list(full_context_variables.keys()):
                 if k.startswith("call_"):
                     del full_context_variables[k]
-
+            # add _call_agent callback
+            full_context_variables["_call_agent"] = _call_agent
             # Merge with any existing context_variables in args
             if _CTX_VARS_NAME in args:
                 existing = args[_CTX_VARS_NAME]
@@ -967,6 +970,8 @@ class Agent:
                 models = [model] + self.models
             else:
                 models = model + self.models
+        if not models:
+            raise RuntimeError(f"No model is available. models: {models}")
         for model in models:
             if error_count > 0:
                 logger.warning(
@@ -1529,3 +1534,36 @@ def filter_inline_messages(messages: list[dict]) -> list[dict]:
             inline_messages.append(msg)
 
     return inline_messages
+
+
+async def _call_agent(
+    messages: list,
+    system_prompt: Optional[str],
+    model: Optional[str] = None,
+    agent_name: str = "sampler",
+) -> dict:
+    """call agent callback to let toolset use llm agent to sample response"""
+    # not tested with remote mode, should work naturally with reverse call support
+    try:
+        # Create temporary Agent
+        agent = Agent(
+            name=agent_name,
+            model=model,
+            instructions=system_prompt or "You are a helpful assistant.",
+        )
+
+        # Run Agent with the user query
+        result = await agent.run(messages, use_memory=False, update_memory=False)
+
+        return {
+            "success": True,
+            "response": result.content,
+        }
+
+    except Exception as e:
+        # log stack trace
+        logger.info(f"Error in agent sampling: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e),
+        }
