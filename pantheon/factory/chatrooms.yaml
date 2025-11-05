@@ -37,7 +37,7 @@ chatrooms:
           Keep responses concise and focused.
           For basic tasks, handle them with basic tooling support.
           For specialized tasks, consider delegating to specialized agents.
-        model: openai/gpt-4o-mini
+        model: openai/gpt-5-mini
         icon: 🤖
         toolsets:
           - file_manager
@@ -74,7 +74,7 @@ chatrooms:
           - Data Scientist Assistant: Notebook-based interactive analysis
 
           Lead the team through data analysis projects step by step.
-        model: openai/gpt-4o-mini
+        model: openai/gpt-5-mini
         icon: 👨‍💼
 
     sub_agents:
@@ -105,7 +105,7 @@ chatrooms:
           - Data Engineer: Pipelines, ETL, infrastructure
 
           Coordinate technical tasks and ensure code quality.
-        model: openai/gpt-4o-mini
+        model: openai/gpt-5-mini
         icon: 👔
 
     sub_agents:
@@ -135,7 +135,7 @@ chatrooms:
           - Content Analyst: Analyzing and summarizing content
 
           Lead research initiatives and ensure information quality.
-        model: openai/gpt-4o-mini
+        model: openai/gpt-5-mini
         icon: 📚
 
     sub_agents:
@@ -172,7 +172,7 @@ chatrooms:
           2. Delegate to sub-agents
 
           Choose the right team member based on task requirements.
-        model: openai/gpt-4o-mini
+        model: openai/gpt-5-mini
         icon: 🎯
 
       # Inline specialist agents (for transfer)
@@ -180,7 +180,7 @@ chatrooms:
         name: Specialist Analyst
         instructions: |
           You are a specialist analyst focused on detailed analysis.
-        model: openai/gpt-4o-mini
+        model: openai/gpt-5-mini
         icon: 📊
         toolsets:
           - python_interpreter
@@ -190,7 +190,7 @@ chatrooms:
         name: Specialist Engineer
         instructions: |
           You are a specialist engineer focused on implementation.
-        model: openai/gpt-4o-mini
+        model: openai/gpt-5-mini
         icon: 🔧
         toolsets:
           - python_interpreter

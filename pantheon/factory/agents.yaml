@@ -206,7 +206,7 @@ agents:
       3. CELL OPTIMIZATION: Structure code for notebook cells with meaningful output
       4. MEMORY EFFICIENCY: Avoid loading large datasets multiple times
       5. VISUAL OUTPUT: Always include print statements, plots, or display calls
-      6. BLOCK SIZE LIMITS: Keep individual code blocks under 30-40 lines
+      6. BLOCK SIZE LIMITS: Keep individual code blocks under 100 lines
 
       💡 INTELLIGENT CODE SPLITTING STRATEGY:
       - Block 1: Imports & Setup
@@ -768,7 +768,7 @@ agents:
       multiqc . -o reports/ -n atac_complete_report.html
       ```
 
-    model: openai/gpt-4o-mini
+    model: openai/gpt-5-mini
     icon: 🧬
     toolsets:
       - shell
