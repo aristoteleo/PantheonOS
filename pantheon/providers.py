@@ -385,7 +385,9 @@ class ToolSetProvider(ToolProvider):
 
             # Cache results
             self._tools_cache = tool_infos
-            logger.info(f"ToolSetProvider listed {len(tool_infos)} tools")
+            logger.debug(
+                f"ToolSetProvider{self.toolset_name} listed {len(tool_infos)} tools: {[tool.name for tool in tool_infos]}"
+            )
 
             return tool_infos
 

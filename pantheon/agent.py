@@ -519,7 +519,7 @@ class Agent:
 
         # 2. Get tools from providers (dynamic retrieval - uses provider caching)
         # Providers return ToolInfo with pre-generated inputSchema (the "function" part)
-        logger.info(f"get tools for llm: {self.providers} ")
+        logger.debug(f"get tools for llm: {self.providers} ")
         provider_tools = []
         for provider_name, provider in self.providers.items():
             try:
@@ -655,7 +655,9 @@ class Agent:
             else:
                 args[_CTX_VARS_NAME] = full_context_variables
 
-        logger.info(f"Calling tool {prefixed_name}({args})")
+        # print shrinked args
+        short_args = f"{args}"[:100]
+        logger.info(f"Calling tool {prefixed_name} | {short_args}")
         # 1. Try Agent's own _base_functions first (no prefix required)
         if prefixed_name in self._base_functions:
             func = self._base_functions[prefixed_name]
@@ -890,13 +892,6 @@ class Agent:
                                     "additionalProperties", None
                                 )
 
-            tool_count = len(tools) if tools else 0
-            logger.info(
-                f"⚙️  [Agent:{self.name}] Tool conversion: "
-                f"{tracker.timings['tools_conversion']:.3f}s for {tool_count} tools "
-                f"(base + providers)"
-            )
-
         # Step 5: Create message ID and enhanced chunk processor
         message_id = str(uuid4())
         enhanced_process_chunk = create_enhanced_process_chunk(
@@ -907,16 +902,8 @@ class Agent:
         if enhanced_process_chunk:
             async with tracker.measure("begin_chunk"):
                 await enhanced_process_chunk({"begin": True})
-            logger.info(
-                f"📤 [Agent:{self.name}] Begin chunk sent: "
-                f"{tracker.timings['begin_chunk']:.3f}s"
-            )
 
         # Step 7: Call LLM provider (unified interface)
-        logger.info(
-            f"🤖 [Agent:{self.name}] Calling {provider_config.provider_type.value} API "
-            f"(model: {provider_config.model_name})"
-        )
 
         async with tracker.measure("llm_api"):
             message = await call_llm_provider(
@@ -940,15 +927,12 @@ class Agent:
         # Step 9: Log timing breakdown
         timings = tracker.get_all()
         logger.info(
-            f"⏱️  [Agent:{self.name}] LLM response received: {timings['llm_api']:.3f}s"
-        )
-        logger.info(
-            f"📊 [Agent:{self.name}] Request breakdown - "
+            f"📊 [Agent:{self.name}] - "
             f"Total: {total_time:.3f}s | "
             f"Message: {timings.get('message_processing', 0):.3f}s | "
-            f"Tools: {timings.get('tools_conversion', 0):.3f}s | "
             f"Begin: {timings.get('begin_chunk', 0):.3f}s | "
-            f"LLM: {timings['llm_api']:.3f}s"
+            f"LLM: {timings['llm_api']:.3f}s |"
+            f"Tool: {timings.get('tools_conversion', 0):.3f}s for {len(tools or [])} tools"
         )
 
         return message

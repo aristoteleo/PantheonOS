@@ -263,7 +263,7 @@ Rules:
                     response.content if response else ""
                 )
 
-                logger.info(
+                logger.debug(
                     f"🔮 Generated {len(suggestions)} suggestions using centralized agent"
                 )
                 return suggestions

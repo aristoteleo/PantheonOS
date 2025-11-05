@@ -316,7 +316,7 @@ class ChatRoom(ToolSet):
         if chat_id:
             # Add built-in toolsets and MCP servers to all agent configs
             self.template_manager.add_default_services_to_configs(all_agents_config)
-
+        logger.info(f"Inline agents config: {inline_agents_config}")
         # ===== STEP 3: Compute and ensure all required services =====
         # Collect all toolsets and mcp servers from all agents (one loop)
         required_toolsets = set()
@@ -1002,7 +1002,7 @@ class ChatRoom(ToolSet):
                 )
                 await run_func(self.memory_manager.save)
 
-            logger.info(f"Generated {len(suggestions)} suggestions for chat {chat_id}")
+            logger.debug(f"Generated {len(suggestions)} suggestions for chat {chat_id}")
 
             return {
                 "success": True,

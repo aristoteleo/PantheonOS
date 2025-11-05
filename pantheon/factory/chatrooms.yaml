@@ -39,13 +39,15 @@ chatrooms:
           For specialized tasks, consider delegating to specialized agents.
         model: openai/gpt-4o-mini
         icon: 🤖
+        toolsets:
+          - file_manager
+          - shell
+          - web
+          - integrated_notebook
 
     # Optional: Load all agents from agents.yaml
     sub_agents: "all"
-    toolsets:
-      - file_manager
-      - shell
-      - web
+
   # ============================================================================
   # Specialized Teams - Specific agents
   # ============================================================================
