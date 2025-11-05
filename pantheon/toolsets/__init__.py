@@ -8,13 +8,10 @@ from .web import WebToolSet
 from .latex import LatexToolSet
 from .workflow import WorkflowToolSet
 from .notebook import NotebookToolSet, IntegratedNotebookToolSet, JupyterKernelToolSet
-from .file_editor import FileEditorToolSet
-from .code_search import CodeSearchToolSet
 from .scraper import ScraperToolSet
 from .todolist import TodoListToolSet
 from .plan_mode import PlanModeToolSet
 from .vector_rag import VectorRAGToolSet
-#from .knowledge import KnowledgeToolSet
 from .database_api import DatabaseAPIQueryToolSet
 
 
@@ -26,7 +23,6 @@ __all__ = [
     "ShellToolSet",
     # File operations
     "FileManagerToolSet",
-    "FileEditorToolSet",
     # Web & scraping
     "WebToolSet",
     "ScraperToolSet",
@@ -34,7 +30,6 @@ __all__ = [
     "LatexToolSet",
     # Workflows & code
     "WorkflowToolSet",
-    "CodeSearchToolSet",
     "TodoListToolSet",
     "PlanModeToolSet",
     # Notebooks
@@ -43,6 +38,5 @@ __all__ = [
     "IntegratedNotebookToolSet",
     # RAG
     "VectorRAGToolSet",
-    #"KnowledgeToolSet",
     "DatabaseAPIQueryToolSet",
 ]

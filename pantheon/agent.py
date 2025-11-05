@@ -27,6 +27,14 @@ from .utils.llm import (
 from .utils.log import logger
 from .utils.misc import desc_to_openai_dict, run_func
 from .utils.vision import VisionInput, vision_to_openai
+from .utils.llm import TimingTracker
+from .utils.llm_providers import (
+    call_llm_provider,
+    create_enhanced_process_chunk,
+    detect_provider,
+    get_base_url,
+)
+
 
 DEFAULT_MODEL = "gpt-5-mini"
 
@@ -572,7 +580,7 @@ class Agent:
             func = self._base_functions[prefixed_name]
             try:
                 # Unpack args dict as keyword arguments to the function
-                return await run_func(func, **args)
+                result = await run_func(func, **args)
             except TypeError as e:
                 logger.error(
                     f"Failed to call tool '{prefixed_name}': {e}\n"
@@ -580,26 +588,34 @@ class Agent:
                     f"  Arguments: {args}\n"
                 )
                 raise
+        else:
+            # 2. Try prefix-based routing: {provider_name}__{tool_name}
+            # Using __ (double underscore) as separator allows provider names to contain single underscores
+            if "__" not in prefixed_name:
+                raise ValueError(
+                    f"Tool '{prefixed_name}' not found in _base_functions or providers (no provider prefix)"
+                )
 
-        # 2. Try prefix-based routing: {provider_name}__{tool_name}
-        # Using __ (double underscore) as separator allows provider names to contain single underscores
-        if "__" not in prefixed_name:
-            raise ValueError(
-                f"Tool '{prefixed_name}' not found in _base_functions or providers (no provider prefix)"
-            )
+            # Split on first __ only (tool_name may contain underscores)
+            source, tool_name = prefixed_name.split("__", 1)
 
-        # Split on first __ only (tool_name may contain underscores)
-        source, tool_name = prefixed_name.split("__", 1)
+            if source not in self.providers:
+                raise ValueError(f"Provider '{source}' not found (tool: '{prefixed_name}')")
 
-        if source not in self.providers:
-            raise ValueError(f"Provider '{source}' not found (tool: '{prefixed_name}')")
+            provider = self.providers[source]
+            try:
+                result = await provider.call_tool(tool_name, args)
+            except Exception as e:
+                logger.error(f"Provider '{source}' failed to call tool '{tool_name}': {e}")
+                raise
 
-        provider = self.providers[source]
-        try:
-            return await provider.call_tool(tool_name, args)
-        except Exception as e:
-            logger.error(f"Provider '{source}' failed to call tool '{tool_name}': {e}")
-            raise
+        if isinstance(result, dict) and "inner_call" in result:
+            name = result["inner_call"]["name"]
+            if name == "__agent_run__":
+                resp = await self.run(result["inner_call"]["args"], use_memory=False, update_memory=False)
+                result = resp.content
+
+        return result
 
     # ===== Legacy MCP method (deprecated, kept for backward compatibility) =====
 
@@ -789,14 +805,6 @@ class Agent:
         Returns:
             Message dictionary with id, timestamps, and generation_duration
         """
-        from .utils.llm import TimingTracker
-        from .utils.llm_providers import (
-            call_llm_provider,
-            create_enhanced_process_chunk,
-            detect_provider,
-            get_base_url,
-        )
-
         # Initialize timing tracker
         tracker = TimingTracker()
         tracker.start("total")
