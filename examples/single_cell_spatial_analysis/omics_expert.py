@@ -6,10 +6,8 @@ from dotenv import load_dotenv
 
 from pantheon.agent import Agent
 from pantheon.toolsets.python import PythonInterpreterToolSet
-from pantheon.toolsets.workflow import WorkflowToolSet
 from pantheon.toolsets.scraper import ScraperToolSet
-from pantheon.toolsets.todolist import TodoListToolSet
-from pantheon.toolsets.plan_mode import PlanModeToolSet
+from pantheon.toolsets.file_manager import FileManagerToolSet
 
 instructions = """
 You are a AI-agent for analyzing single-cell/Spatial Omics data.
@@ -17,28 +15,28 @@ You are a AI-agent for analyzing single-cell/Spatial Omics data.
 Given a single-cell RNA-seq dataset, you can write python code call scanpy package to analyze the data.
 
 Basicly, given a single-cell RNA-seq dataset in h5ad / 10x format or other formats,
-you should firstly make a plan for analysis and record them in the todolist tool.
+you should firstly make a plan for analysis and record them in the todolist file(in the workdir).
 Then, you should execute the code to read the data,
 then preprocess the data, and cluster the data, and finally visualize the data.
-After each step, you should review the todos and update the todos, and
+After each step, you should review the todolist file and update the todolist file, and
 plan the next step.
-You can find single-cell/spatial genomics related package information by searching the web.
+You can find single-cell/spatial genomics related package information by searching the web(using scraper toolset).
 
 When you visualize the data, you should produce the publication level high-quality figures.
 You should display the figures with it's path in markdown format.
 
-After you ploted some figure, you should using view_image function to check the figure,
+After you ploted some figure, you should using observe_images(from file_manager toolset) function to check the figure,
 then according to the figure decide what you should do next.
 
 After you finished the task, you should display the final result for user.
 Include the code, the result, and the figure in the result.
 
-NOTE: Don't need to confirm with user at most time, just do the task.
+NOTE: Don't need to confirm with user at most time, just do the task by running the code!!!
 """
 
 omics_expert = Agent(
     name="omics_expert",
-    instructions="You are an expert in omics data analysis.",
+    instructions=instructions,
     model="gpt-5"
 )
 
@@ -46,12 +44,10 @@ omics_expert = Agent(
 
 async def main(workdir: str, prompt: str | None = None):
     load_dotenv()
-    await omics_expert.toolset(PythonInterpreterToolSet("python"))
-    #workflow_path = osp.join(osp.dirname(__file__), "workflows")
-    #await omics_expert.toolset(WorkflowToolSet("workflow", workflow_path=workflow_path))
-    await omics_expert.toolset(TodoListToolSet("todolist"))
-    await omics_expert.toolset(PlanModeToolSet("plan_mode"))
     await omics_expert.toolset(ScraperToolSet("scraper"))
+    await omics_expert.toolset(PythonInterpreterToolSet("python"))
+    fm = FileManagerToolSet("file_manager", path=osp.abspath(workdir))
+    await omics_expert.toolset(fm)
     if prompt is None:
         try:
             with open(osp.join(workdir, "prompt.md"), "r") as f:

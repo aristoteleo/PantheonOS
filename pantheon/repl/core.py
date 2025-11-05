@@ -258,8 +258,11 @@ class Repl(ReplUI):
             additional_tokens = self._estimate_tokens(content)
             self.estimated_output_tokens += additional_tokens
 
-    async def run(self, message: str | dict | None = None):
-
+    async def run(self, message: str | dict | None = None, disable_logging: bool = True):
+        if disable_logging:
+            from loguru import logger
+            logger.remove()
+            logger.add(sys.stdout, level="WARNING")
         # Simple greeting 
         await self.print_greeting()
         
