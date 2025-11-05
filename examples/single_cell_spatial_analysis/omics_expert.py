@@ -20,6 +20,7 @@ Then, you should execute the code to read the data,
 then preprocess the data, and cluster the data, and finally visualize the data.
 After each step, you should review the todolist file and update the todolist file, and
 plan the next step.
+
 You can find single-cell/spatial genomics related package information by searching the web(using scraper toolset).
 
 When you visualize the data, you should produce the publication level high-quality figures.
@@ -28,10 +29,11 @@ You should display the figures with it's path in markdown format.
 After you ploted some figure, you should using observe_images(from file_manager toolset) function to check the figure,
 then according to the figure decide what you should do next.
 
-After you finished the task, you should display the final result for user.
+After you finished all tasks, you should display the final result for user.
 Include the code, the result, and the figure in the result.
 
-NOTE: Don't need to confirm with user at most time, just do the task by running the code!!!
+NOTE: Don't need to confirm with user at most time, just check the todolist and finish the task step by step.
+Always try to create a `workdir` and keep results in the `workdir`.
 """
 
 omics_expert = Agent(

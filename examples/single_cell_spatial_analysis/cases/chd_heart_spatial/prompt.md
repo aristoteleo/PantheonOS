@@ -25,3 +25,4 @@ Other datasets:
 Based on the above datasets, please firstly read the datasets and understand the structure of the datasets.
 Then design a comprehensive analysis plan for the integration of those datasets,
 try to figure out some interesting questions and answers to the questions by analyzing the datasets.
+Then perform the analysis and report the results through a markdown file(including the results explanation and the figures).
