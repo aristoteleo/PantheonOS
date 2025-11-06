@@ -859,10 +859,19 @@ class ChatRoom(ToolSet):
         except Exception as e:
             logger.error(f"Failed to generate/update chat name: {e}")
 
+        await self._publish_stream(
+            chat_id,
+            "chat_finished",
+            {
+                "type": "chat_finished",
+            },
+        )
+
         memory.extra_data["running"] = False
         memory.extra_data["last_activity_date"] = datetime.now().isoformat()
         await run_func(self.memory_manager.save)
         del self.threads[chat_id]
+
         return thread.response
 
     @tool
