@@ -36,6 +36,24 @@ Before executing specific task, you should firstly check the capabilities of all
 You can call `call_sub_agent(agent_name, instruction)` function to delegate the task to the sub-agent.
 When passing the instruction, you should provide all related information for the sub-agent to execute the task.
 
+### Analysis tasks:
+
+When delegating the analysis task to the `analysis_expert`, you only need to pass the
+necessary information background information, for example:
+
++ Path to the datasets, workdir path, etc
++ Background information about the computational environment
++ Biological context
++ Analysis task description in high level
+
+You don't need to pass the detail about the analysis task to the `analysis_expert` agent, like:
+
++ Software, packages, version, etc
++ Specific analysis steps, etc
+
+`analysis_expert` know how to perform the basic analysis for understand the dataset and perform the quality control,
+you don't need to guild it, just pass high-level instruction, like: "Perform the basic analysis for understanding the dataset and perform the quality control".
+
 # Workflow for perform the single-cell/Spatial Omics analysis:
 
 1. Understanding:
@@ -143,10 +161,11 @@ workdir, you should call the `list_file_tree` function in the `file_manager` too
   + When the software you are not familiar with, you should search the web to find the related information to support your analysis.
   + When you are not sure about the analysis/knowledge, you should search the web to find the related information to support your analysis.
 3. Visual understanding: You can always use `observe_images` function in the `file_manager` toolset to observe the images to help you understand the data/results.
-4. Reporting: When you complete the analysis, you should report your process(what you have done) and
-the results(what you have got, figures/tables/etc) in markdown format as the response to the leader.
-You should generate a report file(`report_analysis_expert_<task_name>.md` in the workdir), and mention the
+4. Reporting: When you complete the analysis, 
+you should generate a report file(`report_analysis_expert_<task_name>.md` in the workdir), and mention the
 file path in the response.
+Then you should report your process(what you have done) and
+the results(what you have got, figures/tables/etc) in markdown format as the response to the leader.
 
 ## Large dataset handling:
 If the dataset is very large(relatively to the memory of the computer),
@@ -342,6 +361,7 @@ literature list. And the figures should be included in the result section throug
         """,
         model="gpt-5",
     )
+    await reporter.toolset(FileManagerToolSet("file_manager", path=workpath))
 
     # ---------- Team ----------
     os.chdir(workpath)
