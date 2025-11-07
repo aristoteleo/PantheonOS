@@ -2,7 +2,8 @@
 
 This module provides implementations for different tool sources:
 - MCPProvider: For Model Context Protocol servers
-- ToolSetProvider: For Pantheon ToolSets (with session isolation)
+- LocalProvider: For local ToolSet instances (in-memory calls)
+- ToolSetProvider: For remote Pantheon ToolSets (with session isolation)
 """
 
 import asyncio
@@ -302,6 +303,138 @@ class MCPProvider(ToolProvider):
             except Exception as e:
                 provider_name = self.config.name if self.config else "unknown"
                 logger.error(f"Error shutting down MCPProvider '{provider_name}': {e}")
+
+
+class LocalProvider(ToolProvider):
+    """Tool Provider for local ToolSet instances (in-memory calls)"""
+
+    def __init__(self, toolset: "ToolSet"):
+        """Initialize LocalProvider with a ToolSet instance
+
+        Args:
+            toolset: A ToolSet instance to call directly in-memory
+        """
+        self.toolset = toolset
+        self._tools_cache: Optional[list[ToolInfo]] = None
+        self._tool_descriptions: dict[
+            str, dict
+        ] = {}  # name -> tool_desc for parameter filtering
+
+    @property
+    def toolset_name(self):
+        return self.toolset.toolset_name
+
+    async def initialize(self):
+        """Initialize the provider"""
+        try:
+            # Ensure toolset setup is complete
+            if not self.toolset._setup_completed:
+                await self.toolset.run_setup()
+                self.toolset._setup_completed = True
+
+            # Cache tool descriptions for parameter filtering
+            tools_response = await self.toolset.list_tools()
+            tools_list = tools_response.get("tools", [])
+            for tool in tools_list:
+                if isinstance(tool, dict):
+                    self._tool_descriptions[tool.get("name", "")] = tool
+
+        except Exception as e:
+            logger.error(f"Failed to initialize LocalProvider: {e}")
+            # Don't fail initialization, continue anyway
+            logger.warning("Continuing without cached tool descriptions")
+
+    async def list_tools(self) -> list[ToolInfo]:
+        """List all available tools from the local ToolSet"""
+        if self._tools_cache is not None:
+            return self._tools_cache
+
+        try:
+            import json
+            from funcdesc.desc import Description
+
+            from .utils.misc import desc_to_openai_dict
+
+            # Get tools from the local toolset instance
+            tools_response = await self.toolset.list_tools()
+            tools_list = tools_response.get("tools", [])
+
+            # Convert to ToolInfo objects with pre-generated OpenAI schema
+            tool_infos = []
+            for tool in tools_list:
+                try:
+                    # tool is already a dict serialized from Description.to_json()
+                    # Reconstruct Description object from the JSON dict
+                    tool_json = json.dumps(tool)
+                    desc = Description.from_json(tool_json)
+
+                    # Generate OpenAI format schema using desc_to_openai_dict
+                    oai_dict = desc_to_openai_dict(
+                        desc, skip_params=[], litellm_mode=True
+                    )
+
+                    # Extract the "function" part (without "type": "function")
+                    function_schema = oai_dict.get("function", {})
+
+                    tool_info = ToolInfo(
+                        name=desc.name,
+                        description=desc.doc or "",
+                        inputSchema=function_schema,  # Store "function" part directly
+                    )
+                    tool_infos.append(tool_info)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to convert local ToolSet tool '{tool.get('name', 'unknown')}': {e}"
+                    )
+                    # Skip this tool instead of adding a fake ToolInfo
+
+            # Cache results
+            self._tools_cache = tool_infos
+            logger.debug(
+                f"LocalProvider[{self.toolset_name}] listed {len(tool_infos)} tools: {[tool.name for tool in tool_infos]}"
+            )
+
+            return tool_infos
+
+        except Exception as e:
+            logger.error(f"Failed to list tools from local ToolSet: {e}")
+            raise
+
+    async def call_tool(self, name: str, args: dict) -> Any:
+        """Call a tool on the local ToolSet instance"""
+        try:
+            logger.debug(f"Calling local ToolSet tool '{name}'")
+
+            # Parameter filtering (extract parameters the tool expects)
+            tool_desc = self._tool_descriptions.get(name, {})
+            param_names = [inp.get("name") for inp in tool_desc.get("inputs", [])]
+
+            filtered_params = {
+                k: v for k, v in args.items() if k in param_names or k in _SKIP_PARAMS
+            }
+
+            # Get the tool method from the toolset
+            tool_method = getattr(self.toolset, name, None)
+            if tool_method is None:
+                raise AttributeError(
+                    f"Tool '{name}' not found in ToolSet '{self.toolset_name}'"
+                )
+
+            # Call the tool method directly (in-memory)
+            # The @tool decorator will handle context_variables injection
+            result = await tool_method(**filtered_params)
+
+            # Return raw result directly
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to call local ToolSet tool '{name}': {e}")
+            raise
+
+    async def shutdown(self):
+        """Clean up provider resources"""
+        # No remote connections to clean up for local toolset
+        logger.info(f"LocalProvider[{self.toolset_name}] shut down")
 
 
 class ToolSetProvider(ToolProvider):

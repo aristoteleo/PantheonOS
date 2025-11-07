@@ -497,38 +497,40 @@ class Agent:
         )
 
     async def toolset(self, toolset: Union["ToolSet", "ToolProvider"]) -> "Agent":
-        """Add a toolset to the agent (supports both ToolSet and ToolSetProvider)
+        """Add a toolset to the agent (supports both ToolSet and ToolProvider)
 
-        Behavior depends on type:
-        - ToolSet: Local tools loaded directly into _base_functions
-        - ToolSetProvider: Dynamic routing - tools retrieved on-demand, no pre-wrapping
+        Behavior:
+        - ToolSet: Automatically wrapped in LocalProvider for unified provider-based routing
+        - ToolProvider (LocalProvider/ToolSetProvider): Dynamic routing - tools retrieved on-demand
 
         Args:
-            toolset: Either a ToolSet instance (local tools loaded directly)
-                    or a ToolSetProvider instance (provider-based tool access)
+            toolset: Either a ToolSet instance (will be wrapped in LocalProvider)
+                    or a ToolProvider instance (used directly)
 
         Returns:
             The agent instance
         """
         # Import here to avoid circular imports
-        from .providers import ToolSetProvider
+        from .providers import LocalProvider, ToolSetProvider
 
         if isinstance(toolset, ToolSet):
-            # Local ToolSet - immediately load all tools via agent.tool()
-            for name, (func, _) in toolset.tool_functions.items():
-                self.tool(func, key=name)
+            # Wrap ToolSet in LocalProvider for unified provider-based routing
+            provider = LocalProvider(toolset)
+            await provider.initialize()
+            self.providers[provider.toolset_name] = provider
             logger.debug(
-                f"Agent '{self.name}': Added local toolset with {len(toolset.functions)} tools"
+                f"Agent '{self.name}': Wrapped ToolSet in LocalProvider and added as provider (dynamic routing)"
             )
-        elif isinstance(toolset, ToolSetProvider):
+        elif isinstance(toolset, (ToolSetProvider, LocalProvider)):
+            # ToolProvider (remote or local) - dynamic routing
             self.providers[toolset.toolset_name] = toolset
             logger.debug(
-                f"Agent '{self.name}': Added ToolSetProvider (dynamic routing)"
+                f"Agent '{self.name}': Added {type(toolset).__name__} (dynamic routing)"
             )
         else:
             raise TypeError(
                 f"Invalid toolset type: {type(toolset)}. "
-                f"Expected ToolSet or ToolSetProvider instance."
+                f"Expected ToolSet or ToolProvider instance."
             )
 
         return self

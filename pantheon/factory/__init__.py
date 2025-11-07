@@ -3,7 +3,7 @@ import os
 from ..agent import Agent
 from ..endpoint import ToolsetProxy
 from ..endpoint.mcp import MCPServerConfig
-from ..providers import MCPProvider, ToolSetProvider
+from ..providers import LocalProvider, MCPProvider, ToolSetProvider
 from ..utils.log import logger
 
 

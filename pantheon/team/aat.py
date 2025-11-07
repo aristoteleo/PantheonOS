@@ -22,7 +22,6 @@ class AgentAsToolTeam(Team):
         """Return description for all sub-agents."""
         sub_agents_info = []
         for sub_agent in self.sub_agents.values():
-            import ipdb; ipdb.set_trace()
             sub_agents_info.append({
                 "name": sub_agent.name,
                 "description": sub_agent.description,
