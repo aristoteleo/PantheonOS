@@ -34,7 +34,7 @@ class Team(ABC):
 
     async def chat(self, message: str | dict | None = None):
         """Chat with the team with a REPL interface."""
-        from ..repl.team import Repl
+        from ..repl.core import Repl
 
         repl = Repl(self)
         await repl.run(message)
