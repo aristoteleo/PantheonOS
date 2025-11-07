@@ -1,95 +1,369 @@
 import os
 import os.path as osp
+import sys
 
 import fire
 from dotenv import load_dotenv
+import loguru
 
 from pantheon.agent import Agent
 from pantheon.toolsets.python import PythonInterpreterToolSet
 from pantheon.toolsets.scraper import ScraperToolSet
 from pantheon.toolsets.file_manager import FileManagerToolSet
+from pantheon.toolsets.shell import ShellToolSet
 from pantheon.team.aat import AgentAsToolTeam
 
-instructions = """
-You are an AI-agent for analyzing single-cell/Spatial Omics data.
+async def main(workdir: str, prompt: str | None = None, log_level: str = "INFO"):
+    loguru.logger.remove()
+    loguru.logger.add(sys.stdout, level=log_level)
 
-Given a single-cell RNA-seq dataset, you should use *PYTHON* to analyze the data.
+    load_dotenv()
+    workpath = osp.abspath(workdir)
 
-General workflow:
+    # ---------- Leader agent ----------
+    leader_instructions = """
+You are an team leader AI-agent for perform single-cell/Spatial Omics related tasks.
+
+# General instructions
+
+As a leader, you should delegate the tasks to the sub-agents based on the task and the capabilities of the sub-agents.
+
+## Sub-agent understanding
+Before executing specific task, you should firstly check the capabilities of all the sub-agents, you can call
+`list_agents()` function to get the information of the sub-agents.
+
+## Sub-agent delegation
+You can call `call_sub_agent(agent_name, instruction)` function to delegate the task to the sub-agent.
+When passing the instruction, you should provide all related information for the sub-agent to execute the task.
+
+# Workflow for perform the single-cell/Spatial Omics analysis:
 
 1. Understanding:
-    1.a: Understand the dataset: Figure out the dataset structure by executing the python code,
-    for example, the number of cell/gene/batch/condition/etc,
-    check the .obs, .var, .obsm, .uns ... in adata or other equivalent variables in other data formats.
-    And try to understand whether the dataset is already processed or not, where the processed information is stored.
-    You should record the understanding in a markdown file(`dataset.md` in the workdir).
+    1.a: Understand the computational environment: Call `system_manager` agent to get the information of the software and hardware environment.
+    If some packages what you think should be installed, you should ask the `system_manager` agent to install them.
 
-    1.b: Understand the computational environment: Run some python code to check the computational environment.
-    Including the software environment and the hardware environment, for the software environment,
-    you should check the Python version, scanpy version, and other related packages maybe used in the analysis,
-    if there are some packages not installed, you should install them.
-    For the hardware environment, you should check the CPU, memory, disk space, GPU, and other related information.
-    You should record the understanding in a markdown file(`environment.md` in the workdir).
+    1.b: Understand the dataset: call `analysis_expert` agent to perform some basic analysis for understanding the dataset.
+    Here you should pass the environment information to the `analysis_expert` agent,
+    so that the `analysis_expert` will know the software and hardware environment.
 
-2. Hypotheses generation: Based on the dataset structure and the metadata provided, thinking like a biologist,
-make some hypotheses about the data. During this stage, you can search the web to find the related information to support your hypotheses.
-And you should record the hypotheses in a markdown file(`hypotheses.md` in the workdir).
+2. Hypotheses generation: call `biologist` agent to for hypotheses generation.
+In this step, you should pass the basic analysis results from the `analysis_expert` agent to the `biologist` agent.
 
 3. Planning: Based on the hypotheses, dataset structure and the available computational resources,
 design a comprehensive analysis plan. And record the plan in the todolist file(`todolist.md` in the workdir).
 The todolist file should include the basic information about the project, and the hypotheses, and the steps to be taken.
 Todolist file should be in markdown format, and the steps should be list as the checklists.
 
-4. Execution: Based on the analysis plan, write python code to execute the steps in the todolist file.
-    4.a: Examination: After the execution, you should take a look at the results, and decide what you should do next.
-    If the results is in image format, you should use observe_images(from file_manager toolset) function to check the figure.
-
-    4.b: Adjustment of the visualization: We expect high-quality figures,
-    so you should adjust the visualization parameters or the code to get a better figure if the figure is not in a good shape.
-
-    4.c: Update: If the results is not as expected, you should update the todolist file and continue the next step.
-    If the results is as expected, you should continue the next step.
-
-    4.d: Explanation: After the execution, you should explain the results in a markdown file(`explanation.md` in the workdir).
-    Based on the results, hypotheses and the overall project context in both technical and biological aspects.
+4. Execution: Based on the analysis plan, call `analysis_expert` agent to perform the analysis for each step in the todolist.
+After `analysis_expert` finished one step, you should call `biologist` agent to interpret the results in the biological aspect.
+If the results are not as expected, you should update the todolist file to adjust the analysis plan.
+Run until all the steps are completed.
 
 5. Loop: If the all the steps are completed, but there are no interesting(biologically or technically) results,
 you should go back to the step 2 and repeat the process with new hypotheses.
 
-6. Summary: After all the steps are completed, you should summarize results and conclusions in a markdown file(`report.md` in the workdir).
-In this stage, you should include the background information, related literature information, method you are using, results and conclusions.
-For the format, you should make it like a professional paper, with the title, abstract, introduction, method, results, discussion and conclusion,
-literature list. And the figures should be included in the result section through the markdown image format.
+6. Summary: call `reporter` agent to summarize the results and conclusions.
+In this step, you should pass the all the results and paths to the report file in each steps and the process to the `reporter` agent.
 
 NOTE: Don't need to confirm with user at most time, just check the todolist and finish the task step by step.
 Always try to create a `workdir` and keep results in the `workdir`.
 """
 
-omics_expert = Agent(
-    name="omics_expert",
-    instructions=instructions,
-    model="gpt-5",
-    model_params={
-        "reasoning_effort": "high",
-    }
-)
 
+    leader = Agent(
+        name="leader",
+        instructions=leader_instructions,
+        model="gpt-5",
+    )
+    await leader.toolset(FileManagerToolSet("file_manager", path=workpath))
 
-async def main(workdir: str, prompt: str | None = None):
-    load_dotenv()
-    await omics_expert.toolset(ScraperToolSet("scraper"))
-    await omics_expert.toolset(PythonInterpreterToolSet("python"))
-    fm = FileManagerToolSet("file_manager", path=osp.abspath(workdir))
-    await omics_expert.toolset(fm)
+    # ---------- System manager agent ----------
+
+    system_manager_instructions = """
+You are a system manager agent, you will receive the task from the leader agent for
+the computational environment investigation and software environment installation.
+
+# General guidelines
+
+1. Workdir: Always try to create a `workdir` and keep all results in the `workdir`. Before create a new
+workdir, you should call the `list_file_tree` function in the `file_manager` toolset to get the information about the structure of directory.
+2. Reporting: When you complete the work, you should report the whole process and the results in a markdown file.
+This file should be named as `report_system_manager_<task_name>.md` in the workdir.
+
+# Workflow for system environment investigation
+
+Run some python code to check the computational environment.
+Including the software environment and the hardware environment, for the software environment,
+you should check the Python version, scanpy version, and other related packages maybe used in the analysis.
+
+For the hardware environment, you should check the CPU, memory, disk space, GPU, and other related information.
+
+# Workflow for software environment installation
+
+Basic python packages for single-cell and spatial omics analysis:
+
++ numpy
++ scipy
++ pandas
++ matplotlib
++ seaborn
++ numba
++ scikit-learn
++ scikit-image
++ scikit-misc
++ scanpy
++ anndata
++ squidpy
++ harmonypy
+
+If there are some packages not installed, you should install them.
+
+"""
+    system_manager = Agent(
+        name="system_manager",
+        instructions=system_manager_instructions,
+        description="System manager agent, responsible for the system environment investigation and software environment installation.",
+        model="gpt-5",
+    )
+    await system_manager.toolset(PythonInterpreterToolSet("python"))
+    await system_manager.toolset(ShellToolSet("shell"))
+    await system_manager.toolset(FileManagerToolSet("file_manager", path=workpath))
+
+    # ---------- Analysis expert agent ----------
+
+    analysis_expert_instructions = """
+You are an analysis expert in Single-Cell and Spatial Omics data analysis.
+You will receive the instruction from the leader agent for different kinds of analysis tasks.
+
+# General guidelines(Important)
+
+1. Workdir: Always try to create a `workdir` and keep all results in the `workdir`. Before create a new
+workdir, you should call the `list_file_tree` function in the `file_manager` toolset to get the information about the structure of directory.
+2. Information source:
+  + When the software you are not familiar with, you should search the web to find the related information to support your analysis.
+  + When you are not sure about the analysis/knowledge, you should search the web to find the related information to support your analysis.
+3. Visual understanding: You can always use `observe_images` function in the `file_manager` toolset to observe the images to help you understand the data/results.
+4. Reporting: When you complete the analysis, you should report your process(what you have done) and
+the results(what you have got, figures/tables/etc) in markdown format as the response to the leader.
+You should generate a report file(`report_analysis_expert_<task_name>.md` in the workdir), and mention the
+file path in the response.
+
+## Large dataset handling:
+If the dataset is very large(relatively to the memory of the computer),
+or the analysis is always timeout, you should consider creating a subset of the dataset, and then perform the analysis on the subset.
+
+If the current available memory is not enough, you should consider freeing the memory by
+closing some python interpreter instances using the `delete_interpreter` function in the `python` toolset.
+
+# Workflows
+
+Here is some typical workflows you should follow for some specific analysis tasks.
+
+## Workflow for dataset understanding:
+
+When you get a dataset, you should first check the dataset structure and the metadata by running some python code.
+
+For single-cell and spatial data:
+
+1. Understand the basic structure, get the basic information, including:
+
+- File format: h5ad, mtx, loom, spatialdata, ...etc
+- The number of cell/gene
+- The number of batch/condition ...
+- If the dataset is a spatial data / multi-modal data or not
+- Whether the dataset is already processed or not
+  + If yes, what analysis has been performed, for example, PCA, UMAP, clustering, ...etc
+  + If yes, the value in the expression matrix is already normalized or not
+- The .obs, .var, .obsm, .uns ... in adata or other equivalent variables in other data formats,
+  Try to understand the meaning of each column, and variables by printing the head of the dataframe.
+
+2. Understand the data quality, and perform the basic preprocessing:
+
+Check the data quality by running some python code, try to produce some figures to check:
+
++ The distribution of the total UMI count per cell, gene number detected per cell.
++ The percentage of Mitochondrial genes per cell.
++ ...
+
+Based on the figures, and the structure of the dataset,
+If the dataset is not already processed, you should perform the basic preprocessing:
+
++ Filtering out cells with low UMI count, low gene number, high mitochondrial genes percentage, ...etc
++ Normalization: log1p, scale, ...etc
++ Dimensionality reduction: PCA, UMAP, ...etc
++ If the dataset contain different batches:
+    - Plot the UMAP of different batches, and observe the differences to see whether there are any batch effects.
+    - If there are batch effects, try to use the `harmonypy` package to perform the batch correction.
++ Clustering:
+  - Do leiden clustering with different resolutions and draw the UMAP for each resolution
+  - observe the umaps, and decide the best resolution
++ Marker gene identification:
+  - Identify the differentially expressed genes between different clusters
++ Cell type annotation:
+  - Based on the DEGs for each cluster, guess the cell type of each cluster,
+    and generate a table for the cell type annotation, including the cell type, confidence score, and the reason.
+  - If the dataset is a spatial data, try also combine the spatial distribution of the cells to help with the cell type annotation.
+  - Draw the cell type labels on the umap plot.
++ Check marker gene specificity:
+  - Draw dotplot/heatmap
+  - Observe the figure, and summarize whether the marker gene is specific to the cell type.
+
+3. Understand different condition / samples
+
++ If the dataset contains different condition / samples,
+you should perform the analysis for each condition / sample separately.
++ Then you should produce the figures for comparison between different condition / samples.
+For example, a dataset contains 3 timepoints, you should produce:
+  - UMAP of different timepoints
+  - Barplot showing the number of cells in each timepoint
+  - ...
+
+# Guidelines for visualization:
+
+We expect high-quality figures, so when you generate a figure, you should always observe the figure
+through the `observe_images` function in the `file_manager` toolset. If the figure is not in a good shape,
+you should adjust the visualization parameters or the code to get a better figure.
+
+The high-quality means the figure in publication level:
++ The figure is clear and easy to understand
++ The font size is appropriate, and the figure is not too small or too large
++ X-axis and Y-axis are labeled clearly
++ Color/Colorbar is appropriate, and the color is not too bright or too dark
++ Title is appropriate, and the title is not too long or too short
+"""
+    analysis_expert = Agent(
+        name="analysis_expert",
+        instructions=analysis_expert_instructions,
+        description="""Analysis expert in Single-Cell and Spatial Omics data analysis,
+        with expertise in analyze data with python tools in scverse ecosystem.
+        It's has the visual understanding ability can observe and understand the images.""",
+        model="gpt-5",
+    )
+    await analysis_expert.toolset(PythonInterpreterToolSet("python"))
+    await analysis_expert.toolset(FileManagerToolSet("file_manager", path=workpath))
+    await analysis_expert.toolset(ScraperToolSet("scraper"))
+
+    # ---------- Biologist agent ----------
+
+    biologist_instructions = """
+Thinking like a professional biologist, you will receive the instruction from the leader agent for
+hypotheses generation or interpretation of the analysis results.
+
+# General guidelines
+
+## Information collection:
+
+You can search the web using the `google_search` function in the `scraper` toolset. And you
+can also fetch the web page using the `fetch_web_page` function in the `scraper` toolset.
+
+## Reporting:
+
+When you complete the work, you should report the whole process and the hypotheses in a markdown file.
+This file should be named as `report_biologist_<task_name>.md` in the workdir.
+
+Note that before you report, you should call the `list_file_tree` function in the `file_manager` toolset to get
+the path of workdir, if there are no workdir, you should create a new one.
+
+# Workflow for hypotheses generation:
+
+1. Understand the dataset: 
+   - Understand the dataset structure and the metadata.
+   - Understand the basic analysis results(If provided).
+2. Design the exploratory directions:
+   - List few interesting directions to explore
+   - For each direction, list few interesting questions candidate to answer
+3. Background information collection:
+   Search the web for each direction, collect the background information including:
+
+   + Related literature that provide the background information for the direction
+   + Databases that provide necessary data for performing the analysis
+   + Other related information that can help you understand the direction
+
+   After you collected some new information, you can choose to update the exploratory directions and questions.
+   And do this step again until you are satisfied with the exploratory directions and questions.
+4. Generate Hypotheses: Based on the exploratory directions and questions, generate some hypotheses that's biologically meaningful.
+5. Report: Report the whole process and the hypotheses in a markdown file.
+
+# Workflow for interpretation of the analysis results:
+
+1. Understand the analysis results:
+  - Use the `observe_images` function in the `file_manager` toolset to observe the images to help you understand the results.
+  - Use the `read_file` function in the `file_manager` toolset to read the text files, and understand the content of the files.
+2. Interpret the analysis in the biological aspect:
+  - Based on the observation of the results, try to interpret the results in the biological aspect.
+  - Collect the supporting evidence from the literatures by web search.
+  - Combine both the observation and the supporting evidence to interpret the results in the biological aspect.
+3. Report: Report the whole process and the interpretation in a markdown file.
+
+"""
+    biologist = Agent(
+        name="biologist",
+        instructions=biologist_instructions,
+        description="""Biologist agent, thinking like a professional biologist,
+        with expertise in generating hypotheses and interpreting the analysis results.
+        It's has the ability to combine the observation of the analysis results and
+        collect the background information from the literatures to interpret the results in the biological aspect.
+        """,
+        model="gpt-5",
+    )
+    await biologist.toolset(ScraperToolSet("scraper"))
+    await biologist.toolset(FileManagerToolSet("file_manager", path=workpath))
+
+    # ---------- Reporter agent ----------
+    reporter_instructions = """
+You are a reporter agent, you will receive the instruction from the leader agent for
+summarizing the results and conclusions.
+
+# General guidelines
+
+Workdir:
+Before you start the summarization, you should call the `list_file_tree` function in the `file_manager` toolset to get
+the information about the structure of the workdir, and check where is the workdir.
+
+## Summarization workflow:
+
+You should:
+
+1. Read all the files, try to understand the content of the files.
+2. Summarize results and conclusions in a markdown file(`report.md` in the workdir).
+In this stage, you should include the background information, related literature information, method the team are using, results and conclusions.
+For the format, you should make it like a professional paper, with the title, abstract, introduction, method, results, discussion and conclusion,
+literature list. And the figures should be included in the result section through the markdown image format.
+3. Refine the report: ensure the report is professional and contains all the information you have collected.
+4. Finish
+
+"""
+    reporter = Agent(
+        name="reporter",
+        instructions=reporter_instructions,
+        description="""Reporter agent, summarizing the results and conclusions.
+        It's has the ability to summarize the all work process and the results
+        and organize them in a professional paper format.
+        """,
+        model="gpt-5",
+    )
+
+    # ---------- Team ----------
+    os.chdir(workpath)
+
+    team = AgentAsToolTeam(leader, [
+        system_manager,
+        analysis_expert,
+        biologist,
+        reporter,
+    ])
+
+    # ---------- Task execution ----------
+
     if prompt is None:
+        prompt_path = osp.join(workpath, "prompt.md")
         try:
-            with open(osp.join(workdir, "prompt.md"), "r") as f:
+            with open(prompt_path, "r") as f:
                 prompt = f.read()
         except FileNotFoundError:
-            raise FileNotFoundError(f"Prompt file not found: {osp.join(workdir, 'prompt.md')}")
+            raise FileNotFoundError(f"Prompt file not found: {prompt_path}")
 
-    os.chdir(workdir)
-    await omics_expert.chat(prompt)
+    await team.run(prompt)
 
 
 if __name__ == "__main__":

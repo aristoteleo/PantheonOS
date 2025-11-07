@@ -256,7 +256,32 @@ class ReplUI:
         
         return wrapped_lines
 
+    def _print_greeting_agent(self, agent):
+        self.console.print("[dim][bold blue]-- MODEL ------------------------------------------------------------[/bold blue][/dim]")
+        self.console.print()
+        agent_info = f"  - [bright_blue]{self.agent.name}[/bright_blue]"
+        if hasattr(self.agent, 'models') and self.agent.models:
+            model = self.agent.models[0] if isinstance(self.agent.models, list) else self.agent.models
+            agent_info = f"[dim]  • [bold]{model}[/bold][/dim]"
+        self.console.print(agent_info)
+
+    def _print_greeting_team(self, team):
+        self.console.print("[dim][bold blue]-- TEAM -------------------------------------------------------------[/bold blue][/dim]")
+        self.console.print()
+        for agent in team.agents.values():
+            agent_info = f"  - [bright_blue]{agent.name}[/bright_blue]"
+            if hasattr(agent, 'models') and agent.models:
+                model = agent.models[0] if isinstance(agent.models, list) else agent.models
+                agent_info += f"\n    - [dim]{model}[/dim]"
+            if hasattr(agent, 'description') and agent.description:
+                agent_info += f"\n    - [dim]{agent.description}[/dim]"
+            self.console.print(agent_info)
+        self.console.print()
+
     async def print_greeting(self):
+        from ..agent import Agent
+        from ..team import Team
+
         self.console.print("[purple]Aristotle © 2025[/purple]")
         print_banner(self.console)
         self.console.print()
@@ -266,15 +291,11 @@ class ReplUI:
             "[bold italic dim]Pantheon-CLI is a research project, use with caution.[/bold italic dim]"
         )
         self.console.print()
-        
-        # Agent info in a compact format
-        self.console.print("[dim][bold blue]-- MODEL ------------------------------------------------------------[/bold blue][/dim]")
-        self.console.print()
-        agent_info = f"  - [bright_blue]{self.agent.name}[/bright_blue]"
-        if hasattr(self.agent, 'models') and self.agent.models:
-            model = self.agent.models[0] if isinstance(self.agent.models, list) else self.agent.models
-            agent_info = f"[dim]  • [bold]{model}[/bold][/dim]"
-        self.console.print(agent_info)
+
+        if isinstance(self.agent, Agent):
+            self._print_greeting_agent(self.agent)
+        elif isinstance(self.agent, Team):
+            self._print_greeting_team(self.agent)
 
         self.console.print()
         self.console.print("[dim][bold blue]-- HELP -------------------------------------------------------------[/bold blue][/dim]")
