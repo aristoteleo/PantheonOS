@@ -28,11 +28,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-          -v ${{ github.workspace }}/nats-ws.conf:/nats-server.conf:ro
-        command:
-          - nats-server
-          - -c
-          - /nats-server.conf
+          -v ${{ github.workspace }}/nats-ws.conf:/etc/nats/nats-server.conf:ro
 
     steps:
       - uses: actions/checkout@v4
