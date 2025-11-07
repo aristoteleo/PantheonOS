@@ -329,6 +329,17 @@ class PythonInterpreterToolSet(ToolSet):
         del self.jobs[interpreter_id]
         self.engine.jobs.remove(job)
 
+    @tool
+    async def list_interpreters(self) -> list[dict]:
+        """List all interpreters."""
+        return [
+            {
+                "id": interpreter_id,
+                "status": job.status,
+            }
+            for interpreter_id, job in self.jobs.items()
+        ]
+
     async def run_setup(self):
         """Setup the toolset before running it."""
         logger.warning(
