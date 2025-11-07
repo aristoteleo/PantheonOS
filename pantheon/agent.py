@@ -298,6 +298,7 @@ class Agent:
             The instructions are the system instructions that the agent will follow.
         model: The model to use for the agent.
             Can be a single model or list of fallback models.
+        model_params: The additional parameters for the model(LLM).
         icon: The icon to use for the agent.
         tools: The tools to use for the agent.
         response_format: The response format to use for the agent.
@@ -316,6 +317,7 @@ class Agent:
         name: str,
         instructions: str,
         model: str | list[str] = DEFAULT_MODEL,
+        model_params: dict | None = None,
         icon: str = "🤖",
         tools: list[Callable] | None = None,
         response_format: Any | None = None,
@@ -333,6 +335,7 @@ class Agent:
         self.description = description
         if not model:
             model = DEFAULT_MODEL
+        self.model_params = model_params or {}
         if isinstance(model, str):
             self.models = [model]
             if model != DEFAULT_MODEL:
@@ -912,6 +915,7 @@ class Agent:
                 tools=tools,
                 response_format=response_format,
                 process_chunk=enhanced_process_chunk,
+                model_params=self.model_params,
             )
 
         # Step 8: Add metadata to message

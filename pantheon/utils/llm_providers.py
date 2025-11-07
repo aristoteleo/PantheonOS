@@ -218,6 +218,7 @@ async def call_llm_provider(
     tools: list[dict] | None = None,
     response_format: Any | None = None,
     process_chunk: Callable | None = None,
+    model_params: dict | None = None,
 ) -> dict:
     """Call LLM provider with unified interface.
 
@@ -232,6 +233,7 @@ async def call_llm_provider(
         tools: Tool/function definitions
         response_format: Response format specification
         process_chunk: Optional chunk processor
+        model_params: Additional parameters for calling the LLM provider
 
     Returns:
         Extracted and cleaned message dictionary
@@ -252,6 +254,7 @@ async def call_llm_provider(
             response_format=response_format,
             process_chunk=process_chunk,
             base_url=config.base_url or "https://open.bigmodel.cn/api/paas/v4/",
+            model_params=model_params,
         )
         error_prefix = "Zhipu AI"
 
@@ -263,6 +266,7 @@ async def call_llm_provider(
             response_format=response_format,
             process_chunk=process_chunk,
             base_url=config.base_url,
+            model_params=model_params,
         )
         error_prefix = "OpenAI"
 
@@ -274,6 +278,7 @@ async def call_llm_provider(
             response_format=response_format,
             process_chunk=process_chunk,
             base_url=config.base_url,
+            model_params=model_params,
         )
         error_prefix = "LiteLLM"
 

@@ -15,6 +15,7 @@ async def acompletion_openai(
         process_chunk: Callable | None = None,
         retry_times: int = 3,
         base_url: str | None = None,
+        model_params: dict | None = None,
         ):
     from openai import AsyncOpenAI, NOT_GIVEN, APIConnectionError
 
@@ -34,6 +35,7 @@ async def acompletion_openai(
             messages=messages,
             tools=_tools,
             response_format=response_format or {"type": "text"},
+            **model_params
         )
     else:
         stream_manager = client.beta.chat.completions.stream(
@@ -42,6 +44,7 @@ async def acompletion_openai(
             tools=_tools,
             parallel_tool_calls=_pcall,
             response_format=response_format or {"type": "text"},
+            **model_params
         )
 
     while retry_times > 0:
@@ -93,6 +96,7 @@ async def acompletion_zhipu(
         process_chunk: Callable | None = None,
         retry_times: int = 3,
         base_url: str = "https://open.bigmodel.cn/api/paas/v4/",
+        model_params: dict | None = None,
         ):
     """
     Zhipu AI (智谱AI) completion using OpenAI-compatible API format
@@ -120,7 +124,8 @@ async def acompletion_zhipu(
                 messages=messages,
                 tools=_tools,
                 response_format=response_format,
-                stream=True
+                stream=True,
+                **model_params
             )
             
             collected_messages = []
@@ -188,6 +193,7 @@ async def acompletion_litellm(
         response_format: Any | None = None,
         process_chunk: Callable | None = None,
         base_url: str | None = None,
+        model_params: dict | None = None,
         ):
     litellm = import_litellm()
     
@@ -199,6 +205,8 @@ async def acompletion_litellm(
         "response_format": response_format,
         "stream": True,
     }
+    if model_params:
+        kwargs.update(**model_params)
     
     # Add base_url if provided (litellm uses api_base parameter)
     if base_url:

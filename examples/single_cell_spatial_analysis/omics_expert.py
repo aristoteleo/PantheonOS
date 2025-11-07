@@ -8,6 +8,7 @@ from pantheon.agent import Agent
 from pantheon.toolsets.python import PythonInterpreterToolSet
 from pantheon.toolsets.scraper import ScraperToolSet
 from pantheon.toolsets.file_manager import FileManagerToolSet
+from pantheon.team.aat import AgentAsToolTeam
 
 instructions = """
 You are an AI-agent for analyzing single-cell/Spatial Omics data.
@@ -67,7 +68,10 @@ Always try to create a `workdir` and keep results in the `workdir`.
 omics_expert = Agent(
     name="omics_expert",
     instructions=instructions,
-    model="gpt-5"
+    model="gpt-5",
+    model_params={
+        "reasoning_effort": "high",
+    }
 )
 
 
