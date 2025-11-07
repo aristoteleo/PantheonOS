@@ -259,9 +259,14 @@ async def call_llm_provider(
         error_prefix = "Zhipu AI"
 
     elif config.provider_type == ProviderType.OPENAI:
+        # LiteLLM requires explicit provider prefixes for models it cannot auto-detect.
+        # Ensure OpenAI models include the provider namespace to avoid BadRequestError.
+        model_name = config.model_name
+        if "/" not in model_name:
+            model_name = f"{config.provider_type.value}/{model_name}"
         complete_resp = await acompletion_litellm(
             messages=messages,
-            model=config.model_name,
+            model=model_name,
             tools=tools,
             response_format=response_format,
             process_chunk=process_chunk,

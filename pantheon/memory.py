@@ -5,6 +5,8 @@ from uuid import uuid4
 from .utils.llm import process_messages_for_store
 from .utils.log import logger
 
+_ALL_CONTEXTS = object()
+
 
 # FIX: other memory implimentaion?
 class Memory:
@@ -77,14 +79,29 @@ class Memory:
         messages = process_messages_for_store(messages)
         self._messages.extend(messages)
 
-    def get_messages(self):
+    def get_messages(self, execution_context_id=_ALL_CONTEXTS):
         """
         Get the messages from the memory.
 
         Returns:
             The messages from the memory.
         """
-        return self._messages
+        if execution_context_id is _ALL_CONTEXTS:
+            return list(self._messages)
+
+        if execution_context_id is None:
+            filtered = [
+                msg
+                for msg in self._messages
+                if msg.get("execution_context_id") is None
+            ]
+        else:
+            filtered = [
+                msg
+                for msg in self._messages
+                if msg.get("execution_context_id") == execution_context_id
+            ]
+        return filtered
 
     def cleanup(self):
         """Cleanup the memory after the agent is interrupted."""

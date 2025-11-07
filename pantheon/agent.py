@@ -1,10 +1,12 @@
 import asyncio
+import contextlib
 import copy
 import inspect
 import json
 import sys
 import time
 from abc import ABC, abstractmethod
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Protocol, Union
 from uuid import uuid4
@@ -47,11 +49,31 @@ class ExecutionContext:
     """Prepared execution context for agent run."""
 
     conversation_history: list[dict]
-    runtime_context: dict
+    context_variables: dict
     should_use_memory: bool
     memory_instance: "Memory | None"
     execution_context_id: str | None = None
     input_messages: list[dict] | None = None
+
+
+@dataclass
+class AgentRunContext:
+    """Runtime context information for the currently executing Agent.run call."""
+
+    agent: "Agent"
+    memory: Memory | None
+    process_step_message: Callable | None
+    process_chunk: Callable | None
+
+
+_RUN_CONTEXT: ContextVar[AgentRunContext | None] = ContextVar(
+    "agent_run_context", default=None
+)
+
+
+def get_current_run_context() -> AgentRunContext | None:
+    """Get the runtime context for the current Agent.run invocation."""
+    return _RUN_CONTEXT.get()
 
 
 # ===== Tool Provider Base Class =====
@@ -267,8 +289,6 @@ class AgentTransfer(BaseModel):
     history: list[dict]
     context_variables: dict
     init_message_length: int
-    instruction: str = ""  # NEW: Task description for call_agent delegation
-    execution_context_id: str | None = None  # NEW: Context ID for message filtering
     tool_call_id: str | None = None
 
 
@@ -372,6 +392,37 @@ class Agent:
 
         # System prompt mode
         self.system_prompt_mode = system_prompt_mode
+
+    @staticmethod
+    def _filter_messages_by_execution_context(
+        messages: list[dict], execution_context_id: str | None
+    ) -> list[dict]:
+        if not messages:
+            return []
+        if execution_context_id is None:
+            return [msg for msg in messages if msg.get("execution_context_id") is None]
+        return [
+            msg
+            for msg in messages
+            if msg.get("execution_context_id") == execution_context_id
+        ]
+
+    @staticmethod
+    def _sanitize_messages(messages: list[dict]) -> list[dict]:
+        """Drop messages missing a role before sending to the LLM."""
+        if not messages:
+            return []
+
+        cleaned: list[dict] = []
+        for msg in messages:
+            role = msg.get("role")
+            if role is None or (isinstance(role, str) and not role.strip()):
+                logger.warning("Dropping message without role: %s", msg)
+                continue
+
+            cleaned.append(msg)
+
+        return cleaned
 
     @property
     def functions(self) -> dict[str, Callable]:
@@ -608,6 +659,7 @@ class Agent:
         prefixed_name: str,
         args: dict,
         context_variables: dict | None = None,
+        tool_call_id: str | None = None,
     ) -> Any:
         """Call a tool by prefixed name, with conditional context_variables injection.
 
@@ -640,12 +692,14 @@ class Agent:
             # Build complete context_variables with execution metadata
             full_context_variables = context_variables.copy()
             full_context_variables["agent_name"] = self.name
+            if tool_call_id is not None:
+                full_context_variables["tool_call_id"] = tool_call_id
+            # add _call_agent callback
+            full_context_variables["_call_agent"] = _call_agent
             # remove call_* variables injected for debug
             for k in list(full_context_variables.keys()):
                 if k.startswith("call_"):
                     del full_context_variables[k]
-            # add _call_agent callback
-            full_context_variables["_call_agent"] = _call_agent
             # Merge with any existing context_variables in args
             if _CTX_VARS_NAME in args:
                 existing = args[_CTX_VARS_NAME]
@@ -751,54 +805,61 @@ class Agent:
     ) -> list[dict]:
         tool_messages = []
 
-        # Unified tool calling with support for both base functions and provider tools
-        for call in tool_calls:
-            try:
-                func_name = call["function"]["name"]
-                params = json.loads(call["function"]["arguments"]) or {}
-
-                # Use unified call_tool() method for all tool calls
-                # This method handles:
-                # 1. Conditional context variable injection (ToolSet, ToolSetProvider, explicit params)
-                # 2. Prefix-based routing for provider tools (e.g., mcp__search_docs)
-                # 3. Proper error handling
-                start_time = time.time()
-                task = asyncio.create_task(
-                    self.call_tool(func_name, params, context_variables)
+        async def _run_single_tool_call(call: dict) -> dict:
+            func_name = call["function"]["name"]
+            params = json.loads(call["function"]["arguments"]) or {}
+            tool_call_id = call["id"]
+            allow_timeout = func_name != "call_agent"
+            start_time = time.time()
+            call_task = asyncio.create_task(
+                self.call_tool(
+                    func_name, params, context_variables, tool_call_id=tool_call_id
                 )
+            )
+
+            try:
+                result: Any
                 while True:
-                    if task.done() or (task.cancelled()):
-                        result = task.result()
+                    done, _ = await asyncio.wait(
+                        {call_task},
+                        timeout=time_delta,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if call_task in done:
+                        result = call_task.result()
                         break
-                    else:
-                        logger.debug("Check stop when tool calling")
-                        if timeout is not None:
-                            if time.time() - start_time > timeout:
-                                raise asyncio.TimeoutError()
-                        if check_stop is not None:
-                            if check_stop(time.time() - start_time):
-                                raise StopRunning()
-                        await asyncio.sleep(time_delta)
+
+                    logger.debug("Check stop when tool calling")
+                    elapsed = time.time() - start_time
+                    if allow_timeout and timeout is not None and elapsed > timeout:
+                        call_task.cancel()
+                        raise asyncio.TimeoutError()
+                    if check_stop is not None and check_stop(elapsed):
+                        call_task.cancel()
+                        raise StopRunning()
+                context_variables[tool_call_id] = result
             except StopRunning:
                 raise
             except Exception as e:
+                if not call_task.done():
+                    call_task.cancel()
+                    with contextlib.suppress(Exception):
+                        await call_task
                 result = repr(e)
+                context_variables[tool_call_id] = result
 
-            context_variables[call["id"]] = result
-            # Generate unique id for each tool message
-            tool_message_id = str(uuid4())
             end_timestamp = time.time()
             execution_duration = end_timestamp - start_time
 
             tool_message = {
                 "role": "tool",
                 "tool_name": func_name,
-                "id": tool_message_id,
-                "tool_call_id": call["id"],
-                "timestamp": end_timestamp,  # 保持兼容性
-                "start_timestamp": start_time,  # 新增：开始时间
-                "end_timestamp": end_timestamp,  # 新增：结束时间
-                "execution_duration": execution_duration,  # 新增：执行时长（秒）
+                "id": str(uuid4()),
+                "tool_call_id": tool_call_id,
+                "timestamp": end_timestamp,
+                "start_timestamp": start_time,
+                "end_timestamp": end_timestamp,
+                "execution_duration": execution_duration,
             }
 
             if isinstance(result, (Agent, RemoteAgent)):
@@ -809,10 +870,9 @@ class Agent:
                     }
                 )
             else:
-                if isinstance(result, dict):
-                    processed_result = remove_hidden_fields(result)
-                else:
-                    processed_result = result
+                processed_result = (
+                    remove_hidden_fields(result) if isinstance(result, dict) else result
+                )
                 content = repr(processed_result)
                 if self.max_tool_content_length is not None:
                     content = content[: self.max_tool_content_length]
@@ -822,7 +882,19 @@ class Agent:
                         "content": content,
                     }
                 )
-            tool_messages.append(tool_message)
+
+            return tool_message
+
+        tasks = [
+            asyncio.create_task(_run_single_tool_call(call)) for call in tool_calls
+        ]
+        try:
+            tool_messages = await asyncio.gather(*tasks)
+        except Exception:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            raise
 
         return tool_messages
 
@@ -1004,20 +1076,6 @@ class Agent:
         history = copy.deepcopy(messages)
         tool_timeout = tool_timeout or self.tool_timeout
 
-        if history and any("execution_context_id" in msg for msg in history):
-            # History contains messages with execution_context_id, need to filter
-            filtered_messages = []
-            for msg in history:
-                if execution_context_id is not None:
-                    # Sub-agent: only include messages tagged with our execution_context_id
-                    if msg.get("execution_context_id") == execution_context_id:
-                        filtered_messages.append(msg)
-                else:
-                    # Inline agent: only include messages without execution_context_id
-                    if msg.get("execution_context_id") is None:
-                        filtered_messages.append(msg)
-            history = filtered_messages
-
         system_prompt = build_system_prompt(
             self.instructions,
             plan_mode=self.plan_mode,
@@ -1053,15 +1111,11 @@ class Agent:
         else:
             Response = None
 
-        if check_stop is not None:
-
-            async def _process_chunk(chunk: dict):
-                if process_chunk is not None:
-                    await run_func(process_chunk, chunk)
-                if check_stop():
-                    raise StopRunning()
-        else:
-            _process_chunk = process_chunk
+        async def _process_chunk(chunk: dict):
+            if process_chunk is not None:
+                await run_func(process_chunk, chunk)
+            if check_stop is not None and check_stop(chunk):
+                raise StopRunning()
 
         while len(history) - init_len < max_turns:
             message = await self._acompletion_with_models(
@@ -1148,48 +1202,9 @@ class Agent:
             execution_context_id=execution_context_id,  # NEW: Pass context ID through response
         )
 
-    async def _create_delegation_task_message(
-        self,
-        transfer: AgentTransfer,
-        execution_context_id: str | None = None,
-    ) -> dict | None:
-        """Create task context message for call_agent delegation with summary."""
-        if not transfer.instruction:
-            return None
-
-        # Generate summary if execution_context_id is provided (call_agent delegation)
-        summary_text = None
-        if execution_context_id and transfer.history:
-            try:
-                from .chatroom.special_agents import get_summary_generator
-
-                summary_gen = get_summary_generator()
-                summary_text = await summary_gen.generate_summary(
-                    transfer.history, max_tokens=1000
-                )
-            except Exception as e:
-                logger.warning(f"Failed to generate summary for delegation: {e}")
-
-        # Merge summary and instruction for context isolation
-        content_parts = []
-        if summary_text:
-            content_parts.append(f"Context Summary:\n{summary_text}")
-        content_parts.append(f"Task: {transfer.instruction}")
-        combined_content = "\n\n".join(content_parts)
-
-        return {
-            "role": "user",
-            "content": combined_content,
-            "timestamp": time.time(),
-            "id": str(uuid4()),
-            "execution_context_id": transfer.execution_context_id,
-        }
-
     async def _input_to_openai_messages(
         self,
         msg: AgentInput,
-        execution_context_id: str
-        | None = None,  # NEW: Context ID for generating summary
     ) -> list[dict]:
         """Convert input to OpenAI message format.
 
@@ -1204,7 +1219,6 @@ class Agent:
 
         Args:
             msg: The input message (user input types, not AgentTransfer)
-            execution_context_id: Context ID for generating summary in delegation
 
         Returns:
             List of message dicts in OpenAI format
@@ -1264,26 +1278,6 @@ class Agent:
 
         return converted_messages
 
-    def _merge_with_memory(
-        self,
-        input_messages: list[dict],
-        memory: Memory | None,
-        use_memory: bool,
-    ) -> list[dict]:
-        """Merge input messages with memory if enabled.
-
-        Note: No cleanup is performed. In flat memory model, all messages
-        are preserved as they represent the complete history. Agents filter
-        messages by execution_context_id to get their relevant context.
-        """
-        if not use_memory or not memory:
-            return input_messages
-
-        # Preserve complete history - cleanup() violated flat memory principles
-        # by deleting messages that are part of the true history
-        historical_messages = memory.get_messages()
-        return historical_messages + input_messages
-
     async def _prepare_execution_context(
         self,
         msg: AgentInput,
@@ -1306,34 +1300,35 @@ class Agent:
 
         if isinstance(msg, AgentTransfer):
             # Delegation path: use transfer's history and context
-            conversation_history = msg.history
-            runtime_context = msg.context_variables
-
-            # If instruction provided (from call_agent delegation), create task context message
-            if msg.instruction:
-                task_msg = await self._create_delegation_task_message(
-                    msg, execution_context_id=execution_context_id
-                )
-                if task_msg:
-                    # Only use task_msg, discard conversation_history from parent
-                    # because _run_stream filtering will exclude messages without matching execution_context_id
-                    conversation_history = [task_msg]
-                    # Set input_messages for call_agent case for proper message processing
-                    input_messages = [task_msg]
-            # For transfer_to_* (no instruction), tool_message will be created in team.py
+            conversation_history = self._filter_messages_by_execution_context(
+                msg.history, execution_context_id
+            )
+            conversation_history = self._sanitize_messages(conversation_history)
+            context_variables = msg.context_variables
         else:
             # User input path: convert input to messages
-            input_messages = await self._input_to_openai_messages(
-                msg, execution_context_id=execution_context_id
+            input_messages = await self._input_to_openai_messages(msg)
+            conversation_history = (
+                memory.get_messages(execution_context_id=execution_context_id)
+                if (use_memory and memory)
+                else []
             )
-            conversation_history = self._merge_with_memory(
-                input_messages, memory_instance, should_use_memory
-            )
-            runtime_context = context_variables or {}
+            conversation_history += input_messages
+            conversation_history = self._sanitize_messages(conversation_history)
+
+        # preserve execution_context_id if tool need
+        context_variables = context_variables or {}
+        if execution_context_id is not None:
+            context_variables["execution_context_id"] = execution_context_id
+        # preserve client_id from context_variables or memory
+        context_variables[_CLIENT_ID_NAME] = context_variables.get(
+            _CLIENT_ID_NAME,
+            memory_instance.id if memory else "",
+        )
 
         return ExecutionContext(
             conversation_history=conversation_history,
-            runtime_context=runtime_context,
+            context_variables=context_variables or {},
             execution_context_id=execution_context_id,
             should_use_memory=should_use_memory,
             memory_instance=memory_instance,
@@ -1400,11 +1395,6 @@ class Agent:
         # Prepare response format
         response_format_to_use = response_format or self.response_format
 
-        # Add client ID to runtime context
-        exec_context.runtime_context[_CLIENT_ID_NAME] = (
-            exec_context.memory_instance.id if exec_context.memory_instance else ""
-        )
-
         # ============ Unified message processing: Always detect attachments ============
         async def _process_step_message(step_message: dict):
             # Get execution_context_id from ExecutionContext
@@ -1419,18 +1409,31 @@ class Agent:
             if process_step_message is not None:
                 await run_func(process_step_message, step_message)
 
+        async def _process_chunk(chunk: dict):
+            if exec_context.execution_context_id is not None:
+                chunk["execution_context_id"] = exec_context.execution_context_id
+            if process_chunk is not None:
+                await run_func(process_chunk, chunk)
+
         # now user input also goes through the pipeline
         # all messages: (user input, sub agent mock user input, sub agent transfer tool response)
         for msg in exec_context.input_messages or []:
             await _process_step_message(msg)
 
         try:
+            run_context = AgentRunContext(
+                agent=self,
+                memory=exec_context.memory_instance,
+                process_step_message=_process_step_message,
+                process_chunk=_process_chunk,
+            )
+            token = _RUN_CONTEXT.set(run_context)
             run_result = await self._run_stream(
                 messages=exec_context.conversation_history,
                 response_format=response_format_to_use,
                 tool_use=tool_use,
-                context_variables=exec_context.runtime_context,
-                process_chunk=process_chunk,
+                context_variables=exec_context.context_variables,
+                process_chunk=_process_chunk,
                 process_step_message=_process_step_message,
                 check_stop=check_stop,
                 tool_timeout=tool_timeout,
@@ -1448,6 +1451,9 @@ class Agent:
                 details=None,
                 interrupt=True,
             )
+        finally:
+            if "token" in locals():
+                _RUN_CONTEXT.reset(token)
 
         # Handle response - could be AgentTransfer or ResponseDetails
         if isinstance(run_result, AgentTransfer):
@@ -1504,24 +1510,6 @@ async def _detect_attachments(step_message: dict) -> None:
         step_message["detected_attachments"] = processed.get("detected_attachments", [])
     except Exception as e:
         logger.warning(f"Error in attachment detection: {e}")
-
-
-def filter_inline_messages(messages: list[dict]) -> list[dict]:
-    """Filter out sub-agent messages, keeping only inline agent messages."""
-    inline_messages = []
-
-    for msg in messages:
-        # Always keep system messages - they apply to all agents
-        if msg.get("role") == "system":
-            inline_messages.append(msg)
-            continue
-
-        # Keep messages without execution_context_id (inline agent messages)
-        # Skip messages with execution_context_id (sub-agent messages)
-        if msg.get("execution_context_id") is None:
-            inline_messages.append(msg)
-
-    return inline_messages
 
 
 async def _call_agent(
