@@ -1,6 +1,13 @@
+import time
 import uuid
 
-from ..agent import Agent, AgentInput, AgentResponse, AgentTransfer, RemoteAgent
+from ..agent import (
+    Agent,
+    AgentInput,
+    AgentTransfer,
+    RemoteAgent,
+    get_current_run_context,
+)
 from ..constant import SystemPromptMode
 from ..memory import Memory
 from ..utils.log import logger
@@ -53,10 +60,6 @@ class PantheonTeam(Team):
         # Mark which agents are inline vs sub (used to determine tool availability)
         self._inline_agent_names: set[str] = {a.name for a in inline_agents}
         self._sub_agent_names: set[str] = {a.name for a in self.sub_agents}
-        # Call stack stores dicts with delegation context for proper return routing and message filtering
-        # Each entry: {"caller_name": str, "instruction": str, "execution_context_id": str, "timestamp": float}
-        self._call_stack: list[dict] = []
-
         # Determine which features to enable based on team composition
         self.has_transfer_agents = len(inline_agents) > 1  # More than just one agent
         self.has_sub_agents = len(self.sub_agents) > 0
@@ -166,9 +169,12 @@ class PantheonTeam(Team):
             calling_agent: Agent | RemoteAgent,
         ):
             """Add call_agent() tool to an inline agent."""
-            calling_agent_name = calling_agent.name
 
-            def call_agent(agent_name: str, instruction: str):
+            async def call_agent(
+                agent_name: str,
+                instruction: str,
+                context_variables: dict | None = None,
+            ):
                 """Delegate a task to a sub-agent in the team.
 
                 Args:
@@ -176,47 +182,79 @@ class PantheonTeam(Team):
                     instruction: Clear task description for the target agent
 
                 Returns:
-                    Agent instance (triggers transfer and execution)
+                    Response content produced by the delegated sub-agent.
                 """
-                # real agent name is like : Data Analyst, but the llm may call with data_analyst
-                all_agents = {
-                    aname.replace(" ", "_").lower(): agent
-                    for aname, agent in self.agents.items()
-                }
-                agent_name = agent_name.replace(" ", "_").lower()
-                # Validate agent exists and is a sub-agent
-                if agent_name not in all_agents:
-                    raise ValueError(
-                        f"Agent '{agent_name}' not found. Available agents: {list(all_agents.keys())}"
+                target_agent = self.get_taget_agent(agent_name, instruction)
+                run_context = get_current_run_context()
+                if run_context is None:
+                    raise RuntimeError(
+                        "call_agent must be executed within an active agent tool call"
                     )
 
-                if not instruction or not instruction.strip():
-                    raise ValueError("Instruction cannot be empty")
+                context_variables = dict(context_variables or {})
+                context_variables.setdefault("parent_agent", run_context.agent.name)
 
-                # Track the call in the call stack for proper return routing
-                # Note: call_id will be set by the LLM tool calling mechanism (call["id"])
-                # We store it when we receive the tool call result
-                from uuid import uuid4
+                parent_step_hook = run_context.process_step_message
+                parent_chunk_hook = run_context.process_chunk
 
-                self._call_stack.append(
-                    {
-                        "caller_name": calling_agent_name,
-                        "instruction": instruction,
-                        "tool_call_id": None,  # Will be set when tool call is processed
-                        "execution_context_id": f"ctx_{str(uuid4())[:12]}",  # NEW: Context ID for message filtering
-                        "timestamp": __import__("time").time(),
-                    }
+                def update_metadata(data: dict):
+                    metadata = dict(data.get("metadata") or {})
+                    metadata["tool_call_id"] = context_variables.get("tool_call_id")
+                    metadata["parent_agent"] = run_context.agent.name
+                    metadata["sub_agent"] = target_agent.name
+                    data["metadata"] = metadata
+
+                async def wrapped_step(step_message: dict):
+                    update_metadata(step_message)
+                    if parent_step_hook is not None:
+                        await run_func(parent_step_hook, step_message)
+
+                async def wrapped_chunk(chunk: dict):
+                    update_metadata(chunk)
+                    if parent_chunk_hook is not None:
+                        await run_func(parent_chunk_hook, chunk)
+
+                # Build history summary for sub-agent task message
+
+                task_message = await create_delegation_task_message(
+                    history=run_context.memory.get_messages(None)
+                    if run_context.memory
+                    else [],
+                    instruction=instruction,
+                )
+                if task_message is None:
+                    return ""
+
+                execution_context_id = f"ctx_{str(uuid.uuid4())[:12]}"
+                child_memory = Memory(
+                    name=f"{target_agent.name}-{execution_context_id}"
+                )
+                response = await target_agent.run(
+                    [task_message],
+                    memory=child_memory,
+                    use_memory=False,
+                    update_memory=False,
+                    process_step_message=wrapped_step,
+                    process_chunk=wrapped_chunk,
+                    execution_context_id=execution_context_id,
+                    context_variables=context_variables,
+                    allow_transfer=False,
                 )
 
-                # Return the target agent instance (triggers transfer in team.run())
-                return all_agents[agent_name]
+                if isinstance(response, AgentTransfer):
+                    raise RuntimeError(
+                        "Sub-agent attempted to transfer execution, which is disabled "
+                        "during call_agent delegated runs."
+                    )
+
+                content = response.content if response else ""
+                return content
 
             # Set proper function metadata for LLM
             call_agent.__name__ = "call_agent"
             call_agent.__doc__ = (
                 "Delegate a task to a sub-agent in the team. "
-                "Pass the agent_name and clear instruction describing what to do. "
-                "The instruction will be passed to the sub-agent as context."
+                "Pass the agent_name and clear instruction describing context, what to do and the desired output. "
             )
 
             # Register tool
@@ -282,85 +320,81 @@ class PantheonTeam(Team):
             memory = Memory(name="pantheon-team")
         while True:
             active_agent = self.get_active_agent(memory)
-            # Pass execution_context_id from call stack if delegating via call_agent
-            current_context_id = None
-            if self._call_stack:
-                current_context_id = self._call_stack[-1].get("execution_context_id")
-
-            resp = await active_agent.run(
-                msg, memory=memory, execution_context_id=current_context_id, **kwargs
-            )
+            resp = await active_agent.run(msg, memory=memory, **kwargs)
             if isinstance(resp, AgentTransfer):
-                # Unified transfer handling in team.py
-                # Two cases:
-                # 1. call_agent delegation (has call_stack): will create tool_message after sub-agent completes
-                # 2. transfer_to_* (no call_stack): create tool_message now and continue loop
-
-                if self._call_stack:
-                    # call_agent delegation case
-                    delegation_context = self._call_stack[-1]
-                    instruction = delegation_context["instruction"]
-                    logger.info(
-                        f"[CALL_AGENT] {active_agent.name} -> {resp.to_agent} | tool_call_id: {resp.tool_call_id}"
-                    )
-                    logger.info(
-                        f"  instruction: {instruction[:100]}..."
-                        if len(instruction) > 100
-                        else f"  instruction: {instruction}"
-                    )
-                    # Attach context to the transfer - receiving agent knows what task and context
-                    resp.instruction = instruction
-                    resp.execution_context_id = delegation_context[
-                        "execution_context_id"
-                    ]
-                    # Store the original call_id from the AgentTransfer
-                    # This will be used when creating the tool_message after sub-agent completes
-                    if resp.tool_call_id:
-                        delegation_context["tool_call_id"] = resp.tool_call_id
-
-                    self.set_active_agent(memory, resp.to_agent)
-                    msg = resp
-                else:
-                    # transfer_to_* case: create tool_message to respond to the tool_call
-                    logger.info(
-                        f"[TRANSFER] {active_agent.name} -> {resp.to_agent} | tool_call_id: {resp.tool_call_id}"
-                    )
-                    tool_message = {
-                        "role": "tool",
-                        "tool_call_id": resp.tool_call_id
-                        or ("call_" + str(uuid.uuid4())[:20]),
-                        "tool_name": "transfer",
-                        "content": resp.to_agent,
-                    }
-                    # Switch to target agent and continue loop with tool_message
-                    self.set_active_agent(memory, resp.to_agent)
-                    msg = tool_message
+                transfer_call_id = resp.tool_call_id
+                logger.info(
+                    f"[TRANSFER] {active_agent.name} -> {resp.to_agent} | tool_call_id: {transfer_call_id}"
+                )
+                tool_message = {
+                    "role": "tool",
+                    "tool_call_id": transfer_call_id
+                    or ("call_" + str(uuid.uuid4())[:20]),
+                    "tool_name": "transfer",
+                    "content": resp.to_agent,
+                }
+                # Switch to target agent and continue loop with tool_message
+                self.set_active_agent(memory, resp.to_agent)
+                msg = tool_message
             else:
-                # Sub-agent completed and returned AgentResponse
-                if self._call_stack:
-                    delegation_context = self._call_stack.pop()
-                    caller_name = delegation_context["caller_name"]
-                    call_id = delegation_context.get("tool_call_id")
-                    response_content = str(resp.content) if resp else ""
+                return resp
 
-                    logger.info(
-                        f"[CALL_AGENT_RESPONSE] {active_agent.name} -> {caller_name} | tool_call_id: {call_id}"
-                    )
-                    logger.info(
-                        f"  response: {response_content[:100]}..."
-                        if len(response_content) > 100
-                        else f"  response: {response_content}"
-                    )
-                    tool_message = {
-                        "role": "tool",
-                        "tool_call_id": call_id or ("call_" + str(uuid.uuid4())[:20]),
-                        "tool_name": "call_agent",
-                        "content": response_content,
-                    }
+    def get_taget_agent(self, agent_name: str, instruction: str) -> Agent:
+        # real agent name is like : Data Analyst, but the llm may call with data_analyst
+        all_agents = {
+            aname.replace(" ", "_").lower(): agent
+            for aname, agent in self.agents.items()
+        }
+        agent_name = agent_name.replace(" ", "_").lower()
+        # Validate agent exists and is a sub-agent
+        if agent_name not in all_agents:
+            raise ValueError(
+                f"Agent '{agent_name}' not found. Available agents: {list(all_agents.keys())}"
+            )
 
-                    # Switch back to caller
-                    self.set_active_agent(memory, caller_name)
+        if not instruction or not instruction.strip():
+            raise ValueError("Instruction cannot be empty")
 
-                    msg = tool_message
-                else:
-                    return resp
+        target_agent = all_agents[agent_name]
+        if target_agent.name not in self._sub_agent_names:
+            raise ValueError(
+                f"Agent '{agent_name}' is not a sub-agent. "
+                f"Sub-agents: {sorted(self._sub_agent_names)}"
+            )
+        if not isinstance(target_agent, Agent):
+            raise NotImplementedError(
+                "call_agent currently supports only local Agent instances"
+            )
+        return target_agent
+
+
+async def create_delegation_task_message(
+    history: list[dict],
+    instruction: str,
+) -> dict | None:
+    """Create a delegated task message with optional summary context."""
+    if not instruction:
+        return None
+
+    summary_text = None
+    if history:
+        try:
+            from ..chatroom.special_agents import get_summary_generator
+
+            summary_gen = get_summary_generator()
+            summary_text = await summary_gen.generate_summary(history, max_tokens=1000)
+        except Exception as e:
+            logger.warning(f"Failed to generate summary for delegation: {e}")
+
+    content_parts = []
+    if summary_text:
+        content_parts.append(f"Context Summary:\n{summary_text}")
+    content_parts.append(f"Task: {instruction}")
+    combined_content = "\n\n".join(content_parts)
+
+    return {
+        "role": "user",
+        "content": combined_content,
+        "timestamp": time.time(),
+        "id": str(uuid.uuid4()),
+    }

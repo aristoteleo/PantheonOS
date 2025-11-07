@@ -951,7 +951,7 @@ class ChatRoom(ToolSet):
         try:
             # Get chat memory directly from memory manager
             memory = await run_func(self.memory_manager.get_memory, chat_id)
-            messages = memory.get_messages()
+            messages = memory.get_messages(None)
 
             if len(messages) < 2:
                 return {

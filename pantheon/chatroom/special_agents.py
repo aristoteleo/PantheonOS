@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from ..agent import Agent, filter_inline_messages
+from ..agent import Agent
 from ..memory import Memory
 from ..utils.log import logger
 
@@ -228,9 +228,7 @@ Rules:
             List of suggested questions
         """
         # Filter out sub-agent messages - only use inline agent messages for suggestions
-        inline_messages = filter_inline_messages(messages)
-
-        # Check if we have enough messages for suggestions
+        inline_messages = messages
         if len(inline_messages) < 2:
             return []
 
@@ -361,10 +359,7 @@ class ChatNameGenerator:
 
     async def generate_or_update_name(self, memory: Memory) -> str:
         """Generate or update chat name - simplified logic"""
-        all_messages = memory.get_messages()
-
-        # Filter out sub-agent messages - only use inline agent messages for chat name
-        inline_messages = filter_inline_messages(all_messages)
+        inline_messages = memory.get_messages(None)
 
         # Only generate after first conversation (2+ messages)
         if len(inline_messages) < 2:
