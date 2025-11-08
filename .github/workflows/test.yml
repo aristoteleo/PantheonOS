@@ -24,7 +24,7 @@ jobs:
           - 8080:8080
           - 8222:8222
         options: >-
-          --health-cmd "nc -z localhost 4222 || exit 1"
+          --health-cmd "curl -f http://localhost:8222/varz || exit 1"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
