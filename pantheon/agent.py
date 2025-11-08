@@ -27,6 +27,8 @@ from .utils.llm import (
     process_messages_for_hook_func,
     process_messages_for_model,
     remove_hidden_fields,
+    count_tokens_in_messages,
+    format_token_visualization,
 )
 from .utils.llm_providers import (
     call_llm_provider,
@@ -1002,16 +1004,25 @@ class Agent:
         message["end_timestamp"] = end_timestamp
         message["generation_duration"] = total_time
 
-        # Step 9: Log timing breakdown
+        # Step 9: Log timing breakdown with visual token metrics
         timings = tracker.get_all()
-        logger.info(
-            f"📊 [Agent:{self.name}] - "
-            f"Total: {total_time:.3f}s | "
+        # Collect token statistics
+        token_info = count_tokens_in_messages(messages, model)
+        # Format visual token breakdown and warning (if needed)
+        bar_line, summary_line, warning_line = format_token_visualization(token_info)
+        # Log combined timing and token metrics
+        timing_log = (
+            f"📊 [Agent:{self.name}][{model}] \n"
+            f"⏳ Timing: Total: {total_time:.3f}s | "
             f"Message: {timings.get('message_processing', 0):.3f}s | "
             f"Begin: {timings.get('begin_chunk', 0):.3f}s | "
-            f"LLM: {timings['llm_api']:.3f}s |"
-            f"Tool: {timings.get('tools_conversion', 0):.3f}s for {len(tools or [])} tools"
+            f"LLM: {timings['llm_api']:.3f}s | "
+            f"Tool: {timings.get('tools_conversion', 0):.3f}s for {len(tools or [])} tools \n"
+            f"{bar_line}\n"
+            f"{summary_line}\n"
+            f"{warning_line}"
         )
+        logger.info(timing_log)
 
         return message
 
@@ -1310,9 +1321,13 @@ class Agent:
         else:
             # User input path: convert input to messages
             input_messages = await self._input_to_openai_messages(msg)
+            logger.debug(
+                f"Input messages: {input_messages} , memory_length: {len(memory_instance.get_messages(execution_context_id=execution_context_id))} "
+                f"raw memory_length: {len(memory_instance.get_messages())} memory_id: {memory_instance.id}"
+            )
             conversation_history = (
                 memory.get_messages(execution_context_id=execution_context_id)
-                if (use_memory and memory)
+                if (should_use_memory and memory)
                 else []
             )
             conversation_history += input_messages

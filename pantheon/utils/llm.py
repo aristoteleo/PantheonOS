@@ -1,22 +1,25 @@
 from copy import deepcopy
 import json
+import re
+import time
 import warnings
 from typing import Any, Callable
+from contextlib import asynccontextmanager
 
 from .misc import run_func
 from .log import logger
 
 
 async def acompletion_openai(
-        messages: list[dict],
-        model: str,
-        tools: list[dict] | None = None,
-        response_format: Any | None = None,
-        process_chunk: Callable | None = None,
-        retry_times: int = 3,
-        base_url: str | None = None,
-        model_params: dict | None = None,
-        ):
+    messages: list[dict],
+    model: str,
+    tools: list[dict] | None = None,
+    response_format: Any | None = None,
+    process_chunk: Callable | None = None,
+    retry_times: int = 3,
+    base_url: str | None = None,
+    model_params: dict | None = None,
+):
     from openai import AsyncOpenAI, NOT_GIVEN, APIConnectionError
 
     # Create client with custom base_url if provided
@@ -27,15 +30,15 @@ async def acompletion_openai(
     chunks = []
     _tools = tools or NOT_GIVEN
     _pcall = (tools is not None) or NOT_GIVEN
-    
+
     # Use beta API only for OpenAI reasoning models (o1, o3 series)
-    if model.startswith('o'):
+    if model.startswith("o"):
         stream_manager = client.beta.chat.completions.stream(
             model=model,
             messages=messages,
             tools=_tools,
             response_format=response_format or {"type": "text"},
-            **model_params
+            **model_params,
         )
     else:
         stream_manager = client.beta.chat.completions.stream(
@@ -44,7 +47,7 @@ async def acompletion_openai(
             tools=_tools,
             parallel_tool_calls=_pcall,
             response_format=response_format or {"type": "text"},
-            **model_params
+            **model_params,
         )
 
     while retry_times > 0:
@@ -67,20 +70,32 @@ async def acompletion_openai(
                         if first_chunk_time is None:
                             first_chunk_time = time.time()
                             ttfb = first_chunk_time - stream_start_time
-                            logger.info(f"⚡ OpenAI first chunk received: {ttfb:.3f}s (TTFB)")
+                            logger.info(
+                                f"⚡ OpenAI first chunk received: {ttfb:.3f}s (TTFB)"
+                            )
 
-                        if process_chunk and hasattr(chunk, 'choices') and chunk.choices and len(chunk.choices) > 0:
+                        if (
+                            process_chunk
+                            and hasattr(chunk, "choices")
+                            and chunk.choices
+                            and len(chunk.choices) > 0
+                        ):
                             choice = chunk.choices[0]
-                            if hasattr(choice, 'delta'):
+                            if hasattr(choice, "delta"):
                                 delta = choice.delta.model_dump()
                                 chunk_count += 1
                                 await run_func(process_chunk, delta)
-                            if hasattr(choice, 'finish_reason') and choice.finish_reason == "stop":
+                            if (
+                                hasattr(choice, "finish_reason")
+                                and choice.finish_reason == "stop"
+                            ):
                                 await run_func(process_chunk, {"stop": True})
 
                 final_message = await stream.get_final_completion()
                 total_stream_time = time.time() - stream_start_time
-                logger.info(f"✅ OpenAI stream completed: {total_stream_time:.3f}s, {chunk_count} chunks")
+                logger.info(
+                    f"✅ OpenAI stream completed: {total_stream_time:.3f}s, {chunk_count} chunks"
+                )
                 break
         except APIConnectionError as e:
             logger.error(f"OpenAI API connection error: {e}")
@@ -89,18 +104,18 @@ async def acompletion_openai(
 
 
 async def acompletion_zhipu(
-        messages: list[dict],
-        model: str,
-        tools: list[dict] | None = None,
-        response_format: Any | None = None,
-        process_chunk: Callable | None = None,
-        retry_times: int = 3,
-        base_url: str = "https://open.bigmodel.cn/api/paas/v4/",
-        model_params: dict | None = None,
-        ):
+    messages: list[dict],
+    model: str,
+    tools: list[dict] | None = None,
+    response_format: Any | None = None,
+    process_chunk: Callable | None = None,
+    retry_times: int = 3,
+    base_url: str = "https://open.bigmodel.cn/api/paas/v4/",
+    model_params: dict | None = None,
+):
     """
     Zhipu AI (智谱AI) completion using OpenAI-compatible API format
-    
+
     Zhipu AI provides OpenAI-compatible endpoints, so we can use the OpenAI client
     with their custom base_url and API format.
     """
@@ -108,9 +123,11 @@ async def acompletion_zhipu(
     import os
 
     # Get API key from environment (ZAI_API_KEY for Zhipu AI)
-    api_key = os.environ.get('ZAI_API_KEY')
+    api_key = os.environ.get("ZAI_API_KEY")
     if not api_key:
-        raise ValueError("ZAI_API_KEY environment variable not set (required for Zhipu AI)")
+        raise ValueError(
+            "ZAI_API_KEY environment variable not set (required for Zhipu AI)"
+        )
 
     # Create client pointing to Zhipu AI endpoint
     client = AsyncOpenAI(api_key=api_key, base_url=base_url)
@@ -125,35 +142,38 @@ async def acompletion_zhipu(
                 tools=_tools,
                 response_format=response_format,
                 stream=True,
-                **model_params
+                **model_params,
             )
-            
+
             collected_messages = []
             async for chunk in stream:
                 if chunk.choices and len(chunk.choices) > 0:
                     choice = chunk.choices[0]
-                    if hasattr(choice, 'delta'):
+                    if hasattr(choice, "delta"):
                         delta = choice.delta
                         if delta.content:
                             collected_messages.append(delta.content)
                         if process_chunk:
                             await run_func(process_chunk, delta.model_dump())
-                    if hasattr(choice, 'finish_reason') and choice.finish_reason == "stop":
+                    if (
+                        hasattr(choice, "finish_reason")
+                        and choice.finish_reason == "stop"
+                    ):
                         if process_chunk:
                             await run_func(process_chunk, {"stop": True})
-            
+
             # Construct final message in pantheon-compatible format
             class ZhipuMessage:
-                def __init__(self, content, role='assistant', tool_calls=None):
+                def __init__(self, content, role="assistant", tool_calls=None):
                     self.content = content
-                    self.role = role 
+                    self.role = role
                     self.tool_calls = tool_calls
-                
+
                 def model_dump(self):
                     return {
-                        'content': self.content,
-                        'role': self.role,
-                        'tool_calls': self.tool_calls
+                        "content": self.content,
+                        "role": self.role,
+                        "tool_calls": self.tool_calls,
                     }
 
             class ZhipuChoice:
@@ -164,10 +184,10 @@ async def acompletion_zhipu(
                 def __init__(self, choices):
                     self.choices = choices
 
-            final_message = ZhipuResponse([
-                ZhipuChoice(ZhipuMessage(''.join(collected_messages)))
-            ])
-            
+            final_message = ZhipuResponse(
+                [ZhipuChoice(ZhipuMessage("".join(collected_messages)))]
+            )
+
             break
         except APIConnectionError as e:
             logger.error(f"Zhipu AI API connection error: {e}")
@@ -175,28 +195,29 @@ async def acompletion_zhipu(
         except Exception as e:
             logger.error(f"Zhipu AI API error: {e}")
             retry_times -= 1
-    
+
     return final_message
 
 
 def import_litellm():
     warnings.filterwarnings("ignore")
     import litellm
+
     litellm.suppress_debug_info = True
     return litellm
 
 
 async def acompletion_litellm(
-        messages: list[dict],
-        model: str,
-        tools: list[dict] | None = None,
-        response_format: Any | None = None,
-        process_chunk: Callable | None = None,
-        base_url: str | None = None,
-        model_params: dict | None = None,
-        ):
+    messages: list[dict],
+    model: str,
+    tools: list[dict] | None = None,
+    response_format: Any | None = None,
+    process_chunk: Callable | None = None,
+    base_url: str | None = None,
+    model_params: dict | None = None,
+):
     litellm = import_litellm()
-    
+
     # Prepare arguments for litellm
     kwargs = {
         "model": model,
@@ -207,18 +228,23 @@ async def acompletion_litellm(
     }
     if model_params:
         kwargs.update(**model_params)
-    
+
     # Add base_url if provided (litellm uses api_base parameter)
     if base_url:
         kwargs["api_base"] = base_url
-    
+
     response = await litellm.acompletion(**kwargs)
     async for chunk in response:
-        if process_chunk and hasattr(chunk, 'choices') and chunk.choices and len(chunk.choices) > 0:
+        if (
+            process_chunk
+            and hasattr(chunk, "choices")
+            and chunk.choices
+            and len(chunk.choices) > 0
+        ):
             choice = chunk.choices[0]
-            if hasattr(choice, 'delta'):
+            if hasattr(choice, "delta"):
                 await run_func(process_chunk, choice.delta.model_dump())
-            if hasattr(choice, 'finish_reason') and choice.finish_reason == "stop":
+            if hasattr(choice, "finish_reason") and choice.finish_reason == "stop":
                 await run_func(process_chunk, {"stop": True})
     complete_resp = litellm.stream_chunk_builder(response.chunks)
     return complete_resp
@@ -261,6 +287,117 @@ def remove_raw_content(messages: list[dict]) -> list[dict]:
     return messages
 
 
+def filter_base64_in_tool_messages(messages: list[dict]) -> list[dict]:
+    """
+    Filter base64 data from tool-returned messages.
+    """
+
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+
+        # Only process tool messages
+        if msg.get("role") != "tool":
+            continue
+
+        content = msg.get("content")
+        if not isinstance(content, str):
+            continue
+
+        # Check if content contains base64 markers
+        if not any(
+            marker in content
+            for marker in [
+                "data:image/",
+                "image/png",
+                "image/jpeg",
+                "image/gif",
+                "iVBORw0KGgo",
+                "/9j/",
+                "R0lGODlh",
+            ]
+        ):
+            continue
+
+        # Filter base64
+        filtered_content = _replace_base64_with_placeholder(content)
+        msg["content"] = filtered_content
+
+    return messages
+
+
+def _replace_base64_with_placeholder(content: str) -> str:
+    """
+    Replace all base64 data in a string with placeholders.
+
+    Supported formats:
+    1. data URI: data:image/png;base64,iVBORw0KGgo...
+    2. Jupyter MIME: "image/png": "iVBORw0KGgo..."
+    3. Magic numbers: iVBORw0KGgo..., /9j/..., R0lGODlh...
+
+    Args:
+        content: String containing base64 data
+
+    Returns:
+        String with base64 replaced by [Image: TYPE (SIZEkB)] placeholders
+    """
+    modified = content
+    original_size = len(content)
+    replacements = []
+
+    # Pattern 1: data:image/...;base64,{base64_data}
+    def replace_data_uri(match):
+        image_type = match.group(1)
+        base64_data = match.group(2)
+        size_kb = len(base64_data) * 3 / 4 / 1024
+        placeholder = f"[Image: {image_type.upper()} ({size_kb:.1f}KB)]"
+        replacements.append(
+            {
+                "type": f"image/{image_type}",
+                "size_kb": round(size_kb, 2),
+                "format": "data_uri",
+            }
+        )
+        logger.debug(
+            f"🔍 Base64 replacement: data URI {image_type.upper()} "
+            f"({size_kb:.1f}KB) → {placeholder}"
+        )
+        return placeholder
+
+    data_uri_pattern = r"data:image/([a-zA-Z0-9+-]+);base64,([A-Za-z0-9+/=]+)"
+    modified = re.sub(data_uri_pattern, replace_data_uri, modified)
+
+    # Pattern 2: Jupyter MIME: "image/png": "{base64}"
+    def replace_mime(match):
+        mime_type = match.group(1)
+        image_type = mime_type.split("/")[1].upper()
+        base64_data = match.group(2)
+        size_kb = len(base64_data) * 3 / 4 / 1024
+        placeholder = f'"{mime_type}": "[Image: {image_type} ({size_kb:.1f}KB)]"'
+        replacements.append(
+            {"type": mime_type, "size_kb": round(size_kb, 2), "format": "jupyter_mime"}
+        )
+        logger.debug(
+            f"🔍 Base64 replacement: Jupyter MIME {image_type} ({size_kb:.1f}KB)"
+        )
+        return placeholder
+
+    mime_pattern = r'"(image/(png|jpeg|gif))"\s*:\s*"([A-Za-z0-9+/=]{50,})"'
+    modified = re.sub(mime_pattern, replace_mime, modified)
+
+    # Log summary if replacements were made
+    if replacements:
+        filtered_size = len(modified)
+        total_saved_kb = sum(r["size_kb"] for r in replacements)
+        logger.info(
+            f"📊 Base64 Filtering Summary: {len(replacements)} image(s) replaced, "
+            f"content size reduced from {original_size / 1024:.1f}KB to {filtered_size / 1024:.1f}KB "
+            f"(saved ~{total_saved_kb:.1f}KB, compression ratio ~{original_size / filtered_size:.1f}x)"
+        )
+
+    return modified
+
+
 def remove_unjsonifiable_raw_content(messages: list[dict]) -> list[dict]:
     for msg in messages:
         if "raw_content" in msg:
@@ -295,19 +432,19 @@ def remove_ui_fields(messages: list[dict]) -> list[dict]:
     UI_ONLY_FIELDS = {
         # Attachment field (UI-only)
         "detected_attachments",
-
         # Timing fields
         "timestamp",
         "start_timestamp",
         "end_timestamp",
         "generation_duration",
         "execution_duration",
-
         # Internal IDs and metadata
         "id",
         "message_id",
         "chunk_index",
         "transfer",
+        # Metadata fields
+        "_metadata",
     }
 
     for msg in messages:
@@ -319,9 +456,22 @@ def remove_ui_fields(messages: list[dict]) -> list[dict]:
 
 
 def process_messages_for_model(messages: list[dict], model: str) -> list[dict]:
+    """
+    Process messages for model consumption.
+
+    Processing steps (order matters):
+    1. remove_parsed - Remove parsed fields
+    2. remove_raw_content - Remove raw_content (structured tool outputs)
+    3. filter_base64_in_tool_messages - Filter base64 in tool messages
+    4. remove_extra_fields - Remove agent_name, tool_name
+    5. remove_ui_fields - Remove UI-only fields
+    """
     messages = deepcopy(messages)
     messages = remove_parsed(messages)
     messages = remove_raw_content(messages)
+    messages = filter_base64_in_tool_messages(
+        messages
+    )  # Filter base64 in tool messages
     messages = remove_extra_fields(messages)
     messages = remove_ui_fields(messages)  # Remove UI-only fields
     return messages
@@ -340,7 +490,9 @@ def process_messages_for_hook_func(messages: list[dict]) -> list[dict]:
     return messages
 
 
-async def openai_embedding(texts: list[str], model: str = "text-embedding-3-large") -> list[list[float]]:
+async def openai_embedding(
+    texts: list[str], model: str = "text-embedding-3-large"
+) -> list[list[float]]:
     import openai
     import os
 
@@ -348,10 +500,7 @@ async def openai_embedding(texts: list[str], model: str = "text-embedding-3-larg
     api_key = os.getenv("OPENAI_API_KEY")
     base_url = os.getenv("OPENAI_API_BASE")
 
-    client = openai.AsyncOpenAI(
-        api_key=api_key,
-        base_url=base_url
-    )
+    client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
     resp = await client.embeddings.create(input=texts, model=model)
     return [d.embedding for d in resp.data]
 
@@ -367,9 +516,6 @@ def remove_hidden_fields(content: dict) -> dict:
 
 
 # ============ Timing Tracker ============
-
-import time
-from contextlib import asynccontextmanager
 
 
 class TimingTracker:
@@ -455,3 +601,159 @@ class TimingTracker:
             yield
         finally:
             self.end(phase)
+
+
+def count_tokens_in_messages(messages: list[dict], model: str) -> dict:
+    """Count tokens with per-role breakdown and context usage metrics."""
+    try:
+        from litellm.utils import token_counter
+
+        total_tokens = 0
+        tokens_by_role = {}
+        message_counts = {}
+
+        # Count tokens per message
+        for msg in messages:
+            role = msg.get("role", "unknown")
+            msg_tokens = token_counter(model=model, messages=[msg])
+
+            total_tokens += msg_tokens
+            tokens_by_role[role] = tokens_by_role.get(role, 0) + msg_tokens
+            message_counts[role] = message_counts.get(role, 0) + 1
+
+        # Calculate usage metrics
+        max_tokens = get_model_max_tokens(model)
+        remaining = max(0, max_tokens - total_tokens)
+        usage_percent = (
+            round((total_tokens / max_tokens * 100), 1) if max_tokens > 0 else 0
+        )
+
+        return {
+            "total": int(total_tokens),
+            "by_role": tokens_by_role,
+            "message_counts": message_counts,
+            "max_tokens": max_tokens,
+            "remaining": remaining,
+            "usage_percent": usage_percent,
+            "warning_90": usage_percent >= 90,
+            "critical_95": usage_percent >= 95,
+            "error": None,
+        }
+
+    except Exception as e:
+        logger.error(f"Error counting tokens: {e}")
+        return {
+            "total": 0,
+            "by_role": {},
+            "message_counts": {},
+            "max_tokens": 0,
+            "remaining": 0,
+            "usage_percent": 0,
+            "warning_90": False,
+            "critical_95": False,
+            "error": str(e),
+        }
+
+
+def format_token_visualization(
+    token_info: dict, bar_width: int = 50
+) -> tuple[str, str, str]:
+    """Format token distribution bar with per-role breakdown and warning if usage >= 90%."""
+    total_tokens = token_info.get("total", 0)
+    by_role = token_info.get("by_role", {})
+    message_counts = token_info.get("message_counts", {})
+    max_tokens = token_info.get("max_tokens", 0)
+    remaining_tokens = token_info.get("remaining", 0)
+    usage_percent = token_info.get("usage_percent", 0)
+    warning_90 = token_info.get("warning_90", False)
+    critical_95 = token_info.get("critical_95", False)
+
+    if total_tokens == 0:
+        return "💾 Token Distribution: [No tokens]", "", ""
+
+    # Color codes for different roles (ANSI 256-color)
+    role_colors = {
+        "system": "\033[38;5;103m",  # Dusty blue
+        "user": "\033[38;5;108m",  # Dusty green
+        "assistant": "\033[38;5;137m",  # Dusty brown
+        "tool": "\033[38;5;94m",  # Dark magenta/wine
+    }
+    reset_color = "\033[0m"
+
+    # Build the stacked bar showing used vs remaining
+    used_ratio = total_tokens / max_tokens if max_tokens > 0 else 0
+    used_width = max(1, round(used_ratio * bar_width))
+    remaining_width = bar_width - used_width
+
+    # Build segments for used tokens (colored by role)
+    role_order = ["system", "user", "assistant", "tool"]
+    used_bar_segments = []
+    for role in role_order:
+        if role not in by_role or by_role[role] == 0:
+            continue
+
+        tokens = by_role[role]
+        segment_width = (
+            max(1, round((tokens / total_tokens) * used_width))
+            if total_tokens > 0
+            else 0
+        )
+
+        color = role_colors.get(role, "")
+        segment = color + "█" * segment_width + reset_color
+        used_bar_segments.append(segment)
+
+    # Combine used (colored) + remaining (gray)
+    bar = "".join(used_bar_segments)
+    if remaining_width > 0:
+        bar += "░" * remaining_width
+
+    # Format bar line: [bar] Used: X (Y%) | Max: Z | Remaining: W
+    bar_line = (
+        f"💾 Token Distribution: [{bar}] "
+        f"Used: {total_tokens:,} ({usage_percent}%) | "
+        f"Max: {max_tokens:,} | "
+        f"Remaining: {remaining_tokens:,}"
+    )
+
+    # Build summary line with detailed information
+    summary_parts = []
+    for role in role_order:
+        if role not in by_role or by_role[role] == 0:
+            continue
+
+        tokens = by_role[role]
+        percentage = (tokens / total_tokens) * 100
+        msg_count = message_counts.get(role, 0)
+        color = role_colors.get(role, "")
+
+        # Format: "Role: X tokens (Y%, Z msgs)"
+        role_summary = (
+            f"{color}{role}{reset_color}: {tokens} tokens ({percentage:.0f}%, "
+            f"{msg_count} msg{'s' if msg_count != 1 else ''})"
+        )
+        summary_parts.append(role_summary)
+
+    summary_line = "   " + " | ".join(summary_parts)
+
+    # Generate warning line if usage >= 90%
+    warning_line = ""
+    if warning_90:
+        warning_icon = "🔴 CRITICAL" if critical_95 else "⚠️ WARNING"
+        warning_line = (
+            f"{warning_icon}: Context usage at {usage_percent}% "
+            f"({total_tokens:,} / {max_tokens:,} tokens). "
+            f"Only {remaining_tokens:,} tokens remaining!"
+        )
+
+    return bar_line, summary_line, warning_line
+
+
+def get_model_max_tokens(model: str) -> int:
+    """Get max tokens for a model (default: 150k for modern models)."""
+    try:
+        from litellm.utils import get_max_tokens
+
+        return get_max_tokens(model)
+    except Exception:
+        return 150000

@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from ..agent import Agent
 from ..memory import Memory
-from ..utils.log import logger
+from ..utils.log import logger, temporary_log_level
 
 # ===== SummaryGenerator =====
 
@@ -143,7 +143,9 @@ CONTEXT TO SUMMARIZE:
 SUMMARY (concise, maximum {max_tokens} tokens):"""
 
         try:
-            response = await self._summary_agent.run(prompt)
+            # Suppress debug/info logs during LLM call
+            with temporary_log_level("WARNING"):
+                response = await self._summary_agent.run(prompt)
             if response:
                 content = getattr(response, "content", None) or str(response)
                 summary = str(content).strip()
@@ -208,7 +210,7 @@ Rules:
             if not self._suggestion_agent:
                 raise RuntimeError("Failed to create suggestion agent")
 
-            logger.info("✅ Centralized suggestion agent initialized successfully")
+            logger.debug("✅ Centralized suggestion agent initialized successfully")
 
         except Exception as e:
             logger.error(f"❌ Failed to initialize suggestion agent: {str(e)}")
@@ -250,11 +252,12 @@ Rules:
 
             # Generate suggestions using the centralized agent
             try:
-                # Generate suggestions using the agent directly with timeout
-                response = await asyncio.wait_for(
-                    self._suggestion_agent.run(prompt),
-                    timeout=30.0,  # 30 second timeout for suggestions
-                )
+                # Suppress debug/info logs during LLM call
+                with temporary_log_level("WARNING"):
+                    response = await asyncio.wait_for(
+                        self._suggestion_agent.run(prompt),
+                        timeout=30.0,  # 30 second timeout for suggestions
+                    )
 
                 # Parse the response into structured suggestions
                 suggestions = self._parse_suggestions(
@@ -427,9 +430,11 @@ class ChatNameGenerator:
         prompt = f"Chat context:\n{context}\nGenerate a short title:"
 
         try:
-            response = await asyncio.wait_for(
-                self._name_agent.run(prompt), timeout=10.0
-            )
+            # Suppress debug/info logs during LLM call
+            with temporary_log_level("WARNING"):
+                response = await asyncio.wait_for(
+                    self._name_agent.run(prompt), timeout=10.0
+                )
             if response:
                 content = getattr(response, "content", None) or str(response)
                 name = str(content).strip()

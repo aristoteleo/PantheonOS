@@ -67,8 +67,8 @@ class PantheonTeam(Team):
         # Mark all inline agents as capable of delegating if there are other agents
         for agent in inline_agents:
             if isinstance(agent, Agent):
+                agent.system_prompt_mode = SystemPromptMode.FULL
                 agent.can_delegate = self.has_transfer_agents or self.has_sub_agents
-
         # Configure sub-agents to use SUBAGENT mode (streamlined for direct execution)
         # and ensure they cannot delegate to other agents
         for agent in self.sub_agents:
@@ -202,7 +202,7 @@ class PantheonTeam(Team):
                     metadata["tool_call_id"] = context_variables.get("tool_call_id")
                     metadata["parent_agent"] = run_context.agent.name
                     metadata["sub_agent"] = target_agent.name
-                    data["metadata"] = metadata
+                    data["_metadata"] = metadata
 
                 async def wrapped_step(step_message: dict):
                     update_metadata(step_message)
@@ -255,6 +255,7 @@ class PantheonTeam(Team):
             call_agent.__doc__ = (
                 "Delegate a task to a sub-agent in the team. "
                 "Pass the agent_name and clear instruction describing context, what to do and the desired output. "
+                "When passing the instruction, you should provide all related information for the sub-agent to execute the task."
             )
 
             # Register tool
