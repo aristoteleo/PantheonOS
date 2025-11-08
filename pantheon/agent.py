@@ -26,9 +26,9 @@ from .utils.llm import (
     TimingTracker,
     process_messages_for_hook_func,
     process_messages_for_model,
-    remove_hidden_fields,
     count_tokens_in_messages,
     format_token_visualization,
+    process_tool_result,
 )
 from .utils.llm_providers import (
     call_llm_provider,
@@ -874,9 +874,7 @@ class Agent:
                     }
                 )
             else:
-                processed_result = (
-                    remove_hidden_fields(result) if isinstance(result, dict) else result
-                )
+                processed_result = process_tool_result(result)
                 content = repr(processed_result)
                 if self.max_tool_content_length is not None:
                     content = content[: self.max_tool_content_length]
@@ -983,6 +981,7 @@ class Agent:
                 await enhanced_process_chunk({"begin": True})
 
         # Step 7: Call LLM provider (unified interface)
+        # logger.info(f"Raw messages: {messages}")
 
         async with tracker.measure("llm_api"):
             message = await call_llm_provider(

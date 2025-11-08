@@ -1,13 +1,36 @@
-from copy import deepcopy
 import json
 import re
 import time
 import warnings
-from typing import Any, Callable
 from contextlib import asynccontextmanager
+from copy import deepcopy
+from typing import Any, Callable
 
-from .misc import run_func
 from .log import logger
+from .misc import run_func
+
+_PATTERN_BASE64_DATA_URI = re.compile(
+    r"data:image/([a-zA-Z0-9+-]+);base64,([A-Za-z0-9+/=]+)"
+)
+_PATTERN_BASE64_MAGIC_PNG = re.compile(
+    r'(iVBORw0KGgo[A-Za-z0-9+/=]{50,}?)(?:["\'\s]|$)', re.MULTILINE
+)
+_PATTERN_BASE64_MAGIC_JPEG = re.compile(
+    r'(/9j/[A-Za-z0-9+/=]{50,}?)(?:["\'\s]|$)', re.MULTILINE
+)
+_PATTERN_BASE64_MAGIC_GIF = re.compile(
+    r'(R0lGODlh[A-Za-z0-9+/=]{50,}?)(?:["\'\s]|$)', re.MULTILINE
+)
+
+_PATTERN_BASE64_MAGIC = re.compile(
+    r"(?:"
+    + _PATTERN_BASE64_MAGIC_PNG.pattern
+    + "|"
+    + _PATTERN_BASE64_MAGIC_JPEG.pattern
+    + "|"
+    + _PATTERN_BASE64_MAGIC_GIF.pattern
+    + r")"
+)
 
 
 async def acompletion_openai(
@@ -20,7 +43,7 @@ async def acompletion_openai(
     base_url: str | None = None,
     model_params: dict | None = None,
 ):
-    from openai import AsyncOpenAI, NOT_GIVEN, APIConnectionError
+    from openai import NOT_GIVEN, APIConnectionError, AsyncOpenAI
 
     # Create client with custom base_url if provided
     if base_url:
@@ -53,6 +76,7 @@ async def acompletion_openai(
     while retry_times > 0:
         try:
             import time
+
             from .log import logger
 
             stream_start_time = time.time()
@@ -119,8 +143,9 @@ async def acompletion_zhipu(
     Zhipu AI provides OpenAI-compatible endpoints, so we can use the OpenAI client
     with their custom base_url and API format.
     """
-    from openai import AsyncOpenAI, NOT_GIVEN, APIConnectionError
     import os
+
+    from openai import NOT_GIVEN, APIConnectionError, AsyncOpenAI
 
     # Get API key from environment (ZAI_API_KEY for Zhipu AI)
     api_key = os.environ.get("ZAI_API_KEY")
@@ -287,53 +312,29 @@ def remove_raw_content(messages: list[dict]) -> list[dict]:
     return messages
 
 
-def filter_base64_in_tool_messages(messages: list[dict]) -> list[dict]:
+def filter_base64_in_tool_result(result: dict) -> dict:
     """
-    Filter base64 data from tool-returned messages.
+    Filter base64 data from a dict.
     """
+    if not isinstance(result, dict):
+        return result
+    # iterate over dict values
+    for key, value in result.items():
+        if isinstance(value, str):
+            result[key] = _replace_base64_with_placeholder(value)
+        elif isinstance(value, dict):
+            result[key] = filter_base64_in_tool_result(value)
 
-    for msg in messages:
-        if not isinstance(msg, dict):
-            continue
-
-        # Only process tool messages
-        if msg.get("role") != "tool":
-            continue
-
-        content = msg.get("content")
-        if not isinstance(content, str):
-            continue
-
-        # Check if content contains base64 markers
-        if not any(
-            marker in content
-            for marker in [
-                "data:image/",
-                "image/png",
-                "image/jpeg",
-                "image/gif",
-                "iVBORw0KGgo",
-                "/9j/",
-                "R0lGODlh",
-            ]
-        ):
-            continue
-
-        # Filter base64
-        filtered_content = _replace_base64_with_placeholder(content)
-        msg["content"] = filtered_content
-
-    return messages
+    return result
 
 
-def _replace_base64_with_placeholder(content: str) -> str:
+def _replace_base64_with_placeholder(content: str, log=False) -> str:
     """
     Replace all base64 data in a string with placeholders.
 
     Supported formats:
     1. data URI: data:image/png;base64,iVBORw0KGgo...
-    2. Jupyter MIME: "image/png": "iVBORw0KGgo..."
-    3. Magic numbers: iVBORw0KGgo..., /9j/..., R0lGODlh...
+    2. Magic numbers: iVBORw0KGgo..., /9j/..., R0lGODlh...
 
     Args:
         content: String containing base64 data
@@ -341,6 +342,20 @@ def _replace_base64_with_placeholder(content: str) -> str:
     Returns:
         String with base64 replaced by [Image: TYPE (SIZEkB)] placeholders
     """
+    if not any(
+        marker in content
+        for marker in [
+            "data:image/",
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "iVBORw0KGgo",
+            "/9j/",
+            "R0lGODlh",
+        ]
+    ):
+        return content
+
     modified = content
     original_size = len(content)
     replacements = []
@@ -358,35 +373,30 @@ def _replace_base64_with_placeholder(content: str) -> str:
                 "format": "data_uri",
             }
         )
-        logger.debug(
-            f"🔍 Base64 replacement: data URI {image_type.upper()} "
-            f"({size_kb:.1f}KB) → {placeholder}"
-        )
+
         return placeholder
 
-    data_uri_pattern = r"data:image/([a-zA-Z0-9+-]+);base64,([A-Za-z0-9+/=]+)"
+    data_uri_pattern = _PATTERN_BASE64_DATA_URI
     modified = re.sub(data_uri_pattern, replace_data_uri, modified)
 
-    # Pattern 2: Jupyter MIME: "image/png": "{base64}"
-    def replace_mime(match):
-        mime_type = match.group(1)
-        image_type = mime_type.split("/")[1].upper()
-        base64_data = match.group(2)
-        size_kb = len(base64_data) * 3 / 4 / 1024
-        placeholder = f'"{mime_type}": "[Image: {image_type} ({size_kb:.1f}KB)]"'
+    # 2. Pattern 2: Magic numbers: iVBORw0KGgo..., /9j/..., R0lGODlh...
+    def replace_magic(match):
+        magic = match.group(0)
+        placeholder = f"[Image: {magic[:6]}... ({len(magic) * 3 / 4 / 1024:.1f}KB)]"
         replacements.append(
-            {"type": mime_type, "size_kb": round(size_kb, 2), "format": "jupyter_mime"}
+            {
+                "type": "magic",
+                "size_kb": round(len(magic) * 3 / 4 / 1024, 2),
+                "format": "magic",
+            }
         )
-        logger.debug(
-            f"🔍 Base64 replacement: Jupyter MIME {image_type} ({size_kb:.1f}KB)"
-        )
+
         return placeholder
 
-    mime_pattern = r'"(image/(png|jpeg|gif))"\s*:\s*"([A-Za-z0-9+/=]{50,})"'
-    modified = re.sub(mime_pattern, replace_mime, modified)
+    modified = re.sub(_PATTERN_BASE64_MAGIC, replace_magic, modified)
 
     # Log summary if replacements were made
-    if replacements:
+    if replacements and log:
         filtered_size = len(modified)
         total_saved_kb = sum(r["size_kb"] for r in replacements)
         logger.info(
@@ -396,6 +406,38 @@ def _replace_base64_with_placeholder(content: str) -> str:
         )
 
     return modified
+
+
+def _remove_ansi_escape_sequences(text):
+    """Remove ANSI escape sequences from text."""
+    # Regex pattern to match ANSI escape sequences
+    ansi_escape = re.compile(r"(?:\x1b|u001b|x1b)\[[0-9;]*[a-zA-Z]")
+    return ansi_escape.sub("", text)
+
+
+def filter_tool_messages(messages: list[dict]) -> list[dict]:
+    """
+    Filter tool-returned messages
+    """
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+
+        # Only process tool messages
+        if msg.get("role") != "tool":
+            continue
+
+        content = msg.get("content")
+        if not isinstance(content, str):
+            continue
+
+        # Filter ANSI escape sequences
+        filtered_content = _replace_base64_with_placeholder(content)
+        filtered_content = _remove_ansi_escape_sequences(filtered_content)
+
+        msg["content"] = filtered_content
+
+    return messages
 
 
 def remove_unjsonifiable_raw_content(messages: list[dict]) -> list[dict]:
@@ -469,9 +511,7 @@ def process_messages_for_model(messages: list[dict], model: str) -> list[dict]:
     messages = deepcopy(messages)
     messages = remove_parsed(messages)
     messages = remove_raw_content(messages)
-    messages = filter_base64_in_tool_messages(
-        messages
-    )  # Filter base64 in tool messages
+    messages = filter_tool_messages(messages)
     messages = remove_extra_fields(messages)
     messages = remove_ui_fields(messages)  # Remove UI-only fields
     return messages
@@ -493,10 +533,10 @@ def process_messages_for_hook_func(messages: list[dict]) -> list[dict]:
 async def openai_embedding(
     texts: list[str], model: str = "text-embedding-3-large"
 ) -> list[list[float]]:
-    import openai
     import os
 
-    # 从环境变量读取配置
+    import openai
+
     api_key = os.getenv("OPENAI_API_KEY")
     base_url = os.getenv("OPENAI_API_BASE")
 
@@ -513,6 +553,14 @@ def remove_hidden_fields(content: dict) -> dict:
             if field in content:
                 content.pop(field)
     return content
+
+
+def process_tool_result(result: dict) -> dict:
+    result = deepcopy(result)
+    if isinstance(result, dict):
+        result = remove_hidden_fields(result)
+        result = filter_base64_in_tool_result(result)
+    return result
 
 
 # ============ Timing Tracker ============
@@ -754,6 +802,6 @@ def get_model_max_tokens(model: str) -> int:
     try:
         from litellm.utils import get_max_tokens
 
-        return get_max_tokens(model)
+        return get_max_tokens(model) or 150000
     except Exception:
         return 150000
