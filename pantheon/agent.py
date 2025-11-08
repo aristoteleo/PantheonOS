@@ -649,9 +649,9 @@ class Agent:
             if provider_name in self.providers:
                 provider = self.providers[provider_name]
                 # Check if it's a ToolSetProvider
-                from .providers import ToolSetProvider
+                from .providers import ToolSetProvider, LocalProvider
 
-                if isinstance(provider, ToolSetProvider):
+                if isinstance(provider, (ToolSetProvider, LocalProvider)):
                     return True
 
         return False
@@ -845,7 +845,7 @@ class Agent:
             except Exception as e:
                 if not call_task.done():
                     call_task.cancel()
-                    #with contextlib.suppress(Exception):
+                    # with contextlib.suppress(Exception):
                     #    await call_task
                 result = repr(e)
                 context_variables[tool_call_id] = result
