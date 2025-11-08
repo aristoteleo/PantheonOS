@@ -13,7 +13,10 @@ from pantheon.toolsets.file_manager import FileManagerToolSet
 from pantheon.toolsets.shell import ShellToolSet
 from pantheon.team.aat import AgentAsToolTeam
 
-async def main(workdir: str, prompt: str | None = None, log_level: str = "INFO"):
+TIMEOUT_SUBAGENT = 24*60*60
+TIMEOUT_TOOL = 20*60
+
+async def main(workdir: str, prompt: str | None = None, log_level: str = "WARNING"):
     loguru.logger.remove()
     loguru.logger.add(sys.stdout, level=log_level)
 
@@ -49,6 +52,7 @@ necessary information background information, for example:
 You don't need to pass the detail about the analysis task to the `analysis_expert` agent, like:
 
 + Software, packages, version, etc
++ Code examples, etc
 + Specific analysis steps, etc
 
 `analysis_expert` know how to perform the basic analysis for understand the dataset and perform the quality control,
@@ -92,6 +96,7 @@ Always try to create a `workdir` and keep results in the `workdir`.
         name="leader",
         instructions=leader_instructions,
         model="gpt-5",
+        tool_timeout=TIMEOUT_TOOL,
     )
     await leader.toolset(FileManagerToolSet("file_manager", path=workpath))
 
@@ -142,6 +147,7 @@ If there are some packages not installed, you should install them.
         instructions=system_manager_instructions,
         description="System manager agent, responsible for the system environment investigation and software environment installation.",
         model="gpt-5",
+        tool_timeout=TIMEOUT_TOOL,
     )
     await system_manager.toolset(PythonInterpreterToolSet("python"))
     await system_manager.toolset(ShellToolSet("shell"))
@@ -257,6 +263,7 @@ The high-quality means the figure in publication level:
         with expertise in analyze data with python tools in scverse ecosystem.
         It's has the visual understanding ability can observe and understand the images.""",
         model="gpt-5",
+        tool_timeout=TIMEOUT_TOOL,
     )
     await analysis_expert.toolset(PythonInterpreterToolSet("python"))
     await analysis_expert.toolset(FileManagerToolSet("file_manager", path=workpath))
@@ -324,6 +331,7 @@ the path of workdir, if there are no workdir, you should create a new one.
         collect the background information from the literatures to interpret the results in the biological aspect.
         """,
         model="gpt-5",
+        tool_timeout=TIMEOUT_TOOL,
     )
     await biologist.toolset(ScraperToolSet("scraper"))
     await biologist.toolset(FileManagerToolSet("file_manager", path=workpath))
@@ -360,6 +368,7 @@ literature list. And the figures should be included in the result section throug
         and organize them in a professional paper format.
         """,
         model="gpt-5",
+        tool_timeout=TIMEOUT_TOOL,
     )
     await reporter.toolset(FileManagerToolSet("file_manager", path=workpath))
 
@@ -384,6 +393,7 @@ literature list. And the figures should be included in the result section throug
             raise FileNotFoundError(f"Prompt file not found: {prompt_path}")
 
     await team.run(prompt)
+    #await team.run("observe the images in the workdir")
 
 
 if __name__ == "__main__":
