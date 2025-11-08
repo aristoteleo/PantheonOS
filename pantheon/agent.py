@@ -845,8 +845,8 @@ class Agent:
             except Exception as e:
                 if not call_task.done():
                     call_task.cancel()
-                    with contextlib.suppress(Exception):
-                        await call_task
+                    #with contextlib.suppress(Exception):
+                    #    await call_task
                 result = repr(e)
                 context_variables[tool_call_id] = result
 
