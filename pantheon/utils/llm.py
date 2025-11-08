@@ -654,7 +654,7 @@ class TimingTracker:
 def count_tokens_in_messages(messages: list[dict], model: str) -> dict:
     """Count tokens with per-role breakdown and context usage metrics."""
     try:
-        from litellm.utils import token_counter
+        from litellm.utils import token_counter, get_model_info
 
         total_tokens = 0
         tokens_by_role = {}
@@ -669,13 +669,19 @@ def count_tokens_in_messages(messages: list[dict], model: str) -> dict:
             tokens_by_role[role] = tokens_by_role.get(role, 0) + msg_tokens
             message_counts[role] = message_counts.get(role, 0) + 1
 
+        model_info = get_model_info(model)
+
         # Calculate usage metrics
-        max_tokens = get_model_max_tokens(model)
+        max_input_tokens = model_info.get("max_input_tokens", 150000) or 150000
+        max_output_tokens = model_info.get("max_output_tokens", 150000) or 150000
+        max_tokens = max_input_tokens + max_output_tokens
         remaining = max(0, max_tokens - total_tokens)
         usage_percent = (
             round((total_tokens / max_tokens * 100), 1) if max_tokens > 0 else 0
         )
-
+        # calculate cost for the current model
+        cost_per_token = model_info.get("input_cost_per_token", 0) or 0
+        current_cost = round(total_tokens * cost_per_token, 4)
         return {
             "total": int(total_tokens),
             "by_role": tokens_by_role,
@@ -685,6 +691,7 @@ def count_tokens_in_messages(messages: list[dict], model: str) -> dict:
             "usage_percent": usage_percent,
             "warning_90": usage_percent >= 90,
             "critical_95": usage_percent >= 95,
+            "current_cost": current_cost,
             "error": None,
         }
 
@@ -699,6 +706,7 @@ def count_tokens_in_messages(messages: list[dict], model: str) -> dict:
             "usage_percent": 0,
             "warning_90": False,
             "critical_95": False,
+            "current_cost": 0,
             "error": str(e),
         }
 
@@ -783,6 +791,9 @@ def format_token_visualization(
         summary_parts.append(role_summary)
 
     summary_line = "   " + " | ".join(summary_parts)
+    # Add current cost to summary line
+    current_cost = token_info.get("current_cost", 0)
+    summary_line += f" | Cost: ${current_cost:.4f}"
 
     # Generate warning line if usage >= 90%
     warning_line = ""
@@ -795,13 +806,3 @@ def format_token_visualization(
         )
 
     return bar_line, summary_line, warning_line
-
-
-def get_model_max_tokens(model: str) -> int:
-    """Get max tokens for a model (default: 150k for modern models)."""
-    try:
-        from litellm.utils import get_max_tokens
-
-        return get_max_tokens(model) or 150000
-    except Exception:
-        return 150000
