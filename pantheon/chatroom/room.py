@@ -596,7 +596,7 @@ class ChatRoom(ToolSet):
 
         # Set active agent
         team.set_active_agent(memory, agent_name)
-        logger.info(f"Set active agent to '{agent_name}' for chat '{chat_name}'")
+        logger.debug(f"Set active agent to '{agent_name}' for chat '{chat_name}'")
         return {
             "success": True,
             "message": f"Agent '{agent_name}' set as active",

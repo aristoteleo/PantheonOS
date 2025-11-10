@@ -270,7 +270,12 @@ class MCPManager:
     - No uvicorn management needed - FastMCP.run() handles HTTP server lifecycle
     """
 
-    def __init__(self, log_dir: Optional[str] = None, base_port: int = 3000, host: str = "127.0.0.1"):
+    def __init__(
+        self,
+        log_dir: Optional[str] = None,
+        base_port: int = 3000,
+        host: str = "127.0.0.1",
+    ):
         """Initialize MCP Manager
 
         Args:
@@ -289,7 +294,9 @@ class MCPManager:
             Path(log_dir).mkdir(parents=True, exist_ok=True)
             logger.info(f"MCP servers log directory: {log_dir}")
 
-        logger.info(f"MCP Manager initialized with host: {self.host}, base_port: {self.base_port}")
+        logger.info(
+            f"MCP Manager initialized with host: {self.host}, base_port: {self.base_port}"
+        )
 
     async def load_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Load MCP server configurations from config dictionary
@@ -534,6 +541,7 @@ class MCPManager:
                     port=instance.http_port,
                     path="/mcp",
                     show_banner=False,
+                    log_level="warning",
                 )
 
             instance.http_server_task = asyncio.create_task(run_http_server())
@@ -605,7 +613,9 @@ class MCPManager:
             return instance.config.uri
         return None
 
-    def _build_service_info(self, name: str, instance: MCPServerInstance) -> Dict[str, Any]:
+    def _build_service_info(
+        self, name: str, instance: MCPServerInstance
+    ) -> Dict[str, Any]:
         """Build service information dict
 
         Consolidates service info building to avoid duplication between

@@ -53,6 +53,7 @@ class NotebookContext:
     created_at: str
     notebook_title: str
     kernel_spec: str = "python3"
+    is_new: bool = True  # Whether notebook file was created in this session
 
 
 class IntegratedNotebookToolSet(ToolSet):
@@ -194,6 +195,7 @@ class IntegratedNotebookToolSet(ToolSet):
                     "created_at": context.created_at,
                     "notebook_title": context.notebook_title,
                     "kernel_spec": context.kernel_spec,
+                    "is_new": context.is_new,
                 }
 
             data = {
@@ -227,6 +229,7 @@ class IntegratedNotebookToolSet(ToolSet):
 
             # 1. Ensure notebook file exists
             read_result = await self.notebook_contents.read_notebook(notebook_path)
+            notebook_file_is_new = False
             if not read_result["success"]:
                 create_result = await self.notebook_contents.create_notebook(
                     notebook_path, "New Notebook"
@@ -235,6 +238,7 @@ class IntegratedNotebookToolSet(ToolSet):
                     raise Exception(
                         f"Failed to create notebook: {create_result['error']}"
                     )
+                notebook_file_is_new = True
 
             # 2. Create kernel session (internal)
             kernel_result = await self.kernel_toolset.create_session("python3")
@@ -249,6 +253,7 @@ class IntegratedNotebookToolSet(ToolSet):
                 created_at=datetime.now().isoformat(),
                 notebook_title="New Notebook",
                 kernel_spec="python3",
+                is_new=notebook_file_is_new,
             )
 
             # 4. Persist
@@ -326,7 +331,8 @@ class IntegratedNotebookToolSet(ToolSet):
             title: Notebook title
 
         Returns:
-            dict with success, notebook_path, session_id
+            dict with success, notebook_path, kernel_session_id, created_at, action:
+            - action: "created" if new notebook file was created, "opened" if already exists
         """
         session_id = self.get_session_id()
         logger.debug(f"Creating notebook {notebook_path} @ {session_id}")
@@ -342,6 +348,7 @@ class IntegratedNotebookToolSet(ToolSet):
                 "notebook_path": notebook_path,
                 "kernel_session_id": context.kernel_session_id,
                 "created_at": context.created_at,
+                "action": "created" if context.is_new else "opened",
             }
 
         except Exception as e:

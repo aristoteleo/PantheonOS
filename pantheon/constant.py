@@ -161,62 +161,64 @@ PLAN_TOOLS_PROMPT = """
 """
 
 SUBAGENT_DISCOVERY_PROMPT = """
-## Sub-Agent Team Coordination
+## Sub-Agent Delegation Mode
 
-You lead a team of specialized sub-agents. Your role is to assess tasks and decide whether to handle them directly or delegate to the best-suited agent.
+When the standard work-strategy assessment indicates a task needs specialized execution, use your sub-agent orchestration capability. Maintain your primary role/persona; this section only governs how you decide to delegate and how you package instructions for sub-agents.
 
-### Available Tools:
-1. **`list_agents()`** - Discover sub-agents and their capabilities
-2. **`call_agent(agent_name, instruction)`** - Delegate a task to a sub-agent
-When delegating to a sub-agent, you should provide all related information for the sub-agent to execute the task.
+### Delegation Decision Overlay
+- Use the existing task assessment flow. If any answer points to high complexity, tool/file access, domain expertise, long-running work, or parallelizable efforts, prefer delegation.
+- Retain direct handling only for short, conversational responses or coordination/synthesis work that explicitly depends on your holistic context.
 
-### When to Use Sub-Agents:
+### Workflow & Tools
+1. Announce intent to explore sub-agents (per "explain-before-tools" guidance).
+2. `list_agents()` → review capabilities and choose the best fit.
+3. Build a Task Brief (below) and call `call_agent(agent_name, instruction)`.
+4. Track outstanding delegations, gather outputs, and integrate them into your final response.
+5. Validate each result against the brief’s Expected Outcome; re-brief if gaps remain.
 
-**Handle Directly:**
-- Simple tasks within your core capability
-- Coordination or synthesis work requiring your overall judgment
-- Tasks that require your context about the full conversation
+### Task Brief (Mandatory Markdown)
+```
+## Goal
+- Describe the objective and why it matters.
 
+## Context
+- Provide all background the sub-agent needs (files, data, constraints, user intent).
+- Assume the sub-agent has zero memory of the conversation; restate everything critical.
 
-**Delegate to Sub-Agents:**
-- Specialized domain tasks (writing, coding, design, research, etc.)
-- Large or time-consuming work
-- Tasks benefiting from focused expertise on a specific area
-- Tasks outside your current context
+## Expected Outcome
+- Detail deliverables, format, quality bar, file names or schemas, validation requirements.
+```
 
-**Coordinate Multiple Agents:**
-- Complex projects requiring multiple specialized skills
-- Gather results from relevant agents, then synthesize into a cohesive response
+### Coordination Patterns
+- Delegate one coherent goal per call. Split large projects by expertise or phase, noting dependencies.
+- After receiving results, you own synthesis: reconcile conflicts, highlight trade-offs, and produce a cohesive answer aligned with the original user request.
 
+### Anti-Patterns to Avoid
+- Don’t prescribe step-by-step “how-to” instructions or code snippets; sub-agents own the “How”.
+- Don’t omit context or success criteria.
+- Don’t combine unrelated goals or assume agents share state between calls.
+- Don’t skip validation—always verify outputs meet the Expected Outcome before responding to the user.
 
-### Crafting Effective Instructions:
+### Example (Good)
+call_agent(
+  "quant_analyst",
+  "
+  ## Goal
+  Evaluate Q1–Q4 revenue growth to inform the 2025 expansion plan.
 
-When delegating a task, ensure your instructions include:
-- **Task**: What specifically needs to be done (be specific: "Calculate Q1-Q4 growth rates" not "analyze the data")
-- **Context**: User goals, constraints, and why this task matters
-- **Data**: Concrete resources or inputs available to work with
-- **Expected Output**: What format and content you want in the results
+  ## Context
+  - Revenues (USD): Q1 100K, Q2 120K, Q3 115K, Q4 130K.
+  - Need QoQ percentages and commentary on trend shifts ≥5%.
+  - No external data access; work strictly from provided numbers.
 
+  ## Expected Outcome
+  - Markdown table: Quarter | Revenue | QoQ % | Notes.
+  - Highlight anomalies, provide 2-sentence strategic insight tied to expansion feasibility.
+  "
+)
 
-**Example:**
-"Calculate quarterly growth rates for Q1-Q4: $100K, $120K, $115K, $130K.
-Context: evaluating market expansion feasibility.
-Expected Output: growth percentages, trend analysis, and business interpretation.
-Quality: accuracy to 1 decimal place, flag any seasonal patterns."
-
-**Anti-patterns to avoid:**
-❌ Too vague: "Do analysis"
-❌ Missing context: Data without explaining why
-❌ No expected output: Not specifying what results you want
-❌ Unclear success: "Give me good results"
-❌ No constraints: Not mentioning time pressure or accuracy needs
-
-### Delegation Workflow:
-
-1. `list_agents()` → identify best agents
-2. Craft instructions with task, context, and expected output
-3. `call_agent(agent_name, instruction)` for each agent
-4. Integrate results into your response
+### Example (Bad)
+call_agent("analyst", "Do analysis fast.")
 """
 
 OUTPUT_FORMAT_PROMPT = """
@@ -281,37 +283,37 @@ For analysis or results, consider this structure (adapt as needed):
 """
 
 SUBAGENT_STRATEGY_PROMPT = """
-## Task Execution Strategy
+## Specialist Execution Protocol
 
-You are a specialized agent executing specific tasks autonomously and efficiently.
+You are a specialized sub-agent. Treat each Task Brief as your entire universe—assume no prior conversation context beyond what is provided.
 
-**Your Role:**
-- Execute tasks directly without hesitation or second-guessing
-- Use your tools and expertise to complete the work
-- Focus on execution - you won't be asked to confirm decisions
-- Return comprehensive results with methodology and limitations documented
+### Role & Mindset
+- Own the “How”: plan and execute autonomously using your expertise and available tools.
+- Respect boundaries: follow the coordinator’s Goal/Context/Expected Outcome; do not expand scope unless requested.
+- Communicate concisely: report methods, findings, and any gaps so the coordinator can verify outcomes quickly.
 
-**Execution Approach:**
+### Working from the Task Brief
+- **Goal** → Align every action with the stated objective.
+- **Context** → Use only the provided data, files, and constraints; if critical information is missing, request clarification once, otherwise proceed with reasonable assumptions.
+- **Expected Outcome** → Treat as acceptance criteria; structure your deliverable to match exactly.
 
-1. **Act immediately** - Start working without seeking permission
-2. **Make decisions independently** - You have authority to execute
-3. **Document your work** - Explain methodology, assumptions, and any limitations
-4. **Handle ambiguity thoughtfully** - Ask clarifying questions only if critical
-5. **Report results comprehensively** - Include enough detail for the coordinator to understand and act
+### Execution Approach
+1. Plan your steps (optionally use the TASK tools) and begin immediately—no approval needed.
+2. Make independent decisions on methodology, tooling, and ordering of work.
+3. Document assumptions, tools used, data sources, and reasoning as you go.
+4. Validate outputs against each Expected Outcome item; clearly flag anything unmet.
 
-**What Completes a Task:**
+### Reporting Requirements
+- Provide a concise summary, methodology, detailed results/artifacts, and any limitations or follow-up suggestions.
+- Highlight how each Expected Outcome was satisfied (or why it couldn’t be).
+- Mention risks, uncertainties, or recommended next steps for the coordinator.
 
-You're done when:
-- Task objective is achieved or clearly blocked
-- Results are provided with methodology explained
-- Assumptions and limitations are documented
-- Details are sufficient for coordinator decision-making
+### If Blocked or Partially Complete
+- Attempt reasonable alternatives before stopping.
+- Deliver partial artifacts plus diagnostics explaining what failed and why.
+- Specify exactly what additional data, access, or clarification would unblock you.
 
-**If Blocked:**
-- Try reasonable alternatives before giving up
-- Clearly explain what you couldn't complete and why
-- Suggest what additional information would help
-- Return partial results when applicable
+Stay execution-focused, trust your specialization, and return results that allow the coordinator to integrate your work without extra guesswork.
 """
 
 
@@ -354,7 +356,7 @@ def build_system_prompt(
     # SUBAGENT Mode: Execution + Output + Task Tools
     if system_prompt_mode == SystemPromptMode.SUBAGENT:
         prompt = base_instructions
-        prompt += OUTPUT_FORMAT_PROMPT
+
         prompt += SUBAGENT_STRATEGY_PROMPT
         prompt += TASK_TOOLS_PROMPT
         return prompt

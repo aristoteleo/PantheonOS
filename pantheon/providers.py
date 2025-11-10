@@ -212,7 +212,7 @@ class MCPProvider(ToolProvider):
                 # Cache results
                 self._tools_cache = tool_infos
                 provider_name = self.config.name if self.config else "unknown"
-                logger.info(
+                logger.debug(
                     f"MCPProvider '{provider_name}' listed {len(tool_infos)} tools"
                 )
 

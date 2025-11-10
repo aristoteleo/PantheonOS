@@ -36,12 +36,15 @@ class PantheonTeam(Team):
         self,
         inline_agents: list[Agent | RemoteAgent],
         sub_agents: list[Agent | RemoteAgent] = None,
+        use_summary: bool = False,
     ):
         """Initialize PantheonTeam with clear agent type separation.
 
         Args:
             inline_agents: Agents from agents_config
             sub_agents: Agents loaded from agents.yaml library (computation frameworks)
+            use_summary: If True, automatically generate and prepend a context summary
+                         to sub-agent instructions.
 
         Note:
             All inline agents are equal - the first one is commonly called triage for convention,
@@ -52,6 +55,7 @@ class PantheonTeam(Team):
 
         self.inline_agents = inline_agents  # All inline agents
         self.sub_agents = sub_agents or []  # Track sub-agents separately
+        self.use_summary = use_summary
 
         # Initialize parent with all agents (inline + sub)
         all_agents = inline_agents + (sub_agents or [])
@@ -85,7 +89,7 @@ class PantheonTeam(Team):
         active_agent_name = memory.extra_data.get("active_agent")
         if (active_agent_name is None) or (active_agent_name not in self.agents):
             active_agent_name = list(self.agents.keys())[0]
-            logger.warning(
+            logger.debug(
                 f"Active agent not found in memory, setting to {active_agent_name}"
             )
             memory.extra_data["active_agent"] = active_agent_name
@@ -215,14 +219,14 @@ class PantheonTeam(Team):
                         await run_func(parent_chunk_hook, chunk)
 
                 # Build history summary for sub-agent task message
-
                 task_message = await create_delegation_task_message(
                     history=run_context.memory.get_messages(None)
                     if run_context.memory
                     else [],
                     instruction=instruction,
+                    use_summary=self.use_summary,
                 )
-                if task_message is None:
+                if not task_message:
                     return ""
 
                 execution_context_id = f"ctx_{str(uuid.uuid4())[:12]}"
@@ -230,7 +234,7 @@ class PantheonTeam(Team):
                     name=f"{target_agent.name}-{execution_context_id}"
                 )
                 response = await target_agent.run(
-                    [task_message],
+                    task_message,
                     memory=child_memory,
                     use_memory=False,
                     update_memory=False,
@@ -372,11 +376,17 @@ class PantheonTeam(Team):
 async def create_delegation_task_message(
     history: list[dict],
     instruction: str,
-) -> dict | None:
+    use_summary: bool = True,
+) -> str | None:
     """Create a delegated task message with optional summary context."""
     if not instruction:
         return None
 
+    # If summary is disabled, the instruction is the entire content.
+    if not use_summary:
+        return instruction
+
+    # Default behavior: Summarize history and append the instruction.
     summary_text = None
     if history:
         try:
@@ -391,11 +401,4 @@ async def create_delegation_task_message(
     if summary_text:
         content_parts.append(f"Context Summary:\n{summary_text}")
     content_parts.append(f"Task: {instruction}")
-    combined_content = "\n\n".join(content_parts)
-
-    return {
-        "role": "user",
-        "content": combined_content,
-        "timestamp": time.time(),
-        "id": str(uuid.uuid4()),
-    }
+    return "\n\n".join(content_parts)

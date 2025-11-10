@@ -790,7 +790,7 @@ def format_token_visualization(
         )
         summary_parts.append(role_summary)
 
-    summary_line = "   " + " | ".join(summary_parts)
+    summary_line = "📊 " + " | ".join(summary_parts)
     # Add current cost to summary line
     current_cost = token_info.get("current_cost", 0)
     summary_line += f" | Cost: ${current_cost:.4f}"
