@@ -1,26 +1,19 @@
 """
-Integrated Notebook ToolSet - VSCode-style Hybrid Approach
+Integrated Notebook ToolSet
 
-Key improvements over v1:
-- Uses (notebook_path, session_id) as composite key for isolation
-- Automatic session creation (no explicit initialization needed)
-- Uses cell_id instead of cell_index for stability (like VSCode)
-- session_id automatically injected via @tool decorator
-- Unified kernel management (manage_kernel with 6 actions including shutdown/delete)
-- Code intelligence tools (complete/inspect) marked exclude=True for frontend only
-- read_notebook marked exclude=True (agents use file Read tool for full content)
-- Subscribe/unsubscribe API for backend streaming (non-tool methods)
+Tools for working with Jupyter notebooks:
+- create_notebook: Create or open a notebook file
+- execute_cell: Run code in a cell
+- add_cell, update_cell, delete_cell, move_cell: Edit notebook structure
+- read_cell: Get complete cell data (deprecated, use read_cells instead)
+- read_cells: Get all cells with optional content details
+- list_notebooks: List available notebooks
+- manage_kernel: Manage kernel state (restart, interrupt, check status, etc.)
 
-Design philosophy (Hybrid Approach):
-- Separate creation from execution: create_notebook vs execute_cell
-- Unified operations: edit_notebook (4 types), manage_kernel (6 actions)
-- Efficient read tools: read_cell (complete cell data), get_notebook_info (summary)
-- Full notebook reads: Use standard file Read tool (like VSCode design)
-- Backend streaming: subscribe/unsubscribe API for real-time IOPub events
-- LLM-friendly: Clear tool purposes, minimal cognitive load
-- VSCode-compatible: Matches VSCode Copilot builtin tools design
-
-API: 7 tools for agents + 3 frontend-only tools (exclude=True)
+Frontend-only tools (not for agents):
+- complete_request: Code completion
+- inspect_request: Documentation lookup
+- read_notebook: Full notebook JSON
 """
 
 import json
@@ -45,57 +38,20 @@ from .notebook_contents import NotebookContentsToolSet
 
 @dataclass
 class NotebookContext:
-    """Notebook context for a specific (notebook_path, session_id) combination"""
+    """Internal context for notebook operations"""
 
     notebook_path: str
     session_id: str
-    kernel_session_id: str  # Internal kernel session (hidden from users)
+    kernel_session_id: str
     created_at: str
     notebook_title: str
     kernel_spec: str = "python3"
-    is_new: bool = True  # Whether notebook file was created in this session
+    notebook_is_new: bool = True
+    kernel_is_new: bool = False
 
 
 class IntegratedNotebookToolSet(ToolSet):
-    """
-    Integrated Notebook ToolSet - VSCode-style Hybrid Approach
-
-    Design principles:
-    1. Use notebook_path as primary identifier (not internal session_id)
-    2. session_id from context for multi-chat isolation (automatic)
-    3. Automatic context creation (no explicit initialization)
-    4. Use cell_id instead of cell_index (stable identifiers)
-    5. Separate creation and execution (VSCode-style)
-    6. Unified editing with convenience tools (Hybrid approach)
-    7. Let agents use file Read tool for full content (VSCode design)
-
-    API Surface (7 tools exposed to LLM agents):
-
-    Core Tools (VSCode-inspired):
-    - create_notebook: Create new notebook (like VSCode newNotebookTool)
-    - execute_cell: Execute existing cell (like VSCode runNotebookCellTool)
-    - edit_notebook: Unified editing (insert/delete/move/update) (like VSCode editNotebookTool)
-
-    Read Operations:
-    - read_cell: Read complete cell data by cell_id (source + outputs + metadata)
-    - get_notebook_info: Get notebook summary with execution status (like VSCode getNotebookSummary)
-    - list_notebooks: List notebooks for current session
-
-    Kernel Management (unified):
-    - manage_kernel: Unified kernel operations (restart/interrupt/status/variables/shutdown/delete)
-
-    Frontend-Only Tools (exclude=True, not exposed to agents):
-    - complete_request: Code completion for editors
-    - inspect_request: Hover documentation for editors
-    - read_notebook: Read full notebook JSON (agents use file Read tool instead)
-
-    Backend/UI Streaming API (not @tool, for internal use):
-    - subscribe_notebook_events: Subscribe to IOPub events for real-time streaming
-    - unsubscribe_notebook_events: Unsubscribe from IOPub events
-
-    Note: For full notebook content, agents should use the standard file Read tool.
-    This matches VSCode's design where agents use built-in file operations.
-    """
+    """Notebook operations toolset for Jupyter notebooks."""
 
     def __init__(
         self,
@@ -195,7 +151,7 @@ class IntegratedNotebookToolSet(ToolSet):
                     "created_at": context.created_at,
                     "notebook_title": context.notebook_title,
                     "kernel_spec": context.kernel_spec,
-                    "is_new": context.is_new,
+                    "notebook_is_new": context.notebook_is_new,
                 }
 
             data = {
@@ -253,7 +209,8 @@ class IntegratedNotebookToolSet(ToolSet):
                 created_at=datetime.now().isoformat(),
                 notebook_title="New Notebook",
                 kernel_spec="python3",
-                is_new=notebook_file_is_new,
+                notebook_is_new=notebook_file_is_new,
+                kernel_is_new=True,
             )
 
             # 4. Persist
@@ -315,41 +272,93 @@ class IntegratedNotebookToolSet(ToolSet):
 
         return None, None
 
+    def _validate_cell_id(self, cell_id: str) -> tuple[bool, str]:
+        """
+        Validate cell_id format for Jupyter notebook compatibility
+
+        Jupyter notebook cell_id requirements:
+        - Must be non-empty string
+        - Length: 1-256 characters
+        - Allowed characters: alphanumeric, dash (-), underscore (_)
+
+        Returns:
+            tuple[bool, str]: (is_valid, error_message)
+        """
+        if not cell_id or not isinstance(cell_id, str):
+            return False, "cell_id must be non-empty string"
+
+        if len(cell_id) > 256:
+            return (
+                False,
+                f"cell_id too long ({len(cell_id)} > 256 characters)",
+            )
+
+        # Check for invalid characters
+        invalid_chars = set(c for c in cell_id if not (c.isalnum() or c in "-_"))
+        if invalid_chars:
+            return (
+                False,
+                f"cell_id contains invalid characters: {sorted(invalid_chars)}. "
+                f"Only alphanumeric, dash (-), and underscore (_) allowed",
+            )
+
+        return True, ""
+
     # ═══════════════════════════════════════════════════════════
-    # Core Tools (VSCode-style Hybrid Approach)
+    # Core Tools
     # ═══════════════════════════════════════════════════════════
 
     @tool
-    async def create_notebook(
-        self, notebook_path: str, title: str = "New Notebook"
-    ) -> dict:
+    async def create_notebook(self, notebook_path: str) -> dict:
         """
-        Create a new notebook (like VSCode newNotebookTool)
+        Create or open a notebook file.
 
         Args:
             notebook_path: Path to notebook file
-            title: Notebook title
 
         Returns:
-            dict with success, notebook_path, kernel_session_id, created_at, action:
-            - action: "created" if new notebook file was created, "opened" if already exists
+            dict with:
+            - success: True if notebook was created or already exists
+            - notebook_path: Path to the notebook
+            - action: "created" if new file was created, "opened" if already exists
+            - kernel_session_id: Present if notebook has an active kernel session
         """
         session_id = self.get_session_id()
-        logger.debug(f"Creating notebook {notebook_path} @ {session_id}")
-        if not session_id:
-            return {"success": False, "error": "No session_id provided"}
 
         try:
-            # Create or get context (automatically creates notebook and kernel)
-            context = await self._get_or_create_context(notebook_path, session_id)
+            # Check if notebook exists
+            read_result = await self.notebook_contents.read_notebook(notebook_path)
 
-            return {
+            if read_result["success"]:
+                # Notebook already exists
+                action = "opened"
+                logger.debug(f"Notebook already exists: {notebook_path}")
+            else:
+                # Create new notebook
+                create_result = await self.notebook_contents.create_notebook(
+                    notebook_path, "New Notebook"
+                )
+                if not create_result["success"]:
+                    return {
+                        "success": False,
+                        "error": f"Failed to create notebook: {create_result.get('error', 'Unknown error')}",
+                    }
+                action = "created"
+                logger.info(f"Created new notebook: {notebook_path}")
+
+            result = {
                 "success": True,
                 "notebook_path": notebook_path,
-                "kernel_session_id": context.kernel_session_id,
-                "created_at": context.created_at,
-                "action": "created" if context.is_new else "opened",
+                "action": action,
             }
+
+            # Add kernel_session_id if context exists
+            if session_id:
+                context = self._get_context(notebook_path, session_id)
+                if context:
+                    result["kernel_session_id"] = context.kernel_session_id
+
+            return result
 
         except Exception as e:
             logger.error(f"create_notebook failed: {e}")
@@ -357,21 +366,27 @@ class IntegratedNotebookToolSet(ToolSet):
 
     @tool
     async def execute_cell(
-        self, notebook_path: str, cell_id: str, code: str = ""
+        self,
+        notebook_path: str,
+        cell_id: str = "",
+        code: str = "",
+        auto_create_cell: bool = False,
     ) -> dict:
         """
-        Execute existing notebook cell (like VSCode runNotebookCellTool)
-
-        Uses cell_id for stability. If code is provided, updates cell before executing.
-        session_id automatically injected via @tool decorator.
+        Execute code in a cell.
 
         Args:
             notebook_path: Path to notebook file
-            cell_id: Cell identifier (must exist)
-            code: Optional code to update cell with before execution
+            cell_id: Cell identifier
+            code: Code to execute (optional, uses existing cell content if not provided)
+            auto_create_cell: If True, create cell if it doesn't exist (default: False)
 
         Returns:
-            dict with execution results
+            dict with:
+            - success: True if execution succeeded
+            - created: True if cell was auto-created, False otherwise
+            - output: Execution result/output
+            - kernel_session_id: Kernel session ID
         """
         session_id = self.get_session_id()
         if not session_id:
@@ -383,15 +398,58 @@ class IntegratedNotebookToolSet(ToolSet):
 
             # Find existing cell
             cell_index, cell_data = await self._get_cell_by_id(notebook_path, cell_id)
+            cell_was_created = False
+
             if cell_index is None:
-                return {"success": False, "error": f"Cell {cell_id} not found"}
+                if auto_create_cell:
+                    # Validate cell_id format before creation
+                    is_valid, error_msg = self._validate_cell_id(cell_id)
+                    if not is_valid:
+                        return {
+                            "success": False,
+                            "error": f"Invalid cell_id: {error_msg}",
+                        }
+
+                    logger.info(f"Auto-creating cell {cell_id}")
+
+                    # Try to create cell
+                    create_result = await self.notebook_contents.add_cell(
+                        path=notebook_path,
+                        cell_type="code",
+                        source="",  # Empty cell initially
+                        cell_id=cell_id,
+                    )
+
+                    if not create_result["success"]:
+                        # Cell creation failed, may be concurrent request
+                        # Retry lookup to handle race condition
+                        cell_index, cell_data = await self._get_cell_by_id(
+                            notebook_path, cell_id
+                        )
+                        if cell_index is None:
+                            # Still not found, return error
+                            return {
+                                "success": False,
+                                "error": f"Failed to create cell: {create_result.get('error', 'Unknown error')}",
+                            }
+                        # Cell was created by concurrent request, continue
+                        logger.info(f"Cell {cell_id} was created by concurrent request")
+                    else:
+                        # Successfully created
+                        cell_was_created = True
+                        cell_data = create_result.get("cell_data", {})
+                else:
+                    return {"success": False, "error": f"Cell {cell_id} not found"}
 
             # Update cell content if code provided
             if code:
                 await self.notebook_contents.update_cell(notebook_path, cell_id, code)
             else:
-                # Use existing code
-                code = self.notebook_contents._format_source(cell_data["source"])
+                # Use existing code if available
+                if cell_data and "source" in cell_data:
+                    code = self.notebook_contents._format_source(cell_data["source"])
+                else:
+                    code = ""
 
             # Execute with cell_id (not cell_index for stability)
             exec_result = await self._execute_and_update(
@@ -403,6 +461,7 @@ class IntegratedNotebookToolSet(ToolSet):
             exec_result["notebook_path"] = (
                 notebook_path  # Explicit, avoid frontend parsing
             )
+            exec_result["created"] = cell_was_created  # Flag if cell was auto-created
             return exec_result
 
         except Exception as e:
@@ -419,25 +478,28 @@ class IntegratedNotebookToolSet(ToolSet):
         below_cell_id: Optional[str] = None,
     ) -> dict:
         """
-        Add new cell to notebook
+        Add a new cell to the notebook.
 
         Args:
             notebook_path: Path to notebook file
-            cell_type: Type of cell ('code', 'markdown', or 'raw'), default 'code'
-            content: Cell source code content
+            cell_type: Type of cell: "code", "markdown", or "raw" (default: "code")
+            content: Cell content/source code
             cell_id: Optional cell identifier (auto-generated if not provided)
-            below_cell_id: Cell id to insert after. If None, append to end.
+            below_cell_id: Optional cell ID to insert after (appends to end if not provided)
 
         Returns:
-            dict with success, cell_id, notebook_path, kernel_session_id
+            dict with:
+            - success: True if cell was added
+            - cell_id: The cell identifier
+            - notebook_path: Path to the notebook
         """
         session_id = self.get_session_id()
         if not session_id:
             return {"success": False, "error": "No session_id provided"}
 
         try:
-            # Get or create context
-            context = await self._get_or_create_context(notebook_path, session_id)
+            # Get context if exists (don't create kernel for simple edit)
+            context = self._get_context(notebook_path, session_id)
 
             # Call notebook_contents API
             result = await self.notebook_contents.add_cell(
@@ -448,10 +510,11 @@ class IntegratedNotebookToolSet(ToolSet):
                 below_cell_id=below_cell_id,
             )
 
-            # Add context information
+            # Add context information only if context exists
             if result["success"]:
                 result["notebook_path"] = notebook_path
-                result["kernel_session_id"] = context.kernel_session_id
+                if context:
+                    result["kernel_session_id"] = context.kernel_session_id
 
             return result
 
@@ -467,23 +530,26 @@ class IntegratedNotebookToolSet(ToolSet):
         content: str,
     ) -> dict:
         """
-        Update cell content
+        Update the content of a cell.
 
         Args:
             notebook_path: Path to notebook file
             cell_id: Cell identifier
-            content: New cell source code content
+            content: New cell content/source code
 
         Returns:
-            dict with success, cell_id, notebook_path, kernel_session_id
+            dict with:
+            - success: True if cell was updated
+            - cell_id: The cell identifier
+            - notebook_path: Path to the notebook
         """
         session_id = self.get_session_id()
         if not session_id:
             return {"success": False, "error": "No session_id provided"}
 
         try:
-            # Get or create context
-            context = await self._get_or_create_context(notebook_path, session_id)
+            # Get context if exists (don't create kernel for simple edit)
+            context = self._get_context(notebook_path, session_id)
 
             # Call notebook_contents API
             result = await self.notebook_contents.update_cell(
@@ -492,10 +558,11 @@ class IntegratedNotebookToolSet(ToolSet):
                 source=content,
             )
 
-            # Add context information
+            # Add context information only if context exists
             if result["success"]:
                 result["notebook_path"] = notebook_path
-                result["kernel_session_id"] = context.kernel_session_id
+                if context:
+                    result["kernel_session_id"] = context.kernel_session_id
 
             return result
 
@@ -510,22 +577,25 @@ class IntegratedNotebookToolSet(ToolSet):
         cell_id: str,
     ) -> dict:
         """
-        Delete cell from notebook
+        Delete a cell from the notebook.
 
         Args:
             notebook_path: Path to notebook file
             cell_id: Cell identifier
 
         Returns:
-            dict with success, cell_id, notebook_path, kernel_session_id
+            dict with:
+            - success: True if cell was deleted
+            - cell_id: The cell identifier
+            - notebook_path: Path to the notebook
         """
         session_id = self.get_session_id()
         if not session_id:
             return {"success": False, "error": "No session_id provided"}
 
         try:
-            # Get or create context
-            context = await self._get_or_create_context(notebook_path, session_id)
+            # Get context if exists (don't create kernel for simple edit)
+            context = self._get_context(notebook_path, session_id)
 
             # Call notebook_contents API
             result = await self.notebook_contents.delete_cell(
@@ -533,10 +603,11 @@ class IntegratedNotebookToolSet(ToolSet):
                 cell_id=cell_id,
             )
 
-            # Add context information
+            # Add context information only if context exists
             if result["success"]:
                 result["notebook_path"] = notebook_path
-                result["kernel_session_id"] = context.kernel_session_id
+                if context:
+                    result["kernel_session_id"] = context.kernel_session_id
 
             return result
 
@@ -552,23 +623,26 @@ class IntegratedNotebookToolSet(ToolSet):
         below_cell_id: Optional[str] = None,
     ) -> dict:
         """
-        Move cell to different position
+        Move a cell to a different position in the notebook.
 
         Args:
             notebook_path: Path to notebook file
             cell_id: Cell identifier to move
-            below_cell_id: Cell id to move after. If None, move to top.
+            below_cell_id: Cell ID to move after (moves to top if not provided)
 
         Returns:
-            dict with success, cell_id, notebook_path, kernel_session_id
+            dict with:
+            - success: True if cell was moved
+            - cell_id: The cell identifier
+            - notebook_path: Path to the notebook
         """
         session_id = self.get_session_id()
         if not session_id:
             return {"success": False, "error": "No session_id provided"}
 
         try:
-            # Get or create context
-            context = await self._get_or_create_context(notebook_path, session_id)
+            # Get context if exists (don't create kernel for simple edit)
+            context = self._get_context(notebook_path, session_id)
 
             # Call notebook_contents API
             result = await self.notebook_contents.move_cell(
@@ -577,16 +651,165 @@ class IntegratedNotebookToolSet(ToolSet):
                 below_cell_id=below_cell_id,
             )
 
-            # Add context information
+            # Add context information only if context exists
             if result["success"]:
                 result["notebook_path"] = notebook_path
-                result["kernel_session_id"] = context.kernel_session_id
+                if context:
+                    result["kernel_session_id"] = context.kernel_session_id
 
             return result
 
         except Exception as e:
             logger.error(f"move_cell failed: {e}")
             return {"success": False, "error": str(e)}
+
+    @tool
+    async def read_cells(
+        self,
+        notebook_path: str,
+        include_details: bool = False,
+        cell_ids: Optional[list[str]] = None,
+    ) -> dict:
+        """
+        Read cells in a notebook with execution status and optional content.
+
+        Args:
+            notebook_path: Path to notebook file
+            include_details: Include complete cell data (source, outputs, metadata).
+                When False (default): Returns cell summary (execution status, mime types).
+                When True: Returns full cell data (source, outputs, metadata).
+            cell_ids: Optional list of cell IDs to read. If None or empty, reads all cells.
+                Example: ["cell_1", "cell_3"] reads only those cells.
+
+        Returns:
+            dict with cell list and notebook info. Each cell includes:
+            - Always: cell_id, cell_index, cell_type, execution_count, execution_status, output_mime_types
+            - When include_details=True: source, outputs, metadata
+
+        Example:
+            # Get all cells with execution status only
+            result = await toolset.read_cells("notebook.ipynb")
+
+            # Get all cells with full details
+            result = await toolset.read_cells("notebook.ipynb", include_details=True)
+            for cell in result["cells"]:
+                print(f"{cell['cell_id']}: {cell['source']}")
+
+            # Get only specific cells
+            result = await toolset.read_cells(
+                "notebook.ipynb",
+                include_details=True,
+                cell_ids=["cell_1", "cell_3"]
+            )
+
+        Note:
+            For kernel variables, use manage_kernel(action="variables") instead.
+        """
+        session_id = self.get_session_id()
+
+        read_result = await self.notebook_contents.read_notebook(notebook_path)
+        if not read_result["success"]:
+            return read_result
+
+        notebook = read_result["notebook"]
+
+        # Get context if exists
+        context = self._get_context(notebook_path, session_id) if session_id else None
+
+        # Helper: Get execution status for a cell
+        def get_execution_status(cell: dict) -> str:
+            """Determine execution status: not_executed, success, or error"""
+            if cell.get("cell_type") != "code":
+                return "not_applicable"
+
+            # Not executed if no execution_count
+            if cell.get("execution_count") is None:
+                return "not_executed"
+
+            # Check outputs for errors
+            outputs = cell.get("outputs", [])
+            for output in outputs:
+                if output.get("output_type") == "error":
+                    return "error"
+
+            # Executed successfully
+            return "success"
+
+        # Helper: Get output mime types
+        def get_output_mime_types(cell: dict) -> list[str]:
+            """Extract all mime types from cell outputs"""
+            mime_types = set()
+            outputs = cell.get("outputs", [])
+
+            for output in outputs:
+                output_type = output.get("output_type")
+
+                if output_type == "stream":
+                    mime_types.add("text/plain")
+                elif output_type == "display_data" or output_type == "execute_result":
+                    # Extract mime types from data dict
+                    data = output.get("data", {})
+                    mime_types.update(data.keys())
+                elif output_type == "error":
+                    mime_types.add("application/vnd.code.notebook.error")
+
+            return sorted(list(mime_types))
+
+        # Build cell info list with enhanced fields
+        cells_info = []
+        for idx, cell in enumerate(notebook.get("cells", [])):
+            # Basic cell info (always included)
+            cell_info = {
+                "cell_id": cell.get("id"),
+                "cell_index": idx,
+                "cell_type": cell.get("cell_type"),
+                "execution_count": cell.get("execution_count"),
+                "has_output": len(cell.get("outputs", [])) > 0,
+                "execution_status": get_execution_status(cell),
+                "output_mime_types": get_output_mime_types(cell),
+            }
+
+            # Add language for code cells
+            if cell.get("cell_type") == "code":
+                # Get language from notebook metadata or default to python
+                metadata = notebook.get("metadata", {})
+                language_info = metadata.get("language_info", {})
+                cell_info["language"] = language_info.get("name", "python")
+
+            # Optionally include complete cell data (like read_cell)
+            if include_details:
+                # Format source code (handle both string and list formats)
+                source = cell.get("source", "")
+                if isinstance(source, list):
+                    source = "".join(source)
+
+                cell_info["source"] = source
+                cell_info["outputs"] = cell.get("outputs", [])
+                cell_info["metadata"] = cell.get("metadata", {})
+
+            cells_info.append(cell_info)
+
+        # Filter cells by cell_ids if provided
+        if cell_ids:
+            cell_ids_set = set(cell_ids)
+            cells_info = [c for c in cells_info if c["cell_id"] in cell_ids_set]
+
+        # Base response
+        result = {
+            "success": True,
+            "notebook_path": notebook_path,
+            "has_context": context is not None,
+            "cell_count": len(cells_info),
+            "cells": cells_info,
+            "kernel_status": self.kernel_toolset.sessions[
+                context.kernel_session_id
+            ].status.value
+            if context
+            else None,
+            "kernel_session_id": context.kernel_session_id if context else None,
+        }
+
+        return result
 
     @tool(exclude=True)
     async def read_notebook(self, notebook_path: str, validate: bool = False) -> dict:
@@ -599,7 +822,6 @@ class IntegratedNotebookToolSet(ToolSet):
         This matches VSCode's design where agents use built-in file operations
         for full content reads.
 
-        Use get_notebook_info() for notebook summaries and read_cell()
         for complete cell data retrieval.
 
         Args:
@@ -619,80 +841,9 @@ class IntegratedNotebookToolSet(ToolSet):
         )
 
     @tool
-    async def read_cell(self, notebook_path: str, cell_id: str) -> dict:
-        """
-        Read complete cell data (source, outputs, metadata)
-
-        Efficient targeted read for a single cell. Returns full cell information
-        including source code, outputs, execution state, and metadata.
-
-        Use this for:
-        - Debugging (see source + outputs together)
-        - Cell inspection (full state in one call)
-        - Error analysis (source code + error output)
-
-        Use get_notebook_info() for summaries of all cells.
-        Use file Read tool for complete notebook JSON.
-
-        Args:
-            notebook_path: Path to notebook
-            cell_id: Cell identifier
-
-        Returns:
-            dict with complete cell data including:
-            - source: Cell source code
-            - outputs: Cell outputs (for code cells)
-            - execution_count: Execution counter
-            - cell_type: Type of cell (code/markdown/raw)
-            - metadata: Cell metadata
-            - notebook_path: Path to notebook
-            - kernel_session_id: Kernel session ID (if context exists)
-        """
-        session_id = self.get_session_id()
-
-        try:
-            cell_index, cell_data = await self._get_cell_by_id(notebook_path, cell_id)
-            if cell_index is None:
-                return {"success": False, "error": f"Cell {cell_id} not found"}
-
-            # Format source code (handle both string and list formats)
-            source = cell_data.get("source", "")
-            if isinstance(source, list):
-                source = "".join(source)
-
-            # Get context if exists
-            context = (
-                self._get_context(notebook_path, session_id) if session_id else None
-            )
-
-            result = {
-                "success": True,
-                "cell_id": cell_id,
-                "notebook_path": notebook_path,
-                # V2: cell_index removed (unstable identifier - use cell_id instead)
-                "cell_type": cell_data.get("cell_type"),
-                "source": source,
-                "outputs": cell_data.get("outputs", []),
-                "execution_count": cell_data.get("execution_count"),
-                "metadata": cell_data.get("metadata", {}),
-            }
-
-            # Add kernel_session_id if context exists
-            if context:
-                result["kernel_session_id"] = context.kernel_session_id
-
-            return result
-
-        except Exception as e:
-            logger.error(f"read_cell failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    @tool
     async def list_notebooks(self) -> dict:
         """
-        List notebooks for current session
-
-        Automatically filters by session_id from context.
+        List running notebooks for current session
         """
         session_id = self.get_session_id()
 
@@ -737,6 +888,7 @@ class IntegratedNotebookToolSet(ToolSet):
             notebook_path: Path to notebook
             action: Kernel operation
                 - "restart": Restart kernel (clears all state)
+                              NOTE: Auto-creates kernel if it doesn't exist
                 - "interrupt": Interrupt running execution
                 - "status": Get kernel status information
                 - "variables": Get current kernel variables
@@ -745,18 +897,33 @@ class IntegratedNotebookToolSet(ToolSet):
 
         Returns:
             dict with success status and action-specific data
+
         """
         session_id = self.get_session_id()
         if not session_id:
             return {"success": False, "error": "No session_id provided"}
 
-        context = self._get_context(notebook_path, session_id)
-        if not context:
-            return {"success": False, "error": "Notebook not opened"}
+        # For restart, auto-create context if needed
+        # For other actions, require context to already exist
+        if action == "restart":
+            context = await self._get_or_create_context(notebook_path, session_id)
+        else:
+            context = self._get_context(notebook_path, session_id)
+            if not context:
+                return {"success": False, "error": "Notebook not opened"}
 
         try:
             if action == "restart":
-                # Restart kernel
+                # If context was just created, skip restart (kernel already running)
+                if context.kernel_is_new:
+                    return {
+                        "success": True,
+                        "action": "restart",
+                        "notebook_path": notebook_path,
+                        "kernel_session_id": context.kernel_session_id,
+                    }
+
+                # Otherwise, restart existing kernel
                 result = await self.kernel_toolset.restart_session(
                     context.kernel_session_id
                 )
@@ -1103,131 +1270,6 @@ class IntegratedNotebookToolSet(ToolSet):
         except Exception as e:
             logger.error(f"inspect_request failed: {e}")
             return {"success": False, "error": str(e)}
-
-    # ═══════════════════════════════════════════════════════════
-    # Utility Tools
-    # ═══════════════════════════════════════════════════════════
-
-    @tool
-    async def get_notebook_info(
-        self, notebook_path: str, include_variables: bool = False
-    ) -> dict:
-        """
-        Get notebook information with execution status and output types (VSCode-enhanced)
-
-        Provides comprehensive notebook summary similar to VSCode's getNotebookSummary:
-        - Cell list with execution status
-        - Output mime types for each cell
-        - Language information for code cells
-        - Optional kernel variables
-
-        Args:
-            notebook_path: Path to notebook file
-            include_variables: Include kernel variables in response (default: False)
-
-        Returns:
-            dict with notebook summary, cell info, and optional variables
-        """
-        session_id = self.get_session_id()
-
-        read_result = await self.notebook_contents.read_notebook(notebook_path)
-        if not read_result["success"]:
-            return read_result
-
-        notebook = read_result["notebook"]
-
-        # Get context if exists
-        context = self._get_context(notebook_path, session_id) if session_id else None
-
-        # Helper: Get execution status for a cell
-        def get_execution_status(cell: dict) -> str:
-            """Determine execution status: not_executed, success, or error"""
-            if cell.get("cell_type") != "code":
-                return "not_applicable"
-
-            # Not executed if no execution_count
-            if cell.get("execution_count") is None:
-                return "not_executed"
-
-            # Check outputs for errors
-            outputs = cell.get("outputs", [])
-            for output in outputs:
-                if output.get("output_type") == "error":
-                    return "error"
-
-            # Executed successfully
-            return "success"
-
-        # Helper: Get output mime types
-        def get_output_mime_types(cell: dict) -> list[str]:
-            """Extract all mime types from cell outputs"""
-            mime_types = set()
-            outputs = cell.get("outputs", [])
-
-            for output in outputs:
-                output_type = output.get("output_type")
-
-                if output_type == "stream":
-                    mime_types.add("text/plain")
-                elif output_type == "display_data" or output_type == "execute_result":
-                    # Extract mime types from data dict
-                    data = output.get("data", {})
-                    mime_types.update(data.keys())
-                elif output_type == "error":
-                    mime_types.add("application/vnd.code.notebook.error")
-
-            return sorted(list(mime_types))
-
-        # Build cell info list with enhanced fields
-        cells_info = []
-        for idx, cell in enumerate(notebook.get("cells", [])):
-            cell_info = {
-                "cell_id": cell.get("id"),
-                "cell_index": idx,
-                "cell_type": cell.get("cell_type"),
-                "execution_count": cell.get("execution_count"),
-                "has_output": len(cell.get("outputs", [])) > 0,
-                "execution_status": get_execution_status(cell),
-                "output_mime_types": get_output_mime_types(cell),
-            }
-
-            # Add language for code cells
-            if cell.get("cell_type") == "code":
-                # Get language from notebook metadata or default to python
-                metadata = notebook.get("metadata", {})
-                language_info = metadata.get("language_info", {})
-                cell_info["language"] = language_info.get("name", "python")
-
-            cells_info.append(cell_info)
-
-        # Base response
-        result = {
-            "success": True,
-            "notebook_path": notebook_path,
-            "has_context": context is not None,
-            "cell_count": len(cells_info),
-            "cells": cells_info,
-            "kernel_status": self.kernel_toolset.sessions[
-                context.kernel_session_id
-            ].status.value
-            if context
-            else None,
-            "kernel_session_id": context.kernel_session_id if context else None,
-        }
-
-        # Optionally include variables
-        if include_variables and context:
-            try:
-                vars_result = await self.kernel_toolset.get_variables(
-                    context.kernel_session_id
-                )
-                if vars_result.get("success"):
-                    result["variables"] = vars_result.get("variables", [])
-            except Exception as e:
-                logger.warning(f"Failed to get variables: {e}")
-                result["variables"] = []
-
-        return result
 
     # ═══════════════════════════════════════════════════════════
     # Internal Methods

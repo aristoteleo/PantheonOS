@@ -308,8 +308,10 @@ class KernelListener:
                     continue
 
                 try:
-                    # True event-driven waiting - returns only when messages arrive
-                    events = await self.poller.poll()  # No timeout - pure event-driven
+                    # Event-driven waiting with periodic refresh for dynamic socket registration
+                    # timeout=100ms ensures newly registered sockets are picked up within 100ms,
+                    # preventing race conditions when add_kernel() is called during poll()
+                    events = await self.poller.poll(timeout=100)
 
                     # Process all sockets with messages
                     for socket, event in events:
@@ -334,7 +336,7 @@ class KernelListener:
 
             # Skip empty or malformed messages
             if not multipart_msg or len(multipart_msg) < 2:
-                logger.debug(
+                logger.info(
                     f"Skipping malformed multipart message with {len(multipart_msg) if multipart_msg else 0} parts"
                 )
                 return
@@ -361,7 +363,7 @@ class KernelListener:
 
         except zmq.Again:
             # No message to read, normal case
-            pass
+            logger.info("No message to read, normal case")
         except Exception as e:
             session_id = self.socket_to_session.get(socket, "unknown")
             logger.error(f"Error handling message for session {session_id}: {e}")
@@ -821,11 +823,48 @@ class JupyterKernelToolSet(ToolSet):
                 session_info = self.sessions[session_id]
                 session_info.status = KernelStatus.STARTING
 
-                # Restart kernel
-                km = self.kernel_managers[session_id]
-                km.restart_kernel()
+                # Step 1: Clean up old IOPub listener BEFORE restart
+                # This is critical - the old socket must be removed before restarting
+                if self.use_unified_listener and self.unified_listener:
+                    await self.unified_listener.remove_kernel(session_id)
+                    logger.debug(
+                        f"Removed kernel {session_id} from unified listener before restart"
+                    )
+                elif session_id in self.iopub_tasks:
+                    self.iopub_tasks[session_id].cancel()
+                    del self.iopub_tasks[session_id]
+                    logger.debug(
+                        f"Cancelled IOPub task for {session_id} before restart"
+                    )
 
-                # Reset execution count
+                # Step 2: Restart kernel
+                km = self.kernel_managers[session_id]
+                kc = self.clients[session_id]
+
+                await km.restart_kernel()
+                logger.debug(f"Kernel {session_id} restarted successfully")
+
+                # Step 3: Wait for restarted kernel to be ready
+                try:
+                    await kc.wait_for_ready(timeout=30)
+                    logger.debug(f"Kernel {session_id} is ready after restart")
+                except RuntimeError as e:
+                    logger.error(
+                        f"Kernel {session_id} failed to ready after restart: {e}"
+                    )
+                    session_info.status = KernelStatus.DEAD
+                    return {
+                        "success": False,
+                        "error": f"Kernel failed to be ready after restart: {e}",
+                    }
+
+                # Step 4: Re-setup IOPub monitoring after restart
+                # This establishes the new IOPub connection with the restarted kernel
+                if self.event_bus:
+                    await self._setup_iopub_monitoring(session_id, km, kc)
+                    logger.debug(f"IOPub monitoring re-established for {session_id}")
+
+                # Step 5: Reset execution state
                 session_info.execution_count = 0
                 session_info.status = KernelStatus.IDLE
 
@@ -834,6 +873,9 @@ class JupyterKernelToolSet(ToolSet):
 
             except Exception as e:
                 logger.error(f"Failed to restart existing session {session_id}: {e}")
+                # Update session status if it exists
+                if session_id in self.sessions:
+                    self.sessions[session_id].status = KernelStatus.IDLE
                 return {"success": False, "error": str(e)}
 
         # If session doesn't exist (e.g., after redeployment), create a new one with the same ID
@@ -1245,9 +1287,11 @@ class JupyterKernelToolSet(ToolSet):
         # Clear message metadata mappings
         self.msg_metadata_mapping.clear()
 
-        # Clear Jedi contexts for all sessions
+        # Shutdown all sessions
         for session_id in list(self.sessions.keys()):
-            self.completion_service.clear_session_context(session_id)
+            # Clear Jedi contexts if completion service exists
+            if hasattr(self, "completion_service"):
+                self.completion_service.clear_session_context(session_id)
             await self.shutdown_session(session_id)
 
         logger.info("JupyterKernelToolSet cleanup complete")
