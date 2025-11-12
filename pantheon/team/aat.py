@@ -3,20 +3,26 @@ from datetime import datetime
 
 from .base import Team
 from ..agent import Agent, AgentInput
-from ..utils.display import print_agent_message
+
 
 class AgentAsToolTeam(Team):
     """Team that uses sub-agents as tools."""
 
-    def __init__(self, leader_agent: Agent, sub_agents: list[Agent]):
+    def __init__(
+        self,
+        leader_agent: Agent,
+        sub_agents: list[Agent],
+        report_dir: str = ".team_instructions",
+    ):
         super().__init__([leader_agent] + sub_agents)
         self.leader_agent = leader_agent
         self.leader_agent.tool(self.list_sub_agents)
         self.leader_agent.tool(self.call_sub_agent)
         self.sub_agents = {agent.name: agent for agent in sub_agents}
 
-        self.report_dir = Path("team_instructions")
+        self.report_dir = Path(report_dir)
         self.report_dir.mkdir(parents=True, exist_ok=True)
+        self.run_kwargs = {}
 
     def list_sub_agents(self) -> list[dict]:
         """Return description for all sub-agents."""
@@ -34,14 +40,16 @@ class AgentAsToolTeam(Team):
     async def call_sub_agent(self, name: str, instruction: str) -> str:
         if name not in self.sub_agents:
             raise ValueError(f"Sub-agent {name} not found")
+
+        # Report the instruction to the sub-agent
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         report_path = self.report_dir / f"{timestamp}_instruction_{name}.md"
         with open(report_path, "w") as f:
             f.write(instruction)
+
         try:
             resp = await self.sub_agents[name].run(
-                instruction,
-                process_step_message=lambda msg: print_agent_message(name, msg)
+                instruction, **self.run_kwargs
             )
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             report_path = self.report_dir / f"{timestamp}_result_{name}.md"
@@ -56,10 +64,11 @@ class AgentAsToolTeam(Team):
         return resp.content
 
     async def run(self, msg: AgentInput, **kwargs):
+        run_kwargs = kwargs.copy()
+        self.run_kwargs = run_kwargs
         resp = await self.leader_agent.run(
             msg,
-            process_step_message=lambda msg: print_agent_message(self.leader_agent.name, msg, **kwargs),
-            **kwargs
+            **run_kwargs
         )
         return resp
         

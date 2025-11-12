@@ -5,7 +5,6 @@ from .julia import JuliaInterpreterToolSet
 from .shell import ShellToolSet
 from .file_manager import FileManagerToolSet
 from .web import WebToolSet
-from .latex import LatexToolSet
 from .workflow import WorkflowToolSet
 from .notebook import NotebookToolSet, IntegratedNotebookToolSet, JupyterKernelToolSet
 from .scraper import ScraperToolSet
@@ -26,8 +25,6 @@ __all__ = [
     # Web & scraping
     "WebToolSet",
     "ScraperToolSet",
-    # Document processing
-    "LatexToolSet",
     # Workflows & code
     "WorkflowToolSet",
     "TodoListToolSet",

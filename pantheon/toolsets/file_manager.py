@@ -261,7 +261,6 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 }
             )
 
-        # context.call_agent is not working
         # Call LLM to analyze images
         try:
             response = await context.call_agent(messages=messages)
@@ -271,15 +270,6 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 f"Error calling agent for image observation: {e}", exc_info=True
             )
             return {"success": False, "error": str(e)}
-        # return {
-        #     "success": True,
-        #     "inner_call": {
-        #         "name": "__agent_run__",
-        #         "args": messages,
-        #         "result_field": "content",
-        #     },
-        #     "hidden_to_model": ["base64_uri", "inner_call_args"],
-        # }
 
     @tool
     async def read_pdf(self, pdf_path: str) -> dict:

@@ -8,13 +8,16 @@ import loguru
 
 from pantheon.agent import Agent
 from pantheon.toolsets.python import PythonInterpreterToolSet
-from pantheon.toolsets.scraper import ScraperToolSet
+from pantheon.toolsets.web import WebToolSet
 from pantheon.toolsets.file_manager import FileManagerToolSet
 from pantheon.toolsets.shell import ShellToolSet
 from pantheon.team.aat import AgentAsToolTeam
+from pantheon.utils.display import print_agent_message
+
 
 TIMEOUT_SUBAGENT = 24*60*60
 TIMEOUT_TOOL = 20*60
+
 
 async def main(workdir: str, prompt: str | None = None, log_level: str = "WARNING"):
     loguru.logger.remove()
@@ -58,7 +61,21 @@ You don't need to pass the detail about the analysis task to the `analysis_exper
 `analysis_expert` know how to perform the basic analysis for understand the dataset and perform the quality control,
 you don't need to guild it, just pass high-level instruction, like: "Perform the basic analysis for understanding the dataset and perform the quality control".
 
-# Workflow for perform the single-cell/Spatial Omics analysis:
+## Workdir management:
+Always try to create a `workdir` and keep results in the `workdir`.
+In the `workdir`, you should create subdirectories for different sub-agents.
+And when passing the instruction to the sub-agents, you should pass the path to the workdir in the instruction clearly, like:
+Workdir: /path/to/workdir
+To ensure the sub-agents know where to save the results.
+
+## Independence(Important!):
+As a leader, one should complete tasks as independently and autonomously as possible, exploring biological questions. In most cases,
+there is no need to confirm with the user; independent decision-making to call sub-agents for exploration is sufficient.
+
+# Workflow for perform the single-cell/Spatial Omics analysis(Important!):
+
+At most time, you should follow the following workflow to perform the analysis,
+don't skip any step, and don't change the order of the steps.
 
 1. Understanding:
     1.a: Understand the computational environment: Call `system_manager` agent to get the information of the software and hardware environment.
@@ -69,7 +86,9 @@ you don't need to guild it, just pass high-level instruction, like: "Perform the
     so that the `analysis_expert` will know the software and hardware environment.
 
 2. Hypotheses generation: call `biologist` agent to for hypotheses generation.
-In this step, you should pass the basic analysis results from the `analysis_expert` agent to the `biologist` agent.
+In this step, you should collect the analysis results from the `analysis_expert` agent and summarize them
+concisely, and pass them to the `biologist` agent. This summary should include the basic information about the dataset.
+Let biologist understand the dataset and generate biological interesting insights.
 
 3. Planning: Based on the hypotheses, dataset structure and the available computational resources,
 design a comprehensive analysis plan. And record the plan in the todolist file(`todolist.md` in the workdir).
@@ -79,6 +98,7 @@ Todolist file should be in markdown format, and the steps should be list as the 
 4. Execution: Based on the analysis plan, call `analysis_expert` agent to perform the analysis for each step in the todolist.
 After `analysis_expert` finished one step, you should call `biologist` agent to interpret the results in the biological aspect.
 If the results are not as expected, you should update the todolist file to adjust the analysis plan.
+If the results are expected, you should update the todolist, then got to the next step.
 Run until all the steps are completed.
 
 5. Loop: If the all the steps are completed, but there are no interesting(biologically or technically) results,
@@ -86,9 +106,8 @@ you should go back to the step 2 and repeat the process with new hypotheses.
 
 6. Summary: call `reporter` agent to summarize the results and conclusions.
 In this step, you should pass the all the results and paths to the report file in each steps and the process to the `reporter` agent.
+Let reporter agent generate a PDF report file(`report.pdf` in the workdir).
 
-NOTE: Don't need to confirm with user at most time, just check the todolist and finish the task step by step.
-Always try to create a `workdir` and keep results in the `workdir`.
 """
 
 
@@ -108,8 +127,7 @@ the computational environment investigation and software environment installatio
 
 # General guidelines
 
-1. Workdir: Always try to create a `workdir` and keep all results in the `workdir`. Before create a new
-workdir, you should call the `list_file_tree` function in the `file_manager` toolset to get the information about the structure of directory.
+1. Workdir: Always work in the workdir provided by the leader agent.
 2. Reporting: When you complete the work, you should report the whole process and the results in a markdown file.
 This file should be named as `report_system_manager_<task_name>.md` in the workdir.
 
@@ -161,8 +179,7 @@ You will receive the instruction from the leader agent for different kinds of an
 
 # General guidelines(Important)
 
-1. Workdir: Always try to create a `workdir` and keep all results in the `workdir`. Before create a new
-workdir, you should call the `list_file_tree` function in the `file_manager` toolset to get the information about the structure of directory.
+1. Workdir: Always work in the workdir provided by the leader agent.
 2. Information source:
   + When the software you are not familiar with, you should search the web to find the related information to support your analysis.
   + When you are not sure about the analysis/knowledge, you should search the web to find the related information to support your analysis.
@@ -267,7 +284,7 @@ The high-quality means the figure in publication level:
     )
     await analysis_expert.toolset(PythonInterpreterToolSet("python"))
     await analysis_expert.toolset(FileManagerToolSet("file_manager", path=workpath))
-    await analysis_expert.toolset(ScraperToolSet("scraper"))
+    await analysis_expert.toolset(WebToolSet("web"))
 
     # ---------- Biologist agent ----------
 
@@ -277,18 +294,33 @@ hypotheses generation or interpretation of the analysis results.
 
 # General guidelines
 
-## Information collection:
+## Information collection(Important!):
 
-You can search the web using the `google_search` function in the `scraper` toolset. And you
-can also fetch the web page using the `fetch_web_page` function in the `scraper` toolset.
+At most time, you should collect the background information from the literatures/databases/etc by web search.
+You can search the web using the `duckduckgo_search` function in the `web` toolset. And you
+can also fetch the web page using the `web_crawl` function in the `web` toolset, when
+the information you want is interesting but not enough in the search results.
 
-## Reporting:
+For hypotheses generation, you should collect more biological papers instead of analysis tutorials.
+
+In this step, you should try multiple times, collect multiple relevant references information.
+Then filter the most relevant information for the current task, and record the references in the report.
+If the information is not what you want, you should try other keywords.
+When the information in the search result is interesting,
+you should read more with the `web_crawl` function, pass the href to the function.
+
+## Reporting(Important!):
 
 When you complete the work, you should report the whole process and the hypotheses in a markdown file.
 This file should be named as `report_biologist_<task_name>.md` in the workdir.
 
-Note that before you report, you should call the `list_file_tree` function in the `file_manager` toolset to get
-the path of workdir, if there are no workdir, you should create a new one.
+Always report the results in the workdir provided by the leader agent.
+In this report, you should include your thinking process, results(hypotheses/explanations/etc), and the supporting evidence from the literatures.
+For the literatures, you should list them as common references formats or URLs.
+
+### References bibtex file(Important!):
+For later report generation(in the reporter agent),
+you should also write a `references.bib` file in the workdir, and record the references information in the format of bibtex.
 
 # Workflow for hypotheses generation:
 
@@ -333,7 +365,7 @@ the path of workdir, if there are no workdir, you should create a new one.
         model="gpt-5",
         tool_timeout=TIMEOUT_TOOL,
     )
-    await biologist.toolset(ScraperToolSet("scraper"))
+    await biologist.toolset(WebToolSet("web"))
     await biologist.toolset(FileManagerToolSet("file_manager", path=workpath))
 
     # ---------- Reporter agent ----------
@@ -343,20 +375,28 @@ summarizing the results and conclusions.
 
 # General guidelines
 
-Workdir:
-Before you start the summarization, you should call the `list_file_tree` function in the `file_manager` toolset to get
-the information about the structure of the workdir, and check where is the workdir.
+1. Workdir: Always work in the workdir provided by the leader agent.
+
+2. Report generation(Important!):
+When generating the report, you should firstly generate a LaTeX file(`report.tex` in the workdir) with `write_file` function,
+and then use the `run_command` function in the `shell` toolset to call `pdflatex` to compile the LaTeX file to get the PDF report.
+For the format, you should make it like a professional paper, with the Title, Abstract, Introduction, Method, Results, Discussion and References.
+Use the `\cite{xxx}` to cite the literatures in the main content, and in the References section, you should include the citations for the literatures you have collected.
+And the figures should be included in the result section.
 
 ## Summarization workflow:
 
 You should:
 
-1. Read all the files, try to understand the content of the files.
-2. Summarize results and conclusions in a markdown file(`report.md` in the workdir).
+1. Read all the files, try to understand the content of the files,
+and try to observe the images with the `observe_images` function in the `file_manager` toolset to help you understand the content of the images.
+
+2. Summarize results and conclusions:
 In this stage, you should include the background information, related literature information, method the team are using, results and conclusions.
-For the format, you should make it like a professional paper, with the title, abstract, introduction, method, results, discussion and conclusion,
-literature list. And the figures should be included in the result section through the markdown image format.
+Before you write the report, you should observe the images to help you write the figure legend.
+
 3. Refine the report: ensure the report is professional and contains all the information you have collected.
+
 4. Finish
 
 """
@@ -371,6 +411,7 @@ literature list. And the figures should be included in the result section throug
         tool_timeout=TIMEOUT_TOOL,
     )
     await reporter.toolset(FileManagerToolSet("file_manager", path=workpath))
+    await reporter.toolset(ShellToolSet("shell"))
 
     # ---------- Team ----------
     os.chdir(workpath)
@@ -392,9 +433,57 @@ literature list. And the figures should be included in the result section throug
         except FileNotFoundError:
             raise FileNotFoundError(f"Prompt file not found: {prompt_path}")
 
-    await team.run(prompt)
-    #await team.run("observe the images in the workdir")
+    def process_step_message(msg: dict):
+        agent_name = msg.get("agent_name", "Agent?")
+        print_agent_message(agent_name, msg)
 
+    await team.run(prompt, process_step_message=process_step_message)
+    #await team.run("observe the images in the workdir", process_step_message=process_step_message)
+    #await reporter.run(f"""
+    #workdir: {workpath}/workdir_pbmc3k_2025-11-11/reporter/
+
+    #Inputs/paths to summarize:
+    #- Environment report: ../system_manager/env_report.txt
+    #- Analysis reports: ../analysis_expert/analysis_report.md, ../analysis_expert/analysis_report_qc_overview.md
+    #- AnnData objects: ../analysis_expert/data/raw.h5ad, ../analysis_expert/data/filtered.h5ad, ../analysis_expert/data/preprocessed.h5ad, ../analysis_expert/data/annotated.h5ad
+    #- Figures (UMAPs, QC, markers): ../analysis_expert/figures/
+    #- Marker tables: ../analysis_expert/results/markers/
+    #- Cell type counts: ../analysis_expert/results/celltype_counts.csv
+    #- Biologist interpretation: ../biologist/hypotheses_and_interpretation.md
+    #- Todolist: ../todolist.md
+
+    #Generate a PDF report file(`report.pdf` in the workdir).
+    #""", process_step_message=process_step_message)
+
+#    await biologist.run(f"""
+#Project: PBMC3k basic single-cell analysis
+#Workdir: /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/biologist
+#
+#Dataset summary (from initial computational analysis):
+#- Source: scanpy.datasets.pbmc3k (10x Genomics, ~2700 PBMCs)
+#- Initial cells/genes: 2700 cells x 32738 genes
+#- Post-QC: 2638 cells x 13656 genes
+#- QC filters applied: cells with <200 genes removed; >2500 genes removed; >5% mitochondrial removed; genes expressed in <3 cells removed
+#- Clustering: Leiden at resolution ~0.5 produced 7 clusters (0–6)
+#- Draft cell-type assignment per cluster:
+#  0: Naive/Memory T  
+#  1: CD14+ Monocytes  
+#  2: B cells  
+#  3: Cytotoxic T  
+#  4: FCGR3A+ (CD16) Monocytes  
+#  5: Cytotoxic T (second cluster)  
+#  6: Dendritic cells (likely conventional; may include plasmacytoid-like)
+#- Cell cycle summary (Scanpy scoring): G1=1691, S=825, G2M=122 (note: S+G2M ~36%; may reflect scoring sensitivity rather than true proliferation in PBMCs)
+#- Key figures (paths):
+#  - UMAP by cluster: .../workdir/analysis_expert/figures/umap/umap_leiden_r05.png
+#  - UMAP by QC covariates: .../workdir/analysis_expert/figures/umap/umap_qc_covariates.png
+#  - UMAP by cell-cycle phase: .../workdir/analysis_expert/figures/umap/umap_cellcycle_phase.png
+#  - QC violin/scatter (raw and postfilter): .../workdir/analysis_expert/figures/violin/qc_violin_raw.png; .../workdir/analysis_expert/figures/violin/qc_violin_postfilter.png; .../workdir/analysis_expert/figures/scatter/qc_scatter_raw.png; .../workdir/analysis_expert/figures/scatter/qc_scatter_postfilter.png
+#  - Marker summaries: dot/heatmap for top markers: .../workdir/analysis_expert/figures/dotplot/markers_dotplot_top5.png; .../workdir/analysis_expert/figures/heatmap/markers_heatmap_top5.png; ranked genes table: .../workdir/analysis_expert/markers_leiden_r05.csv
+#- Notes: Expected PBMC composition observed: T-cell majority with both naive/memory and cytotoxic; two monocyte subsets (CD14+ classical and FCGR3A+ non-classical); minority B cells and dendritic cells. Potential technical artifact: elevated S-phase scoring fraction; otherwise QC distributions look typical after filtering.
+#
+#Task: Based on the above, generate biologically interesting hypotheses/questions to explore within this dataset. Aim for 3–6 specific, testable hypotheses relevant to PBMC biology (e.g., T/NK heterogeneity, monocyte polarization, interferon response, dendritic programs, proliferation artifacts, potential doublets). Please suggest concrete analyses we can perform next to test each hypothesis (at a high level). Provide a concise list we can convert into an analysis plan. 
+#""", process_step_message=process_step_message)
 
 if __name__ == "__main__":
     fire.Fire(main)

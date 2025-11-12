@@ -433,25 +433,33 @@ def print_agent_message(
     
     # Handle assistant messages
     elif print_assistant_message and message.get("role") == "assistant":
+        def _print_md(content: str):
+            markdown_content = Markdown(content)
+            assistant_panel = Panel(
+                markdown_content,
+                border_style="blue",
+                padding=(1, 2),
+                title=f"Response: {agent_name}",
+            )
+            console.print(assistant_panel)
+
+        def _print_text(content: str):
+            assistant_panel = Panel(
+                content,
+                title=f"Response: {agent_name}",
+                border_style="blue",
+                padding=(1, 2)
+            )
+            console.print(assistant_panel)
+
         if content := message.get("content"):
             # Print agent header
             console.print(f"\n[bold]💬 [blue]{agent_name}[/blue]:[/bold]")
             
             if print_markdown:
-                # Create a nice panel for markdown content
-                markdown_content = Markdown(content)
-                assistant_panel = Panel(
-                    markdown_content,
-                    border_style="blue",
-                    padding=(1, 2)
-                )
-                console.print(assistant_panel)
+                try:
+                    _print_md(content)
+                except Exception:
+                    _print_text(content)
             else:
-                # Plain text in a panel
-                assistant_panel = Panel(
-                    content,
-                    title="Assistant Message",
-                    border_style="blue",
-                    padding=(1, 2)
-                )
-                console.print(assistant_panel)
+                _print_text(content)
