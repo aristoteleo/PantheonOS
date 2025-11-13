@@ -844,6 +844,11 @@ class Agent:
                 context_variables[tool_call_id] = result
             except StopRunning:
                 raise
+            except SystemExit as e:
+                if not call_task.done():
+                    call_task.cancel()
+                result = f"SystemExit: {e}"
+                context_variables[tool_call_id] = result
             except Exception as e:
                 if not call_task.done():
                     call_task.cancel()
@@ -1423,13 +1428,19 @@ class Agent:
                 exec_context.memory_instance.add_messages([step_message])
 
             if process_step_message is not None:
-                await run_func(process_step_message, step_message)
+                try:
+                    await run_func(process_step_message, step_message)
+                except Exception as e:
+                    logger.error(f"Error in process_step_message: {e}")
 
         async def _process_chunk(chunk: dict):
             if exec_context.execution_context_id is not None:
                 chunk["execution_context_id"] = exec_context.execution_context_id
             if process_chunk is not None:
-                await run_func(process_chunk, chunk)
+                try:
+                    await run_func(process_chunk, chunk)
+                except Exception as e:
+                    logger.error(f"Error in process_chunk: {e}")
 
         # now user input also goes through the pipeline
         # all messages: (user input, sub agent mock user input, sub agent transfer tool response)
