@@ -229,9 +229,9 @@ Rules:
         Returns:
             List of suggested questions
         """
-        # Filter out sub-agent messages - only use inline agent messages for suggestions
-        inline_messages = messages
-        if len(inline_messages) < 2:
+        # Filter out sub-agent messages - only use primary agent messages for suggestions
+        agent_messages = messages
+        if len(agent_messages) < 2:
             return []
 
         try:
@@ -242,8 +242,8 @@ Rules:
                 logger.warning("Suggestion agent not available, skipping suggestions")
                 return []
 
-            # Build conversation context from recent inline messages only
-            context = self._build_conversation_context(inline_messages)
+            # Build conversation context from recent primary agent messages only
+            context = self._build_conversation_context(agent_messages)
             if not context:
                 return []
 
@@ -362,27 +362,27 @@ class ChatNameGenerator:
 
     async def generate_or_update_name(self, memory: Memory) -> str:
         """Generate or update chat name - simplified logic"""
-        inline_messages = memory.get_messages(None)
+        agent_messages = memory.get_messages(None)
 
         # Only generate after first conversation (2+ messages)
-        if len(inline_messages) < 2:
+        if len(agent_messages) < 2:
             return memory.name
 
         # Check if we should generate/update
-        if not self._should_generate_name(memory, inline_messages):
+        if not self._should_generate_name(memory, agent_messages):
             return memory.name
 
         try:
             # Try AI generation first
-            new_name = await self._generate_with_ai(inline_messages)
+            new_name = await self._generate_with_ai(agent_messages)
             if new_name:
-                self._update_metadata(memory, len(inline_messages))
+                self._update_metadata(memory, len(agent_messages))
                 return new_name
         except Exception as e:
             logger.warning(f"AI name generation failed: {e}")
 
         # Fallback to simple extraction
-        return self._fallback_name(inline_messages)
+        return self._fallback_name(agent_messages)
 
     def _should_generate_name(
         self, memory: Memory, messages: List[Dict[str, Any]]

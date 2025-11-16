@@ -1,15 +1,10 @@
-import os
-
 from ..agent import Agent
 from ..endpoint import ToolsetProxy
 from ..endpoint.mcp import MCPServerConfig
-from ..providers import LocalProvider, MCPProvider, ToolSetProvider
+from ..providers import MCPProvider, ToolSetProvider
 from ..utils.log import logger
-
-
-DEFAULT_AGENTS_TEMPLATE_PATH = os.path.join(
-    os.path.dirname(__file__), "default_agents_templates.yaml"
-)
+from .template_manager import get_template_manager
+from .models import ChatroomConfig, AgentConfig
 
 
 async def create_agent(
@@ -18,8 +13,8 @@ async def create_agent(
     instructions: str,
     model: str,
     icon: str,
-    toolsets: list[str] = [],
-    mcp_servers: list[str] = [],
+    toolsets: list[str] | None = None,
+    mcp_servers: list[str] | None = None,
     toolful: bool = False,
     description: str | None = None,
     **kwargs,
@@ -48,6 +43,8 @@ async def create_agent(
     agent.not_loaded_toolsets = []
     toolsets_added = []
     mcp_server_added = []
+    toolsets = list(toolsets or [])
+    mcp_servers = list(mcp_servers or [])
     # ===== Add ToolSet providers from config =====
 
     for toolset_name in toolsets:

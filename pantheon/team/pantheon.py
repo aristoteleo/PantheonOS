@@ -18,58 +18,58 @@ from .base import Team
 class PantheonTeam(Team):
     """Pantheon team structure with two types of agents.
 
-    Unified architecture with no special agent roles:
-    - Inline Agents: Defined in agents_config
+    Unified architecture with no special roles:
+    - Agents: Defined directly in the chatroom template
       * All treated equally - all have list_agents(), call_agent(), transfer_to_*()
       * Can control their own execution and delegate to other agents
     - Sub-Agents: Loaded from agents.yaml library
       * Computation frameworks/tools
-      * Support: call_agent() from inline agents only
+      * Support: call_agent() from agents only
       * Stateless, reusable, cannot be transferred to
 
     Features enabled based on composition:
-    - Agent Transfer: When multiple inline agents (len > 1)
+    - Agent Transfer: When multiple agents (len > 1)
     - Sub-Agent Discovery: When sub_agents are loaded
     """
 
     def __init__(
         self,
-        inline_agents: list[Agent | RemoteAgent],
+        agents: list[Agent | RemoteAgent],
         sub_agents: list[Agent | RemoteAgent] = None,
         use_summary: bool = False,
     ):
         """Initialize PantheonTeam with clear agent type separation.
 
         Args:
-            inline_agents: Agents from agents_config
+            agents: Agents defined directly in the template
             sub_agents: Agents loaded from agents.yaml library (computation frameworks)
             use_summary: If True, automatically generate and prepend a context summary
                          to sub-agent instructions.
 
         Note:
-            All inline agents are equal - the first one is commonly called triage for convention,
+            All agents are equal - the first one is commonly called triage for convention,
             but receives no special treatment or capabilities.
         """
-        if not inline_agents:
-            raise ValueError("Team must have at least one inline agent")
+        if not agents:
+            raise ValueError("Team must have at least one agent")
 
-        self.inline_agents = inline_agents  # All inline agents
+        self.team_agents = agents  # Main team agents
         self.sub_agents = sub_agents or []  # Track sub-agents separately
         self.use_summary = use_summary
 
-        # Initialize parent with all agents (inline + sub)
-        all_agents = inline_agents + (sub_agents or [])
+        # Initialize parent with all agents (team + sub)
+        all_agents = agents + (sub_agents or [])
         super().__init__(all_agents)
 
-        # Mark which agents are inline vs sub (used to determine tool availability)
-        self._inline_agent_names: set[str] = {a.name for a in inline_agents}
+        # Mark which agents are main vs sub (used to determine tool availability)
+        self._agent_names: set[str] = {a.name for a in self.team_agents}
         self._sub_agent_names: set[str] = {a.name for a in self.sub_agents}
         # Determine which features to enable based on team composition
-        self.has_transfer_agents = len(inline_agents) > 1  # More than just one agent
+        self.has_transfer_agents = len(self.team_agents) > 1  # More than just one agent
         self.has_sub_agents = len(self.sub_agents) > 0
 
-        # Mark all inline agents as capable of delegating if there are other agents
-        for agent in inline_agents:
+        # Mark all agents as capable of delegating if there are other agents
+        for agent in self.team_agents:
             if isinstance(agent, Agent):
                 agent.system_prompt_mode = SystemPromptMode.FULL
                 agent.can_delegate = self.has_transfer_agents or self.has_sub_agents
@@ -82,8 +82,8 @@ class PantheonTeam(Team):
                 # Prevent sub-agents from delegating (no second-level delegation)
                 agent.can_delegate = False
 
-        # Keep triage reference for backward compatibility (it's the first inline agent)
-        self.triage = inline_agents[0]
+        # Keep triage reference for backward compatibility (it's the first agent)
+        self.triage = self.team_agents[0]
 
     def get_active_agent(self, memory: Memory) -> Agent | RemoteAgent:
         active_agent_name = memory.extra_data.get("active_agent")
@@ -102,15 +102,15 @@ class PantheonTeam(Team):
     def list_agents_descriptions(self) -> list[dict]:
         """Get structured information about all available sub-agents.
 
-        Returns only sub-agent name and description - inline agents use this
-        to discover which agents can be delegated to via call_agent().
+        Returns only sub-agent name and description - agents use this
+        to discover which teammates can be delegated to via call_agent().
 
         Returns:
             List of dicts with sub-agent name and description only.
         """
         agents_info = []
         for agent_name, agent in self.agents.items():
-            # Only include sub-agents (not inline agents)
+            # Only include sub-agents (not main agents)
             if agent_name not in self._sub_agent_names:
                 continue
             # convert agent name to lower case
@@ -128,9 +128,9 @@ class PantheonTeam(Team):
         return agents_info
 
     async def add_list_agents_tool(self):
-        """Add list_agents() tool to all inline agents.
+        """Add list_agents() tool to all agents.
 
-        This tool allows inline agents to dynamically discover available sub-agents
+        This tool allows agents to dynamically discover available sub-agents
         at runtime without hardcoded knowledge of the team composition.
         """
 
@@ -157,22 +157,22 @@ class PantheonTeam(Team):
             "Returns agent names and descriptions of their expertise."
         )
 
-        # Add list_agents() to all inline agents (not just triage)
-        for agent in self.inline_agents:
+        # Add list_agents() to all agents (not just triage)
+        for agent in self.team_agents:
             await run_func(agent.tool, list_agents)
 
     async def add_unified_call_agent_tool(self):
-        """Add unified call_agent(agent_name, instruction) tool for inline agents.
+        """Add unified call_agent(agent_name, instruction) tool for agents.
 
-        This tool allows inline agents to delegate tasks to sub-agents in the team.
-        Only inline agents get this capability - sub-agents are computation frameworks.
-        call_agent() can ONLY target sub-agents, not other inline agents.
+        This tool allows agents to delegate tasks to sub-agents in the team.
+        Only agents get this capability - sub-agents are computation frameworks.
+        call_agent() can ONLY target sub-agents, not other agents.
         """
 
-        async def _add_call_agent_tool_to_inline_agent(
+        async def _add_call_agent_tool_to_agent(
             calling_agent: Agent | RemoteAgent,
         ):
-            """Add call_agent() tool to an inline agent."""
+            """Add call_agent() tool to an agent."""
 
             async def call_agent(
                 agent_name: str,
@@ -265,18 +265,18 @@ class PantheonTeam(Team):
             # Register tool
             await run_func(calling_agent.tool, call_agent)
 
-        # Add call_agent() to all inline agents (not sub-agents)
-        for agent in self.inline_agents:
-            await _add_call_agent_tool_to_inline_agent(agent)
+        # Add call_agent() to all agents (not sub-agents)
+        for agent in self.team_agents:
+            await _add_call_agent_tool_to_agent(agent)
 
-    async def add_transfer_tools_to_inline_agents(self):
-        """Add transfer_to_* tools to all inline agents for inter-agent communication.
+    async def add_transfer_tools_to_agents(self):
+        """Add transfer_to_* tools to all agents for inter-agent communication.
 
-        Each inline agent can transfer to other inline agents (not sub-agents).
+        Each agent can transfer to other agents (not sub-agents).
         This enables agents to hand off tasks to each other.
         """
         # For each target agent, create a transfer function and register it with all source agents
-        for target_agent in self.inline_agents:
+        for target_agent in self.team_agents:
             # Create transfer function using closure
             # Capture target_agent.name via default parameter to avoid late binding issues
             def transfer_func(
@@ -291,7 +291,7 @@ class PantheonTeam(Team):
             transfer_func.__doc__ = f"Transfer to {target_agent.name}."
 
             # Register this transfer function with all source agents (except the target itself)
-            for source_agent in self.inline_agents:
+            for source_agent in self.team_agents:
                 if source_agent.name == target_agent.name:
                     continue  # Can't transfer to self
 
@@ -303,19 +303,19 @@ class PantheonTeam(Team):
 
         All agents are already initialized in __init__.
         This method adds tools based on feature enablement:
-        - transfer_to_*(): Inline agents can transfer to other inline agents
-        - list_agents(): All inline agents can discover available sub-agents
-        - call_agent(): All inline agents can delegate tasks to sub-agents
+        - transfer_to_*(): Agents can transfer to other agents
+        - list_agents(): All agents can discover available sub-agents
+        - call_agent(): All agents can delegate tasks to sub-agents
         """
-        # Add transfer_to_* tools to enable inline agent communication
+        # Add transfer_to_* tools to enable agent communication
         if self.has_transfer_agents:
-            await self.add_transfer_tools_to_inline_agents()
+            await self.add_transfer_tools_to_agents()
 
-        # Add list_agents() to all inline agents if there are sub-agents to discover
+        # Add list_agents() to all agents if there are sub-agents to discover
         if self.has_sub_agents:
             await self.add_list_agents_tool()
 
-        # Add call_agent() to all inline agents if there are agents to delegate to
+        # Add call_agent() to all agents if there are agents to delegate to
         if self.has_transfer_agents or self.has_sub_agents:
             await self.add_unified_call_agent_tool()
 

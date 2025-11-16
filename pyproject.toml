@@ -17,6 +17,7 @@ dependencies = [
     "nats-py>=2.6.0",
     "httpx>=0.28.1",
     "diskcache",
+    "python-frontmatter>=1.1.0",
 ]
 dynamic = ["version"]
 
@@ -83,6 +84,12 @@ dev = [
 
 [tool.setuptools]
 packages = {find = {}}
+
+[tool.setuptools.package-data]
+"pantheon.factory" = [
+    "templates/agents/*.md",
+    "templates/chatrooms/*.md",
+]
 
 [tool.setuptools.dynamic]
 version = {attr = "pantheon.__version__"} 

@@ -23,7 +23,7 @@ from pantheon.team import PantheonTeam
 TEST_MODEL = os.getenv("PANTHEON_MODEL", "gpt-4o-mini")
 
 
-# ============ Test 1: Transfer between inline agents ============
+# ============ Test 1: Transfer between team agents ============
 
 @pytest.mark.asyncio
 async def test_pantheon_team_transfer_explicit():
@@ -36,7 +36,7 @@ async def test_pantheon_team_transfer_explicit():
     - This tests that transfer_to_xxx functions are registered and used correctly
     """
 
-    # Create inline agents
+    # Create team agents
     general_assistant = Agent(
         name="general_assistant",
         instructions="""You are a general assistant. You can help with many topics.
@@ -69,9 +69,9 @@ Explain what financial metrics mean for investors.""",
         model=TEST_MODEL,
     )
 
-    # Create team with these inline agents
+    # Create team with these team agents
     team = PantheonTeam(
-        inline_agents=[general_assistant, financial_analyst],
+        agents=[general_assistant, financial_analyst],
         sub_agents=[],
     )
 
@@ -117,7 +117,7 @@ Explain what financial metrics mean for investors.""",
     print(f"   - Response contains financial discussion ✅\n")
 
 
-# ============ Test 2: Call sub-agent from inline agent ============
+# ============ Test 2: Call sub-agent from team agent ============
 
 @pytest.mark.asyncio
 async def test_pantheon_team_call_agent_explicit():
@@ -125,14 +125,14 @@ async def test_pantheon_team_call_agent_explicit():
 
     Scenario:
     - User asks for data analysis (a sub-agent capability)
-    - research_coordinator (inline agent) should recognize the need for data analysis
+    - research_coordinator (team agent) should recognize the need for data analysis
     - research_coordinator should call the data_analyzer sub-agent
     - data_analyzer should perform the analysis and return results
     - research_coordinator should integrate the results
     - This tests that call_agent() is correctly registered and messaging works
     """
 
-    # Create inline agent (coordinator)
+    # Create team agent (coordinator)
     research_coordinator = Agent(
         name="research_coordinator",
         instructions="""You are a research coordinator. Your job is to coordinate data analysis tasks.
@@ -160,9 +160,9 @@ You have access to data analysis tools and statistical methods.""",
         model=TEST_MODEL,
     )
 
-    # Create team with inline agent and sub-agent
+    # Create team with team agent and sub-agent
     team = PantheonTeam(
-        inline_agents=[research_coordinator],
+        agents=[research_coordinator],
         sub_agents=[data_analyzer],
     )
 
@@ -239,7 +239,7 @@ calculate metrics, identify trends, and provide data-driven insights.""",
     )
 
     team = PantheonTeam(
-        inline_agents=[general_coordinator, decision_specialist],
+        agents=[general_coordinator, decision_specialist],
         sub_agents=[data_analyzer],
     )
 

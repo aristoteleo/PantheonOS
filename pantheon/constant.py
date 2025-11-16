@@ -334,7 +334,7 @@ def build_system_prompt(
         plan_mode: If True, inject plan mode restrictions (read-only environment).
                   Overrides all other components for architectural planning.
         can_delegate: If True, inject team delegation and coordination guidance.
-                      Set when agent can delegate to inline agents (transfer) or sub-agents (discovery).
+                      Set when agent can delegate to team agents (transfer) or sub-agents (discovery).
         system_prompt_mode: The mode to use for building the system prompt.
                            Defaults to NATIVE (base instructions only).
                            - NATIVE: Base instructions only

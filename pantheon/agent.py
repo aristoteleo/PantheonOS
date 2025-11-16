@@ -1396,7 +1396,7 @@ class Agent:
             allow_transfer: Whether to allow transfer to another agent.
             execution_context_id: Unique identifier for sub-agent delegation contexts.
                 Used for message filtering in _run_stream to isolate messages by
-                delegation context. None for inline agents.
+                delegation context. None for primary/team agents.
 
         Returns:
             The agent response. Either an AgentResponse or an AgentTransfer.

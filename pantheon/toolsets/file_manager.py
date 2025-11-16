@@ -82,6 +82,22 @@ class FileManagerToolSetBase(ToolSet):
         return {"success": True}
 
     @tool
+    async def create_file(self, file_path: str, content: str | None = "") -> dict:
+        """Create a new text file (optionally seeded with content)."""
+        if ".." in file_path:
+            return {"success": False, "error": "File path cannot contain '..'"}
+
+        target_path = self.path / file_path
+        try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(target_path, "w", encoding="utf-8") as handle:
+                handle.write(content or "")
+            return {"success": True}
+        except Exception as exc:  # pragma: no cover - surfaced to caller
+            logger.error(f"create_file failed for {file_path}: {exc}")
+            return {"success": False, "error": str(exc)}
+
+    @tool
     async def delete_directory(self, sub_dir: str):
         """Delete a directory and all its contents recursively."""
         if ".." in sub_dir:

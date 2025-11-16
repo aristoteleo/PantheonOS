@@ -198,7 +198,6 @@ async def start_services(
     memory_dir: str = "./.pantheon-chatroom",
     endpoint_service_id: str | None = None,
     workspace_path: str = "./.pantheon-chatroom-workspace",
-    agents_template: dict | str | None = None,
     log_level: str = "INFO",
     speech_to_text_model: str = "gpt-4o-mini-transcribe",
     endpoint_id_hash: str | None = None,
@@ -213,7 +212,6 @@ async def start_services(
         id_hash: The hash of the ID, if you want a stable service ID please provide it.
         endpoint_service_id: The service ID of the remote endpoint.
         workspace_path: The path to the workspace. Endpoint will chdir to this directory.
-        agents_template: The template of the agents.
         log_level: The level of the log.
         speech_to_text_model: The model to use for speech to text.
         endpoint_id_hash: Fixed id_hash for endpoint to generate stable service_id. If not provided, auto-generated.
@@ -223,10 +221,6 @@ async def start_services(
     # Convert all relative paths to absolute paths
     memory_dir = str(Path(memory_dir).resolve())
     workspace_path = str(Path(workspace_path).resolve())
-
-    # Handle agents_template if it's a file path
-    if agents_template and isinstance(agents_template, str):
-        agents_template = str(Path(agents_template).resolve())
 
     # Convert any other Path-like kwargs to absolute paths
     for key in list(kwargs.keys()):
@@ -271,7 +265,6 @@ async def start_services(
     chat_room = ChatRoom(
         endpoint=endpoint,  # Embed mode: has value; Process mode: None
         endpoint_service_id=final_endpoint_service_id,  # Process mode: has value; Embed mode: None
-        agents_template=agents_template,
         memory_dir=memory_dir,
         name=service_name,
         speech_to_text_model=speech_to_text_model,

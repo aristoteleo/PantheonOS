@@ -43,7 +43,7 @@ async def test_memory_flat_model_with_delegation():
     )
 
     team = PantheonTeam(
-        inline_agents=[coordinator],
+        agents=[coordinator],
         sub_agents=[analyzer],
     )
 
@@ -121,7 +121,7 @@ async def test_marked_vs_unmarked_messages():
     )
 
     team = PantheonTeam(
-        inline_agents=[coordinator],
+        agents=[coordinator],
         sub_agents=[analyzer],
     )
 
@@ -201,7 +201,7 @@ async def test_message_flow_in_delegation():
     )
 
     team = PantheonTeam(
-        inline_agents=[coordinator],
+        agents=[coordinator],
         sub_agents=[analyzer],
     )
 
@@ -271,7 +271,7 @@ async def test_no_duplicate_messages():
     )
 
     team = PantheonTeam(
-        inline_agents=[coordinator],
+        agents=[coordinator],
         sub_agents=[analyzer],
     )
 
@@ -341,7 +341,7 @@ async def test_memory_with_multiple_delegations():
     )
 
     team = PantheonTeam(
-        inline_agents=[coordinator],
+        agents=[coordinator],
         sub_agents=[analyzer],
     )
 

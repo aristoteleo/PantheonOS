@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import io
 import json
 import re
@@ -9,8 +10,11 @@ from typing import Callable
 import openai
 
 from ..agent import Agent
-from ..factory import create_agents_from_template
-from ..factory.template_manager import get_template_manager
+from ..factory import (
+    create_agents_from_template,
+    get_template_manager,
+    ChatroomConfig,
+)
 from ..memory import MemoryManager
 from ..team import PantheonTeam
 from ..toolset import ToolSet, tool
@@ -19,6 +23,9 @@ from ..utils.log import logger
 from ..utils.misc import run_func
 from .special_agents import get_suggestion_generator
 from .thread import Thread
+
+
+DEFAULT_TOOLSETS = ["todolist"]
 
 
 class ChatRoom(ToolSet):
@@ -49,7 +56,6 @@ class ChatRoom(ToolSet):
         description: str = "Chatroom for Pantheon agents",
         speech_to_text_model: str = "gpt-4o-mini-transcribe",
         check_before_chat: Callable | None = None,
-        agents_template: dict | str | None = None,
         **kwargs,
     ):
         # Initialize ToolSet (will handle worker creation in run())
@@ -87,11 +93,9 @@ class ChatRoom(ToolSet):
         self.description = description
 
         # Per-chat team management
-        self.default_team: PantheonTeam = None  # Will be initialized in run_setup
         self.chat_teams: dict[str, PantheonTeam] = {}  # Per-chat teams cache
 
         self.speech_to_text_model = speech_to_text_model
-        self.agents_template = agents_template
         self.threads: dict[str, Thread] = {}
         self.check_before_chat = check_before_chat
 
@@ -182,24 +186,19 @@ class ChatRoom(ToolSet):
             logger.info("ChatRoom: startup_mode=remote (stream publish enabled)")
 
     def _save_team_template_to_memory(self, memory, template_obj: dict) -> None:
-        """Save complete team template to memory for persistence."""
-        if not hasattr(memory, "extra_data"):
-            memory.extra_data = {}
+        """Save ChatroomConfig to memory for persistence (new format)."""
+        extra_data = getattr(memory, "extra_data", None)
+        if extra_data is None:
+            memory.extra_data = extra_data = {}
 
-        # Save complete template configuration
-        memory.extra_data["team_template"] = {
-            # Identifiers
-            "template_id": template_obj.get("id", "custom"),
-            "template_name": template_obj.get("name", "Custom Template"),
-            # Core agent configuration (unified architecture)
-            "agents_config": template_obj.get("agents_config", {}),
-            "sub_agents": template_obj.get("sub_agents", []),
-            # Service requirements
-            "required_toolsets": template_obj.get("required_toolsets", []),
-            "required_mcp_servers": template_obj.get("required_mcp_servers", []),
-            # Metadata
-            "created_at": datetime.now().isoformat(),
-        }
+        if isinstance(template_obj, ChatroomConfig):
+            chatroom_config = template_obj
+        else:
+            chatroom_config = self.template_manager.dict_to_chatroom_config(
+                template_obj
+            )
+
+        extra_data["team_template"] = dataclasses.asdict(chatroom_config)
 
     async def get_team_for_chat(self, chat_id: str) -> PantheonTeam:
         """Get the team for a specific chat, creating from memory if needed."""
@@ -223,33 +222,40 @@ class ChatRoom(ToolSet):
         memory = await run_func(self.memory_manager.get_memory, chat_id)
 
         # Check for stored team template
-        team_template = None
-        if hasattr(memory, "extra_data") and memory.extra_data:
-            team_template = memory.extra_data.get("team_template")
+        extra_data = getattr(memory, "extra_data", None)
+        if extra_data is None:
+            memory.extra_data = extra_data = {}
+
+        team_template_dict = extra_data.get("team_template")
 
         # If no template found, use default template
-        if not team_template:
+        if not team_template_dict:
             logger.info(
                 f"No team template in memory, creating default team for chat {chat_id}"
             )
-            default_template = self.template_manager.get_template(
-                "default", self.agents_template
-            )
+            default_template = self.template_manager.get_template("default")
             if not default_template:
                 raise RuntimeError("Default template not found in template manager")
 
-            team_template = default_template.to_dict()
+            # template_manager returns ChatroomConfig, convert to dict and save
+            team_template_dict = dataclasses.asdict(default_template)
+
             # Save default template to memory for this chat
-            self._save_team_template_to_memory(memory, team_template)
+            extra_data["team_template"] = team_template_dict
             await run_func(self.memory_manager.save)
             logger.info(f"Saved default template to memory for chat {chat_id}")
         else:
             logger.info(
-                f"Loading team from stored template '{team_template.get('template_name', 'unknown')}' for chat {chat_id}"
+                f"Loading team from stored template '{team_template_dict.get('name', 'unknown')}' for chat {chat_id}"
             )
 
+        # Convert dict to ChatroomConfig
+        chatroom_config = self.template_manager.dict_to_chatroom_config(
+            team_template_dict
+        )
+
         # Create team with per-chat toolsets
-        return await self._create_team_from_template(team_template, chat_id=chat_id)
+        return await self._create_team_from_template(chatroom_config, chat_id=chat_id)
 
     async def _ensure_services(
         self,
@@ -286,46 +292,38 @@ class ChatRoom(ToolSet):
             logger.warning(f"Error ensuring {service_name_plural}: {e}")
 
     async def _create_team_from_template(
-        self, team_template: dict, chat_id: str = None
+        self, chatroom_config: ChatroomConfig, chat_id: str = None
     ) -> PantheonTeam:
-        """Create a team from unified template configuration."""
-        template_name = team_template.get("template_name") or team_template.get(
-            "name", "unknown"
-        )
+        """Create a team from ChatroomConfig object."""
+        template_name = chatroom_config.name or "unknown"
 
         logger.info(f"🏗️ Creating team from template '{template_name}'")
 
         # Connect to endpoint service
         endpoint_service = await self._get_endpoint_service()
 
-        # ===== STEP 1: Collect agent configs =====
-        # Use template_manager to collect and validate configs
-        inline_agents_config, sub_agents_config = (
-            self.template_manager.collect_agent_configs(team_template)
-        )
+        (
+            agent_configs,
+            sub_agent_configs,
+            required_toolsets,
+            required_mcp_servers,
+            missing_sub_agents,
+        ) = self.template_manager.prepare_team(chatroom_config)
 
-        # Merge configs for unified processing (inline agents first, then sub-agents)
-        all_agents_config = {**inline_agents_config, **sub_agents_config}
-
-        logger.debug(
-            f"Collected {len(inline_agents_config)} inline agents, "
-            f"{len(sub_agents_config)} sub-agents"
-        )
-
-        # ===== STEP 2: Add default services to all configs (if chat_id provided) =====
+        if missing_sub_agents:
+            logger.error(
+                "Missing sub-agent configs: %s",
+                ", ".join(sorted(missing_sub_agents)),
+            )
+        # add default toolsets to agents
         if chat_id:
-            # Add built-in toolsets and MCP servers to all agent configs
-            self.template_manager.add_default_services_to_configs(all_agents_config)
-        logger.info(f"Inline agents config: {inline_agents_config}")
-        # ===== STEP 3: Compute and ensure all required services =====
-        # Collect all toolsets and mcp servers from all agents (one loop)
-        required_toolsets = set()
-        required_mcp_servers = set()
+            default_toolsets = ["todolist"]
+            for agent in agent_configs.values():
+                agent.get("toolsets", []).extend(default_toolsets)
+            for agent in sub_agent_configs.values():
+                agent.get("toolsets", []).extend(default_toolsets)
 
-        for agent_config in all_agents_config.values():
-            required_toolsets.update(agent_config.get("toolsets", []))
-            required_mcp_servers.update(agent_config.get("mcp_servers", []))
-
+        # ===== STEP 2: Compute and ensure all required services =====
         await self._ensure_services("mcp", list(required_mcp_servers))
         await self._ensure_services("toolset", list(required_toolsets))
 
@@ -334,37 +332,30 @@ class ChatRoom(ToolSet):
             f"{len(required_toolsets)} toolsets"
         )
 
-        # ===== STEP 4: Create agents =====
-        # Create inline agents (triage is first, ensured by dict order)
-        inline_agents = await create_agents_from_template(
-            endpoint_service, inline_agents_config
+        # ===== STEP 3: Create agents =====
+        agents = await create_agents_from_template(endpoint_service, agent_configs)
+        sub_agents = await create_agents_from_template(
+            endpoint_service, sub_agent_configs
         )
-        logger.info(f"Created {len(inline_agents)} inline agents")
+        logger.info(f"Created {len(agents)} agents and {len(sub_agents)} sub-agents")
 
-        # Create sub-agents (empty dict produces empty list)
-        sub_agents_list = await create_agents_from_template(
-            endpoint_service, sub_agents_config
-        )
-
-        logger.info(f"Created {len(sub_agents_list)} sub-agents")
-
-        # ===== STEP 5: Add plan toolset to inline agents (if chat_id provided) =====
+        # ===== STEP 4: Add plan toolset to agents (if chat_id provided) =====
         if chat_id:
-            for agent in inline_agents:
+            for agent in agents:
                 plan_mode_toolset = PlanModeToolSet(agent=agent, name="plan_mode")
                 await agent.toolset(plan_mode_toolset)
                 logger.debug(f"Agent '{agent.name}': Added PlanModeToolSet")
 
-        # ===== STEP 6: Create and setup team =====
+        # ===== STEP 5: Create and setup team =====
         team = PantheonTeam(
-            inline_agents=inline_agents,
-            sub_agents=sub_agents_list,
+            agents=agents,
+            sub_agents=sub_agents,
         )
         await team.async_setup()
 
         feature_list = []
         if team.has_transfer_agents:
-            feature_list.append(f"transfer ({len(team.inline_agents)} inline agents)")
+            feature_list.append(f"transfer ({len(team.team_agents)} agents)")
         if team.has_sub_agents:
             feature_list.append(f"discovery ({len(team.sub_agents)} sub-agents)")
         features = " + ".join(feature_list) if feature_list else "none"
@@ -451,9 +442,29 @@ class ChatRoom(ToolSet):
             endpoint_service_id: The service ID of the endpoint service.
         """
         try:
+            if not endpoint_service_id:
+                return {
+                    "success": False,
+                    "message": "endpoint_service_id is required",
+                }
+
+            # Switch to process/remote mode whenever endpoint ID is provided.
+            self._endpoint_embed = False
+            self._endpoint = None
             self.endpoint_service_id = endpoint_service_id
-            await self.setup_agents()
-            return {"success": True, "message": "Endpoint service set successfully"}
+
+            # Force reconnection on next use and drop cached teams bound to the old endpoint.
+            self._endpoint_service = None
+            self._backend = None
+            self.chat_teams.clear()
+
+            # Sanity-check connectivity immediately to fail fast.
+            await self._get_endpoint_service()
+
+            return {
+                "success": True,
+                "message": f"Endpoint service set to '{endpoint_service_id}'",
+            }
         except Exception as e:
             logger.error(f"Error setting endpoint service: {e}")
             return {"success": False, "message": str(e)}
@@ -524,7 +535,7 @@ class ChatRoom(ToolSet):
 
     @tool
     async def get_agents(self, chat_id: str = None) -> dict:
-        """Get the inline agents info for a specific chat or default team."""
+        """Get the team agents info for a specific chat."""
 
         def get_agent_info(agent: Agent):
             if hasattr(agent, "not_loaded_toolsets"):
@@ -559,15 +570,15 @@ class ChatRoom(ToolSet):
         # Get the appropriate team for this chat
         team = await self.get_team_for_chat(chat_id)
 
-        # Only expose inline agents (not sub-agents)
-        # Sub-agents are internal implementation, managed by inline agents
-        agents_to_expose = team.inline_agents
-        logger.debug(f"Team has {len(team.inline_agents)} inline agents")
+        # Only expose primary agents (not sub-agents)
+        # Sub-agents are internal implementation, managed by primary agents
+        agents_to_expose = team.team_agents
+        logger.debug(f"Team has {len(team.team_agents)} agents")
 
         return {
             "success": True,
             "agents": [get_agent_info(a) for a in agents_to_expose],
-            "can_switch_agents": len(team.inline_agents) > 1,
+            "can_switch_agents": len(team.team_agents) > 1,
             "has_sub_agents": team.has_sub_agents,
             "has_transfer_agents": team.has_transfer_agents,
         }
@@ -578,21 +589,18 @@ class ChatRoom(ToolSet):
         # Get the team for this specific chat
         team = await self.get_team_for_chat(chat_name)
 
-        # Verify agent is an inline agent (not a sub-agent)
-        if agent_name not in team._inline_agent_names:
+        # Verify the requested agent is part of the primary team (not a sub-agent)
+        target_agent = next(
+            (agent for agent in team.team_agents if agent.name == agent_name),
+            None,
+        )
+        if target_agent is None:
             return {
                 "success": False,
-                "message": f"'{agent_name}' is not an inline agent. Can only switch between inline agents.",
+                "message": f"'{agent_name}' is not a primary team agent.",
             }
 
-        # Verify agent exists
         memory = await run_func(self.memory_manager.get_memory, chat_name)
-        agent = team.agents.get(agent_name)
-        if agent is None:
-            return {
-                "success": False,
-                "message": f"Agent '{agent_name}' not found in team",
-            }
 
         # Set active agent
         team.set_active_agent(memory, agent_name)
@@ -1031,307 +1039,79 @@ class ChatRoom(ToolSet):
     @tool
     async def get_chat_template(self, chat_id: str) -> dict:
         """Get the current template for a specific chat."""
-        memory = await run_func(self.memory_manager.get_memory, chat_id)
+        try:
+            memory = await run_func(self.memory_manager.get_memory, chat_id)
 
-        # Check if chat has a stored template
-        if hasattr(memory, "extra_data") and memory.extra_data:
-            team_template = memory.extra_data.get("team_template")
-            if team_template:
-                # Return the stored template information
+            # Check if chat has a stored template
+            if hasattr(memory, "extra_data") and memory.extra_data:
+                team_template_dict = memory.extra_data.get("team_template")
+                if team_template_dict:
+                    # Return the stored template information (new format)
+                    return {
+                        "success": True,
+                        "template": team_template_dict,
+                    }
+
+            # No template found, return default template info
+            template_manager = get_template_manager()
+            default_template = template_manager.get_template("default")
+            if default_template:
                 return {
                     "success": True,
-                    "template": {
-                        "id": team_template.get("template_id", "custom"),
-                        "name": team_template.get("template_name", "Custom Template"),
-                        "agents_config": team_template.get("agents_config", {}),
-                        "sub_agents": team_template.get("sub_agents", []),
-                        "required_toolsets": team_template.get("required_toolsets", []),
-                        "required_mcp_servers": team_template.get(
-                            "required_mcp_servers", []
-                        ),
-                        "created_at": team_template.get("created_at"),
-                        "partial_setup": team_template.get("partial_setup", False),
-                    },
+                    "template": dataclasses.asdict(default_template),
+                    "is_default": True,
                 }
 
-        # No template found, return default template info
-        template_manager = get_template_manager()
-        default_template = template_manager.get_template("default")
-        if default_template:
+            # Fallback if no default template found
             return {
-                "success": True,
-                "template": default_template.to_dict(),
-                "is_default": True,
+                "success": False,
+                "message": "No template found and no default template available",
             }
-
-        # Fallback if no default template found
-        return {
-            "success": False,
-            "message": "No template found and no default template available",
-        }
+        except Exception as e:
+            logger.error(f"Error getting chat template: {e}")
+            return {"success": False, "message": str(e)}
 
     @tool
     async def validate_template(self, template: dict) -> dict:
         """Validate if a template is compatible with current endpoint."""
         try:
-            # Convert dict to ChatroomTemplate object
-            from ..factory.template_manager import ChatroomTemplate
-
-            template_obj = ChatroomTemplate(
-                id=template.get("id", ""),
-                name=template.get("name", ""),
-                description=template.get("description", ""),
-                icon=template.get("icon", ""),
-                category=template.get("category", ""),
-                version=template.get("version", "1.0"),
-                agents_config=template.get("agents_config", {}),
-                sub_agents=template.get("sub_agents", []),
-                tags=template.get("tags", []),
-            )
-
-            # Validate template structure
             template_manager = get_template_manager()
-            validation_errors = template_manager.validate_template(template_obj)
-            if validation_errors:
-                return {
-                    "success": False,
-                    "message": "Template validation failed",
-                    "validation_errors": validation_errors,
-                }
-
-            # Services will be automatically started via _ensure_services when template is loaded
-            return {
-                "success": True,
-                "compatible": True,
-                "required_toolsets": template_obj.required_toolsets,
-                "required_mcp_servers": template_obj.required_mcp_servers,
-                "template": template_obj.to_dict(),
-            }
-
+            return template_manager.validate_template_dict(template)
         except Exception as e:
             logger.error(f"Error validating template compatibility: {e}")
             return {"success": False, "message": str(e)}
 
-    # Template and Agent Management (CRUD operations)
+    # File-Based Template Management (delegates to template_manager)
 
     @tool
-    async def manage_template(
-        self,
-        operation: str,
-        template_id: str | None = None,
-        template_data: dict | None = None,
-    ) -> dict:
+    async def list_template_files(self, file_type: str = "chatrooms") -> dict:
         """
-        Unified template management interface for CRUD operations.
-
-        Delegates to template_manager for all template CRUD operations.
-
-        Args:
-            operation: "list", "read", "create", "update", "delete", or "clone"
-            template_id: Template ID (required for read, update, delete, clone)
-            template_data: Template data dict (required for create, update, clone)
-
-        Returns:
-            Response dict with operation results
+        List available template files.
         """
-        try:
-            template_manager = get_template_manager()
-
-            if operation == "list":
-                templates = template_manager.list_templates()
-                return {
-                    "success": True,
-                    "operation": "list",
-                    "templates": [t.to_dict() for t in templates],
-                    "total": len(templates),
-                }
-
-            elif operation == "read":
-                if not template_id:
-                    return {
-                        "success": False,
-                        "operation": "read",
-                        "error": "template_id is required",
-                    }
-                template = template_manager.get_template(template_id)
-                if not template:
-                    return {
-                        "success": False,
-                        "operation": "read",
-                        "error": f"Template '{template_id}' not found",
-                    }
-                return {
-                    "success": True,
-                    "operation": "read",
-                    "template": template.to_dict(),
-                }
-
-            elif operation == "create":
-                if not template_data:
-                    return {
-                        "success": False,
-                        "operation": "create",
-                        "error": "template_data is required",
-                    }
-                success, msg, template = template_manager.create_template(template_data)
-                if not success:
-                    return {"success": False, "operation": "create", "error": msg}
-                return {
-                    "success": True,
-                    "operation": "create",
-                    "template_id": msg,  # msg contains the template_id on success
-                    "template": template.to_dict(),
-                }
-
-            elif operation == "update":
-                if not template_id or not template_data:
-                    return {
-                        "success": False,
-                        "operation": "update",
-                        "error": "template_id and template_data are required",
-                    }
-                success, msg, template = template_manager.update_template(
-                    template_id, template_data
-                )
-                if not success:
-                    return {"success": False, "operation": "update", "error": msg}
-                return {
-                    "success": True,
-                    "operation": "update",
-                    "template": template.to_dict(),
-                }
-
-            elif operation == "delete":
-                if not template_id:
-                    return {
-                        "success": False,
-                        "operation": "delete",
-                        "error": "template_id is required",
-                    }
-                success, msg = template_manager.delete_template(template_id)
-                if not success:
-                    return {"success": False, "operation": "delete", "error": msg}
-                return {"success": True, "operation": "delete"}
-
-            else:
-                return {
-                    "success": False,
-                    "operation": operation,
-                    "error": f"Unknown operation: {operation}",
-                }
-
-        except Exception as e:
-            logger.error(f"Error in manage_template (op={operation}): {e}")
-            return {"success": False, "operation": operation, "error": str(e)}
+        logger.debug(f"Listing template files... {file_type}")
+        template_manager = get_template_manager()
+        return template_manager.list_template_files(file_type)
 
     @tool
-    async def manage_agents(
-        self,
-        operation: str,
-        agent_id: str | None = None,
-        agent_data: dict | None = None,
-    ) -> dict:
+    async def read_template_file(self, file_path: str) -> dict:
         """
-        Unified agent management interface for CRUD operations.
-
-        Delegates to template_manager for all agent CRUD operations.
-
-        Args:
-            operation: "list", "read", "create", "update", or "delete"
-            agent_id: Agent ID (required for read, update, delete)
-            agent_data: Agent data dict (required for create, update)
-
-        Returns:
-            Response dict with operation results
+        Read a template markdown file.
         """
-        try:
-            template_manager = get_template_manager()
+        template_manager = get_template_manager()
+        return template_manager.read_template_file(file_path)
 
-            if operation == "list":
-                agents_list = template_manager.get_all_agents()
-                return {
-                    "success": True,
-                    "operation": "list",
-                    "agents": agents_list,
-                    "total": len(agents_list),
-                }
+    @tool
+    async def write_template_file(self, file_path: str, content: dict) -> dict:
+        """
+        Write/update a template markdown file.
+        """
+        template_manager = get_template_manager()
+        return template_manager.write_template_file(file_path, content)
 
-            elif operation == "read":
-                if not agent_id:
-                    return {
-                        "success": False,
-                        "operation": "read",
-                        "error": "agent_id is required",
-                    }
-                agent_config = template_manager.agents_manager.get_agent_config(
-                    agent_id
-                )
-                if not agent_config:
-                    return {
-                        "success": False,
-                        "operation": "read",
-                        "error": f"Agent '{agent_id}' not found",
-                    }
-                return {
-                    "success": True,
-                    "operation": "read",
-                    "agent": {"id": agent_id, **agent_config},
-                }
-
-            elif operation == "create":
-                if not agent_data:
-                    return {
-                        "success": False,
-                        "operation": "create",
-                        "error": "agent_data is required",
-                    }
-                success, msg, agent_config = template_manager.create_agent(agent_data)
-                if not success:
-                    return {"success": False, "operation": "create", "error": msg}
-                return {
-                    "success": True,
-                    "operation": "create",
-                    "agent_id": msg,  # msg contains the agent_id on success
-                    "agent": {"id": msg, **agent_config},
-                }
-
-            elif operation == "update":
-                if not agent_id or not agent_data:
-                    return {
-                        "success": False,
-                        "operation": "update",
-                        "error": "agent_id and agent_data are required",
-                    }
-                success, msg, agent_config = template_manager.update_agent(
-                    agent_id, agent_data
-                )
-                if not success:
-                    return {"success": False, "operation": "update", "error": msg}
-                return {
-                    "success": True,
-                    "operation": "update",
-                    "agent": {"id": agent_id, **agent_config},
-                }
-
-            elif operation == "delete":
-                if not agent_id:
-                    return {
-                        "success": False,
-                        "operation": "delete",
-                        "error": "agent_id is required",
-                    }
-                success, msg = template_manager.delete_agent(agent_id)
-                if not success:
-                    return {"success": False, "operation": "delete", "error": msg}
-                return {"success": True, "operation": "delete"}
-
-            else:
-                return {
-                    "success": False,
-                    "operation": operation,
-                    "error": f"Unknown operation: {operation}",
-                }
-
-        except Exception as e:
-            logger.error(f"Error in manage_agents (op={operation}): {e}")
-            return {"success": False, "operation": operation, "error": str(e)}
+    @tool
+    async def delete_template_file(self, file_path: str) -> dict:
+        """
+        Delete a template markdown file.
+        """
+        template_manager = get_template_manager()
+        return template_manager.delete_template_file(file_path)
