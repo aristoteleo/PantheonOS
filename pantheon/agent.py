@@ -1344,7 +1344,7 @@ class Agent:
         # preserve client_id from context_variables or memory
         context_variables[_CLIENT_ID_NAME] = context_variables.get(
             _CLIENT_ID_NAME,
-            memory_instance.id if memory else "",
+            memory_instance.id,
         )
 
         return ExecutionContext(

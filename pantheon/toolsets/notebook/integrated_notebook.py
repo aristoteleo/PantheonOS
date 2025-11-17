@@ -86,7 +86,7 @@ class IntegratedNotebookToolSet(ToolSet):
         await super().run_setup()
 
         # Initialize remote backend
-        if self.remote_backend is None:
+        if self.remote_backend is None and not hasattr(self, "no_remote_backend"):
             try:
                 self.remote_backend = RemoteBackendFactory.create_backend()
                 logger.info("Auto-created remote backend from environment")
@@ -106,6 +106,7 @@ class IntegratedNotebookToolSet(ToolSet):
         if (
             self.kernel_toolset.use_unified_listener
             and self.kernel_toolset.unified_listener
+            and self.remote_backend
         ):
             await self.kernel_toolset.unified_listener.start_listening()
             logger.info("Started unified IOPub listener")

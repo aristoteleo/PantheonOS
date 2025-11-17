@@ -331,7 +331,7 @@ class LocalProvider(ToolProvider):
             if not self.toolset._setup_completed:
                 await self.toolset.run_setup()
                 self.toolset._setup_completed = True
-
+                self.toolset.no_remote_backend = True
             # Cache tool descriptions for parameter filtering
             tools_response = await self.toolset.list_tools()
             tools_list = tools_response.get("tools", [])
