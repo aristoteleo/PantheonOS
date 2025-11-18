@@ -105,8 +105,11 @@ Run until all the steps are completed.
 you should go back to the step 2 and repeat the process with new hypotheses.
 
 6. Summary: call `reporter` agent to summarize the results and conclusions.
-In this step, you should pass the all the results and paths to the report file in each steps and the process to the `reporter` agent.
-Let reporter agent generate a PDF report file(`report.pdf` in the workdir).
+In this step, you should pass the all the results and paths to the report file from all the sub-agents
+(especially the results from the `biologist` and `analysis_expert` agents) to the `reporter` agent.
+Let reporter agent generate a PDF report file(`report.pdf` in the workdir, NOTE: not a markdown file).
+When give the instruction to the reporter agent, you just pass the high-level instruction and all necessary information,
+not need to specify the content of the report(Important!).
 
 """
 
@@ -114,7 +117,7 @@ Let reporter agent generate a PDF report file(`report.pdf` in the workdir).
     leader = Agent(
         name="leader",
         instructions=leader_instructions,
-        model="gpt-5",
+        model="gpt-5.1",
         tool_timeout=TIMEOUT_TOOL,
     )
     await leader.toolset(FileManagerToolSet("file_manager", path=workpath))
@@ -164,7 +167,7 @@ If there are some packages not installed, you should install them.
         name="system_manager",
         instructions=system_manager_instructions,
         description="System manager agent, responsible for the system environment investigation and software environment installation.",
-        model="gpt-5",
+        model="gpt-5.1",
         tool_timeout=TIMEOUT_TOOL,
     )
     await system_manager.toolset(PythonInterpreterToolSet("python"))
@@ -279,7 +282,7 @@ The high-quality means the figure in publication level:
         description="""Analysis expert in Single-Cell and Spatial Omics data analysis,
         with expertise in analyze data with python tools in scverse ecosystem.
         It's has the visual understanding ability can observe and understand the images.""",
-        model="gpt-5",
+        model="gpt-5.1",
         tool_timeout=TIMEOUT_TOOL,
     )
     await analysis_expert.toolset(PythonInterpreterToolSet("python"))
@@ -362,7 +365,7 @@ you should also write a `references.bib` file in the workdir, and record the ref
         It's has the ability to combine the observation of the analysis results and
         collect the background information from the literatures to interpret the results in the biological aspect.
         """,
-        model="gpt-5",
+        model="gpt-5.1",
         tool_timeout=TIMEOUT_TOOL,
     )
     await biologist.toolset(WebToolSet("web"))
@@ -407,7 +410,7 @@ Before you write the report, you should observe the images to help you write the
         It's has the ability to summarize the all work process and the results
         and organize them in a professional paper format.
         """,
-        model="gpt-5",
+        model="gpt-5.1",
         tool_timeout=TIMEOUT_TOOL,
     )
     await reporter.toolset(FileManagerToolSet("file_manager", path=workpath))
