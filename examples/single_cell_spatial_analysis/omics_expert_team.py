@@ -11,6 +11,7 @@ from pantheon.toolsets.python import PythonInterpreterToolSet
 from pantheon.toolsets.web import WebToolSet
 from pantheon.toolsets.file_manager import FileManagerToolSet
 from pantheon.toolsets.shell import ShellToolSet
+from pantheon.toolsets.notebook import IntegratedNotebookToolSet
 from pantheon.team.aat import AgentAsToolTeam
 from pantheon.utils.display import print_agent_message
 
@@ -117,7 +118,7 @@ not need to specify the content of the report(Important!).
     leader = Agent(
         name="leader",
         instructions=leader_instructions,
-        model="gpt-5.1",
+        model="gpt-5",
         tool_timeout=TIMEOUT_TOOL,
     )
     await leader.toolset(FileManagerToolSet("file_manager", path=workpath))
@@ -167,7 +168,7 @@ If there are some packages not installed, you should install them.
         name="system_manager",
         instructions=system_manager_instructions,
         description="System manager agent, responsible for the system environment investigation and software environment installation.",
-        model="gpt-5.1",
+        model="gpt-5",
         tool_timeout=TIMEOUT_TOOL,
     )
     await system_manager.toolset(PythonInterpreterToolSet("python"))
@@ -197,16 +198,13 @@ the results(what you have got, figures/tables/etc) in markdown format as the res
 If the dataset is very large(relatively to the memory of the computer),
 or the analysis is always timeout, you should consider creating a subset of the dataset, and then perform the analysis on the subset.
 
-If the current available memory is not enough, you should consider freeing the memory by
-closing some python interpreter instances using the `delete_interpreter` function in the `python` toolset.
-
 # Workflows
 
 Here is some typical workflows you should follow for some specific analysis tasks.
 
 ## Workflow for dataset understanding:
 
-When you get a dataset, you should first check the dataset structure and the metadata by running some python code.
+When you get a dataset, you should first check the dataset structure and the metadata by running some python code in the notebook.
 
 For single-cell and spatial data:
 
@@ -224,7 +222,7 @@ For single-cell and spatial data:
 
 2. Understand the data quality, and perform the basic preprocessing:
 
-Check the data quality by running some python code, try to produce some figures to check:
+Check the data quality by running some python code in the notebook, try to produce some figures to check:
 
 + The distribution of the total UMI count per cell, gene number detected per cell.
 + The percentage of Mitochondrial genes per cell.
@@ -263,6 +261,18 @@ For example, a dataset contains 3 timepoints, you should produce:
   - Barplot showing the number of cells in each timepoint
   - ...
 
+# Guidelines for notebook usage:
+
+You should use the `notebook` toolset to create, manage and execute the notebooks.
+For the notebooks, you should keep all related code in the same notebook, each notebook is for one specific analysis task.
+For example, you can create a notebook for the dataset understanding, a notebook for the data preprocessing,
+a notebook for the some hypothesis validation, etc.  In the beginning of the notebook,
+you should always write the related background information and the analysis task description as a
+markdown cell. And you can also put the result explanation below the code and the results cell as a markdown cell.
+
+If the current available memory is not enough, you should consider freeing the memory by
+closing some jupyter kernel instances using the `manage_kernel` function in the `notebook` toolset.
+
 # Guidelines for visualization:
 
 We expect high-quality figures, so when you generate a figure, you should always observe the figure
@@ -280,12 +290,12 @@ The high-quality means the figure in publication level:
         name="analysis_expert",
         instructions=analysis_expert_instructions,
         description="""Analysis expert in Single-Cell and Spatial Omics data analysis,
-        with expertise in analyze data with python tools in scverse ecosystem.
+        with expertise in analyze data with python tools in scverse ecosystem and jupyter notebook.
         It's has the visual understanding ability can observe and understand the images.""",
-        model="gpt-5.1",
+        model="gpt-5",
         tool_timeout=TIMEOUT_TOOL,
     )
-    await analysis_expert.toolset(PythonInterpreterToolSet("python"))
+    await analysis_expert.toolset(IntegratedNotebookToolSet("notebook", workdir=workpath))
     await analysis_expert.toolset(FileManagerToolSet("file_manager", path=workpath))
     await analysis_expert.toolset(WebToolSet("web"))
 
@@ -365,7 +375,7 @@ you should also write a `references.bib` file in the workdir, and record the ref
         It's has the ability to combine the observation of the analysis results and
         collect the background information from the literatures to interpret the results in the biological aspect.
         """,
-        model="gpt-5.1",
+        model="gpt-5",
         tool_timeout=TIMEOUT_TOOL,
     )
     await biologist.toolset(WebToolSet("web"))
@@ -410,7 +420,7 @@ Before you write the report, you should observe the images to help you write the
         It's has the ability to summarize the all work process and the results
         and organize them in a professional paper format.
         """,
-        model="gpt-5.1",
+        model="gpt-5",
         tool_timeout=TIMEOUT_TOOL,
     )
     await reporter.toolset(FileManagerToolSet("file_manager", path=workpath))
@@ -441,52 +451,7 @@ Before you write the report, you should observe the images to help you write the
         print_agent_message(agent_name, msg)
 
     await team.run(prompt, process_step_message=process_step_message)
-    #await team.run("observe the images in the workdir", process_step_message=process_step_message)
-    #await reporter.run(f"""
-    #workdir: {workpath}/workdir_pbmc3k_2025-11-11/reporter/
 
-    #Inputs/paths to summarize:
-    #- Environment report: ../system_manager/env_report.txt
-    #- Analysis reports: ../analysis_expert/analysis_report.md, ../analysis_expert/analysis_report_qc_overview.md
-    #- AnnData objects: ../analysis_expert/data/raw.h5ad, ../analysis_expert/data/filtered.h5ad, ../analysis_expert/data/preprocessed.h5ad, ../analysis_expert/data/annotated.h5ad
-    #- Figures (UMAPs, QC, markers): ../analysis_expert/figures/
-    #- Marker tables: ../analysis_expert/results/markers/
-    #- Cell type counts: ../analysis_expert/results/celltype_counts.csv
-    #- Biologist interpretation: ../biologist/hypotheses_and_interpretation.md
-    #- Todolist: ../todolist.md
-
-    #Generate a PDF report file(`report.pdf` in the workdir).
-    #""", process_step_message=process_step_message)
-
-#    await biologist.run(f"""
-#Project: PBMC3k basic single-cell analysis
-#Workdir: /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/biologist
-#
-#Dataset summary (from initial computational analysis):
-#- Source: scanpy.datasets.pbmc3k (10x Genomics, ~2700 PBMCs)
-#- Initial cells/genes: 2700 cells x 32738 genes
-#- Post-QC: 2638 cells x 13656 genes
-#- QC filters applied: cells with <200 genes removed; >2500 genes removed; >5% mitochondrial removed; genes expressed in <3 cells removed
-#- Clustering: Leiden at resolution ~0.5 produced 7 clusters (0–6)
-#- Draft cell-type assignment per cluster:
-#  0: Naive/Memory T  
-#  1: CD14+ Monocytes  
-#  2: B cells  
-#  3: Cytotoxic T  
-#  4: FCGR3A+ (CD16) Monocytes  
-#  5: Cytotoxic T (second cluster)  
-#  6: Dendritic cells (likely conventional; may include plasmacytoid-like)
-#- Cell cycle summary (Scanpy scoring): G1=1691, S=825, G2M=122 (note: S+G2M ~36%; may reflect scoring sensitivity rather than true proliferation in PBMCs)
-#- Key figures (paths):
-#  - UMAP by cluster: .../workdir/analysis_expert/figures/umap/umap_leiden_r05.png
-#  - UMAP by QC covariates: .../workdir/analysis_expert/figures/umap/umap_qc_covariates.png
-#  - UMAP by cell-cycle phase: .../workdir/analysis_expert/figures/umap/umap_cellcycle_phase.png
-#  - QC violin/scatter (raw and postfilter): .../workdir/analysis_expert/figures/violin/qc_violin_raw.png; .../workdir/analysis_expert/figures/violin/qc_violin_postfilter.png; .../workdir/analysis_expert/figures/scatter/qc_scatter_raw.png; .../workdir/analysis_expert/figures/scatter/qc_scatter_postfilter.png
-#  - Marker summaries: dot/heatmap for top markers: .../workdir/analysis_expert/figures/dotplot/markers_dotplot_top5.png; .../workdir/analysis_expert/figures/heatmap/markers_heatmap_top5.png; ranked genes table: .../workdir/analysis_expert/markers_leiden_r05.csv
-#- Notes: Expected PBMC composition observed: T-cell majority with both naive/memory and cytotoxic; two monocyte subsets (CD14+ classical and FCGR3A+ non-classical); minority B cells and dendritic cells. Potential technical artifact: elevated S-phase scoring fraction; otherwise QC distributions look typical after filtering.
-#
-#Task: Based on the above, generate biologically interesting hypotheses/questions to explore within this dataset. Aim for 3–6 specific, testable hypotheses relevant to PBMC biology (e.g., T/NK heterogeneity, monocyte polarization, interferon response, dendritic programs, proliferation artifacts, potential doublets). Please suggest concrete analyses we can perform next to test each hypothesis (at a high level). Provide a concise list we can convert into an analysis plan. 
-#""", process_step_message=process_step_message)
 
 if __name__ == "__main__":
     fire.Fire(main)
