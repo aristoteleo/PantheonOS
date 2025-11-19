@@ -491,7 +491,7 @@ class JupyterKernelToolSet(ToolSet):
         self.unified_listener: Optional[KernelListener] = None
         if self.use_unified_listener:
             self.unified_listener = KernelListener()
-            logger.info("Initialized unified kernel listener")
+            logger.debug("Initialized unified kernel listener")
 
     async def _handle_iopub_message(self, session_id: str, jupyter_msg: JupyterMessage):
         """Unified IOPub message handler - Separate metadata flow"""

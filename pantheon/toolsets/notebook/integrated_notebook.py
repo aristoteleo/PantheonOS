@@ -58,11 +58,14 @@ class IntegratedNotebookToolSet(ToolSet):
         name: str,
         workdir: str | None = None,
         remote_backend: Optional[RemoteBackend] = None,
+        streaming_mode: Literal["auto", "remote", "local"] = "auto",
         **kwargs,
     ):
         super().__init__(name, **kwargs)
         self.workdir = workdir or Path.cwd().as_posix()
         self.remote_backend = remote_backend
+        self.streaming_mode = streaming_mode
+        self.streaming_enabled = False
         self.event_bus: Optional[IOPubEventBus] = None
 
         # Initialize child toolsets
@@ -85,28 +88,42 @@ class IntegratedNotebookToolSet(ToolSet):
         """Setup toolset"""
         await super().run_setup()
 
-        # Initialize remote backend
-        if self.remote_backend is None and not hasattr(self, "no_remote_backend"):
+        # Decide whether streaming should be active for this toolset
+        if self.streaming_mode == "local":
+            allow_streaming = False
+        else:  # auto/remote both allow streaming unless explicitly disabled
+            allow_streaming = True
+
+        # Initialize remote backend only when streaming is allowed
+        if allow_streaming and self.remote_backend is None:
             try:
                 self.remote_backend = RemoteBackendFactory.create_backend()
                 logger.info("Auto-created remote backend from environment")
             except Exception as e:
-                logger.warning(f"No remote backend: {e}")
+                logger.warning(f"No remote backend available: {e}")
 
-        # Initialize event bus
-        if self.remote_backend:
+        # Initialize event bus when remote backend exists
+        if allow_streaming and self.remote_backend:
             self.event_bus = RemoteIOPubEventBus(self.remote_backend)
             self.kernel_toolset.event_bus = self.event_bus
-            logger.info("Initialized IOPub event bus")
+            self.streaming_enabled = True
+            logger.info("Initialized IOPub event bus (streaming enabled)")
+        else:
+            self.event_bus = None
+            self.kernel_toolset.event_bus = None
+            self.streaming_enabled = False
+            logger.info(
+                f"Streaming disabled for IntegratedNotebookToolSet (mode={self.streaming_mode})"
+            )
 
         await self.kernel_toolset.run_setup()
         await self.notebook_contents.run_setup()
 
         # Start unified IOPub listener
         if (
-            self.kernel_toolset.use_unified_listener
+            self.streaming_enabled
+            and self.kernel_toolset.use_unified_listener
             and self.kernel_toolset.unified_listener
-            and self.remote_backend
         ):
             await self.kernel_toolset.unified_listener.start_listening()
             logger.info("Started unified IOPub listener")

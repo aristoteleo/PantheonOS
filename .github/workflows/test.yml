@@ -2,9 +2,9 @@ name: Tests
 
 on:
   push:
-    branches: [ "*" ]
+    branches: ["*"]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -24,11 +24,11 @@ jobs:
           - 8080:8080
           - 8222:8222
         options: >-
-          --health-cmd "curl -f http://localhost:8222/varz || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-          -v ${{ github.workspace }}/nats-ws.conf:/etc/nats/nats-server.conf:ro
+          --health-cmd='curl -f http://127.0.0.1:8222/varz || exit 1'
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+          -v '${{ github.workspace }}/nats-ws.conf:/etc/nats/nats-server.conf:ro'
 
     steps:
       - uses: actions/checkout@v4
