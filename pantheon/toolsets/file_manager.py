@@ -1,4 +1,6 @@
+import os
 from pathlib import Path
+import tempfile
 import shutil
 import base64
 import io
@@ -279,13 +281,64 @@ class FileManagerToolSet(FileManagerToolSetBase):
 
         # Call LLM to analyze images
         try:
-            response = await context.call_agent(messages=messages)
+            response = await context.call_agent(messages=messages, use_memory=True)
             return {"success": True, "content": response}
         except Exception as e:
             logger.error(
                 f"Error calling agent for image observation: {e}", exc_info=True
             )
             return {"success": False, "error": str(e)}
+
+    @tool
+    async def observe_pdf_screenshots(
+        self,
+        question: str,
+        pdf_path: str,
+        page_numbers: list[int] | None = None,
+        dpi: int = 300,
+    ) -> dict:
+        """Observe the screenshots of the PDF file and answer a question about them.
+
+        Args:
+            question: The question to answer.
+            pdf_path: The path to the PDF file to observe.
+            page_numbers: The numbers of the pages to observe. If not provided, all pages will be observed.
+            dpi: The DPI of the screenshots. If not provided, the default value is 300.
+        """
+        if ".." in pdf_path:
+            return {"success": False, "error": "File path cannot contain '..'"}
+        file_path = self.path / pdf_path
+        if not file_path.exists():
+            return {"success": False, "error": "PDF file does not exist"}
+        if not file_path.is_file():
+            return {"success": False, "error": "Path is not a file"}
+        if file_path.suffix.lower() != ".pdf":
+            return {"success": False, "error": "File is not a PDF (wrong extension)"}
+        try:
+            import pymupdf
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                image_paths = []
+                with pymupdf.open(str(file_path)) as doc:
+                    page_count = len(doc)
+                    if page_numbers is not None:
+                        page_numbers = [p for p in page_numbers if p <= page_count]
+                    else:
+                        page_numbers = list(range(page_count))
+                    for page_number in page_numbers:
+                        page = doc.load_page(page_number)
+                        image = page.get_pixmap(dpi=dpi)
+                        path = os.path.join(tmp_dir, f"page_{page_number}.png")
+                        image.save(path)
+                        image_paths.append(path)
+                    resp = await self.observe_images(question, image_paths)
+                    return resp
+        except ImportError:
+            return {
+                "success": False,
+                "error": "pymupdf library not installed. Install with: pip install pymupdf",
+            }
+        except Exception as e:
+            return {"success": False, "error": f"Unexpected error: {str(e)}"}
 
     @tool
     async def read_pdf(self, pdf_path: str) -> dict:

@@ -32,6 +32,7 @@ class ExecutionContext(dict):
         messages: list,
         system_prompt: Optional[str] = None,
         model: Optional[str] = None,
+        use_memory: bool = False,
     ) -> str:
         """
         Call the LLM agent during tool execution for intermediate sampling.
@@ -47,6 +48,7 @@ class ExecutionContext(dict):
                 messages=messages,
                 system_prompt=system_prompt,
                 model=model,
+                use_memory=use_memory,
             )
 
             if isinstance(result, str):
@@ -154,16 +156,17 @@ def tool(func: Callable | None = None, *, exclude: bool = False, **kwargs):
         session_id = func_kwargs.pop("session_id", None)
         if session_id:
             context_variables["client_id"] = session_id
-        # 2. Convert to ExecutionContext (dict subclass for compatibility)
 
-        context_variables = ExecutionContext(context_variables)
+        # 2. Convert to ExecutionContext (dict subclass for compatibility)
+        ctx = get_current_context_variables()
+        ctx.update(context_variables)
 
         # 3. If function declares a context parameter, re-inject it with appropriate name
         if context_param_name is not None:
-            func_kwargs[context_param_name] = context_variables
+            func_kwargs[context_param_name] = ctx
 
         # 4. Set to contextvars for implicit access
-        token = set_current_context_variables(context_variables)
+        token = set_current_context_variables(ctx)
 
         try:
             # Call original function (handles both sync and async via run_func)

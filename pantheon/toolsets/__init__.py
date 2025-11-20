@@ -6,7 +6,7 @@ from .shell import ShellToolSet
 from .file_manager import FileManagerToolSet
 from .web import WebToolSet
 from .workflow import WorkflowToolSet
-from .notebook import NotebookToolSet, IntegratedNotebookToolSet, JupyterKernelToolSet
+from .notebook import IntegratedNotebookToolSet, JupyterKernelToolSet
 from .scraper import ScraperToolSet
 from .todolist import TodoListToolSet
 from .plan_mode import PlanModeToolSet
@@ -31,7 +31,6 @@ __all__ = [
     "PlanModeToolSet",
     # Notebooks
     "JupyterKernelToolSet",
-    "NotebookToolSet",
     "IntegratedNotebookToolSet",
     # RAG
     "VectorRAGToolSet",

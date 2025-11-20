@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import copy
 import inspect
 import json
@@ -8,7 +7,7 @@ import time
 from abc import ABC, abstractmethod
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Protocol, Union
+from typing import Any, Callable, Optional, Union
 from uuid import uuid4
 
 from funcdesc import parse_func
@@ -691,6 +690,24 @@ class Agent:
         # Determine if we should inject context_variables
         should_inject_context = self._should_inject_context_variables(prefixed_name)
 
+        async def _call_agent_wrap(
+                messages: list,
+                system_prompt: str | None = None,
+                model: str | None = None,
+                use_memory: bool = False,
+                ) -> dict:
+            if use_memory:
+                memory = self.memory[:-1]
+            else:
+                memory = None
+            res = await _call_agent(
+                messages=messages,
+                system_prompt=system_prompt,
+                model=model,
+                memory=memory,
+            )
+            return res
+
         # Only inject context_variables if needed
         if should_inject_context and context_variables is not None:
             # Build complete context_variables with execution metadata
@@ -699,7 +716,7 @@ class Agent:
             if tool_call_id is not None:
                 full_context_variables["tool_call_id"] = tool_call_id
             # add _call_agent callback
-            full_context_variables["_call_agent"] = _call_agent
+            full_context_variables["_call_agent"] = _call_agent_wrap
             # remove call_* variables injected for debug
             for k in list(full_context_variables.keys()):
                 if k.startswith("call_"):
@@ -811,7 +828,14 @@ class Agent:
 
         async def _run_single_tool_call(call: dict) -> dict:
             func_name = call["function"]["name"]
-            params = json.loads(call["function"]["arguments"]) or {}
+            try:
+                args_str = call["function"]["arguments"]
+                if not args_str.endswith("}"):
+                    args_str = args_str + "}"
+                params = json.loads(call["function"]["arguments"]) or {}
+            except Exception as e:
+                logger.error(f"Failed to parse arguments for tool '{func_name}': {e}")
+                raise e
             tool_call_id = call["id"]
             allow_timeout = func_name != "call_agent"
             start_time = time.time()
@@ -1543,16 +1567,17 @@ async def _call_agent(
     messages: list,
     system_prompt: Optional[str],
     model: Optional[str] = None,
-    agent_name: str = "sampler",
+    memory: Memory | None = None,
 ) -> dict:
     """call agent callback to let toolset use llm agent to sample response"""
     # not tested with remote mode, should work naturally with reverse call support
     try:
         # Create temporary Agent
         agent = Agent(
-            name=agent_name,
+            name="sampler",
             model=model,
             instructions=system_prompt or "You are a helpful assistant.",
+            memory=memory,
         )
 
         # Run Agent with the user query

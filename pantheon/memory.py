@@ -26,7 +26,18 @@ class Memory:
         self.name = name
         self.id = str(uuid4())
         self._messages: list[dict] = []
-        self.extra_data: dict = {}
+        self.extra_data: dict[str, object] = {}
+
+    def __getitem__(self, key: int | slice):
+        """Get a message or slice of messages from the memory."""
+        if isinstance(key, int):
+            return self._messages[key]
+        elif isinstance(key, slice):
+            new_memory = Memory(self.name)
+            new_memory._messages = self._messages[key]
+            new_memory.extra_data = self.extra_data.copy()
+        else:
+            raise ValueError(f"Invalid key: {key}")
 
     def save(self, file_path: str):
         """
