@@ -69,6 +69,20 @@ And when passing the instruction to the sub-agents, you should pass the path to 
 Workdir: /path/to/workdir
 To ensure the sub-agents know where to save the results.
 
+## Work intensity control(Important!):
+The work intensity is determined by identifying the user's intent and is categorized into three levels: low, medium, and high.
+If the user does not mention any related information, the default level is medium.
+If the user uses keywords such as basic, the level is set to low.
+If the user mentions keywords or expressions such as deep, hard, etc., the level is recognized as high.
+
+The number of loops to call `biologist` and `analysis_expert` during hypotheses-execution-explanation loop depends on the work intensity:
+
+Low: 1 loop
+Medium: 2-3 loops
+High: ≥ 3 loops
+
+Please record the work intensity in the todolist file(`todolist.md` in the workdir).
+
 ## Independence(Important!):
 As a leader, one should complete tasks as independently and autonomously as possible, exploring biological questions. In most cases,
 there is no need to confirm with the user; independent decision-making to call sub-agents for exploration is sufficient.
@@ -104,6 +118,7 @@ Run until all the steps are completed.
 
 5. Loop: If the all the steps are completed, but there are no interesting(biologically or technically) results,
 you should go back to the step 2 and repeat the process with new hypotheses.
+(The number of loops depends on the work intensity, see the "Work intensity control" section above)
 
 6. Summary: call `reporter` agent to summarize the results and conclusions.
 In this step, you should pass the all the results and paths to the report file from all the sub-agents
@@ -334,6 +349,7 @@ For the literatures, you should list them as common references formats or URLs.
 ### References bibtex file(Important!):
 For later report generation(in the reporter agent),
 you should also write a `references.bib` file in the workdir, and record the references information in the format of bibtex.
+If the references.bib file already exists, you should update the file to add the new references.
 
 # Workflow for hypotheses generation:
 
@@ -390,27 +406,71 @@ summarizing the results and conclusions.
 
 1. Workdir: Always work in the workdir provided by the leader agent.
 
-2. Report generation(Important!):
+2. Report generation(Important!)
 When generating the report, you should firstly generate a LaTeX file(`report.tex` in the workdir) with `write_file` function,
 and then use the `run_command` function in the `shell` toolset to call `pdflatex` to compile the LaTeX file to get the PDF report.
 For the format, you should make it like a professional paper, with the Title, Abstract, Introduction, Method, Results, Discussion and References.
-Use the `\cite{xxx}` to cite the literatures in the main content, and in the References section, you should include the citations for the literatures you have collected.
-And the figures should be included in the result section.
 
-## Summarization workflow:
+# Report format(Important!)
+Should look like a professional paper, structure the report content:
+- Title
+- Author information
+- Abstract
+- Introduction
+- Results
+- Discussion
+- Methods
+- Data and code availability
+- References
+- Appendices
+  + Supplementary figures
+  + Supplementary tables
 
-You should:
+## Author information
+Authors: Leader, System Manager, Analysis Expert, Biologist, Reporter
+Mark all of them to affiliation: Pantheon Omics Expert Team, Pantheon-OS(https://pantheonos.stanford.edu/)
+
+Format: Don't need a separate section, just list it under the title(in a common way of the latex paper).
+
+## Introduction
+Include the research background, related studies, and the purpose of the research.
+Then introduce the main content of the report.
+
+## Results
+In this section, include the main results by subsections, each subsection should include
+one specific result/finding. The result should be described in the biological aspect,
+and based on the analysis results and the biological interpretation. When it's necessary,
+reference the related literatures and figures to support the conclusion.
+The main figures should be included in this section.
+
+## Methods
+Include the sub-sections for the methods used in the analysis, including the software, packages, version, etc.
+And need one sub-section for introduce the hardware environment if it's possible.
+
+## References and how to cite literatures
+Use the `\cite{xxx}` to cite the literatures in the main content, and in the References section,
+you should include the citations for the literatures you have collected from the bibtex file.
+
+# Workflow(Important!)
+
+You should following the steps to generate the PDF report:
+
+Pre-step: check if the `report.pdf` file already exists in the workdir, if it exists, you should directly go to the step 3.
 
 1. Read all the files, try to understand the content of the files,
-and try to observe the images with the `observe_images` function in the `file_manager` toolset to help you understand the content of the images.
+and try to observe the images with the `observe_images` function in the `file_manager` toolset to understand the content of the images,
+that will help write the figure legend.
 
-2. Summarize results and conclusions:
-In this stage, you should include the background information, related literature information, method the team are using, results and conclusions.
-Before you write the report, you should observe the images to help you write the figure legend.
+2. Write and compile the report:
+Write the report in a LaTeX file(`report.tex` in the workdir), then compile it.
 
-3. Refine the report: ensure the report is professional and contains all the information you have collected.
+3. Refine the report:
+Read the screen of the screenshot of the PDF file with the `observe_pdf_screenshots` function in the `file_manager` toolset try to
+figure out the format of the report is good or not. If not, you should re-write the related content.
+During this section, you should pass the latex code to the question parameter of the `observe_pdf_screenshots` function,
+for provide more context to the agent to understand the problem and the solution.
 
-4. Finish
+4. Finish: If the report is good, you could finish the task.
 
 """
     reporter = Agent(
@@ -448,9 +508,65 @@ Before you write the report, you should observe the images to help you write the
 
     def process_step_message(msg: dict):
         agent_name = msg.get("agent_name", "Agent?")
-        print_agent_message(agent_name, msg)
+        try:
+            print_agent_message(agent_name, msg)
+        except Exception:
+            print(agent_name+":\n", msg)
 
     await team.run(prompt, process_step_message=process_step_message)
+#    prompt = """Project: PBMC3k single-cell RNA-seq analysis — basic workflow + deep exploration.
+#
+#Goal: Compile a professional PDF report (report.pdf) summarizing the full workflow, methods, results, figures, and biological interpretations. Place it at:
+#/home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/reporter/report.pdf
+#
+#Scope to include (high level):
+#- Environment overview (software/hardware; Python/Scanpy versions) and reproducibility notes.
+#- Basic analysis: preprocessing/QC, clustering, embedding visualizations, marker genes, initial annotation.
+#- Deep dives: T/NK axis, Monocytes, DC-like populations — for each, briefly summarize methods, subclustering, key markers/programs, and biological interpretations.
+#- Key insights and conclusions; limitations and suggested next steps.
+#
+#Inputs and assets to use
+#- Environment report (system_manager):
+#  - /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/system_manager/environment_report.txt
+#
+#- Analysis Expert reports and assets:
+#  - Basic pass report: /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/analysis_expert/report_analysis_expert_pbmc3k.md
+#  - Basic figures: /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/analysis_expert/figures/
+#  - Basic markers/table paths: /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/analysis_expert/tables/
+#  - T/NK deep dive report and assets:
+#    - /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/analysis_expert/tnkdive/report_analysis_expert_pbmc3k_tnkdive_step0_step1.md
+#    - Figures: /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/analysis_expert/tnkdive/figures/
+#    - Tables: /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/analysis_expert/tnkdive/tables/
+#  - Monocyte deep dive report and assets:
+#    - /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/analysis_expert/monodive/report_analysis_expert_pbmc3k_monodive.md
+#    - Figures: /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/analysis_expert/monodive/figures/
+#    - Tables: /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/analysis_expert/monodive/tables/
+#  - DC-like deep dive report and assets:
+#    - /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/analysis_expert/dcdive/report_analysis_expert_pbmc3k_dcdive.md
+#    - Figures: /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/analysis_expert/dcdive/figures/
+#    - Tables: /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/analysis_expert/dcdive/tables/
+#  - AnnData checkpoints (list only as paths; no need to embed):
+#    - /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/analysis_expert/adata/
+#    - /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/analysis_expert/tnkdive/adata/
+#    - /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/analysis_expert/monodive/adata/
+#    - /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/analysis_expert/dcdive/adata/
+#
+#- Biologist hypotheses and interpretations:
+#  - Hypotheses and plan: /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/biologist/report_biologist_pbmc3k.md
+#  - T/NK interpretation: /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/biologist/interpretation_tnkdive_step1.md
+#  - Monocyte interpretation: /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/biologist/interpretation_monodive_step2.md
+#  - DC-like interpretation: /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/biologist/interpretation_dcdive_step3.md
+#  - References (if helpful): /home/wzxu/software/pantheon-agents/examples/single_cell_spatial_analysis/cases/pbmc3k/workdir/biologist/references.bib
+#
+#Notes
+#- Keep the report self-contained and visual; select representative figures from each step.
+#- Mention that TF activity inference via DoRothEA was planned but regulon access was unavailable in this environment; suggest as future work.
+#- Use concise captions; include a short Methods section summarizing key Scanpy steps.
+#
+#Output
+#- Save the PDF to the reporter workdir path above and ensure all referenced figure paths are correct.
+#"""
+#    await reporter.run(prompt, process_step_message=process_step_message)
 
 
 if __name__ == "__main__":

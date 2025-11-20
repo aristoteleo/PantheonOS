@@ -60,11 +60,8 @@ def detect_provider(model: str, force_litellm: bool) -> ProviderConfig:
         try:
             provider_type = ProviderType(provider_str.lower())
         except ValueError:
-            supported = ", ".join([p.value for p in ProviderType])
-            raise ValueError(
-                f"Unknown provider '{provider_str}'. "
-                f"Supported providers: {supported}"
-            )
+            provider_type = ProviderType.LITELLM
+            model_name = model
     else:
         provider_type = ProviderType.OPENAI
         model_name = model
