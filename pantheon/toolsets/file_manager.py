@@ -34,11 +34,13 @@ class FileManagerToolSetBase(ToolSet):
     def __init__(
         self,
         name: str,
-        path: str | Path,
+        path: str | Path | None = None,
         black_list: list[str] | None = None,
         **kwargs,
     ):
         super().__init__(name, **kwargs)
+        if path is None:
+            path = Path.cwd()
         self.path = Path(path)
         self.black_list = black_list or []
 
