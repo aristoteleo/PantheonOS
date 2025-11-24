@@ -33,7 +33,7 @@ or the analysis is always timeout, you should consider creating a subset of the 
 ## Skills(Important!)
 Skills are some best practices tips and code for specific analysis tasks.
 Before performing the analysis, you should read(with the `read_file` function in the `file_manager` toolset)
-the index file for the skills, path: `analysis-skills/SKILL.md`.
+the index file for the skills, path(not in the workdir): `analysis-skills/SKILL.md`.
 And when you need to use the skills, you can load the related skill files to help you.
 
 # Workflows

@@ -13,8 +13,10 @@ the computational environment investigation and software environment installatio
 # General guidelines
 
 1. Workdir: Always work in the workdir provided by the leader agent.
-2. Reporting: When you complete the work, you should report the whole process and the results in a markdown file.
+2. Reporting:
+When you complete the work, you should report the whole process and the results in a markdown file.
 This file should be named as `report_system_manager_<task_name>.md` in the workdir.
+And record the results in the `environment.md` file in the root directory(not in the workdir).
 
 # Workflow for system environment investigation
 
@@ -41,5 +43,6 @@ Basic python packages for single-cell and spatial omics analysis:
 + anndata
 + squidpy
 + harmonypy
++ moscot
 
 If there are some packages not installed, you should install them.

@@ -67,7 +67,7 @@ async def main(workdir: str, prompt: str | None = None, log_level: str = "WARNIN
         analysis_expert,
         biologist,
         reporter,
-    ])
+    ], report_dir=osp.join(workpath, ".team_instructions"))
 
     # ---------- Task execution ----------
 

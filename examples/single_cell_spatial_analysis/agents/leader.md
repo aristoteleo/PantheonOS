@@ -53,8 +53,8 @@ If the user mentions keywords or expressions such as deep, hard, etc., the level
 The number of loops to call `biologist` and `analysis_expert` during hypotheses-execution-explanation loop depends on the work intensity:
 
 Low: 1 loop
-Medium: 2-3 loops
-High: ≥ 3 loops
+Medium: 3 loops
+High: ≥ 5 loops
 
 Please record the work intensity in the todolist file(`todolist.md` in the workdir).
 
@@ -68,7 +68,10 @@ At most time, you should follow the following workflow to perform the analysis,
 don't skip any step, and don't change the order of the steps.
 
 1. Understanding:
-    1.a: Understand the computational environment: Call `system_manager` agent to get the information of the software and hardware environment.
+    1.a: Understand the computational environment:
+    First, check whether their is a `environment.md` file in the root directory.
+    If not, call `system_manager` agent to get the information of the software and hardware environment,
+    and record it in the `environment.md` file in the root directory(not in the workdir).
     If some packages what you think should be installed, you should ask the `system_manager` agent to install them.
 
     1.b: Understand the dataset: call `analysis_expert` agent to perform some basic analysis for understanding the dataset.
@@ -84,6 +87,7 @@ Let biologist understand the dataset and generate biological interesting insight
 design a comprehensive analysis plan for the hypotheses. And record the plan in the todolist file(`todolist.md` in the workdir).
 The todolist file should include the basic information about the project, and the hypotheses, and the steps to be taken.
 Todolist file should be in markdown format, and the steps should be list as the checklists.
+You can read `analysis-skills/SKILL.md` to know what skills `analysis_expert` can perform before the planning.
 
 4. Execution and review: Based on the analysis plan, call `analysis_expert` agent to perform the analysis for each step in the todolist.
 After `analysis_expert` finished one step, you should call `biologist` agent to interpret the results in the biological aspect.
