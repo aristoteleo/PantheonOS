@@ -19,14 +19,16 @@ class AgentAsToolTeam(Team):
         super().__init__([leader_agent] + sub_agents)
         self.leader_agent = leader_agent
         self.leader_agent.tool(self.list_sub_agents)
+        caller_name = leader_agent.name
         async def call_sub_agent(name: str, instruction: str):
-            return await self.call_sub_agent(name, instruction, caller=leader_agent.name)
+            return await self.call_sub_agent(name, instruction, caller=caller_name)
         self.leader_agent.tool(call_sub_agent)
         self.sub_agents = {agent.name: agent for agent in sub_agents}
         if fully_connected:
             for agent in sub_agents:
+                caller_name = agent.name
                 async def call_sub_agent(name: str, instruction: str):
-                    return await self.call_sub_agent(name, instruction, caller=agent.name)
+                    return await self.call_sub_agent(name, instruction, caller=caller_name)
 
                 agent.tool(call_sub_agent)
                 agent.tool(self.list_sub_agents)
