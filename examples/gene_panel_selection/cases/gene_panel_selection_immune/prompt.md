@@ -1,7 +1,63 @@
-Task: Design gene panel for the following purpose:
+# Task: Gene Panel Selection for Immune Oncology (1000 genes)
 
-A human immune oncology gene profiling panel
+## Goal
+Design a high-quality **1000-gene immune-oncology gene panel** for human tumor microenvironment (TME) profiling.
+- **adata_path:** `/home/erwinpi/data/adata.h5ad`  
+- **Dataset source:** bioRxiv Preprint (2024) — DOI: 10.1101/2024.01.17.576110  
 
-Plex: 1000 genes with annotation, with genes grouped in major categories
+## Biological purpose
+The panel must allow comprehensive profiling of the human tumor microenvironment with the following capabilities:
 
-Purpose: the gene panel should have the ability to catalog all cell types, enable immune profiling of the tumor microenvironment and characterize the cell states based on cytokine and cancer signaling pathways. Specifically, the panel should be able to resolve immune cells types, profile key cancer signaling pathways, analyze cell state based on key cytokine profile, understand if a cell is exhausted or not, and distinguish different cancer cell stages based on its expression of different oncogenes or signaling molecules, so that an end user can characterize the tumor microenvironment and explore cancer signaling pathways, etc.
+1. **Resolve all major immune cell types**  
+   - T cells, NK cells, B cells, plasma cells  
+   - Myeloid lineages: macrophages, monocytes, dendritic cells, neutrophils  
+   - Regulatory populations (Tregs, MDSCs, etc.)
+
+2. **Characterize cancer signaling pathways**  
+   - Oncogenes  
+   - Tumor suppressors  
+   - Cell-cycle states  
+   - DNA damage & stress response  
+   - Hypoxia, angiogenesis, EMT, proliferation markers
+
+3. **Profile cytokine and chemokine states**  
+   - IL, TNF, IFN families  
+   - Exhaustion markers (PDCD1, LAG3, HAVCR2, TIGIT…)  
+   - Activation, cytotoxicity, and inflammation signatures
+
+4. **Determine cancer cell stages & heterogeneity**
+   - Distinguish malignant vs. non-malignant cells  
+   - Identify tumor subclones  
+   - Capture signaling states (MAPK, PI3K, JAK-STAT, TGF-β, WNT)
+
+5. **Enable cell-state analysis**
+   - Exhaustion  
+   - Activation  
+   - Proliferation  
+   - Senescence  
+   - Stress programs
+
+## Final expected output
+A curated **1000-gene panel**, with:
+
+- Full annotation for each gene  
+- Genes grouped into meaningful major categories (immune, cytokine signaling, oncogenes, pathways, etc.)  
+- Final panel optimized for:
+  - cell-type separability  
+  - immune profiling  
+  - cancer pathway resolution  
+  - interpretability  
+  - deployment in spatial transcriptomics (Vizgen-style)
+
+
+## Instructions for the leader agent
+Follow the complete workflow:
+- Understand existing results
+- Validate computational environment
+- Run dataset QC + annotation (selection_expert)
+- Apply gene panel selection algorithms (HVG, DE, SpaPROS, scGeneFit, Random Forest) (selection_expert)
+- Perform biological curation to produce final curated 1000-gene panel (selection_expert)
+- Perform biological interpretation of the results ( Bioliogist)
+- Generate publication-quality PDF report (reporter)
+
+Workdir: <WORKDIR PROVIDED BY team.run>
