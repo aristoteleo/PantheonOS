@@ -60,14 +60,21 @@ async def main(workdir: str, prompt: str | None = None, log_level: str = "WARNIN
     analysis_expert = await load_agent("agents/analysis_expert.md")
     biologist = await load_agent("agents/biologist.md")
     reporter = await load_agent("agents/reporter.md")
+    browser_use = await load_agent("agents/browser_use.md")
 
     # ---------- Team ----------
-    team = AgentAsToolTeam(leader, [
-        system_manager,
-        analysis_expert,
-        biologist,
-        reporter,
-    ], report_dir=osp.join(workpath, ".team_instructions"))
+    team = AgentAsToolTeam(
+        leader,
+        [
+            system_manager,
+            analysis_expert,
+            biologist,
+            reporter,
+            browser_use,
+        ],
+        record_dir=osp.join(workpath, ".team_instructions"),
+        fully_connected=True,
+    )
 
     # ---------- Task execution ----------
 

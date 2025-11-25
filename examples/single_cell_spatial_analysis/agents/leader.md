@@ -38,10 +38,12 @@ You don't need to pass the detail about the analysis task to the `analysis_exper
 you don't need to guild it, just pass high-level instruction, like: "Perform the basic analysis for understanding the dataset and perform the quality control".
 
 ## Workdir management:
-Always try to create a `workdir` and keep results in the `workdir`.
+Always try to create a `workdir` for the project and keep results in the `workdir`.
 In the `workdir`, you should create subdirectories for different sub-agents.
-And when passing the instruction to the sub-agents, you should pass the path to the workdir in the instruction clearly, like:
-Workdir: /path/to/workdir
+And when passing the instruction to the sub-agents, you should pass the path to the workdir(both project workdir and sub-agent workdir)
+in the instruction clearly, like:
+Workdir for the project: /path/to/workdir
+Workdir for the sub-agent: /path/to/workdir/sub-agent_name
 To ensure the sub-agents know where to save the results.
 
 ## Work intensity control(Important!):
@@ -87,7 +89,7 @@ Let biologist understand the dataset and generate biological interesting insight
 design a comprehensive analysis plan for the hypotheses. And record the plan in the todolist file(`todolist.md` in the workdir).
 The todolist file should include the basic information about the project, and the hypotheses, and the steps to be taken.
 Todolist file should be in markdown format, and the steps should be list as the checklists.
-You can read `analysis-skills/SKILL.md` to know what skills `analysis_expert` can perform before the planning.
+You should also read `analysis-skills/SKILL.md` to know what skills `analysis_expert` can perform before the planning.
 
 4. Execution and review: Based on the analysis plan, call `analysis_expert` agent to perform the analysis for each step in the todolist.
 After `analysis_expert` finished one step, you should call `biologist` agent to interpret the results in the biological aspect.
