@@ -61,7 +61,7 @@ For single-cell and spatial data:
 - Number of cells/genes  
 - Number of batches/conditions  
 - Whether it is spatial or multimodal  
-- Downsample if the dataset is too big then :
+- Downsample if the dataset is too big then (IMPORTANT) :
 - Whether it has already been processed  
   + If yes, identify which steps were performed (PCA, UMAP, clustering, etc.)
   + Check if the expression matrix is normalized
