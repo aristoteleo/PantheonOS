@@ -1,0 +1,1025 @@
+import os
+from typing import Optional
+from pantheon.toolset import ToolSet, tool
+from pantheon.utils.log import logger
+import inspect
+from functools import wraps
+
+
+        #do full preprocessing here no matter what, the decision to wether or not preprocess should come from llm reasonning
+        # then save the preprocessed data and use that for downstream tasks
+
+def unwrap_llm_dict_call(func):
+    """
+    Allow LLM/tool runtimes that pass a single dict as the first positional arg
+    (or inside kwargs under the first param name) to be expanded into named args.
+    - Preserves defaults.
+    - Treats '' and None as 'unspecified' → use default.
+    - Ignores extra keys not in the function signature.
+    - Passes through any extra kwargs (e.g., context_variables) untouched.
+    """
+    sig = inspect.signature(func)
+    param_names = [p for p in sig.parameters.keys()]  # includes 'self' for methods
+
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        # Identify if we were given a dict "positionally"
+        dict_positional = (len(args) > 1 and isinstance(args[1], dict))
+        # Or a dict nested under the first non-self param via kwargs
+        first_nonself = next((p for p in param_names if p != "self"), None)
+        dict_in_kwargs = (
+            first_nonself in kwargs and isinstance(kwargs[first_nonself], dict)
+        )
+
+        if dict_positional or dict_in_kwargs:
+            # Start by binding 'self' (if any) and any non-dict kwargs already provided
+            if dict_positional:
+                params = args[1]
+                bound = sig.bind_partial(*args[:1])  # bind self only
+            else:
+                params = kwargs.pop(first_nonself)  # remove the dict from kwargs
+                bound = sig.bind_partial(*args)     # bind whatever was passed
+
+            # Fill signature parameters from the dict or defaults
+            for name, param in sig.parameters.items():
+                if name == "self":
+                    continue
+                # If already set via kwargs (non-dict), leave it
+                if name in bound.arguments:
+                    continue
+                # Pick value from params or default
+                v = params.get(name, param.default) if isinstance(params, dict) else param.default
+                # Treat empty string / None as "use default"
+                if v in ("", None) and param.default is not inspect._empty:
+                    v = param.default
+                # Only set if value is not "no default"
+                if v is not inspect._empty:
+                    bound.arguments[name] = v
+
+            # Now merge back any remaining kwargs (e.g., context_variables)
+            for k, v in kwargs.items():
+                if k not in bound.arguments:
+                    bound.arguments[k] = v
+
+            return await func(*bound.args, **bound.kwargs)
+
+        # Not a dict-style call → pass through
+        return await func(*args, **kwargs)
+
+    return wrapper
+
+
+class GenePanelToolSet(ToolSet):
+    """
+    Gene panel selection toolset (HVG-only first version).
+    Args:
+        name (str): Name of the toolset.
+        default_adata_path (Optional[str]): Default path to the .h5ad dataset.
+        default_workdir (str): Default working directory to save results.
+    """
+
+    def __init__(
+        self,
+        name: str = "gene_panel",
+        default_adata_path: Optional[str] = None,
+        default_workdir: str = ".",
+        **kwargs,
+    ):
+        super().__init__(name, **kwargs)
+        self.default_adata_path = default_adata_path
+        self.default_workdir = default_workdir
+        logger.info(
+            f"GenePanelToolSet initialized (name={name}, default_adata_path={default_adata_path}, default_workdir={default_workdir})"
+        )
+        
+    def _coerce(self, value, default, cast):
+        """
+        Convert values safely.
+        - If value is None, empty string, or 'none' => return default.
+        - Otherwise cast(value) (e.g., int, float).
+        """
+        if value is None:
+            return default
+        if isinstance(value, str) and value.strip().lower() in ("", "none", "null"):
+            return default
+        try:
+            return cast(value)
+        except:
+            return default
+        
+    # #---------------------------------------------------------------------------#
+    # #Preprocessing
+    # #--------------------------------------------------------------------------#
+    # @tool
+    # @unwrap_llm_dict_call
+    # async def understand_adata(self, adata_path: Optional[str] = None) -> dict:
+    #     """
+    #     Analyze and summarize the contents of an AnnData (.h5ad) dataset.
+
+    #     Args:
+    #         adata_path (str): Path to the .h5ad dataset. If None, uses default_adata_path.
+
+    #     Returns:
+    #         dict: Summary of the dataset including number of cells, genes, and obs/var columns.
+    #     """
+    #     try:
+    #         import scanpy as sc
+
+    #         # Unwrap dict (Pantheon agent case)
+    #         if isinstance(adata_path, dict):
+    #             params = adata_path
+    #             adata_path = params.get("adata_path", self.default_adata_path)
+
+    #         # Resolve input dataset
+    #         path = adata_path or self.default_adata_path
+    #         if not path:
+    #             return {"error": "No dataset provided and no default_adata_path defined."}
+
+    #         adata = sc.read_h5ad(path)
+
+    #         summary = {
+    #             "n_cells": adata.n_obs,
+    #             "n_genes": adata.n_vars,
+    #             "obs_columns": adata.obs.columns.tolist(),
+    #             "var_columns": adata.var.columns.tolist(),
+    #         }
+
+    #         return summary
+
+    #     except Exception as e:
+    #         logger.error(f"understand_adata failed: {e}")
+    #     return {"error": str(e)}
+    # ############################################################################
+    # #DOWNSAMPLING#
+    # #--------------------------------------------------------------------------#
+    # @tool
+    # @unwrap_llm_dict_call
+    # async def downsample_adata(
+    #     self,
+    #     adata_path: Optional[str] = None,
+    #     label_key: str = "",
+    #     target_total_cells: str = "5000",
+    #     min_cells_per_group: str = "50",
+    #     workdir: Optional[str] = None,
+    # ) -> dict:
+    #     """
+    #     Intelligent downsampling:
+    #     - If label_key is provided → stratified downsampling with:
+    #         • Remove groups with < min_cells_per_group
+    #         • Proportional sampling to reach target_total_cells
+    #     - If no label_key → random global downsample to target_total_cells.
+
+    #     Args:
+    #         adata_path (str): Path to .h5ad dataset (default = default_adata_path).
+    #         label_key (str): Column in adata.obs used for stratification.
+    #         target_total_cells (str): Total number of cells desired after downsampling.
+    #         min_cells_per_group (str): Minimum group size to retain (if stratifying).
+    #         workdir (str): Output directory to save downsampled dataset.
+
+    #     Returns:
+    #         dict with dataset info and save location
+    #     """
+    #     import scanpy as sc
+    #     import numpy as np
+    #     import os
+
+    #     # --- Resolve inputs & defaults ---
+    #     adata_path = adata_path or self.default_adata_path
+    #     workdir = workdir or self.default_workdir
+    #     target_total_cells = int(target_total_cells)
+    #     min_cells_per_group = int(min_cells_per_group)
+
+    #     # --- Load ---
+    #     adata = sc.read_h5ad(adata_path)
+
+    #     # Case 1: no label key → uniform downsample
+    #     if not label_key or label_key not in adata.obs.columns:
+    #         if adata.n_obs > target_total_cells:
+    #             idx = np.random.choice(adata.obs.index, target_total_cells, replace=False)
+    #             adata = adata[idx, :].copy()
+    #         out_path = os.path.join(workdir, "downsample_uniform.h5ad")
+    #         adata.write(out_path)
+    #         return {
+    #             "used_dataset": adata_path,
+    #             "mode": "uniform",
+    #             "final_cell_count": adata.n_obs,
+    #             "saved_to": out_path,
+    #         }
+
+    #     # Case 2: stratified downsample
+    #     # Remove tiny groups
+    #     valid_groups = [
+    #         g for g, df in adata.obs.groupby(label_key)
+    #         if len(df) >= min_cells_per_group
+    #     ]
+    #     adata = adata[adata.obs[label_key].isin(valid_groups), :].copy()
+
+    #     # Compute proportions
+    #     group_sizes = adata.obs[label_key].value_counts()
+    #     group_props = group_sizes / group_sizes.sum()
+
+    #     # Compute per-group sample counts
+    #     target_sizes = (group_props * target_total_cells).round().astype(int)
+
+    #     sampled_indices = []
+    #     for group, n_target in target_sizes.items():
+    #         df = adata.obs[adata.obs[label_key] == group]
+    #         n_target = min(n_target, len(df))  # cannot sample more than available
+    #         idx = np.random.choice(df.index, n_target, replace=False)
+    #         sampled_indices.extend(idx)
+
+    #     adata = adata[sampled_indices, :].copy()
+
+    #     # --- Save ---
+    #     out_path = os.path.join(workdir, f"downsample_stratified_{adata.n_obs}.h5ad")
+    #     adata.write(out_path)
+
+    #     return {
+    #         "used_dataset": adata_path,
+    #         "mode": "stratified",
+    #         "label_key": label_key,
+    #         "groups_kept": len(valid_groups),
+    #         "final_cell_count": adata.n_obs,
+    #         "saved_to": out_path,
+    #     }
+        
+        
+    # @tool
+    # @unwrap_llm_dict_call
+    # async def preprocess_adata(
+    #     self,
+    #     adata_path: Optional[str] = None,
+    #     do_filter: str = "true",
+    #     do_normalize: str = "true",
+    #     do_log1p: str = "true",
+    #     do_scale: str = "true",
+    #     do_pca: str = "true",
+    #     do_neighbors: str = "true",
+    #     do_cluster: str = "true",
+    #     workdir: Optional[str] = None,
+    # ) -> dict:
+    #     """
+    #     Preprocess a .h5ad dataset with standard single-cell preprocessing steps.
+
+    #     Steps applied if corresponding flag is "true":
+    #         - Filter low-quality cells/genes
+    #         - Normalize total counts
+    #         - Log1p transform
+    #         - Scale to zero mean / unit variance
+    #         - PCA reduction
+    #         - Neighbor graph computation
+    #         - Leiden clustering (key_added="leiden_auto")
+
+    #     Args:
+    #         adata_path (str): Path to the .h5ad dataset. If None → uses default_adata_path.
+    #         do_* (str): "true" to perform each step.
+    #         workdir (str): Output directory where processed file is saved.
+
+    #     Returns:
+    #         dict {
+    #             used_dataset: str,
+    #             steps_performed: list[str],
+    #             saved_to: str
+    #         }
+    #     """
+    #     import scanpy as sc
+    #     import numpy as np
+    #     import os
+
+    #     # --- Load dataset ---
+    #     path = adata_path or self.default_adata_path
+    #     adata = sc.read_h5ad(path)
+    #     summary = []
+
+    #     # --- 1. Filtering ---
+    #     if str(do_filter).lower() == "true":
+    #         sc.pp.filter_cells(adata, min_genes=200)
+    #         sc.pp.filter_genes(adata, min_cells=3)
+    #         summary.append("Filtered low-quality cells and genes")
+
+    #     # --- 2. Normalization ---
+    #     if str(do_normalize).lower() == "true":
+    #         sc.pp.normalize_total(adata, target_sum=1e4)
+    #         summary.append("Normalized total counts")
+
+    #     # --- 3. Log1p transform ---
+    #     if str(do_log1p).lower() == "true":
+    #         sc.pp.log1p(adata)
+    #         summary.append("Applied log1p transform")
+
+    #     # --- 4. Scaling ---
+    #     if str(do_scale).lower() == "true":
+    #         sc.pp.scale(adata)
+    #         summary.append("Scaled to zero mean / unit variance")
+
+    #     # --- 5. PCA ---
+    #     if str(do_pca).lower() == "true":
+    #         sc.pp.pca(adata, n_comps=50)
+    #         summary.append("Computed PCA (50 components)")
+
+    #     # --- 6. Neighbors ---
+    #     if str(do_neighbors).lower() == "true":
+    #         sc.pp.neighbors(adata)
+    #         summary.append("Computed neighborhood graph")
+
+    #     # --- 7. Leiden clustering ---
+    #     if str(do_cluster).lower() == "true":
+    #         sc.tl.leiden(adata, key_added="leiden_auto")
+    #         summary.append("Computed Leiden clustering (key='leiden_auto')")
+
+    #     # --- Save ---
+    #     workdir = workdir or self.default_workdir
+    #     os.makedirs(workdir, exist_ok=True)
+    #     out_path = os.path.join(workdir, "adata_preprocessed.h5ad")
+    #     adata.write(out_path)
+
+    #     return {
+    #         "used_dataset": path,
+    #         "steps_performed": summary,
+    #         "saved_to": out_path,
+    #     }
+
+
+    
+
+    
+    #---------------------------------------------------------------------------
+    #Spapros
+    #--------------------------------------------------------------------------#
+    @tool
+    @unwrap_llm_dict_call
+    async def select_spapros(
+        self,
+        adata_path: Optional[str] = None,
+        label_key: str = "",
+        num_markers: str = "100",
+        n_hvg: str = "3000",
+        return_scores: str = "false",
+        workdir: Optional[str] = None,
+    ) -> dict:
+        """
+        Select marker genes using SpaPROS.
+
+        Args:
+            adata_path (str): Path to .h5ad (if None -> default_adata_path).
+            label_key (str): Column in `.obs` to use as cell-type labels. If missing → auto Leiden clustering.
+            num_markers (str): Number of markers SpaPROS should choose.
+            n_hvg (str): Number of Highly Variable Genes (HVGs) to filter before running SpaPROS.
+            return_scores (str): "true" → return [{gene, score}], else return top gene list.
+            workdir (str): Output directory (default = default_workdir).
+
+        Returns:
+            dict {
+                used_dataset: str,
+                top_n: int,
+                saved_to: str,
+                genes: list[str] or list[{gene, score}]
+            }
+        """
+        try:
+            import scanpy as sc
+            import pandas as pd
+            import spapros as sp
+            import os
+
+            # ---- Dict call unwrap (Pantheon) ----
+            if isinstance(adata_path, dict):
+                params = adata_path
+                print("[DEBUG] Unwrapping dict call:", params, flush=True)
+                adata_path   = params.get("adata_path", self.default_adata_path)
+                label_key    = params.get("label_key", label_key)
+                num_markers  = params.get("num_markers", num_markers)
+                n_hvg        = params.get("n_hvg", n_hvg)
+                return_scores = params.get("return_scores", return_scores)
+                workdir      = params.get("workdir", workdir)
+
+            # ---- Resolve dataset + workdir ----
+            path = adata_path or self.default_adata_path
+            if not path:
+                return {"error": "No dataset provided and no default_adata_path defined."}
+
+            workdir = workdir or self.default_workdir
+            out_dir = os.path.join(workdir, "gene_panels", "spapros")
+            os.makedirs(out_dir, exist_ok=True)
+
+            # ---- Convert typed arguments ----
+            num_markers  = self._coerce(num_markers, 100, int)
+            n_hvg        = self._coerce(n_hvg, 3000, int)
+            return_scores = (str(return_scores).lower() in ("true", "1", "yes"))
+
+            # ---- Load ----
+            adata = sc.read_h5ad(path)
+            #adata = adata[:, ~adata.var_names.duplicated(keep="first")]  # remove duplicates
+
+            # ---- Smart Preprocess (idempotent) ----
+            #adata = self.smart_preprocess(adata, label_key=label_key)
+
+            # ---- Ensure labeling ----
+            if not label_key or label_key not in adata.obs.columns:
+                # sc.pp.normalize_total(adata, target_sum=1e4)
+                # sc.pp.log1p(adata)
+                # sc.pp.pca(adata)
+                # sc.pp.neighbors(adata)
+                # sc.tl.leiden(adata, resolution=1.0, key_added="leiden_auto")
+                label_key = "leiden_auto"
+
+            # ---- HVG filter ----
+            sc.pp.highly_variable_genes(adata, flavor="cell_ranger", n_top_genes=n_hvg)
+            adata = adata[:, adata.var["highly_variable"]]
+            
+    
+
+            # ---- Run SpaPROS ----
+            selector = sp.se.ProbesetSelector(
+                adata, n=num_markers, celltype_key=label_key, verbosity=1, save_dir=None
+            )
+            selector.select_probeset()
+
+            
+            # ---- Build DF from probeset ----
+
+        except Exception as e:
+            print(adata_path)
+            logger.error(f"select_spapros failed: {e}")
+            return {"error": str(e)}
+
+        
+    #---------------------------------------------------------------------------
+    #Random Forest Gene Selection
+    #--------------------------------------------------------------------------#
+    @tool
+    @unwrap_llm_dict_call
+    async def select_random_forest(
+    self,
+    adata_path: Optional[str] = None,
+    label_key: str = "",
+    n_top_genes: str = "1000",
+    return_scores: str = "false",
+    random_state: str = "42",
+    workdir: Optional[str] = None,
+) -> dict:
+        """
+        Select informative genes using Random Forest feature importance.
+
+        Args:
+            adata_path (str): Path to .h5ad dataset (if None -> default_adata_path).
+            label_key (str): Column in `.obs` to use. If missing → auto Leiden clustering.
+            n_top_genes (str): Number of genes to return (default "1000").
+            return_scores (str): "true" → return [{gene, score}], else return top genes only.
+            random_state (str): Random seed for the RandomForest.
+            workdir (str): Where to save results (default = default_workdir).
+
+        Returns:
+            dict {
+                used_dataset: str
+                top_n: int
+                saved_to: str
+                genes: list[str] or list[{gene, score}]
+            }
+        """
+        try:
+            import scanpy as sc
+            import numpy as np
+            import pandas as pd
+            from sklearn.ensemble import RandomForestClassifier
+
+            # ---- Dict call unwrap (Pantheon agent call case) ----
+            if isinstance(adata_path, dict):
+                params = adata_path
+                print("[DEBUG] Unwrapping dict call:", params, flush=True)
+                adata_path   = params.get("adata_path", self.default_adata_path)
+                label_key    = params.get("label_key", label_key)
+                n_top_genes  = params.get("n_top_genes", n_top_genes)
+                return_scores = params.get("return_scores", return_scores)
+                random_state = params.get("random_state", random_state)
+                workdir      = params.get("workdir", workdir)
+
+            # ---- Resolve dataset and workdir ----
+            path = adata_path or self.default_adata_path
+            if not path:
+                return {"error": "No dataset provided and no default_adata_path defined."}
+
+            workdir = workdir or self.default_workdir
+            out_dir = os.path.join(workdir, "gene_panels", "random_forest")
+            os.makedirs(out_dir, exist_ok=True)
+
+            # ---- Type conversion (safe via _coerce) ----
+            n_top_genes   = self._coerce(n_top_genes, 1000, int)
+            random_state  = self._coerce(random_state, 42, int)
+            return_scores = (str(return_scores).lower() in ("true", "1", "yes"))
+
+            # ---- Load dataset ----
+            adata = sc.read_h5ad(path)
+
+            # ---- Ensure labeling ----
+            if not label_key or label_key not in adata.obs.columns:
+                # sc.pp.normalize_total(adata)
+                # sc.pp.log1p(adata)
+                # sc.pp.pca(adata)
+                # sc.pp.neighbors(adata)
+                # sc.tl.leiden(adata, key_added="leiden_auto")
+                label_key = "leiden_auto"
+
+            # ---- Train Random Forest ----
+            X = adata.X.toarray() if not isinstance(adata.X, np.ndarray) else adata.X
+            y = adata.obs[label_key].astype("category").cat.codes.values
+
+            clf = RandomForestClassifier(n_estimators=300, random_state=random_state, n_jobs=-1)
+            clf.fit(X, y)
+
+            scores = clf.feature_importances_
+            ordered = sorted(
+                [{"gene": g, "score": float(s)} for g, s in zip(adata.var_names, scores)],
+                key=lambda d: d["score"], reverse=True
+            )
+
+            save_path = os.path.join(out_dir, f"rf_top_{n_top_genes}.csv")
+            pd.DataFrame(ordered[:n_top_genes]).to_csv(save_path, index=False)
+
+            return {
+                "used_dataset": path,
+                "top_n": n_top_genes,
+                "saved_to": save_path,
+                "genes": ordered if return_scores else [x["gene"] for x in ordered[:n_top_genes]],
+            }
+
+        except Exception as e:
+            print(adata_path)
+            logger.error(f"select_random_forest failed: {e}")
+            return {"error": str(e)}
+
+
+
+
+
+    #--ScgeneFit--#
+    # ---------------------------------------------------------------------- #
+    #  scGeneFit
+    #pip install git+https://github.com/solevillar/scGeneFit-python.git
+    # ---------------------------------------------------------------------- #
+    @tool
+    @unwrap_llm_dict_call
+    async def select_scgenefit(
+        self,
+        adata_path: Optional[str] = None,
+        label_key: Optional[str] = None,
+        n_top_genes: str = "200",
+        method: str = "centers",          # "centers" | "pairwise" | "pairwise_centers"
+        epsilon_param: str = "1.0",
+        sampling_rate: str = "1.0",
+        n_neighbors: str = "3",
+        max_constraints: str = "1000",
+        redundancy: str = "0.01",
+        return_scores: str = "false",     # must be string like HVG tool
+        workdir: Optional[str] = None,
+    ) -> dict:
+        """
+        Select marker genes using scGeneFit (LP-based marker selection).
+
+        Args:
+            adata_path (str): Path to `.h5ad`. If None, uses default dataset.
+            label_key (str): Column in `.obs` to use as groups. If missing, Leiden clustering is run.
+            n_top_genes (str): Number of markers to select.
+            method (str): Constraint-building strategy ("centers" | "pairwise" | "pairwise_centers").
+            epsilon_param (str): Scaling of epsilon, default 1.0.
+            sampling_rate (str): Fraction of cells to sample (pairwise methods).
+            n_neighbors (str): Neighbors for pairwise constraint mode.
+            max_constraints (str): Maximum constraint rows.
+            redundancy (str): Redundancy parameter for centers summarization.
+            return_scores (str): "true" → return [{gene, score}], otherwise return top gene list.
+            workdir (str): Directory to save results (default = default_workdir).
+
+        Returns:
+            dict: {
+                "used_dataset": str,
+                "top_n": int,
+                "saved_to": str,
+                "genes": List[str] or List[dict]
+            }
+        """
+        try:
+            import scanpy as sc
+            import numpy as np
+            import pandas as pd
+            import scGeneFit.functions as gf
+
+            # --- If Pantheon passed params as dict, unwrap exactly like HVG ---
+            if isinstance(adata_path, dict):
+                params = adata_path
+                print("[DEBUG] Unwrapping dict call:", params, flush=True)
+                adata_path      = params.get("adata_path", self.default_adata_path)
+                label_key       = params.get("label_key", label_key)
+                n_top_genes     = params.get("n_top_genes", n_top_genes)
+                method          = params.get("method", method)
+                epsilon_param   = params.get("epsilon_param", epsilon_param)
+                sampling_rate   = params.get("sampling_rate", sampling_rate)
+                n_neighbors     = params.get("n_neighbors", n_neighbors)
+                max_constraints = params.get("max_constraints", max_constraints)
+                redundancy      = params.get("redundancy", redundancy)
+                return_scores   = params.get("return_scores", return_scores)
+                workdir         = params.get("workdir", workdir)
+
+            # --- Resolve dataset path ---
+            path = adata_path or self.default_adata_path
+            if not path:
+                return {"error": "No dataset provided and no default_adata_path defined."}
+
+            # --- Resolve workdir + create output folder ---
+            workdir = workdir or self.default_workdir
+            out_dir = os.path.join(workdir, "gene_panels", "scgenefit")
+            os.makedirs(out_dir, exist_ok=True)
+            
+            # --- SAFE Conversion for every numeric param ---
+            n_top_genes     = self._coerce(n_top_genes, 200, int)
+            epsilon_param   = self._coerce(epsilon_param, 1.0, float)
+            sampling_rate   = self._coerce(sampling_rate, 1.0, float)
+            n_neighbors     = self._coerce(n_neighbors, 3, int)
+            max_constraints = self._coerce(max_constraints, 1000, int)
+            redundancy      = self._coerce(redundancy, 0.01, float)
+            return_scores   = (str(return_scores).lower() in ("true", "1", "yes"))
+
+            # --- Load dataset ---
+            adata = sc.read_h5ad(path)
+
+            # Auto clustering if label_key missing
+            if not label_key or label_key not in adata.obs.columns:
+                # sc.pp.normalize_total(adata, target_sum=1e4)
+                # sc.pp.log1p(adata)
+                # sc.pp.pca(adata, n_comps=30)
+                # sc.pp.neighbors(adata, n_neighbors=15, n_pcs=30)
+                # sc.tl.leiden(adata, key_added="leiden_auto")
+                label_key = "leiden_auto"
+
+            X = adata.X.toarray() if not isinstance(adata.X, np.ndarray) else adata.X
+            y = adata.obs[label_key].astype("category").values
+            d = X.shape[1]
+
+            # --- Internal scGeneFit functions (stable access via getattr) ---
+            _sample        = getattr(gf, "__sample")
+            _pairwise      = getattr(gf, "__select_constraints_pairwise")
+            _pairwise_cent = getattr(gf, "__select_constraints_centers")
+            _summarized    = getattr(gf, "__select_constraints_summarized")
+            _lp_markers    = getattr(gf, "__lp_markers")
+
+            samples, samples_labels, _ = _sample(X, y, sampling_rate)
+
+            if method == "pairwise_centers":
+                constraints, smallest_norm = _pairwise_cent(X, y, samples, samples_labels)
+            elif method == "pairwise":
+                constraints, smallest_norm = _pairwise(X, y, samples, samples_labels, n_neighbors)
+            else:
+                constraints, smallest_norm = _summarized(X, y, redundancy)
+
+            # Cap constraints
+            if constraints.shape[0] > max_constraints:
+                constraints = constraints[np.random.permutation(constraints.shape[0])[:max_constraints], :]
+
+            # Solve LP
+            sol = _lp_markers(constraints, n_top_genes, smallest_norm * epsilon_param)
+            weights = np.asarray(sol["x"][:d], dtype=float)
+
+            # ---- Return with scores ----
+            if return_scores:
+                ranked = sorted(
+                    [{"gene": g, "score": float(s)} for g, s in zip(adata.var_names, weights)],
+                    key=lambda d: d["score"],
+                    reverse=True,
+                )
+                save_path = os.path.join(out_dir, "scgenefit_scores.csv")
+                pd.DataFrame(ranked).to_csv(save_path, index=False)
+
+                return {
+                    "used_dataset": path,
+                    "top_n": len(ranked),
+                    "saved_to": save_path,
+                    "genes": ranked
+                }
+
+            # ---- Return only top genes ----
+            order = np.argsort(-weights)[:n_top_genes]
+            top = adata.var_names[order].tolist()
+            save_path = os.path.join(out_dir, f"scgenefit_top_{n_top_genes}.csv")
+            pd.DataFrame({"gene": top}).to_csv(save_path, index=False)
+
+            return {
+                "used_dataset": path,
+                "top_n": n_top_genes,
+                "saved_to": save_path,
+                "genes": top
+            }
+
+        except Exception as e:
+            print(adata_path)
+            logger.error(f"select_scgenefit failed: {e}")
+            return {"error": str(e)}
+
+    
+    #-- Highly Variable Genes (HVG) Selection --#
+    # @tool
+    # @unwrap_llm_dict_call
+    # async def select_hvg(
+    #     self,
+    #     adata_path: str | None = None,
+    #     n_top_genes: str = "1000",
+    #     layer: str = "",
+    #     return_scores: str = "false",
+    #     workdir: str | None = None,
+    # ) -> dict:
+    #     """
+    #     Select highly variable genes (HVG) from a .h5ad dataset and save results.
+        
+    #     Args: 
+    #         adata_path (str): Path to the .h5ad dataset. If None, uses default_adata_path.
+    #         n_top_genes (str): Number of top HVGs to select. Default is "1000".
+    #         layer (str): Optional layer name in AnnData to use for HVG selection.
+    #         return_scores (str): Whether to return gene scores along with gene names. Default is "false".
+    #         workdir (str): Working directory to save results. If None, uses default_workdir.
+    #     returns:
+    #         dict: {
+    #             "used_dataset": str,
+    #             "top_n": int,
+    #             "saved_to": str,
+    #             "genes": List[str] or List[dict] (if return_scores is true)
+    #         }
+    #     """
+    #     try:
+    #         import scanpy as sc
+    #         import pandas as pd
+    #         # --- If Pantheon sent a dictionary, unwrap it ---
+    #         if isinstance(adata_path, dict):
+    #             params = adata_path
+    #             print("[DEBUG] Unwrapping dict call:", params, flush=True)
+    #             adata_path = params.get("adata_path", self.default_adata_path)
+    #             n_top_genes = params.get("n_top_genes", n_top_genes)
+    #             layer = params.get("layer", layer)
+    #             return_scores = params.get("return_scores", return_scores)
+    #             workdir = params.get("workdir", workdir)
+
+    #         # Resolve dataset path
+    #         path = adata_path or self.default_adata_path
+    #         if not path:
+    #             return {"error": "No dataset provided and no default_adata_path defined."}
+
+    #         # Resolve workdir
+    #         workdir = workdir or self.default_workdir
+    #         os.makedirs(os.path.join(workdir, "gene_panels"), exist_ok=True)
+
+    #         # Convert inputs
+    #         n_top_genes   = self._coerce(n_top_genes, 1000, int)
+    #         return_scores = (str(return_scores).lower() in ("true", "1", "yes"))
+
+    #         # Load
+    #         adata = sc.read_h5ad(path)
+
+    #         # HVG
+    #         sc.pp.highly_variable_genes(adata, n_top_genes=n_top_genes, layer=layer or None)
+
+    #         genes = list(adata.var_names)
+    #         scores = adata.var["dispersions_norm"].tolist()
+
+    #         ordered = sorted(
+    #             [{"gene": g, "score": s} for g, s in zip(genes, scores)],
+    #             key=lambda d: d["score"],
+    #             reverse=True,
+    #         )
+
+    #         # Save
+    #         save_path = os.path.join(workdir, "gene_panels", f"hvg_top_{n_top_genes}.csv")
+    #         pd.DataFrame(ordered[:n_top_genes]).to_csv(save_path, index=False)
+
+    #         return {
+    #             "used_dataset": path,
+    #             "top_n": n_top_genes,
+    #             "saved_to": save_path,
+    #             "genes": ordered if return_scores else [x["gene"] for x in ordered[:n_top_genes]],
+    #         }
+
+    #     except Exception as e:
+    #         print(adata_path)
+    #         logger.error(f"select_hvg failed: {e}")
+    #         return {"error": str(e)}
+
+    # @tool
+    # @unwrap_llm_dict_call
+    # async def select_differential_expression(
+    #     self,
+    #     adata_path: Optional[str] = None,
+    #     label_key: str = "",
+    #     n_top_genes: str = "1000",
+    #     resolution: str = "1.0",
+    #     reference: str = "rest",
+    #     return_scores: str = "false",
+    #     collapse: str = "true",
+    #     workdir: Optional[str] = None,
+    # ) -> dict:
+    #     """
+    #     Differential expression using Scanpy's rank_genes_groups (Wilcoxon test).
+
+    #     Args:
+    #         adata_path: Path to .h5ad dataset. If None, uses default_adata_path.
+    #         label_key: Column in adata.obs with group labels. If empty, Leiden clustering is computed.
+    #         n_top_genes: Number of DE genes to return (if not returning scores).
+    #         resolution: Leiden resolution (if computing clusters).
+    #         reference: Reference group (default: "rest").
+    #         return_scores: "true" to return score table, "false" to return gene lists.
+    #         collapse: "true" → collapse to one score per gene; "false" → keep cluster-gene rows.
+    #         workdir: Folder to store results.
+
+    #     Returns:
+    #         dict containing dataset used, where results saved, and selected genes.
+    #     """
+    #     try:
+    #         import scanpy as sc
+    #         import numpy as np
+    #         import pandas as pd
+
+    #         # ---- Handle dict input (Pantheon wrapped call) ----
+    #         if isinstance(adata_path, dict):
+    #             params = adata_path
+    #             print("[DEBUG] Unwrapping dict call:", params, flush=True)
+    #             adata_path = params.get("adata_path", self.default_adata_path)
+    #             label_key = params.get("label_key", label_key)
+    #             n_top_genes = params.get("n_top_genes", n_top_genes)
+    #             resolution = params.get("resolution", resolution)
+    #             reference = params.get("reference", reference)
+    #             return_scores = params.get("return_scores", return_scores)
+    #             collapse = params.get("collapse", collapse)
+    #             workdir = params.get("workdir", workdir)
+
+    #         # ---- Resolve paths ----
+    #         path = adata_path or self.default_adata_path
+    #         if not path:
+    #             return {"error": "No dataset provided and no default_adata_path defined."}
+
+    #         workdir = workdir or self.default_workdir
+    #         os.makedirs(os.path.join(workdir, "gene_panels"), exist_ok=True)
+
+    #         # ---- Convert types ----
+    #         n_top_genes = self._coerce(n_top_genes, 1000, int)
+    #         resolution   = self._coerce(resolution, 1.0, float)
+
+    #         return_scores = str(return_scores).lower() in ("true", "1", "yes")
+    #         collapse      = str(collapse).lower() in ("true", "1", "yes")
+
+    #         # ---- Load dataset ----
+    #         adata = sc.read_h5ad(path)
+
+    #         # ---- Determine group labels ----
+    #         if label_key and label_key in adata.obs.columns:
+    #             groupby_key = label_key
+    #         else:
+    #             # sc.pp.pca(adata, n_comps=50)
+    #             # sc.pp.neighbors(adata, n_neighbors=15, n_pcs=40)
+    #             # sc.tl.leiden(adata, resolution=resolution, key_added="leiden_auto")
+    #             groupby_key = "leiden_auto"
+
+    #         # ---- Differential expression ----
+    #         sc.tl.rank_genes_groups(adata, groupby=groupby_key, reference=reference, method="wilcoxon")
+
+    #         names = adata.uns["rank_genes_groups"]["names"]
+    #         lfc_raw = adata.uns["rank_genes_groups"]["logfoldchanges"]
+    #         clusters = names.dtype.names
+    #         scores = {cl: np.abs(np.array(lfc_raw[cl], dtype=float)) for cl in clusters}
+
+    #         # ---- If returning score table ----
+    #         if return_scores:
+    #             rows = []
+    #             for cl in clusters:
+    #                 for g, s in zip(names[cl], scores[cl]):
+    #                     rows.append({"gene": g, "cluster": cl, "score": float(s)})
+    #             df = pd.DataFrame(rows)
+
+    #             if collapse:
+    #                 df = df.groupby("gene", as_index=False)["score"].max().sort_values("score", ascending=False)
+
+    #             save_path = os.path.join(workdir, "gene_panels", f"de_scores_{groupby_key}.csv")
+    #             df.to_csv(save_path, index=False)
+
+    #             return {
+    #                 "used_dataset": path,
+    #                 "grouping": groupby_key,
+    #                 "scores_saved_to": save_path,
+    #                 "genes": df.to_dict(orient="records"),
+    #             }
+
+    #         # ---- Otherwise: return top genes per cluster ----
+    #         result = {cl: list(names[cl][:n_top_genes]) for cl in clusters}
+    #         save_path = os.path.join(workdir, "gene_panels", f"de_clusters_{groupby_key}_top_{n_top_genes}.csv")
+
+    #         pd.DataFrame(
+    #             [{"cluster": cl, "genes": result[cl]} for cl in clusters]
+    #         ).to_csv(save_path, index=False)
+
+    #         return {
+    #             "used_dataset": path,
+    #             "grouping": groupby_key,
+    #             "saved_to": save_path,
+    #             "genes": result,
+    #         }
+
+    #     except Exception as e:
+    #         logger.error(f"select_differential_expression failed: {e}")
+    #         return {"error": str(e)}
+        
+    # @tool
+    # @unwrap_llm_dict_call
+    # async def evaluate_gene_panel(
+    #     self,
+    #     adata_paths: str,        # comma-separated list of .h5ad paths
+    #     panel_path: str,         # CSV containing 'gene' column
+    #     label_key: str = "cell_type",
+    #     workdir: str | None = None,
+    # ) -> dict:
+    #     """
+    #     Evaluate a gene panel on one or more test datasets.
+
+    #     Args:
+    #         adata_paths (str): Comma-separated paths to .h5ad test datasets.
+    #         panel_path (str): Path to CSV containing a 'gene' column.
+    #         label_key (str): Column name in `.obs` indicating true cell types.
+    #         workdir (str): Directory where results and plots are saved.
+
+    #     Returns:
+    #         dict {
+    #             "panel_size_total": int,         # total genes in panel file
+    #             "evaluations": list[dict],       # one per test dataset
+    #             "boxplot_path": str              # saved image path
+    #         }
+    #     """
+    #     import os, pandas as pd, scanpy as sc, matplotlib.pyplot as plt, seaborn as sns
+    #     from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, pairwise_distances
+    #     import numpy as np
+
+    #     workdir = workdir or self.default_workdir
+    #     os.makedirs(workdir, exist_ok=True)
+
+    #     # --- Helper functions ---
+    #     def separation_index(adata, label_key="leiden"):
+    #         X = adata.obsm["X_pca"]
+    #         labels = adata.obs[label_key].values
+    #         dist = pairwise_distances(X, metric="euclidean")
+    #         intra, inter = [], []
+    #         for g in np.unique(labels):
+    #             idx = np.where(labels == g)[0]
+    #             jdx = np.where(labels != g)[0]
+    #             if len(idx) > 1:
+    #                 intra.append(dist[np.ix_(idx, idx)].mean())
+    #             inter.append(dist[np.ix_(idx, jdx)].mean())
+    #         return np.nan if len(intra) == 0 else np.mean(inter) / np.mean(intra)
+
+    #     def evaluate_panel_single(adata, genes, label_key="cell_type", resolution=0.8, n_neighbors=15, n_pcs=50):
+    #         genes_present = [g for g in genes if g in adata.var_names]
+    #         ad = adata[:, genes_present].copy()
+    #         sc.pp.pca(ad, n_comps=n_pcs)
+    #         sc.pp.neighbors(ad, n_neighbors=n_neighbors, use_rep="X_pca")
+    #         sc.tl.leiden(ad, resolution=resolution, seed=0)
+
+    #         clusters = ad.obs["leiden"]
+    #         true = ad.obs[label_key]
+    #         ari = adjusted_rand_score(true, clusters)
+    #         nmi = normalized_mutual_info_score(true, clusters)
+    #         si = separation_index(ad, label_key="leiden")
+    #         return dict(
+    #             ARI=ari,
+    #             NMI=nmi,
+    #             SI=si,
+    #             panel_size_used=len(genes_present),
+    #             panel_coverage=f"{len(genes_present)}/{len(genes)}",
+    #         )
+
+    #     # --- Main evaluation ---
+    #     genes = pd.read_csv(panel_path)["gene"].dropna().unique().tolist()
+    #     adata_paths = [p.strip() for p in adata_paths.split(",") if p.strip()]
+    #     results = []
+    #     for path in adata_paths:
+    #         adata = sc.read_h5ad(path)
+    #         metrics = evaluate_panel_single(adata, genes, label_key=label_key)
+    #         metrics["dataset"] = os.path.basename(path)
+    #         results.append(metrics)
+
+    #     df = pd.DataFrame(results)
+
+    #     # --- Visualization ---
+    #     plt.figure(figsize=(10, 5))
+    #     df_melt = df.melt(id_vars="dataset", value_vars=["NMI", "ARI", "SI"],
+    #                     var_name="Metric", value_name="Score")
+    #     sns.boxplot(x="Metric", y="Score", data=df_melt, color="lightgray")
+    #     sns.stripplot(x="Metric", y="Score", data=df_melt, hue="dataset",
+    #                 dodge=True, marker="o", size=6)
+    #     plt.title("Gene Panel Evaluation Across Test Datasets")
+    #     plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+    #     out_path = os.path.join(workdir, "gene_panel_evaluation_boxplots.png")
+    #     plt.tight_layout()
+    #     plt.savefig(out_path)
+    #     plt.close()
+
+    #     return {
+    #         "panel_size_total": len(genes),
+    #         "evaluations": results,
+    #         "boxplot_path": out_path,
+    #     }
+
+
+
+__all__ = ["GenePanelToolSet"]
+
