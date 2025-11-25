@@ -77,15 +77,27 @@ async def main(workdir: str, prompt: str | None = None, log_level: str = "WARNIN
     )
 
     # ---------- Task execution ----------
+    workdir_prompt = "\n\nWorkdir: " + osp.join(workpath, "workdir")
 
     if prompt is None:
         prompt_path = osp.join(workpath, "prompt.md")
         try:
             with open(prompt_path, "r") as f:
                 prompt = f.read()
-                prompt += "\n\nWorkdir: " + osp.join(workpath, "workdir")
+                prompt += workdir_prompt
         except FileNotFoundError:
             raise FileNotFoundError(f"Prompt file not found: {prompt_path}")
+    else:
+        if osp.exists(prompt):
+            with open(prompt, "r") as f:
+                prompt = f.read()
+            prompt += workdir_prompt
+        elif osp.exists(osp.join(workpath, prompt)):
+            with open(osp.join(workpath, prompt), "r") as f:
+                prompt = f.read()
+                prompt += workdir_prompt
+        else:
+            prompt = prompt + workdir_prompt
 
     def process_step_message(msg: dict):
         agent_name = msg.get("agent_name", "Agent?")
