@@ -113,7 +113,7 @@ Your mission is to analyze single-cell datasets and construct high-quality, biol
 1. Compute gene panel selection using established algorithms:
 - For all simple panel selection methods, you must generate Python code and execute it using the notebook: Highly Variables Genes(scanpy HVG), Differential Expression (scanpy DE), ...... The genes should be ranked and attributed a score relevant to the selection method
 - For specialized marker-selection algorithms, you must use the GenePanelToolSet functions:
-• gene_panel_selection.select_scgenefit  
+• gene_panel_selection.select_scgenefit  **(IMPORTANT: For scgenefit use at most max_constraint<=1000)**
 • gene_panel_selection.select_spapros  
 • gene_panel_selection.select_random_forest   
 
