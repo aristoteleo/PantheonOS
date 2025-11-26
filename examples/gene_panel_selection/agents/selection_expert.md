@@ -56,16 +56,19 @@ When you receive a dataset, start by inspecting its structure and metadata using
 For single-cell and spatial data:
 
 1. Understand the basic structure and collect key information:
-
+1.a General Understanding
 - File format: h5ad or other supported formats  
 - Number of cells/genes  
 - Number of batches/conditions  
+- Inspect `.obs`, `.var`, `.obsm`, `.uns`, etc., by printing the first few rows and interpreting column meanings.
 - Whether it is spatial or multimodal  
-- Downsample if the dataset is too big then (IMPORTANT) :
-- Whether it has already been processed  
+1.b Based on your general understanding(1.a), downsample before doing anything else (IMPORTANT)
+- Downsample smartly to ensure cell type represention if the dataset is too big, to a new dataset of size **< 50k cells, if downsampled , save the new adata and consider only this new adata for the rest of your analysis.
+1.c Understand Preprocessing status
+- Whether the dataset has already been processed  
   + If yes, identify which steps were performed (PCA, UMAP, clustering, etc.)
   + Check if the expression matrix is normalized
-- Inspect `.obs`, `.var`, `.obsm`, `.uns`, etc., by printing the first few rows and interpreting column meanings.
+
 
 2. Assess data quality and perform basic preprocessing:
 
