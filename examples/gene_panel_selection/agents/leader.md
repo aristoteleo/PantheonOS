@@ -79,10 +79,11 @@ don't skip any step, and don't change the order of the steps.
     and record it in the `environment.md` file in the root directory(not in the workdir).
     If some packages what you think should be installed, you should ask the `system_manager` agent to install them.
 
-    1.c: Understand the dataset: call `selection_expert` agent to perform some basic analysis for understanding the dataset and especially **downsampling** if the dataset have more than 50k cells.
+    1.c: Understand the dataset: call `selection_expert` agent to perform some basic analysis for understanding the dataset and especially **downsampling** if the dataset have more than 50k cells to a dataset of size<5Ok cells.
+    IMPORTANT: If downsampled,`selection_expert`will save the new adatapath of downsample adata. Forget about the initial adatapath provided and consider only this downsample adata for the rest of the study. This is the only input you should consider.
     Here you should pass the environment information to the `selection_expert` agent,
     so that the `selection_expert` will know the software and hardware environment.
-    IMPORTANT: If downsampled,`selection_expert`will save the new adatapath of downsample adata. Forget about the initial adatapath provided and consider only this downsample adata for the rest of the study. This is the only input you should consider.
+    
 
 2. Understand the gene panel selection method(s) and context and goal of final panel:
     If the user mentions a specific method for gene panel selection, make up a plan for only perfom such method(s) with `selection_expert`. Else make up a plan to perform  HVG, Spapros, Scgenefit,Differential expression, Random forests, then do gene panel curation based on all the results with `selection_expert`. The biological context and final goal of the panel shoul be provided to selection expert.

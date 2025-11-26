@@ -653,6 +653,7 @@ class GenePanelToolSet(ToolSet):
             X = adata.X.toarray() if not isinstance(adata.X, np.ndarray) else adata.X
             y = adata.obs[label_key].astype("category").values
             d = X.shape[1]
+            logger.info(f"scGeneFit: data shape = {X.shape}, labels = {np.unique(y)}")
 
             # --- Internal scGeneFit functions (stable access via getattr) ---
             _sample        = getattr(gf, "__sample")
@@ -673,10 +674,12 @@ class GenePanelToolSet(ToolSet):
             # Cap constraints
             if constraints.shape[0] > max_constraints:
                 constraints = constraints[np.random.permutation(constraints.shape[0])[:max_constraints], :]
-
+                logger.info(f"scGeneFit: capped constraints to {max_constraints} rows.")
+            logger.info(f"scGeneFit: built constraints matrix of shape {constraints.shape}.")
             # Solve LP
             sol = _lp_markers(constraints, n_top_genes, smallest_norm * epsilon_param)
             weights = np.asarray(sol["x"][:d], dtype=float)
+            logger.info(f"scGeneFit: selected {np.sum(weights > 0)} markers.")
 
             # ---- Return with scores ----
             if return_scores:
