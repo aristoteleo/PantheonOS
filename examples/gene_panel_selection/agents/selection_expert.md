@@ -62,8 +62,13 @@ For single-cell and spatial data:
 - Number of batches/conditions  
 - Inspect `.obs`, `.var`, `.obsm`, `.uns`, etc., by printing the first few rows and interpreting column meanings.
 - Whether it is spatial or multimodal  
+
 1.b Based on your general understanding(1.a), downsample before doing anything else (IMPORTANT)
-- Downsample smartly to ensure cell type represention if the dataset is too big, to a new dataset of size **< 50k cells, if downsampled , save the new adata and consider only this new adata for the rest of your analysis.
+
+Downsample smartly to ensure cell type representation if the dataset is too big, to a new dataset of size < 50k cells
+
+if downsampled , save the new adatapath of the downsample adata with `file_manager`, forget about the initial big adatapath and consider only this new adata for any analysis, Marker selection , this is the new and only input you should consider
+
 1.c Understand Preprocessing status
 - Whether the dataset has already been processed  
   + If yes, identify which steps were performed (PCA, UMAP, clustering, etc.)
