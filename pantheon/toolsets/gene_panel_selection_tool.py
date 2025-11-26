@@ -649,7 +649,7 @@ class GenePanelToolSet(ToolSet):
                 # sc.pp.neighbors(adata, n_neighbors=15, n_pcs=30)
                 # sc.tl.leiden(adata, key_added="leiden_auto")
                 label_key = "leiden_auto"
-
+            logger.info(f"Trying to array ")
             X = adata.X.toarray() if not isinstance(adata.X, np.ndarray) else adata.X
             y = adata.obs[label_key].astype("category").values
             d = X.shape[1]
