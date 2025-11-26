@@ -552,7 +552,7 @@ class GenePanelToolSet(ToolSet):
 
 
 
-    #--ScgeneFit--#
+        #--ScgeneFit--#
     # ---------------------------------------------------------------------- #
     #  scGeneFit
     #pip install git+https://github.com/solevillar/scGeneFit-python.git
@@ -601,12 +601,18 @@ class GenePanelToolSet(ToolSet):
             import scanpy as sc
             import numpy as np
             import pandas as pd
+            import scipy.sparse as sp
             import scGeneFit.functions as gf
+            import time
+
+            logger.info("=" * 60)
+            logger.info("SCGENEFIT - START")
+            logger.info("=" * 60)
 
             # --- If Pantheon passed params as dict, unwrap exactly like HVG ---
             if isinstance(adata_path, dict):
                 params = adata_path
-                print("[DEBUG] Unwrapping dict call:", params, flush=True)
+                logger.info(f"[DEBUG] Unwrapping dict call: {params}")
                 adata_path      = params.get("adata_path", self.default_adata_path)
                 label_key       = params.get("label_key", label_key)
                 n_top_genes     = params.get("n_top_genes", n_top_genes)
@@ -624,6 +630,8 @@ class GenePanelToolSet(ToolSet):
             if not path:
                 return {"error": "No dataset provided and no default_adata_path defined."}
 
+            logger.info(f"Dataset path: {path}")
+
             # --- Resolve workdir + create output folder ---
             workdir = workdir or self.default_workdir
             out_dir = os.path.join(workdir, "gene_panels", "scgenefit")
@@ -638,50 +646,133 @@ class GenePanelToolSet(ToolSet):
             redundancy      = self._coerce(redundancy, 0.01, float)
             return_scores   = (str(return_scores).lower() in ("true", "1", "yes"))
 
+            logger.info(f"Parameters: n_top_genes={n_top_genes}, method={method}, epsilon={epsilon_param}")
+
             # --- Load dataset ---
+            logger.info("STEP 1: Loading h5ad file...")
+            start_time = time.time()
             adata = sc.read_h5ad(path)
+            logger.info(f"✓ Loaded in {time.time() - start_time:.2f}s - Shape: {adata.shape}")
+            
+            # Check if backed mode
+            if adata.isbacked:
+                logger.info("⚠️  Dataset is in 'backed' mode, converting to memory...")
+                adata = adata.to_memory()
+                logger.info("✓ Converted to memory mode")
 
             # Auto clustering if label_key missing
             if not label_key or label_key not in adata.obs.columns:
+                logger.info(f"⚠️  label_key '{label_key}' not found, using 'leiden_auto'")
                 # sc.pp.normalize_total(adata, target_sum=1e4)
                 # sc.pp.log1p(adata)
                 # sc.pp.pca(adata, n_comps=30)
                 # sc.pp.neighbors(adata, n_neighbors=15, n_pcs=30)
                 # sc.tl.leiden(adata, key_added="leiden_auto")
                 label_key = "leiden_auto"
-            logger.info(f"Trying to array ")
-            X = adata.X.toarray() if not isinstance(adata.X, np.ndarray) else adata.X
+
+            # --- Detailed matrix diagnostics ---
+            logger.info("-" * 60)
+            logger.info("STEP 2: Matrix diagnostics")
+            logger.info(f"Matrix type: {type(adata.X)}")
+            logger.info(f"Matrix shape: {adata.X.shape}")
+            logger.info(f"Matrix dtype: {adata.X.dtype}")
+            logger.info(f"Is sparse: {sp.issparse(adata.X)}")
+            
+            if sp.issparse(adata.X):
+                logger.info(f"Sparse format: {adata.X.format}")
+                density = adata.X.nnz / (adata.X.shape[0] * adata.X.shape[1]) * 100
+                logger.info(f"Density: {density:.4f}%")
+                logger.info(f"Non-zero values: {adata.X.nnz:,}")
+                sparse_size_mb = (adata.X.data.nbytes + adata.X.indices.nbytes + adata.X.indptr.nbytes) / 1e6
+                dense_size_gb = adata.X.shape[0] * adata.X.shape[1] * 8 / 1e9  # float64
+                logger.info(f"Current sparse size: {sparse_size_mb:.2f} MB")
+                logger.info(f"Dense size would be: {dense_size_gb:.2f} GB (float64)")
+            
+            # --- Convert to dense array ---
+            logger.info("-" * 60)
+            logger.info("STEP 3: Converting sparse matrix to dense array...")
+            logger.info("⏳ Starting .toarray() - this is where it might be slow...")
+            
+            start_time = time.time()
+            if not isinstance(adata.X, np.ndarray):
+                # Test on small subset first
+                logger.info("  → Testing on first 100 rows...")
+                test_start = time.time()
+                _ = adata.X[:100].toarray()
+                test_time = time.time() - test_start
+                logger.info(f"  → 100 rows took {test_time:.3f}s")
+                
+                estimated_total = test_time * (adata.X.shape[0] / 100)
+                logger.info(f"  → Estimated total time: {estimated_total:.1f}s ({estimated_total/60:.1f} minutes)")
+                
+                # Full conversion
+                logger.info("  → Converting full matrix...")
+                X = adata.X.toarray()
+            else:
+                logger.info("  → Matrix is already dense, no conversion needed")
+                X = adata.X
+            
+            elapsed = time.time() - start_time
+            logger.info(f"✓ Conversion completed in {elapsed:.2f}s ({elapsed/60:.2f} minutes)")
+            logger.info(f"  Result shape: {X.shape}, dtype: {X.dtype}")
+            
+            # --- Extract labels ---
+            logger.info("-" * 60)
+            logger.info("STEP 4: Extracting labels...")
+            start_time = time.time()
             y = adata.obs[label_key].astype("category").values
             d = X.shape[1]
-            logger.info(f"scGeneFit: data shape = {X.shape}, labels = {np.unique(y)}")
+            unique_labels = np.unique(y)
+            logger.info(f"✓ Labels extracted in {time.time() - start_time:.3f}s")
+            logger.info(f"  Number of samples: {len(y)}")
+            logger.info(f"  Number of unique labels: {len(unique_labels)}")
+            logger.info(f"  Label distribution: {dict(zip(*np.unique(y, return_counts=True)))}")
 
-            # --- Internal scGeneFit functions (stable access via getattr) ---
+            # --- Internal scGeneFit functions ---
+            logger.info("-" * 60)
+            logger.info("STEP 5: Running scGeneFit algorithm...")
             _sample        = getattr(gf, "__sample")
             _pairwise      = getattr(gf, "__select_constraints_pairwise")
             _pairwise_cent = getattr(gf, "__select_constraints_centers")
             _summarized    = getattr(gf, "__select_constraints_summarized")
             _lp_markers    = getattr(gf, "__lp_markers")
 
+            logger.info(f"  → Sampling with rate={sampling_rate}...")
+            start_time = time.time()
             samples, samples_labels, _ = _sample(X, y, sampling_rate)
+            logger.info(f"  ✓ Sampling done in {time.time() - start_time:.2f}s - {len(samples)} samples")
 
+            logger.info(f"  → Building constraints with method='{method}'...")
+            start_time = time.time()
             if method == "pairwise_centers":
                 constraints, smallest_norm = _pairwise_cent(X, y, samples, samples_labels)
             elif method == "pairwise":
                 constraints, smallest_norm = _pairwise(X, y, samples, samples_labels, n_neighbors)
             else:
                 constraints, smallest_norm = _summarized(X, y, redundancy)
+            logger.info(f"  ✓ Constraints built in {time.time() - start_time:.2f}s")
+            logger.info(f"    Constraint matrix shape: {constraints.shape}")
+            logger.info(f"    Smallest norm: {smallest_norm:.6f}")
 
             # Cap constraints
             if constraints.shape[0] > max_constraints:
+                logger.info(f"  → Capping constraints from {constraints.shape[0]} to {max_constraints}...")
                 constraints = constraints[np.random.permutation(constraints.shape[0])[:max_constraints], :]
-                logger.info(f"scGeneFit: capped constraints to {max_constraints} rows.")
-            logger.info(f"scGeneFit: built constraints matrix of shape {constraints.shape}.")
+                logger.info(f"  ✓ Constraints capped")
+            
             # Solve LP
+            logger.info(f"  → Solving LP with {constraints.shape[1]} variables and {constraints.shape[0]} constraints...")
+            start_time = time.time()
             sol = _lp_markers(constraints, n_top_genes, smallest_norm * epsilon_param)
+            logger.info(f"  ✓ LP solved in {time.time() - start_time:.2f}s")
+            
             weights = np.asarray(sol["x"][:d], dtype=float)
-            logger.info(f"scGeneFit: selected {np.sum(weights > 0)} markers.")
+            n_selected = np.sum(weights > 0)
+            logger.info(f"  ✓ Selected {n_selected} markers with non-zero weights")
 
             # ---- Return with scores ----
+            logger.info("-" * 60)
+            logger.info("STEP 6: Preparing results...")
             if return_scores:
                 ranked = sorted(
                     [{"gene": g, "score": float(s)} for g, s in zip(adata.var_names, weights)],
@@ -690,6 +781,7 @@ class GenePanelToolSet(ToolSet):
                 )
                 save_path = os.path.join(out_dir, "scgenefit_scores.csv")
                 pd.DataFrame(ranked).to_csv(save_path, index=False)
+                logger.info(f"✓ Saved scores to: {save_path}")
 
                 return {
                     "used_dataset": path,
@@ -703,6 +795,12 @@ class GenePanelToolSet(ToolSet):
             top = adata.var_names[order].tolist()
             save_path = os.path.join(out_dir, f"scgenefit_top_{n_top_genes}.csv")
             pd.DataFrame({"gene": top}).to_csv(save_path, index=False)
+            logger.info(f"✓ Saved top {n_top_genes} genes to: {save_path}")
+            logger.info(f"✓ Top 10 genes: {top[:10]}")
+
+            logger.info("=" * 60)
+            logger.info("SCGENEFIT - COMPLETED SUCCESSFULLY")
+            logger.info("=" * 60)
 
             return {
                 "used_dataset": path,
@@ -712,10 +810,14 @@ class GenePanelToolSet(ToolSet):
             }
 
         except Exception as e:
-            print(adata_path)
-            logger.error(f"select_scgenefit failed: {e}")
+            logger.error("=" * 60)
+            logger.error(f"SCGENEFIT - FAILED")
+            logger.error(f"Error: {str(e)}")
+            logger.error(f"Error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Traceback:\n{traceback.format_exc()}")
+            logger.error("=" * 60)
             return {"error": str(e)}
-
     
     #-- Highly Variable Genes (HVG) Selection --#
     # @tool
