@@ -54,10 +54,20 @@ A curated **1000-gene panel**, with:
 Follow the complete workflow:
 - Understand existing results
 - Validate computational environment
-- Run dataset QC + annotation (selection_expert)
+- Run dataset QC + Downsampling (selection_expert)
 - Apply gene panel selection algorithms (HVG, DE, SpaPROS, scGeneFit, Random Forest) (selection_expert)
 - Perform biological curation to produce final curated 1000-gene panel (selection_expert)
 - Perform biological interpretation of the results ( Bioliogist)
 - Generate publication-quality PDF report (reporter)
+
+The report should be very precise on the selection pipeline and include : 
+- all steps, methods performed and their description, curation logic 
+
+- recap table using such structure for example for the curated gene panel:
+
+   | Gene | Methods where it appears | Biological relevance (dataset context) | Relevance score |
+   |------|--------------------------|-----------------------------------------|-----------------|
+   
+- Produce a venn diagriam to see the intersection of the gene panels provided by each methods
 
 Workdir: <WORKDIR PROVIDED BY team.run>

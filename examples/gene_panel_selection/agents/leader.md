@@ -79,7 +79,7 @@ don't skip any step, and don't change the order of the steps.
     and record it in the `environment.md` file in the root directory(not in the workdir).
     If some packages what you think should be installed, you should ask the `system_manager` agent to install them.
 
-    1.c: Understand the dataset: call `selection_expert` agent to perform some basic analysis for understanding the dataset and especially **downsampling** if the dataset have more than 50k cells to a dataset of size<5Ok cells.
+    1.c: Understand the dataset: call `selection_expert` agent to perform some basic analysis for understanding the dataset and especially **downsampling** if the dataset have more than 50k cells to a dataset of size<5Ok cells and/or have more than 3k genes, subset the gene to <=3K.
     IMPORTANT: If downsampled,`selection_expert`will save the new adatapath of downsample adata. Forget about the initial adatapath provided and consider only this downsample adata for the rest of the study. This is the only input you should consider.
    
   Here you should pass the environment information to the `selection_expert` agent, 
