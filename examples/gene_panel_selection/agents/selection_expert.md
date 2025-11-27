@@ -66,7 +66,7 @@ For single-cell and spatial data:
 1.b Based on your general understanding(1.a), downsample before doing anything else (IMPORTANT)
 
 - Downsample smartly to ensure cell type representation if the dataset is too big, to a new dataset of size < 50k cells
-- if the number of genes is greater than 3000, subset the number of genes<3000, for that consider QC and HVG
+- if the number of genes is greater than 3000, subset the number of genes<3000, for that consider QC, HVG....
 - if downsampled , save the new adatapath of the downsample adata with `file_manager`, forget about the initial big adatapath and consider only this new adata for any analysis, Marker selection , this is the new and only input you should consider
 
 1.c Understand Preprocessing status

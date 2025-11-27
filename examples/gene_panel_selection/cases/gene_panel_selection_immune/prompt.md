@@ -2,7 +2,7 @@
 
 ## Goal
 Design a high-quality **1000-gene immune-oncology gene panel** for human tumor microenvironment (TME) profiling.
-- **adata_path:** `/home/erwinpi/data/adata.h5ad`  
+- **adata_path:** `/home/erwinpi/Vizgen/6039d13f-0c3e-484b-b37c-ee3656c4c037.h5ad`  
 - **Dataset source:** bioRxiv Preprint (2024) — DOI: 10.1101/2024.01.17.576110  
 
 ## Biological purpose
@@ -55,19 +55,19 @@ Follow the complete workflow:
 - Understand existing results
 - Validate computational environment
 - Run dataset QC + Downsampling (selection_expert)
-- Apply gene panel selection algorithms (HVG, DE, SpaPROS, scGeneFit, Random Forest) (selection_expert)
+- Apply gene panel selection algorithms and compare the different panels (HVG, DE, SpaPROS, scGeneFit, Random Forest) (selection_expert)
 - Perform biological curation to produce final curated 1000-gene panel (selection_expert)
 - Perform biological interpretation of the results ( Bioliogist)
 - Generate publication-quality PDF report (reporter)
 
-The report should be very precise on the selection pipeline and include : 
+The report should be very precise on the selection pipeline, well detailed and include : 
 - all steps, methods performed and their description, curation logic 
-
+- Figures and interpretations
 - recap table using such structure for example for the curated gene panel:
 
    | Gene | Methods where it appears | Biological relevance (dataset context) | Relevance score |
    |------|--------------------------|-----------------------------------------|-----------------|
    
-- Produce a venn diagriam to see the intersection of the gene panels provided by each methods
+-A venn diagriam to see the intersection of the gene panels provided by each methods
 
 Workdir: <WORKDIR PROVIDED BY team.run>
