@@ -200,3 +200,11 @@ cython_debug/
 
 workdir/
 backup/
+#Data
+*.h5ad
+*.hdf5
+*.loom
+*.npy
+*.npz
+*.mtx
+
