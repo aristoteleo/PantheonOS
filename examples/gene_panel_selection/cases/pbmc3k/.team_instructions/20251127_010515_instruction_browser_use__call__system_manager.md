@@ -1,0 +1,2 @@
+Caller: selection_expert.
+Task: Please install the missing Python dependency required by scanpy highly_variable_genes flavor='seurat_v3': scikit-misc (package name skmisc). Use the active environment described in /home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/pbmc3k/environment.md. Ensure installation succeeds in the environment used by our notebooks. Return a brief confirmation.
