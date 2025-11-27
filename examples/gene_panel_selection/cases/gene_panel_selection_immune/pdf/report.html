@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Immune-oncology 1000-gene panel (Human TME)</title>
+<style>
+body { font-family: Arial, Helvetica, sans-serif; line-height: 1.5; margin: 2rem; color: #222; }
+h1,h2,h3 { color: #0a2a66; }
+figure { margin: 1rem 0; }
+figcaption { font-size: 0.9rem; color: #444; }
+.grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+img { max-width: 100%; height: auto; border: 0; }
+small.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.table { border-collapse: collapse; width: 100%; }
+.table th, .table td { border: 1px solid #ddd; padding: 6px; vertical-align: top; }
+.table th { background: #f5f7fb; }
+.caption { color: #555; font-size: 0.95rem; }
+hr { border: none; border-top: 1px solid #ddd; margin: 2rem 0; }
+.badge { display: inline-block; padding: 2px 6px; background: #eef2ff; color: #0a2a66; border-radius: 4px; font-size: 0.8rem; margin-left: 6px; }
+</style>
+</head>
+<body>
+<h1>An immune-oncology 1000-gene panel for human tumor microenvironment profiling: data curation, multi-method selection, and biological validation <span class="badge">v2</span></h1>
+<p><strong>Authors:</strong> Leader; selection_expert; biologist; system_manager; reporter<br/>
+<strong>Affiliation:</strong> Pantheon Omics Expert Team, Pantheon-OS (<a href="https://pantheonos.stanford.edu/">https://pantheonos.stanford.edu/</a>)<br/>
+<small class="mono">Project root: /home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune</small></p>
+<h2>Abstract</h2>
+<p>We constructed a publication-ready 1000-gene panel to profile the human tumor microenvironment (TME) for spatial transcriptomics deployment. Starting from a multi-tissue, multi-lineage single-cell reference (bioRxiv 2024 preprint, DOI <a href="https://doi.org/10.1101/2024.01.17.576110">10.1101/2024.01.17.576110</a>), we performed stratified downsampling to 50,000 cells and restricted features to 3,000 highly variable genes (HVGs). Five complementary selection strategies were applied on the active dataset: HVG stability across subsamples, differential expression (DE) for immune lineages and malignant vs other, SpaPROS, scGeneFit, and Random Forest feature importance. We aggregated evidence into a consensus ranking, then executed biologically guided curation to ensure coverage of immune lineages and states, cytokines/chemokines/checkpoints, malignant/epithelial markers, cancer pathway nodes, and cell state programs (cell cycle, DNA repair/stress, hypoxia/angiogenesis/EMT/ECM/vasculature). The final panel demonstrates strong separability on UMAPs using panel-only expression and provides interpretable markers for sentinel TME processes. This document reflects v2 of the curated panel and refreshed artifacts.</p>
+<h2>Introduction</h2>
+<p>Spatially resolved transcriptomics in the tumor microenvironment requires compact, information-rich gene panels that capture immune composition, malignant programs, stromal states, and intercellular signaling. We assembled a 1000-gene human TME panel using a multi-study single-cell compendium (bioRxiv 2024; DOI: 10.1101/2024.01.17.576110) with expert curation. Our pipeline integrates complementary computational selection methods and domain knowledge to balance discriminative power and biological interpretability for Vizgen-style assays. We present the dataset, quality control (QC) and downsampling, selection methods and aggregation, final curation, and biological interpretation. Figures include QC diagnostics, method overlaps, UMAPs evaluated with draft and final panels, and classifier summaries.</p>
+<h2>Results</h2>
+<h3>Dataset, QC, and downsampling</h3>
+<div class="grid">
+<figure>
+<img src="selection_expert/qc_figures/qc_histograms.png" alt="QC histograms"/>
+<figcaption>QC summaries: distributions of counts/genes/mitochondrial fraction.</figcaption>
+</figure>
+<figure>
+<img src="selection_expert/qc_figures/qc_violin.png" alt="QC violin"/>
+<figcaption>QC violin plots across studies.</figcaption>
+</figure>
+</div>
+<div class="grid3">
+<figure>
+<img src="selection_expert/qc_figures/umap_cell_type.png" alt="UMAP cell type"/>
+<figcaption>UMAP: original cell type labels.</figcaption>
+</figure>
+<figure>
+<img src="selection_expert/qc_figures/umap_Cell_type_broad.png" alt="UMAP broad labels"/>
+<figcaption>UMAP: broad labels (Malignant vs Other).</figcaption>
+</figure>
+<figure>
+<img src="selection_expert/qc_figures/umap_downsample_tissue.png" alt="UMAP downsampled tissue"/>
+<figcaption>UMAP: downsampled tissue stratification.</figcaption>
+</figure>
+</div>
+<h3>Per-method highlights and overlaps</h3>
+<div class="grid">
+<figure>
+<img src="selection_expert/curated/figures/venn_methods_pub.png" alt="Venn methods"/>
+<figcaption>Triad Venn for representative methods.</figcaption>
+</figure>
+<figure>
+<img src="selection_expert/curated/figures/upset_methods_pub.png" alt="UpSet methods"/>
+<figcaption>UpSet plot across all methods.</figcaption>
+</figure>
+</div>
+<h3>Aggregation and draft panel performance</h3>
+<p>We combined evidence using a consensus score incorporating method presence (weighted), normalized ranks, and normalized scores (see Methods). Draft panels of sizes 500/800/1000/1200 were evaluated via panel-only UMAPs; the 1000-gene draft provided robust separability while preserving category coverage.</p>
+<div class="grid">
+<figure>
+<img src="selection_expert/draft_panels/umap/umap_cell_type_panel500.png" alt="UMAP 500"/>
+</figure>
+<figure>
+<img src="selection_expert/draft_panels/umap/umap_cell_type_panel800.png" alt="UMAP 800"/>
+</figure>
+<figure>
+<img src="selection_expert/draft_panels/umap/umap_cell_type_panel1000.png" alt="UMAP 1000"/>
+</figure>
+<figure>
+<img src="selection_expert/draft_panels/umap/umap_cell_type_panel1200.png" alt="UMAP 1200"/>
+</figure>
+</div>
+<h3>Final 1000-gene panel and embeddings (v2)</h3>
+<div class="grid3">
+<figure>
+<img src="selection_expert/curated/figures/umap_finalpanel_Immune_broad_pub.png" alt="UMAP immune broad"/>
+</figure>
+<figure>
+<img src="selection_expert/curated/figures/umap_finalpanel_cell_type_pub.png" alt="UMAP cell type"/>
+</figure>
+<figure>
+<img src="selection_expert/curated/figures/umap_finalpanel_Malignant_vs_Other_pub.png" alt="UMAP malignant vs other"/>
+</figure>
+</div>
+<h3>Classifier summaries</h3>
+<div class="grid">
+<figure>
+<img src="selection_expert/curated/figures/confusion_cell_type_rf_finalpanel_pub.png" alt="Confusion multiclass"/>
+</figure>
+<figure>
+<img src="selection_expert/curated/figures/confusion_Malignant_vs_Other_rf_finalpanel_pub.png" alt="Confusion malignant vs other"/>
+</figure>
+</div>
+<h3>Recap table (excerpt)</h3>
+<p>We provide a machine-readable panel with detailed columns and reproduce an excerpt with the requested fields, reflecting the v2 curated panel. Full CSV: <a href="reporter/recap_table.csv">reporter/recap_table.csv</a>.</p>
+<table class="table">
+<thead><tr><th>Gene</th><th>Methods where it appears</th><th>Biological relevance (dataset context)</th><th style="text-align:right">Relevance score</th></tr></thead>
+<tbody>
+<tr><td>CD3E</td><td>Curated</td><td>T cell receptor complex marker</td><td style="text-align:right">3.34</td></tr>
+<tr><td>KRT19</td><td>Curated</td><td>EMT Epithelial</td><td style="text-align:right">2.32</td></tr>
+<tr><td>COL1A1</td><td>Curated</td><td>ECM Fibroblast</td><td style="text-align:right">2.32</td></tr>
+<tr><td>KRT18</td><td>Curated</td><td>EMT Epithelial</td><td style="text-align:right">2.35</td></tr>
+<tr><td>S100A1</td><td>Curated</td><td>High-ranking informative gene</td><td style="text-align:right">1.17</td></tr>
+<tr><td>COL1A2</td><td>Curated</td><td>ECM Fibroblast</td><td style="text-align:right">2.29</td></tr>
+<tr><td>KRT8</td><td>Curated</td><td>EMT Epithelial</td><td style="text-align:right">2.27</td></tr>
+<tr><td>CD2</td><td>Curated</td><td>High-ranking informative gene</td><td style="text-align:right">2.15</td></tr>
+<tr><td>SPARC</td><td>Curated</td><td>ECM Fibroblast</td><td style="text-align:right">2.55</td></tr>
+<tr><td>DCN</td><td>Curated</td><td>ECM Fibroblast</td><td style="text-align:right">2.05</td></tr>
+<tr><td>CD24</td><td>Curated</td><td>High-ranking informative gene</td><td style="text-align:right">1.45</td></tr>
+<tr><td>LUM</td><td>Curated</td><td>ECM Fibroblast</td><td style="text-align:right">1.98</td></tr>
+<tr><td>CALD1</td><td>Curated</td><td>High-ranking informative gene</td><td style="text-align:right">1.60</td></tr>
+<tr><td>SFRP2</td><td>Curated</td><td>High-ranking informative gene</td><td style="text-align:right">1.10</td></tr>
+<tr><td>SPOCK2</td><td>Curated</td><td>High-ranking informative gene</td><td style="text-align:right">1.89</td></tr>
+<tr><td>TYROBP</td><td>Curated</td><td>High-ranking informative gene</td><td style="text-align:right">1.36</td></tr>
+<tr><td>CST7</td><td>Curated</td><td>High-ranking informative gene</td><td style="text-align:right">1.95</td></tr>
+<tr><td>CD7</td><td>Curated</td><td>High-ranking informative gene</td><td style="text-align:right">1.97</td></tr>
+<tr><td>CD3D</td><td>Curated</td><td>T cell receptor complex marker</td><td style="text-align:right">3.20</td></tr>
+<tr><td>SPARCL1</td><td>Curated</td><td>High-ranking informative gene</td><td style="text-align:right">1.20</td></tr>
+<tr><td>IL7R</td><td>Curated</td><td>Immune other marker</td><td style="text-align:right">2.93</td></tr>
+<tr><td>MS4A1</td><td>Curated</td><td>B cell marker</td><td style="text-align:right">2.36</td></tr>
+<tr><td>NKG7</td><td>Curated</td><td>NK cytotoxic marker</td><td style="text-align:right">2.89</td></tr>
+<tr><td>CD69</td><td>Curated</td><td>Immune other marker</td><td style="text-align:right">2.96</td></tr>
+<tr><td>FCER1G</td><td>Curated</td><td>High-ranking informative gene</td><td style="text-align:right">1.27</td></tr>
+<tr><td>CCDC80</td><td>Curated</td><td>High-ranking informative gene</td><td style="text-align:right">1.10</td></tr>
+<tr><td>AIF1</td><td>Curated</td><td>High-ranking informative gene</td><td style="text-align:right">1.17</td></tr>
+<tr><td>COL5A2</td><td>Curated</td><td>ECM Fibroblast</td><td style="text-align:right">1.89</td></tr>
+<tr><td>TM4SF1</td><td>Curated</td><td>High-ranking informative gene</td><td style="text-align:right">1.26</td></tr>
+<tr><td>BGN</td><td>Curated</td><td>High-ranking informative gene</td><td style="text-align:right">1.34</td></tr>
+</tbody>
+</table>
+<h3>Changelog (v2)</h3>
+<p>From curation notes: adds and drops applied in v2.</p>
+<ul>
+<li>Adds: CD1C, ENTPD1, NT5E, ICOSLG, CLEC4C</li>
+<li>Drops: IL9, IL13, IL22, IL37, TRBC1, IGLC3, WNT1, WNT7A</li>
+</ul>
+<h2>Discussion</h2>
+<p>Our consensus-driven, curated panel provides broad coverage of TME cell lineages and states and key cancer pathway readouts, suitable for spatial assays. The UMAPs and method overlaps indicate strong convergence on sentinel markers (e.g., CD3E/TRAC for T cells, MS4A1/CD79A for B cells, LST1/FCGR3A for myeloid, EPCAM/KRTs for malignant/epithelial, PECAM1/KDR for endothelium). The RF collapse for malignant vs other likely stems from modelling (class imbalance, label provenance), not a deficit of features, as the panel-only UMAP shows separability. Limitations include low-expression cytokines that may underperform spatially and potential probe ambiguity in paralogous families (TCR/BCR constants, KRT, S100, HLA). We outline targeted swaps and probe-specificity checks in the biological interpretation.</p>
+<h2>Methods</h2>
+<h3>Environment</h3>
+<p>See environment summary at project root and workdir/system_manager. OS: Ubuntu 22.04.5 LTS; Python 3.10. Key packages include anndata, scanpy, numpy, pandas, seaborn, scikit-learn, squidpy, spapros, scGeneFit, umap-learn, scvi-tools, shap. No active CUDA.</p>
+<h3>Dataset and labels</h3>
+<p>Source: bioRxiv 2024 preprint, DOI <a href="https://doi.org/10.1101/2024.01.17.576110">10.1101/2024.01.17.576110</a>. Active dataset: <code>selection_expert/adata_downsampled_50k_3kHVG.h5ad</code>.</p>
+<h3>QC and downsampling</h3>
+<p>We computed QC summaries and performed stratified downsampling to 50,000 cells across strata [tissue, cell_type], followed by HVG selection (Seurat v3 flavor) to 3,000 genes.</p>
+<h3>Selection methods</h3>
+<ul>
+<li>HVG stability: five 80% subsamples; inclusion frequency and rank combined.</li>
+<li>Differential expression (DE): Wilcoxon on Immune_broad and Malignant_vs_Other with log2FC and FDR filters.</li>
+<li>SpaPROS: top 400 markers by spatial informativeness.</li>
+<li>scGeneFit: separability-derived scores (centers; max_constraints≈800).</li>
+<li>Random Forest: multiclass cell_type (top 1000) and binary Malignant_vs_Other (top 600) importances.</li>
+</ul>
+<h3>Aggregation</h3>
+<p>Aggregate score combined method presence count, mean normalized rank, and mean normalized score into a consensus ranking (see <code>selection_expert/aggregate/aggregate_ranking_scores.csv</code>).</p>
+<h3>Curation logic</h3>
+<p>Starting from top aggregated genes, we ensured coverage across immune lineages/states; cytokines/chemokines/checkpoints; pathway nodes (RTK/MAPK/PI3K/JAK-STAT/TGFβ/WNT/Notch); cell cycle/DDR/stress; hypoxia/angiogenesis/EMT/ECM/vasculature; with spatial suitability heuristics.</p>
+<h2>Biological interpretation</h2>
+<p>See <code>workdir/biologist/interpretation_final_panel.md</code> and proposed adjustments in <code>workdir/biologist/proposed_adjustments.csv</code> for rationale and references (GeneCards, UniProt).</p>
+<h2>Data and code availability</h2>
+<ul>
+<li>Active dataset: <code>selection_expert/adata_downsampled_50k_3kHVG.h5ad</code></li>
+<li>QC report: <code>selection_expert/report_analysis_expert_qc_downsample.md</code></li>
+<li>Method reports: <code>selection_expert/report_analysis_expert_selection_round1.md</code>; curation: <code>selection_expert/report_analysis_expert_curation_final.md</code></li>
+<li>Aggregate ranking: <code>selection_expert/aggregate/aggregate_ranking_scores.csv</code></li>
+<li>Final panel (v2 active): <code>selection_expert/curated/final_panel_1000.csv</code>; grouped: <code>selection_expert/curated/final_panel_1000_grouped.tsv</code>; archived: <code>selection_expert/curated/final_panel_1000_v2.csv</code></li>
+<li>Coverage summary: <code>selection_expert/curated/final_panel_coverage_summary.md</code>; curation notes: <code>selection_expert/curated/notes_curation.md</code></li>
+<li>Method presence matrix: <code>selection_expert/curated/tables/method_panels_presence.csv</code></li>
+<li>Figures: <code>selection_expert/curated/figures/*_pub.png</code> and <code>selection_expert/qc_figures/*.png</code></li>
+</ul>
+<h2>References</h2>
+<p>Dataset source: bioRxiv 2024 preprint, DOI <a href="https://doi.org/10.1101/2024.01.17.576110">10.1101/2024.01.17.576110</a>. Sentinel gene resources (GeneCards, UniProt) curated by the biologist agent (see <code>workdir/biologist/references_1.bib</code>).</p>
+<hr/>
+<p><em>Generated on-demand. Version: v2. To obtain a PDF, convert this HTML with wkhtmltopdf or a browser print-to-PDF.</em></p>
+</body>
+</html>

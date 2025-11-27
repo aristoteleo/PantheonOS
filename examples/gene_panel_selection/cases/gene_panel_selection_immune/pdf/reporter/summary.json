@@ -1,0 +1,70 @@
+{
+  "project_root": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune",
+  "workdir": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir",
+  "dataset_doi": "10.1101/2024.01.17.576110",
+  "active_dataset_path": "selection_expert/adata_downsampled_50k_3kHVG.h5ad",
+  "qc_report": "selection_expert/report_analysis_expert_qc_downsample.md",
+  "selection_report": "selection_expert/report_analysis_expert_selection_round1.md",
+  "aggregate_ranking": "selection_expert/aggregate/aggregate_ranking_scores.csv",
+  "final_panel_csv": "selection_expert/curated/final_panel_1000.csv",
+  "final_panel_grouped_tsv": "selection_expert/curated/final_panel_1000_grouped.tsv",
+  "coverage_summary": "selection_expert/curated/final_panel_coverage_summary.md",
+  "curation_notes": "selection_expert/curated/notes_curation.md",
+  "method_presence_matrix": "selection_expert/curated/tables/method_panels_presence.csv",
+  "curated_figures_dir": "selection_expert/curated/figures",
+  "qc_figures_dir": "selection_expert/qc_figures",
+  "biological_interpretation_md": "biologist/interpretation_final_panel.md",
+  "biologist_proposed_adjustments_csv": "biologist/proposed_adjustments.csv",
+  "recap_table_csv": "reporter/recap_table.csv",
+  "category_major_counts": {
+    "Other": 547,
+    "Cytokines_Chemokines_Checkpoints": 123,
+    "Cancer_pathways": 111,
+    "Immune_lineage_state": 81,
+    "Hypoxia_Angiogenesis_EMT_ECM_Vascular": 71,
+    "CellCycle_DDR_Stress": 63,
+    "Malignant_lineage": 4
+  },
+  "final_panel_v2_csv": "selection_expert/curated/final_panel_1000_v2.csv",
+  "curated_figures": [
+    "selection_expert/curated/figures/confusion_Malignant_vs_Other_rf_finalpanel_pub.png",
+    "selection_expert/curated/figures/confusion_cell_type_rf_finalpanel_pub.png",
+    "selection_expert/curated/figures/confusion_cell_type_rf_finalpanel_top20_pub.png",
+    "selection_expert/curated/figures/umap_finalpanel_Immune_broad_pub.png",
+    "selection_expert/curated/figures/umap_finalpanel_Malignant_vs_Other_pub.png",
+    "selection_expert/curated/figures/umap_finalpanel_cell_type_pub.png",
+    "selection_expert/curated/figures/upset_methods_pub.png",
+    "selection_expert/curated/figures/venn_methods_pub.png"
+  ],
+  "presence_sums": {
+    "DE_Immune": 0,
+    "DE_Malignant": 0,
+    "HVG": 0,
+    "SpaPROS": 0,
+    "scGeneFit": 0,
+    "RandomForest": 0
+  },
+  "average_methods_count": 0.0,
+  "n_genes": 1000,
+  "recap_table_rows": 1000,
+  "presence_nonzero_total": 0,
+  "v2_changelog": {
+    "adds": [
+      "CD1C",
+      "ENTPD1",
+      "NT5E",
+      "ICOSLG",
+      "CLEC4C"
+    ],
+    "drops": [
+      "IL9",
+      "IL13",
+      "IL22",
+      "IL37",
+      "TRBC1",
+      "IGLC3",
+      "WNT1",
+      "WNT7A"
+    ]
+  }
+}

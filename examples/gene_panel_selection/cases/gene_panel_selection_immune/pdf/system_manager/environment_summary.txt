@@ -1,0 +1,6 @@
+OS: Ubuntu 22.04.5 LTS; Kernel 5.15.0-161-generic x86_64
+Python: 3.10.19 (/home/erwinpi/miniconda3/envs/gps/bin/python)
+CPUs: 56 (Intel Xeon Platinum 8280); RAM: ~1.5 TB
+GPU: nvidia-smi present but unavailable; CUDA not detected
+Disk free (project): 1290.85 GB
+Key pkgs: anndata 0.11.4, scanpy 1.11.5, numpy 2.2.6, scipy 1.15.3, pandas 2.3.3, sklearn 1.7.2, squidpy 1.6.5, spapros 0.1.5, scGeneFit installed, matplotlib-venn 1.1.2, upsetplot 0.9.0, umap-learn 0.5.9.post2, scvi-tools 1.3.3, shap 0.49.1, xgboost 3.1.2

@@ -1,0 +1,435 @@
+tissue	cell_type	n
+breast	fibroblast	35343
+breast	T cell	70344
+breast	mast cell	788
+breast	endothelial cell	11716
+breast	microglial cell	0
+breast	melanocyte	0
+breast	myofibroblast cell	0
+breast	macrophage	0
+breast	B cell	11835
+breast	dendritic cell	0
+breast	lymphocyte	0
+breast	monocyte	0
+breast	CD4-positive, alpha-beta T cell	0
+breast	CD8-positive, alpha-beta T cell	0
+breast	myeloid cell	22492
+breast	plasma cell	0
+breast	mature NK T cell	0
+breast	regulatory T cell	0
+breast	hematopoietic multipotent progenitor cell	0
+breast	naive T cell	0
+breast	T-helper 17 cell	0
+breast	naive thymus-derived CD8-positive, alpha-beta T cell	0
+breast	central memory CD8-positive, alpha-beta T cell	0
+breast	CD8-positive, CD28-negative, alpha-beta regulatory T cell	0
+breast	activated CD8-positive, alpha-beta T cell, human	0
+breast	effector CD8-positive, alpha-beta T cell	0
+breast	plasmacytoid dendritic cell, human	644
+breast	malignant cell	63536
+breast	T follicular helper cell	0
+breast	epithelial cell of thymus	0
+breast	unknown	0
+brain	fibroblast	0
+brain	T cell	5700
+brain	mast cell	0
+brain	endothelial cell	0
+brain	microglial cell	37
+brain	melanocyte	0
+brain	myofibroblast cell	0
+brain	macrophage	0
+brain	B cell	50
+brain	dendritic cell	0
+brain	lymphocyte	0
+brain	monocyte	118
+brain	CD4-positive, alpha-beta T cell	0
+brain	CD8-positive, alpha-beta T cell	0
+brain	myeloid cell	0
+brain	plasma cell	0
+brain	mature NK T cell	0
+brain	regulatory T cell	0
+brain	hematopoietic multipotent progenitor cell	0
+brain	naive T cell	0
+brain	T-helper 17 cell	0
+brain	naive thymus-derived CD8-positive, alpha-beta T cell	0
+brain	central memory CD8-positive, alpha-beta T cell	0
+brain	CD8-positive, CD28-negative, alpha-beta regulatory T cell	0
+brain	activated CD8-positive, alpha-beta T cell, human	0
+brain	effector CD8-positive, alpha-beta T cell	0
+brain	plasmacytoid dendritic cell, human	0
+brain	malignant cell	4990
+brain	T follicular helper cell	0
+brain	epithelial cell of thymus	0
+brain	unknown	0
+skin of neck	fibroblast	249
+skin of neck	T cell	101
+skin of neck	mast cell	0
+skin of neck	endothelial cell	135
+skin of neck	microglial cell	0
+skin of neck	melanocyte	54
+skin of neck	myofibroblast cell	110
+skin of neck	macrophage	593
+skin of neck	B cell	40
+skin of neck	dendritic cell	81
+skin of neck	lymphocyte	0
+skin of neck	monocyte	0
+skin of neck	CD4-positive, alpha-beta T cell	1901
+skin of neck	CD8-positive, alpha-beta T cell	0
+skin of neck	myeloid cell	0
+skin of neck	plasma cell	1613
+skin of neck	mature NK T cell	0
+skin of neck	regulatory T cell	844
+skin of neck	hematopoietic multipotent progenitor cell	0
+skin of neck	naive T cell	116
+skin of neck	T-helper 17 cell	1633
+skin of neck	naive thymus-derived CD8-positive, alpha-beta T cell	23
+skin of neck	central memory CD8-positive, alpha-beta T cell	1077
+skin of neck	CD8-positive, CD28-negative, alpha-beta regulatory T cell	103
+skin of neck	activated CD8-positive, alpha-beta T cell, human	368
+skin of neck	effector CD8-positive, alpha-beta T cell	970
+skin of neck	plasmacytoid dendritic cell, human	84
+skin of neck	malignant cell	1721
+skin of neck	T follicular helper cell	0
+skin of neck	epithelial cell of thymus	0
+skin of neck	unknown	0
+skin of external ear	fibroblast	472
+skin of external ear	T cell	483
+skin of external ear	mast cell	0
+skin of external ear	endothelial cell	67
+skin of external ear	microglial cell	0
+skin of external ear	melanocyte	0
+skin of external ear	myofibroblast cell	22
+skin of external ear	macrophage	1031
+skin of external ear	B cell	148
+skin of external ear	dendritic cell	301
+skin of external ear	lymphocyte	0
+skin of external ear	monocyte	0
+skin of external ear	CD4-positive, alpha-beta T cell	1630
+skin of external ear	CD8-positive, alpha-beta T cell	0
+skin of external ear	myeloid cell	0
+skin of external ear	plasma cell	24
+skin of external ear	mature NK T cell	51
+skin of external ear	regulatory T cell	444
+skin of external ear	hematopoietic multipotent progenitor cell	0
+skin of external ear	naive T cell	0
+skin of external ear	T-helper 17 cell	0
+skin of external ear	naive thymus-derived CD8-positive, alpha-beta T cell	0
+skin of external ear	central memory CD8-positive, alpha-beta T cell	850
+skin of external ear	CD8-positive, CD28-negative, alpha-beta regulatory T cell	0
+skin of external ear	activated CD8-positive, alpha-beta T cell, human	0
+skin of external ear	effector CD8-positive, alpha-beta T cell	0
+skin of external ear	plasmacytoid dendritic cell, human	554
+skin of external ear	malignant cell	230
+skin of external ear	T follicular helper cell	0
+skin of external ear	epithelial cell of thymus	0
+skin of external ear	unknown	0
+skin of knee	fibroblast	80
+skin of knee	T cell	0
+skin of knee	mast cell	0
+skin of knee	endothelial cell	0
+skin of knee	microglial cell	0
+skin of knee	melanocyte	23
+skin of knee	myofibroblast cell	0
+skin of knee	macrophage	255
+skin of knee	B cell	0
+skin of knee	dendritic cell	0
+skin of knee	lymphocyte	0
+skin of knee	monocyte	0
+skin of knee	CD4-positive, alpha-beta T cell	222
+skin of knee	CD8-positive, alpha-beta T cell	0
+skin of knee	myeloid cell	0
+skin of knee	plasma cell	0
+skin of knee	mature NK T cell	102
+skin of knee	regulatory T cell	146
+skin of knee	hematopoietic multipotent progenitor cell	0
+skin of knee	naive T cell	0
+skin of knee	T-helper 17 cell	0
+skin of knee	naive thymus-derived CD8-positive, alpha-beta T cell	0
+skin of knee	central memory CD8-positive, alpha-beta T cell	304
+skin of knee	CD8-positive, CD28-negative, alpha-beta regulatory T cell	64
+skin of knee	activated CD8-positive, alpha-beta T cell, human	98
+skin of knee	effector CD8-positive, alpha-beta T cell	0
+skin of knee	plasmacytoid dendritic cell, human	60
+skin of knee	malignant cell	35
+skin of knee	T follicular helper cell	0
+skin of knee	epithelial cell of thymus	0
+skin of knee	unknown	0
+skin of body	fibroblast	0
+skin of body	T cell	416
+skin of body	mast cell	0
+skin of body	endothelial cell	0
+skin of body	microglial cell	0
+skin of body	melanocyte	0
+skin of body	myofibroblast cell	0
+skin of body	macrophage	25
+skin of body	B cell	694
+skin of body	dendritic cell	0
+skin of body	lymphocyte	0
+skin of body	monocyte	0
+skin of body	CD4-positive, alpha-beta T cell	563
+skin of body	CD8-positive, alpha-beta T cell	909
+skin of body	myeloid cell	0
+skin of body	plasma cell	0
+skin of body	mature NK T cell	0
+skin of body	regulatory T cell	0
+skin of body	hematopoietic multipotent progenitor cell	0
+skin of body	naive T cell	0
+skin of body	T-helper 17 cell	0
+skin of body	naive thymus-derived CD8-positive, alpha-beta T cell	0
+skin of body	central memory CD8-positive, alpha-beta T cell	0
+skin of body	CD8-positive, CD28-negative, alpha-beta regulatory T cell	0
+skin of body	activated CD8-positive, alpha-beta T cell, human	0
+skin of body	effector CD8-positive, alpha-beta T cell	0
+skin of body	plasmacytoid dendritic cell, human	0
+skin of body	malignant cell	10468
+skin of body	T follicular helper cell	0
+skin of body	epithelial cell of thymus	0
+skin of body	unknown	66
+liver	fibroblast	886
+liver	T cell	2789
+liver	mast cell	0
+liver	endothelial cell	0
+liver	microglial cell	0
+liver	melanocyte	0
+liver	myofibroblast cell	0
+liver	macrophage	692
+liver	B cell	601
+liver	dendritic cell	0
+liver	lymphocyte	0
+liver	monocyte	0
+liver	CD4-positive, alpha-beta T cell	0
+liver	CD8-positive, alpha-beta T cell	0
+liver	myeloid cell	0
+liver	plasma cell	0
+liver	mature NK T cell	0
+liver	regulatory T cell	0
+liver	hematopoietic multipotent progenitor cell	841
+liver	naive T cell	0
+liver	T-helper 17 cell	0
+liver	naive thymus-derived CD8-positive, alpha-beta T cell	0
+liver	central memory CD8-positive, alpha-beta T cell	0
+liver	CD8-positive, CD28-negative, alpha-beta regulatory T cell	0
+liver	activated CD8-positive, alpha-beta T cell, human	0
+liver	effector CD8-positive, alpha-beta T cell	0
+liver	plasmacytoid dendritic cell, human	0
+liver	malignant cell	1768
+liver	T follicular helper cell	0
+liver	epithelial cell of thymus	1030
+liver	unknown	78
+kidney	fibroblast	48
+kidney	T cell	0
+kidney	mast cell	0
+kidney	endothelial cell	191
+kidney	microglial cell	0
+kidney	melanocyte	0
+kidney	myofibroblast cell	0
+kidney	macrophage	0
+kidney	B cell	0
+kidney	dendritic cell	0
+kidney	lymphocyte	16163
+kidney	monocyte	0
+kidney	CD4-positive, alpha-beta T cell	0
+kidney	CD8-positive, alpha-beta T cell	0
+kidney	myeloid cell	7535
+kidney	plasma cell	0
+kidney	mature NK T cell	0
+kidney	regulatory T cell	0
+kidney	hematopoietic multipotent progenitor cell	0
+kidney	naive T cell	0
+kidney	T-helper 17 cell	0
+kidney	naive thymus-derived CD8-positive, alpha-beta T cell	0
+kidney	central memory CD8-positive, alpha-beta T cell	0
+kidney	CD8-positive, CD28-negative, alpha-beta regulatory T cell	0
+kidney	activated CD8-positive, alpha-beta T cell, human	0
+kidney	effector CD8-positive, alpha-beta T cell	0
+kidney	plasmacytoid dendritic cell, human	0
+kidney	malignant cell	6056
+kidney	T follicular helper cell	0
+kidney	epithelial cell of thymus	0
+kidney	unknown	0
+arm skin	fibroblast	117
+arm skin	T cell	54
+arm skin	mast cell	0
+arm skin	endothelial cell	164
+arm skin	microglial cell	0
+arm skin	melanocyte	0
+arm skin	myofibroblast cell	149
+arm skin	macrophage	1054
+arm skin	B cell	5739
+arm skin	dendritic cell	44
+arm skin	lymphocyte	0
+arm skin	monocyte	0
+arm skin	CD4-positive, alpha-beta T cell	1486
+arm skin	CD8-positive, alpha-beta T cell	0
+arm skin	myeloid cell	0
+arm skin	plasma cell	92
+arm skin	mature NK T cell	792
+arm skin	regulatory T cell	1460
+arm skin	hematopoietic multipotent progenitor cell	0
+arm skin	naive T cell	0
+arm skin	T-helper 17 cell	0
+arm skin	naive thymus-derived CD8-positive, alpha-beta T cell	0
+arm skin	central memory CD8-positive, alpha-beta T cell	2239
+arm skin	CD8-positive, CD28-negative, alpha-beta regulatory T cell	1185
+arm skin	activated CD8-positive, alpha-beta T cell, human	3352
+arm skin	effector CD8-positive, alpha-beta T cell	0
+arm skin	plasmacytoid dendritic cell, human	259
+arm skin	malignant cell	1420
+arm skin	T follicular helper cell	0
+arm skin	epithelial cell of thymus	0
+arm skin	unknown	0
+skin of cheek	fibroblast	107
+skin of cheek	T cell	0
+skin of cheek	mast cell	0
+skin of cheek	endothelial cell	51
+skin of cheek	microglial cell	0
+skin of cheek	melanocyte	27
+skin of cheek	myofibroblast cell	27
+skin of cheek	macrophage	62
+skin of cheek	B cell	0
+skin of cheek	dendritic cell	0
+skin of cheek	lymphocyte	0
+skin of cheek	monocyte	0
+skin of cheek	CD4-positive, alpha-beta T cell	2117
+skin of cheek	CD8-positive, alpha-beta T cell	0
+skin of cheek	myeloid cell	0
+skin of cheek	plasma cell	51
+skin of cheek	mature NK T cell	45
+skin of cheek	regulatory T cell	728
+skin of cheek	hematopoietic multipotent progenitor cell	0
+skin of cheek	naive T cell	0
+skin of cheek	T-helper 17 cell	0
+skin of cheek	naive thymus-derived CD8-positive, alpha-beta T cell	0
+skin of cheek	central memory CD8-positive, alpha-beta T cell	1904
+skin of cheek	CD8-positive, CD28-negative, alpha-beta regulatory T cell	117
+skin of cheek	activated CD8-positive, alpha-beta T cell, human	0
+skin of cheek	effector CD8-positive, alpha-beta T cell	0
+skin of cheek	plasmacytoid dendritic cell, human	0
+skin of cheek	malignant cell	46
+skin of cheek	T follicular helper cell	0
+skin of cheek	epithelial cell of thymus	0
+skin of cheek	unknown	0
+nose skin	fibroblast	0
+nose skin	T cell	0
+nose skin	mast cell	0
+nose skin	endothelial cell	0
+nose skin	microglial cell	0
+nose skin	melanocyte	0
+nose skin	myofibroblast cell	0
+nose skin	macrophage	28
+nose skin	B cell	0
+nose skin	dendritic cell	0
+nose skin	lymphocyte	0
+nose skin	monocyte	0
+nose skin	CD4-positive, alpha-beta T cell	68
+nose skin	CD8-positive, alpha-beta T cell	0
+nose skin	myeloid cell	0
+nose skin	plasma cell	0
+nose skin	mature NK T cell	0
+nose skin	regulatory T cell	0
+nose skin	hematopoietic multipotent progenitor cell	0
+nose skin	naive T cell	0
+nose skin	T-helper 17 cell	0
+nose skin	naive thymus-derived CD8-positive, alpha-beta T cell	0
+nose skin	central memory CD8-positive, alpha-beta T cell	97
+nose skin	CD8-positive, CD28-negative, alpha-beta regulatory T cell	37
+nose skin	activated CD8-positive, alpha-beta T cell, human	23
+nose skin	effector CD8-positive, alpha-beta T cell	0
+nose skin	plasmacytoid dendritic cell, human	0
+nose skin	malignant cell	0
+nose skin	T follicular helper cell	0
+nose skin	epithelial cell of thymus	0
+nose skin	unknown	0
+skin of forehead	fibroblast	0
+skin of forehead	T cell	123
+skin of forehead	mast cell	0
+skin of forehead	endothelial cell	0
+skin of forehead	microglial cell	0
+skin of forehead	melanocyte	0
+skin of forehead	myofibroblast cell	0
+skin of forehead	macrophage	0
+skin of forehead	B cell	0
+skin of forehead	dendritic cell	0
+skin of forehead	lymphocyte	0
+skin of forehead	monocyte	0
+skin of forehead	CD4-positive, alpha-beta T cell	105
+skin of forehead	CD8-positive, alpha-beta T cell	0
+skin of forehead	myeloid cell	0
+skin of forehead	plasma cell	0
+skin of forehead	mature NK T cell	0
+skin of forehead	regulatory T cell	1114
+skin of forehead	hematopoietic multipotent progenitor cell	0
+skin of forehead	naive T cell	0
+skin of forehead	T-helper 17 cell	0
+skin of forehead	naive thymus-derived CD8-positive, alpha-beta T cell	0
+skin of forehead	central memory CD8-positive, alpha-beta T cell	5345
+skin of forehead	CD8-positive, CD28-negative, alpha-beta regulatory T cell	2161
+skin of forehead	activated CD8-positive, alpha-beta T cell, human	133
+skin of forehead	effector CD8-positive, alpha-beta T cell	0
+skin of forehead	plasmacytoid dendritic cell, human	0
+skin of forehead	malignant cell	0
+skin of forehead	T follicular helper cell	0
+skin of forehead	epithelial cell of thymus	0
+skin of forehead	unknown	0
+skin of scalp	fibroblast	0
+skin of scalp	T cell	0
+skin of scalp	mast cell	0
+skin of scalp	endothelial cell	0
+skin of scalp	microglial cell	0
+skin of scalp	melanocyte	0
+skin of scalp	myofibroblast cell	0
+skin of scalp	macrophage	0
+skin of scalp	B cell	0
+skin of scalp	dendritic cell	0
+skin of scalp	lymphocyte	0
+skin of scalp	monocyte	0
+skin of scalp	CD4-positive, alpha-beta T cell	0
+skin of scalp	CD8-positive, alpha-beta T cell	0
+skin of scalp	myeloid cell	0
+skin of scalp	plasma cell	0
+skin of scalp	mature NK T cell	0
+skin of scalp	regulatory T cell	2384
+skin of scalp	hematopoietic multipotent progenitor cell	0
+skin of scalp	naive T cell	1746
+skin of scalp	T-helper 17 cell	0
+skin of scalp	naive thymus-derived CD8-positive, alpha-beta T cell	101
+skin of scalp	central memory CD8-positive, alpha-beta T cell	1658
+skin of scalp	CD8-positive, CD28-negative, alpha-beta regulatory T cell	2190
+skin of scalp	activated CD8-positive, alpha-beta T cell, human	1143
+skin of scalp	effector CD8-positive, alpha-beta T cell	0
+skin of scalp	plasmacytoid dendritic cell, human	0
+skin of scalp	malignant cell	0
+skin of scalp	T follicular helper cell	2712
+skin of scalp	epithelial cell of thymus	0
+skin of scalp	unknown	0
+skin of calf	fibroblast	0
+skin of calf	T cell	0
+skin of calf	mast cell	0
+skin of calf	endothelial cell	0
+skin of calf	microglial cell	0
+skin of calf	melanocyte	0
+skin of calf	myofibroblast cell	0
+skin of calf	macrophage	0
+skin of calf	B cell	0
+skin of calf	dendritic cell	0
+skin of calf	lymphocyte	0
+skin of calf	monocyte	0
+skin of calf	CD4-positive, alpha-beta T cell	120
+skin of calf	CD8-positive, alpha-beta T cell	0
+skin of calf	myeloid cell	0
+skin of calf	plasma cell	0
+skin of calf	mature NK T cell	0
+skin of calf	regulatory T cell	347
+skin of calf	hematopoietic multipotent progenitor cell	0
+skin of calf	naive T cell	632
+skin of calf	T-helper 17 cell	109
+skin of calf	naive thymus-derived CD8-positive, alpha-beta T cell	2938
+skin of calf	central memory CD8-positive, alpha-beta T cell	3827
+skin of calf	CD8-positive, CD28-negative, alpha-beta regulatory T cell	2520
+skin of calf	activated CD8-positive, alpha-beta T cell, human	111
+skin of calf	effector CD8-positive, alpha-beta T cell	0
+skin of calf	plasmacytoid dendritic cell, human	0
+skin of calf	malignant cell	0
+skin of calf	T follicular helper cell	357
+skin of calf	epithelial cell of thymus	0
+skin of calf	unknown	0

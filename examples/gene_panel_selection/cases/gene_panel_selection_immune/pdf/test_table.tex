@@ -1,0 +1,19 @@
+\documentclass{article}
+\usepackage{booktabs}
+\usepackage{longtable}
+\begin{document}
+
+\begin{longtable}{l l l c}
+\toprule
+Gene & Methods & Relevance & Score \\
+\midrule
+\endfirsthead
+\toprule
+Gene & Methods & Relevance & Score \\
+\midrule
+\endhead
+\input{recap_rows.tex}
+\bottomrule
+\end{longtable}
+
+\end{document}
