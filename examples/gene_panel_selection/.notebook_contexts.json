@@ -26,7 +26,25 @@
       "notebook_title": "New Notebook",
       "kernel_spec": "python3",
       "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/pbmc3k/workdir/selection_expert/pbmc3k_step1_qc.ipynb::4e8a143e-b504-4686-b41e-bab7bafb6ad5": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/pbmc3k/workdir/selection_expert/pbmc3k_step1_qc.ipynb",
+      "session_id": "4e8a143e-b504-4686-b41e-bab7bafb6ad5",
+      "kernel_session_id": "ed64b266-90f5-473c-8f77-4bb3872a6203",
+      "created_at": "2025-11-27T02:00:59.266452",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/pbmc3k/workdir/selection_expert/pbmc3k_panel_selection.ipynb::4e8a143e-b504-4686-b41e-bab7bafb6ad5": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/pbmc3k/workdir/selection_expert/pbmc3k_panel_selection.ipynb",
+      "session_id": "4e8a143e-b504-4686-b41e-bab7bafb6ad5",
+      "kernel_session_id": "51a5d448-a4c2-4a3b-bf3b-866c1664dc80",
+      "created_at": "2025-11-27T02:06:00.432368",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
     }
   },
-  "last_updated": "2025-11-27T01:29:25.831844"
+  "last_updated": "2025-11-27T02:06:00.432447"
 }
