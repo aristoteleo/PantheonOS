@@ -344,8 +344,8 @@ class GenePanelToolSet(ToolSet):
 
     
     #---------------------------------------------------------------------------
-    #Spapros
-    #--------------------------------------------------------------------------#
+    # SpaPROS
+    #---------------------------------------------------------------------------
     @tool
     @unwrap_llm_dict_call
     async def select_spapros(
@@ -359,33 +359,17 @@ class GenePanelToolSet(ToolSet):
     ) -> dict:
         """
         Select marker genes using SpaPROS.
-
-        Args:
-            adata_path (str): Path to .h5ad (if None -> default_adata_path).
-            label_key (str): Column in `.obs` to use as cell-type labels. If missing → auto Leiden clustering.
-            num_markers (str): Number of markers SpaPROS should choose.
-            n_hvg (str): Number of Highly Variable Genes (HVGs) to filter before running SpaPROS.
-            return_scores (str): "true" → return [{gene, score}], else return top gene list.
-            workdir (str): Output directory (default = default_workdir).
-
-        Returns:
-            dict {
-                used_dataset: str,
-                top_n: int,
-                saved_to: str,
-                genes: list[str] or list[{gene, score}]
-            }
         """
         try:
             import scanpy as sc
             import pandas as pd
             import spapros as sp
+            import numpy as np
             import os
 
-            # ---- Dict call unwrap (Pantheon) ----
+            # ---- unwrap dict calls from Pantheon ----
             if isinstance(adata_path, dict):
                 params = adata_path
-                print("[DEBUG] Unwrapping dict call:", params, flush=True)
                 adata_path   = params.get("adata_path", self.default_adata_path)
                 label_key    = params.get("label_key", label_key)
                 num_markers  = params.get("num_markers", num_markers)
@@ -393,7 +377,7 @@ class GenePanelToolSet(ToolSet):
                 return_scores = params.get("return_scores", return_scores)
                 workdir      = params.get("workdir", workdir)
 
-            # ---- Resolve dataset + workdir ----
+            # ---- Resolve dataset ----
             path = adata_path or self.default_adata_path
             if not path:
                 return {"error": "No dataset provided and no default_adata_path defined."}
@@ -402,46 +386,96 @@ class GenePanelToolSet(ToolSet):
             out_dir = os.path.join(workdir, "gene_panels", "spapros")
             os.makedirs(out_dir, exist_ok=True)
 
-            # ---- Convert typed arguments ----
+            # ---- Parse types ----
             num_markers  = self._coerce(num_markers, 100, int)
             n_hvg        = self._coerce(n_hvg, 3000, int)
-            return_scores = (str(return_scores).lower() in ("true", "1", "yes"))
+            return_scores = str(return_scores).lower() in ("true", "yes", "1")
 
-            # ---- Load ----
+            # ---- Load dataset ----
             adata = sc.read_h5ad(path)
-            #adata = adata[:, ~adata.var_names.duplicated(keep="first")]  # remove duplicates
 
-            # ---- Smart Preprocess (idempotent) ----
-            #adata = self.smart_preprocess(adata, label_key=label_key)
-
-            # ---- Ensure labeling ----
-            if not label_key or label_key not in adata.obs.columns:
-                # sc.pp.normalize_total(adata, target_sum=1e4)
-                # sc.pp.log1p(adata)
-                # sc.pp.pca(adata)
-                # sc.pp.neighbors(adata)
-                # sc.tl.leiden(adata, resolution=1.0, key_added="leiden_auto")
-                label_key = "leiden_auto"
-
-            # ---- HVG filter ----
+            # ---- HVG selection ----
             sc.pp.highly_variable_genes(adata, flavor="cell_ranger", n_top_genes=n_hvg)
             adata = adata[:, adata.var["highly_variable"]]
-            
-    
+
+            # ---- Check labels ----
+            if not label_key or label_key not in adata.obs.columns:
+                # Auto Leiden if no label
+                sc.pp.normalize_total(adata)
+                sc.pp.log1p(adata)
+                sc.pp.pca(adata)
+                sc.pp.neighbors(adata)
+                sc.tl.leiden(adata, resolution=1.0, key_added="leiden_auto")
+                label_key = "leiden_auto"
 
             # ---- Run SpaPROS ----
             selector = sp.se.ProbesetSelector(
-                adata, n=num_markers, celltype_key=label_key, verbosity=1, save_dir=None
+                adata,
+                n=num_markers,
+                celltype_key=label_key,
+                verbosity=1,
+                save_dir=None
             )
             selector.select_probeset()
 
-            
-            # ---- Build DF from probeset ----
+            df = selector.probeset.copy()
+            df.index.name = "gene"
+
+            # ------------------------------------------------------------------
+            # SAVE OUTPUTS
+            # ------------------------------------------------------------------
+            # Save full table (all genes with metrics)
+            full_path = os.path.join(out_dir, "spapros_full_table.csv")
+            df.to_csv(full_path)
+
+            # Extract final selected markers
+            selected = df[df["selection"] == True].index.tolist()
+
+            panel_path = os.path.join(out_dir, f"spapros_top_{num_markers}.csv")
+            pd.DataFrame({"gene": selected}).to_csv(panel_path, index=False)
+
+            # ------------------------------------------------------------------
+            # RETURN DICT
+            # ------------------------------------------------------------------
+            if return_scores:
+                score_list = []
+                if "importance_score" in df.columns:
+                    for g, row in df.iterrows():
+                        score_list.append({
+                            "gene": g,
+                            "score": float(row.get("importance_score", np.nan))
+                        })
+
+                score_path = os.path.join(out_dir, "spapros_scores.csv")
+                pd.DataFrame(score_list).to_csv(score_path, index=False)
+
+                return {
+                    "used_dataset": path,
+                    "top_n": num_markers,
+                    "saved_to": {
+                        "panel": panel_path,
+                        "full_table": full_path,
+                        "scores": score_path,
+                    },
+                    "genes": score_list,
+                }
+
+            # ---- Return only gene list ----
+            return {
+                "used_dataset": path,
+                "top_n": num_markers,
+                "saved_to": {
+                    "panel": panel_path,
+                    "full_table": full_path,
+                },
+                "genes": selected,
+            }
 
         except Exception as e:
-            print(adata_path)
-            logger.error(f"select_spapros failed: {e}")
-            return {"error": str(e)}
+            import traceback
+            traceback.print_exc()
+            return {"error": f"SpaPROS failed: {e}"}
+
 
         
     #---------------------------------------------------------------------------
