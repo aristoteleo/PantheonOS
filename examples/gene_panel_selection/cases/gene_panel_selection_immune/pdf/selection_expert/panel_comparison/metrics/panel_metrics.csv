@@ -1,3 +1,0 @@
-panel,n_genes,n_cell_types,n_clusters,ARI,NMI,SI,resemblance_knn_jaccard,resemblance_trustworthiness,resolution_used,embedding_adata_path
-hvg,1000,31,26,0.4259095092135554,0.6364750669795397,-0.1847824603319168,0.0152442547277638,0.9194854477326236,0.4,
-rf,1000,31,28,0.35051741884110565,0.6771097448706768,-0.06680648773908615,0.02492234981682933,0.9600977393867846,0.4,/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/panel_comparison/adatas/rf_embedding.h5ad
