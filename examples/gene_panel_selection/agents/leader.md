@@ -33,10 +33,10 @@ You do **not** need to pass low-level details, such as:
 + Code examples  
 + Specific analysis steps  
 
-The `selection_expert` already knows independently how to:
+The `selection_expert` already knows **independently** how to:
 - analyze the dataset  
 - perform preprocessing and QC  
-- Select final gene panel with preestablished algorithms and biological context.
+- Select final gene panel with preestablished algorithms and integrate  biological context.
 - Benchmark the final/curated gene panel 
 
 
@@ -133,7 +133,7 @@ create a project plan in `todolist.md` (markdown checklist format).
 
 ### 4. Execution and review  
 Call `selection_expert` step-by-step according to the todolist.  
-After each step, call the `biologist` to interpret biological meaning.  
+After each step, call the `biologist` to interpret biological meaning. But at some point to do gene panel selection, the `selection_expert` will typically run some preestablished gene panel selection algorithms to determine an optimal subpanel for markers genes for cell type separability, this subpanel should **not be changed**. Then it will complete gene search online based on context to complete the panel. `biologist`should just **interpret** and not intervene in that selection process which is **independantly** performed by `selection_expert`.
 Repeat until all steps are complete.
 
 ---
