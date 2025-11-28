@@ -128,7 +128,9 @@ gene_panel_selection.select_spapros(
 
 ---
 
-## 4. Benchmarking of the final panel
+## 4. Benchmarking of the final panel and compare it to preestablished algortihms
+This is something **IMPORTANT**, you should always do when you finished to the full gene panel, to assess it's performance relatively to the other methods and make sure it's better.
+
 Using the **original full dataset**:
 
 ### 4.1 Dataset splitting

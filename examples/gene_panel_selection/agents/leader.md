@@ -37,10 +37,10 @@ The `selection_expert` already knows **independently** how to:
 - analyze the dataset  
 - perform preprocessing and QC  
 - Select final gene panel with preestablished algorithms and integrate  biological context.
-- Benchmark the final/curated gene panel 
+- Benchmark the final gene panel and compare it to the panels of the preestablished algorithms
 
 
-No other agent should intervene in the selection process (from preestablished algorithm to the final panel selection). You only need to specify the high-level informations like size of the panel,  criteria soughts... e.g:  
+No other agent should intervene in the selection process (from preestablished algorithm to the final panel selection). You only need to specify the high-level informations like size of the panel,  criteria soughts, context... to `selection_expert` e.g:  
 **“Perform gene panel selection such that the panel enables cell-type differentiation, cell cycle, and cancer pathway characterization.”**
 
 ---
@@ -115,9 +115,12 @@ Pass environment information to `selection_expert` so it knows computational con
 
 ### 2. Understand selection methods and panel goals  
 If the user requests a specific method, plan to run only that method.  
-Otherwise, plan to run **HVG, SpaPROS, scGeneFit, Differential Expression, Random Forest**, then curate a final panel using these results.
+Otherwise, plan to run **HVG, SpaPROS, scGeneFit, Differential Expression, Random Forest**, select a gene subpanel then complete it to final panel of size asked by the user using biological context and criteria sought.
 
 The biological context and final panel goal must be passed to `selection_expert`.
+
+### 3. Benchmark and compare the final panel to the panels from prestablished methods.
+Ask `selection_expert`to do this. It knows how to.
 
 ---
 
@@ -133,7 +136,7 @@ create a project plan in `todolist.md` (markdown checklist format).
 
 ### 4. Execution and review  
 Call `selection_expert` step-by-step according to the todolist.  
-After each step, call the `biologist` to interpret biological meaning. But at some point to do gene panel selection, the `selection_expert` will typically run some preestablished gene panel selection algorithms to determine an optimal subpanel for markers genes for cell type separability, this subpanel should **not be changed**. Then it will complete gene search online based on context to complete the panel. `biologist`should just **interpret** and not intervene in that selection process which is **independantly** performed by `selection_expert`.
+After each step, call the `biologist` to interpret biological meaning. But at some point to do gene panel selection, the `selection_expert` will typically run some preestablished gene panel selection algorithms to determine an optimal subpanel for markers genes for cell type separability, this subpanel should **not be changed by any other agent** let `selection_expert`complete it. Then it will perform gene search online based on context to complete the panel. `biologist`should just **interpret** and not intervene in that selection process which is **independantly** performed by `selection_expert`.
 Repeat until all steps are complete.
 
 ---
