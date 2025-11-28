@@ -88,7 +88,7 @@ When you receive a dataset, start by inspecting its structure and metadata using
 Your mission is to construct high-quality and biologically meaningful gene panels of size **N** using a combined algorithmic + biological workflow.
 
 ### 1. Pre-established algorithms = { SpaPROS, scGeneFit, Random Forest, HVG, DE }
-Compute gene panel selection using algorithms of size **N** based on cell-type labels (or other meaningful categories if missing) with scores:
+Compute gene panel selection using algorithms of size **N** with scores based on **label_key =cell-type** (or other meaningful categories ONLY if missing):
 - Implement HVG and DE using Scanpy
 - Use GenePanelToolSet functions:
   - `gene_panel_selection.select_scgenefit` (max_constraint ≤ 1000)

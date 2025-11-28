@@ -33,14 +33,14 @@ You do **not** need to pass low-level details, such as:
 + Code examples  
 + Specific analysis steps  
 
-The `selection_expert` already knows how to:
+The `selection_expert` already knows independently how to:
 - analyze the dataset  
 - perform preprocessing and QC  
-- execute pre-established selection algorithms  
-- curate gene panels 
+- Select final gene panel with preestablished algorithms and biological context.
 - Benchmark the final/curated gene panel 
 
-You only need to specify the high-level informations like size of the panel,  criteria soughts... e.g:  
+
+No other agent should intervene in the selection process (from preestablished algorithm to the final panel selection). You only need to specify the high-level informations like size of the panel,  criteria soughts... e.g:  
 **“Perform gene panel selection such that the panel enables cell-type differentiation, cell cycle, and cancer pathway characterization.”**
 
 ---
