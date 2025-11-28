@@ -92,31 +92,7 @@ Orchestrate the following complete workflow:
   - The coverage of immune lineages, cytokine/chemokine signaling, and cancer pathways  
   - How the final panel supports analysis of exhaustion, activation, proliferation, senescence, and stress programs in the TME  
 
-### 4. Benchmarking of the final panel (selection_expert / benchmarking_expert)
-Using the same dataset (`/home/erwinpi/Vizgen/6039d13f-0c3e-484b-b37c-ee3656c4c037.h5ad`):
 
-1. **Dataset splitting**
-   - Split the dataset into **5 non-redundant subsets** that:
-     - Cover **all major cell types**  
-     - Avoid strong redundancy between subsets (each subset should add information).  
-
-2. **Metrics across gene sets**
-   - For each subset, compute **Leiden clustering** and evaluate:
-     - **ARI**, **NMI**, and **Silhouette Index (SI)**  
-   - Do this for the following **4 gene sets**:
-     1. 1000-gene SpaPROS panel  
-     2. 1000-gene scGeneFit panel  
-     3. 1000-gene final Vizgen-style panel (the panel computed in this workflow)  
-     4. Full gene set of the dataset  
-   - Plot **boxplots** of ARI, NMI, and SI across the 5 subsets for these 4 gene sets.
-
-3. **UMAP comparison**
-   - For each subset, compute UMAPs using:
-     - The **full gene set** (reference)  
-     - The 3 panels: SpaPROS-1000, scGeneFit-1000, and the final 1000-gene panel.  
-   - Compare the UMAPs:
-     - **Qualitatively** (visual similarity of global structure, separation of key populations, etc.)  
-     - **Quantitatively**, using one or more **UMAP similarity / alignment metrics** (e.g. correlation of pairwise distances, Procrustes-like similarity, or other suitable quantitative measures) between the panel-based UMAPs and the full-gene UMAP.
 
 Summarize which panel best preserves:
 - Global structure  
@@ -126,22 +102,3 @@ Summarize which panel best preserves:
 ### 5. Report generation (reporter)  
 - Generate a **publication-quality PDF report** (with all figures) describing the full pipeline and results.
 
-The report must be very precise about the **selection pipeline**, with:
-
-- A detailed description of all steps and methods (SpaPROS, scGeneFit, ARI computation for cell separability, Leiden clustering, benchmarking protocol, etc.)  
-- A clear explanation of the **completion logic** and the reasoning used to determine the best size for cell-type separability  
-- Figures and their interpretations, including the **ARI vs. panel size** plots  
-- A **recap table** of the final gene panel, for example:
-
-   | Gene | Methods where it appears | Biological relevance (dataset context) | Relevance score |
-   |------|--------------------------|----------------------------------------|-----------------|
-
-- A **Venn diagram** showing the intersections between gene sets obtained by each method (SpaPROS, scGeneFit, and the final Vizgen-style panel, if applicable).  
-- A dedicated **benchmarking section** describing:
-  - The dataset splitting strategy  
-  - ARI/NMI/SI boxplots across subsets and gene sets  
-  - UMAP comparisons and **quantitative UMAP similarity** results  
-
----
-
-**Workdir:** `<WORKDIR PROVIDED BY team.run>`
