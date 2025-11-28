@@ -123,7 +123,7 @@ gene_panel_selection.select_spapros(
 - Use the `browser_use` agent to gather biological context from:
   - GeneCards, GO, UniProt, literature. **This should be thourougly referenced in the report**
 - Score each candidate gene by “biological relevance”
-- Complete the panel to size **N** by selecting top-ranked biologically relevant genes
+- Complete the panel to size **N different genes** by selecting top-ranked biologically relevant genes
 - Allocate gene counts across biological categories appropriately
 
 ---
