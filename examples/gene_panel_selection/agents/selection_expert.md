@@ -164,7 +164,7 @@ You must thoroughly describe:
 - benchmarking interpretation and figures
 
 Produce:
-- recap table a the final panel:
+- recap table a the final panel **with all N genes**:
 
 | Gene | Methods where it appears | Biological relevance (dataset context) | Relevance score |
 |------|--------------------------|-----------------------------------------|-----------------|

@@ -48,11 +48,16 @@ Your report must follow the structure of a professional scientific paper:
 - Abstract  
 - Introduction  
 - Results  
-- Discussion  
+- Discussion 
 - Methods  
 - Data and code availability  
 - References  
 - Appendices  
+  + The **full with all genes**  recapitulative table of the final gene panel  selected from `selection_expert` eg
+
+| Gene | Methods where it appears | Biological relevance (context) | Relevance score |
+|------|--------------------------|--------------------------------|-----------------|
+
   + Supplementary figures  
   + Supplementary tables  
   + Other information  
@@ -67,14 +72,27 @@ Provide background, related studies, and the purpose of the analysis.
 Then introduce the main content of the report.
 
 ## Results
-Organize this section into subsections, each presenting one specific result or finding.  
+Organize this section into subsections, each presenting one specific result or finding. 
+Include all benchmarking steps, figures , interpretations, from `selection_expert` and other relevant results. Paths to differented panels computed.
 Describe the biological relevance of the results based on the analysis and interpretation.  
 Include figures and cite relevant literature when necessary.
-
+- Benchmarking section with:
+  - dataset splitting strategy  
+  - ARI/NMI/SI boxplots  
+  - UMAP comparisons  
+  - quantitative UMAP similarity
 ## Methods
+Include: 
+- A thouroughly detailed description of the **selection pipeline** from the `selection_expert`
+- All pre-established algorithm results and Venn diagram showing intersections between pre-established algorithm outputs   
+- Completion logic and reasoning for determining the optimal size for cell-type separability  
+- Figures including **ARI vs panel size** curves  
+
 Include subsections for all computational methods used, including software, packages, versions, and parameters.  
 Also include a subsection describing the hardware environment if available.  
 If a method requires additional details (equations, pseudo-code), request information from the `selection_expert` agent.
+
+
 
 ## References
 Use `\cite{xxx}` inside the LaTeX document.  
