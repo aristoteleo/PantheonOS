@@ -37,9 +37,10 @@ The `selection_expert` already knows how to:
 - analyze the dataset  
 - perform preprocessing and QC  
 - execute pre-established selection algorithms  
-- curate gene panels  
+- curate gene panels 
+- Benchmark the final/curated gene panel 
 
-You only need to specify the high-level criteria, e.g.:  
+You only need to specify the high-level informations like size of the panel,  criteria soughts... e.g:  
 **“Perform gene panel selection such that the panel enables cell-type differentiation, cell cycle, and cancer pathway characterization.”**
 
 ---
@@ -150,7 +151,7 @@ Pass all paths/results from all sub-agents:
 
 The final report must include:
 
-- A detailed description of the **selection pipeline**  
+- A detailed description of the **selection pipeline** from the `selection_expert`
 - All pre-established algorithm results  
 - Completion logic and reasoning for determining the optimal size for cell-type separability  
 - Figures including **ARI vs panel size** curves  
