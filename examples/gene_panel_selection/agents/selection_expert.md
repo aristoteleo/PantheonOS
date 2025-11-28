@@ -88,7 +88,7 @@ When you receive a dataset, start by inspecting its structure and metadata using
 Your mission is to construct high-quality and biologically meaningful gene panels of size **N** using a combined algorithmic + biological workflow.
 
 ### 1. Pre-established algorithms = { SpaPROS, scGeneFit, Random Forest, HVG, DE }
-Compute gene panel selection using algorithms of size **N** with scores based on **label_key =cell-type** (or other meaningful categories ONLY if missing):
+Compute gene panel selection using algorithms of size **N** with scores based on **label_key = the true cell type** (or other meaningful categories ONLY if there is no cell type annotation in the dataset):
 - Implement HVG and DE using Scanpy
 - Use GenePanelToolSet functions:
   - `gene_panel_selection.select_scgenefit` (max_constraint ≤ 1000)
@@ -109,7 +109,7 @@ gene_panel_selection.select_spapros(
 ### 2. Determine optimal gene panel size for cell type resolution
 - Subset each algorithm panel into multiple sizes (top100, top200, …, topN) based on scores within each method
 - For each subset size, recompute Leiden clustering
-- Compute **ARI vs. panel size** curves
+- Compute **ARI vs. panel size** curves. **The ARI is computed by the matchness between the leiden clustering of the set of genes considered and the label_key you used in 1. Preestablished algorithm**. So if the true `cell type` is available you should use this.
 (Note: You should do the **ARI vs. panel size** for all methods independently)
 - Identify the method and size that:
   - produces a stable plateau
