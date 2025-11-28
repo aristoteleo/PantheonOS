@@ -18,7 +18,7 @@ from pantheon.team.aat import AgentAsToolTeam
 from pantheon.utils.display import print_agent_message
 
 
-TIMEOUT_TOOL = 2*60*60
+TIMEOUT_TOOL = 10*60*60
 
 
 async def load_agent(path: str):
