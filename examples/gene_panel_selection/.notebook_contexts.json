@@ -278,7 +278,16 @@
       "notebook_title": "New Notebook",
       "kernel_spec": "python3",
       "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/notebooks/06_umap_similarity.ipynb::676779ef-8699-4e8d-86b2-db30be66f1e9": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/notebooks/06_umap_similarity.ipynb",
+      "session_id": "676779ef-8699-4e8d-86b2-db30be66f1e9",
+      "kernel_session_id": "a298d0a5-7a33-4da9-bbc3-12160cc88509",
+      "created_at": "2025-11-29T00:25:06.182464",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
     }
   },
-  "last_updated": "2025-11-28T23:59:39.343431"
+  "last_updated": "2025-11-29T00:25:06.182585"
 }

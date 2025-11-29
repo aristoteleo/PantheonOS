@@ -117,6 +117,7 @@ gene_panel_selection.select_spapros(
   - achieves consistently high ARI
 - The gene set from this optimal size and method is the **initial sub-panel (< N genes)**
 
+**Note**: Only if notebook fails here to much because the data is too large, use `python_interpreter` to run code. **DO not** ligthen or reduce the data if it's already <5Ok cells , <3000 genes
 
 ---
 
@@ -156,6 +157,7 @@ Compare:
 - Qualitatively
 - Quantitatively (e.g., pairwise distance correlation, Procrustes-like similarity)
 
+**Note**: Only if notebook fails here to much because the data is too large, use `python_interpreter` to run code. **DO not** ligthen or reduce the data if it's already <5Ok cells , <3000 genes
 ---
 
 ### 5. Summarizing
