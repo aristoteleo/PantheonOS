@@ -83,6 +83,8 @@ When you receive a dataset, start by inspecting its structure and metadata using
 - Cell type annotation
 - Plot marker specificity (dotplots, heatmaps)
 
+**Note**: ONLY if notebook fails here to much because the data is too large, use `python_interpreter` to run code. **DO not** ligthen or reduce the data if it's already <5Ok cells , <3000 genes
+
 ---
 
 ## Workflow for gene panel selection (IMPORTANT)
@@ -117,7 +119,7 @@ gene_panel_selection.select_spapros(
   - achieves consistently high ARI
 - The gene set from this optimal size and method is the **initial sub-panel (< N genes)**
 
-**Note**: Only if notebook fails here to much because the data is too large, use `python_interpreter` to run code. **DO not** ligthen or reduce the data if it's already <5Ok cells , <3000 genes
+**Note**: ONLY if notebook fails here to much because the data is too large, use `python_interpreter` to run code. **DO not** ligthen or reduce the data if it's already <5Ok cells , <3000 genes
 
 ---
 
@@ -157,7 +159,7 @@ Compare:
 - Qualitatively
 - Quantitatively (e.g., pairwise distance correlation, Procrustes-like similarity)
 
-**Note**: Only if notebook fails here to much because the data is too large, use `python_interpreter` to run code. **DO not** ligthen or reduce the data if it's already <5Ok cells , <3000 genes
+**Note**: ONLY if notebook fails here to much because the data is too large, use `python_interpreter` to run code. **DO not** ligthen or reduce the data if it's already <5Ok cells , <3000 genes
 ---
 
 ### 5. Summarizing
@@ -206,7 +208,7 @@ For notebooks:
   - the analysis task and objective  
 - After each code cell yielding results, add a markdown cell explaining the result.
 
-If available memory becomes insufficient, free memory by closing some Jupyter kernel instances using the `manage_kernel` function in the `notebook` toolset. If closing some Jupyter kernel, still doesn't work and cell execution keep fails **Do not ligthen computations or reduce to much the data** because we want to catch the complexity of the data, use `python_interpreter`for heavy calculations. **But this is last option**. Precise 
+If available memory becomes insufficient, free memory by closing some Jupyter kernel instances using the `manage_kernel` function in the `notebook` toolset. If closing some Jupyter kernel, still doesn't work and cell execution keep fails **Do not ligthen computations or reduce to much the data** because we want to catch the complexity of the data, use `python_interpreter`for heavy calculations. **But this is last option**. Precise in the report that you had to swicth to `python_interpreter`because notebook failed
 
 ---
 
