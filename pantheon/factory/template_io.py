@@ -23,7 +23,7 @@ except ImportError:
     )
 
 from ..utils.log import logger
-from .models import AgentConfig, ChatroomConfig
+from .models import AgentConfig, ChatroomConfig, normalize_skills_value
 
 
 class UnifiedMarkdownParser:
@@ -151,6 +151,7 @@ class UnifiedMarkdownParser:
             agents=agents,
             sub_agents=list(metadata.get("sub_agents", []) or []),
             tags=list(metadata.get("tags", []) or []),
+            skills=normalize_skills_value(metadata.get("skills", "none")),
         )
 
     def _split_instruction_sections(self, text: str) -> List[str]:
@@ -215,6 +216,10 @@ class UnifiedMarkdownParser:
             "category": chatroom.category,
             "version": chatroom.version,
         }
+
+        normalized_skills = normalize_skills_value(chatroom.skills)
+        if normalized_skills != "none":
+            metadata["skills"] = normalized_skills
 
         if chatroom.sub_agents:
             metadata["sub_agents"] = chatroom.sub_agents
@@ -286,6 +291,7 @@ class FileBasedTemplateManager:
         self.work_dir = work_dir or Path.cwd()
         self.agents_dir = self.work_dir / ".pantheon" / "agents"
         self.chatrooms_dir = self.work_dir / ".pantheon" / "chatrooms"
+        self.skills_dir = self.work_dir / ".pantheon" / "skills"
 
         # System templates location (in package)
         self.system_templates_dir = Path(__file__).parent / "templates"
@@ -300,6 +306,7 @@ class FileBasedTemplateManager:
         """Ensure user template directories exist"""
         self.agents_dir.mkdir(parents=True, exist_ok=True)
         self.chatrooms_dir.mkdir(parents=True, exist_ok=True)
+        self.skills_dir.mkdir(parents=True, exist_ok=True)
 
     # ===== Agent Operations =====
 

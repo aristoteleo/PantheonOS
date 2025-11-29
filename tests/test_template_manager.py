@@ -34,6 +34,7 @@ def test_validate_template_dict_expands_all_sub_agents(tmp_path):
         "description": "Collect and summarize",
         "agents": [agent_a.to_dict()],
         "sub_agents": ["all"],
+        "skills": ["alpha"],
     }
 
     result = manager.validate_template_dict(template_dict)
@@ -43,6 +44,9 @@ def test_validate_template_dict_expands_all_sub_agents(tmp_path):
     assert {"alpha", "beta"}.issubset(result["sub_agents"].keys())
     assert "python" in result["required_toolsets"]
     assert "search" in result["required_mcp_servers"]
+    # Alpha and Beta both end up as sub-agents when "all" is used.
+    assert result["sub_agents"]["alpha"]["enable_skills"] is True
+    assert result["sub_agents"]["beta"]["enable_skills"] is False
 
 
 def test_template_file_crud_roundtrip(tmp_path):

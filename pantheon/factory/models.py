@@ -79,6 +79,7 @@ class ChatroomConfig:
     agents: List[AgentConfig] = field(default_factory=list)
     sub_agents: List[str] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
+    skills: list[str] = field(default_factory=lambda: ["none"])
 
     @property
     def all_agents(self) -> List[str]:
@@ -97,6 +98,7 @@ class ChatroomConfig:
             'agents': [a.to_dict() for a in self.agents],
             'sub_agents': self.sub_agents,
             'tags': self.tags,
+            'skills': list(self.skills or ["none"]),
         }
 
     @classmethod
@@ -117,4 +119,32 @@ class ChatroomConfig:
             agents=agents,
             sub_agents=data.get('sub_agents', []),
             tags=data.get('tags', []),
+            skills=normalize_skills_value(data.get('skills', 'none')),
         )
+
+
+def normalize_skills_value(skills_value) -> list[str]:
+    """Normalize inbound skills specification into a list form."""
+    if skills_value is None:
+        return ["none"]
+
+    if isinstance(skills_value, str):
+        normalized = skills_value.strip()
+        if not normalized:
+            return ["none"]
+        normalized_lower = normalized.lower()
+        if normalized_lower in {"all", "none"}:
+            return [normalized_lower]
+        return [normalized]
+
+    if isinstance(skills_value, list):
+        cleaned: list[str] = []
+        for entry in skills_value:
+            if entry is None:
+                continue
+            text = str(entry).strip()
+            if text:
+                cleaned.append(text.lower() if text.lower() in {"all", "none"} else text)
+        return cleaned or ["none"]
+
+    return ["none"]

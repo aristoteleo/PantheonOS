@@ -331,6 +331,7 @@ class Agent:
         force_litellm: Whether to force using LiteLLM. (default: False)
         max_tool_content_length: The maximum length of the tool content. (default: 100000)
         description: The description of the agent. (default: None)
+        enable_skills: Whether to inject Pantheon Skills guidance into the system prompt. (default: False)
     """
 
     def __init__(
@@ -349,6 +350,7 @@ class Agent:
         max_tool_content_length: int | None = 100000,
         system_prompt_mode: SystemPromptMode | None = None,
         description: str | None = None,
+        enable_skills: bool = False,
     ):
         self.id = uuid4()
         self.name = name
@@ -393,6 +395,7 @@ class Agent:
 
         # System prompt mode
         self.system_prompt_mode = system_prompt_mode
+        self.enable_skills = enable_skills
 
     @staticmethod
     def _filter_messages_by_execution_context(
@@ -1122,6 +1125,7 @@ class Agent:
             plan_mode=self.plan_mode,
             can_delegate=self.can_delegate,
             system_prompt_mode=self.system_prompt_mode,
+            enable_skills=self.enable_skills,
         )
         current_timestamp = time.time()
 

@@ -1,5 +1,6 @@
 import os
 from enum import Enum
+from pathlib import Path
 
 # Jupyter path migration: use platformdirs standard (future-proof for jupyter_core v6)
 os.environ.setdefault("JUPYTER_PLATFORM_DIRS", "1")
@@ -158,6 +159,40 @@ PLAN_TOOLS_PROMPT = """
 - **While active**: ✅ Read/analyze  ❌ Write/execute
 
 **Recommended workflow**: Plan complex work → create task → execute with status tracking
+"""
+
+SKILLS_PROMPT_TEMPLATE = """
+
+## Pantheon Skills
+
+- Root directory: `{skills_dir}`
+- Skills are curated best-practice playbooks (Markdown + optional scripts/data) that capture domain workflows, code snippets, and troubleshooting notes.
+- Each skill lives in a Markdown file with YAML front matter followed by free-form guidance. Sibling scripts/config/data inside the same folder belong to that skill package.
+
+### Front Matter Format
+```
+---
+id: unique_skill_id      # optional but recommended
+name: Human Friendly Name
+description: Single-paragraph capability summary (REQUIRED)
+tags: [tag1, tag2]       # optional list
+resources:
+  - file: script.py
+    purpose: helper description
+---
+```
+- Only `description` is mandatory; everything else is flexible. Expect additional custom keys—handle them generically.
+- The Markdown body may contain detailed procedures, command snippets, or references to companion files.
+
+### When to Use Skills
+- Before starting a domain-specific or complex task, scan `{skills_dir}` for matching IDs/names/descriptions.
+- Re-check skills whenever the user references a known skill name, requests "best practices", or hints at existing playbooks.
+- Prefer skills when you need vetted workflows instead of improvising from scratch.
+
+### How to Use Skills
+1. Use shell commands (`ls`, `find`, `rg`, `python`, `jq`, etc.) to recursively scan `{skills_dir}`, read Markdown files, and parse the YAML front matter yourself.
+2. Write ad-hoc shell/Python helpers whenever you need to search, filter, or cache skill metadata.
+3. Review the Markdown body plus any referenced scripts/resources before acting.
 """
 
 SUBAGENT_DISCOVERY_PROMPT = """
@@ -325,6 +360,7 @@ def build_system_prompt(
     plan_mode: bool = False,
     can_delegate: bool = False,
     system_prompt_mode: "SystemPromptMode | None" = None,
+    enable_skills: bool = False,
 ) -> str:
     """Build a complete system prompt by combining base instructions with core components.
 
@@ -339,6 +375,7 @@ def build_system_prompt(
                            - NATIVE: Base instructions only
                            - FULL: Complete guidance for main agents
                            - SUBAGENT: Streamlined mode for sub-agents
+        enable_skills: When True, append Pantheon Skills guidance automatically.
 
     Returns:
         Complete system prompt combining base instructions with appropriate components
@@ -347,6 +384,11 @@ def build_system_prompt(
     # Default to NATIVE mode if not specified
     if system_prompt_mode is None:
         system_prompt_mode = SystemPromptMode.NATIVE
+
+    if enable_skills:
+        skills_prompt = resolve_skills_prompt()
+        if skills_prompt:
+            base_instructions += skills_prompt
 
     # NATIVE Mode: Base instructions only
     if system_prompt_mode == SystemPromptMode.NATIVE:
@@ -386,3 +428,8 @@ def build_system_prompt(
         prompt += SUBAGENT_DISCOVERY_PROMPT
 
     return prompt
+
+
+def resolve_skills_prompt() -> str:
+    """Return the Pantheon Skills prompt block."""
+    return SKILLS_PROMPT_TEMPLATE.format(skills_dir=".pantheon/skills")

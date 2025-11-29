@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from ..utils.log import logger
 from .template_io import FileBasedTemplateManager
-from .models import AgentConfig, ChatroomConfig
+from .models import AgentConfig, ChatroomConfig, normalize_skills_value
 
 
 @dataclass
@@ -71,6 +71,7 @@ class TemplateManager:
         self.work_dir = work_dir or Path.cwd()
         self.agents_dir = self.work_dir / ".pantheon" / "agents"
         self.chatrooms_dir = self.work_dir / ".pantheon" / "chatrooms"
+        self.skills_dir = self.work_dir / ".pantheon" / "skills"
         self.system_templates_dir = Path(__file__).parent / "templates"
 
         self.file_manager = FileBasedTemplateManager(work_dir)
@@ -91,9 +92,10 @@ class TemplateManager:
         # Ensure user directories exist
         self._ensure_directories()
 
-        # Copy system templates on first run
-        if self._is_first_run():
-            self._copy_system_templates()
+        # Ensure packaged templates exist locally (copy missing ones)
+        self._ensure_default_agents()
+        self._ensure_default_chatrooms()
+        self._ensure_default_skills()
 
         logger.info("Template system bootstrap complete")
 
@@ -102,44 +104,58 @@ class TemplateManager:
         try:
             self.agents_dir.mkdir(parents=True, exist_ok=True)
             self.chatrooms_dir.mkdir(parents=True, exist_ok=True)
+            self.skills_dir.mkdir(parents=True, exist_ok=True)
             logger.debug(f"Ensured template directories exist at {self.work_dir}")
         except Exception as e:
             logger.error(f"Failed to create template directories: {e}")
             raise
 
-    def _is_first_run(self) -> bool:
-        """Check if this is the first run (no user templates exist)"""
-        agents = list(self.agents_dir.glob("*.md"))
-        chatrooms = list(self.chatrooms_dir.glob("*.md"))
+    def _copy_missing_templates(self, src_dir: Path, dest_dir: Path, label: str):
+        if not src_dir.exists():
+            return 0
+        copied = 0
+        for item in src_dir.glob("*.md"):
+            dest = dest_dir / item.name
+            if dest.exists():
+                continue
+            shutil.copy(item, dest)
+            copied += 1
+        if copied:
+            logger.info(f"Copied {copied} {label} from system templates")
+        return copied
 
-        return len(agents) == 0 and len(chatrooms) == 0
+    def _ensure_default_agents(self):
+        try:
+            self._copy_missing_templates(
+                self.system_templates_dir / "agents", self.agents_dir, "agent(s)"
+            )
+        except Exception as e:
+            logger.error(f"Failed to copy default agents: {e}")
 
-    def _copy_system_templates(self):
-        """Copy system templates to user directory on first run"""
-        logger.info("First run detected, copying system templates...")
+    def _ensure_default_chatrooms(self):
+        try:
+            self._copy_missing_templates(
+                self.system_templates_dir / "chatrooms",
+                self.chatrooms_dir,
+                "chatroom(s)",
+            )
+        except Exception as e:
+            logger.error(f"Failed to copy default chatrooms: {e}")
+
+    def _ensure_default_skills(self):
+        """Copy packaged skills into the user directory when missing."""
+        system_skills_dir = self.system_templates_dir / "skills"
+        if not system_skills_dir.exists():
+            return
 
         try:
-            # Copy agents
-            system_agents_dir = self.system_templates_dir / "agents"
-            if system_agents_dir.exists():
-                for agent_file in system_agents_dir.glob("*.md"):
-                    dest = self.agents_dir / agent_file.name
-                    if not dest.exists():
-                        shutil.copy(agent_file, dest)
-                logger.info(f"Copied agents from system templates")
-
-            # Copy chatrooms
-            system_chatrooms_dir = self.system_templates_dir / "chatrooms"
-            if system_chatrooms_dir.exists():
-                for chatroom_file in system_chatrooms_dir.glob("*.md"):
-                    dest = self.chatrooms_dir / chatroom_file.name
-                    if not dest.exists():
-                        shutil.copy(chatroom_file, dest)
-                logger.info(f"Copied chatrooms from system templates")
-
+            copied = self._copy_missing_templates(
+                system_skills_dir, self.skills_dir, "default skill(s)"
+            )
+            if copied == 0:
+                logger.debug("No default skills needed to be copied")
         except Exception as e:
-            logger.error(f"Failed to copy system templates: {e}")
-            # Don't fail bootstrap if copying fails
+            logger.error(f"Failed to copy default skills: {e}")
 
     # ===== Helper Methods =====
 
@@ -181,6 +197,7 @@ class TemplateManager:
             agents=agents,
             sub_agents=sub_agents_list,
             tags=template_dict.get("tags", []),
+            skills=normalize_skills_value(template_dict.get("skills", "none")),
         )
 
     def prepare_team(
@@ -196,6 +213,20 @@ class TemplateManager:
         missing_sub_agents: list[str] = []
 
         agent_index = {agent.id: agent for agent in chatroom_config.agents}
+
+        skills_spec = normalize_skills_value(chatroom_config.skills)
+
+        def _should_enable_skills(agent_id: str | None) -> bool:
+            allowed_tokens = {entry.strip().lower() for entry in skills_spec if entry}
+            if not allowed_tokens:
+                return False
+            if "all" in allowed_tokens:
+                return True
+            if "none" in allowed_tokens:
+                return False
+            if not agent_id:
+                return False
+            return agent_id.strip().lower() in allowed_tokens
 
         def collect_requirements(agent_cfg: AgentConfig | None):
             if not agent_cfg:
@@ -215,7 +246,9 @@ class TemplateManager:
         for agent_id, agent_cfg in agent_index.items():
             if agent_id in sub_agent_ids:
                 continue
-            agent_payloads[agent_id] = agent_cfg.to_creation_payload()
+            payload = agent_cfg.to_creation_payload()
+            payload["enable_skills"] = _should_enable_skills(agent_id)
+            agent_payloads[agent_id] = payload
 
         for sub_agent_id in sub_agent_ids:
             agent_cfg = agent_index.get(sub_agent_id)
@@ -228,6 +261,7 @@ class TemplateManager:
                     continue
             sub_payload = payload_for(agent_cfg)
             if sub_payload:
+                sub_payload["enable_skills"] = _should_enable_skills(sub_agent_id)
                 sub_agent_payloads[sub_agent_id] = sub_payload
 
         return (
