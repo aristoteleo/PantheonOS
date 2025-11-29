@@ -115,9 +115,9 @@ Pass environment information to `selection_expert` so it knows computational con
 
 ### 2. Understand selection methods and panel goals  
 If the user requests a specific method, plan to run only that method.  
-Otherwise, plan to run **HVG, SpaPROS, scGeneFit, Differential Expression, Random Forest**, select a gene subpanel then complete it to final panel of size asked by the user using biological context and criteria sought.
+Otherwise, plan to run **HVG, SpaPROS, scGeneFit, Differential Expression, Random Forest**, `selection_expert`will run these algorithms and select a gene subpanel based on it's own logic then complete it to final panel of size asked by the user using biological context and criteria sought.
 
-The biological context and final panel goal must be passed to `selection_expert`.
+The biological context, algorithms to run and final panel goal must be passed to `selection_expert`, this is the only thing you should provide and let `selection_expert`do the work **independently**.
 
 ### 3. Benchmark and compare the final panel to the panels from prestablished methods.
 Ask `selection_expert`to do this. It knows how to.

@@ -3,6 +3,10 @@ Environment summary update (2025-11-28)
 - Python: 3.10.19 (/home/erwinpi/miniconda3/envs/gps/bin/python3)
 - Pip: 25.3
 
+Installed/verified for plotting set intersections:
+- venn: already installed (version not reported by package)
+- upsetplot: 0.9.0 (already installed)
+
 Installed/updated for web tools:
 - ddgs 9.9.1
 - duckduckgo-search 8.1.1 (deprecated; use ddgs instead)
@@ -10,5 +14,7 @@ Installed/updated for web tools:
 - playwright 1.56.0 (Chromium installed)
 
 Notes:
+- venn supports up to 6 sets and integrates with matplotlib; use venn.venn(...)
+- upsetplot provides UpSet plots; typical usage: from upsetplot import UpSet; UpSet(data).plot()
 - crawl4ai API uses AsyncWebCrawler and returns a CrawlResultContainer. Access first item via result[0]. For content, use item.html or item.markdown.raw_markdown.
 - The domain tisch2.comp-genomics.org does not currently resolve (NXDOMAIN). The accessible TISCH2 site is at http://tisch.comp-genomics.org/home/.
