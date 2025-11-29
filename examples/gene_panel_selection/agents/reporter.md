@@ -84,7 +84,7 @@ Include figures and cite relevant literature when necessary.
 ## Methods
 Include: 
 - A thouroughly detailed description of the **selection pipeline** from the `selection_expert`
-- All pre-established algorithm results and Venn diagram showing intersections between pre-established algorithm outputs   
+- All pre-established algorithm results and Upset plot showing intersections between pre-established algorithm outputs   
 - Completion logic and reasoning for determining the optimal size for cell-type separability  
 - Figures including **ARI vs panel size** curves  
 

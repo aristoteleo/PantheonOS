@@ -179,7 +179,7 @@ Produce:
         in one or more preestablished
         algoritm or is from completion
         so check in all list of panels
-- Venn diagram of overlaps between panels from prestablished algorithms 
+- Upset plot  of overlaps between panels from prestablished algorithms 
 - **All benchmark figures**
 
 ---

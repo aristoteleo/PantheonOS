@@ -163,7 +163,7 @@ The final report must include:
 | Gene | Methods where it appears | Biological relevance (context) | Relevance score |
 |------|--------------------------|--------------------------------|-----------------|
 
-- Venn diagram showing intersections between pre-established algorithm outputs  
+- Upset plot showing intersections between pre-established algorithm outputs  
 - Benchmarking section with:
   - dataset splitting strategy  
   - ARI/NMI/SI boxplots  
