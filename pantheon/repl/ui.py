@@ -92,109 +92,53 @@ class ReplUI:
     def _should_display_bash_in_box(self, command: str) -> bool:
         """Determine if a bash command should be displayed in a code box instead of inline"""
         command = command.strip()
-        
-        # List of bioinformatics tools that should always use code box
-        bio_tools = [
-            'fastqc', 'multiqc', 'trim_galore', 'cutadapt', 
-            'bowtie2', 'bwa', 'minimap2', 'hisat2',
-            'samtools', 'bcftools', 'picard', 'sambamba',
-            'macs2', 'genrich', 'hmmratac',
-            'bamCoverage', 'computeMatrix', 'plotHeatmap', 'plotProfile',
-            'bedtools', 'findMotifsGenome.pl', 'homer',
-            'featureCounts', 'htseq-count', 'star', 'rsem', 'kallisto'
-        ]
-        
-        # Check if command starts with any bio tool
         command_parts = command.split()
-        if command_parts:
-            first_command = command_parts[0].split('/')[-1]  # Get just the command name (no path)
-            if any(tool in first_command.lower() for tool in bio_tools):
-                return True
-        
+
         # Check command length (long commands should use code box)
         if len(command) > 80:
             return True
-        
+
         # Check if command has many arguments (likely complex)
-        if len(command_parts) > 6:
+        if command_parts and len(command_parts) > 6:
             return True
-        
-        # Check for multi-line commands
+
+        # Check for multi-line commands or chained commands
         if '\n' in command or '&&' in command or '||' in command or ';' in command:
             return True
-        
-        # Check for file paths (likely data processing)
-        if any(ext in command for ext in ['.fastq', '.fq', '.bam', '.sam', '.bed', '.gtf', '.gff', '.fa', '.fasta']):
-            return True
-        
+
         return False
 
     def _get_bash_command_title(self, command: str) -> str:
         """Get an appropriate title for a bash command based on the tool being used"""
         command = command.strip().lower()
         command_parts = command.split()
-        
+
         if not command_parts:
             return "Run bash command"
-        
+
         # Extract the actual command name (remove path if present)
         first_command = command_parts[0].split('/')[-1]
-        
-        # Define titles for common bioinformatics tools
-        tool_titles = {
-            'fastqc': 'Quality Control with FastQC',
-            'multiqc': 'Generate MultiQC Report',
-            'trim_galore': 'Adapter Trimming with Trim Galore',
-            'cutadapt': 'Adapter Trimming with Cutadapt',
-            'bowtie2': 'Sequence Alignment with Bowtie2',
-            'bwa': 'Sequence Alignment with BWA',
-            'minimap2': 'Long-read Alignment with Minimap2',
-            'hisat2': 'RNA-seq Alignment with HISAT2',
-            'samtools': 'SAM/BAM Processing with Samtools',
-            'bcftools': 'Variant Processing with BCFtools',
-            'picard': 'BAM Processing with Picard',
-            'sambamba': 'BAM Processing with Sambamba',
-            'macs2': 'Peak Calling with MACS2',
-            'genrich': 'Peak Calling with Genrich',
-            'hmmratac': 'Peak Calling with HMMRATAC',
-            'bamcoverage': 'Generate Coverage Tracks',
-            'computematrix': 'Compute Matrix for Visualization',
-            'plotheatmap': 'Generate Heatmap',
-            'plotprofile': 'Generate Profile Plot',
-            'bedtools': 'Genomic Interval Operations',
-            'findmotifsgenome.pl': 'Motif Discovery with HOMER',
-            'homer': 'Motif Analysis with HOMER',
-            'featurecounts': 'Count Features with featureCounts',
-            'htseq-count': 'Count Features with HTSeq',
-            'star': 'RNA-seq Alignment with STAR',
-            'rsem': 'Expression Quantification with RSEM',
-            'kallisto': 'Expression Quantification with Kallisto'
-        }
-        
-        # Check for exact matches first
-        for tool, title in tool_titles.items():
-            if first_command == tool:
-                return title
-        
-        # Check for partial matches (in case of versioned tools like fastqc-0.11.9)
-        for tool, title in tool_titles.items():
-            if tool in first_command:
-                return title
-        
+
         # Check for pipeline-style commands
         if any(connector in command for connector in ['&&', '||', ';', '|']):
-            return "Run multi-step pipeline"
-        
+            return "Run pipeline"
+
         # Check for common patterns
-        if 'wget' in first_command or 'curl' in first_command:
+        if first_command in ['wget', 'curl']:
             return "Download files"
-        elif 'gunzip' in first_command or 'tar' in first_command or 'unzip' in first_command:
-            return "Extract/decompress files"
-        elif first_command in ['mkdir', 'cp', 'mv', 'rm']:
-            return "File system operations"
-        elif first_command in ['grep', 'awk', 'sed', 'sort', 'uniq']:
+        elif first_command in ['gunzip', 'tar', 'unzip']:
+            return "Extract files"
+        elif first_command in ['mkdir', 'cp', 'mv', 'rm', 'ln']:
+            return "File operations"
+        elif first_command in ['grep', 'awk', 'sed', 'sort', 'uniq', 'cut', 'wc']:
             return "Text processing"
-        
+        elif first_command in ['git']:
+            return "Git operation"
+        elif first_command in ['docker', 'docker-compose']:
+            return "Docker operation"
+        elif first_command in ['pip', 'pip3', 'conda', 'npm', 'yarn']:
+            return "Package management"
+
         return "Run bash command"
 
     def _wrap_bash_command(self, command: str, max_width: int = 71) -> List[str]:
@@ -302,9 +246,6 @@ class ReplUI:
         self.console.print()
         self.console.print("[dim]  • [bold purple]/exit   [/bold purple] to quit[/dim]")
         self.console.print("[dim]  • [bold purple]/help   [/bold purple] for commands[/dim]")
-
-        self.console.print("[dim]  • [bold purple]/model  [/bold purple] for available models[/dim]")
-        self.console.print("[dim]  • [bold purple]/api-key[/bold purple] for API keys[/dim]")
         if READLINE_AVAILABLE:
             self.console.print()
             self.console.print("[dim][bold blue]-- CONTROL ----------------------------------------------------------[/bold blue][/dim]")
@@ -354,29 +295,12 @@ class ReplUI:
         self.console.print("[dim][bold purple]/tokens  [/bold purple][/dim] - Token usage analysis")  
         self.console.print("[dim][bold purple]/save    [/bold purple][/dim] - Save conversation to (json) file")
         self.console.print("[dim][bold purple]/clear   [/bold purple][/dim] - Clear screen")
-        self.console.print("[dim][bold purple]/restart [/bold purple][/dim] - Restart Python interpreter (clear all state)")
         self.console.print("[dim][bold purple]!<cmd>   [/bold purple][/dim] - Execute bash command directly (no LLM)")
-        self.console.print("[dim][bold purple]%<code>  [/bold purple][/dim] - Execute Python code directly (no LLM)")
-        self.console.print("[dim][bold purple]><code>  [/bold purple][/dim] - Execute R code directly (no LLM)")
         self.console.print("[dim][bold purple]/exit    [/bold purple][/dim] - Exit cleanly")
         self.console.print("[dim]Ctrl+C   [/dim] - Cancel current operation")
         self.console.print("[dim]Ctrl+C x2[/dim] - Force exit (within 2 seconds)")
         self.console.print()
-        
-        # Check if model/API key management is available
-        if hasattr(self.agent, '_model_manager') or hasattr(self.agent, '_api_key_manager'):
-            #self.console.print("\n[bold]Model & API Management:[/bold]")
-            self.console.print("[dim][bold blue]-- MODEL & API ------------------------------------------------------[/bold blue][/dim]")
-            self.console.print()
-            if hasattr(self.agent, '_model_manager'):
-                self.console.print("[dim][bold purple]/model[/bold purple] list              [/dim] - List available models")
-                self.console.print("[dim][bold purple]/model[/bold purple] current           [/dim] - Show current model")  
-                self.console.print("[dim][bold purple]/model[/bold purple] <id>              [/dim] - Switch to model")
-            if hasattr(self.agent, '_api_key_manager'):
-                self.console.print("[dim][bold purple]/api-key[/bold purple] list            [/dim] - Show API key status")
-                self.console.print("[dim][bold purple]/api-key[/bold purple] <provider> <key>[/dim] - Set API key")
-            self.console.print()
-        
+
         if READLINE_AVAILABLE:
             #self.console.print("\n[bold]Navigation:[/bold]")
             self.console.print("[dim][bold blue]-- NAVIGATION -------------------------------------------------------[/bold blue][/dim]")
@@ -608,44 +532,16 @@ class ReplUI:
         self._tools_executing = True
         # Set current tool name for progress display
         self._current_tool_name = tool_name
-        
-        
+
+
         # Record tool call in conversation history
         metadata = {"tool_name": tool_name}
         if args:
             metadata.update(args)
-        
+
         # Generate terminal display content for saving
         terminal_display_lines = []
-        if tool_name in ["run_code", "run_code_in_interpreter", "run_python_code",
-                          "run_r_code", "run_julia_code"] and args and 'code' in args:
-            # Capture the code box display
-            if tool_name in ["run_python_code", "run_code", "run_code_in_interpreter"]:
-                terminal_display_lines.append("⏺ Python")
-                header_title = "Run Python code"
-            elif tool_name == "run_r_code":
-                terminal_display_lines.append("⏺ R")
-                header_title = "Run R code"
-            elif tool_name == "run_julia_code":
-                terminal_display_lines.append("⏺ Julia")
-                header_title = "Run Julia code"
-            
-            terminal_display_lines.append("╭" + "─" * 77 + "╮")
-            terminal_display_lines.append(f"│ {header_title}" + " " * (77 - len(header_title) - 4) + "   │")
-            terminal_display_lines.append("│ ╭" + "─" * 73 + "╮ │")
-            
-            code = args['code']
-            lines = code.split('\n')
-            for line in lines[:20]:  # Limit to first 20 lines for display
-                display_line = line[:71] if len(line) <= 71 else line[:68] + "..."
-                terminal_display_lines.append(f"│ │ {display_line.ljust(71)} │ │")
-            
-            terminal_display_lines.append("│ ╰" + "─" * 73 + "╯ │")
-            terminal_display_lines.append("╰" + "─" * 77 + "╯")
-            
-            metadata["terminal_display"] = "\n".join(terminal_display_lines)
-        
-        elif tool_name in ["run_command", "run_command_in_shell"] and args and 'command' in args:
+        if tool_name in ["run_command", "run_command_in_shell"] and args and 'command' in args:
             # Capture bash command display
             command = args['command']
             if self._should_display_bash_in_box(command):
@@ -670,50 +566,7 @@ class ReplUI:
         self.console.print()  # Add some space
 
         # Claude Code style tool call display
-        if tool_name in ["run_code", "run_code_in_interpreter", "run_python_code",
-                          "run_r_code", "run_julia_code"] and args and 'code' in args:
-            # Special handling for code execution
-            if tool_name in ["run_python_code", "run_code", "run_code_in_interpreter"]:
-                self.console.print("⏺ [bold]Python[/bold]")
-                header_title = "Run Python code"
-            elif tool_name == "run_r_code":
-                self.console.print("⏺ [bold]R[/bold]")
-                header_title = "Run R code"
-            elif tool_name == "run_julia_code":
-                self.console.print("⏺ [bold]Julia[/bold]")
-                header_title = "Run Julia code"
-            
-            # Create a fancy code block
-            code = args['code']
-            lines = code.split('\n')
-            
-            # Create the box
-            self.console.print("╭" + "─" * 77 + "╮")
-            title_padding = " " * (77 - len(header_title) - 4)
-            self.console.print(f"│ [bold]{header_title}[/bold]{title_padding}   │")
-            self.console.print("│ ╭" + "─" * 73 + "╮ │")
-
-            # Limit display lines (show first 10 + last 10 if > 20 lines)
-            max_display_lines = 20
-            if len(lines) <= max_display_lines:
-                # Show all lines
-                display_lines = lines
-            else:
-                # Show first 10, ellipsis, last 10
-                first_lines = lines[:10]
-                last_lines = lines[-10:]
-                display_lines = first_lines + [f"... (showing 20 of {len(lines)} lines) ..."] + last_lines
-            
-            for line in display_lines:
-                # Truncate long lines and pad short ones
-                display_line = line[:73] if len(line) <= 73 else line[:70] + "..."
-                padded_line = display_line.ljust(73)
-                self.console.print(f"│ │ {padded_line[:71-2]}   │ │")
-            
-            self.console.print("│ ╰" + "─" * 73 + "╯ │")
-            self.console.print("╰" + "─" * 77 + "╯")
-            
-        elif tool_name in ["run_command", "run_command_in_shell"] and args and 'command' in args:
+        if tool_name in ["run_command", "run_command_in_shell"] and args and 'command' in args:
             # Shell command execution
             command = args['command']
             
@@ -832,28 +685,8 @@ class ReplUI:
         else:
             output = str(result)
 
-        if tool_name in ['run_python_code', 'run_julia_code', 'run_r_code']:
-            try:
-                import ast
-                parsed_output = ast.literal_eval(output)
-                if isinstance(parsed_output, dict) and 'stdout' in parsed_output.keys():
-                    output = parsed_output['stdout']
-            except:
-                pass
-        
         if output and output.strip():
             metadata["actual_terminal_output"] = output
-        
-        # Check for interpreter restart notification
-        if isinstance(result, dict) and result.get("interpreter_restarted"):
-            restart_reason = result.get("restart_reason", "Unknown reason")
-            self.console.print(f"\n[yellow]⚠️  Python interpreter was automatically restarted due to: {restart_reason}[/yellow]")
-            self.console.print(f"[dim]All previous variables and imports have been lost. You may need to re-import libraries.[/dim]\n")
-        
-        # Check for interpreter crash
-        if isinstance(result, dict) and result.get("interpreter_crashed"):
-            self.console.print(f"\n[red]💥 Python interpreter crashed and could not be restarted automatically.[/red]")
-            self.console.print(f"[dim]Use [bold]/restart[/bold] command to manually reset the Python environment.[/dim]\n")
         
         # Special handling for toolsets that print their own output - skip normal output box
         skip_tools = ['edit', 'write', 'read', 'file', 'glob', 'grep', 'ls', 'notebook', 'update_todo_status',
@@ -872,12 +705,6 @@ class ReplUI:
             output = result['result']
         else:
             output = str(result)
-
-        if tool_name in ['run_python_code', 'run_julia_code', 'run_r_code']:
-            import ast
-            output = ast.literal_eval(output)
-            if isinstance(output, dict) and 'stdout' in output.keys():
-                output = output['stdout']
 
         if output and output.strip():
             # Check if this is a bash command output (should be multi-line)

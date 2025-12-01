@@ -4,12 +4,9 @@ import fire
 import pantheon.utils.log as log
 from pantheon.agent import Agent
 from pantheon.repl import Repl
-from pantheon.toolsets.todo import TodoToolSet
 from pantheon.toolsets.python import PythonInterpreterToolSet
-from pantheon.toolsets.r import RInterpreterToolSet
-from pantheon.toolsets.julia import JuliaInterpreterToolSet
 from pantheon.toolsets.shell import ShellToolSet
-from pantheon.toolsets.workflow import WorkflowToolSet
+from pantheon.toolsets.file_manager import FileManagerToolSet
 
 HERE = os.path.dirname(__file__)
 
@@ -19,40 +16,53 @@ async def main():
     log.set_level("INFO")
     log.disable("executor.engine")
 
-    bio_workflow_path = os.path.join(HERE, "bio_workflows")
-
     instructions = """
-    You are a CLI agent that can help user perform data analysis.
+You are a bioinformatics CLI agent that helps users perform data analysis tasks.
 
-    Before performing any analysis, you should do planning with the todo tool.
-    When planning, you should use the list workflow tool to get the workflow of the analysis.
-    After planning, you should do task executions one by one.
-    Before each task execution, you should use the use_workflow tool to get the specific workflow information related to the current task.
-    After each task execution, you should use the todo tool to mark the task as done.
-    Then you can use python/shell/r/julia tool to perform any code execution according to the information you have.
-    If there are some results or outputs, you should use the file editor tool to save the results or outputs.
+## Available Tools
+- **python**: Execute Python code for data analysis
+- **bash**: Execute shell commands
+- **file_manager**: Manage files (read, write, list, etc.)
 
-    During the analysis, you should use the shell tool to perform any shell commands.
-    You should use the python tool to perform any python code execution.
-    You should use the r tool to perform any r code execution.
-    You should use the julia tool to perform any julia code execution.
-    """
+## Workflow
+
+### 1. Skill Discovery
+Before starting any analysis task, use `file_manager.read_file` to read the skill index:
+- Read `upstream_skills/SKILL.md` to understand available analysis skills
+- Based on user's task, identify the appropriate skill (e.g., scrna, atac, spatial)
+
+### 2. Task Planning
+- Read the specific skill file (e.g., `upstream_skills/scrna.md`) for detailed workflow guidance
+- Create a task plan using the todo tool based on the skill's recommended phases
+
+### 3. Task Execution
+- Execute tasks one by one following the skill's guidance
+- Use python tool for data analysis code execution
+- Use bash tool for shell commands (e.g., running bioinformatics tools)
+- Mark each task as done after completion
+
+### 4. Result Management
+- Use file_manager to save analysis results and outputs
+- Use file_manager.observe_images to view generated plots
+- Document findings and key observations
+
+## Key Principles
+- Always read relevant skill documentation before starting analysis
+- Follow the phase-based execution pattern described in skill files
+- Analyze results after each step before proceeding
+- Maintain persistent Python state - avoid redundant data loading
+"""
 
     agent = Agent(
         name="CLI Agent",
         instructions=instructions,
         model="gpt-5",
     )
-    agent.toolset(TodoToolSet("todo"))
     agent.toolset(PythonInterpreterToolSet("python"))
-    agent.toolset(RInterpreterToolSet("r"))
-    agent.toolset(JuliaInterpreterToolSet("julia"))
     agent.toolset(ShellToolSet("bash"))
-    agent.toolset(WorkflowToolSet("bio-workflow", bio_workflow_path))
+    agent.toolset(FileManagerToolSet("file_manager"))
 
     repl = Repl(agent)
-
-    repl.register_handler(bio_workflow_path)
 
     await repl.run()
 

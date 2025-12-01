@@ -24,10 +24,6 @@ from .ui import ReplUI
 from .handlers.base import CommandHandler
 from .handlers.template_handler import TemplateHandler, load_template
 from .handlers.builtin.bash import BashCommandHandler
-from .handlers.builtin.r import RCommandHandler
-from .handlers.builtin.julia import JuliaCommandHandler
-from .handlers.builtin.python import PythonCommandHandler
-from .handlers.builtin.model_manager import ModelManagerCommandHandler
 
 
 class Repl(ReplUI):
@@ -44,7 +40,6 @@ class Repl(ReplUI):
         self.tool_calls_active = False
         self.session_start = datetime.now()
         self.message_count = 0
-        self.python_enabled = False
         
         # Token statistics
         self.total_input_tokens = 0
@@ -82,10 +77,6 @@ class Repl(ReplUI):
 
         self.handlers: list[CommandHandler] = [
             BashCommandHandler(self.console, self),
-            RCommandHandler(self.console, self),
-            JuliaCommandHandler(self.console, self),
-            PythonCommandHandler(self.console, self),
-            ModelManagerCommandHandler(self.console, self),
         ]
 
     def register_handler(self, handler: CommandHandler | str | Path):

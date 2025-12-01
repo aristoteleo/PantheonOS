@@ -1,73 +1,54 @@
-[bio.atac.init]
-as_handler = true
-description = "Initialize (bulk-cell) ATAC-seq pipeline."
-content = """
-ATAC INIT MODE — STRICT
+# ATAC-seq Upstream Analysis
 
-Goal: ONLY clear TodoList and report the new status. Do NOT create or execute anything.
+## Overview
 
-Allowed tools (whitelist):
-  - clear_all_todos()
-  - show_todos()
+ATAC-seq (Assay for Transposase-Accessible Chromatin using sequencing) analysis pipeline for bulk chromatin accessibility profiling. This skill provides workflow-based commands and TodoList management for complete ATAC-seq data processing.
 
-Hard bans (do NOT call under any circumstance in init):
-  - add_todo(), mark_task_done(), execute_current_task()
-  - any atac.* analysis tools
+## Main Workflow
 
-Steps:
-  1) clear_all_todos()
-  2) todos = show_todos()
+### Upstream Analysis
 
-Response format (single line):
-  ATAC init ready • todos={len(todos)}
-"""
+**Parameters:** `folder_path` - Target folder containing FASTQ files
 
-[bio.atac.upstream]
-as_handler = true
-description = "ATAC-seq upstream analysis."
-args = ["folder_path"]
+**Global Rules:**
+- Always use the provided `folder_path` in all phases
+- Idempotent behavior: NEVER create duplicate todos. Only create if the list is EMPTY
+- Do not ask the user for confirmations; proceed automatically and log warnings when needed
+- After each concrete tool completes successfully, call `mark_task_done("what was completed")`, then `show_todos()`
 
-content = """
-🧬 ATAC-seq Analysis Pipeline — Workflow-Based Architecture
-Target folder: {folder_path}
+### Phase 0 - Species Detection & Genome Resources
 
-You have access to the ATAC-seq toolset with workflow-based commands and TodoList management.
+Use workflow commands for species detection and setup:
+- `atac.ATAC_Upstream("init")` - Initialize project structure
+- `atac.ATAC_Upstream("check_dependencies")` - Check tool availability
+- `atac.ATAC_Upstream("setup_genome_resources")` - Setup genome resources
 
-GLOBAL RULES
-- Always use the provided folder_path: "{folder_path}" in all phases.
-- Idempotent behavior: NEVER create duplicate todos. Only create if the list is EMPTY.
-- Do not ask the user for confirmations; proceed automatically and log warnings when needed.
-- After each concrete tool completes successfully, call mark_task_done("what was completed"), then show_todos().
+### Phase 1 - TODO Creation (Strict De-dup)
 
-PHASE 0 — SPECIES DETECTION & GENOME RESOURCES
-1) Use workflow commands for species detection and setup:
-   - atac.ATAC_Upstream("init") - Initialize project structure
-   - atac.ATAC_Upstream("check_dependencies") - Check tool availability
-   - atac.ATAC_Upstream("setup_genome_resources") - Setup genome resources
-
-PHASE 1 — TODO CREATION (STRICT DE-DUP)
 Mandatory order:
-  a) current = show_todos()
-  b) Analyze folder structure and FASTQ files in "{folder_path}"
+1. `current = show_todos()`
+2. Analyze folder structure and FASTQ files
+
 Creation rule (single condition):
-  • If current is EMPTY → create ONCE the following todos:
-      0. "Initialize ATAC-seq project structure"
-      1. "Check and install ATAC-seq dependencies"
-      2. "Setup genome resources and references"
-      3. "ATAC-seq Quality Control with FastQC"
-      4. "ATAC-seq Adapter Trimming"
-      5. "ATAC-seq Genome Alignment with Bowtie2"
-      6. "ATAC-seq BAM Filtering and Processing"
-      7. "ATAC-seq Peak Calling with MACS2"
-      8. "ATAC-seq Coverage Track Generation"
-      9. "ATAC-seq QC Report Generation"
-  • Else → DO NOT create anything. Work with the existing todos.
+- If current is EMPTY → create ONCE the following todos:
+  - "Initialize ATAC-seq project structure"
+  - "Check and install ATAC-seq dependencies"
+  - "Setup genome resources and references"
+  - "ATAC-seq Quality Control with FastQC"
+  - "ATAC-seq Adapter Trimming"
+  - "ATAC-seq Genome Alignment with Bowtie2"
+  - "ATAC-seq BAM Filtering and Processing"
+  - "ATAC-seq Peak Calling with MACS2"
+  - "ATAC-seq Coverage Track Generation"
+  - "ATAC-seq QC Report Generation"
+- Else → DO NOT create anything. Work with the existing todos.
 
-PHASE 2 — EXECUTE WITH TODO TRACKING (LOOP)
+### Phase 2 - Execute with TODO Tracking (Loop)
 
-⚠️ CRITICAL EXECUTION STRATEGY:
-When you call atac.ATAC_Upstream() or atac.ATAC_Analysis(), they return bash command templates.
-You MUST:
+**Critical Execution Strategy:**
+
+When you call `atac.ATAC_Upstream()` or `atac.ATAC_Analysis()`, they return bash command templates. You MUST:
+
 1. **Read and analyze** the entire returned bash command content carefully
 2. **Understand the logic** and methodology described
 3. **Adapt the provided commands** to your current data situation (file paths, sample names, etc.)
@@ -75,7 +56,8 @@ You MUST:
 5. **Handle errors** by adjusting commands based on the guidance provided
 6. **Analyze results** - Check output files, logs, and success/failure status
 
-🧠 **RESULT ANALYSIS REQUIREMENT:**
+**Result Analysis Requirement:**
+
 After executing any bash commands:
 1. **Analyze the output** - Don't just run and move on!
 2. **Check generated files** - Verify expected output files were created
@@ -84,132 +66,45 @@ After executing any bash commands:
 5. **Make decisions** - Should parameters be adjusted based on what you observed?
 6. **Document findings** - Note any issues or important observations
 
-The returned bash commands serve as TEMPLATES and GUIDANCE, adapt them to your specific data.
+### Available Workflows
 
-For each current task:
-  1) hint = execute_current_task()   # obtain guidance for the next action
-  2) Get bash command templates using appropriate ATAC workflow:
-     
-     UPSTREAM WORKFLOWS (use atac.ATAC_Upstream(workflow_type)):
-     - "init" - Initialize project structure
-     - "check_dependencies" - Check tool dependencies  
-     - "setup_genome_resources" - Setup genome resources
-     - "run_fastqc" - Quality control analysis
-     - "trim_adapters" - Adapter trimming
-     - "align_bowtie2" - Bowtie2 alignment (recommended for ATAC-seq)
-     - "align_bwa" - BWA alignment (alternative)
-     - "filter_bam" - BAM filtering
-     - "mark_duplicates" - Remove PCR duplicates
-     - "process_bam_smart" - Smart BAM processing pipeline
-     
-     DOWNSTREAM WORKFLOWS (use atac.ATAC_Analysis(workflow_type)):
-     - "call_peaks_macs2" - MACS2 peak calling
-     - "call_peaks_genrich" - Genrich peak calling
-     - "bam_to_bigwig" - Generate coverage tracks
-     - "compute_matrix" - Compute matrix for plots
-     - "plot_heatmap" - Create heatmaps
-     - "find_motifs" - Motif analysis
-     - "generate_atac_qc_report" - Comprehensive QC report
-     - "run_full_pipeline" - Complete pipeline workflow
+**Upstream Workflows** (`atac.ATAC_Upstream(workflow_type)`):
+- `"init"` - Initialize project structure
+- `"check_dependencies"` - Check tool dependencies
+- `"setup_genome_resources"` - Setup genome resources
+- `"run_fastqc"` - Quality control analysis
+- `"trim_adapters"` - Adapter trimming
+- `"align_bowtie2"` - Bowtie2 alignment (recommended for ATAC-seq)
+- `"align_bwa"` - BWA alignment (alternative)
+- `"filter_bam"` - BAM filtering
+- `"mark_duplicates"` - Remove PCR duplicates
+- `"process_bam_smart"` - Smart BAM processing pipeline
 
-  3) **EXECUTE** the adapted bash commands and analyze results
-  4) **VERIFY** success by checking output files and logs
-  5) mark_task_done("brief, precise description of the completed step")
-  6) show_todos()
-Repeat until all todos are completed.
+**Downstream Workflows** (`atac.ATAC_Analysis(workflow_type)`):
+- `"call_peaks_macs2"` - MACS2 peak calling
+- `"call_peaks_genrich"` - Genrich peak calling
+- `"bam_to_bigwig"` - Generate coverage tracks
+- `"compute_matrix"` - Compute matrix for plots
+- `"plot_heatmap"` - Create heatmaps
+- `"find_motifs"` - Motif analysis
+- `"generate_atac_qc_report"` - Comprehensive QC report
+- `"run_full_pipeline"` - Complete pipeline workflow
 
-PHASE 3 — ADAPTIVE TODO REFINEMENT
-- If dependencies missing → add_todo("Install missing ATAC-seq tools")
-- If quality issues found → add_todo("Address data quality issues")
-- If additional analysis needed → add_todo("Additional analysis task")
+### Phase 3 - Adaptive TODO Refinement
 
-EXECUTION STRATEGY (MUST FOLLOW THIS ORDER)
-  1) atac.ATAC_Upstream("init") → Initialize project
-  2) atac.ATAC_Upstream("check_dependencies") → Check tools
-  3) atac.ATAC_Upstream("setup_genome_resources") → Setup genome
-  4) show_todos()
-  5) Analyze folder and create todos if empty
-  6) Loop Phase 2 until all done; refine with Phase 3 when needed
+- If dependencies missing → `add_todo("Install missing ATAC-seq tools")`
+- If quality issues found → `add_todo("Address data quality issues")`
+- If additional analysis needed → `add_todo("Additional analysis task")`
 
-📊 EXECUTION EXAMPLES:
+---
 
-🏷️ STEP 1 - PROJECT INITIALIZATION:
+## Sub-tasks
+
+### Peak Calling with MACS2
+
+ATAC-seq Peak Calling with MACS2.
+
 ```bash
-# Get initialization commands
-init_commands = atac.ATAC_Upstream("init")
-# Analyze and adapt the commands to your project
-# Execute: mkdir -p project_structure, create config files, etc.
-```
-
-🏷️ STEP 2 - DEPENDENCY CHECK:
-```bash
-# Get dependency check commands  
-dep_commands = atac.ATAC_Upstream("check_dependencies")
-# Execute: which fastqc, which bowtie2, etc.
-# Install missing tools if needed
-```
-
-🏷️ STEP 3 - FASTQC EXECUTION:
-```bash
-# Get FastQC template commands
-fastqc_commands = atac.ATAC_Upstream("run_fastqc")
-# Adapt to your actual FASTQ files
-# Execute: fastqc sample_R1.fastq.gz sample_R2.fastq.gz -o qc/fastqc/
-# Check results: ls qc/fastqc/*.html
-# Analyze: Look for adapter contamination, quality issues
-```
-
-🏷️ STEP 4 - ALIGNMENT EXECUTION:
-```bash
-# Get alignment template commands
-align_commands = atac.ATAC_Upstream("align_bowtie2") 
-# Adapt with your actual file paths and genome index
-# Execute: bowtie2 -x genome_index -1 R1.fq.gz -2 R2.fq.gz | samtools view -bS - > sample.bam
-# Check results: samtools flagstat sample.bam
-# Analyze: mapping rate, properly paired reads
-```
-
-🏷️ STEP 5 - PEAK CALLING:
-```bash
-# Get peak calling template commands
-peak_commands = atac.ATAC_Analysis("call_peaks_macs2")
-# Adapt with your processed BAM file
-# Execute: macs2 callpeak -t sample_filtered.bam -n sample --outdir peaks/
-# Check results: wc -l peaks/sample_peaks.narrowPeak
-# Analyze: number of peaks, peak quality scores
-```
-
-**CRITICAL SUCCESS PATTERNS:**
-```bash
-# Good - Check files before proceeding
-ls *.fastq.gz  # Verify input files exist
-fastqc *.fastq.gz -o qc/fastqc/
-ls qc/fastqc/*.html  # Verify outputs created
-
-# Good - Capture and analyze results
-samtools flagstat sample.bam > alignment_stats.txt
-cat alignment_stats.txt  # Review mapping statistics
-
-# Good - Error handling
-if [ ! -f "sample.bam" ]; then
-    echo "ERROR: Alignment failed"
-    exit 1
-fi
-```
-
-BEGIN NOW:
-- Execute PHASE 0 → PHASE 1 → PHASE 2 loop.
-- **ACTUALLY EXECUTE** the bash commands after adapting them
-- **ANALYZE RESULTS** after each step
-- **VERIFY SUCCESS** by checking output files
-- Report any errors or quality issues encountered
-"""
-
-[bio.atac.task.analysis.call_peaks_macs2]
-description = "ATAC-seq Peak Calling with MACS2"
-content = """
-# ATAC-seq Peak Calling with MACS2
-
 # Basic MACS2 peak calling
 macs2 callpeak -t treatment.bam -n sample_name --outdir peaks/macs2 -g hs -q 0.01 --nomodel --shift -100 --extsize 200 -B --SPMR
 
@@ -221,15 +116,15 @@ macs2 callpeak -t treatment.bam -n sample_name --outdir peaks/macs2 -g hs -q 0.0
 
 # Output files:
 # - sample_name_peaks.narrowPeak
-# - sample_name_summits.bed  
+# - sample_name_summits.bed
 # - sample_name_treat_pileup.bdg
-"""
+```
 
-[bio.atac.task.analysis.call_peaks_genrich]
-description = "ATAC-seq Peak Calling with Genrich"
-content = """
-# ATAC-seq Peak Calling with Genrich (ATAC-seq optimized)
+### Peak Calling with Genrich
 
+ATAC-seq Peak Calling with Genrich (ATAC-seq optimized).
+
+```bash
 # Basic Genrich peak calling
 Genrich -t sample.bam -o sample.narrowPeak -q 0.01 -j -y -r -e chrM -v
 
@@ -245,35 +140,11 @@ Genrich -t treatment1.bam,treatment2.bam -c control1.bam,control2.bam -o peaks.n
 # -r: Remove mitochondrial reads
 # -e chrM: Exclude chromosome M
 # -v: Verbose output
-"""
+```
 
-[bio.atac.task.analysis.bam_to_bigwig]
-description = "Convert BAM to BigWig"
-content = """
-# ATAC-seq Peak Calling with Genrich (ATAC-seq optimized)
+### Compute Matrix for deepTools Plots
 
-# Basic Genrich peak calling
-Genrich -t sample.bam -o sample.narrowPeak -q 0.01 -j -y -r -e chrM -v
-
-# Multiple samples
-Genrich -t sample1.bam,sample2.bam -o combined.narrowPeak -q 0.01 -j -y -r -e chrM -v
-
-# With control samples
-Genrich -t treatment1.bam,treatment2.bam -c control1.bam,control2.bam -o peaks.narrowPeak -q 0.01 -j -y -r -e chrM -v
-
-# Parameters explained:
-# -j: ATAC-seq mode
-# -y: Remove PCR duplicates
-# -r: Remove mitochondrial reads
-# -e chrM: Exclude chromosome M
-# -v: Verbose output
-"""
-
-[bio.atac.task.analysis.compute_matrix]
-description = "Compute matrix for deepTools plots"
-content = """
-# Compute matrix for deepTools plots
-
+```bash
 # Reference-point mode (around peak centers)
 computeMatrix reference-point -S sample.bw -R peaks.bed -o matrix.mat.gz -a 3000 -b 3000 -p 4
 
@@ -285,13 +156,13 @@ computeMatrix reference-point -S sample1.bw sample2.bw -R peaks.bed -o matrix.ma
 
 # Multiple region files
 computeMatrix reference-point -S sample.bw -R peaks.bed genes.bed -o matrix.mat.gz -a 3000 -b 3000 -p 4
-"""
+```
 
-[bio.atac.task.analysis.plot_heatmap]
-description = "Plot heatmap from matrix using deepTools"
-content = """
-# Plot heatmap from matrix using deepTools
+### Plot Heatmap from Matrix
 
+Plot heatmap from matrix using deepTools.
+
+```bash
 # Basic heatmap
 plotHeatmap -m matrix.mat.gz -o heatmap.png --colorMap RdBu_r --whatToShow "heatmap and colorbar"
 
@@ -303,13 +174,13 @@ plotHeatmap -m matrix.mat.gz -o heatmap.png --colorMap RdBu_r --whatToShow "heat
 
 # Profile plot instead of heatmap
 plotProfile -m matrix.mat.gz -o profile.png --colors red blue
-"""
+```
 
-[bio.atac.task.analysis.find_motifs]
-description = "Find enriched motifs using HOMER"
-content = """
-# Find enriched motifs using HOMER
+### Find Motifs with HOMER
 
+Find enriched motifs using HOMER.
+
+```bash
 # Basic motif finding
 findMotifsGenome.pl peaks.bed hg38 motifs_output/ -size 200 -mask
 
@@ -324,13 +195,13 @@ findMotifsGenome.pl peaks.bed hg38 motifs_output/ -size 200 -mask -nomotif
 
 # Custom background
 findMotifsGenome.pl peaks.bed hg38 motifs_output/ -size 200 -mask -bg background_peaks.bed
-"""
+```
 
-[bio.atac.task.analysis.generate_atac_qc_report]
-description = "Generate ATAC-seq QC report"
-content = """
-# Generate comprehensive ATAC-seq QC report
+### Generate ATAC-seq QC Report
 
+Generate comprehensive ATAC-seq QC report.
+
+```bash
 # Basic alignment statistics
 samtools flagstat sample.bam > sample_flagstat.txt
 
@@ -338,10 +209,10 @@ samtools flagstat sample.bam > sample_flagstat.txt
 wc -l peaks.narrowPeak
 
 # Calculate FRiP (Fraction of Reads in Peaks)
-bedtools intersect -a sample.bam -b peaks.narrowPeak -c | awk '{{sum+=$NF}} END {{print sum}}'
+bedtools intersect -a sample.bam -b peaks.narrowPeak -c | awk '{sum+=$NF} END {print sum}'
 
 # Fragment size distribution
-samtools view -f 2 sample.bam | awk '{{print $9}}' | awk '$1>0' | sort -n | uniq -c > fragment_sizes.txt
+samtools view -f 2 sample.bam | awk '{print $9}' | awk '$1>0' | sort -n | uniq -c > fragment_sizes.txt
 
 # TSS enrichment using deepTools
 computeMatrix reference-point -S sample.bw -R tss.bed -o tss_matrix.mat.gz -a 2000 -b 2000 -p 4
@@ -349,13 +220,13 @@ plotProfile -m tss_matrix.mat.gz -o tss_enrichment.png
 
 # Generate MultiQC report
 multiqc --outdir reports/ --filename multiqc_report.html .
-"""
+```
 
-[bio.atac.task.analysis.run_full_pipeline]
-description = "Run full ATAC-seq pipeline"
-content = """
-# Complete ATAC-seq Pipeline from FASTQ to Peaks
+### Run Full Pipeline
 
+Complete ATAC-seq Pipeline from FASTQ to Peaks.
+
+```bash
 # 1. Quality control
 fastqc *.fastq.gz -o qc/fastqc/
 
@@ -385,44 +256,44 @@ bamCoverage -b sample_dedup.bam -o sample.bw --normalizeUsing RPKM --binSize 10 
 
 # 9. QC report
 multiqc . -o reports/
-"""
+```
 
-[bio.atac.task.upstream.init]
-description = "Initialize ATAC-seq Upstream Analysis Project"
-content = """
-# Initialize ATAC-seq Analysis Project
+### Initialize Project
 
+Initialize ATAC-seq Analysis Project.
+
+```bash
 # Create project directory structure
-mkdir -p atac_analysis/{{fastq,fastq_trimmed,qc/fastqc,qc/multiqc,alignment/{{filtered,dedup}},peaks/{{macs2,genrich}},coverage/bigwig,motifs,annotation,reports,logs,scripts}}
+mkdir -p atac_analysis/{fastq,fastq_trimmed,qc/fastqc,qc/multiqc,alignment/{filtered,dedup},peaks/{macs2,genrich},coverage/bigwig,motifs,annotation,reports,logs,scripts}
 
 # Create config file
 cat > atac_analysis/atac_config.json << EOF
-{{
+{
   "project_name": "atac_analysis",
-  "genome": "hg38", 
+  "genome": "hg38",
   "paired_end": true,
   "created": "$(pwd)",
   "pipeline_version": "1.0.0"
-}}
+}
 EOF
 
-# Create sample sheet template  
+# Create sample sheet template
 cat > atac_analysis/samples.tsv << EOF
 sample_id	fastq_r1	fastq_r2	condition	replicate
 # Example:
 # Sample1	sample1_R1.fastq.gz	sample1_R2.fastq.gz	control	1
 EOF
-"""
+```
 
-[bio.atac.task.upstream.check_dependencies]
-description = "Check ATAC-seq Upstream Analysis Dependencies"
-content = """
-# Check ATAC-seq Tool Dependencies
+### Check Dependencies
 
+Check ATAC-seq Tool Dependencies.
+
+```bash
 # Check core tools
 which fastqc || echo "Missing: fastqc - conda install -c bioconda fastqc -y"
 which bowtie2 || echo "Missing: bowtie2 - conda install -c bioconda bowtie2 -y"
-which bwa || echo "Missing: bwa - conda install -c bioconda bwa -y"  
+which bwa || echo "Missing: bwa - conda install -c bioconda bwa -y"
 which samtools || echo "Missing: samtools - conda install -c bioconda samtools -y"
 which picard || echo "Missing: picard - conda install -c bioconda picard -y"
 which macs2 || echo "Missing: macs2 - conda install -c bioconda macs2 -y"
@@ -435,13 +306,13 @@ fastqc --version 2>/dev/null | head -1
 bowtie2 --version 2>/dev/null | head -1
 samtools --version 2>/dev/null | head -1
 macs2 --version 2>/dev/null
-"""
+```
 
-[bio.atac.task.upstream.setup_genome_resources]
-description = "Setup ATAC-seq Upstream Analysis Genome Resources"
-content = """
-# Setup ATAC-seq Genome Resources
+### Setup Genome Resources
 
+Setup ATAC-seq Genome Resources.
+
+```bash
 # Download human genome (hg38)
 wget -P genomes/ https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz
 gunzip genomes/hg38.fa.gz
@@ -449,7 +320,7 @@ gunzip genomes/hg38.fa.gz
 # Build Bowtie2 index
 bowtie2-build genomes/hg38.fa genomes/hg38_bowtie2
 
-# Build BWA index  
+# Build BWA index
 bwa index genomes/hg38.fa
 
 # Download blacklist regions
@@ -461,13 +332,13 @@ wget -P annotations/ https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/r
 # Create chromosome sizes file
 samtools faidx genomes/hg38.fa
 cut -f1,2 genomes/hg38.fa.fai > genomes/hg38.chrom.sizes
-"""
+```
 
-[bio.atac.task.upstream.run_fastqc]
-description = "Run FastQC for ATAC-seq Upstream Analysis"
-content = """
-# Run FastQC Quality Control
+### Run FastQC
 
+Run FastQC Quality Control.
+
+```bash
 # Single-end reads
 fastqc sample.fastq.gz -o qc/fastqc/
 
@@ -479,17 +350,17 @@ fastqc *.fastq.gz -o qc/fastqc/ -t 4
 
 # Generate MultiQC summary report
 multiqc qc/fastqc/ -o qc/multiqc/
-"""
+```
 
-[bio.atac.task.upstream.trim_adapters]
-description = "Trim Adapters for ATAC-seq Upstream Analysis"
-content = """
-# Trim Adapters with Trim Galore
+### Trim Adapters
 
+Trim Adapters with Trim Galore.
+
+```bash
 # Paired-end trimming
 trim_galore --paired sample_R1.fastq.gz sample_R2.fastq.gz -o fastq_trimmed/ --fastqc
 
-# Single-end trimming  
+# Single-end trimming
 trim_galore sample.fastq.gz -o fastq_trimmed/ --fastqc
 
 # With quality and length filtering
@@ -497,13 +368,13 @@ trim_galore --paired sample_R1.fastq.gz sample_R2.fastq.gz -o fastq_trimmed/ --q
 
 # Alternative with cutadapt
 cutadapt -a AGATCGGAAGAGCACACGTCTGAACTCCAGTCA -A AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT -q 20 --minimum-length 20 -o trimmed_R1.fastq.gz -p trimmed_R2.fastq.gz sample_R1.fastq.gz sample_R2.fastq.gz
-"""
+```
 
-[bio.atac.task.upstream.align_bowtie2]
-description = "Align reads with Bowtie2"
-content = """
-# ATAC-seq Alignment with Bowtie2
+### Align with Bowtie2
 
+ATAC-seq Alignment with Bowtie2.
+
+```bash
 # Paired-end alignment (recommended for ATAC-seq)
 bowtie2 -x genomes/hg38_bowtie2 -1 sample_R1_val_1.fq.gz -2 sample_R2_val_2.fq.gz -p 4 --very-sensitive --dovetail --no-mixed --no-discordant -I 10 -X 700 | samtools view -bS - > sample.bam
 
@@ -516,13 +387,13 @@ samtools index sample_sorted.bam
 
 # Get alignment statistics
 samtools flagstat sample_sorted.bam > sample_alignment_stats.txt
-"""
+```
 
-[bio.atac.task.upstream.align_bwa]
-description = "Align reads with BWA"
-content = """
-# ATAC-seq Alignment with BWA-MEM
+### Align with BWA
 
+ATAC-seq Alignment with BWA-MEM.
+
+```bash
 # Paired-end alignment
 bwa mem -t 4 genomes/hg38.fa sample_R1_val_1.fq.gz sample_R2_val_2.fq.gz | samtools view -bS - > sample.bam
 
@@ -535,13 +406,13 @@ samtools index sample_sorted.bam
 
 # Get alignment statistics
 samtools flagstat sample_sorted.bam > sample_alignment_stats.txt
-"""
+```
 
-[bio.atac.task.upstream.filter_bam]
-description = "Filter BAM for ATAC-seq Upstream Analysis"
-content = """
-# Filter BAM Files for ATAC-seq
+### Filter BAM
 
+Filter BAM Files for ATAC-seq.
+
+```bash
 # Remove unmapped, low quality, and mitochondrial reads
 samtools view -b -q 30 -F 4 sample_sorted.bam | grep -v chrM | samtools view -b - > sample_filtered.bam
 
@@ -554,13 +425,13 @@ bedtools intersect -v -a sample_filtered.bam -b annotations/hg38-blacklist.v2.be
 # Sort and index filtered BAM
 samtools sort sample_filtered_clean.bam -o sample_filtered_sorted.bam
 samtools index sample_filtered_sorted.bam
-"""
+```
 
-[bio.atac.task.upstream.mark_duplicates]
-description = "Mark/Remove PCR Duplicates for ATAC-seq Upstream Analysis"
-content = """
-# Mark/Remove PCR Duplicates
+### Mark/Remove Duplicates
 
+Mark/Remove PCR Duplicates.
+
+```bash
 # Using Picard MarkDuplicates
 picard MarkDuplicates INPUT=sample_filtered_sorted.bam OUTPUT=sample_dedup.bam METRICS_FILE=dup_metrics.txt REMOVE_DUPLICATES=true
 
@@ -576,13 +447,13 @@ samtools index sample_dedup_sorted.bam
 
 # Get final statistics
 samtools flagstat sample_dedup_sorted.bam > sample_final_stats.txt
-"""
+```
 
-[bio.atac.task.upstream.process_bam]
-description = "Process BAM files for ATAC-seq Upstream Analysis"
-content = """
-# Smart BAM Processing Pipeline
+### Smart BAM Processing
 
+Smart BAM Processing Pipeline.
+
+```bash
 # Complete processing from aligned BAM to analysis-ready BAM
 # 1. Sort BAM
 samtools sort sample.bam -o sample_sorted.bam -@ 4
@@ -605,5 +476,5 @@ samtools flagstat sample_final.bam > sample_qc.txt
 samtools stats sample_final.bam > sample_stats.txt
 
 # 7. Fragment size distribution
-samtools view -f 2 sample_final.bam | awk '{{print $9}}' | awk '$1>0' | sort -n | uniq -c > fragment_sizes.txt
-"""
+samtools view -f 2 sample_final.bam | awk '{print $9}' | awk '$1>0' | sort -n | uniq -c > fragment_sizes.txt
+```
