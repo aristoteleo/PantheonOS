@@ -3,20 +3,23 @@ import os
 import fire
 import pantheon.utils.log as log
 from pantheon.agent import Agent
-from pantheon.repl import Repl
 from pantheon.toolsets.python import PythonInterpreterToolSet
 from pantheon.toolsets.shell import ShellToolSet
 from pantheon.toolsets.file_manager import FileManagerToolSet
+
+from dotenv import load_dotenv
 
 HERE = os.path.dirname(__file__)
 
 
 async def main():
+    load_dotenv()
+
     log.use_rich_mode()
     log.set_level("INFO")
     log.disable("executor.engine")
 
-    instructions = """
+    instructions = f"""
 You are a bioinformatics CLI agent that helps users perform data analysis tasks.
 
 ## Available Tools
@@ -28,7 +31,7 @@ You are a bioinformatics CLI agent that helps users perform data analysis tasks.
 
 ### 1. Skill Discovery
 Before starting any analysis task, use `file_manager.read_file` to read the skill index:
-- Read `upstream_skills/SKILL.md` to understand available analysis skills
+- Read `{HERE}/upstream_skills/SKILL.md` to understand available analysis skills
 - Based on user's task, identify the appropriate skill (e.g., scrna, atac, spatial)
 
 ### 2. Task Planning
@@ -58,13 +61,12 @@ Before starting any analysis task, use `file_manager.read_file` to read the skil
         instructions=instructions,
         model="gpt-5",
     )
-    agent.toolset(PythonInterpreterToolSet("python"))
-    agent.toolset(ShellToolSet("bash"))
-    agent.toolset(FileManagerToolSet("file_manager"))
 
-    repl = Repl(agent)
+    await agent.toolset(PythonInterpreterToolSet("python"))
+    await agent.toolset(ShellToolSet("bash"))
+    await agent.toolset(FileManagerToolSet("file_manager"))
 
-    await repl.run()
+    await agent.chat()
 
 
 if __name__ == "__main__":

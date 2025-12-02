@@ -1358,8 +1358,8 @@ class Agent:
                 f"raw memory_length: {len(memory_instance.get_messages())} memory_id: {memory_instance.id}"
             )
             conversation_history = (
-                memory.get_messages(execution_context_id=execution_context_id)
-                if (should_use_memory and memory)
+                memory_instance.get_messages(execution_context_id=execution_context_id)
+                if (should_use_memory and memory_instance)
                 else []
             )
             conversation_history += input_messages

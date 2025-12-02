@@ -39,10 +39,10 @@ def print_agent_message_modern_style(
         max_content_length: int | None = 800,
     ):
     """Print agent message in modern Claude Code style with minimal visual noise"""
-    
+
     if console is None:
         console = Console()
-    
+
     # Handle tool calls with minimal visual noise
     if tool_calls := message.get("tool_calls"):
         for call in tool_calls:
@@ -53,13 +53,13 @@ def print_agent_message_modern_style(
                     args = call.get('function', {}).get('arguments', '')
                     if args:
                         console.print(f"[dim]  {args[:200]}{'...' if len(args) > 200 else ''}[/dim]")
-    
-    # Handle tool responses with clean formatting  
+
+    # Handle tool responses with clean formatting
     elif message.get("role") == "tool":
         content = message.get("content", "")
         if max_content_length and len(content) > max_content_length:
             content = content[:max_content_length] + "..."
-        
+
         # Try to format nicely based on content type
         try:
             import json
@@ -69,7 +69,7 @@ def print_agent_message_modern_style(
             console.print(Syntax(formatted, "json", theme="monokai", line_numbers=False))
         except:
             console.print(f"[dim]{content}[/dim]")
-    
+
     # Handle assistant messages with markdown
     elif message.get("role") == "assistant" and message.get("content"):
         content = message.get("content")
@@ -148,34 +148,34 @@ class ReplUI:
             lines = command.split('\n')
         else:
             lines = [command]
-        
+
         wrapped_lines = []
         for line in lines:
             # If line is short enough, keep it as is
             if len(line) <= max_width:
                 wrapped_lines.append(line)
                 continue
-            
+
             # Try to break at logical points
             # Priority: space before flags (-), pipes (|), && or ||, semicolons, spaces
             current_line = ""
             remaining = line
-            
+
             while remaining:
                 if len(remaining) <= max_width:
                     wrapped_lines.append(remaining)
                     break
-                
+
                 # Find best break point
                 break_point = max_width
-                
+
                 # Look for good break points in priority order
                 # 1. Before a flag (space followed by -)
                 for i in range(max_width - 1, max(0, max_width - 20), -1):
                     if i < len(remaining) - 1 and remaining[i] == ' ' and remaining[i + 1] == '-':
                         break_point = i + 1
                         break
-                
+
                 # 2. Before pipes, redirects, or logical operators
                 if break_point == max_width:
                     for pattern in [' | ', ' > ', ' >> ', ' && ', ' || ', ' ; ']:
@@ -183,21 +183,21 @@ class ReplUI:
                         if idx > 0:
                             break_point = idx + 1
                             break
-                
+
                 # 3. At any space
                 if break_point == max_width:
                     space_idx = remaining[:max_width].rfind(' ')
                     if space_idx > 0:
                         break_point = space_idx + 1
-                
+
                 # 4. If no good break point, break at max_width
                 wrapped_lines.append(remaining[:break_point].rstrip())
                 remaining = remaining[break_point:].lstrip()
-                
+
                 # Add continuation indicator for wrapped lines (except last)
                 if remaining and not wrapped_lines[-1].endswith('\\'):
                     wrapped_lines[-1] = wrapped_lines[-1]
-        
+
         return wrapped_lines
 
     def _print_greeting_agent(self, agent):
@@ -252,7 +252,7 @@ class ReplUI:
             self.console.print()
             self.console.print("[dim]Use ↑/↓ arrows for command history[/dim]")
         self.console.print()
-    
+
     # --- Input ---
     def ask_user_input(self) -> str:
         """Get user input with multi-line support and readline history."""
@@ -292,7 +292,7 @@ class ReplUI:
         self.console.print("[dim][bold purple]/help    [/bold purple][/dim] - Show this help")
         self.console.print("[dim][bold purple]/status  [/bold purple][/dim] - Session info")
         self.console.print("[dim][bold purple]/history [/bold purple][/dim] - Show command history")
-        self.console.print("[dim][bold purple]/tokens  [/bold purple][/dim] - Token usage analysis")  
+        self.console.print("[dim][bold purple]/tokens  [/bold purple][/dim] - Token usage analysis")
         self.console.print("[dim][bold purple]/save    [/bold purple][/dim] - Save conversation to (json) file")
         self.console.print("[dim][bold purple]/clear   [/bold purple][/dim] - Clear screen")
         self.console.print("[dim][bold purple]!<cmd>   [/bold purple][/dim] - Execute bash command directly (no LLM)")
@@ -307,8 +307,8 @@ class ReplUI:
             self.console.print()
             self.console.print("[dim][bold purple]↑/↓[/bold purple] - Browse command history")
         self.console.print()
-        
-    
+
+
     def _print_history(self):
         """Print recent command history"""
         self.console.print()
@@ -317,9 +317,9 @@ class ReplUI:
         if not self.command_history:
             self.console.print("[dim]No command history yet[/dim]\n")
             return
-            
+
         self.console.print(f"[bold purple]Command History[/bold purple] [dim]({len(self.command_history)} commands)[/dim]")
-        
+
         # Show last 10 commands
         recent = self.command_history[-10:]
         for i, cmd in enumerate(recent, 1):
@@ -327,7 +327,7 @@ class ReplUI:
                 self.console.print("[dim]...[/dim]")
             self.console.print(f"[dim]{len(self.command_history) - len(recent) + i:2d}.[/dim] {cmd}")
         self.console.print()
-    
+
     def _print_token_analysis(self):
         """Print detailed token usage analysis"""
         total_tokens = self.total_input_tokens + self.total_output_tokens
@@ -339,19 +339,19 @@ class ReplUI:
         if total_tokens == 0:
             self.console.print("\n[dim]No token usage data yet[/dim]\n")
             return
-        
+
         # Basic stats
         self.console.print(f"[dim]  • Total:[/dim] {self._format_token_count(total_tokens)} tokens")
         self.console.print(f"[dim]  • Input: [/dim] {self._format_token_count(self.total_input_tokens)} ({self.total_input_tokens/total_tokens*100:.1f}%)")
         self.console.print(f"[dim]  • Output: [/dim] {self._format_token_count(self.total_output_tokens)} ({self.total_output_tokens/total_tokens*100:.1f}%)")
         self.console.print()
-        
+
         # Efficiency metrics
         if self.message_count > 0:
             avg_total = total_tokens / self.message_count
             avg_input = self.total_input_tokens / self.message_count
             avg_output = self.total_output_tokens / self.message_count
-            
+
             #self.console.print(f"\n[bold]Per Message Average:[/bold]")
             self.console.print("[dim][bold blue]-- PER MSG/AVG ------------------------------------------------------[/bold blue][/dim]")
             self.console.print()
@@ -371,14 +371,14 @@ class ReplUI:
             self.console.print("[dim]  • Efficient usage - good token management[/dim]")
         elif avg_total > 2000:
             self.console.print("[dim]  • High token usage - consider optimizing prompts[/dim]")
-        
+
         self.console.print()
-        
+
     def _print_status(self):
         """Print current session status"""
         session_duration = datetime.now() - self.session_start
         duration_mins = int(session_duration.total_seconds() / 60)
-        
+
         #self.console.print(f"\n[bold]Session Status:[/bold]")
         self.console.print()
         self.console.print("[dim][bold blue]-- STATUS -----------------------------------------------------------[/bold blue][/dim]")
@@ -391,7 +391,7 @@ class ReplUI:
         self.console.print(f"[dim]• Duration: [/dim] {duration_mins}m")
         self.console.print(f"[dim]• History:  [/dim] {len(self.command_history)} commands")
         self.console.print()
-        
+
         # Token usage statistics
         total_tokens = self.total_input_tokens + self.total_output_tokens
         if total_tokens > 0:
@@ -400,13 +400,13 @@ class ReplUI:
             self.console.print(f"[dim]  • Total:  [/dim] {self._format_token_count(total_tokens)}")
             self.console.print(f"[dim]  • Input:  [/dim] {self._format_token_count(self.total_input_tokens)}")
             self.console.print(f"[dim]  • Output: [/dim] {self._format_token_count(self.total_output_tokens)}")
-            
+
             # Show efficiency metrics
             if self.message_count > 0:
                 avg_tokens_per_msg = total_tokens / self.message_count
                 self.console.print(f"[dim]  • Avg/msg:[/dim] {self._format_token_count(int(avg_tokens_per_msg))}")
             self.console.print()
-        
+
         if READLINE_AVAILABLE:
             self.console.print(f"[dim]Input:[/dim] readline (with history)")
         else:
@@ -417,7 +417,7 @@ class ReplUI:
         """Print a brief session summary before exit"""
         session_duration = datetime.now() - self.session_start
         duration_mins = int(session_duration.total_seconds() / 60)
-        
+
         if self.message_count > 0:
             summary = f"Session: {self.message_count} messages in {duration_mins}m"
             total_tokens = self.total_input_tokens + self.total_output_tokens
@@ -425,14 +425,14 @@ class ReplUI:
                 summary += f" • {self._format_token_count(total_tokens)} tokens"
             self.console.print(f"\n[dim]{summary}[/dim]")
         self.console.print("[dim]Goodbye![/dim]")
-    
+
     def _format_tool_output(self, output):
         """Format tool output for better readability in markdown"""
         import json
-        
+
         if output is None:
             return "*No output*"
-        
+
         # Handle dict outputs
         if isinstance(output, dict):
             # Special handling for common tool outputs
@@ -441,9 +441,9 @@ class ReplUI:
                 result = output["result"]
                 stdout = output.get("stdout", "").strip()
                 stderr = output.get("stderr", "").strip()
-                
+
                 formatted_lines = []
-                
+
                 # Format the main result
                 if result:
                     try:
@@ -453,12 +453,12 @@ class ReplUI:
                         formatted_lines.append("```json")
                         formatted_lines.append(result_str)
                         formatted_lines.append("```")
-                    except:
+                    except Exception:
                         formatted_lines.append("**Result:**")
                         formatted_lines.append("```")
                         formatted_lines.append(str(result))
                         formatted_lines.append("```")
-                
+
                 # Add stdout if present
                 if stdout:
                     formatted_lines.append("")
@@ -466,7 +466,7 @@ class ReplUI:
                     formatted_lines.append("```")
                     formatted_lines.append(stdout)
                     formatted_lines.append("```")
-                
+
                 # Add stderr if present
                 if stderr:
                     formatted_lines.append("")
@@ -474,22 +474,22 @@ class ReplUI:
                     formatted_lines.append("```")
                     formatted_lines.append(stderr)
                     formatted_lines.append("```")
-                
+
                 return "\n".join(formatted_lines) if formatted_lines else "```\n{}\n```".format(str(output))
-            
+
             # Special handling for todo outputs
             elif "success" in output and "summary" in output:
                 formatted_lines = []
                 if output.get("success"):
                     summary = output.get("summary", {})
                     total = output.get("total_todos", 0)
-                    
+
                     formatted_lines.append(f"✅ **Todo Status:** {total} total tasks")
                     if summary:
                         formatted_lines.append(f"- Pending: {summary.get('pending', 0)}")
                         formatted_lines.append(f"- In Progress: {summary.get('in_progress', 0)}")
                         formatted_lines.append(f"- Completed: {summary.get('completed', 0)}")
-                    
+
                     # Add todos list if present
                     if "todos" in output and output["todos"]:
                         formatted_lines.append("")
@@ -497,31 +497,31 @@ class ReplUI:
                         for todo in output["todos"]:
                             status_icon = "✅" if todo.get("status") == "completed" else "🔄" if todo.get("status") == "in_progress" else "⏳"
                             formatted_lines.append(f"- {status_icon} {todo.get('content', 'Unknown task')}")
-                    
+
                     return "\n".join(formatted_lines)
-            
+
             # Generic dict formatting
             try:
                 formatted = json.dumps(output, indent=2, ensure_ascii=False)
                 return f"```json\n{formatted}\n```"
-            except:
+            except Exception:
                 return f"```\n{str(output)}\n```"
-        
+
         # Handle list outputs
         elif isinstance(output, list):
             try:
                 formatted = json.dumps(output, indent=2, ensure_ascii=False)
                 return f"```json\n{formatted}\n```"
-            except:
+            except Exception:
                 return f"```\n{str(output)}\n```"
-        
+
         # Handle string outputs
         elif isinstance(output, str):
             if "\n" in output or len(output) > 80:
                 return f"```\n{output}\n```"
             else:
                 return output
-        
+
         # Default formatting
         else:
             return f"```\n{str(output)}\n```"
@@ -548,39 +548,39 @@ class ReplUI:
                 terminal_display_lines.append("⏺ Bash")
                 header_title = self._get_bash_command_title(command)
                 wrapped_lines = self._wrap_bash_command(command, max_width=71)
-                
+
                 terminal_display_lines.append("╭" + "─" * 77 + "╮")
                 terminal_display_lines.append(f"│ {header_title}" + " " * (77 - len(header_title) - 4) + "   │")
                 terminal_display_lines.append("│ ╭" + "─" * 73 + "╮ │")
-                
+
                 for line in wrapped_lines[:20]:  # Limit display
                     terminal_display_lines.append(f"│ │ {line.ljust(71)} │ │")
-                
+
                 terminal_display_lines.append("│ ╰" + "─" * 73 + "╯ │")
                 terminal_display_lines.append("╰" + "─" * 77 + "╯")
-                
+
                 metadata["terminal_display"] = "\n".join(terminal_display_lines)
             else:
                 metadata["terminal_display"] = f"⏺ Bash({command})"
-        
+
         self.console.print()  # Add some space
 
         # Claude Code style tool call display
         if tool_name in ["run_command", "run_command_in_shell"] and args and 'command' in args:
             # Shell command execution
             command = args['command']
-            
+
             # Check if this command should be displayed in a code box
             should_use_code_box = self._should_display_bash_in_box(command)
-            
+
             if should_use_code_box:
                 # Display complex bash commands in a code box (similar to Python)
                 self.console.print("⏺ [bold]Bash[/bold]")
                 header_title = self._get_bash_command_title(command)
-                
+
                 # Wrap the command for better display
                 wrapped_lines = self._wrap_bash_command(command, max_width=71)
-                
+
                 self.console.print("╭" + "─" * 77 + "╮")
                 title_padding = " " * (77 - len(header_title) - 4)
                 self.console.print(f"│ [bold]{header_title}[/bold]{title_padding}   │")
@@ -596,18 +596,18 @@ class ReplUI:
                     # Calculate actual hidden lines
                     hidden_count = len(wrapped_lines) - 20
                     display_lines = first_lines + [f"... ({hidden_count} more lines) ..."] + last_lines
-                
+
                 for line in display_lines:
                     # Lines are already wrapped to fit, just pad them
                     padded_line = line.ljust(71)
                     self.console.print(f"│ │ {padded_line} │ │")
-                
+
                 self.console.print("│ ╰" + "─" * 73 + "╯ │")
                 self.console.print("╰" + "─" * 77 + "╯")
             else:
                 # Simple commands use the original format
                 self.console.print(f"⏺ [bold]Bash[/bold]({command})")
-            
+
         else:
             # Generic tool call
             if args:
@@ -632,28 +632,28 @@ class ReplUI:
                         key_arg = f"code='{first_line}... ({len(code_lines)} lines)'"
                 elif tool_name == "use_workflow":
                     key_arg = ", ".join([f"{k}='{v}'" for k, v in args.items()])
-                
+
                 if key_arg:
                     self.console.print(f"⏺ [bold]{tool_name}[/bold]({key_arg})")
                 else:
                     self.console.print(f"⏺ [bold]{tool_name}[/bold](...)")
             else:
                 self.console.print(f"⏺ [bold]{tool_name}[/bold]()")
-        
+
         self.console.print()  # Add space after tool call
-        
+
     def print_tool_result(self, tool_name: str, result: dict):
         """Print tool result in Claude Code style with diff support"""
-        
+
         # Mark that tool execution is complete
         self._tools_executing = False
         # Clear current tool name since execution is done
         self._current_tool_name = None
-        
+
         # Record tool result in conversation history with full result data
         result_content = ""
         terminal_display = ""
-        
+
         if isinstance(result, dict):
             # Store the full result dict for proper formatting
             if 'stdout' in result:
@@ -664,19 +664,19 @@ class ReplUI:
                 result_content = str(result['result'])
             else:
                 result_content = str(result)
-            
+
             # Capture the actual terminal display format
             if tool_name in ['run_python_code', 'run_julia_code', 'run_r_code', 'run_command', 'run_command_in_shell', 'bash']:
                 # For code execution, preserve the full output structure
                 terminal_display = str(result)
         else:
             result_content = str(result)
-        
+
         metadata = {"tool_name": tool_name}
         if terminal_display:
             metadata["terminal_display"] = terminal_display
         metadata["full_result"] = result  # Store the complete result for formatting
-        
+
         # Also capture what would appear in the terminal output box
         if isinstance(result, dict) and 'output' in result:
             output = result['output']
@@ -687,7 +687,7 @@ class ReplUI:
 
         if output and output.strip():
             metadata["actual_terminal_output"] = output
-        
+
         # Special handling for toolsets that print their own output - skip normal output box
         skip_tools = ['edit', 'write', 'read', 'file', 'glob', 'grep', 'ls', 'notebook', 'update_todo_status',
                      'add_todo', 'mark_task_done', 'complete_current_todo', 'work_on_next_todo']
@@ -696,7 +696,7 @@ class ReplUI:
                 # For successful operations, don't show any output box
                 # The content was already printed by the toolset
                 return
-            
+
 
         # Show tool output in Claude Code style
         if isinstance(result, dict) and 'output' in result:
@@ -710,13 +710,13 @@ class ReplUI:
             # Check if this is a bash command output (should be multi-line)
             # vs other tool outputs (should be single line)
             is_bash_output = tool_name.lower() in ['run_command', 'run_command_in_shell', 'bash']
-            
+
             if is_bash_output:
                 # Compact single-line display for bash command outputs
                 # Handle escaped characters in output
                 processed_output = output.replace('\\n', '\n').replace('\\t', '\t')
                 lines = processed_output.strip().split('\n')
-                
+
                 # Create summary for multi-line output
                 if len(lines) > 1:
                     # Show first line with line count
@@ -727,7 +727,7 @@ class ReplUI:
                 else:
                     # Single line, truncate if too long
                     summary = lines[0][:70] + ("..." if len(lines[0]) > 70 else "")
-                
+
                 # Compact output format similar to Update() style
                 self.console.print(f"Output")
                 self.console.print(f"  ⎿  {summary}")
@@ -739,7 +739,7 @@ class ReplUI:
                     truncated_output = output[:70] + "..."
                 else:
                     truncated_output = output
-                
+
                 # Compact output format similar to Update() style
                 self.console.print(f"Output")
                 self.console.print(f"  ⎿  {truncated_output}")
@@ -753,9 +753,9 @@ class ReplUI:
                     message = await self.agent.events_queue.get()
                 except asyncio.CancelledError:
                     break
-                except Exception as e:
+                except Exception:
                     continue
-                    
+
                 # Handle tool calls with Claude Code style
                 if tool_calls := message.get("tool_calls"):
                     # Estimate tokens for tool calls message
@@ -764,45 +764,45 @@ class ReplUI:
                     if hasattr(self, '_parent_repl') and hasattr(self._parent_repl, 'estimated_output_tokens'):
                         additional_tokens = self._parent_repl._estimate_tokens(tool_call_content)
                         self._parent_repl.estimated_output_tokens += additional_tokens
-                    
+
                     for call in tool_calls:
                         tool_name = call.get('function', {}).get('name')
                         if tool_name:
                             try:
                                 args = json.loads(call.get('function', {}).get('arguments', '{}'))
-                            except:
+                            except Exception:
                                 args = {}
                             self.print_tool_call(tool_name, args)
                     continue
-                    
+
                 # Handle tool responses with enhanced formatting
                 elif message.get("role") == "tool":
                     tool_name = message.get("tool_name", "")
                     content = message.get("content", "")
-                    
+
                     # Show tool results in Claude Code style
                     try:
                         # Try to parse as JSON for structured results
                         result = json.loads(content)
                         self.print_tool_result(tool_name, result)
-                    except:
+                    except Exception:
                         # Fallback for plain text results
                         if content.strip():
                             # Create a simple output display for non-JSON results
                             self.print_tool_result(tool_name, {"output": content})
                     continue
-                    
+
                 # Skip assistant messages - we handle them in main loop via content_buffer
                 if message.get("role") == "assistant":
                     continue
-                
+
                 # Only print other message types (like system messages, if any)
                 print_agent_message_modern_style(
-                    self.agent.name, 
-                    message, 
+                    self.agent.name,
+                    message,
                     self.console,
                     show_tool_details=False
                 )
-        except Exception as e:
+        except Exception:
             # Silently handle critical errors in print_message
             pass

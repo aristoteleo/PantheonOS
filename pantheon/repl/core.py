@@ -35,24 +35,24 @@ class Repl(ReplUI):
     def __init__(self, agent: Agent):
         super().__init__()  # init UI
         self.agent = agent
-        
+
         self.current_task = None
         self.tool_calls_active = False
         self.session_start = datetime.now()
         self.message_count = 0
-        
+
         # Token statistics
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         self.current_input_tokens = 0
         self.current_output_tokens = 0
-        
+
         # Processing status tracking
         self._current_live_display = None
         self._tools_executing = False
         self._current_agent_task = None
         self._current_tool_name = None
-        
+
         # Setup history file
         self.history_file = Path(CLI_HISTORY_FILE)
         if not self.history_file.exists():
@@ -64,10 +64,10 @@ class Repl(ReplUI):
         # Setup input system
         self._setup_input_system()
         self._load_history()
-        
+
         # Setup signal handlers for better interrupt handling
         self._setup_signal_handlers()
-        
+
         # Simple fixed input panel at bottom
         self.input_panel = Panel(
             Text("Type your message here...", style="dim"),
@@ -81,7 +81,7 @@ class Repl(ReplUI):
 
     def register_handler(self, handler: CommandHandler | str | Path):
         """Register a handler for processing commands
-        
+
         Args:
             handler: A CommandHandler instance or a path to a config file/folder.
 
@@ -103,19 +103,19 @@ class Repl(ReplUI):
         """Setup signal handlers for better interrupt management"""
         self._interrupt_count = 0
         self._last_interrupt_time = 0
-        
+
         def signal_handler(signum, frame):
             import time
             current_time = time.time()
-            
+
             # If interrupts come within 2 seconds of each other, count them
             if current_time - self._last_interrupt_time < 2.0:
                 self._interrupt_count += 1
             else:
                 self._interrupt_count = 1
-                
+
             self._last_interrupt_time = current_time
-            
+
             # Show cancellation message for first interrupt
             if self._interrupt_count == 1:
                 self.console.print("\n[yellow]Operation interrupted - press Ctrl+C again within 2 seconds to force exit[/yellow]")
@@ -128,14 +128,14 @@ class Repl(ReplUI):
             elif self._interrupt_count >= 2:
                 self.console.print("\n[red]Force exit requested[/red]")
                 sys.exit(1)
-            
+
             # For first interrupt, let KeyboardInterrupt be raised normally
             # This allows the normal interrupt handling to work
-        
+
         # Only set up signal handler on Unix-like systems
         if hasattr(signal, 'SIGINT'):
             signal.signal(signal.SIGINT, signal_handler)
-    
+
     def _setup_input_system(self):
         """Setup simple input system with readline history"""
         if READLINE_AVAILABLE:
@@ -144,19 +144,19 @@ class Repl(ReplUI):
                 readline.read_history_file(str(self.history_file))
             atexit.register(readline.write_history_file, str(self.history_file))
             readline.set_history_length(1000)
-            
+
             # Simple readline configuration for better user experience
             readline.parse_and_bind("tab: complete")
             readline.parse_and_bind("set completion-ignore-case on")
-            
+
             # Configure readline to prevent prompt corruption
             readline.set_startup_hook(None)
             readline.set_pre_input_hook(None)
-            
+
             # Ensure proper history navigation
             readline.parse_and_bind("\"\\e[A\": previous-history")
             readline.parse_and_bind("\"\\e[B\": next-history")
-    
+
     def _load_history(self):
         """Load command history from file"""
         if self.history_file.exists():
@@ -165,7 +165,7 @@ class Repl(ReplUI):
                     self.command_history = [line.strip() for line in f.readlines()[-100:]]  # Keep last 100
             except Exception:
                 self.command_history = []
-    
+
     def _save_history(self):
         """Save command history to file"""
         try:
@@ -174,7 +174,7 @@ class Repl(ReplUI):
                     f.write(self.command_history[-1] + '\n')
         except Exception:
             pass  # Silently ignore history save errors
-    
+
     def _add_to_history(self, command: str):
         """Add command to history"""
         command = command.strip()
@@ -182,7 +182,7 @@ class Repl(ReplUI):
             self.command_history.append(command)
             self._save_history()
             self.history_index = len(self.command_history)
-    
+
     def show_input_panel(self):
         """Show the input panel at bottom"""
         self.console.print("\n")
@@ -217,14 +217,14 @@ class Repl(ReplUI):
         except EOFError:
             raise
 
-    
+
     def _estimate_tokens(self, text: str) -> int:
         """Estimate token count using rough approximation (4 chars ≈ 1 token)"""
         if not text:
             return 0
         # Simple estimation: ~4 characters per token for English text
         return max(1, len(text) // 4)
-    
+
     def _format_token_count(self, count: int) -> str:
         """Format token count with appropriate units and thousand separators"""
         if count >= 1000000:
@@ -235,14 +235,14 @@ class Repl(ReplUI):
             return f"{count:,}"
         else:
             return str(count)
-    
+
     def _update_token_stats(self, input_tokens: int, output_tokens: int):
         """Update token statistics"""
         self.current_input_tokens = input_tokens
         self.current_output_tokens = output_tokens
         self.total_input_tokens += input_tokens
         self.total_output_tokens += output_tokens
-    
+
     def _add_output_tokens_estimate(self, content: str):
         """Add estimated tokens from tool calls or other agent messages"""
         if hasattr(self, 'estimated_output_tokens'):
@@ -254,12 +254,12 @@ class Repl(ReplUI):
             from loguru import logger
             logger.remove()
             logger.add(sys.stdout, level="WARNING")
-        # Simple greeting 
+        # Simple greeting
         await self.print_greeting()
-        
+
         # Set up connection between UI and token tracking
         self._parent_repl = self
-        
+
         # Start the message printing task
         print_task = asyncio.create_task(self.print_message())
 
@@ -269,7 +269,7 @@ class Repl(ReplUI):
             self._add_to_history(current_message)
 
         # Main message processing loop
-        while True:            
+        while True:
             # Get message (either initial message or new user input)
             if current_message is None:
                 try:
@@ -282,12 +282,12 @@ class Repl(ReplUI):
                     self.console.print("\n[dim]Session interrupted[/dim]")
                     self._print_session_summary()
                     break
-            
+
             # Handle special commands FIRST (before sending to API)
             cmd = current_message.strip()
-            
+
             cmd_lower = cmd.lower()
-            
+
             if cmd_lower in ["exit", "quit", "q", "/exit", "/quit", "/q"]:
                 self._print_session_summary()
                 break
@@ -321,7 +321,7 @@ class Repl(ReplUI):
                 self._handle_load_command(current_message.strip())
                 current_message = None  # Reset to get new input
                 continue
-            
+
             # Handle custom commands
             continue_flag = False
             for handler in self.handlers:
@@ -334,19 +334,19 @@ class Repl(ReplUI):
                     break
             if continue_flag:
                 continue
-            
+
             # If not a special command, process with agent
             start_time = time.time()
-            
+
             # Estimate input tokens
             input_tokens = self._estimate_tokens(current_message)
             output_tokens = 0
-            
+
             # Create live status with real-time token tracking (Claude Code style)
             content_buffer = []
             tool_calls_content_buffer = []
             estimated_output_tokens = 0  # Track estimated output tokens from all sources
-            
+
             def process_chunk(chunk: dict):
                 nonlocal estimated_output_tokens
                 content = chunk.get("content")
@@ -368,21 +368,21 @@ class Repl(ReplUI):
             # Tetris-style animation frames (different from Claude's *)
             animation_frames = ["▢", "▣", "▤", "▥", "▦", "▧", "▨", "▩"]
             frame_index = 0
-            
+
             # Show Processing message immediately after user input (Claude Code style)
             processing_live = Live(console=self.console, refresh_per_second=4)
             processing_live.start()
-            
+
             try:
                 def update_processing_status():
                     nonlocal frame_index
                     # Use the estimated output tokens (updated by process_chunk and tool calls)
                     current_output_tokens = estimated_output_tokens
                     elapsed = time.time() - start_time
-                    
+
                     # Create processing message with animated tetris block and real-time token info
                     current_frame = animation_frames[frame_index % len(animation_frames)]
-                    
+
                     # Base status with animation and token info
                     if self._current_tool_name and self._tools_executing:
                         # Show tool name only when currently executing
@@ -390,30 +390,30 @@ class Repl(ReplUI):
                     else:
                         # Default processing message
                         status_text = f"[dim]{current_frame} Processing... • {self._format_token_count(input_tokens)} in, {self._format_token_count(current_output_tokens)} out"
-                    
+
                     if elapsed > 1:
                         status_text += f" • {elapsed:.1f}s"
                     status_text += "[/dim]"
-                    
+
                     processing_live.update(Text.from_markup(status_text))
                     frame_index += 1
 
                 try:
                     # Initial processing status display
                     update_processing_status()
-                    
+
                     # Track if tools are executing
                     self._tools_executing = False
-                    
+
                     def smart_process_chunk(chunk: dict):
                         # Store content
                         process_chunk(chunk)
                         # Always update processing status for real-time feedback
                         update_processing_status()
-                    
+
                     # Store processing_live reference for tool calls
                     self._current_live_display = processing_live
-                    
+
                     # Create a background task to keep updating progress during toolset execution
                     progress_update_task = None
                     async def periodic_progress_update():
@@ -422,7 +422,7 @@ class Repl(ReplUI):
                             await asyncio.sleep(0.25)  # Update 4 times per second
                             if not agent_task.done():
                                 update_processing_status()
-                    
+
                     # Process with agent - tool outputs will display independently
                     # Create a cancellable task for the agent processing
                     agent_task = asyncio.create_task(
@@ -431,13 +431,13 @@ class Repl(ReplUI):
                             process_chunk=smart_process_chunk,
                         )
                     )
-                    
+
                     # Start background progress update task
                     progress_update_task = asyncio.create_task(periodic_progress_update())
-                    
+
                     # Store the task so it can be cancelled on interrupt
                     self._current_agent_task = agent_task
-                    
+
                     try:
                         await agent_task
                     except asyncio.CancelledError:
@@ -452,17 +452,17 @@ class Repl(ReplUI):
                                 await progress_update_task
                             except asyncio.CancelledError:
                                 pass
-                    
+
                     # Final output token calculation
                     if content_buffer:
                         full_content = ''.join(content_buffer)
                         if full_content.strip():
                             output_tokens = self._estimate_tokens(full_content)
-                    
+
                     # Update token statistics
                     self._update_token_stats(input_tokens, output_tokens)
                     self.message_count += 1
-                    
+
                 except KeyboardInterrupt:
                     #self.console.print("\n[yellow]Operation cancelled by user[/yellow]")
                     # Reset interrupt counter since we handled it gracefully
@@ -501,21 +501,21 @@ class Repl(ReplUI):
                 # Ensure processing is stopped
                 if 'processing_live' in locals():
                     processing_live.stop()
-            
+
             # Processing is complete - clear the status line and show final content
             self.console.print()  # Clear processing status with newline
-            
+
             # Print accumulated content after processing
             if content_buffer:
                 full_content = ''.join(content_buffer)
                 if full_content.strip():
-                    
+
                     # Check if content contains code blocks - if so, use plain text
                     if '```' in full_content or 'def ' in full_content or 'import ' in full_content:
                         self.console.print(full_content)
                     else:
                         self.console.print(Markdown(full_content))
-            
+
             self.console.print()  # Add spacing
             current_message = None  # Reset to get new input
 
@@ -526,7 +526,7 @@ class Repl(ReplUI):
         try:
             parts = command.split()
             filename = None
-            
+
             if len(parts) > 1:
                 # User specified a filename: /save myfile.md
                 filename = parts[1]
@@ -535,10 +535,10 @@ class Repl(ReplUI):
 
             else:
                 filename = datetime.now().strftime("%Y%m%d_%H%M%S") + '.json'
-            
+
             self.agent.memory.save(filename)
             self.console.print(f"[green]✅ Conversation saved to:[/green] {filename}")
-            
+
         except Exception as e:
             self.console.print(f"[red]Error saving conversation: {str(e)}[/red]")
         self.console.print()  # Add spacing
@@ -553,7 +553,7 @@ class Repl(ReplUI):
         except Exception as e:
             self.console.print(f"[red]Error loading conversation: {str(e)}[/red]")
         self.console.print()  # Add spacing
-    
+
 
 if __name__ == "__main__":
     agent = Agent(
