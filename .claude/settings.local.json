@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(python -m pytest:*)",
-      "Bash(conda run:*)"
+      "Bash(conda run:*)",
+      "Bash(conda run -n pantheon pytest:*)",
+      "Bash(source:*)",
+      "Bash(conda activate:*)",
+      "Bash(pytest:*)",
+      "Bash(/Users/wzxu/.local/share/mamba/envs/pantheon/bin/python -m pytest:*)",
+      "Bash(/Users/wzxu/.local/share/mamba/envs/pantheon/bin/pip install:*)"
     ],
     "deny": [],
     "ask": []

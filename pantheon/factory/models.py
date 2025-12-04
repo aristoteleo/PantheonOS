@@ -1,7 +1,7 @@
 """
 Data Models for Pantheon Templates
 
-Unified data structures for agents and chatrooms.
+Unified data structures for agents and teams.
 """
 
 from dataclasses import dataclass, field
@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Set
 @dataclass
 class AgentConfig:
     """
-    Agent configuration - used for both standalone agents and agents within chatrooms.
+    Agent configuration - used for both standalone agents and agents within teams.
     Unified structure for all agent definitions.
     """
     id: str
@@ -65,10 +65,9 @@ class AgentConfig:
 @dataclass
 class TeamConfig:
     """
-    Chatroom configuration.
+    Team configuration.
 
-    - agents: List of agents defined within this chatroom
-    - sub_agents: List of agent IDs referenced from the agents library
+    - agents: List of agents defined within this team
     """
     id: str
     name: str
@@ -77,14 +76,12 @@ class TeamConfig:
     category: str = "general"
     version: str = "1.0.0"
     agents: List[AgentConfig] = field(default_factory=list)
-    sub_agents: List[str] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
-    skills: list[str] = field(default_factory=lambda: ["none"])
 
     @property
     def all_agents(self) -> List[str]:
-        """Get all agent IDs (internal + referenced)"""
-        return [a.id for a in self.agents] + self.sub_agents
+        """Get all agent IDs"""
+        return [a.id for a in self.agents]
 
     def to_dict(self) -> dict:
         """Convert to dictionary"""
@@ -96,9 +93,7 @@ class TeamConfig:
             'category': self.category,
             'version': self.version,
             'agents': [a.to_dict() for a in self.agents],
-            'sub_agents': self.sub_agents,
             'tags': self.tags,
-            'skills': list(self.skills or ["none"]),
         }
 
     @classmethod
@@ -117,34 +112,5 @@ class TeamConfig:
             category=data.get('category', 'general'),
             version=data.get('version', '1.0.0'),
             agents=agents,
-            sub_agents=data.get('sub_agents', []),
             tags=data.get('tags', []),
-            skills=normalize_skills_value(data.get('skills', 'none')),
         )
-
-
-def normalize_skills_value(skills_value) -> list[str]:
-    """Normalize inbound skills specification into a list form."""
-    if skills_value is None:
-        return ["none"]
-
-    if isinstance(skills_value, str):
-        normalized = skills_value.strip()
-        if not normalized:
-            return ["none"]
-        normalized_lower = normalized.lower()
-        if normalized_lower in {"all", "none"}:
-            return [normalized_lower]
-        return [normalized]
-
-    if isinstance(skills_value, list):
-        cleaned: list[str] = []
-        for entry in skills_value:
-            if entry is None:
-                continue
-            text = str(entry).strip()
-            if text:
-                cleaned.append(text.lower() if text.lower() in {"all", "none"} else text)
-        return cleaned or ["none"]
-
-    return ["none"]

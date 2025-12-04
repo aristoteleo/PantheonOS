@@ -1,21 +1,18 @@
 ---
 category: engineering
-description: 'Engineering team for software development, automation, and infrastructure.
-
+description: |
+  Engineering team for software development, automation, and infrastructure.
   Coordinates Python, Frontend, and Data Engineering specialists.
-
-  '
-icon: "\U0001F468‍\U0001F4BB"
+icon: 💻
 id: developer_team
 name: Developer Team
+type: team
+version: 2.0.0
 agents:
   - developer_coordinator
-sub_agents:
-- python_dev
-- frontend_dev
-- data_engineer
-type: chatroom
-version: 2.0.0
+  - python_dev
+  - frontend_dev
+  - data_engineer
 developer_coordinator:
   id: developer_coordinator
   name: Engineering Coordinator

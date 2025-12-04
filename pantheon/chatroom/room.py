@@ -304,23 +304,14 @@ class ChatRoom(ToolSet):
 
         (
             agent_configs,
-            sub_agent_configs,
             required_toolsets,
             required_mcp_servers,
-            missing_sub_agents,
         ) = self.template_manager.prepare_team(team_config)
 
-        if missing_sub_agents:
-            logger.error(
-                "Missing sub-agent configs: %s",
-                ", ".join(sorted(missing_sub_agents)),
-            )
         # add default toolsets to agents
         if chat_id:
             default_toolsets = ["todolist"]
             for agent in agent_configs.values():
-                agent.get("toolsets", []).extend(default_toolsets)
-            for agent in sub_agent_configs.values():
                 agent.get("toolsets", []).extend(default_toolsets)
 
         # ===== STEP 2: Compute and ensure all required services =====
@@ -333,16 +324,12 @@ class ChatRoom(ToolSet):
         )
 
         # ===== STEP 3: Create agents =====
-        agents = await create_agents_from_template(endpoint_service, agent_configs)
-        sub_agents = await create_agents_from_template(
-            endpoint_service, sub_agent_configs
-        )
-        all_agents = agents + sub_agents
+        all_agents = await create_agents_from_template(endpoint_service, agent_configs)
         logger.info(f"Created {len(all_agents)} agents")
 
         # ===== STEP 4: Add plan toolset to agents (if chat_id provided) =====
         if chat_id:
-            for agent in agents:
+            for agent in all_agents:
                 plan_mode_toolset = PlanModeToolSet(agent=agent, name="plan_mode")
                 await agent.toolset(plan_mode_toolset)
                 logger.debug(f"Agent '{agent.name}': Added PlanModeToolSet")
@@ -1076,7 +1063,7 @@ class ChatRoom(ToolSet):
     # File-Based Template Management (delegates to template_manager)
 
     @tool
-    async def list_template_files(self, file_type: str = "chatrooms") -> dict:
+    async def list_template_files(self, file_type: str = "teams") -> dict:
         """
         List available template files.
         """

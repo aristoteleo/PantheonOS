@@ -1,22 +1,18 @@
 ---
 category: research
-description:
-  "Team for research, web content analysis, and information synthesis.
-
+description: |
+  Team for research, web content analysis, and information synthesis.
   Coordinates researcher, scraper, and content analyst specialists.
-
-  "
-icon: "\U0001F50D"
+icon: 🔍
 id: research_team
 name: Research Team
+type: team
+version: 2.0.0
 agents:
   - research_coordinator
-sub_agents:
   - researcher
   - scraper
   - content_analyst
-type: chatroom
-version: 2.0.0
 research_coordinator:
   id: research_coordinator
   name: Research Coordinator

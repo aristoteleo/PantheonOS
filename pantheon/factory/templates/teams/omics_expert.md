@@ -1,7 +1,7 @@
 ---
 id: omics_expert
 name: Omics Expert Team
-type: chatroom
+type: team
 icon: 🧬
 category: bioinformatics
 description: A comprehensive multi-agent system for Single-Cell and Spatial Omics data analysis with intelligent delegation, environment management, biological interpretation, and professional reporting.
@@ -12,11 +12,6 @@ tags:
   - spatial-omics
 agents:
   - leader
-  - system_manager
-  - analysis_expert
-  - biologist
-  - reporter
-sub_agents:
   - system_manager
   - analysis_expert
   - biologist
