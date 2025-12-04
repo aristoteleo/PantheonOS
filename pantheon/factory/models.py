@@ -63,7 +63,7 @@ class AgentConfig:
 
 
 @dataclass
-class ChatroomConfig:
+class TeamConfig:
     """
     Chatroom configuration.
 
@@ -102,7 +102,7 @@ class ChatroomConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'ChatroomConfig':
+    def from_dict(cls, data: dict) -> 'TeamConfig':
         """Create from dictionary"""
         agents = []
         if 'agents' in data and isinstance(data['agents'], list):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pantheon.factory.models import AgentConfig, ChatroomConfig
+from pantheon.factory.models import AgentConfig, TeamConfig
 from pantheon.factory.template_manager import TemplateManager
 
 
@@ -66,7 +66,7 @@ def test_template_file_crud_roundtrip(tmp_path):
     assert read_agent["success"] is True
     assert read_agent["content"]["name"] == "Scribe"
 
-    chatroom_payload = ChatroomConfig(
+    chatroom_payload = TeamConfig(
         id="room1",
         name="Room One",
         description="demo",

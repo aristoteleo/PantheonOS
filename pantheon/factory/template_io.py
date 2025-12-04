@@ -23,13 +23,13 @@ except ImportError:
     )
 
 from ..utils.log import logger
-from .models import AgentConfig, ChatroomConfig, normalize_skills_value
+from .models import AgentConfig, TeamConfig, normalize_skills_value
 
 
 class UnifiedMarkdownParser:
     """Unified Markdown parser for agents and chatrooms"""
 
-    def parse_file(self, path: Path) -> Union[AgentConfig, ChatroomConfig]:
+    def parse_file(self, path: Path) -> Union[AgentConfig, TeamConfig]:
         """Parse a markdown file, auto-detecting whether it's an agent or chatroom."""
         if not path.exists():
             raise IOError(f"File not found: {path}")
@@ -69,7 +69,7 @@ class UnifiedMarkdownParser:
             tags=list(metadata.get("tags", []) or []),
         )
 
-    def parse_chatroom(self, content: Union[str, Any]) -> ChatroomConfig:
+    def parse_chatroom(self, content: Union[str, Any]) -> TeamConfig:
         """Parse a chatroom markdown string or already-loaded post."""
         post = self._ensure_post(content)
         metadata = dict(post.metadata)
@@ -141,7 +141,7 @@ class UnifiedMarkdownParser:
                 )
             )
 
-        return ChatroomConfig(
+        return TeamConfig(
             id=chatroom_id,
             name=str(metadata.get("name", "")),
             description=description_text,
@@ -197,9 +197,9 @@ class UnifiedMarkdownParser:
             return f"---\n{fm_text}---\n\n{body}"
         return f"---\n{fm_text}---\n"
 
-    def generate_chatroom(self, chatroom: ChatroomConfig) -> str:
+    def generate_chatroom(self, chatroom: TeamConfig) -> str:
         """
-        Generate chatroom markdown from ChatroomConfig.
+        Generate chatroom markdown from TeamConfig.
 
         All metadata (chatroom + agents) is emitted within the first
         frontmatter block. Inline agent instructions are rendered in the body
@@ -420,12 +420,12 @@ class FileBasedTemplateManager:
 
     # ===== Chatroom Operations =====
 
-    def create_chatroom(self, template: ChatroomConfig) -> Path:
+    def create_chatroom(self, template: TeamConfig) -> Path:
         """
         Create a new chatroom file.
 
         Args:
-            template: ChatroomConfig to create
+            template: TeamConfig to create
 
         Returns:
             Path to created file
@@ -442,7 +442,7 @@ class FileBasedTemplateManager:
         logger.info(f"Created chatroom: {template.id}")
         return path
 
-    def read_chatroom(self, chatroom_id: str) -> ChatroomConfig:
+    def read_chatroom(self, chatroom_id: str) -> TeamConfig:
         """
         Read a chatroom file.
 
@@ -452,7 +452,7 @@ class FileBasedTemplateManager:
             chatroom_id: Chatroom ID
 
         Returns:
-            ChatroomConfig object
+            TeamConfig object
 
         Raises:
             FileNotFoundError: If chatroom not found
@@ -464,13 +464,13 @@ class FileBasedTemplateManager:
 
         raise FileNotFoundError(f"Chatroom {chatroom_id} not found")
 
-    def update_chatroom(self, chatroom_id: str, template: ChatroomConfig):
+    def update_chatroom(self, chatroom_id: str, template: TeamConfig):
         """
         Update an existing chatroom file.
 
         Args:
             chatroom_id: Existing chatroom ID
-            template: Updated ChatroomConfig
+            template: Updated TeamConfig
 
         Raises:
             FileNotFoundError: If chatroom not found
@@ -503,20 +503,20 @@ class FileBasedTemplateManager:
         path.unlink()
         logger.info(f"Deleted chatroom: {chatroom_id}")
 
-    def list_chatrooms(self) -> List[ChatroomConfig]:
+    def list_chatrooms(self) -> List[TeamConfig]:
         """
         List all chatrooms (user + system).
 
         Returns:
-            List of ChatroomConfig
+            List of TeamConfig
         """
         return self._list_templates("chatrooms")
 
-    def _read_chatroom_from_path(self, path: Path) -> ChatroomConfig:
+    def _read_chatroom_from_path(self, path: Path) -> TeamConfig:
         """Parse a chatroom markdown file."""
         parsed = self.parser.parse_file(path)
 
-        if not isinstance(parsed, ChatroomConfig):
+        if not isinstance(parsed, TeamConfig):
             raise ValueError(f"File {path} is not a chatroom")
 
         return parsed
@@ -610,9 +610,9 @@ class FileBasedTemplateManager:
         self._atomic_write(path, content)
 
     def _write_chatroom_file(
-        self, template: ChatroomConfig, path: Path, *, overwrite: bool
+        self, template: TeamConfig, path: Path, *, overwrite: bool
     ):
-        """Serialize a ChatroomConfig to disk."""
+        """Serialize a TeamConfig to disk."""
         if path.exists() and not overwrite:
             raise FileExistsError(f"Chatroom {template.id} already exists")
 

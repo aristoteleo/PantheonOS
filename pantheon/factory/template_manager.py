@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from ..utils.log import logger
 from .template_io import FileBasedTemplateManager
-from .models import AgentConfig, ChatroomConfig, normalize_skills_value
+from .models import AgentConfig, TeamConfig, normalize_skills_value
 
 
 @dataclass
@@ -159,8 +159,8 @@ class TemplateManager:
 
     # ===== Helper Methods =====
 
-    def dict_to_chatroom_config(self, template_dict: dict) -> ChatroomConfig:
-        """Convert frontend template dict to ChatroomConfig object."""
+    def dict_to_team_config(self, template_dict: dict) -> TeamConfig:
+        """Convert frontend template dict to TeamConfig object."""
         agents = [
             AgentConfig.from_dict(agent_data)
             for agent_data in template_dict.get("agents", [])
@@ -187,7 +187,7 @@ class TemplateManager:
                         added += 1
                 logger.debug("Expanded 'all' sub_agents to include %d agent(s)", added)
 
-        return ChatroomConfig(
+        return TeamConfig(
             id=template_dict.get("id", ""),
             name=template_dict.get("name", ""),
             description=template_dict.get("description", ""),
@@ -201,20 +201,20 @@ class TemplateManager:
         )
 
     def prepare_team(
-        self, chatroom_config: ChatroomConfig
+        self, team_config: TeamConfig
     ) -> Tuple[dict, dict, set[str], set[str], list[str]]:
         """Resolve agents/sub_agents and required services for a chatroom."""
 
-        sub_agent_ids = list(chatroom_config.sub_agents or [])
+        sub_agent_ids = list(team_config.sub_agents or [])
         agent_payloads: dict[str, dict] = {}
         sub_agent_payloads: dict[str, dict] = {}
         required_toolsets: set[str] = set()
         required_mcp_servers: set[str] = set()
         missing_sub_agents: list[str] = []
 
-        agent_index = {agent.id: agent for agent in chatroom_config.agents}
+        agent_index = {agent.id: agent for agent in team_config.agents}
 
-        skills_spec = normalize_skills_value(chatroom_config.skills)
+        skills_spec = normalize_skills_value(team_config.skills)
 
         def _should_enable_skills(agent_id: str | None) -> bool:
             allowed_tokens = {entry.strip().lower() for entry in skills_spec if entry}
@@ -276,9 +276,9 @@ class TemplateManager:
         """Validate a raw chatroom template dict (ChatRoom uses this)."""
 
         try:
-            chatroom_config = self.dict_to_chatroom_config(template)
+            team_config = self.dict_to_team_config(template)
 
-            if not chatroom_config.id or not chatroom_config.name:
+            if not team_config.id or not team_config.name:
                 return {
                     "success": False,
                     "message": "Template validation failed: id and name are required",
@@ -291,7 +291,7 @@ class TemplateManager:
                 required_toolsets,
                 required_mcp_servers,
                 missing_sub_agents,
-            ) = self.prepare_team(chatroom_config)
+            ) = self.prepare_team(team_config)
 
             return {
                 "success": True,
@@ -301,7 +301,7 @@ class TemplateManager:
                 "missing_sub_agents": missing_sub_agents,
                 "agents": agent_payloads,
                 "sub_agents": sub_payloads,
-                "template": chatroom_config.to_dict(),
+                "template": team_config.to_dict(),
             }
         except Exception as exc:
             logger.error(f"Error validating template compatibility: {exc}")
@@ -309,12 +309,12 @@ class TemplateManager:
 
     # ===== Template Discovery & Loading =====
 
-    def list_templates(self) -> List[ChatroomConfig]:
+    def list_templates(self) -> List[TeamConfig]:
         """
         List all available chatroom templates (user + system).
 
         Returns:
-            List of ChatroomConfig objects
+            List of TeamConfig objects
         """
         try:
             return self.file_manager.list_chatrooms()
@@ -322,7 +322,7 @@ class TemplateManager:
             logger.error(f"Failed to list templates: {e}")
             return []
 
-    def get_template(self, template_id: str) -> Optional[ChatroomConfig]:
+    def get_template(self, template_id: str) -> Optional[TeamConfig]:
         """
         Get a specific chatroom template by ID.
 
@@ -332,7 +332,7 @@ class TemplateManager:
             template_id: Template ID
 
         Returns:
-            ChatroomConfig if found, None otherwise
+            TeamConfig if found, None otherwise
         """
         try:
             return self.file_manager.read_chatroom(template_id)
@@ -450,7 +450,7 @@ class TemplateManager:
             payload.setdefault("id", template_id)
 
             if file_type == "chatrooms":
-                chatroom = self.dict_to_chatroom_config(payload)
+                chatroom = self.dict_to_team_config(payload)
                 try:
                     self.file_manager.update_chatroom(template_id, chatroom)
                     operation = "update"

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest:*)",
+      "Bash(conda run:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

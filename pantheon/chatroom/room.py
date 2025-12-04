@@ -13,7 +13,7 @@ from ..agent import Agent
 from ..factory import (
     create_agents_from_template,
     get_template_manager,
-    ChatroomConfig,
+    TeamConfig,
 )
 from ..memory import MemoryManager
 from ..team import PantheonTeam
@@ -186,19 +186,19 @@ class ChatRoom(ToolSet):
             logger.info("ChatRoom: startup_mode=remote (stream publish enabled)")
 
     def _save_team_template_to_memory(self, memory, template_obj: dict) -> None:
-        """Save ChatroomConfig to memory for persistence (new format)."""
+        """Save TeamConfig to memory for persistence (new format)."""
         extra_data = getattr(memory, "extra_data", None)
         if extra_data is None:
             memory.extra_data = extra_data = {}
 
-        if isinstance(template_obj, ChatroomConfig):
-            chatroom_config = template_obj
+        if isinstance(template_obj, TeamConfig):
+            team_config = template_obj
         else:
-            chatroom_config = self.template_manager.dict_to_chatroom_config(
+            team_config = self.template_manager.dict_to_team_config(
                 template_obj
             )
 
-        extra_data["team_template"] = dataclasses.asdict(chatroom_config)
+        extra_data["team_template"] = dataclasses.asdict(team_config)
 
     async def get_team_for_chat(self, chat_id: str) -> PantheonTeam:
         """Get the team for a specific chat, creating from memory if needed."""
@@ -237,7 +237,7 @@ class ChatRoom(ToolSet):
             if not default_template:
                 raise RuntimeError("Default template not found in template manager")
 
-            # template_manager returns ChatroomConfig, convert to dict and save
+            # template_manager returns TeamConfig, convert to dict and save
             team_template_dict = dataclasses.asdict(default_template)
 
             # Save default template to memory for this chat
@@ -249,13 +249,13 @@ class ChatRoom(ToolSet):
                 f"Loading team from stored template '{team_template_dict.get('name', 'unknown')}' for chat {chat_id}"
             )
 
-        # Convert dict to ChatroomConfig
-        chatroom_config = self.template_manager.dict_to_chatroom_config(
+        # Convert dict to TeamConfig
+        team_config = self.template_manager.dict_to_team_config(
             team_template_dict
         )
 
         # Create team with per-chat toolsets
-        return await self._create_team_from_template(chatroom_config, chat_id=chat_id)
+        return await self._create_team_from_template(team_config, chat_id=chat_id)
 
     async def _ensure_services(
         self,
@@ -292,10 +292,10 @@ class ChatRoom(ToolSet):
             logger.warning(f"Error ensuring {service_name_plural}: {e}")
 
     async def _create_team_from_template(
-        self, chatroom_config: ChatroomConfig, chat_id: str = None
+        self, team_config: TeamConfig, chat_id: str = None
     ) -> PantheonTeam:
-        """Create a team from ChatroomConfig object."""
-        template_name = chatroom_config.name or "unknown"
+        """Create a team from TeamConfig object."""
+        template_name = team_config.name or "unknown"
 
         logger.info(f"🏗️ Creating team from template '{template_name}'")
 
@@ -308,7 +308,7 @@ class ChatRoom(ToolSet):
             required_toolsets,
             required_mcp_servers,
             missing_sub_agents,
-        ) = self.template_manager.prepare_team(chatroom_config)
+        ) = self.template_manager.prepare_team(team_config)
 
         if missing_sub_agents:
             logger.error(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from textwrap import dedent
 
-from pantheon.factory.models import AgentConfig, ChatroomConfig
+from pantheon.factory.models import AgentConfig, TeamConfig
 from pantheon.factory.template_io import UnifiedMarkdownParser
 
 
@@ -89,7 +89,7 @@ def test_parse_multi_agent_chatroom_markdown(tmp_path):
     )
 
     chatroom = parser.parse_file(path)
-    assert isinstance(chatroom, ChatroomConfig)
+    assert isinstance(chatroom, TeamConfig)
     assert chatroom.id == "research_room"
     assert chatroom.name == "Research Room"
     assert chatroom.category == "research"

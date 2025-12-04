@@ -4,7 +4,7 @@ from ..endpoint.mcp import MCPServerConfig
 from ..providers import MCPProvider, ToolSetProvider
 from ..utils.log import logger
 from .template_manager import get_template_manager
-from .models import ChatroomConfig, AgentConfig
+from .models import TeamConfig, AgentConfig
 
 
 async def create_agent(
