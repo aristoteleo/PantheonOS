@@ -1,39 +1,127 @@
-# Task: A mouse brain receptor profiling panel
-Plex: 500 genes, with annotation, with genes grouped in major categories
-Purpose: the gene panel should be able to identify and map all cell types, including excitatory and inhibitory neurons, glial cells, astrocytes, oligodendrocytes and vascular cells across the brain. Separately, the gene panel should enable users to profile the most relevant druggable receptor targets and their expression in the brain. As the primary goal of this gene panel is brain receptor profiling, it is of interest to include as many relevant druggable receptors as possible, while keeping a relatively small, but core set of marker genes for cell typing. Ideally, the gene panel should include multiple families of relevant druggable receptors in the brain.
+You have already computed a 500-gene mouse panel.You can understand the results you obtained by going through the workdir:
 
-# BEFORE DOING THE TASK
+/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/mouse_brain/workdir
+and the summary you previously generated (pasted below).
+Do not recompute any preestablished gene panel algorithms or panel curation. Use  the existing results.
+I want you to improve the current report.pdf:
 
-- **RETRIEVE  Data**
-We will use the Allen Institute full mouse brain dataset.
+1. Benchmarking corrections
+The benchmarking currently compares 1000-gene panels from the pre-established algorithms to the curated 500-gene panel.You should add a comparison of 500-gene panels to the final curated panel (do not recompute any method).Use the already computed per-method scoring/ranking to extract the top 500 genes per method, and use those as the 500-gene method panels.
 
-First, check that the cache interface is installed:  
-pip install "abc_atlas_access[notebooks] @ git+https://github.com/alleninstitute/abc_atlas_access.git"
+2. Fix the UMAPs
+The UMAPs in the report are not readable because there is too much annotation, and we cannot see anything.Correct the way you compute the maps so that they produce clean, insightful plots of Umap using all gene panels
 
-Look online how to interact with the ABC project and understand their expression matrices and brain regions (but **do not download the full matrices, because they are very large**).  
-Use the cache functions such as:
-- abc_cache.list_directories()
-- abc_cache.list_expression_matrix_files("WMB-10Xv3")
-- abc_cache.list_metadata_files("WMB-taxonomy")
+3. Fix the final gene panel table formatting
+In the final gene panel table at the end of the report, the column “method where it appears” is often too long (e.g., DE—HVG—RF—scGeneFit) and overlaps with the “Biological relevance” column in the PDF.Correct this so that the final table is clean, readable, and professional.
 
-Learn how to navigate through the data and select cells to built the adata:
-https://alleninstitute.github.io/abc_atlas_access/notebooks/getting_started.html
-https://alleninstitute.github.io/abc_atlas_access/notebooks/general_accessing_10x_snRNASeq_tutorial.html 
-https://alleninstitute.github.io/abc_atlas_access/notebooks/abc_atlas_selection_example.html
+4. Save the corrected report
+Produce a newly corrected and well-written report that includes all these fixes, and save it in the same workdir.
 
-Matrices description:  
-https://alleninstitute.github.io/abc_atlas_access/descriptions/WMB-10Xv3.html
+# Your previous summary
+You said :
 
-Annotations (cell-type taxonomy):  
-https://alleninstitute.github.io/abc_atlas_access/descriptions/WMB-taxonomy.html
+Here is the completed mouse brain receptor profiling project. We built three balanced ABC Atlas subsets and executed the receptor-centric 500-gene panel selection, benchmarking, annotation, and reporting 
 
-Built some adatas with the 'WMB-10Xv3' whole mouse brain data **smartly** across all major brain regions and cell types, using the metadata only (not the full matrices). 
 
-You should build **three Scanpy adata files**, each with <50,000 cells and proper cell-type labels with sufficient genes from the expression matrices with code.
+## Computational environment
+- abc_atlas_access installed
+- High-memory CPU, no GPU  
+- Logged in: `workdir/environment.md`
 
-Save these adata files, and use their paths to perform gene panel selection.
+## A. Datasets built from ABC Atlas (WMB-10Xv3)
+Created via metadata-driven slicing (no full matrices downloaded). ~30k cells × 2.7k genes each.
 
-**THIS IS ONLY TO HAVE DATASETS** that you will use for gene panel selection. 
+- Telencephalon — `selection_expert/telencephalon.h5ad`
+- Diencephalon + Midbrain — `selection_expert/diencephalon_midbrain.h5ad`
+- Hindbrain + Cerebellum — `selection_expert/hindbrain_cerebellum.h5ad`
 
-# DO THE TASK
-Once you have the paths proceed to **Gene panel selection** as usual using the paths of the adatas you built
+Documentation:
+- `selection_expert/methods.md`
+- `selection_expert/dataset_summary.md`
+
+## B. Gene panel selection & benchmarking
+Methods executed: HVG, DE, RF, scGeneFit, SpaPROS.  
+Outputs include ARI vs size curves, intermediate panels, and ranked genes.
+
+### Final 500-gene panel
+- 429 receptors  
+- 71 non-receptor markers  
+Files:
+- `final_receptor_centric_500.tsv`
+- `final500_recap_table.csv`
+- `final500_annotations.csv`
+- `final500_grouped_by_category.md`
+
+### Category coverage
+- GPCRs: 140  
+- Voltage-gated ion channels: 110  
+- Ligand-gated: 48  
+- RTKs: 28  
+- Cytokine/IL/TNFR: 51  
+- Other receptor families: 58  
+- Vascular: 6  
+- Non-receptor markers: 59  
+- **Total = 500**
+
+### Benchmarking (5 stratified subsets)
+Mean metrics:
+- Final500: ARI 0.559, NMI 0.739, SI 0.342  
+- HVG1000: ARI 0.578  
+- RF1000: ARI 0.572  
+- SpaPROS1000: ARI 0.382  
+- DE1000: ARI 0.305  
+- scGeneFit1000: ARI 0.191  
+
+Interpretation: Final500 approaches 1000-gene panels while remaining far more compact.
+
+Benchmark outputs:
+- Figures: `selection_expert/figures/` (ari curves, boxplots, UMAPs, overlaps)
+- Metrics:  
+  - `ari_curves_all_methods.csv`  
+  - `benchmark_metrics_5subsets.csv`  
+  - `benchmark_metrics_summary.csv`  
+  - `results/curves/*.csv`
+- UMAP similarity vs HVG3k:  
+  `embedding_similarity_vs_full.csv`
+
+## C. Biological interpretation
+Notes in: `biologist_notes.md`.
+
+Key insights: good separation across major brain cell classes, rich receptor repertoire, minor optional refinements (Grm5, Gabbr1, Oprm1, Hrh3, Foxj1).
+
+## D. Final report
+`workdir/report.pdf` contains:
+- Selection pipeline  
+- Method intersections  
+- ARI curves  
+- Benchmarking  
+- UMAPs  
+- Similarity metrics  
+- Final panel tables  
+- Category summaries  
+
+## Key file index
+### Data
+- `telencephalon.h5ad`  
+- `diencephalon_midbrain.h5ad`  
+- `hindbrain_cerebellum.h5ad`
+
+### Panels
+- `final_receptor_centric_500.tsv`
+- `final500_recap_table.csv`
+- `final500_annotations.csv`
+- `final500_grouped_by_category.md`
+- `panel_*.tsv` (per-method panels)
+
+### Benchmarking
+- `ari_curves_all_methods.csv`
+- `results/curves/*.csv`
+- `benchmark_metrics_*.csv`
+- `figures/*.png`
+
+### Logs
+- `report_analysis_expert_mouse_brain.md`
+- `results_log.md`
+- `methods.md`
+- `dataset_summary.md`
+

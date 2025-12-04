@@ -1,20 +1,13 @@
-Environment summary update (2025-11-28)
+Environment summary update (2025-12-04)
 
 - Python: 3.10.19 (/home/erwinpi/miniconda3/envs/gps/bin/python3)
 - Pip: 25.3
 
-Installed/verified for plotting set intersections:
-- venn: already installed (version not reported by package)
-- upsetplot: 0.9.0 (already installed)
-
-Installed/updated for web tools:
-- ddgs 9.9.1
-- duckduckgo-search 8.1.1 (deprecated; use ddgs instead)
-- crawl4ai 0.7.7
-- playwright 1.56.0 (Chromium installed)
+Newly installed for plotting centroid labels with repel:
+- adjustText: 1.3.0 (installed and import verified)
 
 Notes:
-- venn supports up to 6 sets and integrates with matplotlib; use venn.venn(...)
-- upsetplot provides UpSet plots; typical usage: from upsetplot import UpSet; UpSet(data).plot()
-- crawl4ai API uses AsyncWebCrawler and returns a CrawlResultContainer. Access first item via result[0]. For content, use item.html or item.markdown.raw_markdown.
-- The domain tisch2.comp-genomics.org does not currently resolve (NXDOMAIN). The accessible TISCH2 site is at http://tisch.comp-genomics.org/home/.
+- Use in notebooks:
+  from adjustText import adjust_text
+  texts = [plt.text(x, y, label) for x, y, label in zip(xs, ys, labels)]
+  adjust_text(texts, arrowprops=dict(arrowstyle='-', color='gray'))
