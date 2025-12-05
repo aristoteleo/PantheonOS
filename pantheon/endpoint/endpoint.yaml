@@ -24,7 +24,6 @@ local_toolset_execution_mode: "direct"  # Default: "direct", options: "thread", 
 # These services are available immediately without manual startup
 builtin_services:
   # === Tier 1: Essential Services (Recommended for all deployments) ===
-  - todolist              # Task management with session isolation
   - file_manager          # File operations (read, write, list, delete, etc.)
   - package               # Read-only view of available packages
 
@@ -48,9 +47,6 @@ builtin_services:
 
   # Document Processing:
   # - latex               # LaTeX compilation to PDF
-
-  # Workflows:
-  - workflow            # Agentic workflow service
 
 # All available ToolSets are in pantheon/toolsets/__init__.py
 
