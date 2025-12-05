@@ -11,7 +11,7 @@ class CommandHandler(ABC):
     def __init__(self, console: Console, parent: "Repl"):
         self.console = console
         self.parent = parent
-        self.agent = parent.agent
+        self.team = parent.team
 
     @abstractmethod
     def match_command(self, command: str) -> bool:

@@ -10,7 +10,8 @@
       "Bash(/Users/wzxu/.local/share/mamba/envs/pantheon/bin/python -m pytest:*)",
       "Bash(/Users/wzxu/.local/share/mamba/envs/pantheon/bin/pip install:*)",
       "Bash(del /f \"C:\\Users\\wzxu\\Desktop\\Pantheon\\pantheon-agents\\pantheon\\toolsets\\plan_mode.py\")",
-      "Bash(git mv:*)"
+      "Bash(git mv:*)",
+      "Bash(python -c:*)"
     ],
     "deny": [],
     "ask": []

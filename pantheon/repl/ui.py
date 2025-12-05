@@ -89,6 +89,11 @@ class ReplUI:
         self._processing_live: Live | None = None
         self._current_tool_name = None
 
+        # Multi-agent display state
+        self._current_agent_name: str | None = None
+        self._last_printed_agent: str | None = None
+        self._is_multi_agent: bool = False
+
     def _should_display_bash_in_box(self, command: str) -> bool:
         """Determine if a bash command should be displayed in a code box instead of inline"""
         command = command.strip()
@@ -200,32 +205,53 @@ class ReplUI:
 
         return wrapped_lines
 
-    def _print_greeting_agent(self, agent):
-        self.console.print("[dim][bold blue]-- MODEL ------------------------------------------------------------[/bold blue][/dim]")
-        self.console.print()
-        agent_info = f"  - [bright_blue]{self.agent.name}[/bright_blue]"
-        if hasattr(self.agent, 'models') and self.agent.models:
-            model = self.agent.models[0] if isinstance(self.agent.models, list) else self.agent.models
-            agent_info = f"[dim]  • [bold]{model}[/bold][/dim]"
-        self.console.print(agent_info)
+    def _print_agent_header(self, agent_name: str, transfer_from: str | None = None):
+        """Print agent header line (only in multi-agent mode)."""
+        if not self._is_multi_agent:
+            return
+
+        # Don't repeat header for same agent
+        if agent_name == self._last_printed_agent:
+            return
+
+        self._last_printed_agent = agent_name
+
+        # Build title
+        if transfer_from:
+            title = f"{transfer_from} → {agent_name}"
+        else:
+            title = agent_name
+
+        # Print separator line
+        line_width = 60
+        padding = line_width - len(title) - 3
+        self.console.print(f"\n[bold cyan]┌ {title} {'─' * max(padding, 3)}[/bold cyan]")
 
     def _print_greeting_team(self, team):
-        self.console.print("[dim][bold blue]-- TEAM -------------------------------------------------------------[/bold blue][/dim]")
-        self.console.print()
-        for agent in team.agents.values():
-            agent_info = f"  - [bright_blue]{agent.name}[/bright_blue]"
+        """Print team/agent info in greeting. Handles both single and multi-agent."""
+        if len(team.agents) == 1:
+            # Single agent mode - simplified display
+            agent = list(team.agents.values())[0]
+            self.console.print("[dim][bold blue]-- MODEL ------------------------------------------------------------[/bold blue][/dim]")
+            self.console.print()
             if hasattr(agent, 'models') and agent.models:
                 model = agent.models[0] if isinstance(agent.models, list) else agent.models
-                agent_info += f"\n    - [dim]{model}[/dim]"
-            if hasattr(agent, 'description') and agent.description:
-                agent_info += f"\n    - [dim]{agent.description}[/dim]"
-            self.console.print(agent_info)
+                self.console.print(f"[dim]  • [bold]{model}[/bold][/dim]")
+        else:
+            # Multi-agent mode - show full team
+            self.console.print("[dim][bold blue]-- TEAM -------------------------------------------------------------[/bold blue][/dim]")
+            self.console.print()
+            for agent in team.agents.values():
+                agent_info = f"  - [bright_blue]{agent.name}[/bright_blue]"
+                if hasattr(agent, 'models') and agent.models:
+                    model = agent.models[0] if isinstance(agent.models, list) else agent.models
+                    agent_info += f"\n    - [dim]{model}[/dim]"
+                if hasattr(agent, 'description') and agent.description:
+                    agent_info += f"\n    - [dim]{agent.description}[/dim]"
+                self.console.print(agent_info)
         self.console.print()
 
     async def print_greeting(self):
-        from ..agent import Agent
-        from ..team import Team
-
         self.console.print("[purple]Aristotle © 2025[/purple]")
         print_banner(self.console)
         self.console.print()
@@ -236,10 +262,8 @@ class ReplUI:
         )
         self.console.print()
 
-        if isinstance(self.agent, Agent):
-            self._print_greeting_agent(self.agent)
-        elif isinstance(self.agent, Team):
-            self._print_greeting_team(self.agent)
+        # Always use team (single agent is wrapped in PantheonTeam)
+        self._print_greeting_team(self.team)
 
         self.console.print()
         self.console.print("[dim][bold blue]-- HELP -------------------------------------------------------------[/bold blue][/dim]")
@@ -379,14 +403,22 @@ class ReplUI:
         session_duration = datetime.now() - self.session_start
         duration_mins = int(session_duration.total_seconds() / 60)
 
-        #self.console.print(f"\n[bold]Session Status:[/bold]")
         self.console.print()
         self.console.print("[dim][bold blue]-- STATUS -----------------------------------------------------------[/bold blue][/dim]")
         self.console.print()
-        self.console.print(f"[dim]• Agent:    [/dim] {self.agent.name}")
-        if hasattr(self.agent, 'models') and self.agent.models:
-            model = self.agent.models[0] if isinstance(self.agent.models, list) else self.agent.models
-            self.console.print(f"[dim]• Model:    [/dim] {model}")
+
+        # Display agent/team info
+        if len(self.team.agents) == 1:
+            agent = list(self.team.agents.values())[0]
+            self.console.print(f"[dim]• Agent:    [/dim] {agent.name}")
+            if hasattr(agent, 'models') and agent.models:
+                model = agent.models[0] if isinstance(agent.models, list) else agent.models
+                self.console.print(f"[dim]• Model:    [/dim] {model}")
+        else:
+            active = self.team.get_active_agent(self.memory)
+            self.console.print(f"[dim]• Team:     [/dim] {len(self.team.agents)} agents")
+            self.console.print(f"[dim]• Active:   [/dim] {active.name}")
+
         self.console.print(f"[dim]• Messages: [/dim] {self.message_count}")
         self.console.print(f"[dim]• Duration: [/dim] {duration_mins}m")
         self.console.print(f"[dim]• History:  [/dim] {len(self.command_history)} commands")
@@ -750,11 +782,24 @@ class ReplUI:
         try:
             while True:
                 try:
-                    message = await self.agent.events_queue.get()
+                    raw_message = await self.team.events_queue.get()
                 except asyncio.CancelledError:
                     break
                 except Exception:
                     continue
+
+                # Unpack Team event format: {"agent_name": ..., "event": ...}
+                agent_name = None
+                if isinstance(raw_message, dict) and "agent_name" in raw_message and "event" in raw_message:
+                    agent_name = raw_message["agent_name"]
+                    message = raw_message["event"]
+                else:
+                    message = raw_message
+
+                # Print agent header if agent changed (multi-agent mode)
+                if agent_name and agent_name != self._current_agent_name:
+                    self._print_agent_header(agent_name)
+                    self._current_agent_name = agent_name
 
                 # Handle tool calls with Claude Code style
                 if tool_calls := message.get("tool_calls"):
@@ -797,8 +842,9 @@ class ReplUI:
                     continue
 
                 # Only print other message types (like system messages, if any)
+                default_name = list(self.team.agents.keys())[0] if self.team.agents else "agent"
                 print_agent_message_modern_style(
-                    self.agent.name,
+                    agent_name or default_name,
                     message,
                     self.console,
                     show_tool_details=False

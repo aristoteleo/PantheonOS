@@ -19,6 +19,9 @@ except ImportError:
     READLINE_AVAILABLE = False
 
 from ..agent import Agent
+from ..team import Team
+from ..team.pantheon import PantheonTeam
+from ..memory import Memory
 from ..constant import CLI_HISTORY_FILE
 from .ui import ReplUI
 from .handlers.base import CommandHandler
@@ -27,14 +30,25 @@ from .handlers.builtin.bash import BashCommandHandler
 
 
 class Repl(ReplUI):
-    """REPL for a single agent.
+    """REPL for agent or team interaction.
 
     Args:
-        agent: The agent to use for the REPL.
+        agent: An Agent or Team instance. Single Agent will be wrapped in PantheonTeam.
     """
-    def __init__(self, agent: Agent):
+    def __init__(self, agent: Agent | Team):
         super().__init__()  # init UI
-        self.agent = agent
+
+        # Wrap single Agent in PantheonTeam for unified handling
+        if isinstance(agent, Team):
+            self.team = agent
+        else:
+            self.team = PantheonTeam([agent])
+
+        # REPL-managed memory for team
+        self.memory = Memory("repl-session")
+
+        # Set multi-agent mode flag (for UI display)
+        self._is_multi_agent = len(self.team.agents) > 1
 
         self.current_task = None
         self.tool_calls_active = False
@@ -301,7 +315,9 @@ class Repl(ReplUI):
                 continue
             elif cmd_lower in ["clear", "/clear"]:
                 self.console.clear()
-                self.agent.memory.clear()
+                self.memory = Memory("repl-session")  # Reset memory
+                self._current_agent_name = None  # Reset agent display state
+                self._last_printed_agent = None
                 await self.print_greeting()
                 current_message = None  # Reset to get new input
                 continue
@@ -423,11 +439,12 @@ class Repl(ReplUI):
                             if not agent_task.done():
                                 update_processing_status()
 
-                    # Process with agent - tool outputs will display independently
-                    # Create a cancellable task for the agent processing
+                    # Process with team - tool outputs will display independently
+                    # Create a cancellable task for the team processing
                     agent_task = asyncio.create_task(
-                        self.agent.run(
+                        self.team.run(
                             current_message,
+                            memory=self.memory,
                             process_chunk=smart_process_chunk,
                         )
                     )
@@ -536,7 +553,7 @@ class Repl(ReplUI):
             else:
                 filename = datetime.now().strftime("%Y%m%d_%H%M%S") + '.json'
 
-            self.agent.memory.save(filename)
+            self.memory.save(filename)
             self.console.print(f"[green]✅ Conversation saved to:[/green] {filename}")
 
         except Exception as e:
@@ -548,7 +565,7 @@ class Repl(ReplUI):
         try:
             parts = command.split()
             filename = parts[1]
-            self.agent.memory = self.agent.memory.load(filename)
+            self.memory = Memory.load(filename)
             self.console.print(f"[green]✅ Conversation loaded from:[/green] {filename}")
         except Exception as e:
             self.console.print(f"[red]Error loading conversation: {str(e)}[/red]")
