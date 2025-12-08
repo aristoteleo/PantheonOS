@@ -1,13 +1,10 @@
 import asyncio
 import dataclasses
 import io
-import json
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
-
-import openai
+from typing import TYPE_CHECKING
 
 from ..agent import Agent
 from ..factory import (
@@ -22,6 +19,11 @@ from ..utils.log import logger
 from ..utils.misc import run_func
 from .special_agents import get_suggestion_generator
 from .thread import Thread
+
+if TYPE_CHECKING:
+    from ..endpoint import Endpoint
+
+import openai
 
 
 DEFAULT_TOOLSETS = []
@@ -40,6 +42,8 @@ class ChatRoom(ToolSet):
         description: The description of the chatroom.
         speech_to_text_model: The model to use for speech to text.
         check_before_chat: The function to check before chat.
+        enable_nats_streaming: Enable NATS streaming for real-time message publishing.
+                               Default: False.
         **kwargs: Additional parameters passed to ToolSet (e.g., id_hash).
     """
 
@@ -52,6 +56,7 @@ class ChatRoom(ToolSet):
         description: str = "Chatroom for Pantheon agents",
         speech_to_text_model: str = "gpt-4o-mini-transcribe",
         check_before_chat: Callable | None = None,
+        enable_nats_streaming: bool = False,
         **kwargs,
     ):
         # Initialize ToolSet (will handle worker creation in run())
@@ -92,12 +97,13 @@ class ChatRoom(ToolSet):
             self._auto_created_endpoint = False
 
         self._endpoint_service = None
-        self._backend = None
 
-        # ChatRoom self startup mode: will be set in run_setup() based on remote parameter
-        # True: ChatRoom itself is started as a remote service (streams needed)
-        # False: ChatRoom itself is embedded (no need for stream publish)
-        self._embed = True  # Default to True, will be updated by run_setup()
+        # NATS streaming (optional)
+        self._nats_adapter = None
+        if enable_nats_streaming:
+            from .stream import NATSStreamAdapter
+
+            self._nats_adapter = NATSStreamAdapter()
 
         # Initialize template manager (supports old and new formats, manages agents.yaml library)
         self.template_manager = get_template_manager()
@@ -135,49 +141,7 @@ class ChatRoom(ToolSet):
             endpoint_service, endpoint_method_name=endpoint_method_name, **kwargs
         )
 
-    async def _publish_stream(self, chat_id: str, message_type: str, data: dict):
-        """
-        Unified method to publish stream messages.
-
-        Args:
-            chat_id: Chat ID
-            message_type: Type of message ("chunk" or "step")
-            data: Message data
-        """
-        # Embed mode: ChatRoom is embedded (not started as remote service), no need to send stream
-        if self._embed:
-            logger.debug(f"Embed mode: skip stream publish for {message_type}")
-            return
-
-        # Remote mode: ChatRoom is started as a remote service, need to send stream
-        if self._backend is None:
-            from pantheon.remote import RemoteBackendFactory
-
-            self._backend = RemoteBackendFactory.create_backend()
-
-        import time
-        from pantheon.remote.backend.base import StreamMessage, StreamType
-
-        stream_type = StreamType.CHAT
-        message = StreamMessage(
-            type=stream_type,
-            session_id=f"chat_{chat_id}",
-            timestamp=time.time(),
-            data={**data, "chat_id": chat_id},
-        )
-
-        stream_channel = await self._backend.get_or_create_stream(
-            f"chat_{chat_id}", stream_type
-        )
-        try:
-            await stream_channel.publish(message)
-        except Exception as e:
-            logger.error(f"Error publishing stream: {e}")
-
     async def run(self, log_level: str | None = None, remote: bool = True):
-        self._embed = not remote
-
-        # Call parent's run method with the original parameters
         return await super().run(log_level=log_level, remote=remote)
 
     async def run_setup(self):
@@ -207,11 +171,11 @@ class ChatRoom(ToolSet):
                 f"ChatRoom: endpoint_mode=process, endpoint_id={self.endpoint_service_id}"
             )
 
-        # Log ChatRoom's own startup mode
-        if self._embed:
-            logger.info("ChatRoom: startup_mode=embed (no stream publish)")
+        # Log NATS streaming status
+        if self._nats_adapter is not None:
+            logger.info("ChatRoom: NATS streaming enabled")
         else:
-            logger.info("ChatRoom: startup_mode=remote (stream publish enabled)")
+            logger.info("ChatRoom: NATS streaming disabled")
 
     def _save_team_template_to_memory(self, memory, template_obj: dict) -> None:
         """Save TeamConfig to memory for persistence (new format)."""
@@ -819,28 +783,11 @@ class ChatRoom(ToolSet):
         )
         self.threads[chat_id] = thread
 
-        # Add streaming hooks (will fail silently if backend doesn't support streaming)
-        async def nats_chunk_processor(chunk: dict):
-            await self._publish_stream(
-                chat_id, "chunk", {"type": "chunk", "chunk": chunk}
-            )
-
-        async def nats_step_processor(step_message: dict):
-            role = step_message.get("role", None)
-            # Fix front end duplicate user message
-            if role == "user":
-                return
-            await self._publish_stream(
-                chat_id,
-                "step",
-                {
-                    "type": "step_message",
-                    "step_message": step_message,
-                },
-            )
-
-        thread.add_chunk_hook(nats_chunk_processor)
-        thread.add_step_message_hook(nats_step_processor)
+        # Add NATS streaming hooks if enabled
+        if self._nats_adapter is not None:
+            chunk_hook, step_hook = self._nats_adapter.create_hooks(chat_id)
+            thread.add_chunk_hook(chunk_hook)
+            thread.add_step_message_hook(step_hook)
 
         await self.attach_hooks(
             chat_id, process_chunk, process_step_message, wait=False
@@ -856,13 +803,9 @@ class ChatRoom(ToolSet):
         except Exception as e:
             logger.error(f"Failed to generate/update chat name: {e}")
 
-        await self._publish_stream(
-            chat_id,
-            "chat_finished",
-            {
-                "type": "chat_finished",
-            },
-        )
+        # Publish chat finished message if NATS streaming enabled
+        if self._nats_adapter is not None:
+            await self._nats_adapter.publish_chat_finished(chat_id)
 
         memory.extra_data["running"] = False
         memory.extra_data["last_activity_date"] = datetime.now().isoformat()

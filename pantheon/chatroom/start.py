@@ -267,6 +267,7 @@ async def start_services(
         memory_dir=memory_dir,
         name=service_name,
         speech_to_text_model=speech_to_text_model,
+        enable_nats_streaming=True,  # Enable NATS streaming for remote service
         **kwargs,
     )
 
