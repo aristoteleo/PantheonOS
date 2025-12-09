@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..utils.log import logger
-from .template_io import FileBasedTemplateManager, resolve_prompts_for_team
+from .template_io import FileBasedTemplateManager, resolve_prompts_for_team, init_prompt_resolver
 from .models import AgentConfig, TeamConfig
 
 
@@ -29,12 +29,19 @@ class TemplateManager:
         self.work_dir = work_dir or Path.cwd()
         self.agents_dir = self.work_dir / ".pantheon" / "agents"
         self.teams_dir = self.work_dir / ".pantheon" / "teams"
+        self.prompts_dir = self.work_dir / ".pantheon" / "prompts"
         self.system_templates_dir = Path(__file__).parent / "templates"
 
         self.file_manager = FileBasedTemplateManager(work_dir)
 
         # Auto-bootstrap template system on initialization
         self.bootstrap()
+
+        # Initialize prompt resolver with user prompts directory (higher priority)
+        init_prompt_resolver(
+            user_prompts_dir=self.prompts_dir,
+            system_prompts_dir=self.system_templates_dir / "prompts",
+        )
 
     # ===== Bootstrap =====
 
@@ -52,6 +59,7 @@ class TemplateManager:
         # Ensure packaged templates exist locally (copy missing ones)
         self._ensure_default_agents()
         self._ensure_default_teams()
+        self._ensure_default_prompts()
 
         logger.info("Template system bootstrap complete")
 
@@ -60,6 +68,7 @@ class TemplateManager:
         try:
             self.agents_dir.mkdir(parents=True, exist_ok=True)
             self.teams_dir.mkdir(parents=True, exist_ok=True)
+            self.prompts_dir.mkdir(parents=True, exist_ok=True)
             logger.debug(f"Ensured template directories exist at {self.work_dir}")
         except Exception as e:
             logger.error(f"Failed to create template directories: {e}")
@@ -96,6 +105,16 @@ class TemplateManager:
             )
         except Exception as e:
             logger.error(f"Failed to copy default teams: {e}")
+
+    def _ensure_default_prompts(self):
+        try:
+            self._copy_missing_templates(
+                self.system_templates_dir / "prompts",
+                self.prompts_dir,
+                "prompt(s)",
+            )
+        except Exception as e:
+            logger.error(f"Failed to copy default prompts: {e}")
 
     # ===== Helper Methods =====
 

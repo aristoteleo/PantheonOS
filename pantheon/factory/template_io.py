@@ -57,17 +57,21 @@ class PromptResolver:
     def __init__(
         self,
         prompts_dir: Optional[Path] = None,
+        user_prompts_dir: Optional[Path] = None,
     ):
         """
         Initialize the prompt resolver.
 
         Args:
-            prompts_dir: Directory containing prompt templates.
+            prompts_dir: Directory containing system prompt templates.
                         Defaults to templates/prompts/ in this package.
+            user_prompts_dir: Directory containing user prompt templates.
+                             User prompts take priority over system prompts.
         """
         if prompts_dir is None:
             prompts_dir = Path(__file__).parent / "templates" / "prompts"
         self.prompts_dir = prompts_dir
+        self.user_prompts_dir = user_prompts_dir
         # Cache: name -> (content, param_definitions)
         self._cache: Dict[str, tuple] = {}
 
@@ -283,9 +287,20 @@ class PromptResolver:
             # Use resolved path as cache key for path references
             cache_key = str(path)
         else:
-            # ID reference - load from prompts_dir
-            path = self.prompts_dir / f"{name}.md"
+            # ID reference - check user prompts dir first, then system prompts dir
+            path = None
             cache_key = name
+
+            # Priority 1: User prompts directory
+            if self.user_prompts_dir is not None:
+                user_path = self.user_prompts_dir / f"{name}.md"
+                if user_path.exists():
+                    path = user_path
+                    cache_key = f"user:{name}"
+
+            # Priority 2: System prompts directory (fallback)
+            if path is None:
+                path = self.prompts_dir / f"{name}.md"
 
         # Check cache
         if cache_key in self._cache:
@@ -347,11 +362,39 @@ class PromptResolver:
 _prompt_resolver: Optional[PromptResolver] = None
 
 
-def get_prompt_resolver(prompt_dir: Optional[Path] = None) -> PromptResolver:
-    """Get the global PromptResolver instance."""
+def init_prompt_resolver(
+    user_prompts_dir: Optional[Path] = None,
+    system_prompts_dir: Optional[Path] = None,
+) -> PromptResolver:
+    """Initialize the global PromptResolver with user prompts directory.
+
+    This should be called early (e.g., from TemplateManager.__init__) to configure
+    user prompts directory. User prompts take priority over system prompts.
+
+    Args:
+        user_prompts_dir: User prompts directory (higher priority)
+        system_prompts_dir: System prompts directory (defaults to templates/prompts/)
+
+    Returns:
+        The initialized PromptResolver instance
+    """
+    global _prompt_resolver
+    _prompt_resolver = PromptResolver(
+        prompts_dir=system_prompts_dir,
+        user_prompts_dir=user_prompts_dir,
+    )
+    return _prompt_resolver
+
+
+def get_prompt_resolver() -> PromptResolver:
+    """Get the global PromptResolver instance.
+
+    If not initialized via init_prompt_resolver(), creates a default instance
+    using only system prompts directory.
+    """
     global _prompt_resolver
     if _prompt_resolver is None:
-        _prompt_resolver = PromptResolver(prompts_dir=prompt_dir)
+        _prompt_resolver = PromptResolver()
     return _prompt_resolver
 
 
