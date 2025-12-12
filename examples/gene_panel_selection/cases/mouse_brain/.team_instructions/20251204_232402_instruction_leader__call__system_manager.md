@@ -1,0 +1,1 @@
+In the project workdir, please install the Python dependency pymupdf into the active environment so that we can render PDF screenshots. Workdir: /home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/mouse_brain/workdir. After install, no restart is needed; just return success.
