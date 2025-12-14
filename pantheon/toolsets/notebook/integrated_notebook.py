@@ -386,23 +386,18 @@ class IntegratedNotebookToolSet(ToolSet):
     async def execute_cell(
         self,
         notebook_path: str,
-        cell_id: str = "",
-        code: str = "",
-        auto_create_cell: bool = False,
+        cell_id: str,
     ) -> dict:
         """
-        Execute code in a cell.
+        Execute a cell's existing content.
 
         Args:
             notebook_path: Path to notebook file
             cell_id: Cell identifier
-            code: Code to execute (optional, uses existing cell content if not provided)
-            auto_create_cell: If True, create cell if it doesn't exist (default: False)
 
         Returns:
             dict with:
             - success: True if execution succeeded
-            - created: True if cell was auto-created, False otherwise
             - output: Execution result/output
             - kernel_session_id: Kernel session ID
         """
@@ -416,90 +411,28 @@ class IntegratedNotebookToolSet(ToolSet):
 
             # Find existing cell
             cell_index, cell_data = await self._get_cell_by_id(notebook_path, cell_id)
-            cell_was_created = False
 
             if cell_index is None:
-                if auto_create_cell:
-                    # If cell_id is provided, validate it. If empty, we'll let add_cell generate one.
-                    target_cell_id = cell_id if cell_id else None
+                return {"success": False, "error": f"Cell {cell_id} not found"}
 
-                    if target_cell_id:
-                        # Validate provided cell_id format before creation
-                        is_valid, error_msg = self._validate_cell_id(target_cell_id)
-                        if not is_valid:
-                            return {
-                                "success": False,
-                                "error": f"Invalid cell_id: {error_msg}",
-                            }
-                        logger.info(f"Auto-creating cell {target_cell_id}")
-                    else:
-                        logger.info("Auto-creating cell with generated ID")
-
-                    # Try to create cell
-                    create_result = await self.notebook_contents.add_cell(
-                        path=notebook_path,
-                        cell_type="code",
-                        source="",  # Empty cell initially
-                        cell_id=target_cell_id,
-                    )
-
-                    if not create_result["success"]:
-                        # Cell creation failed, may be concurrent request (only if ID was specific)
-                        if target_cell_id:
-                            # Retry lookup to handle race condition
-                            cell_index, cell_data = await self._get_cell_by_id(
-                                notebook_path, target_cell_id
-                            )
-                            if cell_index is None:
-                                # Still not found, return error
-                                return {
-                                    "success": False,
-                                    "error": f"Failed to create cell: {create_result.get('error', 'Unknown error')}",
-                                }
-                            # Cell was created by concurrent request, continue
-                            logger.info(
-                                f"Cell {target_cell_id} was created by concurrent request"
-                            )
-                            cell_id = target_cell_id  # Ensure cell_id is set
-                        else:
-                            return {
-                                "success": False,
-                                "error": f"Failed to create cell: {create_result.get('error', 'Unknown error')}",
-                            }
-                    else:
-                        # Successfully created
-                        cell_was_created = True
-                        cell_data = create_result.get("cell_data", {})
-                        # Update cell_id to the one that was actually created (important if we passed None)
-                        cell_id = create_result.get("cell_id")
-                else:
-                    return {"success": False, "error": f"Cell {cell_id} not found"}
-
-            # Update cell content if code provided
-            if code:
-                await self.notebook_contents.update_cell(notebook_path, cell_id, code)
+            # Get existing code from cell
+            if cell_data and "source" in cell_data:
+                code = self.notebook_contents._format_source(cell_data["source"])
             else:
-                # Use existing code if available
-                if cell_data and "source" in cell_data:
-                    code = self.notebook_contents._format_source(cell_data["source"])
-                else:
-                    code = ""
+                code = ""
 
             # Execute with cell_id (not cell_index for stability)
             exec_result = await self._execute_and_update(
                 context.kernel_session_id, notebook_path, cell_id, code
             )
-            # V2: Return stable identifiers (cell_id + kernel_session_id + notebook_path)
+            # Return stable identifiers (cell_id + kernel_session_id + notebook_path)
             exec_result["cell_id"] = cell_id
             exec_result["kernel_session_id"] = context.kernel_session_id
-            exec_result["notebook_path"] = (
-                notebook_path  # Explicit, avoid frontend parsing
-            )
-            exec_result["created"] = cell_was_created  # Flag if cell was auto-created
-            
+            exec_result["notebook_path"] = notebook_path
+
             # Remove metadata to save tokens (it is already saved to file)
             exec_result.pop("metadata", None)
-            
+
             return exec_result
 
         except Exception as e:
@@ -507,117 +440,6 @@ class IntegratedNotebookToolSet(ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool
-    async def edit_notebook(
-        self,
-        notebook_path: str,
-        edits: list[dict],
-    ) -> dict:
-        """
-        Perform batch edits on a notebook.
-
-        This tool allows you to apply multiple changes to a notebook in a single call.
-        Operations are executed sequentially in the order provided.
-
-        Args:
-            notebook_path: Path to the notebook file.
-            edits: List of edit operations. Each edit is a dictionary with an "action" field.
-                
-                Supported Actions & Structure:
-                
-                1. **Add Cell**:
-                   - `{"action": "add", "cell_type": "code"|"markdown", "content": "..."}`
-                   - Optional: `"position": N` (index) or `"cell_id": "custom_id"`
-
-                2. **Update Cell**:
-                   - `{"action": "update", "cell_id": "target_id", "content": "new content"}`
-
-                3. **Delete Cell**:
-                   - `{"action": "delete", "cell_id": "target_id"}`
-
-                   - `{"action": "move", "cell_id": "target_id", "below_cell_id": "other_id"}`
-                   - Note: if `below_cell_id` is omitted, moves to top.
-
-        Returns:
-            dict: Summary of results with the following structure:
-            {
-                "success": bool,       # True if ALL operations succeeded (or partial if logic allows)
-                "notebook_path": str,
-                "kernel_session_id": str, # (Optional) If context is available
-                "results": [           # List corresponding to input 'edits'
-                    {
-                        "action": "add",
-                        "success": bool,
-                        "cell_id": "...", # ID of the affected cell
-                        "error": "..."    # Error message if failed
-                    },
-                    ...
-                ]
-            }
-        """
-        session_id = self.get_session_id()
-        
-        results = []
-        overall_success = True
-        
-        for edit in edits:
-            action = edit.get("action")
-            res = {"action": action, "success": False}
-            
-            try:
-                # Direct calls to notebook_contents API to bypass tool-level session checks
-                if action == "add":
-                    res = await self.notebook_contents.add_cell(
-                        path=notebook_path,
-                        cell_type=edit.get("cell_type", "code"),
-                        source=edit.get("content", ""),
-                        cell_id=edit.get("cell_id"),
-                        position=edit.get("position"),
-                    )
-                elif action == "update":
-                    res = await self.notebook_contents.update_cell(
-                        path=notebook_path,
-                        cell_id=edit.get("cell_id"),
-                        source=edit.get("content"),
-                    )
-                elif action == "delete":
-                    res = await self.notebook_contents.delete_cell(
-                        path=notebook_path,
-                        cell_id=edit.get("cell_id"),
-                    )
-                elif action == "move":
-                    res = await self.notebook_contents.move_cell(
-                        path=notebook_path,
-                        cell_id=edit.get("cell_id"),
-                        below_cell_id=edit.get("below_cell_id"),
-                    )
-                else:
-                     res = {"success": False, "error": f"Unknown action: {action}"}
-
-            except Exception as e:
-                res = {"success": False, "error": str(e)}
-            
-            # Combine common fields
-            res["action"] = action
-            results.append(res)
-            
-            if not res.get("success"):
-                overall_success = False
-
-        response = {
-            "success": overall_success,
-            "notebook_path": notebook_path,
-            "results": results
-        }
-        
-        # Add kernel_session_id if context exists
-        if session_id:
-            context = self._get_context(notebook_path, session_id)
-            if context:
-                response["kernel_session_id"] = context.kernel_session_id
-
-        return response
-
-    @tool(exclude=True)
     async def add_cell(
         self,
         notebook_path: str,
@@ -672,7 +494,7 @@ class IntegratedNotebookToolSet(ToolSet):
             logger.error(f"add_cell failed: {e}")
             return {"success": False, "error": str(e)}
 
-    @tool(exclude=True)
+    @tool
     async def update_cell(
         self,
         notebook_path: str,
@@ -718,7 +540,7 @@ class IntegratedNotebookToolSet(ToolSet):
             logger.error(f"update_cell failed: {e}")
             return {"success": False, "error": str(e)}
 
-    @tool(exclude=True)
+    @tool
     async def delete_cell(
         self,
         notebook_path: str,
@@ -761,7 +583,7 @@ class IntegratedNotebookToolSet(ToolSet):
             logger.error(f"delete_cell failed: {e}")
             return {"success": False, "error": str(e)}
 
-    @tool(exclude=True)
+    @tool
     async def move_cell(
         self,
         notebook_path: str,
