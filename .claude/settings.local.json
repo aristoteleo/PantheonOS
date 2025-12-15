@@ -7,7 +7,10 @@
       "Bash(git show:*)",
       "Bash(wc:*)",
       "Bash(find:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(source:*)",
+      "Bash(fzf:*)",
+      "Bash(fd:*)"
     ],
     "deny": [],
     "ask": []

@@ -14,9 +14,11 @@ import sys
 import time
 import shutil
 import asyncio
+import unicodedata
+from collections import deque
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Callable, Awaitable
+from typing import TYPE_CHECKING, Optional, Callable, Awaitable, Tuple, List, Iterator
 
 from prompt_toolkit import Application
 from prompt_toolkit.layout import Layout, HSplit, FloatContainer, Float, DynamicContainer, ConditionalContainer
@@ -43,6 +45,108 @@ if TYPE_CHECKING:
 
 # Image file extensions for @image: completion
 IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico'}
+
+
+def subsequence_match(pattern: str, target: str) -> Tuple[bool, int]:
+    """Subsequence fuzzy matching with scoring.
+
+    Matches if all characters in pattern appear in target in order.
+    Score is higher for better matches (consecutive, prefix, word boundary).
+
+    Args:
+        pattern: User input pattern (e.g., "rdme")
+        target: Target filename (e.g., "README.md")
+
+    Returns:
+        (matched, score) - matched is True if pattern is subsequence of target
+    """
+    if not pattern:
+        return True, 0
+
+    pattern_lower = pattern.lower()
+    target_lower = target.lower()
+
+    p_idx = 0
+    score = 0
+    consecutive = 0
+    prev_match_pos = -2
+
+    for t_idx, char in enumerate(target_lower):
+        if p_idx >= len(pattern_lower):
+            break
+
+        if char == pattern_lower[p_idx]:
+            score += 1
+
+            # Consecutive match bonus
+            if t_idx == prev_match_pos + 1:
+                consecutive += 1
+                score += consecutive * 2
+            else:
+                consecutive = 0
+
+            # Prefix match bonus
+            if t_idx == 0:
+                score += 15
+            # Word boundary bonus (after _, -, ., or uppercase)
+            elif t_idx > 0 and (target[t_idx-1] in '_-.' or target[t_idx].isupper()):
+                score += 5
+
+            prev_match_pos = t_idx
+            p_idx += 1
+
+    matched = p_idx == len(pattern_lower)
+
+    # Exact prefix match bonus
+    if matched and target_lower.startswith(pattern_lower):
+        score += 20
+
+    # Shorter filename bonus (prefer concise names)
+    if matched:
+        score -= len(target) // 10
+
+    return matched, score
+
+
+class FileSearchCache:
+    """Cache for directory contents to avoid repeated I/O."""
+
+    def __init__(self, ttl_seconds: float = 5.0, max_entries: int = 500):
+        self._cache: dict[str, List[Path]] = {}
+        self._timestamps: dict[str, float] = {}
+        self._ttl = ttl_seconds
+        self._max_entries = max_entries
+
+    def get_entries(self, directory: Path) -> Optional[List[Path]]:
+        """Get cached directory contents if not expired."""
+        key = str(directory.resolve())
+        if key not in self._cache:
+            return None
+
+        if time.time() - self._timestamps[key] > self._ttl:
+            del self._cache[key]
+            del self._timestamps[key]
+            return None
+
+        return self._cache[key]
+
+    def set_entries(self, directory: Path, entries: List[Path]):
+        """Cache directory contents."""
+        # Simple LRU: clear half when full
+        if len(self._cache) >= self._max_entries:
+            sorted_keys = sorted(self._timestamps.items(), key=lambda x: x[1])
+            for k, _ in sorted_keys[:len(sorted_keys)//2]:
+                self._cache.pop(k, None)
+                self._timestamps.pop(k, None)
+
+        key = str(directory.resolve())
+        self._cache[key] = entries
+        self._timestamps[key] = time.time()
+
+    def invalidate(self):
+        """Clear all cache."""
+        self._cache.clear()
+        self._timestamps.clear()
 
 
 class ReplCompleter(Completer):
@@ -79,7 +183,15 @@ class ReplCompleter(Completer):
         ('/compact', 'Compact output mode'),
         ('/c', 'Compact (short)'),
     ]
-    
+
+    # File search configuration
+    MAX_SEARCH_DEPTH = 4       # Maximum recursion depth
+    MAX_RESULTS = 20           # Maximum completion results
+    SEARCH_TIMEOUT_MS = 100    # Search timeout in milliseconds
+
+    # Shared cache across instances
+    _file_cache = FileSearchCache(ttl_seconds=5.0)
+
     def __init__(self, repl: "Repl" = None):
         """Initialize completer.
         
@@ -137,69 +249,89 @@ class ReplCompleter(Completer):
 
     def _get_file_completions(self, document, images_only: bool = False):
         """Generate file path completions for @ or @image: mentions.
-        
+
+        Supports two modes:
+        1. Navigate mode: @docs/ → show contents of docs directory
+        2. Search mode: @readme → recursive fuzzy search for matching files
+
         Args:
             images_only: If True, only show image files (for @image: prefix)
         """
         text = document.text_before_cursor
-        
+
         # Determine prefix type and extract path
         if images_only:
-            # @image:path format
             at_pos = text.rfind('@image:')
             if at_pos == -1:
                 return
-            path_prefix = text[at_pos + 7:]  # Skip '@image:'
-            start_position = -(len(path_prefix) + 7)  # Include '@image:'
+            path_prefix = text[at_pos + 7:]
+            start_position = -(len(path_prefix) + 7)
             completion_prefix = '@image:'
         else:
-            # @path format
             at_pos = text.rfind('@')
             if at_pos == -1:
                 return
             path_prefix = text[at_pos + 1:]
-            start_position = -(len(path_prefix) + 1)  # Include '@'
+            start_position = -(len(path_prefix) + 1)
             completion_prefix = '@'
 
-        # Get workspace directory
         workspace = self._get_workspace()
 
-        # Parse path: separate directory and filename prefix
+        # Mode selection: "/" means navigate mode, otherwise search mode
         if '/' in path_prefix:
-            dir_part, name_prefix = path_prefix.rsplit('/', 1)
-            search_dir = workspace / dir_part
+            yield from self._navigate_mode(
+                path_prefix, workspace, start_position, completion_prefix, images_only
+            )
         else:
-            dir_part, name_prefix = "", path_prefix
-            search_dir = workspace
+            yield from self._search_mode(
+                path_prefix, workspace, start_position, completion_prefix, images_only
+            )
+
+    def _navigate_mode(
+        self,
+        path_prefix: str,
+        workspace: Path,
+        start_position: int,
+        completion_prefix: str,
+        images_only: bool
+    ) -> Iterator[Completion]:
+        """Navigate mode - show contents of specified directory (original behavior)."""
+        dir_part, name_prefix = path_prefix.rsplit('/', 1)
+        search_dir = workspace / dir_part
 
         if not search_dir.exists() or not search_dir.is_dir():
             return
 
-        # List and filter files
-        try:
-            entries = sorted(
-                search_dir.iterdir(),
-                key=lambda p: (not p.is_dir(), p.name.lower())
-            )
-        except PermissionError:
-            return
+        # Use cache
+        entries = self._file_cache.get_entries(search_dir)
+        if entries is None:
+            try:
+                entries = sorted(
+                    list(search_dir.iterdir()),
+                    key=lambda p: (not p.is_dir(), p.name.lower())
+                )
+                self._file_cache.set_entries(search_dir, entries)
+            except PermissionError:
+                return
 
+        count = 0
         for entry in entries:
-            # Only filter ignored directories (keep hidden files like .env)
+            if count >= self.MAX_RESULTS:
+                break
+
             if entry.name in FILE_COMPLETION_IGNORED:
                 continue
 
-            # Prefix match (case-insensitive)
-            if not entry.name.lower().startswith(name_prefix.lower()):
+            # Prefix match
+            if name_prefix and not entry.name.lower().startswith(name_prefix.lower()):
                 continue
-            
-            # Filter by file type if images_only
+
+            # Image filter
             if images_only and not entry.is_dir():
                 if entry.suffix.lower() not in IMAGE_EXTENSIONS:
                     continue
 
-            # Build completion path
-            rel_path = f"{dir_part}/{entry.name}" if dir_part else entry.name
+            rel_path = f"{dir_part}/{entry.name}"
 
             if entry.is_dir():
                 yield Completion(
@@ -216,11 +348,104 @@ class ReplCompleter(Completer):
                     display=entry.name,
                     display_meta=file_type
                 )
+            count += 1
+
+    def _search_mode(
+        self,
+        pattern: str,
+        workspace: Path,
+        start_position: int,
+        completion_prefix: str,
+        images_only: bool
+    ) -> Iterator[Completion]:
+        """Search mode - recursive fuzzy search for files."""
+        # Empty pattern: show root directory contents
+        if not pattern:
+            yield from self._navigate_mode(
+                "/", workspace, start_position, completion_prefix, images_only
+            )
+            return
+
+        start_time = time.time()
+        results: List[Tuple[Path, int]] = []
+
+        # BFS recursive search
+        queue = deque([(workspace, 0)])
+
+        while queue:
+            # Timeout check
+            if (time.time() - start_time) * 1000 > self.SEARCH_TIMEOUT_MS:
+                break
+
+            # Enough results
+            if len(results) >= self.MAX_RESULTS * 2:
+                break
+
+            current_dir, depth = queue.popleft()
+
+            if depth > self.MAX_SEARCH_DEPTH:
+                continue
+
+            # Get directory contents (with cache)
+            entries = self._file_cache.get_entries(current_dir)
+            if entries is None:
+                try:
+                    entries = list(current_dir.iterdir())
+                    self._file_cache.set_entries(current_dir, entries)
+                except (PermissionError, OSError):
+                    continue
+
+            for entry in entries:
+                # Skip blacklisted directories
+                if entry.name in FILE_COMPLETION_IGNORED:
+                    continue
+
+                # Image filter
+                if images_only and entry.is_file():
+                    if entry.suffix.lower() not in IMAGE_EXTENSIONS:
+                        continue
+
+                # Fuzzy match
+                matched, score = subsequence_match(pattern, entry.name)
+                if matched:
+                    results.append((entry, score))
+
+                # Recurse into subdirectories
+                if entry.is_dir() and depth < self.MAX_SEARCH_DEPTH:
+                    queue.append((entry, depth + 1))
+
+        # Sort by score (descending), then by name
+        results.sort(key=lambda x: (-x[1], x[0].name.lower()))
+
+        # Generate completions
+        for entry, score in results[:self.MAX_RESULTS]:
+            try:
+                rel_path = str(entry.relative_to(workspace))
+            except ValueError:
+                rel_path = entry.name
+
+            if entry.is_dir():
+                # Show parent path in meta for context
+                parent = str(entry.parent.relative_to(workspace)) if entry.parent != workspace else "."
+                yield Completion(
+                    f"{completion_prefix}{rel_path}/",
+                    start_position=start_position,
+                    display=f"{entry.name}/",
+                    display_meta=f"dir @ {parent}"
+                )
+            else:
+                file_type = 'img' if images_only else self._get_file_type(entry)
+                parent = str(entry.parent.relative_to(workspace)) if entry.parent != workspace else "."
+                yield Completion(
+                    f"{completion_prefix}{rel_path}",
+                    start_position=start_position,
+                    display=entry.name,
+                    display_meta=f"{file_type} @ {parent}"
+                )
 
     def _get_workspace(self) -> Path:
-        """Get workspace path from settings."""
-        from ..settings import get_settings
-        return get_settings().workspace
+        """Get workspace path - uses launch directory (PROJECT_ROOT)."""
+        return PROJECT_ROOT
 
     def _get_file_type(self, path: Path) -> str:
         """Get file type description based on extension."""
@@ -512,6 +737,32 @@ class PantheonInputApp:
             height=1,
         )
 
+    def _get_display_width(self, text: str) -> int:
+        """Calculate display width of text, accounting for wide characters.
+
+        CJK characters and other wide characters take 2 columns in terminal.
+
+        Args:
+            text: Input text string
+
+        Returns:
+            Display width in terminal columns
+        """
+        width = 0
+        for char in text:
+            # Get East Asian Width property
+            ea_width = unicodedata.east_asian_width(char)
+            if ea_width in ('W', 'F'):
+                # Wide or Fullwidth characters take 2 columns
+                width += 2
+            elif ea_width == 'A':
+                # Ambiguous width - treat as wide in CJK context
+                width += 2
+            else:
+                # Narrow, Halfwidth, Neutral - 1 column
+                width += 1
+        return width
+
     def _calculate_visual_lines(self, text: str) -> int:
         """Calculate visual line count including wrapped lines.
 
@@ -538,8 +789,10 @@ class PantheonInputApp:
             if not line:
                 visual_lines += 1
             else:
+                # Calculate display width accounting for wide characters
+                line_width = self._get_display_width(line)
                 # Calculate how many visual lines this logical line takes
-                visual_lines += max(1, (len(line) + available_width - 1) // available_width)
+                visual_lines += max(1, (line_width + available_width - 1) // available_width)
 
         return min(visual_lines, 10)  # Cap at max height
 
