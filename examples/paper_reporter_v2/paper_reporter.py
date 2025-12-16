@@ -22,7 +22,7 @@ def read_file(file_path: str):
         return f.read()
 
 
-@smart_func(model="gpt-4o-mini")
+@smart_func(model="low")
 async def extract_content(content: str) -> str:
     """Extract the most important content from the text.
     For example,
@@ -59,7 +59,6 @@ async def main():
     search_agent = Agent(
         name="Search Agent",
         instructions="""You are a search engine expert.""",
-        model="gpt-4o",
         tools=[
             duckduckgo_search,
             crawl_and_extract,

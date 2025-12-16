@@ -33,12 +33,12 @@ class MCPProvider(ToolProvider):
     def __init__(
         self,
         config: "MCPServerConfig | None" = None,
-        model: str = "gpt-4",
+        model: str | None = None,
         client: Optional[Client] = None,
     ):
         """Initialize MCPProvider"""
         self.config = config
-        self.model = model
+        self.model = model  # None means use Agent's default model
         self._client: Client = client
         self._tools_cache: Optional[list[ToolInfo]] = None
 

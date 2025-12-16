@@ -17,13 +17,13 @@ def test_validate_template_dict_with_inline_agents(tmp_path):
     agent_a = AgentConfig(
         id="alpha",
         name="Alpha",
-        model="openai/gpt-4o-mini",
+        model="low",
         toolsets=["python"],
     )
     agent_b = AgentConfig(
         id="beta",
         name="Beta",
-        model="openai/gpt-4o-mini",
+        model="low",
         mcp_servers=["search"],
     )
 

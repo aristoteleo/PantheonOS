@@ -11,7 +11,8 @@ from pantheon.utils.model_selector import (
     CAPABILITY_MAP,
     DEFAULT_PROVIDER_MODELS,
     DEFAULT_PROVIDER_PRIORITY,
-    FALLBACK_MODEL,
+    ULTIMATE_FALLBACK,
+    FALLBACK_TAG,
     QUALITY_TAGS,
     ModelSelector,
     get_default_model,
@@ -157,7 +158,7 @@ class TestModelResolution:
             return_value=set(),
         ):
             models = selector.resolve_model("normal")
-            assert models == [FALLBACK_MODEL]
+            assert models == [ULTIMATE_FALLBACK]
 
     def test_resolve_combined_tags(self, mock_settings):
         """Test resolving combined quality + capability tags."""

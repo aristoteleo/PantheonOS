@@ -95,8 +95,11 @@ CAPABILITY_MAP = {
 # Quality level tags
 QUALITY_TAGS = {"high", "normal", "low"}
 
-# Ultimate fallback model when nothing else works
-FALLBACK_MODEL = "gpt-4o-mini"
+# Ultimate fallback model when nothing else works (must be concrete model, not tag)
+ULTIMATE_FALLBACK = "gpt-4.1-mini"
+
+# Recommended fallback tag for general use
+FALLBACK_TAG = "low"
 
 
 class ModelSelector:
@@ -309,9 +312,9 @@ class ModelSelector:
         provider = self._detected_provider or self.detect_available_provider()
         if not provider:
             logger.warning(
-                f"No provider available, using fallback model: {FALLBACK_MODEL}"
+                f"No provider available, using fallback model: {ULTIMATE_FALLBACK}"
             )
-            return [FALLBACK_MODEL]
+            return [ULTIMATE_FALLBACK]
 
         # Parse tags
         tags = [t.strip().lower() for t in tag.split(",")]
@@ -321,9 +324,9 @@ class ModelSelector:
         if not provider_models:
             logger.warning(
                 f"No models configured for provider '{provider}', "
-                f"using fallback: {FALLBACK_MODEL}"
+                f"using fallback: {ULTIMATE_FALLBACK}"
             )
-            return [FALLBACK_MODEL]
+            return [ULTIMATE_FALLBACK]
 
         # Separate quality and capability tags
         quality_tag = next((t for t in tags if t in QUALITY_TAGS), "normal")
@@ -336,7 +339,7 @@ class ModelSelector:
 
         # If no capability tags, return the full quality level list
         if not capability_tags:
-            return models if models else [FALLBACK_MODEL]
+            return models if models else [ULTIMATE_FALLBACK]
 
         # Filter models by capability requirements
         result: list[str] = []
@@ -372,7 +375,7 @@ class ModelSelector:
             if model not in result:
                 result.append(model)
 
-        return result if result else [FALLBACK_MODEL]
+        return result if result else [ULTIMATE_FALLBACK]
 
     def get_default_model(self) -> list[str]:
         """Get default model fallback chain (normal quality).
@@ -477,4 +480,6 @@ __all__ = [
     "QUALITY_TAGS",
     "DEFAULT_PROVIDER_PRIORITY",
     "DEFAULT_PROVIDER_MODELS",
+    "ULTIMATE_FALLBACK",
+    "FALLBACK_TAG",
 ]

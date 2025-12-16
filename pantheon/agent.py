@@ -53,8 +53,10 @@ def _get_default_model() -> list[str]:
 
         return get_default_model()
     except Exception as e:
+        from .utils.model_selector import ULTIMATE_FALLBACK
+
         logger.warning(f"Failed to get default model from selector: {e}")
-        return ["gpt-4o-mini"]  # Ultimate fallback
+        return [ULTIMATE_FALLBACK]
 
 
 def _is_model_tag(model_str: str) -> bool:
@@ -97,10 +99,6 @@ def _resolve_model_tag(tag: str) -> list[str]:
     from .utils.model_selector import get_model_selector
 
     return get_model_selector().resolve_model(tag)
-
-
-# Legacy constant for backwards compatibility (deprecated - use _get_default_model())
-DEFAULT_MODEL = "gpt-4o-mini"
 
 
 # ===== Execution Context =====

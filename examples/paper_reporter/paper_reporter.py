@@ -29,7 +29,7 @@ default_theme = "The applications of LLM-based agents in biology and medicine."
 async def main(
     theme: str = default_theme,
     output: str | None = None,
-    model: str = "gpt-4o-mini",
+    model: str = "low",
     results_per_keyword: int = 5,
 ):
     """This program will generate a markdown report of papers about the theme.

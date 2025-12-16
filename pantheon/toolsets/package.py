@@ -15,8 +15,8 @@ from ..package_runtime import get_package_manager
 from ..toolset import ToolSet, tool, get_current_context_variables
 from ..utils.log import logger
 
-# Default low-cost model for semantic search
-DEFAULT_SEMANTIC_MODEL = "gpt-4o-mini"
+# Default low-cost model for semantic search (uses tag system)
+DEFAULT_SEMANTIC_MODEL = "low"
 
 
 class PackageToolSet(ToolSet):
@@ -32,7 +32,7 @@ class PackageToolSet(ToolSet):
       Returns full signatures for direct invocation.
 
     The semantic search uses `call_agent` mechanism to delegate to a
-    low-cost LLM model (default: gpt-4o-mini) for intelligent matching.
+    low-cost LLM model (uses "low" tag) for intelligent matching.
 
     Future Improvements:
         - Embedding-based pre-filtering for large package collections
@@ -44,8 +44,8 @@ class PackageToolSet(ToolSet):
             `.pantheon/packages` under this directory.
         enable_semantic_search: Whether to enable LLM-based semantic
             search by default for search_tools. Defaults to True.
-        semantic_model: Model name for semantic search. Defaults to
-            "gpt-4o-mini" for cost efficiency.
+        semantic_model: Model name or tag for semantic search. Defaults to
+            "low" tag for cost efficiency.
     """
 
     def __init__(

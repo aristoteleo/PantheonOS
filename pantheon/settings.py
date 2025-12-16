@@ -265,11 +265,11 @@ class Settings:
         ace = self._settings.get("ace", {})
         
         return {
-            "enable": ace.get("enable", True),
+            "enable": ace.get("enable", False),  # Disabled by default (requires structured output support)
             "skillbook_path": str(
                 self.ace_dir / ace.get("skillbook_path", "skillbook.json")
             ),
-            "learning_model": ace.get("learning_model", "gpt-4o-mini"),
+            "learning_model": ace.get("learning_model"),  # None uses Agent's default
             "learning_dir": str(
                 self.ace_dir / ace.get("learning_dir", "learning")
             ),

@@ -256,8 +256,8 @@ class Reflector:
     3. New generalizable learnings to add to the skillbook
     """
 
-    def __init__(self, model: str = "gpt-4o-mini"):
-        self.model = model
+    def __init__(self, model: str | None = None):
+        self.model = model  # None uses Agent's default (normal quality)
         self._agent: Optional[Agent] = None
     # TODO Add support for agent to read LeaningInput's detialed path for tool details.
     def _ensure_agent(self) -> Agent:

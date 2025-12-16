@@ -27,7 +27,6 @@ async def run_app(
         agent_factory = lambda: Agent(
             "slack-assistant",
             "You are a helpful slack assistant. Keep your responses compatible with slack formatting.",
-            model="gpt-4o-mini"
         )
 
     try:

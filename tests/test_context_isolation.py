@@ -33,13 +33,13 @@ async def test_memory_flat_model_with_delegation():
     coordinator = Agent(
         name="coordinator",
         instructions="You are a coordinator. For any analysis task, delegate to the analyzer sub-agent using call_agent().",
-        model="gpt-4o-mini",
+        model="low",
     )
 
     analyzer = Agent(
         name="analyzer",
         instructions="You are an analyzer. Provide detailed analysis of the data.",
-        model="gpt-4o-mini",
+        model="low",
     )
 
     team = PantheonTeam(
@@ -111,13 +111,13 @@ async def test_marked_vs_unmarked_messages():
     coordinator = Agent(
         name="coordinator",
         instructions="You are a coordinator. Delegate analysis tasks to the analyzer sub-agent.",
-        model="gpt-4o-mini",
+        model="low",
     )
 
     analyzer = Agent(
         name="analyzer",
         instructions="You are an analyzer specialist.",
-        model="gpt-4o-mini",
+        model="low",
     )
 
     team = PantheonTeam(
@@ -191,13 +191,13 @@ async def test_message_flow_in_delegation():
     coordinator = Agent(
         name="coordinator",
         instructions="You are a coordinator. Delegate tasks to the analyzer.",
-        model="gpt-4o-mini",
+        model="low",
     )
 
     analyzer = Agent(
         name="analyzer",
         instructions="You are an analyzer.",
-        model="gpt-4o-mini",
+        model="low",
     )
 
     team = PantheonTeam(
@@ -261,13 +261,13 @@ async def test_no_duplicate_messages():
     coordinator = Agent(
         name="coordinator",
         instructions="Delegate to analyzer for analysis.",
-        model="gpt-4o-mini",
+        model="low",
     )
 
     analyzer = Agent(
         name="analyzer",
         instructions="Perform analysis.",
-        model="gpt-4o-mini",
+        model="low",
     )
 
     team = PantheonTeam(
@@ -331,13 +331,13 @@ async def test_memory_with_multiple_delegations():
     coordinator = Agent(
         name="coordinator",
         instructions="Delegate all tasks to the analyzer.",
-        model="gpt-4o-mini",
+        model="low",
     )
 
     analyzer = Agent(
         name="analyzer",
         instructions="Analyze everything.",
-        model="gpt-4o-mini",
+        model="low",
     )
 
     team = PantheonTeam(

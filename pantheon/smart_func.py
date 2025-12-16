@@ -21,7 +21,7 @@ def _merge_args(desc, args: tuple, kwargs: dict) -> dict:
 
 def smart_func(
         func: Callable | None = None,
-        model: str = "gpt-4.1-nano",
+        model: str = "low",
         tools: list[Callable] | None = None,
         use_memory: bool = False,
         memory: list[dict] | None = None,

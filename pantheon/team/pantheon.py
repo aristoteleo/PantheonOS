@@ -183,7 +183,7 @@ class PantheonTeam(Team):
         )
         
         # Use first agent's model for compression
-        model = self.team_agents[0].models[0] if self.team_agents else "gpt-4o-mini"
+        model = self.team_agents[0].models[0] if self.team_agents else "low"
         
         return ContextCompressor(config, model)
 

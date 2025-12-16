@@ -194,6 +194,7 @@ class SuggestionGenerator:
             # Create a simple suggestion agent directly
             self._suggestion_agent = Agent(
                 name="Suggestion Agent",
+                model="low",
                 instructions="""You are a suggestion assistant that generates contextual follow-up questions.
 Your role is to analyze conversation context and suggest 3 relevant questions the user might want to ask next.
 
@@ -404,6 +405,7 @@ class ChatNameGenerator:
         if not self._name_agent:
             self._name_agent = Agent(
                 name="ChatNameGen",
+                model="low",
                 instructions="Generate a 3-6 word chat title. Return only the title, no quotes or explanation.",
             )
 
