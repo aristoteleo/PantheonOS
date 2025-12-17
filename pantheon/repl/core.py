@@ -475,7 +475,7 @@ class Repl(ReplUI):
 
         # Get team reference for UI display
         if self._team is None:
-            self._team = await self._chatroom.get_team_for_chat(self._chat_id)
+            self._team = await self._chatroom.get_team_for_chat(self._chat_id, save_to_memory=False)
             self._is_multi_agent = len(self._team.agents) > 1
 
     async def run(self, message: str | dict | None = None, disable_logging: bool = True):

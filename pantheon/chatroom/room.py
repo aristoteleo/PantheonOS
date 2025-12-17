@@ -227,7 +227,7 @@ class ChatRoom(ToolSet):
 
         extra_data["team_template"] = dataclasses.asdict(team_config)
 
-    async def get_team_for_chat(self, chat_id: str) -> PantheonTeam:
+    async def get_team_for_chat(self, chat_id: str, save_to_memory: bool = True) -> PantheonTeam:
         """Get the team for a specific chat, creating from memory if needed."""
         # 0. If default_team is set, always use it (bypass template system)
         if self._default_team is not None:
@@ -239,12 +239,12 @@ class ChatRoom(ToolSet):
             return self.chat_teams[chat_id]
 
         # 2. Try to load team from persistent memory
-        team = await self._load_team_from_memory(chat_id)
+        team = await self._load_team_from_memory(chat_id, save_to_memory=save_to_memory)
         self.chat_teams[chat_id] = team  # Cache it
 
         return team
 
-    async def _load_team_from_memory(self, chat_id: str) -> PantheonTeam:
+    async def _load_team_from_memory(self, chat_id: str, save_to_memory: bool = True) -> PantheonTeam:
         """Load team from chat's persistent memory.
 
         If no team template is found in memory, create a new team from default template
@@ -273,8 +273,9 @@ class ChatRoom(ToolSet):
 
             # Save default template to memory for this chat
             extra_data["team_template"] = team_template_dict
-            await run_func(self.memory_manager.save)
-            logger.info(f"Saved default template to memory for chat {chat_id}")
+            if save_to_memory:
+                await run_func(self.memory_manager.save)
+                logger.info(f"Saved default template to memory for chat {chat_id}")
         else:
             logger.info(
                 f"Loading team from stored template '{team_template_dict.get('name', 'unknown')}' for chat {chat_id}"
@@ -382,7 +383,7 @@ class ChatRoom(ToolSet):
         return team
 
     @tool
-    async def setup_team_for_chat(self, chat_id: str, template_obj: dict):
+    async def setup_team_for_chat(self, chat_id: str, template_obj: dict, save_to_memory: bool = True):
         """Setup/update team for a specific chat using full template object."""
         try:
             logger.info(
@@ -395,7 +396,9 @@ class ChatRoom(ToolSet):
 
             if "active_agent" in memory.extra_data:
                 del memory.extra_data["active_agent"]
-            await run_func(self.memory_manager.save)
+            
+            if save_to_memory:
+                await run_func(self.memory_manager.save)
 
             # Clear cached team (force recreation next time)
             if chat_id in self.chat_teams:
