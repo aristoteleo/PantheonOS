@@ -105,7 +105,7 @@
     // Smart model selection based on available API keys
     "models": {
         // Provider priority order (first available provider with API key is used)
-        // "provider_priority": ["openai", "anthropic", "google", "zai", "deepseek"],
+        // "provider_priority": ["openai", "anthropic", "gemini", "zai", "deepseek"],
         // Per-provider model configuration (optional - code has sensible defaults)
         // Quality levels map to model lists (fallback chains)
         // "provider_models": {

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 # Built-in defaults based on December 2025 flagship models
 # Users can override in settings.json
 
-DEFAULT_PROVIDER_PRIORITY = ["openai", "anthropic", "google", "zai", "deepseek"]
+DEFAULT_PROVIDER_PRIORITY = ["openai", "anthropic", "gemini", "zai", "deepseek"]
 
 # Quality levels map to MODEL LISTS (not single models) for fallback chains
 # Models within each level are ordered by preference
@@ -55,12 +55,12 @@ DEFAULT_PROVIDER_MODELS = {
             "anthropic/claude-3-5-haiku-20241022",
         ],
     },
-    # Google: Gemini 3/2.5 series
+    # Gemini: Gemini 3/2.5 series
     # https://ai.google.dev/gemini-api/docs/models
-    "google": {
+    "gemini": {
         "high": ["gemini/gemini-3-pro-preview", "gemini/gemini-2.5-pro"],
-        "normal": ["gemini/gemini-3-pro-preview", "gemini/gemini-2.5-pro"],
-        "low": ["gemini/gemini-flash-latest"],
+        "normal": ["gemini/gemini-3-flash-preview"],
+        "low": ["gemini/gemini-flash-lite-latest"],
     },
     # Z.ai (智谱): GLM-4.6/4.5 series
     # https://open.bigmodel.cn/

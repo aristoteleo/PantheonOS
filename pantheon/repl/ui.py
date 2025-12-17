@@ -545,6 +545,9 @@ class ReplUI:
         self.console.print(
             "[dim][bold purple]/team    [/bold purple][/dim] - Switch team: /team list | /team <id>"
         )
+        self.console.print(
+            "[dim][bold purple]/model   [/bold purple][/dim] - Show/set model: /model | /model <name|tag>"
+        )
         self.console.print()
 
         self.console.print(

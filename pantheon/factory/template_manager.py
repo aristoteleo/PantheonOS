@@ -195,6 +195,7 @@ class TemplateManager:
             version=template_dict.get("version", "1.0.0"),
             agents=agents,
             tags=template_dict.get("tags", []),
+            source_path=template_dict.get("source_path"),
         )
 
     def prepare_team(self, team_config: TeamConfig) -> Tuple[dict, set[str], set[str]]:

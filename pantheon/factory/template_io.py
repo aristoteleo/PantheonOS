@@ -989,6 +989,7 @@ class FileBasedTemplateManager:
             raise FileNotFoundError(f"Team {team_id} not found")
 
         team = self._read_team_from_path(path)
+        team.source_path = str(path)  # Track original file path for persistence
 
         if resolve_refs:
             team = self._resolve_agent_references(team, base_path=path.parent)
@@ -1094,6 +1095,7 @@ class FileBasedTemplateManager:
             version=team.version,
             agents=resolved_agents,
             tags=team.tags,
+            source_path=team.source_path,  # Preserve source path for persistence
         )
 
     def _load_agent_from_path(self, ref_path: str, base_path: Path) -> AgentConfig:

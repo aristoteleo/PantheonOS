@@ -665,6 +665,12 @@ class Repl(ReplUI):
             await self._handle_switch_agent(agent_arg)
             return
 
+        # Model command: /model [model_name_or_tag]
+        elif cmd_lower == "/model" or cmd_lower.startswith("/model "):
+            args = cmd[6:].strip()
+            await self._handle_model_command(args)
+            return
+
         # Verbose mode command
         elif cmd_lower in ["/verbose", "/v"]:
             self.set_display_mode(DisplayMode.VERBOSE)
@@ -1449,6 +1455,130 @@ class Repl(ReplUI):
             self.console.print(f"[green]✅ Switched to:[/green] [bold cyan]{target_agent_name}[/bold cyan]")
         else:
             self.console.print(f"[red]Failed to switch agent: {result.get('message', 'Unknown error')}[/red]")
+
+    async def _handle_model_command(self, args: str):
+        """Handle /model command - list or set model."""
+        if not args:
+            await self._show_models()
+        else:
+            await self._set_current_agent_model(args)
+
+    async def _show_models(self):
+        """Show current model and available models."""
+        self.console.print()
+        self.console.print(
+            "[dim][bold blue]-- MODEL INFO -------------------------------------------------------[/bold blue][/dim]"
+        )
+        self.console.print()
+
+        # Get current agent and its model
+        current_agent_name = self._current_agent_name
+        if not current_agent_name and self._team and self._team.agents:
+            current_agent_name = list(self._team.agents.keys())[0]
+
+        if current_agent_name and self._team:
+            agent = self._team.agents.get(current_agent_name)
+            if agent and hasattr(agent, "models") and agent.models:
+                models_str = agent.models[0]
+                if len(agent.models) > 1:
+                    fallback = ", ".join(agent.models[1:3])
+                    if len(agent.models) > 3:
+                        fallback += ", ..."
+                    models_str += f" [dim](fallback: {fallback})[/dim]"
+                self.console.print(f"  [bold]Current Agent:[/bold] {current_agent_name}")
+                self.console.print(f"  [bold]Current Model:[/bold] {models_str}")
+            else:
+                self.console.print(f"  [bold]Current Agent:[/bold] {current_agent_name}")
+                self.console.print("  [bold]Current Model:[/bold] [dim]not set[/dim]")
+        else:
+            self.console.print("  [yellow]No agent loaded[/yellow]")
+
+        self.console.print()
+        self.console.print(
+            "[dim]─────────────────────────────────────────────────────────────────[/dim]"
+        )
+        self.console.print()
+
+        # Get available models from ChatRoom
+        result = await self._chatroom.list_available_models()
+        if not result.get("success", False):
+            self.console.print(f"  [red]Failed to list models: {result.get('message', 'Unknown error')}[/red]")
+            self.console.print()
+            return
+
+        current_provider = result.get("current_provider")
+        models_by_provider = result.get("models_by_provider", {})
+        supported_tags = result.get("supported_tags", [])
+
+        self.console.print("  [bold]Available Models:[/bold]")
+        self.console.print()
+
+        for provider, models in models_by_provider.items():
+            marker = "[green](current)[/green]" if provider == current_provider else ""
+            self.console.print(f"  [cyan]{provider}[/cyan] {marker}")
+            # Show first 5 models, truncate if more
+            display_models = models[:5]
+            models_line = ", ".join(display_models)
+            if len(models) > 5:
+                models_line += f", ... (+{len(models) - 5} more)"
+            self.console.print(f"    [dim]{models_line}[/dim]")
+            self.console.print()
+
+        # Show supported tags
+        if supported_tags:
+            quality_tags = [t for t in supported_tags if t in ("high", "normal", "low")]
+            capability_tags = [t for t in supported_tags if t not in ("high", "normal", "low")]
+            self.console.print("  [bold]Supported Tags:[/bold]")
+            self.console.print(f"    Quality: [cyan]{', '.join(quality_tags)}[/cyan]")
+            self.console.print(f"    Capability: [cyan]{', '.join(capability_tags)}[/cyan]")
+            self.console.print()
+
+        self.console.print(
+            "[dim]─────────────────────────────────────────────────────────────────[/dim]"
+        )
+        self.console.print()
+        self.console.print("  [dim]Usage: /model <model_name> or /model <tag>[/dim]")
+        self.console.print("  [dim]Examples: /model openai/gpt-4o, /model high, /model normal,vision[/dim]")
+        self.console.print()
+
+    async def _set_current_agent_model(self, model: str):
+        """Set model for current agent."""
+        # Get current agent name
+        current_agent_name = self._current_agent_name
+        if not current_agent_name and self._team and self._team.agents:
+            current_agent_name = list(self._team.agents.keys())[0]
+
+        if not current_agent_name:
+            self.console.print("[red]No agent available to set model[/red]")
+            return
+
+        if not self._chat_id:
+            self.console.print("[red]No active chat session[/red]")
+            return
+
+        # Call ChatRoom API to set model
+        result = await self._chatroom.set_agent_model(
+            chat_id=self._chat_id,
+            agent_name=current_agent_name,
+            model=model,
+        )
+
+        if result.get("success"):
+            resolved_models = result.get("resolved_models", [])
+            if len(resolved_models) > 3:
+                models_display = ", ".join(resolved_models[:3]) + ", ..."
+            else:
+                models_display = ", ".join(resolved_models)
+            self.console.print(
+                f"[green]✅ Model set:[/green] {model} → [cyan][{models_display}][/cyan]"
+            )
+            # Update status bar
+            if self.prompt_app and resolved_models:
+                self.prompt_app.update_model(resolved_models[0])
+        else:
+            self.console.print(
+                f"[red]Failed to set model: {result.get('message', 'Unknown error')}[/red]"
+            )
 
     async def _handle_clear(self):
         """Clear current chat and create new one."""

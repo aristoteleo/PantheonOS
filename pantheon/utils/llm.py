@@ -741,7 +741,7 @@ def count_tokens_in_messages(
         }
 
     except Exception as e:
-        logger.error(f"Error counting tokens: {e}")
+        logger.debug(f"Token counting skipped for unsupported model: {e}")
         return {
             "total": 0,
             "by_role": {},

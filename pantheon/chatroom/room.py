@@ -284,6 +284,20 @@ class ChatRoom(ToolSet):
         # Convert dict to TeamConfig
         team_config = self.template_manager.dict_to_team_config(team_template_dict)
 
+        # Ensure source_path is set (may be missing from old memory data)
+        if not team_config.source_path and team_config.id:
+            try:
+                # Look up the actual template file path
+                original_template = self.template_manager.get_template(team_config.id)
+                if original_template and original_template.source_path:
+                    team_config.source_path = original_template.source_path
+                    # Update memory with source_path for future loads
+                    team_template_dict["source_path"] = original_template.source_path
+                    await run_func(self.memory_manager.save)
+                    logger.info(f"Updated memory with source_path: {original_template.source_path}")
+            except Exception as e:
+                logger.debug(f"Could not look up source_path for template {team_config.id}: {e}")
+
         # Create team with per-chat toolsets
         return await self._create_team_from_template(team_config, chat_id=chat_id)
 
@@ -358,6 +372,9 @@ class ChatRoom(ToolSet):
             learning_pipeline=self._learning_pipeline,
         )
         await team.async_setup()
+
+        # Store source path for template persistence
+        team._source_path = team_config.source_path
 
         num_agents = len(team.team_agents)
         features = f"{num_agents} agents" if num_agents > 1 else "single agent"
@@ -1225,7 +1242,33 @@ class ChatRoom(ToolSet):
             # 4. Update runtime agent
             target_agent.models = resolved_models
 
-            # 5. Persist to memory template
+            # 5. Persist to template file (if source_path exists)
+            source_path = getattr(team, "_source_path", None)
+            if source_path:
+                from pathlib import Path
+
+                template_path = Path(source_path)
+                if template_path.exists():
+                    try:
+                        # Read original template (without resolving refs to preserve structure)
+                        file_manager = self.template_manager.file_manager
+                        original_team = file_manager._read_team_from_path(template_path)
+
+                        # Update the agent's model in template
+                        for agent_cfg in original_team.agents:
+                            if agent_cfg.name == agent_name or agent_cfg.id == agent_name:
+                                agent_cfg.model = model  # Store original input (tag or model name)
+                                break
+
+                        # Write back to template file
+                        file_manager._write_team_file(
+                            original_team, template_path, overwrite=True
+                        )
+                        logger.info(f"Persisted model to template file: {source_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to persist model to template file: {e}")
+
+            # Also update memory template for current session
             memory = await run_func(self.memory_manager.get_memory, chat_id)
             team_template = memory.extra_data.get("team_template", {})
 
@@ -1277,8 +1320,8 @@ class ChatRoom(ToolSet):
             provider = model.split("/")[0]
             # Handle provider aliases
             provider_aliases = {
-                "gemini": "google",
-                "vertex_ai": "google",
+                "google": "gemini",
+                "vertex_ai": "gemini",
             }
             provider = provider_aliases.get(provider, provider)
 
