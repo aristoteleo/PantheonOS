@@ -23,7 +23,7 @@ except ImportError:
         "python-frontmatter is required. Install with: pip install python-frontmatter"
     )
 
-from ..utils.log import logger
+from pantheon.utils.log import logger
 from .models import AgentConfig, TeamConfig
 
 # ===== PROMPT RESOLVER =====
@@ -812,7 +812,7 @@ class FileBasedTemplateManager:
                       Defaults to PROJECT_ROOT (captured at module load, before any chdir).
         """
 
-        from ..settings import get_settings
+        from pantheon.settings import get_settings
         settings = get_settings(work_dir)
         self.work_dir = settings.work_dir
         self.agents_dir = settings.agents_dir

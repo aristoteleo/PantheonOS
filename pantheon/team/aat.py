@@ -2,7 +2,7 @@ from pathlib import Path
 from datetime import datetime
 
 from .base import Team
-from ..agent import Agent, AgentInput
+from pantheon.agent import Agent, AgentInput
 
 
 class AgentAsToolTeam(Team):

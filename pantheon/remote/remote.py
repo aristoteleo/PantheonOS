@@ -2,7 +2,7 @@ import asyncio
 
 from .backend import RemoteService
 from .factory import connect_remote as _connect_remote
-from ..utils.log import logger
+from pantheon.utils.log import logger
 
 
 async def connect_remote(

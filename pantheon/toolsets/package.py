@@ -11,9 +11,9 @@ import json
 import re
 from pathlib import Path
 
-from ..internal.package_runtime import get_package_manager
-from ..toolset import ToolSet, tool, get_current_context_variables
-from ..utils.log import logger
+from pantheon.internal.package_runtime import get_package_manager
+from pantheon.toolset import ToolSet, tool, get_current_context_variables
+from pantheon.utils.log import logger
 
 # Default low-cost model for semantic search (uses tag system)
 DEFAULT_SEMANTIC_MODEL = "low"
@@ -60,7 +60,7 @@ class PackageToolSet(ToolSet):
         
         # Use global Settings (PROJECT_ROOT based) to avoid path doubling
         # when Endpoint passes its workspace_path as workdir
-        from ..settings import get_settings
+        from pantheon.settings import get_settings
         settings = get_settings()
         packages_path = settings.packages_dir
         

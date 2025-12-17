@@ -83,7 +83,7 @@ def get_base_url(provider: ProviderType) -> Optional[str]:
     Returns:
         Base URL if set, None otherwise
     """
-    from ..settings import get_settings
+    from pantheon.settings import get_settings
     env_var = f"{provider.value.upper()}_API_BASE"
     return get_settings().get_api_key(env_var)
 

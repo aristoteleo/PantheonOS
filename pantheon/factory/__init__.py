@@ -1,8 +1,8 @@
-from ..agent import Agent
-from ..endpoint import ToolsetProxy
-from ..endpoint.mcp import MCPServerConfig
-from ..providers import MCPProvider, ToolSetProvider
-from ..utils.log import logger
+from pantheon.agent import Agent
+from pantheon.endpoint import ToolsetProxy
+from pantheon.endpoint.mcp import MCPServerConfig
+from pantheon.providers import MCPProvider, ToolSetProvider
+from pantheon.utils.log import logger
 from .template_manager import get_template_manager
 from .models import TeamConfig, AgentConfig
 
@@ -48,7 +48,7 @@ async def create_agent(
         # Special handling: "task" toolset is local-only (not via Endpoint)
         if toolset_name == "task":
             try:
-                from ..toolsets.task import TaskToolSet
+                from pantheon.toolsets.task import TaskToolSet
                 task_toolset = TaskToolSet()
                 await agent.toolset(task_toolset)
                 toolsets_added.append(toolset_name)
@@ -79,7 +79,7 @@ async def create_agent(
         try:
             # Get MCP server config from endpoint
             # endpoint_service can be either Endpoint instance or remote service
-            from ..utils.misc import call_endpoint_method
+            from pantheon.utils.misc import call_endpoint_method
 
             service_result = await call_endpoint_method(
                 endpoint_service,

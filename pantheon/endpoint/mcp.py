@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional, TypedDict
 from fastmcp import FastMCP
 
 
-from ..utils.log import logger
+from pantheon.utils.log import logger
 
 
 class MCPServerType:

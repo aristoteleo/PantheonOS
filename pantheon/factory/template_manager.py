@@ -11,8 +11,8 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..constant import PROJECT_ROOT
-from ..utils.log import logger
+from pantheon.constant import PROJECT_ROOT
+from pantheon.utils.log import logger
 from .template_io import FileBasedTemplateManager, resolve_prompts_for_team, init_prompt_resolver
 from .models import AgentConfig, TeamConfig
 
@@ -30,7 +30,7 @@ class TemplateManager:
         """
 
         # Get settings instance
-        from ..settings import get_settings
+        from pantheon.settings import get_settings
         self.settings = get_settings(work_dir)
         
         self.work_dir = self.settings.work_dir

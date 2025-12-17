@@ -1,4 +1,4 @@
-from ..agent import Agent, AgentInput
+from pantheon.agent import Agent, AgentInput
 from .base import Team
 
 

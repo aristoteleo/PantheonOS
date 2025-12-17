@@ -15,9 +15,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from ..agent import Agent
-from ..memory import Memory
-from ..utils.log import logger, temporary_log_level
+from pantheon.agent import Agent
+from pantheon.memory import Memory
+from pantheon.utils.log import logger, temporary_log_level
 
 # ===== SummaryGenerator =====
 

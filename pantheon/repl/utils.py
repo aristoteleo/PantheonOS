@@ -181,8 +181,8 @@ def format_token_count(count: int) -> str:
 
 async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict) -> dict:
     """Gather detailed token statistics (async) including tools and system prompt."""
-    from ..utils.llm import count_tokens_in_messages, process_messages_for_model
-    from ..utils.log import logger
+    from pantheon.utils.llm import count_tokens_in_messages, process_messages_for_model
+    from pantheon.utils.log import logger
 
     tools = []
     messages = []
@@ -211,7 +211,7 @@ async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict) -> d
             if hasattr(chatroom, 'memory_manager'):
                 memory = chatroom.memory_manager.get_memory(chat_id)
                 if memory:
-                    raw_messages = memory.get_messages(None) or []
+                    raw_messages = memory.get_messages() or []
                     messages = process_messages_for_model(raw_messages, model)
         except Exception as e:
             logger.warning(f"Failed to get messages for token stats: {e}")

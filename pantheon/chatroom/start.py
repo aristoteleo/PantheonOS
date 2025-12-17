@@ -219,7 +219,7 @@ async def start_services(
                       "process" (independent subprocess).
     """
     # Load settings for defaults (CLI > Settings > code defaults)
-    from ..settings import get_settings
+    from pantheon.settings import get_settings
 
     settings = get_settings()
 

@@ -263,7 +263,7 @@ class DatabaseAPIQueryToolSet(ToolSet):
     ) -> Dict[str, Any]:
         """Use LLM to generate API parameters from natural language prompt."""
         try:
-            from ..utils.remote import connect_remote
+            from pantheon.toolsets.utils.remote import connect_remote
         except ImportError:
             return {"success": False, "error": "Remote LLM service not available"}
 

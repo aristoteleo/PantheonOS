@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from abc import ABC, abstractmethod
 
 if TYPE_CHECKING:
-    from ..core import Repl
+    from pantheon.repl.core import Repl
 
 
 class CommandHandler(ABC):

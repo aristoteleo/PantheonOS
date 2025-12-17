@@ -56,7 +56,7 @@ def start(
         quiet: Disable all logging. Use --quiet to enable. (default: False)
     """
     # Load settings for defaults (CLI > Settings > code defaults)
-    from ..settings import get_settings
+    from pantheon.settings import get_settings
     settings = get_settings()
 
     # Apply defaults: CLI > Settings > code defaults
@@ -87,12 +87,12 @@ async def _start_async(
     """Async implementation of start."""
     # Ensure memory_dir has a default
     if memory_dir is None:
-        from ..settings import get_settings
+        from pantheon.settings import get_settings
         memory_dir = str(get_settings().memory_dir)
     # Import modules first (this triggers utils/log.py which sets up default logging)
     from .core import Repl
-    from ..chatroom import ChatRoom
-    from ..utils.log import disable_all, set_level
+    from pantheon.chatroom import ChatRoom
+    from pantheon.utils.log import disable_all, set_level
 
     # Setup logging AFTER imports (to override utils/log.py defaults)
     if quiet and log_level is None:
@@ -131,7 +131,7 @@ async def _start_async(
         await chatroom.run_setup()
 
         # Parse template and create team
-        from ..factory import get_template_manager
+        from pantheon.factory import get_template_manager
 
         template_manager = get_template_manager()
         template_content = template_path.read_text(encoding="utf-8")
@@ -160,6 +160,15 @@ async def _start_async(
             chatroom=chatroom,
             chat_id=chat_id,
         )
+
+    # Suppress FastMCP and Uvicorn logs unless explicitly debugging
+    # specific libraries that use standard logging
+    if log_level != "DEBUG":
+        # FastMCP uses a custom logger globally configured on import
+        # We must suppress "FastMCP" (capitalized) not "fastmcp"
+        logging.getLogger("FastMCP").setLevel(logging.WARNING)
+        logging.getLogger("uvicorn").setLevel(logging.WARNING)
+        logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
     # Disable logging unless explicitly set to DEBUG
     disable_logging = quiet and log_level != "DEBUG"

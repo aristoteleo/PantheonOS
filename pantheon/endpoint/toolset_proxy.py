@@ -11,8 +11,8 @@ import asyncio
 from typing import Dict, List, Optional, Any, Union
 from enum import Enum
 
-from ..utils.log import logger
-from ..remote import RemoteService
+from pantheon.utils.log import logger
+from pantheon.remote import RemoteService
 
 
 class ProxyMode(Enum):
@@ -211,7 +211,7 @@ class ToolsetProxy:
             if not self.service_id:
                 raise ValueError(f"service_id is None for mode {self.mode.value}")
 
-            from ..remote import connect_remote
+            from pantheon.remote import connect_remote
 
             self.service = await connect_remote(self.service_id)
             service_type = (

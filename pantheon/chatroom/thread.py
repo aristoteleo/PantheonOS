@@ -2,10 +2,10 @@ from typing import Callable
 import uuid
 import asyncio
 
-from ..team import Team
-from ..memory import Memory
-from ..utils.misc import run_func
-from ..utils.log import logger
+from pantheon.team import Team
+from pantheon.memory import Memory
+from pantheon.utils.misc import run_func
+from pantheon.utils.log import logger
 
 
 class Thread:

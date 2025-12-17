@@ -7,8 +7,8 @@ import subprocess
 from executor.engine import Engine
 from executor.engine.job.extend import SubprocessJob
 
-from ..toolset import ToolSet, tool
-from ..utils.log import logger
+from pantheon.toolset import ToolSet, tool
+from pantheon.utils.log import logger
 
 
 class EndpointHub(ToolSet):

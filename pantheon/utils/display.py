@@ -9,11 +9,11 @@ from rich.markdown import Markdown
 from rich_pyfiglet import RichFiglet
 
 if TYPE_CHECKING:
-    from ..agent import Agent, RemoteAgent
+    from pantheon.agent import Agent, RemoteAgent
 
 
 async def print_agent(agent: "Agent | RemoteAgent", console: Console | None = None):
-    from ..agent import RemoteAgent
+    from pantheon.agent import RemoteAgent
     is_remote = isinstance(agent, RemoteAgent)
     if is_remote:
         await agent.fetch_info()

@@ -1,7 +1,7 @@
 import asyncio
 from abc import ABC
 
-from ..agent import Agent, AgentInput, RemoteAgent
+from pantheon.agent import Agent, AgentInput, RemoteAgent
 
 
 class Team(ABC):
@@ -34,7 +34,7 @@ class Team(ABC):
 
     async def chat(self, message: str | dict | None = None):
         """Chat with the team with a REPL interface."""
-        from ..repl.core import Repl
+        from pantheon.repl.core import Repl
 
         repl = Repl(self)
         await repl.run(message)

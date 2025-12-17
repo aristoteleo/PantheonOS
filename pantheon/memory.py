@@ -36,6 +36,7 @@ class Memory:
             new_memory = Memory(self.name)
             new_memory._messages = self._messages[key]
             new_memory.extra_data = self.extra_data.copy()
+            return new_memory
         else:
             raise ValueError(f"Invalid key: {key}")
 

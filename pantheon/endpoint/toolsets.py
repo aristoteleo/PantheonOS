@@ -18,10 +18,10 @@ from executor.engine import Engine
 from executor.engine.job import ThreadJob
 from executor.engine.job.extend import SubprocessJob
 
-from ..remote import connect_remote
-from ..toolset import ToolSet, tool
-from ..utils.log import logger
-from ..internal.package_runtime.context import export_context, load_context
+from pantheon.remote import connect_remote
+from pantheon.toolset import ToolSet, tool
+from pantheon.utils.log import logger
+from pantheon.internal.package_runtime.context import export_context, load_context
 
 
 class ToolSetMode(Enum):

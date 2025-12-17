@@ -12,7 +12,7 @@ def resolve_backend_config(
     """Resolve backend configuration with clear precedence: explicit > env > settings > defaults"""
     # Try to get config from Settings (lazy import to avoid circular imports)
     try:
-        from ..settings import get_settings
+        from pantheon.settings import get_settings
         settings = get_settings()
         remote_config = settings.get_remote_config()
     except Exception:

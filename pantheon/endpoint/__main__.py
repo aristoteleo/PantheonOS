@@ -9,8 +9,8 @@ import yaml
 
 from .core import Endpoint
 from .hub import EndpointHub
-from ..utils.log import logger
-from ..settings import get_settings, load_jsonc
+from pantheon.utils.log import logger
+from pantheon.settings import get_settings, load_jsonc
 
 
 # Template locations

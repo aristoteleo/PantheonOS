@@ -2,7 +2,7 @@
 name = "pantheon-agents"
 description = "A framework for building distributed evolvable multi-agent system."
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 dependencies = [
     "diff-match-patch>=20241021",
     "executor-engine>=0.3.3",

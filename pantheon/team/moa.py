@@ -1,6 +1,6 @@
 import asyncio
 
-from ..agent import Agent, AgentInput, AgentResponse
+from pantheon.agent import Agent, AgentInput, AgentResponse
 from .base import Team
 
 

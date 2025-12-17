@@ -6,23 +6,23 @@ from pathlib import Path
 from typing import Callable
 from typing import TYPE_CHECKING
 
-from ..agent import Agent
-from ..factory import (
+from pantheon.agent import Agent
+from pantheon.factory import (
     create_agents_from_template,
     get_template_manager,
     TeamConfig,
 )
-from ..memory import MemoryManager, _ALL_CONTEXTS
-from ..settings import get_settings
-from ..team import PantheonTeam
-from ..toolset import ToolSet, tool
-from ..utils.log import logger
-from ..utils.misc import run_func
+from pantheon.memory import MemoryManager, _ALL_CONTEXTS
+from pantheon.settings import get_settings
+from pantheon.team import PantheonTeam
+from pantheon.toolset import ToolSet, tool
+from pantheon.utils.log import logger
+from pantheon.utils.misc import run_func
 from .special_agents import get_suggestion_generator
 from .thread import Thread
 
 if TYPE_CHECKING:
-    from ..endpoint import Endpoint
+    from pantheon.endpoint import Endpoint
 
 import openai
 
@@ -82,7 +82,7 @@ class ChatRoom(ToolSet):
             self._auto_created_endpoint = False
         elif endpoint is None:
             # Auto-create mode: create Endpoint instance automatically
-            from ..endpoint import Endpoint
+            from pantheon.endpoint import Endpoint
 
             # Use workspace_path or default to .pantheon dir (where settings.json lives)
             if workspace_path is None:
@@ -91,7 +91,7 @@ class ChatRoom(ToolSet):
                 # Actually, ChatRoom doesn't hold settings instance directly in __init__ args,
                 # but we can get it from the factory or create a new one.
                 # Since we want consistency, let's use the global settings instance.
-                from ..settings import get_settings
+                from pantheon.settings import get_settings
                 settings = get_settings()
                 workspace_path = str(settings.workspace)
 
@@ -168,7 +168,7 @@ class ChatRoom(ToolSet):
         self, enable_learning: bool | None = None, learning_config: dict | None = None
     ) -> None:
         """Initialize Long-term memory resources."""
-        from ..internal.learning import create_learning_resources
+        from pantheon.internal.learning import create_learning_resources
         
         self._skillbook, self._learning_pipeline = create_learning_resources(
             enable=enable_learning, config=learning_config

@@ -6,7 +6,7 @@ from .base import CommandHandler
 from pantheon.utils.template import parse_items, load_template
 
 if TYPE_CHECKING:
-    from ..core import Repl
+    from pantheon.repl.core import Repl
 
 
 class TemplateHandler(CommandHandler):

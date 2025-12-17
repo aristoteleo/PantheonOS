@@ -8,12 +8,12 @@ from rich.console import Console
 from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
 
-from ..agent import Agent
-from ..team import Team
-from ..utils.log import logger
-from ..utils.vision import vision_input
-from ..utils.misc import print_agent_message
-from ..endpoint import ToolsetProxy
+from pantheon.agent import Agent
+from pantheon.team import Team
+from pantheon.utils.log import logger
+from pantheon.utils.vision import vision_input
+from pantheon.utils.misc import print_agent_message
+from pantheon.endpoint import ToolsetProxy
 
 
 async def run_app(
@@ -116,7 +116,7 @@ async def run_app(
             agent.memory.clear()
             return "Agent memory cleared."
         elif content.startswith("!help"):
-            from .. import __version__
+            from pantheon import __version__
             return f"""You can talk with me in a direct message or in a channel. Run following commands in a message to control me:
 
 `!reset` - Reset me to default state, it will forget all memory and toolset.

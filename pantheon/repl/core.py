@@ -33,11 +33,11 @@ try:
 except ImportError:
     READLINE_AVAILABLE = False
 
-from ..agent import Agent
-from ..team import Team
-from ..team.pantheon import PantheonTeam
-from ..chatroom import ChatRoom
-from ..constant import CLI_HISTORY_FILE
+from pantheon.agent import Agent
+from pantheon.team import Team
+from pantheon.team.pantheon import PantheonTeam
+from pantheon.chatroom import ChatRoom
+from pantheon.constant import CLI_HISTORY_FILE
 from .ui import ReplUI
 from .renderers import DisplayMode
 from .task_renderers import TaskUIRenderer, NotifyUIRenderer
@@ -74,7 +74,7 @@ class Repl(ReplUI):
         chat_id: str | None = None,
     ):
         if memory_dir is None:
-            from ..settings import get_settings
+            from pantheon.settings import get_settings
             memory_dir = str(get_settings().memory_dir)
         super().__init__()  # init UI
 
@@ -467,7 +467,7 @@ class Repl(ReplUI):
     async def run(self, message: str | dict | None = None, disable_logging: bool = True):
         """Main REPL loop."""
         if disable_logging:
-            from ..utils.log import set_level
+            from pantheon.utils.log import set_level
             set_level("ERROR")  # Only show ERROR level, hide DEBUG/INFO/WARNING
 
         # Initialize
@@ -724,7 +724,7 @@ class Repl(ReplUI):
         Returns:
             List of message dicts in OpenAI format
         """
-        from ..utils.vision import parse_image_mentions
+        from pantheon.utils.vision import parse_image_mentions
         return parse_image_mentions(message)
 
     async def _process_message(self, message: str):

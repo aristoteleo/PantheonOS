@@ -3,7 +3,7 @@ import uuid
 from pathlib import Path
 
 from pantheon.toolset import tool
-from ..file.file_manager import FileManagerToolSetBase
+from pantheon.toolsets.file.file_manager import FileManagerToolSetBase
 
 
 class FileTransferToolSet(FileManagerToolSetBase):

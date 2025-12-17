@@ -467,7 +467,7 @@ async def openai_embedding(
     texts: list[str], model: str = "text-embedding-3-large"
 ) -> list[list[float]]:
     import openai
-    from ..settings import get_settings
+    from pantheon.settings import get_settings
     
     settings = get_settings()
     api_key = settings.get_api_key("OPENAI_API_KEY")
@@ -695,7 +695,6 @@ def count_tokens_in_messages(
                 
                 # Persist updated cost info to metadata
                 meta["current_cost"] = current_cost
-                meta["total_cost"] = total_session_cost
             
             # Scenario A': Write Mode (No provider cost, store estimated cost)
             elif "current_cost" not in meta and current_cost > 0:

@@ -37,7 +37,7 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.formatted_text import HTML
 
 from .utils import get_animation_frames, get_separator, get_wave_color
-from ..constant import FILE_COMPLETION_IGNORED, PROJECT_ROOT
+from pantheon.constant import FILE_COMPLETION_IGNORED, PROJECT_ROOT
 
 if TYPE_CHECKING:
     from .core import Repl

@@ -297,7 +297,7 @@ class RemoteAgent:
     async def chat(self, message: str | dict | None = None):
         """Chat with the agent with a REPL interface."""
         await self.fetch_info()
-        from ..repl.core import Repl
+        from .repl.core import Repl
 
         repl = Repl(self)
         await repl.run(message)
@@ -1079,7 +1079,6 @@ class Agent:
         message.setdefault("_metadata", {}).update({
             "start_timestamp": request_start_time,
             "end_timestamp": end_timestamp,
-            "generation_duration": total_time,
         })
 
         # Step 9: Log timing and tokens
@@ -1705,7 +1704,9 @@ async def _detect_attachments(step_message: dict) -> None:
         processor = get_message_processor()
         processed = await processor.process_message_with_attachments(step_message)
 
-        step_message["detected_attachments"] = processed.get("detected_attachments", [])
+        attachments = processed.get("detected_attachments", [])
+        if attachments:
+            step_message["detected_attachments"] = attachments
     except Exception as e:
         logger.warning(f"Error in attachment detection: {e}")
 

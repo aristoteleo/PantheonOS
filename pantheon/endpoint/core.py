@@ -7,11 +7,11 @@ from typing import TypedDict
 
 from executor.engine import Engine, LocalJob
 
-from ..remote import connect_remote
-from ..settings import get_settings
-from ..toolset import tool
-from ..toolsets.file_transfer import FileTransferToolSet
-from ..utils.log import logger
+from pantheon.remote import connect_remote
+from pantheon.settings import get_settings
+from pantheon.toolset import tool
+from pantheon.toolsets.file_transfer import FileTransferToolSet
+from pantheon.utils.log import logger
 from .mcp import MCPManager
 from .toolsets import ToolSetManager
 from .mcp import MCPServerConfig

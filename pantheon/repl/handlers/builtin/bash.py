@@ -1,5 +1,5 @@
 import subprocess
-from ..base import CommandHandler
+from pantheon.repl.handlers.base import CommandHandler
 
 
 class BashCommandHandler(CommandHandler):

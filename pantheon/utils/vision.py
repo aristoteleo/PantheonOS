@@ -201,7 +201,7 @@ def parse_image_mentions(
 
     # Get workspace
     if workspace is None:
-        from ..settings import get_settings
+        from pantheon.settings import get_settings
 
         workspace = get_settings().workspace
     workspace = Path(workspace)

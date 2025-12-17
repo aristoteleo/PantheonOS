@@ -2,20 +2,20 @@ import re
 import uuid
 from typing import TYPE_CHECKING, List, Optional
 
-from ..agent import (
+from pantheon.agent import (
     Agent,
     AgentInput,
     AgentTransfer,
     RemoteAgent,
     get_current_run_context,
 )
-from ..memory import Memory
-from ..utils.log import logger
-from ..utils.misc import run_func
+from pantheon.memory import Memory
+from pantheon.utils.log import logger
+from pantheon.utils.misc import run_func
 from .base import Team
 
 if TYPE_CHECKING:
-    from ..internal.learning import LearningPipeline, Skillbook
+    from pantheon.internal.learning import LearningPipeline, Skillbook
 
 
 def _slugify(name: str) -> str:
@@ -164,8 +164,8 @@ class PantheonTeam(Team):
     
     def _init_compressor(self):
         """Initialize context compressor from settings."""
-        from ..settings import get_settings
-        from ..internal.compression import CompressionConfig, ContextCompressor
+        from pantheon.settings import get_settings
+        from pantheon.internal.compression import CompressionConfig, ContextCompressor
         
         settings = get_settings()
         compression_config = settings.get_compression_config()
@@ -219,8 +219,8 @@ class PantheonTeam(Team):
             messages: List of messages from the conversation
             parent_question: For sub_agent, the delegation instruction
         """
-        from ..internal.learning.pipeline import build_learning_input
-        from ..settings import get_settings
+        from pantheon.internal.learning.pipeline import build_learning_input
+        from pantheon.settings import get_settings
         
         settings = get_settings()
         learning_config = settings.get_learning_config()
@@ -248,7 +248,7 @@ class PantheonTeam(Team):
         Args:
             memory: Memory instance to compress
         """
-        from ..settings import get_settings
+        from pantheon.settings import get_settings
         
         settings = get_settings()
         # Use ace/learning directory for unified management with ACE learning data
@@ -609,7 +609,7 @@ async def create_delegation_task_message(
     summary_text = None
     if history:
         try:
-            from ..chatroom.special_agents import get_summary_generator
+            from pantheon.chatroom.special_agents import get_summary_generator
 
             summary_gen = get_summary_generator()
             summary_text = await summary_gen.generate_summary(history, max_tokens=1000)

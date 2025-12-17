@@ -48,7 +48,7 @@ async def call_endpoint_method(
     - Remote services: uses invoke() for RPC
     """
     # Import here to avoid circular imports
-    from ..endpoint.core import Endpoint
+    from pantheon.endpoint.core import Endpoint
 
     if isinstance(endpoint_service, Endpoint):
         # Direct Endpoint instance - call method directly

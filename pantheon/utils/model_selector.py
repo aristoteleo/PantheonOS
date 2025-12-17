@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 from .log import logger
 
 if TYPE_CHECKING:
-    from ..settings import Settings
+    from pantheon.settings import Settings
 
 # ============ Default Configuration ============
 # Built-in defaults based on December 2025 flagship models
@@ -449,7 +449,7 @@ def get_model_selector() -> ModelSelector:
     global _selector_instance
 
     if _selector_instance is None:
-        from ..settings import get_settings
+        from pantheon.settings import get_settings
 
         _selector_instance = ModelSelector(get_settings())
 

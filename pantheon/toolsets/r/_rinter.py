@@ -1,5 +1,5 @@
 import asyncio
-from ..shell._shell import AsyncCommandLineInterpreter
+from pantheon.toolsets.shell._shell import AsyncCommandLineInterpreter
 
 
 class AsyncRInterpreter(AsyncCommandLineInterpreter):
