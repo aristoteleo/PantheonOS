@@ -10,6 +10,7 @@ agents:
   - leader
   - data_analyst
   - researcher
+  - scientific_illustrator
 leader:
   id: leader
   name: Leader

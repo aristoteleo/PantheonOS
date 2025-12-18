@@ -101,6 +101,19 @@ ULTIMATE_FALLBACK = "gpt-4.1-mini"
 # Recommended fallback tag for general use
 FALLBACK_TAG = "low"
 
+# ============ Image Generation Model Defaults ============
+# Quality levels for image generation models
+DEFAULT_IMAGE_GEN_MODELS = {
+    "gemini": {
+        "high": ["gemini/gemini-3-pro-image-preview"],
+        "normal": ["gemini/gemini-2.5-flash-image-preview"],
+    },
+    "openai": {
+        "high": ["dall-e-3"],
+        "normal": ["dall-e-3"],
+    },
+}
+
 
 class ModelSelector:
     """Smart model selector based on environment API keys and tags."""
@@ -419,6 +432,31 @@ class ModelSelector:
 
         return result
 
+    def resolve_image_gen_model(self, quality: str = "normal") -> list[str]:
+        """Resolve image generation model based on available providers.
+
+        Args:
+            quality: Quality level ("high" or "normal")
+
+        Returns:
+            List of image generation models as fallback chain
+        """
+        available = self._get_available_providers()
+        
+        # Priority order for image generation providers
+        priority = ["gemini", "openai"]
+        
+        for provider in priority:
+            if provider in available:
+                user_config = self.settings.get(f"image_gen_models.{provider}", {})
+                provider_models = user_config or DEFAULT_IMAGE_GEN_MODELS.get(provider, {})
+                models = provider_models.get(quality, [])
+                if models:
+                    return models if isinstance(models, list) else [models]
+        
+        # Ultimate fallback
+        return ["gemini/gemini-2.5-flash-image-preview"]
+
     def get_provider_info(self) -> dict:
         """Get information about current provider selection.
 
@@ -528,6 +566,7 @@ __all__ = [
     "QUALITY_TAGS",
     "DEFAULT_PROVIDER_PRIORITY",
     "DEFAULT_PROVIDER_MODELS",
+    "DEFAULT_IMAGE_GEN_MODELS",
     "ULTIMATE_FALLBACK",
     "FALLBACK_TAG",
 ]

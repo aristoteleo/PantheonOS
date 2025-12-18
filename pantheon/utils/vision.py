@@ -254,7 +254,7 @@ class ImageStore:
     """
     Manages storage of images for chat sessions.
 
-    Storage location: ~/.pantheon/images/<chat_id>/<md5_hash>.<ext>
+    Storage location: <pantheon_dir>/images/<chat_id>/<md5_hash>.<ext>
 
     Handles:
     1. Saving base64 images to disk (deduplicated by hash)
@@ -264,7 +264,8 @@ class ImageStore:
 
     def __init__(self, storage_root: str | Path | None = None):
         if storage_root is None:
-            storage_root = Path.home() / ".pantheon" / "images"
+            from pantheon.settings import get_settings
+            storage_root = get_settings().pantheon_dir / "images"
         self.storage_root = Path(storage_root).resolve()
 
     def _get_chat_dir(self, chat_id: str) -> Path:

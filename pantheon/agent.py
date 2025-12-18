@@ -1716,17 +1716,8 @@ def _create_user_message(content: str) -> dict:
 
 async def _detect_attachments(step_message: dict) -> None:
     """Helper: Detect attachments in a message (independent of memory saving)."""
-    try:
-        from .internal.message.attachment_pipeline import get_message_processor
-
-        processor = get_message_processor()
-        processed = await processor.process_message_with_attachments(step_message)
-
-        attachments = processed.get("detected_attachments", [])
-        if attachments:
-            step_message["detected_attachments"] = attachments
-    except Exception as e:
-        logger.warning(f"Error in attachment detection: {e}")
+    # Attachment detection is currently disabled
+    return
 
 
 async def _call_agent(

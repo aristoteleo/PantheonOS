@@ -1,0 +1,231 @@
+"""
+Image Generation ToolSet.
+
+Provides image generation capabilities via generate_image tool.
+Supports both text-only models (DALL-E, Imagen) and multimodal models (Gemini Flash Image).
+"""
+
+import litellm
+from pantheon.toolset import ToolSet, tool
+from pantheon.utils.vision import (
+    ImageStore,
+    get_image_store,
+    expand_image_references_for_llm,
+)
+
+# Multimodal models that support image input + output via acompletion API
+MULTIMODAL_IMAGE_MODELS = {
+    "gemini/gemini-3-pro-image-preview",
+    "gemini/gemini-2.5-flash-image-preview",
+    "gemini/gemini-2.0-flash-exp-image-generation",
+}
+
+
+class ImageGenerationToolSet(ToolSet):
+    """Image generation toolset supporting text-only and multimodal models."""
+
+    def __init__(
+        self,
+        name: str = "image_generation",
+        fallback_vision_model: str | None = None,
+    ):
+        super().__init__(name)
+        self._image_store: ImageStore | None = None
+        self.fallback_vision_model = fallback_vision_model or "gemini/gemini-2.0-flash"
+
+    @property
+    def default_model(self) -> str:
+        """Dynamically resolve image generation model from Settings."""
+        try:
+            from pantheon.settings import get_settings
+            from pantheon.utils.model_selector import get_model_selector
+
+            settings = get_settings()
+            config = settings.get("image_gen_model", "normal")
+
+            if config in ("high", "normal", "low"):
+                selector = get_model_selector()
+                if hasattr(selector, "resolve_image_gen_model"):
+                    models = selector.resolve_image_gen_model(config)
+                    return (
+                        models[0] if models else "gemini/gemini-2.5-flash-image-preview"
+                    )
+            return config
+        except Exception:
+            # Fallback if settings not available
+            return "gemini/gemini-2.5-flash-image-preview"
+
+    @property
+    def image_store(self) -> ImageStore:
+        if self._image_store is None:
+            self._image_store = get_image_store()
+        return self._image_store
+
+    def _is_multimodal_model(self, model: str) -> bool:
+        """Check if model supports multimodal image generation."""
+        return any(m in model for m in MULTIMODAL_IMAGE_MODELS)
+
+    def _get_chat_id(self) -> str:
+        """Get chat_id from context."""
+        context = self.get_context()
+        if context:
+            return context.get("client_id", "default")
+        return "default"
+
+    @tool
+    async def generate_image(
+        self,
+        prompt: str,
+        reference_images: list[str] | None = None,
+        model: str | None = None,
+    ) -> dict:
+        """Generate an image from a text description.
+
+        Use this tool to create images based on your description. You can also
+        provide reference images for style transfer or image editing.
+
+        Args:
+            prompt: Detailed description of the image to generate.
+                Be specific about colors, composition, style, and subjects.
+                When using reference_images, refer to them by order in prompt:
+                "first image", "second image", etc.
+                Example: "Combine the style of the first image with the subject of the second image"
+            reference_images: File paths of existing images to use as reference.
+                Images are passed to the model in array order.
+                Example: ["/path/to/style.png", "/path/to/subject.png"]
+            model: Model to use for generation. Leave empty to use default.
+
+        Returns:
+            Dictionary with:
+            - success: Whether generation succeeded
+            - images: List of file paths to generated images
+            - error: Error message if failed
+        """
+        model = model or self.default_model
+
+        try:
+            if self._is_multimodal_model(model):
+                # Multimodal model: use acompletion API (supports image in/out)
+                return await self._multimodal_image_gen(
+                    prompt, model, reference_images
+                )
+            else:
+                # Text-only model: use aimage_generation API
+                if reference_images:
+                    # Fallback: describe reference images using vision model
+                    description = await self._describe_reference_images(
+                        reference_images
+                    )
+                    if description:
+                        prompt = f"{prompt}. Reference: {description}"
+                return await self._text_input_image_gen(prompt, model)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _text_input_image_gen(
+        self,
+        prompt: str,
+        model: str,
+    ) -> dict:
+        """Text-only image generation (DALL-E, Imagen)."""
+        response = await litellm.aimage_generation(
+            model=model,
+            prompt=prompt,
+            size="1024x1024",
+            n=1,
+        )
+
+        chat_id = self._get_chat_id()
+        saved_paths = []
+        for item in response.data:
+            if item.b64_json:
+                path = self.image_store.save_base64_image(
+                    chat_id, f"data:image/png;base64,{item.b64_json}"
+                )
+                saved_paths.append(path)
+            elif item.url:
+                saved_paths.append(item.url)
+
+        return {"success": True, "images": saved_paths, "model_used": model}
+
+    async def _multimodal_image_gen(
+        self,
+        prompt: str,
+        model: str,
+        reference_images: list[str] | None,
+    ) -> dict:
+        """Multimodal image generation (Gemini Flash Image)."""
+        # Build multimodal message
+        content = [{"type": "text", "text": prompt}]
+        if reference_images:
+            for ref in reference_images:
+                # Just pass the path - normalization happens in process_message_images
+                content.append({"type": "image_url", "image_url": {"url": ref}})
+
+        messages = [{"role": "user", "content": content}]
+
+        # Normalize paths (raw path → file://) then expand (file:// → base64)
+        chat_id = self._get_chat_id()
+        self.image_store.process_message_images(messages[0], chat_id)
+        messages = expand_image_references_for_llm(messages)
+
+        response = await litellm.acompletion(
+            model=model,
+            messages=messages,
+        )
+
+        message = response.choices[0].message
+        images = getattr(message, "images", None) or []
+
+        # Save generated images
+        # Format: [{'image_url': {'url': 'data:image/png;base64,...'}}]
+        saved_paths = []
+        for img in images:
+            if isinstance(img, dict):
+                url = img.get("image_url", {}).get("url", "")
+            else:
+                url = img
+            if url:
+                path = self.image_store.save_base64_image(chat_id, url)
+                saved_paths.append(path)
+
+        return {
+            "success": True,
+            "images": saved_paths,
+            "text": message.content,
+            "model_used": model,
+        }
+
+    async def _describe_reference_images(self, reference_images: list[str]) -> str:
+        """Vision fallback: describe reference images for text-only models."""
+        context = self.get_context()
+        if not context:
+            return ""
+
+        # Check if call_agent is available
+        call_agent = context.get("_call_agent")
+        if not call_agent:
+            return ""
+
+        # Build message
+        content = [
+            {"type": "text", "text": "Describe these images in detail for recreation:"}
+        ]
+        for ref in reference_images:
+            content.append({"type": "image_url", "image_url": {"url": ref}})
+
+        messages = [{"role": "user", "content": content}]
+
+        # Normalize paths then expand to base64
+        chat_id = self._get_chat_id()
+        self.image_store.process_message_images(messages[0], chat_id)
+        messages = expand_image_references_for_llm(messages)
+
+        try:
+            result = await call_agent(
+                messages=messages,
+                model=self.fallback_vision_model,
+            )
+            return result if isinstance(result, str) else str(result)
+        except Exception as e:
+            return f"[Error describing images: {e}]"

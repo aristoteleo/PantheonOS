@@ -121,6 +121,23 @@
         //     }
         // }
     },
+    // ===== Image Generation Configuration =====
+    // Model selection for generate_image tool
+    // Options: "high", "normal", or specific model name (e.g., "dall-e-3")
+    // - "high": gemini/gemini-3-pro-image-preview (best quality)
+    // - "normal": gemini/gemini-2.5-flash-image-preview (balanced)
+    "image_gen_model": "normal",
+    // Custom image generation models (optional - override code defaults)
+    // "image_gen_models": {
+    //     "gemini": {
+    //         "high": ["gemini/gemini-3-pro-image-preview"],
+    //         "normal": ["gemini/gemini-2.5-flash-image-preview"]
+    //     },
+    //     "openai": {
+    //         "high": ["dall-e-3"],
+    //         "normal": ["dall-e-3"]
+    //     }
+    // },
     // ===== ACE (Agentic Context Engineering) Configuration =====
     // Learning is a long-term memory system that learns from conversation trajectories
     "learning": {

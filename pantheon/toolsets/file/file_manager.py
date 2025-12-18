@@ -1204,5 +1204,50 @@ class FileManagerToolSet(FileManagerToolSetBase):
             respect_git_ignore=respect_git_ignore,
         )
 
+    @tool
+    async def generate_image(
+        self,
+        prompt: str,
+        reference_images: list[str] | None = None,
+    ) -> dict:
+        """Generate an image from a text description.
+
+        Use this tool to create images based on your description. You can also
+        provide reference images for style transfer or image editing.
+
+        Args:
+            prompt: Detailed description of the image to generate.
+                Be specific about colors, composition, style, and subjects.
+                When using reference_images, refer to them by order in prompt:
+                "first image", "second image", etc.
+                Example: "Combine the style of the first image with the subject of the second image"
+            reference_images: File paths of existing images to use as reference.
+                Images are passed to the model in array order.
+                Example: ["style.png", "subject.png"]
+
+        Returns:
+            Dictionary with:
+            - success: Whether generation succeeded
+            - images: List of file paths to generated images
+            - error: Error message if failed
+        """
+        from pantheon.toolsets.image import ImageGenerationToolSet
+
+        # Lazy initialization of image generation toolset
+        if not hasattr(self, "_image_gen"):
+            self._image_gen = ImageGenerationToolSet()
+
+        # Resolve relative paths to absolute paths
+        abs_refs = None
+        if reference_images:
+            abs_refs = []
+            for ref in reference_images:
+                if not ref.startswith(("/", "file://", "http")):
+                    abs_refs.append(str(self.path / ref))
+                else:
+                    abs_refs.append(ref)
+
+        return await self._image_gen.generate_image(prompt, abs_refs)
+
 
 __all__ = ["FileManagerToolSet"]
