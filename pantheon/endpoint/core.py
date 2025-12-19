@@ -38,10 +38,7 @@ class EndpointConfig(TypedDict, total=False):
     local_toolset_timeout: int  # Timeout in seconds (default: 60)
     local_toolset_execution_mode: str  # "thread" | "direct" (default: "direct")
 
-    # ===== MCP Server Pool Configuration =====
-    # MCP server definitions and auto-start list
-    mcp_servers: dict[str, dict]  # server_name -> server_config
-    auto_start_mcp_servers: list[str]  # MCP servers to auto-start on startup
+
 
 
 class Endpoint(FileTransferToolSet):
@@ -91,10 +88,14 @@ class Endpoint(FileTransferToolSet):
 
         # Initialize MCP Pool with log directory and hostname
         mcp_log_dir = str(self.log_dir / "mcp-servers")
-        # Get server host from Settings (with env var override)
+        # Get MCP config directly from settings (not mixed into EndpointConfig)
         settings = get_settings()
-        server_host = settings.get_remote_config().get("server_host", "localhost")
-        self.mcp_manager: MCPManager = MCPManager(log_dir=mcp_log_dir, host=server_host)
+        mcp_config = settings.get_mcp_config()
+        self.mcp_manager: MCPManager = MCPManager(
+            log_dir=mcp_log_dir,
+            port=mcp_config.get("port", 3100),
+            host=mcp_config.get("host", "localhost"),
+        )
 
         super().__init__(
             name,
@@ -126,13 +127,21 @@ class Endpoint(FileTransferToolSet):
 
         Unified startup sequence for MCP servers and builtin services.
         """
-        # ===== Phase 1: Load and Auto-start MCP Servers =====
-        logger.info("Phase 1: Loading and starting MCP servers...")
-        result = await self.mcp_manager.load_config(self.config)
+        # ===== Phase 1: Load MCP Config and Start Gateway =====
+        logger.info("Phase 1: Loading MCP config and starting gateway...")
+        mcp_config = get_settings().get_mcp_config()
+        result = await self.mcp_manager.load_config(mcp_config)
         if result.get("errors"):
             logger.warning(f"MCP configuration loading had errors: {result['errors']}")
 
-        auto_start_mcp = self.config.get("auto_start_mcp_servers", [])
+        # Always start gateway (for Package Runtime, dynamic server addition, etc.)
+        await self.mcp_manager._gateway.start_gateway()
+        unified_uri = self.mcp_manager.get_unified_uri()
+        os.environ["ENDPOINT_MCP_URI"] = unified_uri
+        logger.info(f"MCP Gateway started at {unified_uri}")
+
+        # Auto-start configured MCP servers
+        auto_start_mcp = mcp_config.get("auto_start", [])
         if auto_start_mcp:
             logger.info(f"Auto-starting MCP servers: {auto_start_mcp}")
             result = await self.mcp_manager.start_services(auto_start_mcp)
@@ -169,75 +178,24 @@ class Endpoint(FileTransferToolSet):
         logger.info("Phase 4: Starting Endpoint MCP server for package API access...")
         await self._start_endpoint_mcp_server()
 
-    def _find_free_port(self, start_port: int = 3100, max_attempts: int = 100) -> int:
-        """Find a free port starting from start_port.
-
-        Args:
-            start_port: Port number to start searching from.
-            max_attempts: Maximum number of ports to try.
-
-        Returns:
-            First available port number.
-
-        Raises:
-            RuntimeError: If no free port is found within the range.
-        """
-        import socket
-
-        for port in range(start_port, start_port + max_attempts):
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.bind(("127.0.0.1", port))
-                    return port
-            except OSError:
-                continue
-        raise RuntimeError(
-            f"No free port found in range {start_port}-{start_port + max_attempts}"
-        )
-
     async def _start_endpoint_mcp_server(self):
-        """Start Endpoint as MCP server for cross-process package API access.
+        """Mount Endpoint tools to the unified MCP gateway.
 
         This allows package API (running in separate Python/shell/Jupyter processes)
-        to discover and access MCP servers managed by this Endpoint.
+        to access Endpoint tools via the unified gateway.
 
-        The server will automatically find an available port if the default port
-        (3100) or configured port is already in use.
+        Note: Gateway is already started in run_setup(). This only mounts tools.
+        Endpoint tools are hidden from list_tools but still callable by Package Runtime.
         """
-        import os
+        # Mount Endpoint tools to gateway with 'endpoint_' prefix
+        # Use 'internal' tag to mark as hidden (filtered by middleware)
+        endpoint_mcp = self.to_mcp(tags={"internal"})
+        await self.mcp_manager._gateway.mount_server("endpoint", endpoint_mcp)
 
-        configured_port = self.config.get("endpoint_mcp_port", 3100)
-        # Find an available port starting from the configured port
-        self.endpoint_mcp_port = self._find_free_port(configured_port)
-
-        if self.endpoint_mcp_port != configured_port:
-            logger.info(
-                f"Port {configured_port} in use, using port {self.endpoint_mcp_port} instead"
-            )
-
-        mcp_server = self.to_mcp()
-
-        async def run_mcp():
-            try:
-                await mcp_server.run_http_async(
-                    host="127.0.0.1",
-                    port=self.endpoint_mcp_port,
-                    path="/mcp",
-                    show_banner=False,
-                    log_level="error",  # Suppress uvicorn startup logs
-                )
-            except asyncio.CancelledError:
-                logger.debug("Endpoint MCP server stopped (Cancelled)")
-            except Exception as e:
-                logger.error(f"Endpoint MCP server error: {e}")
-
-        self._endpoint_mcp_task = asyncio.create_task(run_mcp())
-
-        # Set ENDPOINT_MCP_URI env var for build_context_payload to pick up
-        endpoint_mcp_uri = f"http://127.0.0.1:{self.endpoint_mcp_port}/mcp"
-        os.environ["ENDPOINT_MCP_URI"] = endpoint_mcp_uri
-
-        logger.info(f"Endpoint MCP server started at {endpoint_mcp_uri}")
+        self.endpoint_mcp_port = self.mcp_manager.port
+        logger.info(
+            f"Endpoint tools mounted to gateway (prefix: endpoint_, hidden)"
+        )
 
     def _get_tool_method(self, obj, method_name: str, context: str):
         """Get and validate a tool method from an object."""
@@ -416,6 +374,22 @@ class Endpoint(FileTransferToolSet):
                         "error": "name required for 'stop' action",
                     }
                 return await manager.stop_services(names)
+            elif action == "restart":
+                if not names:
+                    return {
+                        "success": False,
+                        "error": "name required for 'restart' action",
+                    }
+                # Restart one at a time
+                results = {"success": True, "restarted": [], "errors": []}
+                for service_name in names:
+                    result = await self.mcp_manager.restart_service(service_name)
+                    if result.get("success"):
+                        results["restarted"].append(service_name)
+                    else:
+                        results["errors"].extend(result.get("errors", []))
+                        results["success"] = False
+                return results
             else:
                 return {"success": False, "error": f"Unknown action: {action}"}
 

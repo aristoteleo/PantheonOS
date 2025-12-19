@@ -4,6 +4,10 @@
     // ===== Environment File Configuration =====
     // Path to environment variables file, relative to project directory
     "env_file": ".env",
+    // ===== MCP Tools Configuration =====
+    // Whether to auto-inject MCP tools (from unified gateway) into agents
+    // For mcp abilities, this is not necessary, Package APIs are sufficient for all mcp tools
+    "enable_mcp_tools": true,
     // ===== Endpoint Service Configuration =====
     "endpoint": {
         "service_name": "pantheon-chatroom-endpoint",
@@ -126,7 +130,7 @@
     // Options: "high", "normal", or specific model name (e.g., "dall-e-3")
     // - "high": gemini/gemini-3-pro-image-preview (best quality)
     // - "normal": gemini/gemini-2.5-flash-image-preview (balanced)
-    "image_gen_model": "normal",
+    "image_gen_model": "high",
     // Custom image generation models (optional - override code defaults)
     // "image_gen_models": {
     //     "gemini": {

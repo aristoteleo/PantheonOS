@@ -1,15 +1,30 @@
 {
     "$schema": "https://pantheon.dev/schemas/mcp.json",
     "version": "1.0.0",
+    // ===== MCP Gateway Configuration =====
+    // Unified MCP Gateway settings - all MCP servers share a single HTTP endpoint
+    //
+    // host: Gateway hostname for external access (default: "localhost")
+    // port: Gateway listening port (default: 3100). If occupied, will auto-find next available.
+    // sampling_model: Model for MCP sampling requests (e.g., "gpt-4o-mini")
+    // cache_ttl: Tool list cache TTL in seconds (default: 60)
+    "host": "localhost",
+    "port": 3100,
+    "sampling_model": "normal",
+    "cache_ttl": 60,
     // ===== MCP Server Configuration =====
     // Model Context Protocol servers provide extended tool capabilities
-    // Each server is exposed at an independent URL path: http://localhost:3000/mcp/{server_name}
+    // Access modes:
+    // - Unified: http://localhost:{port}/mcp (all tools with prefix, e.g., context7_resolve_library_id)
+    // - Individual: http://localhost:{port}/mcp/{server_name} (original tool names)
     //
     // Two types are supported:
     // - stdio: Local subprocess with STDIO transport (Endpoint manages lifecycle)
     // - http: Connect to existing remote HTTP endpoint (no process management)
     // List of MCP servers to auto-start when Endpoint starts
-    "auto_start": [],
+    "auto_start": [
+        "context7"
+    ],
     "servers": {
         // === Example 1: Local STDIO Server (Endpoint managed startup) ===
         "biomcp": {
@@ -20,6 +35,7 @@
                 // "NCI_API_KEY": "${NCI_API_KEY}"
             },
             "description": "BioMCP - Bioinformatics tools"
+            // "mount_prefix": "bio"  // Optional: custom prefix (default: server name)
         },
         "context7": {
             "type": "stdio",

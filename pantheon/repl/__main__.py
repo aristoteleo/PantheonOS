@@ -184,6 +184,7 @@ async def _start_async(
             workspace_path=workspace,
             enable_nats_streaming=False,
         )
+        # Note: run_setup() is called in repl.run() AFTER UI display
         repl = Repl(
             chatroom=chatroom,
             chat_id=chat_id,

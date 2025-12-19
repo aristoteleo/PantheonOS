@@ -278,3 +278,37 @@ def print_agent_message(
                     f"[yellow]{message.get('content')}[/yellow]",
                     "Agent Message",
                 )
+
+
+def find_free_port(
+    start_port: int = 3100,
+    host: str = "127.0.0.1",
+    max_attempts: int = 100,
+) -> int:
+    """Find a free port starting from start_port.
+
+    Tries to bind to ports sequentially until an available one is found.
+
+    Args:
+        start_port: Port number to start searching from.
+        host: Host address to bind to.
+        max_attempts: Maximum number of ports to try.
+
+    Returns:
+        First available port number.
+
+    Raises:
+        RuntimeError: If no free port is found within the range.
+    """
+    import socket
+
+    for port in range(start_port, start_port + max_attempts):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind((host, port))
+                return port
+        except OSError:
+            continue
+    raise RuntimeError(
+        f"No free port found in range {start_port}-{start_port + max_attempts}"
+    )

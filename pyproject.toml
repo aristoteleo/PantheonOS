@@ -104,3 +104,6 @@ packages = {find = {}}
 
 [tool.setuptools.dynamic]
 version = {attr = "pantheon.__version__"} 
+
+[behavior]
+venv-mark-sync-ignore = true

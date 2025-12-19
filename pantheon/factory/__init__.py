@@ -1,9 +1,9 @@
 from pantheon.agent import Agent
 from pantheon.endpoint import ToolsetProxy
-from pantheon.endpoint.mcp import MCPServerConfig
 from pantheon.utils.log import logger
 from .template_manager import get_template_manager
 from .models import TeamConfig, AgentConfig
+from pantheon.settings import get_settings
 
 
 async def create_agent(
@@ -48,6 +48,7 @@ async def create_agent(
         if toolset_name == "task":
             try:
                 from pantheon.toolsets.task import TaskToolSet
+
                 task_toolset = TaskToolSet()
                 await agent.toolset(task_toolset)
                 toolsets_added.append(toolset_name)
@@ -56,12 +57,13 @@ async def create_agent(
                 logger.error(f"Agent '{name}': Failed to add local TaskToolSet: {e}")
                 agent.not_loaded_toolsets.append(toolset_name)
             continue
-        
+
         try:
             # Create ToolsetProxy for remote toolsets
             proxy = ToolsetProxy.from_endpoint(endpoint_service, toolset_name)
 
             from pantheon.providers import ToolSetProvider
+
             toolset_provider = ToolSetProvider(proxy)
             await toolset_provider.initialize()
 
@@ -73,64 +75,49 @@ async def create_agent(
             logger.error(f"Agent '{name}': Failed to add toolset '{toolset_name}': {e}")
             agent.not_loaded_toolsets.append(toolset_name)
 
-    # ===== Add MCP providers from config =====
+    # ===== Add MCP provider from unified gateway =====
+    # All MCP servers are accessible via the unified gateway at /mcp
+    # with prefixed tool names (e.g., context7_resolve_library_id)
 
-    for mcp_name in mcp_servers:
+    if get_settings().enable_mcp_tools:
         try:
-            # Get MCP server config from endpoint
-            # endpoint_service can be either Endpoint instance or remote service
             from pantheon.utils.misc import call_endpoint_method
+            from pantheon.providers import MCPProvider
 
-            service_result = await call_endpoint_method(
+            # Get unified gateway URI (special name="mcp" returns gateway info)
+            result = await call_endpoint_method(
                 endpoint_service,
                 endpoint_method_name="manage_service",
                 action="get",
                 service_type="mcp",
-                name=mcp_name,
+                name="mcp",  # Special: returns unified gateway URI
             )
 
-            if not service_result.get("success"):
-                logger.warning(
-                    f"Agent '{name}': Failed to get MCP config for '{mcp_name}': "
-                    f"{service_result.get('message', 'Unknown error')}"
+            if not result.get("success"):
+                raise UserWarning(
+                    f"Failed to get unified gateway: {result.get('message', 'Unknown error')}"
                 )
-                continue
 
-            # Extract service details
-            service_info = service_result.get("service", {})
-            mcp_uri = service_info.get("uri")
+            unified_uri = result.get("service", {}).get("uri")
+            if not unified_uri:
+                raise UserWarning("Unified gateway has no URI configured")
 
-            if not mcp_uri:
-                logger.warning(
-                    f"Agent '{name}': MCP server '{mcp_name}' has no URI configured"
-                )
-                continue
-
-            # Create MCPServerConfig with minimal info (URI from running service)
-            mcp_config = MCPServerConfig(
-                name=mcp_name,
-                type="http",
-                uri=mcp_uri,
-                description=service_info.get("description", ""),
-            )
-
-            # Create and initialize MCPProvider with agent's model for sampling
-            from pantheon.providers import MCPProvider
-            mcp_provider = MCPProvider(
-                mcp_config,
-                model=model,  # Use agent's model for sampling requests
-            )
+            # Use singleton MCPProvider for the unified gateway
+            mcp_provider = MCPProvider.get_instance(unified_uri)
             await mcp_provider.initialize()
 
-            # Add to agent
-            await agent.mcp(mcp_name, mcp_provider)
-            mcp_server_added.append(mcp_name)
-
-        except Exception as e:
-            agent.not_loaded_toolsets.append(mcp_name)
-            logger.error(
-                f"Agent '{name}': Failed to add MCP provider '{mcp_name}': {e}"
+            # Add as single "mcp" provider (all tools accessible via prefix)
+            await agent.mcp("mcp", mcp_provider)
+            mcp_server_added.append("mcp")
+            logger.info(
+                f"Agent '{name}': Connected to unified MCP gateway at {unified_uri}"
             )
+
+        except UserWarning as e:
+            logger.warning(f"Agent '{name}': {e}")
+        except Exception as e:
+            logger.error(f"Agent '{name}': Failed to add unified MCP provider: {e}")
+
 
     logger.info(
         f"Agent {name} added toolsets: {toolsets_added} mcp_servers: {mcp_server_added}"

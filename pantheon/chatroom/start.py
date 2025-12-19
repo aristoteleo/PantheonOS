@@ -143,6 +143,7 @@ async def _start_endpoint_process(
 async def _start_endpoint_embedded(
     endpoint_id_hash: str,
     workspace_path: str,
+    log_level: str = "INFO",
 ) -> "Endpoint":
     """
     Start Endpoint in embedded mode (same event loop).
@@ -163,7 +164,7 @@ async def _start_endpoint_embedded(
         config=None, workspace_path=workspace_path, id_hash=endpoint_id_hash
     )
     # Start endpoint in background with remote=False (only setup, no worker)
-    asyncio.create_task(endpoint.run(remote=False))
+    asyncio.create_task(endpoint.run(remote=False, log_level=log_level))
 
     # Wait for endpoint to be ready
     logger.info("Waiting for Endpoint to be ready (embedded mode)")
@@ -263,6 +264,7 @@ async def start_services(
             endpoint = await _start_endpoint_embedded(
                 endpoint_id_hash=endpoint_id_hash,
                 workspace_path=workspace_path,
+                log_level=log_level,
             )
         elif endpoint_mode == "process":
             # Process mode: return service_id

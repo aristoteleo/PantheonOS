@@ -25,22 +25,79 @@ _SKIP_PARAMS = [_CTX_VARS_NAME, "_call_agent"]
 
 
 class MCPProvider(ToolProvider):
-    """Tool Provider for Model Context Protocol (MCP) servers"""
+    """Tool Provider for Model Context Protocol (MCP) servers.
 
-    _client_cache: dict[str, Client] = {}
-    _cache_lock = Lock()
+    Uses singleton pattern per URI and passive TTL caching for tools.
+    Configuration is read from settings module automatically.
+    """
 
-    def __init__(
-        self,
-        config: "MCPServerConfig | None" = None,
-        model: str | None = None,
-        client: Optional[Client] = None,
-    ):
-        """Initialize MCPProvider"""
-        self.config = config
-        self.model = model  # None means use Agent's default model
-        self._client: Client = client
+    # Singleton instances per URI
+    _instances: dict[str, "MCPProvider"] = {}
+    _instances_lock = Lock()
+
+    def __init__(self, uri: str):
+        """Initialize MCPProvider (use get_instance() for singleton access).
+
+        Args:
+            uri: MCP server URI
+        """
+        self.uri = uri
+        self._client: Optional[Client] = None
         self._tools_cache: Optional[list[ToolInfo]] = None
+        self._cache_time: float = 0
+
+    @classmethod
+    def get_instance(cls, uri: str) -> "MCPProvider":
+        """Get or create a singleton MCPProvider for the given URI.
+
+        Args:
+            uri: MCP server URI
+
+        Returns:
+            MCPProvider instance (singleton per URI)
+        """
+        with cls._instances_lock:
+            if uri not in cls._instances:
+                cls._instances[uri] = cls(uri)
+                logger.debug(f"Created MCPProvider singleton for {uri}")
+            return cls._instances[uri]
+
+    @classmethod
+    def clear_instances(cls):
+        """Clear all singleton instances (for testing)."""
+        with cls._instances_lock:
+            cls._instances.clear()
+
+    def invalidate_cache(self):
+        """Invalidate tools cache to force refresh on next list_tools call."""
+        self._tools_cache = None
+        self._cache_time = 0
+        logger.debug(f"MCPProvider '{self.uri}': cache invalidated")
+
+    @property
+    def model(self) -> str | None:
+        """Get the sampling model from settings."""
+        from pantheon.settings import get_settings
+
+        return get_settings().get_mcp_config().get("sampling_model", "normal")
+
+    @property
+    def cache_ttl_seconds(self) -> int:
+        """Get the cache TTL from settings."""
+        from pantheon.settings import get_settings
+
+        return get_settings().get_mcp_config().get("cache_ttl", 60)
+
+    @property
+    def config(self):
+        """Compatibility property - returns a minimal config-like object."""
+
+        class _MinimalConfig:
+            def __init__(self, uri):
+                self.name = uri.split("/")[-1] if uri else "unknown"
+                self.uri = uri
+
+        return _MinimalConfig(self.uri)
 
     async def _sampling_handler(
         self,
@@ -122,79 +179,60 @@ class MCPProvider(ToolProvider):
             return f"Error during sampling: {str(e)}"
 
     async def _get_client(self) -> Client:
-        """Get or create cached HTTP client"""
-        if not self.config:
-            raise ValueError(
-                "MCPProvider was not initialized with config. Use client parameter instead."
-            )
+        """Get or create the MCP client."""
+        if self._client is not None:
+            return self._client
 
-        uri = self.config.uri
-        if not uri:
-            raise ValueError(f"MCP server '{self.config.name}' has no URI configured")
-
-        # Check cache first
-        with self._cache_lock:
-            if uri in self._client_cache:
-                client = self._client_cache[uri]
-                # Connection state will be checked when used in async with block
-                return client
+        if not self.uri:
+            raise ValueError("MCPProvider: URI not configured")
 
         # Create new client with sampling handler
-        logger.info(f"Creating new MCP client for {uri}")
-        client = Client(
-            uri,  # First parameter: transport (URI string, FastMCP will infer HTTP transport)
-            name="pantheon-agent",  # Second parameter: client name
+        logger.debug(f"Creating MCP client for {self.uri}")
+        self._client = Client(
+            self.uri,
+            name="pantheon-agent",
             sampling_handler=self._sampling_handler,
         )
 
-        logger.info(f"MCP client created for {uri} with sampling support")
-
-        # Cache it (connection will be established on first use within async with)
-        with self._cache_lock:
-            self._client_cache[uri] = client
-
-        return client
+        return self._client
 
     async def initialize(self):
-        """Initialize the provider"""
+        """Initialize the provider (creates client if needed)."""
         try:
-            if not self._client:
-                # Only get client if not already provided
-                self._client = await self._get_client()
-
-            provider_name = self.config.name if self.config else "unknown"
-            logger.debug(
-                f"MCPProvider '{provider_name}' initialized with sampling support (model: {self.model})"
-            )
-
+            await self._get_client()
+            logger.debug(f"MCPProvider '{self.uri}' initialized")
         except Exception as e:
-            provider_name = self.config.name if self.config else "unknown"
-            logger.error(f"Failed to initialize MCPProvider '{provider_name}': {e}")
+            logger.error(f"Failed to initialize MCPProvider: {e}")
             raise
 
     async def list_tools(self) -> list[ToolInfo]:
-        """List all available tools from the MCP server"""
-        if self._tools_cache is not None:
+        """List all available tools from the MCP server.
+
+        Uses passive TTL caching - checks cache validity on each call.
+        """
+        import time
+
+        now = time.time()
+
+        # Check if cache is valid (not expired)
+        if (
+            self._tools_cache is not None
+            and (now - self._cache_time) < self.cache_ttl_seconds
+        ):
             return self._tools_cache
 
+        # Cache expired or empty - refresh
         if not self._client:
             await self.initialize()
 
         try:
-            # Use async with to establish connection for this operation
             async with self._client:
-                # Get tools from MCP server
                 tools_response = await self._client.list_tools()
 
-                # Convert to ToolInfo objects with OpenAI function schema
-                # Store complete tool dict in inputSchema for direct use in Agent
                 tool_infos = []
                 for tool in tools_response:
-                    # MCP's inputSchema is already in JSON Schema format
                     params = tool.inputSchema if hasattr(tool, "inputSchema") else {}
 
-                    # Build complete OpenAI function schema
-                    # This is the "function" part of the tool, ready to be wrapped
                     function_schema = {
                         "name": tool.name,
                         "description": tool.description,
@@ -205,33 +243,30 @@ class MCPProvider(ToolProvider):
                     tool_info = ToolInfo(
                         name=tool.name,
                         description=tool.description,
-                        inputSchema=function_schema,  # Store just the "function" part
+                        inputSchema=function_schema,
                     )
                     tool_infos.append(tool_info)
 
-                # Cache results
+                # Update cache with timestamp
                 self._tools_cache = tool_infos
-                provider_name = self.config.name if self.config else "unknown"
+                self._cache_time = now
                 logger.debug(
-                    f"MCPProvider '{provider_name}' listed {len(tool_infos)} tools"
+                    f"MCPProvider '{self.uri}': refreshed cache with {len(tool_infos)} tools"
                 )
 
                 return tool_infos
 
         except Exception as e:
-            provider_name = self.config.name if self.config else "unknown"
-            logger.error(f"Failed to list tools from MCP server '{provider_name}': {e}")
+            logger.error(f"Failed to list tools from MCP server '{self.uri}': {e}")
             raise
 
     async def call_tool(self, name: str, args: dict) -> Any:
-        """Call a tool on the MCP server"""
+        """Call a tool on the MCP server."""
         if not self._client:
             await self.initialize()
 
-        provider_name = self.config.name if self.config else "unknown"
-
         try:
-            logger.debug(f"Calling MCP tool '{name}' on '{provider_name}'")
+            logger.debug(f"Calling MCP tool '{name}' on '{self.uri}'")
 
             # Use async with to establish connection for this operation
             async with self._client:
@@ -244,7 +279,7 @@ class MCPProvider(ToolProvider):
                     and result.structured_content is not None
                 ):
                     logger.debug(
-                        f"MCPProvider '{provider_name}': Extracted result via .structured_content (universal JSON format)"
+                        f"MCPProvider '{self.uri}': Extracted result via .structured_content"
                     )
                     return result.structured_content
 
@@ -258,33 +293,28 @@ class MCPProvider(ToolProvider):
                             try:
                                 parsed = json.loads(text)
                                 logger.debug(
-                                    f"MCPProvider '{provider_name}': Extracted JSON from content text"
+                                    f"MCPProvider '{self.uri}': Extracted JSON from content text"
                                 )
                                 return parsed
                             except (json.JSONDecodeError, TypeError):
                                 # Not JSON, return text as-is
                                 logger.debug(
-                                    f"MCPProvider '{provider_name}': Extracted plain text from content"
+                                    f"MCPProvider '{self.uri}': Extracted plain text from content"
                                 )
                                 return text
 
                 # Priority 3: .data (Python objects - fallback when JSON unavailable)
-                # Note: .data may return Python objects (dataclass, NamedTuple) which are
-                # not universally portable. Used as fallback when structured_content is unavailable.
                 if hasattr(result, "data") and result.data is not None:
                     logger.debug(
-                        f"MCPProvider '{provider_name}': Extracted result via .data "
-                        f"(type: {type(result.data).__name__}) - Note: Python objects may not be universally portable"
+                        f"MCPProvider '{self.uri}': Extracted result via .data "
+                        f"(type: {type(result.data).__name__})"
                     )
                     return result.data
 
                 # Fallback: Return entire result
                 logger.warning(
-                    f"MCPProvider '{provider_name}': Could not extract result from CallToolResult "
-                    f"for tool '{name}'. Result structure: "
-                    f"structured_content={result.structured_content}, "
-                    f"content_blocks={len(result.content) if result.content else 0}, "
-                    f"data={result.data}"
+                    f"MCPProvider '{self.uri}': Could not extract result from CallToolResult "
+                    f"for tool '{name}'."
                 )
                 return result
 
@@ -293,16 +323,14 @@ class MCPProvider(ToolProvider):
             raise
 
     async def shutdown(self):
-        """Clean up provider resources"""
+        """Clean up provider resources."""
         if self._client:
             try:
-                # Clear the tool cache to ensure fresh listings on next use
                 self._tools_cache = None
-                provider_name = self.config.name if self.config else "unknown"
-                logger.info(f"MCPProvider '{provider_name}' shut down")
+                self._cache_time = 0
+                logger.debug(f"MCPProvider '{self.uri}' shut down")
             except Exception as e:
-                provider_name = self.config.name if self.config else "unknown"
-                logger.error(f"Error shutting down MCPProvider '{provider_name}': {e}")
+                logger.error(f"Error shutting down MCPProvider '{self.uri}': {e}")
 
 
 class LocalProvider(ToolProvider):

@@ -379,12 +379,21 @@ class ToolSet(ABC):
 
         return self
 
-    def to_mcp(self, mcp_kwargs: dict = {}):
+    def to_mcp(self, mcp_kwargs: dict = {}, tags: set[str] | None = None):
+        """Convert ToolSet to FastMCP server.
+        
+        Args:
+            mcp_kwargs: Additional kwargs for FastMCP constructor
+            tags: Optional set of tags to add to all tools (e.g., {'internal'} for hidden tools)
+        """
         from fastmcp import FastMCP
 
         mcp = FastMCP(self._service_name, **mcp_kwargs)
         for method, kwargs in self._functions.values():
-            mcp.tool(method)
+            if tags:
+                mcp.tool(method, tags=tags)
+            else:
+                mcp.tool(method)
         return mcp
 
     async def run_as_mcp(self, log_level: str | None = None, **mcp_kwargs):

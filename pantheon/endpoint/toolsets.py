@@ -180,6 +180,7 @@ class ToolSetManager:
                 # REMOTE mode: call via remote service
                 logger.debug(f"Using REMOTE mode for {toolset_name}")
                 from pantheon.remote import connect_remote
+
                 toolset_service = await connect_remote(service_info["id"])
                 return await toolset_service.invoke(method_name, args)
 
@@ -192,6 +193,7 @@ class ToolSetManager:
         """Add a service to the endpoint."""
         try:
             from pantheon.remote import connect_remote
+
             s = await connect_remote(service_id)
             info = await s.fetch_service_info()
             self.services[service_id] = {
@@ -322,6 +324,7 @@ class ToolSetManager:
                         )
                     else:
                         from pantheon.remote import connect_remote
+
                         await connect_remote(service_id)
                         status = "running"
                 except Exception:
@@ -474,6 +477,7 @@ class ToolSetManager:
         """Try to connect to a service and register it if successful."""
         try:
             from pantheon.remote import connect_remote
+
             s = await connect_remote(service_id)
             info = await s.fetch_service_info()
 
@@ -643,7 +647,7 @@ class ToolSetManager:
         if not services:
             return 0, 0
 
-        logger.info(f"Starting {len(services)} toolsets")
+        logger.debug(f"Starting {len(services)} toolsets")
 
         local_services = []
         remote_services = []

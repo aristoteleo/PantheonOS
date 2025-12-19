@@ -177,9 +177,15 @@ class ChatRoom(ToolSet):
         return await super().run(log_level=log_level, remote=remote)
 
     async def run_setup(self):
-        """Setup the chatroom (ToolSet hook called before run)."""
-        # Start auto-created Endpoint if needed
+        """Setup the chatroom (ToolSet hook called before run).
+        
+        This method is idempotent - Endpoint startup is guarded by _auto_created_endpoint flag.
+        """
+        # Start auto-created Endpoint if needed (one-time)
         if self._auto_created_endpoint and self._endpoint is not None:
+            # Clear flag to prevent re-entry
+            self._auto_created_endpoint = False
+            
             logger.info("ChatRoom: starting auto-created Endpoint...")
             asyncio.create_task(self._endpoint.run(remote=False))
             # Wait for endpoint to be ready
@@ -194,14 +200,16 @@ class ChatRoom(ToolSet):
             else:
                 logger.warning("ChatRoom: Endpoint startup timeout, continuing anyway")
 
-        if self._endpoint_embed:
-            logger.info(
-                f"ChatRoom: endpoint_mode=embed, endpoint_id={self._endpoint.service_id}"
-            )
-        else:
-            logger.info(
-                f"ChatRoom: endpoint_mode=process, endpoint_id={self.endpoint_service_id}"
-            )
+        # Log endpoint mode (always log if endpoint exists)
+        if self._endpoint is not None:
+            if self._endpoint_embed:
+                logger.info(
+                    f"ChatRoom: endpoint_mode=embed, endpoint_id={self._endpoint.service_id}"
+                )
+            else:
+                logger.info(
+                    f"ChatRoom: endpoint_mode=process, endpoint_id={self.endpoint_service_id}"
+                )
 
         # Log NATS streaming status
         if self._nats_adapter is not None:

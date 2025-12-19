@@ -489,10 +489,6 @@ class Settings:
         config["builtin_services"] = services.get("builtin", [])
         config["service_modes"] = services.get("modes", {"default": "local"})
 
-        # MCP settings (from mcp.json)
-        config["mcp_servers"] = self._mcp.get("servers", {})
-        config["auto_start_mcp_servers"] = self._mcp.get("auto_start", [])
-
         return config
 
     def get_remote_config(self) -> Dict[str, Any]:
@@ -557,6 +553,16 @@ class Settings:
         """
         self._ensure_loaded()
         return self._mcp
+
+    @property
+    def enable_mcp_tools(self) -> bool:
+        """
+        Whether to enable MCP tools injection into agents.
+        Defaults to True.
+        """
+        self._ensure_loaded()
+        return self._settings.get("enable_mcp_tools", True)
+
 
     @property
     def settings(self) -> Dict[str, Any]:

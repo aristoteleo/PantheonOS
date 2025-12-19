@@ -35,6 +35,7 @@ _TOOLSET_MAPPING = {
     "PackageToolSet": ".package",
     "DatabaseAPIQueryToolSet": ".database_api",
     "TaskToolSet": ".task",
+    "KnowledgeToolSet": ".knowledge",
 }
 
 __all__ = list(_TOOLSET_MAPPING.keys())

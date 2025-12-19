@@ -1,20 +1,21 @@
 """MCP (Model Context Protocol) Server Management Module
 
-This module handles all MCP server lifecycle management with multi-port isolation:
+This module handles all MCP server lifecycle management with unified gateway:
 - Configuration management (adding, removing, updating MCP servers)
 - Server process management (starting, stopping, monitoring STDIO servers)
-- Multi-port HTTP endpoint routing (each STDIO server on independent port)
+- Unified gateway routing via UnifiedMCPGateway
 - FastMCP proxy integration for STDIO servers
 - Service discovery and status tracking
 
 Architecture:
-- Each STDIO server runs its own FastMCP HTTP proxy on a unique port
+- All MCP servers are mounted to a single UnifiedMCPGateway on one port
+- Unified endpoint (/mcp) exposes all tools with prefixes (e.g., context7_resolve_library_id)
+- Path endpoints (/mcp/{server}) expose tools without prefixes
 - Complete lifecycle isolation - stopping one server doesn't affect others
-- HTTP servers use configured URIs directly (no process management)
 
 Supported modes:
 - http: Connect to existing HTTP endpoint (no process management)
-- stdio: Launch subprocess with STDIO transport (FastMCP.run() converts to HTTP)
+- stdio: Launch subprocess with STDIO transport (FastMCP proxy to gateway)
 """
 
 import asyncio
@@ -31,6 +32,59 @@ from typing import Any, Dict, List, Optional, TypedDict
 from pantheon.utils.log import logger
 
 
+def _patch_stdio_client_errlog():
+    """Patch MCP SDK's stdio_client to redirect subprocess stderr to log file.
+    
+    This redirects STDIO MCP server stderr (welcome messages, logs) to a dedicated
+    log file instead of Python's sys.stderr, preventing noise in REPL interface
+    while keeping logs accessible for debugging.
+    
+    Log file location: {pantheon_dir}/logs/mcp_stdio.log
+    
+    Must be called before any STDIO MCP servers are started.
+    """
+    try:
+        import mcp.client.stdio as stdio_module
+        
+        # Check if already patched
+        if getattr(stdio_module, '_errlog_patched', False):
+            return
+        
+        # Store original function
+        original_stdio_client = stdio_module.stdio_client
+        
+        # Prepare log file
+        from pantheon.settings import get_settings
+        log_dir = get_settings().pantheon_dir / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        mcp_log_file = log_dir / "mcp_stdio.log"
+        
+        # Open log file in append mode (shared across all STDIO servers)
+        _mcp_errlog = open(mcp_log_file, 'a', buffering=1)  # Line buffered
+        
+        # Store file handle to prevent GC
+        stdio_module._mcp_errlog_file = _mcp_errlog
+        
+        # Create patched version
+        def patched_stdio_client(server, errlog=None):
+            # Default to log file instead of sys.stderr
+            if errlog is None:
+                errlog = _mcp_errlog
+            return original_stdio_client(server, errlog=errlog)
+        
+        # Apply patch
+        stdio_module.stdio_client = patched_stdio_client
+        stdio_module._errlog_patched = True
+        
+        logger.debug(f"Patched MCP stdio_client to redirect stderr to {mcp_log_file}")
+    except Exception as e:
+        logger.warning(f"Failed to patch MCP stdio_client: {e}")
+
+
+# Apply patch on module import
+_patch_stdio_client_errlog()
+
+
 class MCPServerType:
     """MCP server type constants"""
 
@@ -39,10 +93,10 @@ class MCPServerType:
 
 
 class MCPPoolConfig(TypedDict, total=False):
-    """MCP Server Pool Configuration."""
+    """MCP Server Pool Configuration (matches mcp.json structure)."""
 
-    mcp_servers: Dict[str, Dict[str, Any]]
-    auto_start_mcp_servers: List[str]
+    servers: Dict[str, Dict[str, Any]]
+    auto_start: List[str]
 
 
 @dataclass
@@ -60,6 +114,7 @@ class MCPServerConfig:
     uri: Optional[str] = None  # For http: remote HTTP endpoint
     env: Optional[Dict[str, str]] = None  # Environment variables (stdio only)
     description: str = ""
+    mount_prefix: Optional[str] = None  # Prefix for unified gateway (default: name)
 
     def __post_init__(self):
         """Validate configuration"""
@@ -135,6 +190,8 @@ class MCPServerInstance:
                 cmd = shlex.split(self.config.command)
 
                 # Create StdioTransport - it will manage subprocess lifecycle
+                # Note: subprocess stderr (welcome messages) is handled by FastMCP
+                # and may appear in console. Use FASTMCP_LOG_LEVEL=WARNING to suppress.
                 self.stdio_transport = StdioTransport(
                     command=cmd[0], args=cmd[1:], env=self._prepare_env()
                 )
@@ -257,47 +314,48 @@ class MCPServerInstance:
 
 
 class MCPManager:
-    """Manages multiple MCP servers with independent HTTP endpoints
+    """Manages multiple MCP servers through a unified gateway.
 
     Architecture:
-    - Each STDIO server runs its own FastMCP HTTP proxy on unique ports
-    - Each HTTP server is accessed directly at its configured URI
-    - Routing URIs returned to clients:
-      - STDIO: http://127.0.0.1:{base_port + index} (via FastMCP.run())
-      - HTTP: configured URI directly
+    - All MCP servers are mounted to a single UnifiedMCPGateway
+    - Unified endpoint (/mcp) exposes all tools with prefixes
+    - Path endpoints (/mcp/{server}) expose tools without prefixes
     - Complete lifecycle isolation - stopping one server doesn't affect others
-    - No uvicorn management needed - FastMCP.run() handles HTTP server lifecycle
     """
 
     def __init__(
         self,
         log_dir: Optional[str] = None,
-        base_port: int = 3000,
+        port: int = 3100,
         host: str = "127.0.0.1",
     ):
-        """Initialize MCP Manager
+        """Initialize MCP Manager with unified gateway.
 
         Args:
             log_dir: Directory for server logs
-            base_port: Base port for STDIO servers (incremented per instance)
-            host: Hostname/IP for generating client-accessible URIs (default: 127.0.0.1 for localhost)
+            port: Port for unified gateway (default: 3100)
+            host: Host address to bind to (default: 127.0.0.1)
         """
+        from pantheon.endpoint.gateway import UnifiedMCPGateway
+
         self.instances: Dict[str, MCPServerInstance] = {}
         self._lock = asyncio.Lock()
         self.log_dir = log_dir
-        self.base_port = base_port
         self.host = host
-        self._next_port = base_port  # Track next available port for STDIO servers
+        self.port = port
+
+        # Unified gateway replaces multi-port architecture
+        self._gateway = UnifiedMCPGateway(port=port, host=host)
 
         if log_dir:
             Path(log_dir).mkdir(parents=True, exist_ok=True)
             logger.info(f"MCP servers log directory: {log_dir}")
 
         logger.info(
-            f"MCP Manager initialized with host: {self.host}, base_port: {self.base_port}"
+            f"MCP Manager initialized with unified gateway at {host}:{port}"
         )
 
-    async def load_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    async def load_config(self, config: MCPPoolConfig) -> Dict[str, Any]:
         """Load MCP server configurations from config dictionary
 
         Args:
@@ -308,7 +366,8 @@ class MCPManager:
         """
         results = {"success": True, "loaded": [], "errors": []}
 
-        mcp_servers = config.get("mcp_servers", {})
+        # mcp.json uses 'servers' key directly
+        mcp_servers = config.get("servers", {})
         if not mcp_servers:
             return results
 
@@ -450,15 +509,13 @@ class MCPManager:
             }
 
     async def start_services(self, names: List[str]) -> Dict[str, Any]:
-        """Start specified MCP services
-
-        Each STDIO server gets its own HTTP endpoint via FastMCP.run().
-        HTTP servers use their configured URI directly.
+        """Start specified MCP services and mount to unified gateway.
 
         Lifecycle:
-        1. Start subprocess (if STDIO)
-        2. Set up HTTP endpoint (if STDIO)
-        3. If any step fails, roll back all resources
+        1. Ensure gateway is running
+        2. Start subprocess (if STDIO) or connect (if HTTP)
+        3. Create FastMCP proxy and mount to gateway
+        4. If any step fails, roll back all resources
 
         Args:
             names: List of service names to start
@@ -467,6 +524,9 @@ class MCPManager:
             Result dict with started services and errors
         """
         results = {"success": True, "started": [], "errors": []}
+
+        # Ensure gateway is running
+        await self._gateway.start_gateway()
 
         for name in names:
             if name not in self.instances:
@@ -482,20 +542,16 @@ class MCPManager:
             )
 
             if await instance.start(log_dir=log_dir):
-                # Set up HTTP endpoint based on server type
+                # Mount to unified gateway
                 try:
-                    if instance.config.type == MCPServerType.STDIO:
-                        await self._setup_stdio_http(name, instance)
-                    # HTTP servers don't need setup, just use configured URI
+                    await self._mount_to_gateway(name, instance)
                     results["started"].append(name)
                 except Exception as e:
-                    logger.error(f"Failed to setup HTTP endpoint for '{name}': {e}")
+                    logger.error(f"Failed to mount '{name}' to gateway: {e}")
                     instance.status = "error"
-                    instance.error_message = f"HTTP setup failed: {str(e)}"
-                    # Rollback: clean up HTTP task and stop process
-                    await instance._cleanup_http_task()
+                    instance.error_message = f"Gateway mount failed: {str(e)}"
                     await instance.stop()
-                    results["errors"].append(f"Failed to setup '{name}': {str(e)}")
+                    results["errors"].append(f"Failed to mount '{name}': {str(e)}")
                     results["success"] = False
             else:
                 results["errors"].append(
@@ -505,67 +561,61 @@ class MCPManager:
 
         return results
 
-    async def _setup_stdio_http(self, name: str, instance: MCPServerInstance) -> None:
-        """Setup HTTP endpoint for a STDIO server via FastMCP proxy
+    async def _mount_to_gateway(self, name: str, instance: MCPServerInstance) -> None:
+        """Mount an MCP server to the unified gateway.
 
-        Each STDIO server gets its own FastMCP proxy with independent HTTP endpoint
-        on a unique port. Uses the stdio_client already created by instance.start().
+        Creates a FastMCP proxy and mounts it to the gateway with the configured
+        prefix (or server name as default).
 
         Args:
             name: Server name
-            instance: MCPServerInstance with stdio_client already created
+            instance: MCPServerInstance with client already created
 
         Raises:
-            RuntimeError: If stdio_client not available or setup fails
+            RuntimeError: If client not available or mount fails
         """
-        if not instance.stdio_client:
-            raise RuntimeError(f"STDIO server '{name}' client not initialized")
+        from fastmcp import FastMCP
 
-        try:
-            # Allocate port for this server
-            instance.http_port = self._next_port
-            self._next_port += 1
+        prefix = instance.config.mount_prefix or name
 
-            # Create a FastMCP proxy server that wraps the STDIO client
-            from fastmcp import FastMCP
-            proxy_mcp = FastMCP.as_proxy(instance.stdio_client, name=name)
-            instance.fastmcp_proxy = proxy_mcp
+        if instance.config.type == MCPServerType.STDIO:
+            if not instance.stdio_client:
+                raise RuntimeError(f"STDIO server '{name}' client not initialized")
 
-            # Start HTTP server in background task using FastMCP's async method
-            async def run_http_server():
-                # Use run_http_async() which properly handles asyncio event loop
-                # (unlike run() which tries to create its own event loop)
-                # Note: path="/mcp" specifies the HTTP endpoint path for MCP requests
-                await proxy_mcp.run_http_async(
-                    host="0.0.0.0",
-                    port=instance.http_port,
-                    path="/mcp",
-                    show_banner=False,
-                    log_level="warning",
-                )
+            # Create FastMCP proxy wrapping the STDIO client
+            proxy = FastMCP.as_proxy(instance.stdio_client, name=name)
+            instance.fastmcp_proxy = proxy
 
-            instance.http_server_task = asyncio.create_task(run_http_server())
-
-            # Give server a moment to start
-            await asyncio.sleep(0.5)
+            # Mount to gateway
+            await self._gateway.mount_server(prefix, proxy, instance.stdio_client)
+            instance.http_port = self.port  # All servers share gateway port
 
             logger.info(
-                f"Started HTTP endpoint for STDIO server '{name}' at "
-                f"http://0.0.0.0:{instance.http_port}"
+                f"Mounted STDIO server '{name}' to gateway with prefix '{prefix}'"
             )
 
-        except Exception as e:
-            logger.error(f"Failed to setup HTTP endpoint for '{name}': {e}")
-            # Clean up on failure
-            if instance.http_server_task and not instance.http_server_task.done():
-                instance.http_server_task.cancel()
-            raise
+        elif instance.config.type == MCPServerType.HTTP:
+            from fastmcp import Client
+
+            # Create client for remote HTTP server
+            remote_client = Client(instance.config.uri)
+
+            # Create proxy wrapping the remote client
+            proxy = FastMCP.as_proxy(remote_client, name=name)
+            instance.fastmcp_proxy = proxy
+
+            # Mount to gateway
+            await self._gateway.mount_server(prefix, proxy, remote_client)
+            instance.http_port = self.port
+
+            logger.info(
+                f"Mounted HTTP server '{name}' to gateway with prefix '{prefix}'"
+            )
 
     async def stop_services(self, names: List[str]) -> Dict[str, Any]:
-        """Stop specified MCP services
+        """Stop specified MCP services.
 
-        For STDIO servers: stops HTTP endpoint, then terminates subprocess
-        For HTTP servers: just marks as stopped
+        Disables the service in the gateway and stops the underlying process.
 
         Args:
             names: List of service names to stop
@@ -582,8 +632,12 @@ class MCPManager:
                 continue
 
             instance = self.instances[name]
+            prefix = instance.config.mount_prefix or name
 
-            # instance.stop() handles all cleanup including HTTP tasks
+            # Disable in gateway first
+            await self._gateway.disable_server(prefix)
+
+            # Stop the underlying process
             if await instance.stop():
                 results["stopped"].append(name)
             else:
@@ -594,24 +648,42 @@ class MCPManager:
 
         return results
 
+    async def restart_service(self, name: str) -> Dict[str, Any]:
+        """Restart a specific MCP service.
+
+        Args:
+            name: Service name to restart
+
+        Returns:
+            Result dict with restart status
+        """
+        stop_result = await self.stop_services([name])
+        if not stop_result["success"]:
+            return stop_result
+        return await self.start_services([name])
+
+    def get_unified_uri(self) -> str:
+        """Get the unified gateway URI.
+
+        Returns:
+            Full URI string for the unified endpoint
+        """
+        return self._gateway.get_unified_uri()
+
     def _get_service_uri(self, instance: MCPServerInstance) -> Optional[str]:
-        """Get the HTTP URI for a service based on its type
+        """Get the HTTP URI for a service (path endpoint on unified gateway).
 
         Args:
             instance: MCPServerInstance
 
         Returns:
-            HTTP URI string or None if not running
+            HTTP URI string for the service's path endpoint
         """
-        if instance.config.type == MCPServerType.STDIO:
-            # STDIO servers have independent HTTP endpoints
-            if instance.http_port:
-                return f"http://{self.host}:{instance.http_port}/mcp"
+        if not instance.is_running():
             return None
-        elif instance.config.type == MCPServerType.HTTP:
-            # HTTP servers use configured URI directly
-            return instance.config.uri
-        return None
+
+        prefix = instance.config.mount_prefix or instance.config.name
+        return self._gateway.get_server_uri(prefix)
 
     def _build_service_info(
         self, name: str, instance: MCPServerInstance
@@ -649,13 +721,12 @@ class MCPManager:
         }
 
     async def list_services(self) -> Dict[str, Any]:
-        """List all MCP services with their independent routing URIs
+        """List all MCP services with their status and URIs.
 
-        Each STDIO server has its own HTTP endpoint at a unique port.
-        HTTP servers use their configured URIs directly.
+        All services share the unified gateway endpoint.
 
         Returns:
-            Dict with services list including individual routing URIs
+            Dict with services list and gateway info
         """
         services = [
             self._build_service_info(name, instance)
@@ -666,22 +737,30 @@ class MCPManager:
             "success": True,
             "services": services,
             "count": len(services),
-            "base_port": self.base_port,
+            "unified_uri": self.get_unified_uri(),
+            "port": self.port,
         }
 
     async def get_service(self, name: str) -> Dict[str, Any]:
-        """Get details for a specific MCP service
-
-        Returns the appropriate URI based on server type:
-        - STDIO: Independent HTTP endpoint at allocated port
-        - HTTP: Configured URI directly
+        """Get details for a specific MCP service.
 
         Args:
-            name: Service name
+            name: Service name, or "mcp" to get unified gateway info
 
         Returns:
-            Service details with individual routing URI
+            Service details with path endpoint URI
         """
+        # Special case: "mcp" returns unified gateway info
+        if name == "mcp":
+            return {
+                "success": True,
+                "service": {
+                    "name": "mcp",
+                    "uri": self.get_unified_uri(),
+                    "description": "Unified MCP Gateway",
+                },
+            }
+
         if name not in self.instances:
             return {"success": False, "message": f"Service '{name}' not found"}
 

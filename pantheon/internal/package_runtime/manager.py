@@ -321,10 +321,10 @@ class PackageManager:
         return name in self._mcp_packages
 
     async def refresh_mcp_packages(self) -> dict:
-        """Discover MCP servers from Endpoint and register as packages.
+        """Discover MCP tools from unified gateway and register as packages.
         
-        This queries the Endpoint's MCP server to list available MCP servers,
-        then creates MCPProvider instances for each running server.
+        This uses the unified MCP gateway to get all available tools,
+        then groups them by prefix into logical packages.
         
         Returns:
             dict with success status and list of registered package names
@@ -343,70 +343,50 @@ class PackageManager:
             return {"success": False, "error": "No endpoint_mcp_uri in context"}
         
         try:
-            from fastmcp import Client
-            import json
+            from pantheon.providers import MCPProvider
             
-            # Query Endpoint for MCP server list
-            async with Client(endpoint_uri) as client:
-                call_result = await client.call_tool("manage_service", {
-                    "action": "list",
-                    "service_type": "mcp",
-                })
+            # Use singleton MCPProvider for the unified gateway
+            provider = MCPProvider.get_instance(endpoint_uri)
+            await provider.initialize()
             
-            # Extract result from CallToolResult
-            if hasattr(call_result, "structured_content") and call_result.structured_content:
-                result = call_result.structured_content
-            elif hasattr(call_result, "content") and call_result.content:
-                # Extract text from first content block
-                text = call_result.content[0].text if hasattr(call_result.content[0], "text") else str(call_result.content[0])
-                result = json.loads(text)
-            else:
-                result = {}
+            # Invalidate cache to get fresh tool list
+            provider.invalidate_cache()
             
+            # Get all tools (already prefixed from unified gateway)
+            tool_infos = await provider.list_tools()
+            
+            # Group tools by prefix (e.g., context7_resolve_library_id -> context7)
+            packages: dict[str, dict] = {}
+            for tool in tool_infos:
+                name = tool.name
+                if "_" in name:
+                    prefix, _ = name.split("_", 1)
+                else:
+                    prefix = "default"
+                
+                if prefix not in packages:
+                    packages[prefix] = {}
+                
+                normalized_name = _normalize_tool_name(name)
+                packages[prefix][normalized_name] = {
+                    "name": normalized_name,
+                    "original_name": name,
+                    "description": tool.description,
+                    "inputSchema": getattr(tool, "inputSchema", {}),
+                }
+            
+            # Register each prefix as an MCP package
             registered = []
-            for server in result.get("services", []):
-                if server.get("status") != "running":
-                    continue
-                
-                server_name = server.get("name")
-                server_uri = server.get("uri")
-                if not server_name or not server_uri:
-                    continue
-                
-                # Create MCPProvider for direct connection
-                from pantheon.providers import MCPProvider
-                from pantheon.endpoint.mcp import MCPServerConfig
-                
-                config = MCPServerConfig(
-                    name=server_name,
-                    type="http",
-                    uri=server_uri,
-                    description=server.get("description", ""),
-                )
-                provider = MCPProvider(config=config)
-                await provider.initialize()
-                
-                # Get tools via provider with normalized names
-                tool_infos = await provider.list_tools()
-                tools = {}
-                for t in tool_infos:
-                    normalized_name = _normalize_tool_name(t.name)
-                    tools[normalized_name] = {
-                        "name": normalized_name,
-                        "original_name": t.name,  # Keep original for MCP calls
-                        "description": t.description,
-                        "inputSchema": getattr(t, "inputSchema", {}),
-                    }
-                
-                self._mcp_packages[server_name] = MCPPackageRecord(
-                    name=server_name,
-                    uri=server_uri,
-                    description=server.get("description", ""),
+            for pkg_name, tools in packages.items():
+                self._mcp_packages[pkg_name] = MCPPackageRecord(
+                    name=pkg_name,
+                    uri=endpoint_uri,
+                    description=f"MCP tools with prefix '{pkg_name}_'",
                     tools=tools,
-                    provider=provider,
+                    provider=provider,  # All packages share the same provider
                 )
-                registered.append(server_name)
-                logger.info(f"Registered MCP package '{server_name}' with {len(tools)} tools")
+                registered.append(pkg_name)
+                logger.info(f"Registered MCP package '{pkg_name}' with {len(tools)} tools")
             
             return {"success": True, "packages": registered}
             

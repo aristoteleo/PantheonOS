@@ -458,10 +458,7 @@ class Repl(ReplUI):
 
 
     async def _setup(self):
-        """Initialize REPL and ChatRoom."""
-        # Start ChatRoom setup (including auto-created Endpoint)
-        await self._chatroom.run_setup()
-
+        """Initialize REPL session (chat, team, and background services)."""
         # Create or get chat session
         if self._chat_id is None:
             result = await self._chatroom.create_chat("repl-session")
@@ -471,6 +468,10 @@ class Repl(ReplUI):
         if self._team is None:
             self._team = await self._chatroom.get_team_for_chat(self._chat_id, save_to_memory=False)
             self._is_multi_agent = len(self._team.agents) > 1
+        
+        # Start ChatRoom setup in background (MCP servers, etc.)
+        # This runs after UI is shown, so user sees REPL immediately
+        asyncio.create_task(self._chatroom.run_setup())
 
     async def run(self, message: str | dict | None = None, disable_logging: bool = True):
         """Main REPL loop."""
@@ -482,7 +483,7 @@ class Repl(ReplUI):
         await self._setup()
         self.message_queue = asyncio.Queue()
 
-        # Print greeting (before patch_stdout context)
+        # Print greeting first (REPL shows immediately)
         await self.print_greeting()
 
         # Initialize prompt_toolkit app if enabled
