@@ -25,6 +25,10 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+# Load .env file from the example directory
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
+
 
 async def run_evolution(
     iterations: int = 50,
@@ -40,6 +44,7 @@ async def run_evolution(
         verbose: Enable verbose logging
     """
     from pantheon.evolution import EvolutionTeam, EvolutionConfig
+    from pantheon.evolution.program import CodebaseSnapshot
 
     # Get paths
     example_dir = Path(__file__).parent
@@ -47,7 +52,8 @@ async def run_evolution(
     evaluator_path = example_dir / "evaluator.py"
 
     # Load initial code and evaluator
-    initial_code = harmony_path.read_text()
+    # Use CodebaseSnapshot with correct filename so evaluator can find it
+    initial_code = CodebaseSnapshot.from_single_file("harmony.py", harmony_path.read_text())
     evaluator_code = evaluator_path.read_text()
 
     # Create configuration
@@ -58,7 +64,7 @@ async def run_evolution(
         num_top_programs=3,
         max_parallel_evaluations=2,
         evaluation_timeout=120,
-        mutator_model="claude-sonnet-4-20250514",
+        # Use system default model (configured via environment)
         log_level="DEBUG" if verbose else "INFO",
         log_iterations=True,
         checkpoint_interval=10,

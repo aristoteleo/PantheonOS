@@ -47,6 +47,7 @@ from .prompt_builder import (
 )
 from .result import EvolutionResult, IterationResult
 from .team import EvolutionTeam, evolve
+from .visualizer import EvolutionVisualizer, generate_evolution_report
 
 __all__ = [
     # Core classes
@@ -72,6 +73,9 @@ __all__ = [
     "get_thorough_config",
     # Convenience function
     "evolve",
+    # Visualization
+    "EvolutionVisualizer",
+    "generate_evolution_report",
 ]
 
 __version__ = "0.1.0"

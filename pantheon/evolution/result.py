@@ -169,3 +169,27 @@ class EvolutionResult:
 
         with open(report_path, "w") as f:
             json.dump(report, f, indent=2)
+
+    def save_html_report(self, path: str) -> str:
+        """
+        Generate and save an HTML visualization report.
+
+        Args:
+            path: Path to save the HTML file
+
+        Returns:
+            Path to the generated HTML file
+
+        Raises:
+            ValueError: If database is not available
+        """
+        from .visualizer import EvolutionVisualizer
+
+        if self.database is None:
+            raise ValueError(
+                "Cannot generate HTML report: database not available. "
+                "Make sure to save the evolution results first."
+            )
+
+        visualizer = EvolutionVisualizer(self.database)
+        return visualizer.generate_html(path)

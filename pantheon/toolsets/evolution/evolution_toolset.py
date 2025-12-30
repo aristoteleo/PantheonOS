@@ -66,7 +66,7 @@ class EvolutionToolSet(ToolSet):
         objective: str,
         iterations: Optional[int] = None,
         islands: Optional[int] = None,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "normal",
     ) -> Dict[str, Any]:
         """
         Evolve and optimize code using evolutionary algorithms.
@@ -156,7 +156,7 @@ class EvolutionToolSet(ToolSet):
         include_patterns: Optional[List[str]] = None,
         iterations: Optional[int] = None,
         islands: Optional[int] = None,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "normal",
         output_path: Optional[str] = None,
     ) -> Dict[str, Any]:
         """

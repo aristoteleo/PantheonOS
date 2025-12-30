@@ -23,7 +23,10 @@
       "WebFetch(domain:github.com)",
       "Bash(python evaluator.py:*)",
       "Bash(pip install:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(done)",
+      "Bash(for file in *.json)",
+      "Bash(do echo \"=== $file ===\")"
     ],
     "deny": [],
     "ask": []

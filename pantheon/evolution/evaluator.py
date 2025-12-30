@@ -94,7 +94,7 @@ class HybridEvaluator:
                 self.feedback_agent = Agent(
                     name="code-reviewer",
                     instructions=CODE_REVIEWER_PROMPT,
-                    model="claude-sonnet-4-20250514",
+                    model="normal",
                 )
             except ImportError:
                 logger.warning("Agent not available, LLM feedback disabled")

@@ -2,8 +2,12 @@
 CLI entry point for Pantheon Evolution.
 
 Usage:
-    python -m pantheon.evolution --initial program.py --evaluator evaluator.py \
+    # Run evolution
+    python -m pantheon.evolution run --initial program.py --evaluator evaluator.py \
         --objective "Optimize for speed" --iterations 100 --output results/
+
+    # Generate visualization report
+    python -m pantheon.evolution visualize evolution_results/ -o report.html
 """
 
 import argparse
@@ -16,23 +20,21 @@ from .program import CodebaseSnapshot
 from .team import EvolutionTeam
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Evolutionary code optimization using LLMs",
+def setup_run_parser(subparsers):
+    """Setup the 'run' subcommand parser."""
+    parser = subparsers.add_parser(
+        "run",
+        help="Run evolution optimization",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Evolve a single file
-  python -m pantheon.evolution --initial sort.py --evaluator eval.py \\
+  python -m pantheon.evolution run --initial sort.py --evaluator eval.py \\
       --objective "Optimize sorting speed"
 
   # Evolve a directory
-  python -m pantheon.evolution --initial ./src --evaluator eval.py \\
+  python -m pantheon.evolution run --initial ./src --evaluator eval.py \\
       --objective "Improve performance" --iterations 200
-
-  # Use configuration file
-  python -m pantheon.evolution --initial program.py --evaluator eval.py \\
-      --config evolution.yaml --output results/
         """,
     )
 
@@ -82,7 +84,7 @@ Examples:
     )
     parser.add_argument(
         "--model",
-        default="claude-sonnet-4-20250514",
+        default="normal",
         help="Model for mutation generation",
     )
     parser.add_argument(
@@ -91,7 +93,45 @@ Examples:
         help="Enable verbose logging",
     )
 
-    args = parser.parse_args()
+    return parser
+
+
+def setup_visualize_parser(subparsers):
+    """Setup the 'visualize' subcommand parser."""
+    parser = subparsers.add_parser(
+        "visualize",
+        help="Generate HTML visualization report",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Generate report from evolution results
+  python -m pantheon.evolution visualize evolution_results/ -o report.html
+
+  # Open in browser after generation
+  python -m pantheon.evolution visualize evolution_results/ -o report.html --open
+        """,
+    )
+
+    parser.add_argument(
+        "db_path",
+        help="Path to evolution_results directory",
+    )
+    parser.add_argument(
+        "--output", "-o",
+        default="evolution_report.html",
+        help="Output HTML file path (default: evolution_report.html)",
+    )
+    parser.add_argument(
+        "--open",
+        action="store_true",
+        help="Open report in browser after generation",
+    )
+
+    return parser
+
+
+def cmd_run(args):
+    """Execute the 'run' subcommand."""
 
     # Load or create configuration
     if args.config:
@@ -177,7 +217,63 @@ Examples:
         # Save configuration
         config.to_yaml(str(output_dir / "config.yaml"))
 
+        # Generate HTML report
+        from .visualizer import generate_evolution_report
+        html_path = output_dir / "report.html"
+        generate_evolution_report(str(output_dir), str(html_path))
+        print(f"HTML report saved to {html_path}")
+
     print(f"\nBest score: {result.best_score:.4f}")
+
+
+def cmd_visualize(args):
+    """Execute the 'visualize' subcommand."""
+    from .visualizer import generate_evolution_report
+
+    db_path = Path(args.db_path)
+    if not db_path.exists():
+        print(f"Error: {db_path} not found", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Loading evolution data from {db_path}...")
+
+    try:
+        output_path = generate_evolution_report(str(db_path), args.output)
+        print(f"HTML report generated: {output_path}")
+
+        if args.open:
+            import webbrowser
+            webbrowser.open(f"file://{Path(output_path).absolute()}")
+            print("Opened in browser")
+
+    except Exception as e:
+        print(f"Error generating report: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def main():
+    """Main entry point."""
+    parser = argparse.ArgumentParser(
+        description="Pantheon Evolution - Evolutionary code optimization",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # Setup subcommands
+    setup_run_parser(subparsers)
+    setup_visualize_parser(subparsers)
+
+    args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
+        sys.exit(0)
+
+    if args.command == "run":
+        cmd_run(args)
+    elif args.command == "visualize":
+        cmd_visualize(args)
 
 
 if __name__ == "__main__":

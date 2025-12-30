@@ -273,7 +273,7 @@ class EvaluatorToolSet(ToolSet):
         self,
         code: str,
         context: Optional[str] = None,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "normal",
     ) -> Dict[str, Any]:
         """
         Get an LLM-based code review.
