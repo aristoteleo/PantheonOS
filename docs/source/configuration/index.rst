@@ -106,3 +106,12 @@ Next Steps
 - :doc:`templates/index` - Creating agent and team templates
 - :doc:`mcp` - MCP server configuration
 - :doc:`models` - Model selection and fallbacks
+
+.. toctree::
+   :hidden:
+   :maxdepth: 2
+
+   settings
+   templates/index
+   mcp
+   models

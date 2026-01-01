@@ -8,12 +8,9 @@ Complete API documentation for Pantheon's classes and modules.
 - :doc:`agent` - Agent API
 - :doc:`team` - Team API
 - :doc:`memory` - Memory API
-- :doc:`chatroom` - ChatRoom API
 
 **Utilities:**
 
-- :doc:`reasoning` - Reasoning utilities
-- :doc:`remote` - Remote execution
 - :doc:`repl` - REPL API
 - :doc:`utils` - Utility functions
 
@@ -27,7 +24,7 @@ Core Classes
    :nosignatures:
 
    pantheon.agent.Agent
-   pantheon.team.Team
+   pantheon.team.PantheonTeam
    pantheon.team.SequentialTeam
    pantheon.team.SwarmTeam
    pantheon.team.SwarmCenterTeam
@@ -52,3 +49,13 @@ Basic Usage
    # Use in a team
    team = SequentialTeam([agent1, agent2])
    await team.chat()
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   agent
+   team
+   memory
+   repl
+   utils

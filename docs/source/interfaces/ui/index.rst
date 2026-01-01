@@ -89,3 +89,11 @@ Next Steps
 - :doc:`quickstart` - Step-by-step setup
 - :doc:`web-interface` - UI features
 - :doc:`advanced` - Programmatic usage and customization
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   quickstart
+   web-interface
+   advanced

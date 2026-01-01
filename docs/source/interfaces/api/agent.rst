@@ -3,7 +3,7 @@ Agent API
 
 The Agent class is the fundamental building block of Pantheon.
 
-.. autoclass:: pantheon.Agent
+.. autoclass:: pantheon.agent.Agent
    :members: run, chat, stream
    :undoc-members:
 

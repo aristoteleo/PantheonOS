@@ -141,3 +141,13 @@ Next Steps
 - :doc:`team` - Team patterns
 - :doc:`toolsets` - Available toolsets
 - :doc:`advanced` - Advanced patterns
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   quickstart
+   agent
+   team
+   toolsets
+   advanced

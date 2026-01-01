@@ -12,7 +12,7 @@ These topics cover advanced Pantheon capabilities:
    Agents that improve over time by recording and learning from successful task completions.
 
 **Evolution System**
-   Automatic agent refinement through evaluation and iteration.
+   Automatic code optimization through LLM-guided mutations and evaluation.
 
 **Distributed Deployment**
    Running Pantheon across multiple machines with NATS backend.
@@ -57,6 +57,6 @@ Quick Links
 -----------
 
 - :doc:`learning` - Agent skill acquisition and memory
-- :doc:`evolution` - Automatic agent improvement
+- :doc:`evolution` - Automatic code optimization
 - :doc:`distributed` - Multi-machine deployment
 - :doc:`extending` - Custom development

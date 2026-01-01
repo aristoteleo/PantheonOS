@@ -145,3 +145,11 @@ Next Steps
 - :doc:`commands` - Full command reference
 - :doc:`file-viewer` - File viewer features
 - :doc:`advanced` - Custom handlers and extensions
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   commands
+   file-viewer
+   advanced

@@ -40,6 +40,9 @@ pygments_dark_style = 'github-dark'
 # Generate autosummary pages
 autosummary_generate = True
 
+# Mock imports for modules that may not be available during doc build
+autodoc_mock_imports = ['diff_match_patch', 'frontmatter']
+
 templates_path = ['_templates']
 exclude_patterns = []
 

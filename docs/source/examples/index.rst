@@ -1,201 +1,58 @@
 Examples
 ========
 
-Single Agent Examples
----------------------
+Explore complete working examples in the ``examples/`` directory of the repository.
 
-.. grid:: 2 2 3 4
-   :gutter: 2
+Available Examples
+------------------
 
-   .. grid-item-card::
-      :img-top: ../_static/pantheon.png
-      :link: search_bot
-      :link-type: doc
-      :text-align: center
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
 
-      **Search Bot**
-      ^^^
-      Web search agent using DuckDuckGo with crawling capabilities
+   * - Example
+     - Description
+   * - ``evolution_harmonypy/``
+     - Code evolution example: optimizing the Harmony batch correction algorithm
+   * - ``evolution_agent/``
+     - Agent-guided code evolution workflow
+   * - ``fastq_processing/``
+     - FASTQ file processing pipeline
+   * - ``paper_reporter/``
+     - Academic paper analysis and summarization
+   * - ``paper_reporter_v2/``
+     - Enhanced multi-agent paper analysis
+   * - ``single_cell_spatial_analysis/``
+     - Single-cell and spatial genomics analysis
 
-   .. grid-item-card::
-      :img-top: ../_static/pantheon.png
-      :link: coderun_bot
-      :link-type: doc
-      :text-align: center
+Running Examples
+----------------
 
-      **Code Runner Bot**
-      ^^^
-      Python code execution agent with interactive REPL
+Each example directory contains a README with specific instructions. General pattern:
 
-   .. grid-item-card::
-      :img-top: ../_static/pantheon.png
-      :link: reasoning_bot
-      :link-type: doc
-      :text-align: center
+.. code-block:: bash
 
-      **Reasoning Bot**
-      ^^^
-      Advanced reasoning with step-by-step problem solving
+   cd examples/<example_name>
 
-   .. grid-item-card::
-      :img-top: ../_static/pantheon.png
-      :link: r_bot
-      :link-type: doc
-      :text-align: center
+   # Read the README
+   cat README.md
 
-      **R Language Bot**
-      ^^^
-      R code execution for statistical computing
+   # Run the example
+   python run.py  # or main.py, depending on the example
 
-   .. grid-item-card::
-      :img-top: ../_static/pantheon.png
-      :link: shell_bot
-      :link-type: doc
-      :text-align: center
+Evolution Example
+-----------------
 
-      **Shell Bot**
-      ^^^
-      Secure shell command execution with safety constraints
+The ``evolution_harmonypy`` example demonstrates code evolution:
 
-   .. grid-item-card::
-      :img-top: ../_static/pantheon.png
-      :link: gemini_bot
-      :link-type: doc
-      :text-align: center
+.. code-block:: bash
 
-      **Gemini Bot**
-      ^^^
-      Integration with Google's Gemini models
+   cd examples/evolution_harmonypy
 
-   .. grid-item-card::
-      :img-top: ../_static/pantheon.png
-      :link: deepseek_bot
-      :link-type: doc
-      :text-align: center
+   # Test the evaluator
+   python evaluator.py
 
-      **DeepSeek Bot**
-      ^^^
-      Integration with DeepSeek models for specialized tasks
+   # Run evolution (quick test)
+   python run_evolution.py --iterations 10
 
-Team Examples
--------------
-
-.. grid:: 2 2 3 4
-   :gutter: 2
-
-   .. grid-item-card::
-      :img-top: ../_static/pantheon.png
-      :link: sequential_team
-      :link-type: doc
-      :text-align: center
-
-      **Sequential Team**
-      ^^^
-      Agents work in predefined sequence with result passing
-
-   .. grid-item-card::
-      :img-top: ../_static/pantheon.png
-      :link: swarm_team
-      :link-type: doc
-      :text-align: center
-
-      **Swarm Team**
-      ^^^
-      Dynamic agent collaboration with transfer capabilities
-
-   .. grid-item-card::
-      :img-top: ../_static/pantheon.png
-      :link: swarm_center_team
-      :link-type: doc
-      :text-align: center
-
-      **Swarm Center Team**
-      ^^^
-      Centralized coordination with a managing agent
-
-   .. grid-item-card::
-      :img-top: ../_static/pantheon.png
-      :link: moa_team
-      :link-type: doc
-      :text-align: center
-
-      **MoA Team**
-      ^^^
-      Mixture of Agents for multi-perspective reasoning
-
-   .. grid-item-card::
-      :img-top: ../_static/pantheon.png
-      :link: think_then_act
-      :link-type: doc
-      :text-align: center
-
-      **Think-Then-Act**
-      ^^^
-      Structured reasoning before action execution
-
-Others
-------
-
-.. grid:: 2 2 3 4
-   :gutter: 2
-
-   .. grid-item-card::
-      :img-top: ../_static/pantheon.png
-      :link: guess_number
-      :link-type: doc
-      :text-align: center
-
-      **Guess Number Game**
-      ^^^
-      Interactive game showcasing agent memory and logic
-
-   .. grid-item-card::
-      :img-top: ../_static/pantheon.png
-      :link: paper_reporter
-      :link-type: doc
-      :text-align: center
-
-      **Paper Reporter**
-      ^^^
-      Academic paper analysis and summarization system
-
-   .. grid-item-card::
-      :img-top: ../_static/pantheon.png
-      :link: paper_reporter_v2
-      :link-type: doc
-      :text-align: center
-
-      **Paper Reporter V2**
-      ^^^
-      Enhanced multi-agent paper analysis with better structure
-
-   .. grid-item-card::
-      :img-top: ../_static/pantheon.png
-      :link: sc_analysis_cli
-      :link-type: doc
-      :text-align: center
-
-      **Single-Cell Analysis CLI**
-      ^^^
-      CLI assistant for single-cell/spatial genomics analysis with RAG
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-
-   search_bot
-   coderun_bot
-   reasoning_bot
-   r_bot
-   shell_bot
-   gemini_bot
-   deepseek_bot
-   sequential_team
-   swarm_team
-   swarm_center_team
-   moa_team
-   think_then_act
-   guess_number
-   paper_reporter
-   paper_reporter_v2
-   sc_analysis_cli
+See :doc:`/advanced/evolution` for detailed documentation on the Evolution System.

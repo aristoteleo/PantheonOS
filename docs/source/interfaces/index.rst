@@ -129,3 +129,11 @@ Choosing an Interface
 - You're building a custom application
 - You need to integrate with other code
 - You want maximum flexibility
+
+.. toctree::
+   :hidden:
+   :maxdepth: 2
+
+   repl/index
+   ui/index
+   api/index

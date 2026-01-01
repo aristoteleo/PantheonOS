@@ -159,9 +159,6 @@ getting-started/5min-tutorial
 :caption: Interfaces
 
 interfaces/index
-interfaces/repl/index
-interfaces/ui/index
-interfaces/api/index
 ```
 
 ```{toctree}
@@ -170,10 +167,6 @@ interfaces/api/index
 :caption: Configuration
 
 configuration/index
-configuration/settings
-configuration/templates/index
-configuration/mcp
-configuration/models
 ```
 
 ```{toctree}
@@ -192,6 +185,10 @@ toolsets/index
 :caption: Advanced
 
 advanced/index
+advanced/learning
+advanced/evolution
+advanced/distributed
+advanced/extending
 ```
 
 ```{toctree}

@@ -76,7 +76,7 @@ Best for:
    from pantheon.team import MoATeam
 
    team = MoATeam(
-       agents=[expert1, expert2, expert3],
+       proposers=[expert1, expert2, expert3],
        aggregator=synthesizer
    )
 
@@ -114,8 +114,8 @@ Best for:
    from pantheon.team import SwarmCenterTeam
 
    team = SwarmCenterTeam(
-       center=coordinator,
-       workers=[worker1, worker2, worker3]
+       triage=coordinator,
+       agents=[worker1, worker2, worker3]
    )
 
 AgentAsToolTeam
@@ -234,3 +234,13 @@ Best Practices
 4. **Error Recovery**: Implement fallback strategies for critical workflows
 5. **Testing**: Test team dynamics with various scenarios
 6. **Monitoring**: Track performance and optimize agent interactions
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   pantheon_team
+   sequential_team
+   moa_team
+   swarm_team
+   swarm_center_team

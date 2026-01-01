@@ -196,3 +196,19 @@ Toolsets can be exposed as MCP (Model Context Protocol) servers::
    await gateway.serve()
 
 See :doc:`/api/utils` for more details on MCP integration.
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+
+   builtin_toolsets
+   custom_toolsets
+   file_editor
+   notebook
+   python_interpreter
+   r_interpreter
+   shell
+   web_browse
+   scraper_api
+   rag_system
+   vector_rag

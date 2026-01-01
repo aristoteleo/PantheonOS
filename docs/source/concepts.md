@@ -32,7 +32,7 @@ An agent in Pantheon is:
 - **Collaborative**: Can work with other agents in teams
 - **Learnable**: Can improve through the skillbook system
 
-![Agent Architecture](_static/Agent%20Loop.png)
+![Agent Architecture](_static/agent-loop.png)
 
 **Essentially, an Agent program is a loop that calls an LLM. In this loop, tool invocation is involved to interact with the external environment, and memory management is involved to save the results into the context.**
 
@@ -115,7 +115,7 @@ A leader agent treats sub-agents as tools, calling them when specific expertise 
 #### Message Flow
 Teams manage message flow between agents:
 
-```mermaid
+```{mermaid}
 graph LR
     subgraph "Sequential Flow"
         U1[User] --> A1[Agent1]
@@ -125,7 +125,7 @@ graph LR
     end
 ```
 
-```mermaid
+```{mermaid}
 graph LR
     subgraph "Swarm Flow"
         U2[User] --> A4[Agent1]
@@ -135,7 +135,7 @@ graph LR
     end
 ```
 
-```mermaid
+```{mermaid}
 graph LR
     subgraph "MoA Flow"
         U3[User] --> A7[Agent1]

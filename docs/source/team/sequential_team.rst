@@ -1,15 +1,16 @@
 Sequential Team
 ===============
 
-Sequential Teams process tasks through a series of agents in a predefined order, with each agent building upon the work of the previous one. This pattern is ideal for workflows with clear dependencies and multi-step processes.
+SequentialTeam processes tasks through a series of agents in a predefined order, with each agent building upon the work of the previous one.
 
 Overview
 --------
 
 In a Sequential Team:
+
 - Agents execute in a fixed order
-- Each agent receives the output of the previous agent
-- Context accumulates as it passes through the pipeline
+- Each agent receives the accumulated conversation history
+- A connect prompt is injected between agents to guide transitions
 - The final agent's output becomes the team's response
 
 Basic Usage
@@ -21,407 +22,232 @@ Creating a Sequential Team
 .. code-block:: python
 
    from pantheon.team import SequentialTeam
-   from pantheon.agent import Agent
-   
+   from pantheon import Agent
+
    # Create specialized agents
    researcher = Agent(
        name="researcher",
-       instructions="Research the topic and gather relevant information."
+       instructions="Research the topic and gather relevant information.",
+       model="gpt-4o-mini"
    )
-   
+
    analyst = Agent(
        name="analyst",
-       instructions="Analyze the research and identify key insights."
+       instructions="Analyze the research and identify key insights.",
+       model="gpt-4o-mini"
    )
-   
+
    writer = Agent(
        name="writer",
-       instructions="Create a well-structured report based on the analysis."
+       instructions="Create a well-structured report based on the analysis.",
+       model="gpt-4o-mini"
    )
-   
+
    # Create sequential team
    team = SequentialTeam([researcher, analyst, writer])
-   
+
    # Run the team
    result = await team.run("Analyze the impact of AI on healthcare")
+   print(result.content)
 
-With Tools
-~~~~~~~~~~
+Constructor Parameters
+----------------------
 
-Enhance agents with specific tools:
+.. list-table::
+   :header-rows: 1
+   :widths: 25 20 55
 
-.. code-block:: python
+   * - Parameter
+     - Type
+     - Description
+   * - ``agents``
+     - list[Agent]
+     - List of agents to run in sequence. Order determines execution order.
+   * - ``connect_prompt``
+     - str | list[str]
+     - Prompt injected between agents to guide transitions. Default: "Next:".
 
-   from pantheon.toolsets.web_browse import duckduckgo_search
-   from pantheon.toolsets.python import PythonInterpreterToolSet
-   
-   # Research agent with web search
-   researcher = Agent(
-       name="researcher",
-       instructions="Research using web search.",
-       tools=[duckduckgo_search]
-   )
-   
-   # Analyst with Python for data analysis
-   analyst = Agent(
-       name="analyst",
-       instructions="Analyze data using Python.",
-   )
-   await analyst.remote_toolset(python_toolset.service_id)
-   
-   # Writer with formatting tools
-   writer = Agent(
-       name="writer",
-       instructions="Create formatted reports.",
-       tools=[create_chart, format_table]
-   )
-   
-   team = SequentialTeam([researcher, analyst, writer])
-
-Advanced Features
------------------
-
-Context Accumulation
-~~~~~~~~~~~~~~~~~~~~
-
-Control how context flows through the team:
-
-.. code-block:: python
-
-   class CustomSequentialTeam(SequentialTeam):
-       def __init__(self, agents, accumulate_context=True):
-           super().__init__(agents)
-           self.accumulate_context = accumulate_context
-       
-       async def run(self, messages, context_variables=None):
-           current_messages = messages
-           accumulated_context = context_variables or {}
-           
-           for i, agent in enumerate(self.agents):
-               # Add stage info to context
-               accumulated_context["stage"] = i + 1
-               accumulated_context["previous_agent"] = (
-                   self.agents[i-1].name if i > 0 else None
-               )
-               
-               # Run agent
-               response = await agent.run(
-                   current_messages,
-                   context_variables=accumulated_context
-               )
-               
-               # Prepare for next agent
-               if self.accumulate_context:
-                   # Keep all messages
-                   current_messages.extend(response.messages)
-               else:
-                   # Only pass last response
-                   current_messages = response.messages
-               
-               # Update context
-               accumulated_context.update(response.context_variables)
-           
-           return response
-
-Error Handling
-~~~~~~~~~~~~~~
-
-Implement robust error recovery:
-
-.. code-block:: python
-
-   class ResilientSequentialTeam(SequentialTeam):
-       def __init__(self, agents, max_retries=3):
-           super().__init__(agents)
-           self.max_retries = max_retries
-       
-       async def run_with_retry(self, agent, messages, context):
-           for attempt in range(self.max_retries):
-               try:
-                   return await agent.run(messages, context)
-               except Exception as e:
-                   if attempt == self.max_retries - 1:
-                       # Final attempt failed
-                       return await self.handle_failure(
-                           agent, messages, context, e
-                       )
-                   await asyncio.sleep(2 ** attempt)  # Exponential backoff
-       
-       async def handle_failure(self, agent, messages, context, error):
-           # Fallback to a general agent
-           fallback = Agent(
-               name="fallback",
-               instructions=f"Handle the error from {agent.name}: {error}"
-           )
-           return await fallback.run(messages, context)
-
-Progress Tracking
-~~~~~~~~~~~~~~~~~
-
-Monitor team progress:
-
-.. code-block:: python
-
-   class ProgressTrackingTeam(SequentialTeam):
-       def __init__(self, agents, progress_callback=None):
-           super().__init__(agents)
-           self.progress_callback = progress_callback
-       
-       async def run(self, messages):
-           total_agents = len(self.agents)
-           
-           for i, agent in enumerate(self.agents):
-               # Notify progress
-               if self.progress_callback:
-                   await self.progress_callback({
-                       "current_agent": agent.name,
-                       "stage": i + 1,
-                       "total_stages": total_agents,
-                       "percentage": (i / total_agents) * 100
-                   })
-               
-               # Run agent
-               response = await agent.run(messages)
-               messages = response.messages
-           
-           # Notify completion
-           if self.progress_callback:
-               await self.progress_callback({
-                   "status": "completed",
-                   "percentage": 100
-               })
-           
-           return response
-   
-   # Usage
-   async def on_progress(status):
-       print(f"Progress: {status['percentage']:.0f}% - {status.get('current_agent', 'Done')}")
-   
-   team = ProgressTrackingTeam(agents, on_progress)
-
-Common Patterns
+Connect Prompts
 ---------------
 
-Research and Analysis Pipeline
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The ``connect_prompt`` is injected as a user message between each agent's response and the next agent's turn. This guides the handoff between agents.
+
+Default Connect Prompt
+~~~~~~~~~~~~~~~~~~~~~~
+
+By default, "Next:" is injected between agents:
 
 .. code-block:: python
 
-   # 1. Data Gatherer
-   gatherer = Agent(
-       name="data_gatherer",
-       instructions="Collect relevant data from multiple sources.",
-       tools=[web_search, read_file, query_database]
-   )
-   
-   # 2. Data Processor
-   processor = Agent(
-       name="processor",
-       instructions="Clean and prepare data for analysis.",
-       tools=[python_interpreter]
-   )
-   
-   # 3. Analyst
-   analyst = Agent(
-       name="analyst",
-       instructions="Perform statistical analysis and identify patterns.",
-       tools=[python_interpreter, create_visualization]
-   )
-   
-   # 4. Report Generator
-   reporter = Agent(
-       name="reporter",
-       instructions="Create comprehensive report with visualizations.",
-       tools=[format_document, create_chart]
-   )
-   
-   research_pipeline = SequentialTeam([
-       gatherer, processor, analyst, reporter
-   ])
+   team = SequentialTeam([agent1, agent2, agent3])
+   # Flow: agent1 -> "Next:" -> agent2 -> "Next:" -> agent3
 
-Content Creation Pipeline
-~~~~~~~~~~~~~~~~~~~~~~~~~
+Custom Connect Prompt
+~~~~~~~~~~~~~~~~~~~~~
+
+Use a single prompt for all transitions:
 
 .. code-block:: python
 
-   # 1. Ideation
-   ideator = Agent(
-       name="ideator",
-       instructions="Generate creative ideas and outlines."
+   team = SequentialTeam(
+       [researcher, analyst, writer],
+       connect_prompt="Please continue with your specialized analysis:"
    )
-   
-   # 2. Researcher
-   researcher = Agent(
-       name="researcher",
-       instructions="Research facts and gather supporting information.",
-       tools=[web_search, fact_checker]
-   )
-   
-   # 3. Writer
-   writer = Agent(
-       name="writer",
-       instructions="Write engaging content based on outline and research."
-   )
-   
-   # 4. Editor
-   editor = Agent(
-       name="editor",
-       instructions="Edit for clarity, grammar, and style."
-   )
-   
-   # 5. SEO Optimizer
-   seo_optimizer = Agent(
-       name="seo_optimizer",
-       instructions="Optimize content for search engines.",
-       tools=[keyword_analyzer, meta_generator]
-   )
-   
-   content_pipeline = SequentialTeam([
-       ideator, researcher, writer, editor, seo_optimizer
-   ])
 
-Code Development Pipeline
-~~~~~~~~~~~~~~~~~~~~~~~~~
+Per-Transition Prompts
+~~~~~~~~~~~~~~~~~~~~~~
+
+Use a list to specify different prompts for each transition:
 
 .. code-block:: python
 
-   # 1. Architect
-   architect = Agent(
-       name="architect",
-       instructions="Design system architecture and create specifications."
+   team = SequentialTeam(
+       [researcher, analyst, writer],
+       connect_prompt=[
+           "Now analyze these research findings:",  # researcher -> analyst
+           "Based on this analysis, write the final report:"  # analyst -> writer
+       ]
    )
-   
-   # 2. Developer
-   developer = Agent(
-       name="developer",
-       instructions="Implement code based on specifications.",
-       tools=[code_generator, python_interpreter]
+
+Run Method
+----------
+
+The ``run()`` method executes the sequential pipeline:
+
+.. code-block:: python
+
+   result = await team.run(
+       msg="Your task message",
+       connect_prompt=None,  # Override connect_prompt for this run
+       agent_kwargs={},      # Per-agent kwargs: {"agent_name": {...}}
+       **final_kwargs        # Additional kwargs passed to final agent only
    )
-   
-   # 3. Tester
-   tester = Agent(
-       name="tester",
-       instructions="Write and run tests for the code.",
-       tools=[pytest_runner, code_analyzer]
+
+**Parameters:**
+
+- ``msg``: The input message (string or message list)
+- ``connect_prompt``: Override the team's default connect prompt
+- ``agent_kwargs``: Dict mapping agent names to their run() kwargs
+- ``**final_kwargs``: Additional kwargs passed only to the final agent
+
+**Example with agent_kwargs:**
+
+.. code-block:: python
+
+   result = await team.run(
+       "Research renewable energy trends",
+       agent_kwargs={
+           "researcher": {"max_iterations": 5},
+           "analyst": {"temperature": 0.3}
+       },
+       stream=True  # Only applied to final agent (writer)
    )
-   
-   # 4. Reviewer
-   reviewer = Agent(
-       name="reviewer",
-       instructions="Review code for quality and best practices.",
-       tools=[linter, security_scanner]
-   )
-   
-   dev_pipeline = SequentialTeam([
-       architect, developer, tester, reviewer
-   ])
 
-Configuration
--------------
+How It Works
+------------
 
-YAML Configuration
-~~~~~~~~~~~~~~~~~~
+.. code-block:: text
 
-Define teams in configuration files:
+   User Message
+        |
+        v
+   [Researcher] processes message
+        |
+        v
+   Connect Prompt: "Next:"
+        |
+        v
+   [Analyst] receives full history + connect prompt
+        |
+        v
+   Connect Prompt: "Next:"
+        |
+        v
+   [Writer] receives full history + connect prompts
+        |
+        v
+   Final Response
 
-.. code-block:: yaml
+The conversation history accumulates through the pipeline:
 
-   # team_config.yaml
-   type: sequential
-   name: "Content Creation Pipeline"
-   
-   agents:
-     - name: researcher
-       instructions: "Research the topic thoroughly"
-       model: "gpt-4o"
-       tools:
-         - web_search
-         - read_documents
-     
-     - name: writer
-       instructions: "Write engaging content"
-       model: "gpt-4o"
-       temperature: 0.8
-     
-     - name: editor
-       instructions: "Edit and polish the content"
-       model: "gpt-4o-mini"
-   
-   settings:
-     timeout: 300
-     max_retries: 2
-     accumulate_context: true
+1. User message sent to first agent
+2. First agent responds
+3. Connect prompt added to history
+4. Second agent sees: user message + first agent response + connect prompt
+5. Process repeats until final agent
+
+Examples
+--------
+
+Research Pipeline
+~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
    from pantheon.team import SequentialTeam
-   
-   team = SequentialTeam.from_config("team_config.yaml")
+   from pantheon import Agent
+   from pantheon.toolsets import WebToolSet, FileManagerToolSet
+
+   researcher = Agent(
+       name="researcher",
+       instructions="Research the topic using web search.",
+       tools=[WebToolSet()]
+   )
+
+   analyst = Agent(
+       name="analyst",
+       instructions="Analyze the research findings and extract insights."
+   )
+
+   writer = Agent(
+       name="writer",
+       instructions="Write a comprehensive report.",
+       tools=[FileManagerToolSet()]
+   )
+
+   team = SequentialTeam(
+       [researcher, analyst, writer],
+       connect_prompt=[
+           "Analyze these research findings:",
+           "Write a report based on this analysis:"
+       ]
+   )
+
+   result = await team.run("Research the current state of quantum computing")
+
+Code Review Pipeline
+~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   architect = Agent(
+       name="architect",
+       instructions="Review the code architecture and design."
+   )
+
+   security_reviewer = Agent(
+       name="security",
+       instructions="Identify security vulnerabilities."
+   )
+
+   quality_reviewer = Agent(
+       name="quality",
+       instructions="Summarize all findings and recommendations."
+   )
+
+   review_team = SequentialTeam(
+       [architect, security_reviewer, quality_reviewer],
+       connect_prompt=[
+           "Now check for security issues:",
+           "Summarize all review findings:"
+       ]
+   )
 
 Best Practices
 --------------
 
-1. **Clear Handoffs**: Ensure each agent clearly communicates what the next agent needs
-2. **Appropriate Ordering**: Place agents in logical sequence based on dependencies
-3. **Error Recovery**: Implement fallback strategies for agent failures
-4. **Context Management**: Decide whether to accumulate or reset context
-5. **Performance**: Consider parallel processing where dependencies allow
-
-Performance Optimization
-------------------------
-
-Conditional Execution
-~~~~~~~~~~~~~~~~~~~~~
-
-Skip agents based on conditions:
-
-.. code-block:: python
-
-   class ConditionalSequentialTeam(SequentialTeam):
-       async def run(self, messages):
-           for agent in self.agents:
-               # Check if agent should run
-               if await self.should_run_agent(agent, messages):
-                   response = await agent.run(messages)
-                   messages = response.messages
-               else:
-                   print(f"Skipping {agent.name}")
-           
-           return response
-       
-       async def should_run_agent(self, agent, messages):
-           # Custom logic to determine if agent should run
-           if agent.name == "editor" and len(messages[-1]["content"]) < 100:
-               return False  # Skip editor for short content
-           return True
-
-Caching
-~~~~~~~
-
-Cache intermediate results:
-
-.. code-block:: python
-
-   from functools import lru_cache
-   
-   class CachedSequentialTeam(SequentialTeam):
-       def __init__(self, agents):
-           super().__init__(agents)
-           self.cache = {}
-       
-       async def run(self, messages):
-           cache_key = self.get_cache_key(messages)
-           
-           for i, agent in enumerate(self.agents):
-               stage_key = f"{cache_key}:stage_{i}"
-               
-               if stage_key in self.cache:
-                   # Use cached result
-                   messages = self.cache[stage_key]
-               else:
-                   # Run agent and cache
-                   response = await agent.run(messages)
-                   messages = response.messages
-                   self.cache[stage_key] = messages
-           
-           return response
+1. **Clear Instructions**: Each agent should know its role in the pipeline
+2. **Meaningful Connect Prompts**: Use prompts that guide the next agent's focus
+3. **Logical Ordering**: Place agents in order of dependencies
+4. **Appropriate Team Size**: Keep pipelines to 2-5 agents for efficiency
+5. **Specialized Agents**: Each agent should have a distinct responsibility
