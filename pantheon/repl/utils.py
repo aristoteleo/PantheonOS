@@ -290,11 +290,11 @@ def render_token_panel(console: Console, info: dict, session_start: datetime):
     }
     
     console.print()
-    console.print(f"{B}╭─ Context ─────────────────────────────────────────────────────────╮[/]")
+    console.print(f"{B}── Context ─────────────────────────────────────────────────────────[/]")
     
     if total == 0:
-        console.print(f"{B}│[/] [dim]No token usage data yet[/]")
-        console.print(f"{B}╰───────────────────────────────────────────────────────────────────╯[/]")
+        console.print(f"  [dim]No token usage data yet[/]")
+        console.print(f"{B}────────────────────────────────────────────────────────────────────[/]")
         return
     
     # Build multi-color progress bar by role
@@ -330,18 +330,16 @@ def render_token_panel(console: Console, info: dict, session_start: datetime):
     bar += f"[dim]{'░' * remaining_width}[/]"
     
     max_disp = format_token_count(max_tok)
-    console.print(f"{B}│[/] {bar} {usage_pct}% of {max_disp}")
-    console.print(f"{B}│[/] [dim]Used:[/] {format_token_count(total)} [dim]• Remaining:[/] {format_token_count(info.get('remaining', 0))}")
-    
-    # Token distribution legend
-    console.print(f"{B}├───────────────────────────────────────────────────────────────────┤[/]")
+    console.print(f"  {bar} {usage_pct}% of {max_disp}")
+    console.print(f"  [dim]Used:[/] {format_token_count(total)} [dim]• Remaining:[/] {format_token_count(info.get('remaining', 0))}")
+    console.print()
     
     def print_legend_item(name, label, count, msg_count=None, unit="msgs"):
         if count > 0:
             pct = count / total * 100
             color = role_colors.get(name, "white")
             msg_info = f"[dim]{msg_count} {unit}[/]" if msg_count is not None else ""
-            console.print(f"{B}│[/] [{color}]●[/] {label:<24} {format_token_count(count):>8} ({pct:4.1f}%) {msg_info}")
+            console.print(f"  [{color}]●[/] {label:<24} {format_token_count(count):>8} ({pct:4.1f}%) {msg_info}")
 
     print_legend_item("system_prompt", "System Prompt", system_prompt_tokens)
     print_legend_item("tools_definition", "Tools Definition", tools_definition_tokens, tools_count, "tools")
@@ -351,21 +349,21 @@ def render_token_panel(console: Console, info: dict, session_start: datetime):
     print_legend_item("tool", "Tool", by_role.get("tool", 0), msg_counts.get("tool", 0))
     
     # Session stats
-    console.print(f"{B}├───────────────────────────────────────────────────────────────────┤[/]")
+    console.print()
     dur = int((datetime.now() - session_start).total_seconds() / 60)
     model = info.get("model", "unknown")[:30]
     total_msgs = sum(msg_counts.values())
-    console.print(f"{B}│[/] [dim]Messages:[/] {total_msgs} [dim]• Duration:[/] {dur}m [dim]• Model:[/] {model}")
+    console.print(f"  [dim]Messages:[/] {total_msgs} [dim]• Duration:[/] {dur}m [dim]• Model:[/] {model}")
     
     if (total_c := info.get("total_cost")) is not None and total_c > 0:
-         console.print(f"{B}│[/] [dim]Total Cost:[/] ${total_c:.4f}")
+         console.print(f"  [dim]Total Cost:[/] ${total_c:.4f}")
     
     # Warning
     if info.get("warning_90") or info.get("critical_95"):
-        console.print(f"{B}├───────────────────────────────────────────────────────────────────┤[/]")
+        console.print()
         if info.get("critical_95"):
-            console.print(f"{B}│[/] [bold red]⚠ CRITICAL:[/] Context nearly full!")
+            console.print(f"  [bold red]⚠ CRITICAL:[/] Context nearly full!")
         else:
-            console.print(f"{B}│[/] [bold yellow]⚠ WARNING:[/] Context usage over 90%")
+            console.print(f"  [bold yellow]⚠ WARNING:[/] Context usage over 90%")
     
-    console.print(f"{B}╰───────────────────────────────────────────────────────────────────╯[/]")
+    console.print(f"{B}────────────────────────────────────────────────────────────────────[/]")
