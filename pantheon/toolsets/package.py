@@ -244,7 +244,7 @@ class PackageToolSet(ToolSet):
         query: str,
         tools: list[dict],
         use_context: bool = False,
-    ) -> list[dict]:
+    ) -> tuple[list[dict], dict | None]:
         """Use LLM to perform semantic search on tools.
 
         Args:
@@ -254,12 +254,13 @@ class PackageToolSet(ToolSet):
                 context-aware search.
 
         Returns:
-            List of semantically matching tools.
+            Tuple of (matching_tools, metadata).
+            metadata contains cost info from nested agent call if available.
         """
         ctx = get_current_context_variables()
         if ctx is None or not ctx.get("_call_agent"):
             logger.debug("call_agent not available, falling back to keyword search")
-            return self._keyword_search(query, tools, ["package", "method", "doc"])
+            return self._keyword_search(query, tools, ["package", "method", "doc"]), None
 
         tools_info = self._format_tools_for_llm(tools)
 
@@ -300,11 +301,16 @@ IMPORTANT: Never return an empty array if the query matches a package or method 
                 use_memory=use_context,
             )
 
+            # Extract metadata and response content from dict
+            # call_agent always returns {"success": True, "response": ..., "_metadata": {...}}
+            metadata = response.get("_metadata")
+            response_content = response.get("response", "")
+
             # Parse response
-            matched_ids = self._parse_llm_response(response)
+            matched_ids = self._parse_llm_response(response_content)
 
             if not matched_ids:
-                return []
+                return [], metadata
 
             # Filter tools by matched identifiers
             id_set = set(mid.lower() for mid in matched_ids)
@@ -314,11 +320,11 @@ IMPORTANT: Never return an empty array if the query matches a package or method 
             ]
 
             logger.debug(f"Semantic search matched {len(results)} tools for: {query}")
-            return results
+            return results, metadata
 
         except Exception as e:
             logger.warning(f"Semantic tool search failed, falling back to keyword: {e}")
-            return self._keyword_search(query, tools, ["package", "method", "doc"])
+            return self._keyword_search(query, tools, ["package", "method", "doc"]), None
 
 
     @tool
@@ -445,6 +451,7 @@ IMPORTANT: Never return an empty array if the query matches a package or method 
         """
         try:
             tools = await self._get_all_tools()
+            metadata = None
 
             if not query:
                 result_tools = tools
@@ -454,7 +461,7 @@ IMPORTANT: Never return an empty array if the query matches a package or method 
                 )
 
                 if use_semantic:
-                    result_tools = await self._semantic_search_tools(
+                    result_tools, metadata = await self._semantic_search_tools(
                         query, tools, use_context=use_context
                     )
                 else:
@@ -464,7 +471,11 @@ IMPORTANT: Never return an empty array if the query matches a package or method 
             if top_k is not None and top_k > 0:
                 result_tools = result_tools[:top_k]
 
-            return {"success": True, "tools": result_tools}
+            result = {"success": True, "tools": result_tools}
+            # Merge cost metadata from nested agent call
+            if metadata:
+                result.setdefault("_metadata", {}).update(metadata)
+            return result
 
         except Exception as exc:
             logger.exception(f"search_tools failed: {exc}")

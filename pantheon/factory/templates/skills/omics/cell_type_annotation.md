@@ -42,18 +42,43 @@ plt.savefig('cluster_markers.png', dpi=150, bbox_inches='tight')
 ### Step 2: Extract and Review Markers
 
 ```python
-# Get marker genes as DataFrame
-markers = sc.get.rank_genes_groups_df(adata, group=None)
+# 1. Apply Strict Filters using Scanpy's native tool
+# This ensures markers are specific (low background) and representative (high in-group)
+sc.tl.filter_rank_genes_groups(
+    adata,
+    min_fold_change=0.5,           # LogFC > 0.5 (approx 1.4x higher). >1 is often too strict.
+    min_in_group_fraction=0.25,    # (pts) Gene must be expressed in >25% of the cluster cells.
+    max_out_group_fraction=0.20,   # (pts_rest) Gene must be expressed in <20% of other clusters.
+    use_raw=False
+)
 
-# Filter by log fold change and p-value
-markers_filtered = markers[
-    (markers['logfoldchanges'] > 1) & 
-    (markers['pvals_adj'] < 0.01)
+# 2. Extract filtered markers (Failed genes become NaN)
+markers = sc.get.rank_genes_groups_df(adata, group=None)
+markers_filtered = markers.dropna().copy()
+
+# 3. Add 'pct_nz_group' (pts) column for visibility
+# (The filter function uses pts internally but doesn't output the values by default)
+pts_df = adata.uns['rank_genes_groups']['pts']
+markers_filtered['pct_nz_group'] = markers_filtered.apply(
+    lambda x: pts_df.loc[x['names'], x['group']], axis=1
+)
+
+# 4. Remove Biological Noise (Mitochondrial & Ribosomal genes)
+# These are rarely valid cell type markers
+final_markers = markers_filtered[
+    (~markers_filtered['names'].str.startswith('MT-')) & 
+    (~markers_filtered['names'].str.startswith('RPS')) & 
+    (~markers_filtered['names'].str.startswith('RPL'))
 ]
 
-# Top 5 markers per cluster
-top_markers = markers_filtered.groupby('group').head(5)
-print(top_markers)
+# 5. Get Top 5 high-quality markers per cluster
+top_markers = final_markers.sort_values(
+    ['group', 'logfoldchanges'], 
+    ascending=[True, False]
+).groupby('group').head(5)
+
+# Display key metrics: Cluster, Gene, LogFC, P-val, % Expressed
+print(top_markers[['group', 'names', 'logfoldchanges', 'pvals_adj', 'pct_nz_group']])
 ```
 
 ### Step 3: Visualize Known Markers
@@ -69,11 +94,39 @@ markers_dict = {
     'Platelets': ['PPBP', 'PF4'],
 }
 
-# Dot plot
-sc.pl.dotplot(adata, markers_dict, groupby='leiden', dendrogram=True)
-plt.savefig('markers_dotplot.png', dpi=150, bbox_inches='tight')
+> **IMPORTANT**: Dotplot must follow publication-standard axis semantics:
+> - **y-axis (left, rows) = cell types / clusters**
+> - **x-axis (bottom, columns) = genes**
+> - For "landscape layout" readability, use `figsize` and label rotation, **NOT `swap_axes=True`**
 
-# Stacked violin
+# Dot plot
+dp = sc.pl.dotplot(
+    adata,
+    var_names=markers_dict,
+    groupby='leiden',
+    standard_scale='var',    # 'var'=by gene (recommended), 'obs'=by cell type, None=no scaling
+    dendrogram=True,         # Show hierarchical clustering
+    swap_axes=False,         # REQUIRED: y=cell types, x=genes (NOT swap!)
+    show=False,              # Return object for figure adjustments
+)
+
+# Adjust figure size for readability (NOT swap_axes!)
+dp.fig.set_size_inches(20, 7)  # Increase width based on gene count
+
+# Rotate gene labels to avoid overlap
+for ax in dp.fig.axes:
+    ax.tick_params(axis='x', labelrotation=90)
+
+dp.fig.tight_layout()
+dp.savefig('markers_dotplot.png', dpi=300, bbox_inches='tight')
+dp.savefig('markers_dotplot.pdf')  # Vector format for publication
+```
+
+**Common Errors**:
+- ❌ **Axes swapped**: Used `swap_axes=True` → Fix: Use `swap_axes=False`
+- ❌ **Labels overlapping**: Increase figsize or rotate labels (see code above)
+
+```python
 sc.pl.stacked_violin(adata, markers_dict, groupby='leiden', rotation=90)
 plt.savefig('markers_violin.png', dpi=150, bbox_inches='tight')
 ```
@@ -93,9 +146,14 @@ cluster_to_celltype = {
 
 # Apply annotation
 adata.obs['cell_type'] = adata.obs['leiden'].map(cluster_to_celltype)
+```
 
+> **TIP**: Reuse existing UMAP when only changing visualization (colors, title, legend).
+> Compute new UMAP if analysis changed (different clustering resolution, batch correction, etc.).
+
+```python
 # Visualize
-sc.pl.umap(adata, color='cell_type', title='Cell Type Annotation')
+sc.pl.umap(adata, color='cell_type', title="Cell Type Annotation", legend_loc='right margin')
 plt.savefig('celltype_umap.png', dpi=150, bbox_inches='tight')
 ```
 
@@ -178,6 +236,10 @@ After annotation, verify the quality of your cell type assignments.
    - True biological co-expression
 3. **Expression scale**: If one marker has much higher scale than others, 
    this may indicate ambient RNA contamination
+4. **Dotplot axes**: Confirm y-axis=cell types / clusters, x-axis=genes (not swapped)
+5. **UMAP plots**: For consistency, avoid unnecessary UMAP recomputation
+
+
 
 ### Verify Marker Specificity
 

@@ -696,7 +696,18 @@ class FileManagerToolSet(FileManagerToolSetBase):
         # Call LLM to analyze images
         try:
             response = await context.call_agent(messages=messages, use_memory=True)
-            return {"success": True, "content": response}
+            
+            # Build result with cost passthrough
+            # call_agent always returns {"success": True, "response": ..., "_metadata": {...}}
+            result = {
+                "success": True, 
+                "content": response.get("response", ""),
+            }
+            # Merge _metadata from nested agent call (contains current_cost)
+            if "_metadata" in response:
+                result.setdefault("_metadata", {}).update(response["_metadata"])
+            
+            return result
         except Exception as e:
             logger.error(
                 f"Error calling agent for image observation: {e}", exc_info=True

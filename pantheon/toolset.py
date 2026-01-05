@@ -39,9 +39,16 @@ class ExecutionContext(dict):
         system_prompt: Optional[str] = None,
         model: Optional[str] = None,
         use_memory: bool = False,
-    ) -> str:
+    ) -> dict:
         """
         Call the LLM agent during tool execution for intermediate sampling.
+        
+        Returns:
+            dict: Always returns a dict with the following structure:
+                - success: bool - whether the call succeeded
+                - response: str - the LLM response (if success=True)
+                - error: str - error message (if success=False)
+                - _metadata: dict - metadata including current_cost (if success=True)
         """
 
         if not self.get("_call_agent"):
@@ -57,12 +64,8 @@ class ExecutionContext(dict):
                 use_memory=use_memory,
             )
 
-            if isinstance(result, str):
-                return result
-            elif isinstance(result, dict):
-                return result.get("response") or result.get("text") or str(result)
-            else:
-                return str(result)
+            # _call_agent always returns a dict
+            return result
 
         except Exception as e:
             logger.error(f"Error calling agent:{e}")

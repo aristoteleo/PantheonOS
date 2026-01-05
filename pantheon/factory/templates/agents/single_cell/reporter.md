@@ -150,13 +150,15 @@ The HTML report is designed as an **interactive analysis report** for data deliv
 
 2. **No internal file/codes references in text**: Never mention or link to internal files (`.md`, `.ipynb`, `.py`, internal `.csv`) in visible text. Summarize content directly in HTML instead of referencing source files. Only allowed: original input data paths and final deliverable data files in Methods section.
 
-3. **No internal file listing sections**: Never create "File Links" or "Appendix" sections that list internal documents. Only list final output files the client will use.
+3. **No internal file listing sections**: Never create "File Links" or "Appendix" sections that list internal documents. Only list final output files the client will use. Do not show file paths containing "loop", "analysis_expert/", "biologist/", or internal file extensions like `.md`, `.ipynb`, `.py`.
 
-4. **No platform branding**: Never mention "Pantheon", "Pantheon-OS", or internal team names.
+4. **No workdir paths in visible text**: Never show the full working directory path. Omit workdir information entirely from HTML reports.
 
-5. **No author section**: HTML reports should not include author/affiliation information.
+5. **No platform branding**: Never mention "Pantheon", "Pantheon-OS", or internal team names.
 
-6. **No workflow instructions**: Never mention "monolith", "standalone", or bundling instructions in visible text.
+6. **No author section**: HTML reports should not include author/affiliation information.
+
+7. **No workflow instructions**: Never mention "monolith", "standalone", or bundling instructions in visible text.
 
 ## Text Encoding Guidelines
 
@@ -242,12 +244,15 @@ Footer should be minimal or omitted:
 ## Pre-Bundle Self-Review Checklist
 
 Before running `monolith`, verify:
-- [ ] No "loop" or "Loop" text anywhere in the HTML
-- [ ] No internal file paths exposed (search for "loop1/", "loop2/", etc.)(except for img src)
+- [ ] No "loop" or "Loop" text anywhere in visible HTML text (section titles, paragraphs, list items, etc.)
+- [ ] No internal file paths in visible text (search for "loop1/", "loop2/", "analysis_expert/", "biologist/", etc. in `<code>` tags or text)
+- [ ] No workdir paths visible (search for "workdir_", "/home/", etc.)
+- [ ] No internal file references (`.md`, `.ipynb`, `.py` files mentioned in visible text)
 - [ ] No garbled characters visible
 - [ ] No footer with workflow instructions
 - [ ] No Pantheon branding
 - [ ] All figures display correctly
+- [ ] Image `src` paths can contain "loop" (these will be bundled by monolith)
 
 ## How to generate the HTML report
 

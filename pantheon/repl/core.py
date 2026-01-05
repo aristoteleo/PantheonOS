@@ -146,10 +146,12 @@ class Repl(ReplUI):
         # Command handlers
         from .handlers.builtin.view import ViewCommandHandler
         from .handlers.builtin.mcp import MCPCommandHandler
+        from .handlers.builtin.edit import EditHandler
         self.handlers: list[CommandHandler] = [
             BashCommandHandler(self.console, self),
             ViewCommandHandler(self.console, self),
             MCPCommandHandler(self.console, self),
+            EditHandler(self.console, self),
         ]
 
         # prompt_toolkit application for enhanced input

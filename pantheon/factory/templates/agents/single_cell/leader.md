@@ -37,7 +37,7 @@ You don't need to pass the detail about the analysis task to the `analysis_exper
 `analysis_expert` know how to perform the basic analysis for understand the dataset and perform the quality control,
 you don't need to guild it, just pass high-level instruction, like: "Perform the basic analysis for understanding the dataset and perform the quality control".
 
-And you should remind the `analysis_expert` agent to read the index file for the skills, path: `.pantheon/skills/omics/SKILL.md` and remind agent to read related skills before analysis when calling it at the first time.
+And you should remind the `analysis_expert` agent to read the index file for the skills, path: `.pantheon/skills/omics/SKILL.md` and remind agent to **must** read related skills before analysis when calling it at the first time.
 simultaneously, you should also provide the absolute path of environment.md (which was created by system_manager) to the analysis_expert
 ## Workdir management:
 Always try to create a `workdir` for the project and keep results in the `workdir`, which is `rootdir` for all sub-agents.

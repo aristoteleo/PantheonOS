@@ -72,6 +72,26 @@ class ImageGenerationToolSet(ToolSet):
             return context.get("client_id", "default")
         return "default"
 
+    def _extract_cost_from_response(self, response) -> float:
+        """Extract cost from LiteLLM response.
+        
+        Args:
+            response: LiteLLM response object from acompletion or aimage_generation
+            
+        Returns:
+            Cost in USD, or 0.0 if calculation fails
+        """
+        try:
+            from litellm import completion_cost
+            cost = completion_cost(completion_response=response) or 0.0
+            from pantheon.utils.log import logger
+            logger.debug(f"Image generation cost: ${cost:.6f}")
+            return cost
+        except Exception as e:
+            from pantheon.utils.log import logger
+            logger.debug(f"Cost calculation unavailable: {e}")
+            return 0.0
+
     @tool
     async def generate_image(
         self,
@@ -135,6 +155,9 @@ class ImageGenerationToolSet(ToolSet):
             n=1,
         )
 
+        # Extract cost from response
+        cost = self._extract_cost_from_response(response)
+
         chat_id = self._get_chat_id()
         saved_paths = []
         for item in response.data:
@@ -146,7 +169,14 @@ class ImageGenerationToolSet(ToolSet):
             elif item.url:
                 saved_paths.append(item.url)
 
-        return {"success": True, "images": saved_paths, "model_used": model}
+        return {
+            "success": True,
+            "images": saved_paths,
+            "model_used": model,
+            "_metadata": {
+                "current_cost": cost,
+            }
+        }
 
     async def _multimodal_image_gen(
         self,
@@ -174,6 +204,9 @@ class ImageGenerationToolSet(ToolSet):
             messages=messages,
         )
 
+        # Extract cost from response
+        cost = self._extract_cost_from_response(response)
+
         message = response.choices[0].message
         images = getattr(message, "images", None) or []
 
@@ -194,6 +227,9 @@ class ImageGenerationToolSet(ToolSet):
             "images": saved_paths,
             "text": message.content,
             "model_used": model,
+            "_metadata": {
+                "current_cost": cost,
+            }
         }
 
     async def _describe_reference_images(self, reference_images: list[str]) -> str:

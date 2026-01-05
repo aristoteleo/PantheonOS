@@ -34,7 +34,8 @@ from prompt_toolkit.widgets import TextArea
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.menus import CompletionsMenu
-from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
+from prompt_toolkit.key_binding.bindings.auto_suggest import load_auto_suggest_bindings
 from prompt_toolkit.styles import Style
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.completion import Completer, Completion
@@ -775,10 +776,14 @@ class PantheonInputApp:
         # Initialize Application
         # Exception handling: set_exception_handler=False in run_async() suppresses
         # "Press ENTER to continue..." prompts. Additional catch in core.py logs exceptions.
+        # Merge custom key bindings with auto-suggest bindings (for right arrow to accept suggestion)
+        auto_suggest_bindings = load_auto_suggest_bindings()
+        merged_kb = merge_key_bindings([auto_suggest_bindings, self.kb])
+
         self.app = Application(
             layout=self.layout,
             style=self.style,
-            key_bindings=self.kb,
+            key_bindings=merged_kb,
             mouse_support=False,  # Disable mouse support to allow terminal scrolling
             full_screen=False,
             refresh_interval=0.125,  # 8 fps for smooth animation

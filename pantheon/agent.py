@@ -971,6 +971,13 @@ class Agent:
                     }
                 )
             else:
+                # Extract and merge nested metadata from tool result if available
+                # Tools that use _call_agent internally will return _metadata with cost info
+                if isinstance(result, dict) and "_metadata" in result:
+                    tool_metadata = result.pop("_metadata", {})
+                    # Merge instead of overwrite to preserve all metadata fields
+                    tool_message["_metadata"].update(tool_metadata)
+                
                 # Process and truncate tool result in one step
                 content = process_tool_result(
                     result, 
@@ -978,7 +985,7 @@ class Agent:
                 )
                 
                 tool_message.update({
-                    "raw_content": result,
+                    "raw_content": result,  # Now without _metadata
                     "content": content,
                 })
 
@@ -1798,7 +1805,16 @@ async def _call_agent(
     model: Optional[str] = None,
     memory: Memory | None = None,
 ) -> dict:
-    """call agent callback to let toolset use llm agent to sample response"""
+    """call agent callback to let toolset use llm agent to sample response
+    
+    Returns:
+        dict with keys:
+        - success: bool
+        - response: str (if success)
+        - error: str (if not success)
+        - _metadata: dict with cost info (if success)
+            - current_cost: float - the cost of this nested LLM call
+    """
     # not tested with remote mode, should work naturally with reverse call support
     try:
         # Create temporary Agent
@@ -1812,9 +1828,21 @@ async def _call_agent(
         # Run Agent with the user query
         result = await agent.run(messages, use_memory=False, update_memory=False)
 
+        # Extract cost from the agent response
+        nested_cost = 0.0
+        if result and result.details and result.details.messages:
+            # Find the last assistant message which contains cost info
+            for msg in reversed(result.details.messages):
+                if msg.get("role") == "assistant" and "_metadata" in msg:
+                    nested_cost = msg.get("_metadata", {}).get("current_cost", 0.0)
+                    break
+
         return {
             "success": True,
             "response": result.content,
+            "_metadata": {
+                "current_cost": nested_cost,
+            },
         }
 
     except Exception as e:
