@@ -17,6 +17,8 @@ Packages:
 - umap-learn=installed
 - pynndescent=0.5.13
 - venn=installed
+- openpyxl=3.1.5
+- upsetplot=0.9.0
 Hardware:
 - CPUs: 56
 - RAM: ~1623 GB (available ~1361 GB)

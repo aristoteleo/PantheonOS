@@ -353,13 +353,30 @@ class GenePanelToolSet(ToolSet):
         adata_path: Optional[str] = None,
         label_key: str = "",
         num_markers: str = "100",
-        n_hvg: str = "3000",
+        n_hvg: str = "3000",  # always use n_hvg lower than 3000
         return_scores: str = "false",
         workdir: Optional[str] = None,
     ) -> dict:
         """
         Select marker genes using SpaPROS.
+
+        Args:
+            adata_path (str): Path to `.h5ad`. If None, uses default dataset.
+            label_key (str): Column in `.obs` to use as groups.
+            num_markers (str): Number of marker genes to select.
+            n_hvg (str): Number of highly-variable genes to consider must always be below 3000.
+            return_scores (str): "true" → return [{gene, score}], otherwise return gene list.
+            workdir (str): Directory to save results (default = default_workdir).
+
+        Returns:
+            dict: {
+                "used_dataset": str,
+                "top_n": int,
+                "saved_to": dict,
+                "genes": List[str] or List[dict]
+            }
         """
+
         try:
             import scanpy as sc
             import pandas as pd
@@ -602,7 +619,7 @@ class GenePanelToolSet(ToolSet):
         epsilon_param: str = "1.0",
         sampling_rate: str = "1.0",
         n_neighbors: str = "3",
-        max_constraints: str = "1000",
+        max_constraints: str = "1000",  # always <=1000
         redundancy: str = "0.01",
         return_scores: str = "false",     # must be string like HVG tool
         workdir: Optional[str] = None,
@@ -618,7 +635,7 @@ class GenePanelToolSet(ToolSet):
             epsilon_param (str): Scaling of epsilon, default 1.0.
             sampling_rate (str): Fraction of cells to sample (pairwise methods).
             n_neighbors (str): Neighbors for pairwise constraint mode.
-            max_constraints (str): Maximum constraint rows.
+            max_constraints (str): Maximum constraint rows, this should ALWAYS be below 1000.
             redundancy (str): Redundancy parameter for centers summarization.
             return_scores (str): "true" → return [{gene, score}], otherwise return top gene list.
             workdir (str): Directory to save results (default = default_workdir).

@@ -101,8 +101,8 @@ If required packages are missing, call `system_manager` to install them.
 Call the `selection_expert` to perform:
 - dataset inspection  
 - QC and structure inspection  
-- **downsampling if dataset > 50k cells**  
-- **gene subsetting if > 3000 genes**
+- **downsampling if dataset > 500k cells**  
+- **gene subsetting if > 30000 genes**
 
 IMPORTANT:  
 If downsampled, the `selection_expert` will save the new adata path.  
