@@ -34,6 +34,8 @@ class EvolutionConfig:
         default_factory=lambda: ["complexity", "diversity"]
     )
     feature_bins: int = 10
+    feature_range_padding: float = 0.1  # Padding on observed min/max (10%)
+    feature_range_adaptive: bool = True  # Use adaptive ranges based on observed data
     archive_size: int = 100
     population_size: int = 500
 
@@ -53,6 +55,7 @@ class EvolutionConfig:
     cascade_thresholds: List[float] = field(
         default_factory=lambda: [0.3, 0.6, 0.8]
     )
+    feedback_max_lines_per_file: Optional[int] = None  # Max lines per file for LLM feedback (None = no limit)
 
     # === Mutation Parameters ===
     diff_based_evolution: bool = True
@@ -130,6 +133,8 @@ class EvolutionConfig:
             "migration_rate": self.migration_rate,
             "feature_dimensions": self.feature_dimensions,
             "feature_bins": self.feature_bins,
+            "feature_range_padding": self.feature_range_padding,
+            "feature_range_adaptive": self.feature_range_adaptive,
             "archive_size": self.archive_size,
             "population_size": self.population_size,
             "num_inspirations": self.num_inspirations,
@@ -142,6 +147,7 @@ class EvolutionConfig:
             "llm_weight": self.llm_weight,
             "cascade_evaluation": self.cascade_evaluation,
             "cascade_thresholds": self.cascade_thresholds,
+            "feedback_max_lines_per_file": self.feedback_max_lines_per_file,
             "diff_based_evolution": self.diff_based_evolution,
             "max_code_length": self.max_code_length,
             "max_diff_size": self.max_diff_size,
@@ -171,6 +177,8 @@ class EvolutionConfig:
             "migration_rate",
             "feature_dimensions",
             "feature_bins",
+            "feature_range_padding",
+            "feature_range_adaptive",
             "archive_size",
             "population_size",
             "num_inspirations",
@@ -183,6 +191,7 @@ class EvolutionConfig:
             "llm_weight",
             "cascade_evaluation",
             "cascade_thresholds",
+            "feedback_max_lines_per_file",
             "diff_based_evolution",
             "max_code_length",
             "max_diff_size",

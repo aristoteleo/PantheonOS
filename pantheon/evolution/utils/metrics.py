@@ -309,6 +309,7 @@ def feature_coordinates_to_bin(
     coordinates: Dict[str, float],
     feature_dimensions: List[str],
     num_bins: int = 10,
+    feature_ranges: Optional[Dict[str, Tuple[float, float]]] = None,
 ) -> Tuple[int, ...]:
     """
     Convert feature coordinates to bin indices for MAP-Elites grid.
@@ -317,6 +318,7 @@ def feature_coordinates_to_bin(
         coordinates: Dict of feature name -> value (0.0 to 1.0)
         feature_dimensions: Ordered list of feature dimension names
         num_bins: Number of bins per dimension
+        feature_ranges: Optional dict of feature name -> (min, max) for adaptive ranges
 
     Returns:
         Tuple of bin indices
@@ -324,8 +326,22 @@ def feature_coordinates_to_bin(
     bins = []
     for dim in feature_dimensions:
         value = coordinates.get(dim, 0.5)
-        # Clamp to [0, 1] and convert to bin index
-        value = max(0.0, min(1.0, value))
-        bin_idx = int(value * (num_bins - 1))
+
+        # Get range for this dimension
+        if feature_ranges and dim in feature_ranges:
+            min_val, max_val = feature_ranges[dim]
+        else:
+            min_val, max_val = 0.0, 1.0
+
+        # Normalize to [0, 1] within the range
+        range_size = max_val - min_val
+        if range_size > 0:
+            normalized = (value - min_val) / range_size
+        else:
+            normalized = 0.5
+
+        # Clamp and convert to bin index
+        normalized = max(0.0, min(1.0, normalized))
+        bin_idx = int(normalized * (num_bins - 1))
         bins.append(bin_idx)
     return tuple(bins)

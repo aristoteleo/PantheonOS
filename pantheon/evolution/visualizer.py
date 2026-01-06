@@ -91,6 +91,13 @@ class EvolutionVisualizer:
                 ...
             }
         """
+        # Compute iteration numbers based on creation order
+        sorted_programs = sorted(
+            self.programs.values(),
+            key=lambda p: p.created_at
+        )
+        iteration_map = {p.id: i for i, p in enumerate(sorted_programs)}
+
         # Find root programs (no parent)
         roots = []
         children_map: Dict[str, List[str]] = {}
@@ -110,6 +117,7 @@ class EvolutionVisualizer:
             node = {
                 "id": prog_id,
                 "name": prog_id[:8],
+                "iteration": iteration_map.get(prog_id, 0),
                 "generation": prog.generation,
                 "island_id": prog.island_id,
                 "score": score,
@@ -130,7 +138,7 @@ class EvolutionVisualizer:
 
         # If multiple roots, create a virtual root
         if len(roots) == 0:
-            return {"id": "empty", "name": "Empty", "children": [], "score": 0}
+            return {"id": "empty", "name": "Empty", "iteration": -1, "children": [], "score": 0}
         elif len(roots) == 1:
             return build_node(roots[0])
         else:
@@ -138,6 +146,7 @@ class EvolutionVisualizer:
             return {
                 "id": "root",
                 "name": "Evolution",
+                "iteration": -1,
                 "generation": -1,
                 "island_id": -1,
                 "score": 0,
@@ -242,9 +251,10 @@ class EvolutionVisualizer:
         Get MAP-Elites grid data for heatmap visualization.
 
         Returns:
-            List of {x, y, score, program_id, metrics, ...} for each filled cell
+            List of {coords, score, program_id, metrics, ...} for each filled cell
         """
         cells = []
+        feature_dims = self.metadata.get("config", {}).get("feature_dimensions", [])
 
         for island_id, feature_map in enumerate(self.database.island_feature_maps):
             for coords, prog_id in feature_map.items():
@@ -252,21 +262,18 @@ class EvolutionVisualizer:
                     prog = self.programs[prog_id]
                     score = prog.metrics.get("combined_score", 0.0)
 
-                    # Handle different coordinate formats
-                    if len(coords) >= 2:
-                        x, y = coords[0], coords[1]
-                    elif len(coords) == 1:
-                        x, y = coords[0], 0
-                    else:
-                        continue
+                    # Store full coordinates as dict mapping dimension name to bin index
+                    coords_dict = {}
+                    for i, dim in enumerate(feature_dims):
+                        if i < len(coords):
+                            coords_dict[dim] = coords[i]
 
                     cells.append({
-                        "x": x,
-                        "y": y,
+                        "coords": coords_dict,  # Full coordinates by dimension name
                         "score": score,
                         "program_id": prog_id,
                         "island_id": island_id,
-                        "metrics": prog.metrics,  # Include all metrics for tooltip
+                        "metrics": prog.metrics,
                         "generation": prog.generation,
                     })
 
@@ -288,6 +295,11 @@ class EvolutionVisualizer:
                 initial_score = prog.metrics.get("combined_score", 0.0)
                 break
 
+        # Get effective feature ranges from database
+        feature_ranges = {}
+        for dim in self.metadata.get("config", {}).get("feature_dimensions", []):
+            feature_ranges[dim] = self.database.get_feature_range(dim)
+
         return {
             "total_programs": len(self.programs),
             "total_iterations": self.metadata.get("total_added", 0),
@@ -299,6 +311,7 @@ class EvolutionVisualizer:
             "num_islands": stats.get("num_islands", 1),
             "archive_size": stats.get("archive_size", 0),
             "feature_dimensions": self.metadata.get("config", {}).get("feature_dimensions", []),
+            "feature_ranges": feature_ranges,
             "config": self.metadata.get("config", {}),
         }
 
@@ -370,6 +383,11 @@ class EvolutionVisualizer:
     <!-- diff2html -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css">
     <script src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html-ui.min.js"></script>
+
+    <!-- highlight.js for syntax highlighting in diffs -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
 
     <style>
         * {{
@@ -500,6 +518,17 @@ class EvolutionVisualizer:
             stroke-width: 1.5px;
         }}
 
+        /* Path highlighting for selected node ancestry */
+        .node.on-path circle {{
+            stroke: #58a6ff !important;
+            stroke-width: 3px;
+        }}
+
+        .link.on-path {{
+            stroke: #58a6ff !important;
+            stroke-width: 3px;
+        }}
+
         .tooltip {{
             position: absolute;
             background: #21262d;
@@ -538,6 +567,37 @@ class EvolutionVisualizer:
 
         .detail-header h3 {{
             color: #58a6ff;
+        }}
+
+        .ancestry-path {{
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+            color: #8b949e;
+        }}
+
+        .ancestry-path .path-node {{
+            padding: 4px 8px;
+            background: #21262d;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }}
+
+        .ancestry-path .path-node:hover {{
+            background: #30363d;
+        }}
+
+        .ancestry-path .path-node.current {{
+            background: #388bfd;
+            color: white;
+        }}
+
+        .ancestry-path .path-separator {{
+            color: #484f58;
         }}
 
         .close-btn {{
@@ -664,11 +724,34 @@ class EvolutionVisualizer:
         }}
 
         .d2h-del {{
-            background-color: rgba(248, 81, 73, 0.15) !important;
+            background-color: rgba(248, 81, 73, 0.25) !important;
+        }}
+
+        .d2h-del .d2h-code-line-ctn {{
+            color: #ffa198 !important;
         }}
 
         .d2h-ins {{
-            background-color: rgba(63, 185, 80, 0.15) !important;
+            background-color: rgba(63, 185, 80, 0.25) !important;
+        }}
+
+        .d2h-ins .d2h-code-line-ctn {{
+            color: #7ee787 !important;
+        }}
+
+        /* Inline deletions and insertions */
+        .d2h-code-line-ctn del {{
+            background-color: rgba(248, 81, 73, 0.4) !important;
+            text-decoration: none !important;
+            border-radius: 2px;
+            padding: 0 2px;
+        }}
+
+        .d2h-code-line-ctn ins {{
+            background-color: rgba(63, 185, 80, 0.4) !important;
+            text-decoration: none !important;
+            border-radius: 2px;
+            padding: 0 2px;
         }}
 
         .d2h-code-line-prefix {{
@@ -874,7 +957,7 @@ class EvolutionVisualizer:
     <div class="container">
         <header>
             <h1>Evolution Report</h1>
-            <p>Generated by Pantheon Evolution</p>
+            <p>Generated by Pantheon-Evolve</p>
         </header>
 
         <!-- Summary Stats -->
@@ -897,7 +980,21 @@ class EvolutionVisualizer:
             </div>
         </div>
 
-        <!-- Best Metric Selector -->
+        <!-- Score History Chart -->
+        <section>
+            <h2>Score History</h2>
+            <div class="section-content">
+                <div style="margin-bottom: 15px;">
+                    <label style="color: #8b949e; cursor: pointer;">
+                        <input type="checkbox" id="hide-failed" checked style="margin-right: 6px;">
+                        Hide failed evaluations
+                    </label>
+                </div>
+                <div id="chart-container"></div>
+            </div>
+        </section>
+
+        <!-- Metric Selector -->
         <div class="metric-selector">
             <label for="best-metric-select">Color by metric:</label>
             <select id="best-metric-select">
@@ -907,14 +1004,6 @@ class EvolutionVisualizer:
                 (Changes tree node colors and MAP-Elites heatmap)
             </span>
         </div>
-
-        <!-- Score History Chart -->
-        <section>
-            <h2>Score History</h2>
-            <div class="section-content">
-                <div id="chart-container"></div>
-            </div>
-        </section>
 
         <!-- Evolution Tree -->
         <section>
@@ -937,6 +1026,8 @@ class EvolutionVisualizer:
                     <h3 id="detail-title">Program: -</h3>
                     <button class="close-btn" onclick="closeDetailPanel()">Close</button>
                 </div>
+
+                <div class="ancestry-path" id="ancestry-path"></div>
 
                 <div class="metrics-grid" id="detail-metrics"></div>
 
@@ -964,8 +1055,26 @@ class EvolutionVisualizer:
         <section>
             <h2>MAP-Elites Grid</h2>
             <div class="section-content">
+                <div class="heatmap-controls" style="display: flex; gap: 20px; margin-bottom: 15px; flex-wrap: wrap; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label for="island-select" style="color: #8b949e; font-size: 0.9em;">Island:</label>
+                        <select id="island-select" style="background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 6px 10px; font-size: 0.9em;">
+                            <option value="all">All Islands</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label for="x-dim-select" style="color: #8b949e; font-size: 0.9em;">X-Axis:</label>
+                        <select id="x-dim-select" style="background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 6px 10px; font-size: 0.9em;">
+                        </select>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <label for="y-dim-select" style="color: #8b949e; font-size: 0.9em;">Y-Axis:</label>
+                        <select id="y-dim-select" style="background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 6px 10px; font-size: 0.9em;">
+                        </select>
+                    </div>
+                </div>
                 <div id="heatmap-container"></div>
-                <div class="legend">
+                <div class="legend" style="display: flex; gap: 20px; flex-wrap: wrap; align-items: center;">
                     <div class="legend-item">
                         <div class="legend-color" style="background: #f85149;"></div>
                         <span>Low Score</span>
@@ -978,6 +1087,7 @@ class EvolutionVisualizer:
                         <div class="legend-color" style="background: #3fb950;"></div>
                         <span>High Score</span>
                     </div>
+                    <div id="island-legend" style="display: flex; gap: 10px; margin-left: 20px;"></div>
                 </div>
             </div>
         </section>
@@ -1018,6 +1128,9 @@ class EvolutionVisualizer:
 
         // Currently selected metric for coloring
         let selectedMetric = 'combined_score';
+
+        // Store tree root for ancestry path lookup
+        let treeRoot = null;
 
         // Color scale for scores (will be updated based on selected metric)
         const colorScale = d3.scaleLinear()
@@ -1101,6 +1214,11 @@ class EvolutionVisualizer:
             renderTree();
             renderHeatmap();
             setupTabs();
+
+            // Re-render chart when filter checkbox changes
+            document.getElementById('hide-failed').addEventListener('change', () => {{
+                renderScoreChart();
+            }});
         }});
 
         // Render summary stats
@@ -1112,19 +1230,32 @@ class EvolutionVisualizer:
             document.getElementById('stat-islands').textContent = summaryStats.num_islands;
         }}
 
+        // Get filtered score history based on checkbox state
+        function getFilteredScoreHistory() {{
+            const hideFailed = document.getElementById('hide-failed').checked;
+            if (!hideFailed) return scoreHistory;
+            return scoreHistory.filter(d => d.function_score && d.function_score > 0);
+        }}
+
         // Render score history chart with multi-metric support
         function renderScoreChart() {{
+            // Clear existing chart content
+            d3.select('#chart-container').selectAll('*').remove();
+
             const container = document.getElementById('chart-container');
             const width = container.clientWidth;
             const height = 320;
             const margin = {{top: 20, right: 30, bottom: 80, left: 60}};
+
+            // Get filtered data
+            const chartData = getFilteredScoreHistory();
 
             const svg = d3.select('#chart-container')
                 .append('svg')
                 .attr('width', width)
                 .attr('height', height);
 
-            if (scoreHistory.length === 0) {{
+            if (chartData.length === 0) {{
                 svg.append('text')
                     .attr('x', width / 2)
                     .attr('y', height / 2)
@@ -1141,7 +1272,7 @@ class EvolutionVisualizer:
             // Function to compute y-domain based on visible metrics only
             function computeYDomain() {{
                 let minVal = Infinity, maxVal = -Infinity;
-                scoreHistory.forEach(d => {{
+                chartData.forEach(d => {{
                     visibleMetrics.forEach(m => {{
                         if (d[m] !== undefined) {{
                             minVal = Math.min(minVal, d[m]);
@@ -1156,7 +1287,7 @@ class EvolutionVisualizer:
             }}
 
             const x = d3.scaleLinear()
-                .domain([0, scoreHistory.length - 1])
+                .domain([0, chartData.length - 1])
                 .range([margin.left, width - margin.right]);
 
             const y = d3.scaleLinear()
@@ -1210,7 +1341,7 @@ class EvolutionVisualizer:
                             .y(d => y(d[metric] || 0));
 
                         linesGroup.append('path')
-                            .datum(scoreHistory)
+                            .datum(chartData)
                             .attr('fill', 'none')
                             .attr('stroke', color)
                             .attr('stroke-width', 1.5)
@@ -1227,7 +1358,7 @@ class EvolutionVisualizer:
                             .y(d => y(d[bestKey] || 0));
 
                         linesGroup.append('path')
-                            .datum(scoreHistory)
+                            .datum(chartData)
                             .attr('fill', 'none')
                             .attr('stroke', color)
                             .attr('stroke-width', 2.5)
@@ -1294,9 +1425,9 @@ class EvolutionVisualizer:
                     const mouseX = d3.pointer(event)[0];
                     const x0 = x.invert(mouseX);
                     const i = Math.round(x0);
-                    if (i < 0 || i >= scoreHistory.length) return;
+                    if (i < 0 || i >= chartData.length) return;
 
-                    const dataPoint = scoreHistory[i];
+                    const dataPoint = chartData[i];
 
                     // Update vertical line position
                     focus.select('.hover-line').attr('x1', x(i)).attr('x2', x(i));
@@ -1441,6 +1572,7 @@ class EvolutionVisualizer:
                 .size([width - margin.left - margin.right, height - margin.top - margin.bottom]);
 
             const root = d3.hierarchy(treeData);
+            treeRoot = root;  // Store for ancestry path lookup
             treeLayout(root);
 
             // Links
@@ -1462,11 +1594,25 @@ class EvolutionVisualizer:
                 .attr('class', d => `node ${{d.data.id === currentBestId ? 'best' : ''}}`)
                 .attr('transform', d => `translate(${{d.x}},${{d.y}})`);
 
+            // Helper to check if node evaluation failed
+            function isFailed(d) {{
+                return !d.data.metrics || !d.data.metrics.function_score;
+            }}
+
             // Circles - bind click events directly to circles
             nodes.append('circle')
                 .attr('r', d => d.data.id === currentBestId ? 10 : 7)
-                .attr('fill', d => colorScale(getScore(d.data)))
-                .attr('stroke', d => d.data.id === currentBestId ? '#ffd700' : d3.color(colorScale(getScore(d.data))).darker())
+                .attr('fill', d => {{
+                    if (isFailed(d)) return '#6e7681';  // Gray for failed
+                    return colorScale(getScore(d.data));
+                }})
+                .attr('stroke', d => {{
+                    if (d.data.id === currentBestId) return '#ffd700';  // Gold for best
+                    if (isFailed(d)) return '#f85149';  // Red for failed
+                    return d3.color(colorScale(getScore(d.data))).darker();
+                }})
+                .attr('stroke-dasharray', d => isFailed(d) ? '3,2' : 'none')
+                .attr('stroke-width', d => isFailed(d) ? 2 : 1.5)
                 .style('cursor', 'pointer')
                 .style('pointer-events', 'all')
                 .on('click', function(event, d) {{
@@ -1482,7 +1628,7 @@ class EvolutionVisualizer:
                 .attr('dy', -12)
                 .attr('text-anchor', 'middle')
                 .style('pointer-events', 'none')
-                .text(d => d.data.name);
+                .text(d => d.data.iteration >= 0 ? `#${{d.data.iteration}}` : d.data.name);
         }}
 
         function countNodes(node) {{
@@ -1495,9 +1641,23 @@ class EvolutionVisualizer:
             return count;
         }}
 
+        // Find node by ID in D3 hierarchy
+        function findNodeById(node, id) {{
+            if (node.data.id === id) return node;
+            if (node.children) {{
+                for (const child of node.children) {{
+                    const found = findNodeById(child, id);
+                    if (found) return found;
+                }}
+            }}
+            return null;
+        }}
+
         // Tooltip functions
         function showTooltip(event, data) {{
             const tooltip = document.getElementById('tooltip');
+            // Check if evaluation failed
+            const evalFailed = !data.metrics || !data.metrics.function_score;
             // Build metrics HTML
             let metricsHtml = '';
             if (data.metrics && Object.keys(data.metrics).length > 0) {{
@@ -1516,7 +1676,8 @@ class EvolutionVisualizer:
                 <h4>Program: ${{data.name}}</h4>
                 <p><strong>Generation:</strong> ${{data.generation}}</p>
                 <p><strong>Island:</strong> ${{data.island_id}}</p>
-                ${{isBest ? '<p style="color: #ffd700;"><strong>Best for ' + selectedMetric.replace(/_/g, ' ') + '</strong></p>' : ''}}
+                ${{evalFailed ? '<p style="color: #f85149;"><strong>⚠ Evaluation Failed</strong></p>' : ''}}
+                ${{isBest ? '<p style="color: #ffd700;"><strong>★ Best for ' + selectedMetric.replace(/_/g, ' ') + '</strong></p>' : ''}}
                 ${{metricsHtml}}
             `;
             tooltip.style.display = 'block';
@@ -1563,6 +1724,48 @@ class EvolutionVisualizer:
                 document.getElementById('detail-title').textContent =
                     `Program: ${{programId.substring(0, 8)}}${{program.is_best ? ' (Best)' : ''}}`;
 
+                // Build ancestry path
+                const pathContainer = document.getElementById('ancestry-path');
+                // Clear previous path highlighting
+                d3.selectAll('.node').classed('on-path', false);
+                d3.selectAll('.link').classed('on-path', false);
+
+                if (treeRoot) {{
+                    const node = findNodeById(treeRoot, programId);
+                    if (node) {{
+                        const ancestors = node.ancestors().reverse();  // Root to current
+                        pathContainer.innerHTML = ancestors.map((n, i) => {{
+                            const label = n.data.iteration >= 0 ? `#${{n.data.iteration}}` : n.data.name;
+                            const isLast = i === ancestors.length - 1;
+                            const nodeHtml = `<span class="path-node${{isLast ? ' current' : ''}}" onclick="showProgramDetail('${{n.data.id}}')">${{label}}</span>`;
+                            return isLast ? nodeHtml : nodeHtml + '<span class="path-separator">→</span>';
+                        }}).join('');
+
+                        // Highlight nodes and links on path in the tree
+                        const ancestorIds = new Set(ancestors.map(n => n.data.id));
+
+                        d3.selectAll('.node').each(function(d) {{
+                            if (d && d.data && ancestorIds.has(d.data.id)) {{
+                                d3.select(this).classed('on-path', true);
+                            }}
+                        }});
+
+                        d3.selectAll('.link').each(function(d) {{
+                            if (d && d.source && d.target) {{
+                                const sourceOnPath = ancestorIds.has(d.source.data.id);
+                                const targetOnPath = ancestorIds.has(d.target.data.id);
+                                if (sourceOnPath && targetOnPath) {{
+                                    d3.select(this).classed('on-path', true);
+                                }}
+                            }}
+                        }});
+                    }} else {{
+                        pathContainer.innerHTML = '';
+                    }}
+                }} else {{
+                    pathContainer.innerHTML = '';
+                }}
+
                 // Metrics
                 const metricsHtml = Object.entries(program.metrics)
                     .map(([key, value]) => `
@@ -1584,6 +1787,10 @@ class EvolutionVisualizer:
                                 outputFormat: 'side-by-side',
                             }});
                             diff2htmlUi.draw();
+                            // Apply syntax highlighting if highlight.js is available
+                            if (typeof hljs !== 'undefined') {{
+                                diff2htmlUi.highlightCode();
+                            }}
                         }} catch (e) {{
                             console.warn('diff2html error:', e);
                             diffView.innerHTML = `<pre style="padding: 15px; background: #0d1117; overflow-x: auto; white-space: pre-wrap;">${{escapeHtml(program.diff)}}</pre>`;
@@ -1596,10 +1803,36 @@ class EvolutionVisualizer:
                     diffView.innerHTML = '<p class="empty-state">No diff available (initial program or unchanged)</p>';
                 }}
 
-                // Feedback view
-                const feedbackHtml = program.llm_feedback
-                    ? `<p>${{escapeHtml(program.llm_feedback)}}</p>`
-                    : '<p class="empty-state">No LLM feedback available</p>';
+                // Feedback view - show summary, issues, and suggestions
+                let feedbackHtml = '';
+
+                if (program.llm_feedback) {{
+                    feedbackHtml += `<h4 style="color: #58a6ff; margin-bottom: 10px; margin-top: 0;">Summary</h4>`;
+                    feedbackHtml += `<p style="margin-bottom: 20px;">${{escapeHtml(program.llm_feedback)}}</p>`;
+                }}
+
+                if (program.issues && program.issues.length > 0) {{
+                    feedbackHtml += `<h4 style="color: #f85149; margin-bottom: 10px;">Issues Found (${{program.issues.length}})</h4>`;
+                    feedbackHtml += '<ul style="margin-bottom: 20px; padding-left: 20px;">';
+                    program.issues.forEach(issue => {{
+                        feedbackHtml += `<li style="margin-bottom: 8px;">${{escapeHtml(issue)}}</li>`;
+                    }});
+                    feedbackHtml += '</ul>';
+                }}
+
+                if (program.suggestions && program.suggestions.length > 0) {{
+                    feedbackHtml += `<h4 style="color: #3fb950; margin-bottom: 10px;">Suggestions (${{program.suggestions.length}})</h4>`;
+                    feedbackHtml += '<ul style="margin-bottom: 20px; padding-left: 20px;">';
+                    program.suggestions.forEach(s => {{
+                        feedbackHtml += `<li style="margin-bottom: 8px;">${{escapeHtml(s)}}</li>`;
+                    }});
+                    feedbackHtml += '</ul>';
+                }}
+
+                if (!feedbackHtml) {{
+                    feedbackHtml = '<p class="empty-state">No LLM feedback available</p>';
+                }}
+
                 document.getElementById('feedback-view').innerHTML = feedbackHtml;
 
                 // Code preview
@@ -1632,6 +1865,9 @@ class EvolutionVisualizer:
             // Clear selection highlight
             d3.selectAll('.node circle').attr('stroke-width', 2);
             selectedNodeId = null;
+            // Clear path highlighting
+            d3.selectAll('.node').classed('on-path', false);
+            d3.selectAll('.link').classed('on-path', false);
         }}
 
         // Tab switching
@@ -1651,9 +1887,95 @@ class EvolutionVisualizer:
             }});
         }}
 
+        // Island colors for multi-island visualization
+        const islandColors = ['#58a6ff', '#f78166', '#a371f7', '#3fb950', '#d29922', '#ff7b72'];
+
+        // Current heatmap state
+        let currentXDim = null;
+        let currentYDim = null;
+        let currentIsland = 'all';
+
+        // Initialize heatmap controls
+        function initHeatmapControls() {{
+            const dims = summaryStats.feature_dimensions || [];
+            const numIslands = summaryStats.num_islands || 1;
+
+            // Populate island selector
+            const islandSelect = document.getElementById('island-select');
+            for (let i = 0; i < numIslands; i++) {{
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.textContent = `Island ${{i}}`;
+                islandSelect.appendChild(opt);
+            }}
+
+            // Populate dimension selectors
+            const xDimSelect = document.getElementById('x-dim-select');
+            const yDimSelect = document.getElementById('y-dim-select');
+
+            dims.forEach((dim, idx) => {{
+                const optX = document.createElement('option');
+                optX.value = dim;
+                optX.textContent = dim;
+                if (idx === 0) optX.selected = true;
+                xDimSelect.appendChild(optX);
+
+                const optY = document.createElement('option');
+                optY.value = dim;
+                optY.textContent = dim;
+                if (idx === 1) optY.selected = true;
+                yDimSelect.appendChild(optY);
+            }});
+
+            // Set initial values
+            currentXDim = dims[0] || null;
+            currentYDim = dims[1] || dims[0] || null;
+
+            // Add event listeners
+            islandSelect.addEventListener('change', (e) => {{
+                currentIsland = e.target.value;
+                renderHeatmapContent();
+            }});
+            xDimSelect.addEventListener('change', (e) => {{
+                currentXDim = e.target.value;
+                renderHeatmapContent();
+            }});
+            yDimSelect.addEventListener('change', (e) => {{
+                currentYDim = e.target.value;
+                renderHeatmapContent();
+            }});
+
+            // Render island legend
+            renderIslandLegend(numIslands);
+        }}
+
+        // Render island legend
+        function renderIslandLegend(numIslands) {{
+            const container = document.getElementById('island-legend');
+            if (numIslands <= 1) return;
+
+            for (let i = 0; i < numIslands; i++) {{
+                const item = document.createElement('div');
+                item.style.cssText = 'display: flex; align-items: center; gap: 4px;';
+                item.innerHTML = `
+                    <div style="width: 12px; height: 12px; border: 2px solid ${{islandColors[i % islandColors.length]}}; border-radius: 2px;"></div>
+                    <span style="color: #8b949e; font-size: 0.85em;">Island ${{i}}</span>
+                `;
+                container.appendChild(item);
+            }}
+        }}
+
         // Render MAP-Elites heatmap
         function renderHeatmap() {{
+            initHeatmapControls();
+            renderHeatmapContent();
+        }}
+
+        // Render heatmap content (called on filter change)
+        function renderHeatmapContent() {{
             const container = document.getElementById('heatmap-container');
+            container.innerHTML = '';  // Clear previous content
+
             const width = container.clientWidth;
             const height = 350;
 
@@ -1662,7 +1984,7 @@ class EvolutionVisualizer:
                 .attr('width', width)
                 .attr('height', height);
 
-            if (mapElitesData.length === 0) {{
+            if (mapElitesData.length === 0 || !currentXDim) {{
                 svg.append('text')
                     .attr('x', width / 2)
                     .attr('y', height / 2)
@@ -1672,30 +1994,68 @@ class EvolutionVisualizer:
                 return;
             }}
 
+            // Filter data by island
+            let filteredData = mapElitesData;
+            if (currentIsland !== 'all') {{
+                filteredData = mapElitesData.filter(d => d.island_id === parseInt(currentIsland));
+            }}
+
+            // Transform data to use selected dimensions
+            const transformedData = filteredData.map(d => ({{
+                ...d,
+                x: d.coords[currentXDim] || 0,
+                y: d.coords[currentYDim] || 0
+            }}));
+
+            if (transformedData.length === 0) {{
+                svg.append('text')
+                    .attr('x', width / 2)
+                    .attr('y', height / 2)
+                    .attr('text-anchor', 'middle')
+                    .attr('fill', '#8b949e')
+                    .text('No data for selected filters');
+                return;
+            }}
+
             const margin = {{top: 40, right: 40, bottom: 60, left: 60}};
             const gridWidth = width - margin.left - margin.right;
             const gridHeight = height - margin.top - margin.bottom;
 
             // Determine grid dimensions
-            const maxX = d3.max(mapElitesData, d => d.x) + 1;
-            const maxY = d3.max(mapElitesData, d => d.y) + 1;
-            const cellWidth = gridWidth / maxX;
-            const cellHeight = gridHeight / maxY;
+            const numBins = summaryStats.config.feature_bins || 10;
+            const cellWidth = gridWidth / numBins;
+            const cellHeight = gridHeight / numBins;
 
             const g = svg.append('g')
                 .attr('transform', `translate(${{margin.left}},${{margin.top}})`);
 
+            // Draw grid background
+            for (let i = 0; i < numBins; i++) {{
+                for (let j = 0; j < numBins; j++) {{
+                    g.append('rect')
+                        .attr('x', i * cellWidth)
+                        .attr('y', j * cellHeight)
+                        .attr('width', cellWidth - 1)
+                        .attr('height', cellHeight - 1)
+                        .attr('fill', '#21262d')
+                        .attr('rx', 2);
+                }}
+            }}
+
             // Draw cells
             g.selectAll('.heatmap-cell')
-                .data(mapElitesData)
+                .data(transformedData)
                 .join('rect')
                 .attr('class', 'heatmap-cell')
-                .attr('x', d => d.x * cellWidth)
-                .attr('y', d => d.y * cellHeight)
-                .attr('width', cellWidth - 2)
-                .attr('height', cellHeight - 2)
+                .attr('x', d => d.x * cellWidth + 1)
+                .attr('y', d => d.y * cellHeight + 1)
+                .attr('width', cellWidth - 3)
+                .attr('height', cellHeight - 3)
                 .attr('fill', d => colorScale(getScore(d)))
-                .attr('rx', 4)
+                .attr('stroke', d => currentIsland === 'all' ? islandColors[d.island_id % islandColors.length] : 'none')
+                .attr('stroke-width', currentIsland === 'all' ? 2 : 0)
+                .attr('rx', 3)
+                .style('cursor', 'pointer')
                 .on('click', (event, d) => showProgramDetail(d.program_id))
                 .on('mouseover', (event, d) => {{
                     const tooltip = document.getElementById('tooltip');
@@ -1705,21 +2065,30 @@ class EvolutionVisualizer:
                         metricsHtml = '<hr style="border-color: #30363d; margin: 8px 0;">';
                         for (const [key, value] of Object.entries(d.metrics)) {{
                             const displayValue = typeof value === 'number' ? value.toFixed(4) : value;
-                            // Highlight the currently selected metric
                             const isSelected = key === selectedMetric;
                             const style = isSelected ? 'color: #58a6ff;' : '';
                             metricsHtml += `<p style="${{style}}"><strong>${{key}}:</strong> ${{displayValue}}</p>`;
                         }}
                     }}
-                    // Check if this is the best program for the selected metric
+                    // Build coordinates HTML
+                    let coordsHtml = '';
+                    if (d.coords) {{
+                        coordsHtml = '<hr style="border-color: #30363d; margin: 8px 0;"><p style="color: #8b949e;">Bin coordinates:</p>';
+                        for (const [dim, bin] of Object.entries(d.coords)) {{
+                            const isAxis = dim === currentXDim || dim === currentYDim;
+                            const style = isAxis ? 'color: #58a6ff;' : '';
+                            coordsHtml += `<p style="${{style}}"><strong>${{dim}}:</strong> bin ${{bin}}</p>`;
+                        }}
+                    }}
                     const isBest = d.program_id === findBestProgramId();
+                    const progData = programsData[d.program_id] || {{}};
                     tooltip.innerHTML = `
-                        <h4>Cell (${{d.x}}, ${{d.y}})</h4>
-                        <p><strong>Program:</strong> ${{d.program_id.substring(0, 8)}}</p>
+                        <h4>Program #${{d.generation}} <span style="color: #8b949e; font-size: 0.8em;">(${{d.program_id.substring(0, 8)}})</span></h4>
                         <p><strong>Island:</strong> ${{d.island_id}}</p>
                         <p><strong>Generation:</strong> ${{d.generation}}</p>
-                        ${{isBest ? '<p style="color: #ffd700;"><strong>Best for ' + selectedMetric.replace(/_/g, ' ') + '</strong></p>' : ''}}
+                        ${{isBest ? '<p style="color: #ffd700;"><strong>★ Best for ' + selectedMetric.replace(/_/g, ' ') + '</strong></p>' : ''}}
                         ${{metricsHtml}}
+                        ${{coordsHtml}}
                     `;
                     tooltip.style.display = 'block';
                     tooltip.style.left = (event.pageX + 10) + 'px';
@@ -1727,8 +2096,16 @@ class EvolutionVisualizer:
                 }})
                 .on('mouseout', hideTooltip);
 
-            // Axes labels
-            const dims = summaryStats.feature_dimensions || ['Dimension 1', 'Dimension 2'];
+            // Axes labels with adaptive ranges
+            const ranges = summaryStats.feature_ranges || {{}};
+
+            function formatAxisLabel(dim, rangeData) {{
+                if (rangeData && rangeData[dim]) {{
+                    const [minVal, maxVal] = rangeData[dim];
+                    return `${{dim}} (${{minVal.toFixed(2)}} - ${{maxVal.toFixed(2)}})`;
+                }}
+                return dim || 'Feature';
+            }}
 
             svg.append('text')
                 .attr('x', width / 2)
@@ -1736,7 +2113,7 @@ class EvolutionVisualizer:
                 .attr('text-anchor', 'middle')
                 .attr('fill', '#8b949e')
                 .attr('font-size', '12px')
-                .text(dims[0] || 'Feature 1');
+                .text(formatAxisLabel(currentXDim, ranges));
 
             svg.append('text')
                 .attr('transform', 'rotate(-90)')
@@ -1745,7 +2122,29 @@ class EvolutionVisualizer:
                 .attr('text-anchor', 'middle')
                 .attr('fill', '#8b949e')
                 .attr('font-size', '12px')
-                .text(dims[1] || 'Feature 2');
+                .text(formatAxisLabel(currentYDim, ranges));
+
+            // Draw axis ticks
+            const xTicks = g.append('g').attr('transform', `translate(0,${{gridHeight}})`);
+            const yTicks = g.append('g');
+
+            for (let i = 0; i <= numBins; i += 2) {{
+                xTicks.append('text')
+                    .attr('x', i * cellWidth)
+                    .attr('y', 15)
+                    .attr('text-anchor', 'middle')
+                    .attr('fill', '#8b949e')
+                    .attr('font-size', '10px')
+                    .text(i);
+
+                yTicks.append('text')
+                    .attr('x', -8)
+                    .attr('y', i * cellHeight + 4)
+                    .attr('text-anchor', 'end')
+                    .attr('fill', '#8b949e')
+                    .attr('font-size', '10px')
+                    .text(i);
+            }}
         }}
         // Render configuration
         function renderConfig() {{

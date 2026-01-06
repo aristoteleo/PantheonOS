@@ -44,6 +44,9 @@ class EvolutionDatabase:
     total_added: int = 0
     total_improved: int = 0
 
+    # Observed feature ranges: {feature_name: (min_value, max_value)}
+    feature_ranges: Dict[str, Tuple[float, float]] = field(default_factory=dict)
+
     def __post_init__(self):
         """Initialize islands if not already set."""
         if not self.islands:
@@ -82,11 +85,18 @@ class EvolutionDatabase:
         # Add to island population
         self.islands[target_island].add(program.id)
 
+        # Update observed feature ranges before computing bin
+        self._update_feature_ranges(program)
+
+        # Get effective ranges for bin calculation
+        effective_ranges = self.get_effective_feature_ranges()
+
         # Calculate feature coordinates and bin
         feature_bin = program.feature_bin(
             self.config.feature_dimensions,
             self.config.feature_bins,
             reference_codes,
+            feature_ranges=effective_ranges,
         )
 
         # MAP-Elites: check if this bin already has a program
@@ -161,6 +171,49 @@ class EvolutionDatabase:
             archive_programs.sort(key=lambda x: x[1], reverse=True)
 
             self.archive = set(pid for pid, _ in archive_programs[: self.config.archive_size])
+
+    def _update_feature_ranges(self, program: Program) -> None:
+        """Update observed min/max for each feature dimension."""
+        coords = program.feature_coordinates(self.config.feature_dimensions)
+        for dim, value in coords.items():
+            if dim not in self.feature_ranges:
+                self.feature_ranges[dim] = (value, value)
+            else:
+                old_min, old_max = self.feature_ranges[dim]
+                self.feature_ranges[dim] = (min(old_min, value), max(old_max, value))
+
+    def get_feature_range(self, dim: str) -> Tuple[float, float]:
+        """
+        Get effective range for a feature dimension with padding.
+
+        Returns:
+            Tuple of (min_value, max_value) with padding applied
+        """
+        if not self.config.feature_range_adaptive or dim not in self.feature_ranges:
+            # Use default 0-1 range
+            return (0.0, 1.0)
+
+        min_val, max_val = self.feature_ranges[dim]
+        range_size = max_val - min_val
+
+        # Add padding
+        padding = range_size * self.config.feature_range_padding
+        padded_min = max(0.0, min_val - padding)
+        padded_max = min(1.0, max_val + padding)
+
+        # Ensure minimum range to avoid division by zero
+        if padded_max - padded_min < 0.01:
+            padded_min = max(0.0, min_val - 0.05)
+            padded_max = min(1.0, max_val + 0.05)
+
+        return (padded_min, padded_max)
+
+    def get_effective_feature_ranges(self) -> Dict[str, Tuple[float, float]]:
+        """Get effective ranges for all feature dimensions."""
+        return {
+            dim: self.get_feature_range(dim)
+            for dim in self.config.feature_dimensions
+        }
 
     def sample(
         self,
@@ -412,6 +465,7 @@ class EvolutionDatabase:
             "islands": [list(island) for island in self.islands],
             "total_added": self.total_added,
             "total_improved": self.total_improved,
+            "feature_ranges": {k: list(v) for k, v in self.feature_ranges.items()},
         }
         with open(save_dir / "metadata.json", "w") as f:
             json.dump(metadata, f, indent=2)
@@ -460,6 +514,9 @@ class EvolutionDatabase:
         db.islands = [set(island) for island in metadata.get("islands", [])]
         db.total_added = metadata.get("total_added", 0)
         db.total_improved = metadata.get("total_improved", 0)
+        # Restore feature ranges
+        feature_ranges_data = metadata.get("feature_ranges", {})
+        db.feature_ranges = {k: tuple(v) for k, v in feature_ranges_data.items()}
 
         # Load programs
         programs_dir = load_dir / "programs"

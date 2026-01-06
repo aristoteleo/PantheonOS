@@ -52,6 +52,7 @@ class HybridEvaluator:
         max_parallel: int = 4,
         timeout: int = 120,
         workspace_base: Optional[str] = None,
+        feedback_max_lines_per_file: Optional[int] = None,
     ):
         """
         Initialize hybrid evaluator.
@@ -64,6 +65,7 @@ class HybridEvaluator:
             max_parallel: Maximum concurrent evaluations
             timeout: Evaluation timeout in seconds
             workspace_base: Base directory for evaluation workspaces
+            feedback_max_lines_per_file: Max lines per file for LLM feedback (None = no limit)
         """
         self.evaluator_code = evaluator_code
         self.feedback_agent = feedback_agent
@@ -72,6 +74,7 @@ class HybridEvaluator:
         self.max_parallel = max_parallel
         self.timeout = timeout
         self.workspace_base = workspace_base or tempfile.mkdtemp(prefix="evolution_")
+        self.feedback_max_lines_per_file = feedback_max_lines_per_file
         self._semaphore = asyncio.Semaphore(max_parallel)
         self._workspace_counter = 0
         self._python_interpreter = None
@@ -350,8 +353,17 @@ except Exception as e:
             return {"score": 50, "summary": "LLM feedback not available"}
 
         try:
-            # Build code summary
-            code_summary = program.snapshot.to_summary(max_files=5, max_lines_per_file=100)
+            # Build code summary - use full code if no limit is set
+            if self.feedback_max_lines_per_file is None:
+                # No limit: include full code for all files
+                code_parts = [f"Codebase: {program.snapshot.file_count()} files, {program.snapshot.total_lines()} lines\n"]
+                for path, content in sorted(program.snapshot.files.items()):
+                    code_parts.append(f"\n### {path}\n```\n{content}\n```")
+                code_summary = "\n".join(code_parts)
+            else:
+                code_summary = program.snapshot.to_summary(
+                    max_files=5, max_lines_per_file=self.feedback_max_lines_per_file
+                )
 
             # Build prompt
             prompt = f"""Analyze this codebase and provide feedback:

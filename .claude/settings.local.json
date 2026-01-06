@@ -39,7 +39,8 @@
       "Bash(tasklist:*)",
       "Bash(git diff:*)",
       "Bash(git restore:*)",
-      "WebFetch(domain:pantheonos.stanford.edu)"
+      "WebFetch(domain:pantheonos.stanford.edu)",
+      "Bash(open:*)"
     ],
     "deny": [],
     "ask": []

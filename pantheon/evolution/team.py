@@ -102,6 +102,7 @@ class EvolutionTeam:
                 max_parallel=self.config.max_parallel_evaluations,
                 timeout=self.config.evaluation_timeout,
                 workspace_base=self.config.workspace_path,
+                feedback_max_lines_per_file=self.config.feedback_max_lines_per_file,
             )
         return self._evaluator
 

@@ -344,6 +344,7 @@ class Program:
         feature_dimensions: List[str],
         num_bins: int = 10,
         reference_codes: List[str] = None,
+        feature_ranges: Dict[str, Tuple[float, float]] = None,
     ) -> Tuple[int, ...]:
         """
         Get MAP-Elites grid bin for this program.
@@ -352,12 +353,13 @@ class Program:
             feature_dimensions: List of feature dimension names
             num_bins: Number of bins per dimension
             reference_codes: Reference codes for diversity calculation
+            feature_ranges: Optional dict of feature name -> (min, max) for adaptive ranges
 
         Returns:
             Tuple of bin indices
         """
         coordinates = self.feature_coordinates(feature_dimensions, reference_codes)
-        return feature_coordinates_to_bin(coordinates, feature_dimensions, num_bins)
+        return feature_coordinates_to_bin(coordinates, feature_dimensions, num_bins, feature_ranges)
 
     def total_lines(self) -> int:
         """Total lines of code."""
