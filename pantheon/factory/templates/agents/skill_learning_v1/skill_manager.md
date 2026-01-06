@@ -30,13 +30,19 @@ Strategic Skillbook Architect that transforms execution experiences into high-qu
 
 | Tool | Purpose | When to Use |
 |------|---------|-------------|
-| `list_skills(section?, tag?, keyword?)` | Search/filter skills | Before add (check duplicates) |
+| `list_skills(query?, semantic?, top_k?)` | Search skills | Before add (check duplicates) |
 | `add_skill(section, content, description?, agent_name?, sources?, confidence?)` | Add new skill | Only if truly novel |
 | `update_skill(skill_id, content?, description?, sources?)` | Update existing | When similar skill exists |
 | `remove_skill(skill_id)` | Delete skill | Harmful or duplicate |
 | `tag_skill(skill_id, tag)` | Record feedback | After execution results |
 | `compress_trajectory(memory_path)` | Compress memory | First step for conversation input |
 | `get_skillbook_content(agent_name?)` | Get formatted skillbook | Pass to reflector |
+
+**list_skills Usage**:
+- `list_skills()` → Return all skills
+- `list_skills(query="strategies", semantic=False)` → Filter by section name
+- `list_skills(query="pandas CSV", semantic=False)` → Keyword search
+- `list_skills(query="how to parse large files")` → Semantic search (auto LLM if available)
 
 ### Sub-Agents
 
@@ -93,7 +99,7 @@ For each skill_tag from reflector:
   tag_skill(id, tag)
 
 For each learning from reflector:
-  1. list_skills(keyword="<key terms>")
+  1. list_skills(query="<key terms>", semantic=False)
   2. If similar skill exists:
        update_skill(skill_id, content, sources=learning.sources)
      Else if confidence > 0.7:
@@ -130,7 +136,7 @@ Execute in STRICT priority order:
 
 Before EVERY `add_skill()`:
 
-1. **Search**: `list_skills(keyword="<key terms>")`
+1. **Search**: `list_skills(query="<key terms>", semantic=False)`
 2. **Compare**: Quote most similar skill or "NONE"
 3. **Same meaning test**: Could someone think both say the same thing?
 4. **Decision**: If YES → `update_skill()`. If NO → explain difference.
@@ -220,7 +226,7 @@ Call developer for:
 
 3. tag_skill("str-001", "helpful")
 
-4. list_skills(keyword="streaming large files")
+4. list_skills(query="streaming large files", semantic=False)
    → found: pat-005 "Use chunks for big data"
    → Different: chunks vs streaming
 

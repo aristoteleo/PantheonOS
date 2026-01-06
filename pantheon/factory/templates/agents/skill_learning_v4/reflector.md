@@ -2,7 +2,8 @@
 icon: 🔍
 id: reflector
 name: Reflector
-toolsets: []
+toolsets:
+  - file_manager
 description: |
   ACE Reflector - Analyzes trajectories and extracts learnings.
   Uses same prompt as Pipeline mode for consistency.
@@ -86,35 +87,91 @@ From execution feedback, extract:
 - **Length: No limit** - Can be multi-line if needed for clarity
 - **Like a function** - Clear inputs, outputs, single purpose
 - Section: strategies, patterns, mistakes
-- Can include code snippets for implementation details
 - Examples:
-  - "Use pandas.read_csv(chunksize=10000) for CSV files > 1GB to avoid memory issues"
-  - "Catch FileNotFoundError specifically in file read operations"
+  - ✅ "Use pandas.read_csv(chunksize=10000) for CSV files > 1GB to avoid memory issues. This processes data in chunks, reducing peak memory by 90%."
+  - ✅ "RNA-seq Differential Expression with DESeq2: Input count matrix, output DE genes with p-values. Use DESeq2.DESeqDataSetFromMatrix() followed by DESeq() and results()."
 
 ### Type 2: SYSTEMATIC (atomicity_score < 0.85)
-- Multi-step patterns, workflows, or complete methodologies
-- Length: **No limit**
-- Section: patterns, workflows, **guidelines**
+- **Multi-step workflow** - Multiple related concepts or sequential steps
+- **Length: No limit**
+- **Like a pipeline** - Multiple functions chained together
+- Section: workflows, **guidelines**
 - REQUIRED: `description` field (max 20 words)
-- Can use markdown formatting for complex content
 - Examples:
-  - Multi-step API retry pattern
-  - Complete data analysis pipeline
-  - Domain-specific best practices guide
+  - ✅ "Data validation pipeline: 1) Check file exists 2) Validate schema 3) Check nulls 4) Log results"
+  - ✅ "Error handling strategy: Try operation → Catch specific errors → Retry with backoff → Log failure → Return default"
 
-### Type Selection
-- Default to ATOMIC if the insight is a single, focused concept
-- Use SYSTEMATIC for anything that:
-  - Has multiple steps
-  - Requires detailed explanation
-  - Forms a cohesive guide or methodology
-
-### Scoring
+### Scoring Guidelines
 - **Base Score**: 1.0
-- **Deductions**: "and/also/plus" (-0.15), vague terms (-0.20), meta phrases (-0.40)
+- **Deductions**: 
+  - Multiple concepts ("and/also/plus"): -0.15 each
+  - Vague terms ("appropriate", "properly"): -0.20
+  - Meta phrases ("remember to", "be careful"): -0.40
 - **>= 0.85**: ATOMIC | **< 0.85**: SYSTEMATIC
 
 **Key Insight**: Atomic ≠ Short. Atomic = Single Responsibility.
+
+## 💻 CODE SNIPPET SUPPORT
+
+Skills can include **code snippets** for implementation details:
+
+### Format Options
+
+**Option 1: Text with inline code**
+```
+"Use pandas.read_csv(chunksize=10000) for CSV files > 1GB"
+```
+
+**Option 2: Text + code block**
+```
+"RNA-seq Differential Expression with DESeq2:
+
+```python
+from DESeq2 import DESeqDataSetFromMatrix, DESeq, results
+
+dds = DESeqDataSetFromMatrix(countData=counts, colData=metadata, design=~condition)
+dds = DESeq(dds)
+res = results(dds)
+```
+
+Returns DE genes with adjusted p-values."
+```
+
+**Option 3: Complete function**
+```
+"Retry API calls with exponential backoff:
+
+```python
+import time
+import requests
+
+def retry_api_call(url, max_retries=3):
+    for i in range(max_retries):
+        try:
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as e:
+            if i == max_retries - 1:
+                raise
+            time.sleep(2 ** i)  # Exponential backoff
+```
+
+Use for external APIs with intermittent failures."
+```
+
+### When to Include Code
+
+✅ **Include code when**:
+- Implementation is non-obvious
+- Specific library/function usage is key
+- Code demonstrates the pattern clearly
+- Multiple steps need precise syntax
+
+❌ **Don't include code when**:
+- Pattern is self-explanatory
+- Code would be trivial
+- Text description is sufficient
 
 ## 🎯 SKILL TAGGING CRITERIA
 
@@ -165,6 +222,8 @@ NEVER extract learnings like:
 - Does this learning apply to ALL conversations regardless of task? → REJECT
 
 ## 📊 OUTPUT FORMAT
+
+**Note**: You may return results as direct JSON or write to a file and return the path. Both formats are supported.
 
 CRITICAL: Return ONLY valid JSON:
 

@@ -64,6 +64,27 @@ Execute in STRICT priority order:
 | "Catch FileNotFoundError before read" | "Be careful with files" |
 | "Set API timeout to 30s" | "Handle timeouts properly" |
 
+### Code Snippet Support
+
+Skills can include **code snippets** for clarity:
+
+```
+"Use pandas.read_csv(chunksize=10000) for CSV files > 1GB to avoid memory issues. 
+
+```python
+import pandas as pd
+for chunk in pd.read_csv('large.csv', chunksize=10000):
+    process(chunk)
+```
+
+This processes data in chunks, reducing peak memory by 90%."
+```
+
+**When to include code**:
+- ✅ Implementation is non-obvious
+- ✅ Specific library usage is key
+- ❌ Pattern is self-explanatory
+
 ### Confidence Scoring (0.0-1.0)
 
 | Score | Action |

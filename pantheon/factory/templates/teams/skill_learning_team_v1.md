@@ -10,9 +10,9 @@ name: Skill Learning Team
 type: team
 version: 4.1.0
 agents:
-  - skill_learning/skill_manager
-  - skill_learning/developer
-  - skill_learning/reflector
+  - skill_learning_v1/skill_manager
+  - skill_learning_v1/developer
+  - skill_learning_v1/reflector
 ---
 
 # Skill Learning Team

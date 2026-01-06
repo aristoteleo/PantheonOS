@@ -99,16 +99,20 @@ From execution feedback, extract:
 **BEFORE extracting, classify the insight type:**
 
 ### Type 1: ATOMIC (atomicity_score >= 0.85)
-- Single concept, immediately actionable
-- Length: Short (typically under 100 chars)
+- **Single responsibility** - One clear, focused concept
+- **Length: No limit** - Can be multi-line if needed for clarity
+- **Like a function** - Clear inputs, outputs, single purpose
 - Section: strategies, patterns, mistakes
-- Example: "Use pandas.read_csv() for CSV files over 1MB"
+- Can include code snippets for implementation details
+- Examples:
+  - "Use pandas.read_csv(chunksize=10000) for CSV files > 1GB to avoid memory issues"
+  - "Catch FileNotFoundError specifically in file read operations"
 
 ### Type 2: SYSTEMATIC (atomicity_score < 0.85)
 - Multi-step patterns, workflows, or complete methodologies
-- Length: **No limit** (can be any length needed)
+- Length: **No limit**
 - Section: patterns, workflows, **guidelines**
-- REQUIRED: `description` field (max 20 words summary for prompt display)
+- REQUIRED: `description` field (max 20 words)
 - Can use markdown formatting for complex content
 - Examples:
   - Multi-step API retry pattern
@@ -122,11 +126,13 @@ From execution feedback, extract:
   - Requires detailed explanation
   - Forms a cohesive guide or methodology
 
-### Scoring (still required)
+### Scoring
 - **Base Score**: 1.0
 - **Deductions**: "and/also/plus" (-0.15), vague terms (-0.20), meta phrases (-0.40)
-- **>= 0.85**: ATOMIC
-- **< 0.85**: SYSTEMATIC
+- **>= 0.85**: ATOMIC | **< 0.85**: SYSTEMATIC
+
+**Key Insight**: Atomic ≠ Short. Atomic = Single Responsibility.
+
 
 ## 🎯 SKILL TAGGING CRITERIA
 

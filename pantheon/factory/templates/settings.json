@@ -163,7 +163,7 @@
         // Learning mode: "pipeline" (default, lightweight) or "team" (multi-agent)
         "mode": "team",
         // Team ID for team mode (uses skill_learning_team template)
-        "team_id": "skill_learning_team_v3",
+        "team_id": "skill_learning_team_v4",
         // Enable agent-specific skill scope filtering, If false, all agents see all skills (recommended for simpler setups)
         "enable_agent_scope": true,
         // LLM model for reflection and skill management, Uses quality level: "high", "normal", "low", or specific model name
@@ -175,7 +175,7 @@
         // Max skills per section (auto-evicts low-score skills when exceeded)
         "max_skills_per_section": 30,
         // Max characters for single skill content (Skillbook limit)
-        "max_content_length": 500,
+        "max_content_length": 2000,
         // Max length for tool argument values in learning trajectory
         "max_tool_arg_length": 100,
         // Max length for tool output in learning trajectory

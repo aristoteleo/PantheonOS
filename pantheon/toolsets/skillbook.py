@@ -327,35 +327,38 @@ class SkillbookToolSet(ToolSet):
         }
 
     @tool
-    def list_skills(
+    async def list_skills(
         self,
-        section: Optional[str] = None,
-        tag: Optional[str] = None,
-        keyword: Optional[str] = None,
+        query: Optional[str] = None,
+        semantic: Optional[bool] = None,
+        top_k: Optional[int] = None,
         include_full_content: bool = False,
     ) -> Dict[str, Any]:
         """
-        List and filter skills in the skillbook.
+        List and search skills in the skillbook.
         
-        Always call this before add_skill() to check for existing similar skills.
-        Use filters to narrow down results.
+        Use this to discover existing skills before adding new ones,
+        or to find relevant skills for a task.
 
         Args:
-            section: Filter by category:
-                - "user_rules", "strategies", "patterns", "workflows"
-                - None (default) returns all sections
-            tag: Filter by dominant feedback:
-                - "helpful": Skills with more helpful than harmful tags
-                - "harmful": Skills with more harmful than helpful tags  
-                - "neutral": Skills with only neutral feedback
-            keyword: Case-insensitive search in skill content
+            query: Natural language search query. Examples:
+                - None: Return all skills
+                - "strategies": Filter by section name
+                - "patterns": Filter by section name
+                - "csv parsing": Semantic search for relevant skills
+                - "polars": Keyword search in skill content
+            semantic: Search mode when query is provided:
+                - True: Use LLM-based semantic search
+                - False: Use keyword matching (or section filter if query matches section)
+                - None (default): Auto-detect (use LLM if available, else keyword)
+            top_k: Maximum number of skills to return (None = no limit)
             include_full_content: If True, return complete content.
                 If False (default), truncate to 100 chars for overview.
 
         Returns:
             {
+                "success": True,
                 "total": 5,
-                "filters": {"section": "...", "tag": "...", "keyword": "..."},
                 "skills": [
                     {"id": "str-xxx", "section": "...", "content": "...", 
                      "sources": [...], "stats": "+3/-0/~1"}
@@ -363,30 +366,38 @@ class SkillbookToolSet(ToolSet):
             }
 
         Example:
-            list_skills(section="strategies", keyword="polars")
+            list_skills("strategies")           # Filter by section
+            list_skills("csv parsing")          # Semantic search
+            list_skills("polars", semantic=False)  # Keyword search
         """
         skills = self.skillbook.skills()
         
-        # Apply filters
-        if section:
-            skills = [s for s in skills if s.section == section]
+        # Known section names for keyword-mode section filtering
+        SECTIONS = {"user_rules", "strategies", "patterns", "workflows"}
         
-        if tag:
-            # Filter by most common feedback tag
-            def get_dominant_tag(s):
-                if s.harmful > s.helpful and s.harmful > s.neutral:
-                    return "harmful"
-                elif s.helpful > s.harmful and s.helpful > s.neutral:
-                    return "helpful"
-                elif s.neutral > 0:
-                    return "neutral"
-                return None
-            skills = [s for s in skills if get_dominant_tag(s) == tag]
+        if query:
+            # Determine search mode
+            use_semantic = semantic
+            if use_semantic is None:
+                use_semantic = self._can_use_semantic()
+            
+            if use_semantic:
+                # LLM semantic search
+                skills = await self._semantic_search_skills(query, skills)
+            else:
+                # Keyword mode: check if query matches a section name
+                query_lower = query.lower()
+                if query_lower in SECTIONS:
+                    skills = [s for s in skills if s.section == query_lower]
+                else:
+                    # Keyword substring search
+                    skills = [s for s in skills if query_lower in s.content.lower()]
         
-        if keyword:
-            keyword_lower = keyword.lower()
-            skills = [s for s in skills if keyword_lower in s.content.lower()]
+        # Apply top_k limit
+        if top_k is not None and top_k > 0:
+            skills = skills[:top_k]
 
+        # Format output
         skill_list = []
         for s in skills:
             content = s.content if include_full_content else (
@@ -401,10 +412,130 @@ class SkillbookToolSet(ToolSet):
             })
 
         return {
+            "success": True,
             "total": len(skill_list),
-            "filters": {"section": section, "tag": tag, "keyword": keyword},
             "skills": skill_list,
         }
+
+    def _can_use_semantic(self) -> bool:
+        """Check if LLM semantic search is available."""
+        from pantheon.toolset import get_current_context_variables
+        ctx = get_current_context_variables()
+        return ctx is not None and ctx.get("_call_agent") is not None
+
+    async def _semantic_search_skills(
+        self,
+        query: str,
+        skills: List["Skill"],
+    ) -> List["Skill"]:
+        """Use LLM to perform semantic search on skills.
+        
+        Args:
+            query: Natural language search query
+            skills: List of skills to search
+            
+        Returns:
+            Filtered list of matching skills
+        """
+        from pantheon.toolset import get_current_context_variables
+        
+        ctx = get_current_context_variables()
+        if ctx is None or not ctx.get("_call_agent"):
+            # Fallback to keyword search
+            query_lower = query.lower()
+            return [s for s in skills if query_lower in s.content.lower()]
+        
+        # Format skills for LLM
+        skills_info = self._format_skills_for_search(skills)
+        
+        prompt = f"""You are a skill search assistant. Find relevant skills based on the user's query.
+
+## Available Skills
+
+{skills_info}
+
+## User Query
+
+{query}
+
+## Task
+
+Select skills that match the user's query. Consider:
+- **Section names**: If query is "strategies" or "patterns", return skills from that section
+- **Semantic relevance**: If query describes a task, return skills that would help
+- Be INCLUSIVE - when in doubt, include the skill
+
+## Output Format
+
+Output a JSON array of skill IDs:
+["skill-id-1", "skill-id-2"]
+
+IMPORTANT: Return an empty array [] only if no skills are relevant.
+"""
+
+        try:
+            response = await ctx.call_agent(
+                messages=[{"role": "user", "content": prompt}],
+                system_prompt=(
+                    "You are a precise skill search assistant. "
+                    "Always respond with valid JSON only, no explanations."
+                ),
+                model="low",
+                use_memory=False,
+            )
+            
+            # Extract response content
+            response_content = response.get("response", "") if isinstance(response, dict) else str(response)
+            
+            # Parse skill IDs from response
+            matched_ids = self._parse_skill_ids(response_content)
+            
+            if not matched_ids:
+                return []
+            
+            # Filter skills by matched IDs
+            id_set = set(mid.lower() for mid in matched_ids)
+            results = [s for s in skills if s.id.lower() in id_set]
+            
+            logger.debug(f"Semantic search matched {len(results)} skills for: {query}")
+            return results
+            
+        except Exception as e:
+            logger.warning(f"Semantic skill search failed, falling back to keyword: {e}")
+            query_lower = query.lower()
+            return [s for s in skills if query_lower in s.content.lower()]
+
+    def _format_skills_for_search(self, skills: List["Skill"]) -> str:
+        """Format skills for LLM consumption."""
+        lines = []
+        for s in skills:
+            content_preview = s.content[:100] + "..." if len(s.content) > 100 else s.content
+            lines.append(f"- {s.id} [{s.section}]: {content_preview}")
+        return "\n".join(lines)
+
+    def _parse_skill_ids(self, response: str) -> List[str]:
+        """Parse skill IDs from LLM response."""
+        import json
+        import re
+        
+        try:
+            # Try to extract JSON array from response
+            json_match = re.search(
+                r'\[\s*(?:"[^"]*"\s*,?\s*)*\]',
+                response,
+                re.DOTALL,
+            )
+            if json_match:
+                return json.loads(json_match.group())
+            
+            # Try direct JSON parse
+            result = json.loads(response)
+            if isinstance(result, list):
+                return result
+            return []
+        except (json.JSONDecodeError, AttributeError):
+            logger.warning(f"Failed to parse skill IDs from: {response[:100]}...")
+            return []
 
     @tool
     def compress_trajectory(

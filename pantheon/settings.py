@@ -292,7 +292,7 @@ class Settings:
                 self.learning_dir / learning.get("learning_dir", "pipeline")
             ),
             "max_skills_per_section": learning.get("max_skills_per_section", 30),
-            "max_content_length": learning.get("max_content_length", 500),  # For Skillbook (skill content limit)
+            "max_content_length": learning.get("max_content_length", 2000),  # For Skillbook (skill content limit, increased to support code snippets)
             "max_tool_arg_length": learning.get("max_tool_arg_length", 100),  # For learning trajectory
             "max_tool_output_length": learning.get("max_tool_output_length", 150),  # For learning trajectory
             "cleanup_after_learning": learning.get("cleanup_after_learning", False),

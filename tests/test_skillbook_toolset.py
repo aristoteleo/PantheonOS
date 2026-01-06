@@ -325,13 +325,13 @@ class TestListSkills:
         await toolset.add_skill("strategies", "Use polars for streaming")
         await toolset.add_skill("strategies", "Use POLARS uppercase")
         
-        # By section
-        result = await toolset.list_skills(section="strategies")
+        # By section (using query with semantic=False)
+        result = await toolset.list_skills(query="strategies", semantic=False)
         assert result["total"] == 2
         assert all(s["section"] == "strategies" for s in result["skills"])
         
-        # By keyword (case-insensitive)
-        result = await toolset.list_skills(keyword="polars")
+        # By keyword (case-insensitive, semantic=False)
+        result = await toolset.list_skills(query="polars", semantic=False)
         assert result["total"] == 2
         
         # Include full content
@@ -494,8 +494,8 @@ class TestIntegration:
             content="Use polars lazy evaluation for memory-efficient processing of large datasets",
         )
         
-        # Verify via list
-        result = await toolset.list_skills(keyword="polars")
+        # Verify via list (using query with semantic=False for keyword search)
+        result = await toolset.list_skills(query="polars", semantic=False)
         assert result["total"] == 1
         assert "memory-efficient" in result["skills"][0]["content"]
         assert "+1" in result["skills"][0]["stats"]
@@ -508,8 +508,8 @@ class TestIntegration:
             content="Use streaming for large files",
         )
         
-        # Check for similar before adding
-        existing = await toolset.list_skills(keyword="streaming")
+        # Check for similar before adding (using query with semantic=False)
+        existing = await toolset.list_skills(query="streaming", semantic=False)
         assert existing["total"] == 1
         
         # Instead of adding duplicate, update existing
@@ -520,6 +520,6 @@ class TestIntegration:
         )
         
         # Still only one skill
-        result = await toolset.list_skills(keyword="streaming")
+        result = await toolset.list_skills(query="streaming", semantic=False)
         assert result["total"] == 1
         assert "1GB" in result["skills"][0]["content"]

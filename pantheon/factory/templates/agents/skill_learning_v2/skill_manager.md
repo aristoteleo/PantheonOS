@@ -31,7 +31,7 @@ Strategic Skillbook Architect that transforms execution experiences into high-qu
 
 | Tool | Purpose | When to Use |
 |------|---------|-------------|
-| `list_skills(section?, keyword?)` | Search skills | Before add (check duplicates) |
+| `list_skills(query?, semantic?, top_k?)` | Search skills | Before add (check duplicates) |
 | `add_skill(section, content, description?, agent_name?)` | Add new skill | Only if truly novel |
 | `update_skill(skill_id, content?, description?)` | Update existing | When similar exists |
 | `remove_skill(skill_id)` | Delete skill | Harmful or duplicate |
@@ -40,6 +40,12 @@ Strategic Skillbook Architect that transforms execution experiences into high-qu
 | `get_skillbook_content(agent_name?)` | Get formatted skillbook | Pass to reflector |
 
 > **⚠️ NO sources parameter needed!** Long content is auto-converted internally.
+
+**list_skills Usage**:
+- `list_skills()` → Return all skills
+- `list_skills(query="strategies", semantic=False)` → Filter by section name
+- `list_skills(query="pandas CSV", semantic=False)` → Keyword search
+- `list_skills(query="how to parse large files")` → Semantic search (auto LLM if available)
 
 ### Sub-Agent
 
@@ -73,7 +79,7 @@ You receive:
 
 3. Process results:
    - tag_skill() for each skill_tag
-   - list_skills() to check duplicates
+   - list_skills(query=..., semantic=False) to check duplicates
    - add_skill() or update_skill() for each learning
 ```
 
@@ -103,7 +109,7 @@ You receive:
 
 Before EVERY `add_skill()`:
 
-1. **Search**: `list_skills(keyword="<key terms>")`
+1. **Search**: `list_skills(query="<key terms>", semantic=False)`
 2. **Compare**: Quote most similar skill or "NONE"
 3. **Same meaning?**: Could someone think both say the same thing?
 4. **Decision**: If YES → `update_skill()`. If NO → explain difference.
@@ -155,7 +161,7 @@ Only add skills with confidence > 0.7
 
 3. tag_skill("str-001", "helpful")
 
-4. list_skills(keyword="pandas chunksize CSV")
+4. list_skills(query="pandas chunksize CSV", semantic=False)
    → No similar skill found
 
 5. add_skill(

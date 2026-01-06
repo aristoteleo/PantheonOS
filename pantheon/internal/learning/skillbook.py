@@ -205,7 +205,7 @@ class Skillbook:
         
         # Will be set after settings resolution
         self.max_skills_per_section = 30
-        self.max_content_length = 500
+        self.max_content_length = 2000
         
         # Resolve paths from settings if not provided
         if skills_dir is None or skillbook_path is None:
@@ -221,11 +221,11 @@ class Skillbook:
             if max_skills_per_section is None:
                 max_skills_per_section = learning_config.get("max_skills_per_section", 30)
             if max_content_length is None:
-                max_content_length = learning_config.get("max_content_length", 500)
+                max_content_length = learning_config.get("max_content_length", 2000)
         
         # Build defaults if still None (e.g. settings load failed or not used)
         self.max_skills_per_section = max_skills_per_section if max_skills_per_section is not None else 30
-        self.max_content_length = max_content_length if max_content_length is not None else 500
+        self.max_content_length = max_content_length if max_content_length is not None else 2000
         
         self.skills_dir = Path(skills_dir) if skills_dir else None
         self.skillbook_path = Path(skillbook_path) if skillbook_path else None
@@ -268,7 +268,7 @@ class Skillbook:
             sources: Optional source files (relative paths)
 
         Auto-conversion:
-            If content > 500 chars and sources not provided, automatically:
+            If content > 2000 chars and sources not provided, automatically:
             1. Generate description if not provided (truncate to ~15 words)
             2. Write content to source file with front matter
             3. Set sources to the generated file
