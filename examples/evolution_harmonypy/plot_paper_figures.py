@@ -304,59 +304,28 @@ def generate_paper_figures():
     # =========================================================================
     print("\nGenerating Figure 4: Convergence comparison...")
 
-    # Run with iteration tracking
+    # Run with iteration tracking using standard run_harmony for each iteration count
     def run_with_tracking(harmony_module, X, batch_labels, cell_types, n_clusters=50, max_iter=10):
         metrics_history = []
-        hm = harmony_module.Harmony(n_clusters=n_clusters, max_iter=1, random_state=42)
 
-        n_cells, n_features = X.shape
-        hm.Z_orig = X.copy()
-        hm.Z_corr = X.copy()
-
-        unique_batches = np.unique(batch_labels)
-        n_batches = len(unique_batches)
-        hm.Phi = np.zeros((n_batches, n_cells))
-        for i, batch in enumerate(unique_batches):
-            hm.Phi[i, batch_labels == batch] = 1
-        hm.batch_props = hm.Phi.sum(axis=1) / n_cells
-
-        if hasattr(hm, 'n_cells'):
-            hm.n_cells = n_cells
-            hm.n_features = n_features
-            hm.n_batches = n_batches
-        if hasattr(hm, 'batch_id'):
-            batch_map = {b: i for i, b in enumerate(unique_batches)}
-            hm.batch_id = np.array([batch_map[b] for b in batch_labels])
-        if hasattr(hm, 'batch_indices'):
-            hm.batch_indices = [np.where(batch_labels == b)[0] for b in unique_batches]
-        if hasattr(hm, 'Phi_reduced'):
-            hm.Phi_reduced = hm.Phi[1:, :]
-            hm.design = np.column_stack([np.ones(n_cells), hm.Phi_reduced.T])
-
-        # Sample for faster metric computation
+        # Sample indices for consistent evaluation
+        n_cells = X.shape[0]
         sample_idx = np.random.RandomState(42).choice(n_cells, min(2000, n_cells), replace=False)
-        X_sample = hm.Z_corr[sample_idx]
         batch_sample = batch_labels[sample_idx]
         ct_sample = cell_types[sample_idx]
 
-        mixing = compute_batch_mixing_score(X_sample, batch_sample)
-        bio = compute_bio_conservation_score(X_sample, ct_sample)
+        # Initial metrics (iteration 0 = uncorrected)
+        mixing = compute_batch_mixing_score(X[sample_idx], batch_sample)
+        bio = compute_bio_conservation_score(X[sample_idx], ct_sample)
         metrics_history.append({'iter': 0, 'mixing': mixing, 'bio': bio})
 
-        hm._init_clusters()
-        hm.objectives = []
-
-        for iteration in range(1, max_iter + 1):
-            hm._cluster()
-            hm._correct()
-
-            X_sample = hm.Z_corr[sample_idx]
-            mixing = compute_batch_mixing_score(X_sample, batch_sample)
-            bio = compute_bio_conservation_score(X_sample, ct_sample)
-            metrics_history.append({'iter': iteration, 'mixing': mixing, 'bio': bio})
-
-            obj = hm._compute_objective()
-            hm.objectives.append(obj)
+        # Run for each iteration count
+        for max_it in range(1, max_iter + 1):
+            hm = harmony_module.run_harmony(X, batch_labels, n_clusters=n_clusters,
+                                           max_iter=max_it, random_state=42)
+            mixing = compute_batch_mixing_score(hm.Z_corr[sample_idx], batch_sample)
+            bio = compute_bio_conservation_score(hm.Z_corr[sample_idx], ct_sample)
+            metrics_history.append({'iter': max_it, 'mixing': mixing, 'bio': bio})
 
         return metrics_history
 
