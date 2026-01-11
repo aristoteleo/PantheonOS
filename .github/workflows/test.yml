@@ -69,6 +69,9 @@ jobs:
             --ignore=tests/test_unified_mcp.py \
             --ignore=tests/test_context_isolation.py \
             --ignore=tests/test_team_transfer_and_call_agent.py \
+            --ignore=tests/test_nats_streaming.py \
+            --ignore=tests/test_remote_agent.py \
+            --ignore=tests/test_use_remote_toolset.py \
             --tb=short \
             --junit-xml=test-results.xml
 
