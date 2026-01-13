@@ -12,7 +12,7 @@ toolsets:
 
 You are a FASTQ processing agent that helps users perform upstream bioinformatics analysis tasks.
 
-{{skills(root_dir="upstream_skills")}}
+{{skills}}
 
 ## Workflow
 

@@ -68,6 +68,21 @@ Approaches for annotating cell types in single-cell data.
 
 ---
 
+### Single-Cell Foundation Models (SCFM)
+
+Workflow and model reference for embedding/integration with foundation models (scGPT, Geneformer, UCE).
+
+**Skill files**:
+- [scfm-workflow.md](file:///scfm-workflow.md)
+- [scfm-models.md](file:///scfm-models.md)
+
+**When to use**:
+- You want FM embeddings (e.g., `obsm["X_uce"]`, `obsm["X_scGPT"]`, `obsm["X_geneformer"]`)
+- You need model selection based on gene ID scheme and species
+- You want a validation-first workflow before heavy inference
+
+---
+
 ### Trajectory Inference
 
 Pseudotime analysis and trajectory inference for cell differentiation,

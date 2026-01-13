@@ -72,7 +72,8 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 pythonpath = ["."]
 markers = [
-    "api: marks tests that require API access (deselect with '-k \"not api\"')"
+    "api: marks tests that require API access (deselect with '-k \"not api\"')",
+    "integration: marks tests that require heavier local deps (e.g., scanpy)",
 ]
 
 [project.optional-dependencies]

@@ -223,45 +223,62 @@ def parse_skill_from_file(file_path: Path, skills_dir: Path) -> Optional[Skill]:
 class SkillLoader:
     """
     Loads and merges skills from multiple sources.
-    
+
     Loading order:
-    1. Scan skills/*.md files
-    2. Parse SKILLS.md (simple rules)
-    3. Cleanup orphan skills
+    1. Load package-level upstream skills (from pantheon package)
+    2. Scan skills/*.md files (user can override package skills)
+    3. Parse SKILLS.md (simple rules)
+    4. Cleanup orphan skills
     """
-    
+
     def __init__(self, skills_dir: Path, skillbook: Skillbook):
         self.skills_dir = skills_dir
         self.skillbook = skillbook
         self._loaded_skill_ids: Set[str] = set()
-    
+
     def load_and_merge(self, cleanup_orphans: bool = True) -> int:
         """Load skills from all sources and merge into skillbook."""
         loaded_count = 0
         self._loaded_skill_ids.clear()
-        
-        # 1. Scan and process skill files
+
+        # 1. Load packaged template skills (shipped with pantheon)
+        # These are loaded first so user skills can override them
+        package_skills_dir = (
+            Path(__file__).parent.parent.parent / "factory" / "templates" / "skills"
+        )
+        if package_skills_dir.exists():
+            for file_path in scan_skill_files(package_skills_dir):
+                skill = parse_skill_from_file(file_path, package_skills_dir)
+                if skill:
+                    self._merge_skill(skill)
+                    self._loaded_skill_ids.add(skill.id)
+                    loaded_count += 1
+            logger.debug(f"Loaded {loaded_count} upstream skills from {package_skills_dir}")
+
+        # 2. Scan and process user skill files (can override upstream skills)
+        user_skill_count = 0
         for file_path in scan_skill_files(self.skills_dir):
             skill = parse_skill_from_file(file_path, self.skills_dir)
             if skill:
                 self._merge_skill(skill)
                 self._loaded_skill_ids.add(skill.id)
-                loaded_count += 1
-        
-        # 2. Parse SKILLS.md (simple rules)
+                user_skill_count += 1
+        loaded_count += user_skill_count
+
+        # 3. Parse SKILLS.md (simple rules)
         skills_md = self.skills_dir / "SKILLS.md"
         if skills_md.exists():
             for skill in parse_skills_md(skills_md, self.skills_dir):
                 self._merge_skill(skill)
                 self._loaded_skill_ids.add(skill.id)
                 loaded_count += 1
-        
-        # 3. Cleanup orphan skills
+
+        # 4. Cleanup orphan skills
         if cleanup_orphans:
             orphan_count = self._cleanup_orphan_skills()
             if orphan_count > 0:
                 logger.info(f"Cleaned up {orphan_count} orphan skills")
-        
+
         logger.info(f"Loaded {loaded_count} skills from files")
         return loaded_count
     
@@ -334,4 +351,3 @@ def load_skills_into_skillbook(
     """Convenience function to load skills into a skillbook."""
     loader = SkillLoader(skills_dir, skillbook)
     return loader.load_and_merge(cleanup_orphans=cleanup_orphans)
-
