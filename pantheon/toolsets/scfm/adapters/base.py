@@ -93,6 +93,12 @@ class BaseAdapter(ABC):
 
     def _add_provenance(self, adata, task: TaskType, output_keys: list[str], backend: str = "local"):
         """Add provenance information to adata.uns"""
+        import json
+        import os
+
+        # Allow subprocess runners to override backend without changing adapter call sites
+        backend = os.environ.get("SCFM_BACKEND") or backend
+
         provenance = {
             "model_name": self.spec.name,
             "version": self.spec.version,
@@ -102,15 +108,26 @@ class BaseAdapter(ABC):
             "backend": backend,
         }
 
-        if "scfm" not in adata.uns:
+        if "scfm" not in adata.uns or not isinstance(adata.uns.get("scfm"), dict):
             adata.uns["scfm"] = {}
+        scfm_uns = adata.uns["scfm"]
 
-        # Store as list to track multiple runs
-        if "runs" not in adata.uns["scfm"]:
-            adata.uns["scfm"]["runs"] = []
+        # Remove legacy keys that can break h5ad serialization (e.g., list[dict])
+        legacy_runs = scfm_uns.get("runs")
+        if isinstance(legacy_runs, list) and any(isinstance(x, dict) for x in legacy_runs):
+            scfm_uns.pop("runs", None)
+        if isinstance(scfm_uns.get("latest"), dict):
+            scfm_uns.pop("latest", None)
 
-        adata.uns["scfm"]["runs"].append(provenance)
-        adata.uns["scfm"]["latest"] = provenance
+        # Store provenance as JSON strings for HDF5 compatibility
+        run_info_str = json.dumps(provenance, ensure_ascii=False)
+        runs = scfm_uns.get("runs_json")
+        if runs is None:
+            runs = []
+        runs = list(runs)  # Ensure it's a mutable list
+        runs.append(run_info_str)
+        scfm_uns["runs_json"] = runs
+        scfm_uns["latest_json"] = run_info_str
 
     def _resolve_device(self, device: str) -> str:
         """Resolve 'auto' device to actual device"""

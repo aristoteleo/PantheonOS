@@ -4,7 +4,11 @@ Single-Cell Foundation Model ToolSet
 Provides agent-callable tools for foundation model operations.
 """
 
+import json
 import os
+import shutil
+import subprocess
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -39,6 +43,7 @@ class SCFMToolSet(ToolSet):
         super().__init__(name, **kwargs)
         self._registry = get_registry()
         self._checkpoint_dir = checkpoint_dir
+        self._conda_env_cache: dict[str, bool] = {}
 
     # =========================================================================
     # Model Discovery Tools
@@ -662,6 +667,22 @@ class SCFMToolSet(ToolSet):
         task_type = TaskType(task)
         output_path = output_path or adata_path
 
+        # Prefer model-specific conda environments when available.
+        # This enables dependency isolation (e.g., torch/torchtext incompatibilities) without requiring
+        # the runner environment to have every model dependency installed.
+        conda_result = self._maybe_run_in_conda_env(
+            model_name=model_name,
+            task=task,
+            adata_path=adata_path,
+            output_path=output_path,
+            batch_key=batch_key,
+            label_key=label_key,
+            device=device,
+            batch_size=batch_size or spec.hardware.default_batch_size,
+        )
+        if conda_result is not None:
+            return conda_result
+
         # Check if we have an adapter for this model
         adapter = self._get_model_adapter(model_name)
         if adapter is None:
@@ -690,6 +711,148 @@ class SCFMToolSet(ToolSet):
                 "model": model_name,
                 "task": task,
             }
+
+    def _conda_env_name(self, model_name: str) -> str:
+        return f"scfm-{model_name.lower()}"
+
+    def _conda_env_available(self, model_name: str) -> bool:
+        model_name = model_name.lower()
+        if os.environ.get("SCFM_DISABLE_CONDA_SUBPROCESS"):
+            return False
+
+        if model_name in self._conda_env_cache:
+            return self._conda_env_cache[model_name]
+
+        if shutil.which("conda") is None:
+            self._conda_env_cache[model_name] = False
+            return False
+
+        env_name = self._conda_env_name(model_name)
+        try:
+            probe = subprocess.run(
+                ["conda", "run", "-n", env_name, "python", "-c", "print('ok')"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            ok = probe.returncode == 0
+        except Exception:
+            ok = False
+
+        self._conda_env_cache[model_name] = ok
+        return ok
+
+    def _maybe_run_in_conda_env(
+        self,
+        model_name: str,
+        task: str,
+        adata_path: str,
+        output_path: str,
+        batch_key: Optional[str],
+        label_key: Optional[str],
+        device: str,
+        batch_size: int,
+        timeout: int = 7200,
+    ) -> Optional[dict[str, Any]]:
+        """
+        Run an adapter inside its dedicated conda env when available.
+
+        Returns:
+            - dict result if conda env was used (success or error)
+            - None if conda env is not available and caller should fall back to in-process adapter
+        """
+        model_name = model_name.lower()
+        if not self._conda_env_available(model_name):
+            return None
+
+        runner_path = Path(__file__).resolve().with_name("_conda_runner.py")
+        if not runner_path.exists():
+            return {
+                "error": "Conda runner script not found",
+                "runner_path": str(runner_path),
+                "model": model_name,
+            }
+
+        payload = {
+            "model_name": model_name,
+            "task": task,
+            "adata_path": adata_path,
+            "output_path": output_path,
+            "batch_key": batch_key,
+            "label_key": label_key,
+            "device": device,
+            "batch_size": batch_size,
+            "checkpoint_dir": self._checkpoint_dir,
+        }
+
+        env_name = self._conda_env_name(model_name)
+        env = os.environ.copy()
+        env.setdefault("PYTHONNOUSERSITE", "1")
+        env.setdefault("SCFM_BACKEND", "conda-subprocess")
+
+        with tempfile.TemporaryDirectory(prefix="scfm_conda_") as tmpdir:
+            payload_path = Path(tmpdir) / "payload.json"
+            payload_path.write_text(json.dumps(payload, ensure_ascii=False))
+
+            cmd = [
+                "conda",
+                "run",
+                "-n",
+                env_name,
+                "python",
+                str(runner_path),
+                "--payload",
+                str(payload_path),
+            ]
+
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    check=False,
+                    env=env,
+                )
+            except subprocess.TimeoutExpired:
+                return {
+                    "error": "Subprocess timed out",
+                    "model": model_name,
+                    "task": task,
+                    "timeout": timeout,
+                }
+            except FileNotFoundError as e:
+                return {
+                    "error": f"Subprocess failed: {e}",
+                    "model": model_name,
+                    "task": task,
+                    "cmd": cmd,
+                }
+
+        stdout_lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
+        parsed: Optional[dict[str, Any]] = None
+        for line in reversed(stdout_lines):
+            try:
+                parsed = json.loads(line)
+                break
+            except Exception:
+                continue
+
+        if parsed is None:
+            return {
+                "error": f"Subprocess failed (exit {proc.returncode}); no JSON result found",
+                "model": model_name,
+                "task": task,
+                "stderr_tail": (proc.stderr or "")[-4000:],
+                "stdout_tail": (proc.stdout or "")[-4000:],
+            }
+
+        if proc.returncode != 0:
+            parsed.setdefault("error", f"Subprocess failed (exit {proc.returncode})")
+            parsed.setdefault("stderr_tail", (proc.stderr or "")[-4000:])
+
+        return parsed
 
     def _get_model_adapter(self, model_name: str):
         """Get the adapter for a specific model"""
