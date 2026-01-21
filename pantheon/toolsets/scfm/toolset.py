@@ -24,6 +24,7 @@ from .registry import (
     TaskType,
     get_registry,
 )
+from .router import build_model_cards, route_query
 
 
 class SCFMToolSet(ToolSet):
@@ -488,6 +489,90 @@ class SCFMToolSet(ToolSet):
             reasons.append("CPU fallback available")
 
         return "; ".join(reasons) if reasons else "general purpose model"
+
+    # =========================================================================
+    # Router Tool
+    # =========================================================================
+
+    @tool
+    async def scfm_router(
+        self,
+        query: str,
+        adata_path: Optional[str] = None,
+        prefer_zero_shot: bool = True,
+        max_vram_gb: Optional[int] = None,
+        skill_ready_only: bool = False,
+        allow_partial: bool = True,
+        allow_reference: bool = False,
+        output_path: Optional[str] = None,
+        batch_key: Optional[str] = None,
+        label_key: Optional[str] = None,
+        context_variables: Optional[dict] = None,
+    ) -> dict[str, Any]:
+        """
+        LLM-based router for single-cell foundation model tasks.
+
+        Takes a natural language query and returns:
+        - Inferred scFM task (embed/integrate/annotate/spatial/perturb/drug_response)
+        - Selected best-fit model from registry
+        - Resolved parameters (or clarifying questions)
+        - Executable tool-call plan
+
+        Args:
+            query: Natural language description of what the user wants to do
+            adata_path: Optional path to .h5ad file to profile for compatibility
+            prefer_zero_shot: Prefer zero-shot capable models when possible
+            max_vram_gb: Maximum VRAM constraint (filters models by hardware)
+            skill_ready_only: Only select fully skill-ready models
+            allow_partial: Allow partial-spec models in selection
+            allow_reference: Allow reference-only models in selection
+            output_path: Pre-specified output path for results
+            batch_key: Pre-specified batch key in .obs for integration
+            label_key: Pre-specified label key in .obs for annotation
+            context_variables: Execution context (injected automatically by agent)
+
+        Returns:
+            RouterOutput dict containing:
+            - intent: Inferred task with confidence
+            - inputs: Original query and adata_path
+            - data_profile: Data profile if adata was provided
+            - selection: Recommended model and fallbacks with rationale
+            - resolved_params: Resolved output_path, batch_key, label_key
+            - plan: Executable tool-call plan
+            - questions: Clarifying questions if parameters are ambiguous
+            - warnings: Compatibility or other warnings
+        """
+        context = context_variables or {}
+
+        # Profile data if adata_path provided
+        data_profile = None
+        if adata_path:
+            data_profile = self._profile_data_impl(adata_path)
+            if "error" in data_profile:
+                # Don't fail completely, just note the error
+                data_profile = {"error": data_profile["error"], "adata_path": adata_path}
+
+        # Call the router
+        result = await route_query(
+            query=query,
+            context=context,
+            adata_path=adata_path,
+            data_profile=data_profile if data_profile and "error" not in data_profile else None,
+            prefer_zero_shot=prefer_zero_shot,
+            max_vram_gb=max_vram_gb,
+            skill_ready_only=skill_ready_only,
+            allow_partial=allow_partial,
+            allow_reference=allow_reference,
+            output_path=output_path,
+            batch_key=batch_key,
+            label_key=label_key,
+        )
+
+        # Include data profile error as warning if present
+        if data_profile and "error" in data_profile:
+            result.setdefault("warnings", []).append(f"Data profiling failed: {data_profile['error']}")
+
+        return result
 
     # =========================================================================
     # Validation Tools

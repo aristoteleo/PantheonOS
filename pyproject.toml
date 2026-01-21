@@ -74,6 +74,7 @@ pythonpath = ["."]
 markers = [
     "api: marks tests that require API access (deselect with '-k \"not api\"')",
     "integration: marks tests that require heavier local deps (e.g., scanpy)",
+    "live_llm: marks tests that require live LLM API calls (requires OPENAI_API_KEY)",
 ]
 
 [project.optional-dependencies]

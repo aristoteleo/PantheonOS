@@ -799,6 +799,7 @@ class Agent:
         if tool_call_id is not None:
             full_context["tool_call_id"] = tool_call_id
         full_context["_call_agent"] = _call_agent_wrap
+        full_context["caller_models"] = self.models  # For scfm_router LLM calls
 
         # Remove debug call_* variables
         for k in list(full_context.keys()):
