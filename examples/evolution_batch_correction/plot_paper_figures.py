@@ -441,6 +441,326 @@ def generate_bbknn_figures(dataset: str = "tma"):
     return metrics
 
 
+# =============================================================================
+# Scanorama-specific functions
+# =============================================================================
+
+def load_scanorama_module(scanorama_path: Path):
+    """Load the Scanorama module."""
+    # Load annoy stub first (before importing scanorama)
+    annoy_stub_path = example_dir / "evolution_scanorama" / "annoy.py"
+    if annoy_stub_path.exists() and "annoy" not in sys.modules:
+        spec_annoy = importlib.util.spec_from_file_location("annoy", annoy_stub_path)
+        annoy_module = importlib.util.module_from_spec(spec_annoy)
+        sys.modules["annoy"] = annoy_module
+        spec_annoy.loader.exec_module(annoy_module)
+
+    # Load utils first
+    utils_path = scanorama_path / "utils.py"
+    spec_utils = importlib.util.spec_from_file_location("scanorama.utils", utils_path)
+    utils_module = importlib.util.module_from_spec(spec_utils)
+    sys.modules["scanorama.utils"] = utils_module
+    spec_utils.loader.exec_module(utils_module)
+
+    # Import main scanorama module
+    main_path = scanorama_path / "scanorama.py"
+    spec = importlib.util.spec_from_file_location("scanorama.scanorama", main_path)
+    scanorama_module = importlib.util.module_from_spec(spec)
+    sys.modules["scanorama.scanorama"] = scanorama_module
+    spec.loader.exec_module(scanorama_module)
+
+    return scanorama_module
+
+
+def split_by_batch(X: np.ndarray, batch_labels: np.ndarray):
+    """Split data by batch for Scanorama input."""
+    unique_batches = np.unique(batch_labels)
+    datasets = []
+    batch_names = []
+    original_order = []
+
+    for batch in unique_batches:
+        mask = batch_labels == batch
+        datasets.append(X[mask])
+        batch_names.append(batch)
+        original_order.append(np.where(mask)[0])
+
+    return datasets, batch_names, original_order
+
+
+def reconstruct_from_batches(datasets_corrected, original_order):
+    """Reconstruct full matrix from batch-wise corrected data."""
+    n_total = sum(len(order) for order in original_order)
+    n_features = datasets_corrected[0].shape[1]
+    X_reconstructed = np.zeros((n_total, n_features))
+
+    for dataset, order in zip(datasets_corrected, original_order):
+        X_reconstructed[order] = dataset
+
+    return X_reconstructed
+
+
+def run_scanorama(module, X: np.ndarray, batch_labels: np.ndarray):
+    """Run Scanorama and return corrected embedding."""
+    datasets, batch_names, original_order = split_by_batch(X, batch_labels)
+
+    # Create fake gene names (Scanorama expects them)
+    n_features = X.shape[1]
+    genes_list = [[f"PC{i+1}" for i in range(n_features)] for _ in datasets]
+
+    # Run Scanorama integrate
+    datasets_corrected, _ = module.integrate(
+        datasets,
+        genes_list,
+        dimred=30,
+        verbose=0,
+        knn=20,
+        sigma=15,
+        alpha=0.10,
+        approx=False,
+        seed=42,
+    )
+
+    return reconstruct_from_batches(datasets_corrected, original_order)
+
+
+def generate_scanorama_figures(dataset: str = "tma"):
+    """Generate publication-quality PDF figures for Scanorama."""
+    from umap import UMAP
+
+    if dataset == "tma":
+        print("Loading TMA TEST data (held-out evaluation)...")
+        X, batch_labels, cell_types = load_tma_data("test")
+    elif dataset == "ffdaa1f0":
+        print("Loading ffdaa1f0 VALIDATION data...")
+        X, batch_labels, cell_types = load_ffdaa1f0_data("validation")
+    elif dataset == "pbmc":
+        print("Loading PBMC VALIDATION data...")
+        X, batch_labels, cell_types = load_pbmc_data("val")
+    else:
+        raise ValueError(f"Unknown dataset: {dataset}")
+    print(f"  Data shape: {X.shape}")
+
+    # Load Scanorama implementations
+    print("\nLoading Scanorama implementations...")
+    scanorama_dir = example_dir / "evolution_scanorama"
+    scanorama_original = load_scanorama_module(scanorama_dir / "scanorama")
+
+    # Run original Scanorama
+    print("\nRunning original Scanorama...")
+    start_time = time.time()
+    X_corrected_original = run_scanorama(scanorama_original, X, batch_labels)
+    time_original = time.time() - start_time
+    print(f"  Time: {time_original:.2f}s")
+
+    # Run evolved Scanorama (best)
+    # Clear module cache
+    for key in list(sys.modules.keys()):
+        if 'scanorama' in key:
+            del sys.modules[key]
+
+    scanorama_evolved = load_scanorama_module(scanorama_dir / "results" / "scanorama_optimized")
+
+    print("\nRunning Scanorama (Best)...")
+    start_time = time.time()
+    X_corrected_evolved = run_scanorama(scanorama_evolved, X, batch_labels)
+    time_evolved = time.time() - start_time
+    print(f"  Time: {time_evolved:.2f}s")
+
+    # Compute metrics
+    print("\nComputing metrics...")
+    metrics = {
+        "Original Data": {
+            "mixing": compute_batch_mixing_score(X, batch_labels),
+            "bio": compute_bio_conservation_score(X, cell_types),
+            "time": 0,
+        },
+        "Scanorama": {
+            "mixing": compute_batch_mixing_score(X_corrected_original, batch_labels),
+            "bio": compute_bio_conservation_score(X_corrected_original, cell_types),
+            "time": time_original,
+        },
+        "Scanorama (Best)": {
+            "mixing": compute_batch_mixing_score(X_corrected_evolved, batch_labels),
+            "bio": compute_bio_conservation_score(X_corrected_evolved, cell_types),
+            "time": time_evolved,
+        },
+    }
+
+    for name, m in metrics.items():
+        print(f"  {name}: mixing={m['mixing']:.4f}, bio={m['bio']:.4f}")
+
+    # Compute UMAP
+    print("\nComputing UMAP embeddings...")
+    umap = UMAP(n_neighbors=30, min_dist=0.3, random_state=42)
+    umap_original = umap.fit_transform(X)
+    umap_scanorama = umap.fit_transform(X_corrected_original)
+    umap_evolved = umap.fit_transform(X_corrected_evolved)
+
+    output_dir = scanorama_dir / "results" / f"paper_figures_{dataset}"
+    output_dir.mkdir(exist_ok=True)
+
+    # Define batch colors
+    unique_batches = np.unique(batch_labels)
+    n_batches = len(unique_batches)
+    if n_batches == 2 and set(unique_batches) == {'10x', 'SS2'}:
+        batch_colors = {'10x': '#E64B35', 'SS2': '#4DBBD5'}
+    else:
+        batch_cmap = plt.cm.get_cmap('tab20', min(n_batches, 20))
+        batch_colors = {b: mpl.colors.rgb2hex(batch_cmap(i % 20)) for i, b in enumerate(unique_batches)}
+
+    # Cell type colors
+    unique_celltypes = np.unique(cell_types)
+    n_types = len(unique_celltypes)
+    cmap = plt.cm.get_cmap('tab20', n_types)
+    celltype_colors = {ct: mpl.colors.rgb2hex(cmap(i)) for i, ct in enumerate(unique_celltypes)}
+
+    # =========================================================================
+    # Figure 1: UMAP Comparison (2x3 layout)
+    # =========================================================================
+    print("\nGenerating Figure 1: UMAP comparison...")
+    fig1, axes = plt.subplots(2, 3, figsize=(8, 5))
+
+    datasets_plot = [
+        (umap_original, "Uncorrected", metrics["Original Data"]),
+        (umap_scanorama, "Scanorama", metrics["Scanorama"]),
+        (umap_evolved, "Scanorama (Best)", metrics["Scanorama (Best)"]),
+    ]
+
+    # Row 1: Color by batch
+    for idx, (emb, title, m) in enumerate(datasets_plot):
+        ax = axes[0, idx]
+        for batch in unique_batches:
+            mask = batch_labels == batch
+            ax.scatter(emb[mask, 0], emb[mask, 1], c=batch_colors[batch],
+                      label=batch if n_batches <= 10 else None, s=2, alpha=0.5, rasterized=True)
+        ax.set_title(f"{title}", fontweight='bold')
+        ax.set_xlabel("UMAP1")
+        if idx == 0:
+            ax.set_ylabel("UMAP2")
+        ax.text(0.02, 0.98, f"Mixing: {m['mixing']:.3f}", transform=ax.transAxes,
+               va='top', ha='left', fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    if n_batches <= 10:
+        axes[0, 2].legend(title="Batch", loc='upper right', markerscale=3, framealpha=0.9)
+
+    # Row 2: Color by cell type
+    for idx, (emb, title, m) in enumerate(datasets_plot):
+        ax = axes[1, idx]
+        for ct in unique_celltypes:
+            mask = cell_types == ct
+            ax.scatter(emb[mask, 0], emb[mask, 1], c=celltype_colors[ct],
+                      label=ct if n_types <= 20 else None, s=2, alpha=0.5, rasterized=True)
+        ax.set_xlabel("UMAP1")
+        if idx == 0:
+            ax.set_ylabel("UMAP2")
+        ax.text(0.02, 0.98, f"Bio: {m['bio']:.3f}", transform=ax.transAxes,
+               va='top', ha='left', fontsize=8, bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    if n_types <= 20:
+        handles, labels = axes[1, 2].get_legend_handles_labels()
+        axes[1, 2].legend(handles, labels, title="Cell Type", loc='upper right',
+                          markerscale=3, framealpha=0.9, fontsize=6, ncol=2)
+
+    fig1.text(0.01, 0.75, 'Batch', va='center', ha='left', rotation=90, fontsize=10, fontweight='bold')
+    fig1.text(0.01, 0.28, 'Cell Type', va='center', ha='left', rotation=90, fontsize=10, fontweight='bold')
+
+    plt.tight_layout(rect=[0.02, 0, 1, 1])
+    fig1.savefig(output_dir / "figure1_umap_comparison.pdf", format='pdf', bbox_inches='tight')
+    fig1.savefig(output_dir / "figure1_umap_comparison.png", format='png', bbox_inches='tight', dpi=300)
+    print(f"  Saved: {output_dir}/figure1_umap_comparison.pdf")
+
+    # =========================================================================
+    # Figure 2: Performance Bar Chart
+    # =========================================================================
+    print("\nGenerating Figure 2: Performance comparison...")
+    fig2, axes2 = plt.subplots(1, 3, figsize=(8, 2.5))
+
+    methods = ["Uncorrected", "Scanorama", "Scanorama\n(Best)"]
+    colors = ["#999999", "#3C5488", "#00A087"]
+
+    # Mixing score
+    ax = axes2[0]
+    mixing_vals = [metrics["Original Data"]["mixing"], metrics["Scanorama"]["mixing"],
+                   metrics["Scanorama (Best)"]["mixing"]]
+    bars = ax.bar(methods, mixing_vals, color=colors, edgecolor='black', linewidth=0.5)
+    ax.set_ylabel("Batch Mixing Score")
+    ax.set_ylim(0, 1)
+    ax.set_title("Batch Integration", fontweight='bold')
+    for bar, val in zip(bars, mixing_vals):
+        ax.text(bar.get_x() + bar.get_width()/2, val + 0.02, f'{val:.3f}',
+               ha='center', va='bottom', fontsize=7)
+
+    # Bio conservation
+    ax = axes2[1]
+    bio_vals = [metrics["Original Data"]["bio"], metrics["Scanorama"]["bio"],
+                metrics["Scanorama (Best)"]["bio"]]
+    bars = ax.bar(methods, bio_vals, color=colors, edgecolor='black', linewidth=0.5)
+    ax.set_ylabel("Bio Conservation Score")
+    ax.set_ylim(0, 1)
+    ax.set_title("Biological Structure", fontweight='bold')
+    for bar, val in zip(bars, bio_vals):
+        ax.text(bar.get_x() + bar.get_width()/2, val + 0.02, f'{val:.3f}',
+               ha='center', va='bottom', fontsize=7)
+
+    # Execution time
+    ax = axes2[2]
+    time_methods = ["Scanorama", "Scanorama\n(Best)"]
+    time_vals = [metrics["Scanorama"]["time"], metrics["Scanorama (Best)"]["time"]]
+    time_colors = ["#3C5488", "#00A087"]
+    bars = ax.bar(time_methods, time_vals, color=time_colors, edgecolor='black', linewidth=0.5)
+    ax.set_ylabel("Execution Time (s)")
+    ax.set_title("Computational Cost", fontweight='bold')
+    for bar, val in zip(bars, time_vals):
+        ax.text(bar.get_x() + bar.get_width()/2, val + 0.2, f'{val:.2f}s',
+               ha='center', va='bottom', fontsize=7)
+
+    plt.tight_layout()
+    fig2.savefig(output_dir / "figure2_performance.pdf", format='pdf', bbox_inches='tight')
+    fig2.savefig(output_dir / "figure2_performance.png", format='png', bbox_inches='tight', dpi=300)
+    print(f"  Saved: {output_dir}/figure2_performance.pdf")
+
+    # =========================================================================
+    # Figure 3: Summary Figure
+    # =========================================================================
+    print("\nGenerating Figure 3: Summary figure...")
+    fig3, ax3 = plt.subplots(figsize=(5, 4))
+
+    for name, m, color, marker in [
+        ("Uncorrected", metrics["Original Data"], "#999999", "o"),
+        ("Scanorama", metrics["Scanorama"], "#3C5488", "s"),
+        ("Scanorama (Best)", metrics["Scanorama (Best)"], "#00A087", "^"),
+    ]:
+        ax3.scatter(m["mixing"], m["bio"], c=color, s=150, marker=marker,
+                   label=name, edgecolors='black', linewidth=0.5, zorder=3)
+
+    ax3.set_xlabel("Batch Mixing Score")
+    ax3.set_ylabel("Bio Conservation Score")
+
+    all_mixing = [m["mixing"] for m in metrics.values()]
+    all_bio = [m["bio"] for m in metrics.values()]
+    ax3.set_xlim(min(all_mixing) - 0.05, max(all_mixing) + 0.1)
+    ax3.set_ylim(min(all_bio) - 0.05, max(all_bio) + 0.1)
+
+    ax3.legend(loc='lower right', framealpha=0.9)
+    ax3.grid(True, alpha=0.3, linestyle='--')
+
+    plt.tight_layout()
+    fig3.savefig(output_dir / "figure3_summary.pdf", format='pdf', bbox_inches='tight')
+    fig3.savefig(output_dir / "figure3_summary.png", format='png', bbox_inches='tight', dpi=300)
+    print(f"  Saved: {output_dir}/figure3_summary.pdf")
+
+    print(f"\n{'='*60}")
+    print(f"All figures saved to: {output_dir}")
+    print(f"{'='*60}")
+
+    return metrics
+
+
 def plot_evolution_fitness(algorithm: str = "bbknn"):
     """Plot evolution fitness progress curve with recalculated scores using final metric_ranges."""
     import json
@@ -508,14 +828,15 @@ def plot_evolution_fitness(algorithm: str = "bbknn"):
     best_idx = recalc_scores.index(best_score)
     best_order = orders[best_idx]
 
-    # Find #71 if exists
+    # Find #71 if exists (only for BBKNN)
     iter_71_idx = None
     iter_71_score = None
-    for i, order in enumerate(orders):
-        if order == 71:
-            iter_71_idx = i
-            iter_71_score = recalc_scores[i]
-            break
+    if algorithm == "bbknn":
+        for i, order in enumerate(orders):
+            if order == 71:
+                iter_71_idx = i
+                iter_71_score = recalc_scores[i]
+                break
 
     # Create figure
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -530,7 +851,7 @@ def plot_evolution_fitness(algorithm: str = "bbknn"):
                marker='^', edgecolors='black', linewidth=1, zorder=4,
                label=f'Best #{best_order} ({best_score:.4f})')
 
-    # Mark #71 if exists
+    # Mark #71 if exists (BBKNN only)
     if iter_71_idx is not None:
         ax.axvline(x=71, color='#7E6148', linestyle='--', alpha=0.7)
         ax.scatter([71], [iter_71_score], s=100, c='#7E6148', marker='D',
@@ -604,7 +925,7 @@ def main():
     elif args.algorithm == "bbknn":
         generate_bbknn_figures(dataset=args.dataset)
     elif args.algorithm == "scanorama":
-        print("Scanorama figure generation not yet implemented")
+        generate_scanorama_figures(dataset=args.dataset)
     elif args.algorithm == "harmony":
         print("Harmony figure generation not yet implemented")
 

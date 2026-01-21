@@ -1,5 +1,5 @@
 from annoy import AnnoyIndex
-from intervaltree import IntervalTree
+# NOTE: IntervalTree removed for performance (replaced with searchsorted).
 from itertools import cycle, islice
 import numpy as np
 import operator
@@ -7,7 +7,7 @@ import random
 import scipy
 from scipy.sparse import csc_matrix, csr_matrix, vstack
 from sklearn.manifold import TSNE
-from sklearn.metrics.pairwise import rbf_kernel, euclidean_distances
+from sklearn.metrics.pairwise import euclidean_distances
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 import sys
@@ -16,6 +16,9 @@ import warnings
 from .utils import plt, dispersion, reduce_dimensionality
 from .utils import visualize_cluster, visualize_expr, visualize_dropout
 from .utils import handle_zeros_in_scale
+
+# --- Caches to avoid rebuilding expensive indices repeatedly ---
+_annoy_cache = {}  # key -> AnnoyIndex
 
 # Default parameters.
 ALPHA = 0.10
@@ -501,59 +504,88 @@ def visualize(assembled, labels, namespace, data_names,
     return embedding
 
 # Exact nearest neighbors search.
-def nn(ds1, ds2, knn=KNN, metric_p=2):
+def nn(ds1, ds2, knn=KNN, metric_p=2, return_ind=True):
     # Find nearest neighbors of first dataset.
     nn_ = NearestNeighbors(n_neighbors=knn, p=metric_p)
     nn_.fit(ds2)
     ind = nn_.kneighbors(ds1, return_distance=False)
+    if return_ind:
+        return ind
 
+    # Backwards-compatible slow path (avoid where possible).
     match = set()
     for a, b in zip(range(ds1.shape[0]), ind):
         for b_i in b:
             match.add((a, b_i))
-
     return match
 
 # Approximate nearest neighbors using locality sensitive hashing.
-def nn_approx(ds1, ds2, knn=KNN, metric='manhattan', n_trees=10):
-    # Build index.
-    a = AnnoyIndex(ds2.shape[1], metric=metric)
-    for i in range(ds2.shape[0]):
-        a.add_item(i, ds2[i, :])
-    a.build(n_trees)
+def nn_approx(ds1, ds2, knn=KNN, metric='manhattan', n_trees=10, return_ind=True):
+    # Build/reuse index (major speed win vs rebuilding on every call).
+    # Key uses object identity + data pointer (more stable if arrays are views/reallocated).
+    try:
+        data_ptr = int(ds2.__array_interface__['data'][0])
+    except Exception:
+        data_ptr = None
+    key = (id(ds2), data_ptr, ds2.shape, metric, int(n_trees))
+
+    a = _annoy_cache.get(key, None)
+    if a is None:
+        a = AnnoyIndex(ds2.shape[1], metric=metric)
+        for i in range(ds2.shape[0]):
+            a.add_item(i, ds2[i, :])
+        a.build(n_trees)
+        _annoy_cache[key] = a
 
     # Search index.
     ind = []
     for i in range(ds1.shape[0]):
         ind.append(a.get_nns_by_vector(ds1[i, :], knn, search_k=-1))
-    ind = np.array(ind)
+    ind = np.array(ind, dtype=np.int64)
 
-    # Match.
+    if return_ind:
+        return ind
+
+    # Backwards-compatible slow path (avoid where possible).
     match = set()
-    for a, b in zip(range(ds1.shape[0]), ind):
+    for a_i, b in zip(range(ds1.shape[0]), ind):
         for b_i in b:
-            match.add((a, b_i))
-
+            match.add((a_i, int(b_i)))
     return match
 
 # Find mutual nearest neighbors.
 def mnn(ds1, ds2, knn=KNN, approx=APPROX):
-    # Find nearest neighbors in first direction.
+    # Compute neighbor index matrices.
     if approx:
-        match1 = nn_approx(ds1, ds2, knn=knn)
+        ind12 = nn_approx(ds1, ds2, knn=knn, return_ind=True)
+        ind21 = nn_approx(ds2, ds1, knn=knn, return_ind=True)
     else:
-        match1 = nn(ds1, ds2, knn=knn)
+        ind12 = nn(ds1, ds2, knn=knn, return_ind=True)
+        ind21 = nn(ds2, ds1, knn=knn, return_ind=True)
 
-    # Find nearest neighbors in second direction.
-    if approx:
-        match2 = nn_approx(ds2, ds1, knn=knn)
-    else:
-        match2 = nn(ds2, ds1, knn=knn)
+    n1 = ind12.shape[0]
+    k1 = ind12.shape[1]
+    n2 = ind21.shape[0]
+    k2 = ind21.shape[1]
 
-    # Compute mutual nearest neighbors.
-    mutual = match1 & set([ (b, a) for a, b in match2 ])
+    # Build fast membership structure for ds2 -> ds1 neighbors as CSR adjacency.
+    # Row b contains ds1 indices that are neighbors of b.
+    row_ids = np.repeat(np.arange(n2, dtype=np.int64), k2)
+    col_ids = ind21.reshape(-1).astype(np.int64, copy=False)
+    data = np.ones_like(col_ids, dtype=np.int8)
+    adj21 = scipy.sparse.csr_matrix((data, (row_ids, col_ids)), shape=(n2, n1))
 
-    return mutual
+    # Mutual pairs are those (a, b) where b in ind12[a] and a is present in row b of adj21.
+    a_rep = np.repeat(np.arange(n1, dtype=np.int64), k1)
+    b_flat = ind12.reshape(-1).astype(np.int64, copy=False)
+    mask = adj21[b_flat, a_rep].A1.astype(bool, copy=False)
+
+    a_mut = a_rep[mask]
+    b_mut = b_flat[mask]
+
+    # Return as a set of pairs for compatibility with downstream code.
+    # (Kept as set because matches are later treated as sets.)
+    return set(zip(a_mut.tolist(), b_mut.tolist()))
 
 # Visualize alignment between two datasets.
 def plot_mapping(curr_ds, curr_ref, ds_ind, ref_ind):
@@ -587,38 +619,41 @@ def fill_table(table, i, curr_ds, datasets, base_ds=0,
                knn=KNN, approx=APPROX):
     curr_ref = np.concatenate(datasets)
     if approx:
-        match = nn_approx(curr_ds, curr_ref, knn=knn)
+        ind = nn_approx(curr_ds, curr_ref, knn=knn, return_ind=True)
     else:
-        match = nn(curr_ds, curr_ref, knn=knn, metric_p=1)
+        ind = nn(curr_ds, curr_ref, knn=knn, metric_p=1, return_ind=True)
 
-    # Build interval tree.
-    itree_ds_idx = IntervalTree()
-    itree_pos_base = IntervalTree()
-    pos = 0
-    for j in range(len(datasets)):
-        n_cells = datasets[j].shape[0]
-        itree_ds_idx[pos:(pos + n_cells)] = base_ds + j
-        itree_pos_base[pos:(pos + n_cells)] = pos
-        pos += n_cells
+    # Replace IntervalTree with prefix sums + searchsorted (vectorized boundaries).
+    sizes = np.array([ds.shape[0] for ds in datasets], dtype=int)
+    cum_sizes = np.cumsum(sizes)
 
-    # Store all mutual nearest neighbors between datasets.
-    for d, r in match:
-        interval = itree_ds_idx[r]
-        assert(len(interval) == 1)
-        j = interval.pop().data
-        interval = itree_pos_base[r]
-        assert(len(interval) == 1)
-        base = interval.pop().data
-        if not (i, j) in table:
-            table[(i, j)] = set()
-        table[(i, j)].add((d, r - base))
-        assert(r - base >= 0)
+    # Vectorize (d, r) pairs.
+    n = ind.shape[0]
+    k = ind.shape[1]
+    d_flat = np.repeat(np.arange(n, dtype=np.int64), k)
+    r_flat = ind.reshape(-1).astype(np.int64, copy=False)
+
+    # Determine which dataset index r falls into.
+    j_rel = np.searchsorted(cum_sizes, r_flat, side='right').astype(np.int64, copy=False)
+    j = (base_ds + j_rel).astype(np.int64, copy=False)
+    base = np.where(j_rel == 0, 0, cum_sizes[j_rel - 1]).astype(np.int64, copy=False)
+    r_local = (r_flat - base).astype(np.int64, copy=False)
+    assert np.all(r_local >= 0)
+
+    # Store all nearest-neighbor pairs between datasets in table.
+    # (Still uses per-(i,j) Python sets, but avoids per-pair loops building a global set.)
+    for j_rel_u in np.unique(j_rel):
+        mask = (j_rel == j_rel_u)
+        j_u = int(base_ds + j_rel_u)
+        if not (i, j_u) in table:
+            table[(i, j_u)] = set()
+        table[(i, j_u)].update(zip(d_flat[mask].tolist(), r_local[mask].tolist()))
 
 gs_idxs = None
 
 # Fill table of alignment scores.
 def find_alignments_table(datasets, knn=KNN, approx=APPROX, verbose=VERBOSE,
-                          prenormalized=False):
+                          prenormalized=False, score_t=1.0, score_u=1.0):
     if not prenormalized:
         datasets = [ normalize(ds, axis=1) for ds in datasets ]
 
@@ -630,27 +665,62 @@ def find_alignments_table(datasets, knn=KNN, approx=APPROX, verbose=VERBOSE,
         if len(datasets[i+1:]) > 0:
             fill_table(table, i, datasets[i], datasets[i+1:],
                        knn=knn, base_ds=i+1, approx=approx)
-    # Count all mutual nearest neighbors between datasets.
+
+    # Count all mutual nearest neighbors between datasets and compute
+    # improved confidence score combining:
+    # coverage * exp(-median_dist/t) * exp(-bias_var/u)
     matches = {}
     table1 = {}
     if verbose > 1:
         table_print = np.zeros((len(datasets), len(datasets)))
+
     for i in range(len(datasets)):
         for j in range(len(datasets)):
             if i >= j:
                 continue
             if not (i, j) in table or not (j, i) in table:
                 continue
+
             match_ij = table[(i, j)]
             match_ji = set([ (b, a) for a, b in table[(j, i)] ])
-            matches[(i, j)] = match_ij & match_ji
+            mutual = match_ij & match_ji
+            if len(mutual) == 0:
+                continue
+            matches[(i, j)] = mutual
 
-            table1[(i, j)] = (max(
-                float(len(set([ idx for idx, _ in matches[(i, j)] ]))) /
-                datasets[i].shape[0],
-                float(len(set([ idx for _, idx in matches[(i, j)] ]))) /
-                datasets[j].shape[0]
-            ))
+            # Coverage term (existing behavior).
+            cov_i = float(len(set([ idx for idx, _ in mutual ]))) / datasets[i].shape[0]
+            cov_j = float(len(set([ idx for _, idx in mutual ]))) / datasets[j].shape[0]
+            coverage = max(cov_i, cov_j)
+
+            # Tightness term: median distance between matched pairs.
+            ds1 = datasets[i]
+            ds2 = datasets[j]
+            ds_ind = np.array([ a for a, _ in mutual ], dtype=int)
+            ref_ind = np.array([ b for _, b in mutual ], dtype=int)
+
+            # Ensure dense arrays for distance/bias stats.
+            X1 = ds1[ds_ind, :]
+            X2 = ds2[ref_ind, :]
+            if scipy.sparse.issparse(X1):
+                X1 = X1.toarray()
+            else:
+                X1 = np.asarray(X1)
+            if scipy.sparse.issparse(X2):
+                X2 = X2.toarray()
+            else:
+                X2 = np.asarray(X2)
+
+            d = np.linalg.norm(X1 - X2, axis=1)
+            med_dist = float(np.median(d))
+
+            # Bias consistency: average variance across dimensions.
+            b = X2 - X1
+            bias_var = float(np.mean(np.var(b, axis=0)))
+
+            score = coverage * np.exp(-med_dist / float(score_t)) * np.exp(-bias_var / float(score_u))
+            table1[(i, j)] = score
+
             if verbose > 1:
                 table_print[i, j] += table1[(i, j)]
 
@@ -672,13 +742,14 @@ def find_alignments(datasets, knn=KNN, approx=APPROX, verbose=VERBOSE,
         sorted(table1.items(), key=operator.itemgetter(1))
     ) if val > alpha ]
 
-    return alignments, matches
+    # Return alignments, matches, and edge weights (scores) for MST merging.
+    return alignments, matches, table1
 
 # Find connections between datasets to identify panoramas.
 def connect(datasets, knn=KNN, approx=APPROX, alpha=ALPHA,
             verbose=VERBOSE):
     # Find alignments.
-    alignments, _ = find_alignments(
+    alignments, _, _ = find_alignments(
         datasets, knn=knn, approx=approx, alpha=alpha,
         verbose=verbose
     )
@@ -718,142 +789,178 @@ def connect(datasets, knn=KNN, approx=APPROX, alpha=ALPHA,
     return panoramas
 
 # To reduce memory usage, split bias computation into batches.
-# Robust, density-adaptive, ridge-shrunk kernel smoother for bias field.
+# Uses sparse local adaptive kernel smoothing on kNN anchors instead of
+# dense global RBF regression.
 def batch_bias(curr_ds, match_ds, bias, batch_size=None, sigma=SIGMA,
-               adaptive=True, k_sigma=30, lambda_shrink=1.0,
-               robust=True, huber_c=2.5, knn_anchor=200):
-    """Estimate per-cell bias using a conservative kernel smoother.
-
-    This replaces the previous normalized RBF averaging with a ridge-shrunk
-    smoother:
-        b_hat(x) = sum_i w_i(x) * b_i / (lambda + sum_i w_i(x))
-
-    Additionally supports:
-      - density-adaptive bandwidth sigma(x) via k_sigma-th NN distance to anchors
-      - robust anchor weights (Huber) based on ||b_i||
-      - optional anchor subsampling via kNN anchors per query (reduces smoothing)
-    """
-    # Ensure dense arrays for distance computations.
-    curr = curr_ds.toarray() if scipy.sparse.issparse(curr_ds) else np.asarray(curr_ds)
-    anch = match_ds.toarray() if scipy.sparse.issparse(match_ds) else np.asarray(match_ds)
-
-    # Bias may be sparse if provided from sparse subtraction.
-    B = bias.toarray() if scipy.sparse.issparse(bias) else np.asarray(bias)
-
-    n_query = curr.shape[0]
-    n_anchor = anch.shape[0]
-
-    # Robust reweighting of anchors based on bias magnitude (Huber).
-    anchor_w = np.ones((n_anchor,), dtype=float)
-    if robust and n_anchor > 0:
-        bnorm = np.linalg.norm(B, axis=1)
-        med = np.median(bnorm)
-        mad = np.median(np.abs(bnorm - med)) + 1e-12
-        s = 1.4826 * mad + 1e-12
-        r = bnorm / (huber_c * s)
-        # Huber weights: 1 for inliers, 1/r for outliers.
-        anchor_w = np.ones_like(r)
-        out = r > 1.0
-        anchor_w[out] = 1.0 / r[out]
-
-    # Optional: restrict anchors per query to kNN for speed and reduced oversmoothing.
-    use_knn = knn_anchor is not None and knn_anchor > 0 and knn_anchor < n_anchor
-    if use_knn:
-        nn_ = NearestNeighbors(n_neighbors=min(knn_anchor, n_anchor), p=2)
-        nn_.fit(anch)
-        neigh_ind = nn_.kneighbors(curr, return_distance=False)
+               k=30, sigma_scale=1.0, anchor_weights=None,
+               neigh=None, match_ds_arr=None,
+               pre_nn_idx=None, pre_g=None, pre_S=None,
+               pre_row_ids=None, pre_indptr=None, pre_indices=None):
+    # Convert to dense arrays for vectorized math.
+    # Low-dimensional embeddings are already dense; for safety, handle sparse.
+    if scipy.sparse.issparse(curr_ds):
+        curr_ds_arr = curr_ds.toarray()
     else:
-        neigh_ind = None
+        curr_ds_arr = np.asarray(curr_ds)
+    curr_ds_arr = np.asarray(curr_ds_arr, dtype=np.float32)
 
-    # Local adaptive bandwidth per query via k_sigma-th neighbor distance to anchors.
-    if adaptive and n_anchor > 1:
-        k_eff = min(max(2, k_sigma), n_anchor)
-        # If we already have kNN anchors, use them to estimate local scale.
-        if neigh_ind is not None and neigh_ind.shape[1] >= k_eff:
-            neigh_for_sigma = neigh_ind[:, :k_eff]
-            d2 = np.sum((curr[:, None, :] - anch[neigh_for_sigma, :]) ** 2, axis=2)
-            # distance to k_eff-th neighbor
-            sig = np.sqrt(np.partition(d2, k_eff - 1, axis=1)[:, k_eff - 1]) + 1e-12
+    if scipy.sparse.issparse(bias):
+        bias_arr = bias.toarray()
+    else:
+        bias_arr = np.asarray(bias)
+    bias_arr = np.asarray(bias_arr, dtype=np.float32)
+
+    n = curr_ds_arr.shape[0]
+
+    # --- Fast path: precomputed kNN + base Gaussian weights (and optional CSR pattern) ---
+    if pre_nn_idx is not None and pre_g is not None:
+        nn_idx_full = np.asarray(pre_nn_idx, dtype=np.int64)
+        g_full = np.asarray(pre_g, dtype=np.float32)
+        if nn_idx_full.shape != g_full.shape:
+            raise ValueError('pre_nn_idx and pre_g must have same shape, got {} vs {}'
+                             .format(nn_idx_full.shape, g_full.shape))
+
+        m = int(np.max(nn_idx_full) + 1) if nn_idx_full.size > 0 else 0
+        if m == 0 or n == 0:
+            return np.zeros((n, bias_arr.shape[1]), dtype=np.float32)
+
+        if anchor_weights is None:
+            anchor_w = np.ones((m,), dtype=np.float32)
         else:
-            d2_full = euclidean_distances(curr, anch, squared=True)
-            sig = np.sqrt(np.partition(d2_full, k_eff - 1, axis=1)[:, k_eff - 1]) + 1e-12
-    else:
-        # Interpret sigma as a global length-scale in the exp(-d^2/(2*sigma^2)) kernel.
-        # If sigma passed in is <= 0, fall back to a small positive value.
-        sig_val = float(sigma)
-        if not np.isfinite(sig_val) or sig_val <= 0.0:
-            sig_val = 1.0
-        sig = np.full((n_query,), sig_val, dtype=float)
+            anchor_w = np.asarray(anchor_weights, dtype=np.float32)
+            if anchor_w.ndim != 1 or anchor_w.shape[0] != m:
+                raise ValueError('anchor_weights must be shape (n_anchors,), got {}'
+                                 .format(anchor_w.shape))
+            anchor_w = np.maximum(anchor_w, 0.0)
+            if float(np.sum(anchor_w)) == 0.0:
+                anchor_w = np.ones((m,), dtype=np.float32)
 
-    avg_bias = np.zeros((n_query, B.shape[1]), dtype=float)
+        k_eff = nn_idx_full.shape[1]
+
+        if pre_S is not None:
+            # CSR smoother path: avg_bias = S.dot(bias_arr), where S is (n_cells x n_anchors).
+            # Hot-loop optimized: avoid reduceat+repeat and avoid rebuilding CSR structure.
+            S = pre_S.tocsr()
+            indices = pre_indices if pre_indices is not None else S.indices
+            indptr = pre_indptr if pre_indptr is not None else S.indptr
+            row_ids = pre_row_ids
+
+            g_flat = g_full.reshape(-1).astype(np.float32, copy=False)
+            if g_flat.shape[0] != indices.shape[0]:
+                raise ValueError('pre_g flattened size must match CSR nnz: {} vs {}'
+                                 .format(g_flat.shape[0], indices.shape[0]))
+
+            data = g_flat * anchor_w[indices].astype(np.float32, copy=False)
+
+            # Fast row sums via bincount on cached row ids (k_eff is constant).
+            if row_ids is None:
+                # Fallback (shouldn't happen for cached edge path).
+                row_ids = np.repeat(np.arange(n, dtype=np.int64), int(len(indices) / n) if n > 0 else 0)
+
+            row_sums = np.bincount(
+                row_ids.astype(np.int64, copy=False),
+                weights=data.astype(np.float32, copy=False),
+                minlength=n
+            ).astype(np.float32, copy=False)
+            row_sums = handle_zeros_in_scale(row_sums, copy=False).astype(np.float32, copy=False)
+
+            inv_row = (np.float32(1.0) / row_sums).astype(np.float32, copy=False)
+            data *= inv_row[row_ids].astype(np.float32, copy=False)
+
+            S = scipy.sparse.csr_matrix((data, indices, indptr), shape=S.shape)
+            return S.dot(bias_arr).astype(np.float32, copy=False)
+
+        # Fallback: dense weighted average without CSR (still avoids kneighbors/exp).
+        w = g_full * anchor_w[nn_idx_full]
+        wsum = np.sum(w, axis=1)
+        wsum = handle_zeros_in_scale(wsum, copy=False)
+        w = (w / wsum[:, np.newaxis]).astype(np.float32, copy=False)
+
+        # Avoid 3D gather via per-dimension weighted sum (keeps memory low).
+        out = np.zeros((n, bias_arr.shape[1]), dtype=np.float32)
+        for dim in range(bias_arr.shape[1]):
+            out[:, dim] = np.sum(w * bias_arr[nn_idx_full, dim], axis=1).astype(np.float32)
+        return out
+
+    # --- Legacy path (kept for compatibility) ---
+    # Allow passing precomputed anchor array to avoid repeated conversions.
+    if match_ds_arr is None:
+        if scipy.sparse.issparse(match_ds):
+            match_ds_arr = match_ds.toarray()
+        else:
+            match_ds_arr = np.asarray(match_ds)
+    match_ds_arr = np.asarray(match_ds_arr, dtype=np.float32)
+
+    m = match_ds_arr.shape[0]
+    if m == 0 or n == 0:
+        return np.zeros(curr_ds_arr.shape, dtype=np.float32)
+
+    if anchor_weights is None:
+        anchor_w = np.ones((m,), dtype=np.float32)
+    else:
+        anchor_w = np.asarray(anchor_weights, dtype=np.float32)
+        if anchor_w.ndim != 1 or anchor_w.shape[0] != m:
+            raise ValueError('anchor_weights must be shape (n_anchors,), got {}'
+                             .format(anchor_w.shape))
+        anchor_w = np.maximum(anchor_w, 0.0)
+        if float(np.sum(anchor_w)) == 0.0:
+            anchor_w = np.ones((m,), dtype=np.float32)
+
+    k_eff = int(min(max(1, k), m))
+
+    if neigh is None:
+        neigh = NearestNeighbors(n_neighbors=k_eff)
+        neigh.fit(match_ds_arr)
 
     if batch_size is None:
-        if neigh_ind is None:
-            d2 = euclidean_distances(curr, anch, squared=True)
-            W = np.exp(-d2 / (2.0 * (sig[:, None] ** 2)))
-            W *= anchor_w[None, :]
-            numer = W.dot(B)
-            denom = lambda_shrink + np.sum(W, axis=1)
-            denom = handle_zeros_in_scale(denom, copy=False)
-            avg_bias = numer / denom[:, None]
-            return avg_bias
+        batch_size = n
 
-        # kNN anchor path.
-        denom = np.zeros((n_query,), dtype=float)
-        for q in range(n_query):
-            idx = neigh_ind[q]
-            d2 = np.sum((curr[q, None, :] - anch[idx, :]) ** 2, axis=1)
-            w = np.exp(-d2 / (2.0 * (sig[q] ** 2)))
-            w *= anchor_w[idx]
-            avg_bias[q, :] = (w[:, None] * B[idx, :]).sum(axis=0)
-            denom[q] = w.sum()
-        denom = lambda_shrink + denom
-        denom = handle_zeros_in_scale(denom, copy=False)
-        avg_bias /= denom[:, None]
-        return avg_bias
-
-    # Batched path (only for full-anchor mode).
-    if neigh_ind is not None:
-        # For simplicity, ignore batch_size when using kNN anchors (already sparse).
-        denom = np.zeros((n_query,), dtype=float)
-        for q in range(n_query):
-            idx = neigh_ind[q]
-            d2 = np.sum((curr[q, None, :] - anch[idx, :]) ** 2, axis=1)
-            w = np.exp(-d2 / (2.0 * (sig[q] ** 2)))
-            w *= anchor_w[idx]
-            avg_bias[q, :] = (w[:, None] * B[idx, :]).sum(axis=0)
-            denom[q] = w.sum()
-        denom = lambda_shrink + denom
-        denom = handle_zeros_in_scale(denom, copy=False)
-        avg_bias /= denom[:, None]
-        return avg_bias
+    avg_bias = np.zeros((n, bias_arr.shape[1]), dtype=np.float32)
 
     base = 0
-    denom = np.zeros((n_query,), dtype=float)
-    while base < n_anchor:
-        batch_idx = range(base, min(base + batch_size, n_anchor))
-        anch_b = anch[batch_idx, :]
-        d2 = euclidean_distances(curr, anch_b, squared=True)
-        W = np.exp(-d2 / (2.0 * (sig[:, None] ** 2)))
-        W *= anchor_w[np.array(list(batch_idx))][None, :]
-        avg_bias += W.dot(B[np.array(list(batch_idx)), :])
-        denom += np.sum(W, axis=1)
-        base += batch_size
+    while base < n:
+        batch_idx = np.arange(base, min(base + batch_size, n))
+        Xb = curr_ds_arr[batch_idx, :]
 
-    denom = lambda_shrink + denom
-    denom = handle_zeros_in_scale(denom, copy=False)
-    avg_bias /= denom[:, np.newaxis]
+        dists, nn_idx = neigh.kneighbors(Xb, return_distance=True)
+        dists = np.asarray(dists, dtype=np.float32)
+
+        sigma_i = np.median(dists, axis=1).astype(np.float32) * np.float32(sigma_scale)
+        sigma_i = handle_zeros_in_scale(sigma_i, copy=False)
+
+        denom = np.float32(2.0) * (sigma_i ** np.float32(2.0))
+        denom = handle_zeros_in_scale(denom, copy=False)
+        w = np.exp(-(dists ** np.float32(2.0)) / denom[:, np.newaxis]).astype(np.float32)
+
+        aw = anchor_w[nn_idx]
+        w *= aw
+
+        wsum = np.sum(w, axis=1)
+        wsum = handle_zeros_in_scale(wsum, copy=False)
+        w /= wsum[:, np.newaxis]
+
+        avg_bias[batch_idx, :] = np.einsum(
+            'ij,ijk->ik',
+            w,
+            bias_arr[nn_idx, :]
+        ).astype(np.float32)
+
+        base += batch_size
 
     return avg_bias
 
 # Compute nonlinear translation vectors between dataset
 # and a reference.
 def transform(curr_ds, curr_ref, ds_ind, ref_ind, sigma=SIGMA, cn=False,
-              batch_size=None):
+              batch_size=None, k=30, sigma_scale=1.0, shrink=1.0,
+              anchor_weights=None):
     # Compute the matching.
     match_ds = curr_ds[ds_ind, :]
     match_ref = curr_ref[ref_ind, :]
     bias = match_ref - match_ds
+
+    # For expression correction (cn=True), operate on dense to compute smoothing,
+    # and convert the final bias back to sparse.
     if cn:
         match_ds = match_ds.toarray()
         curr_ds = curr_ds.toarray()
@@ -862,13 +969,11 @@ def transform(curr_ds, curr_ref, ds_ind, ref_ind, sigma=SIGMA, cn=False,
     with warnings.catch_warnings():
         warnings.filterwarnings('error', category=RuntimeWarning)
         try:
-            # Density-adaptive, ridge-shrunk, robust bias field.
             avg_bias = batch_bias(
                 curr_ds, match_ds, bias,
                 sigma=sigma, batch_size=batch_size,
-                adaptive=True, k_sigma=max(10, min(30, len(ds_ind) if len(ds_ind) > 0 else 30)),
-                lambda_shrink=1.0, robust=True, huber_c=2.5,
-                knn_anchor=min(200, match_ds.shape[0]) if match_ds.shape[0] > 0 else None,
+                k=k, sigma_scale=sigma_scale,
+                anchor_weights=anchor_weights
             )
         except RuntimeWarning:
             sys.stderr.write('WARNING: Oversmoothing detected, refusing to batch '
@@ -882,6 +987,9 @@ def transform(curr_ds, curr_ref, ds_ind, ref_ind, sigma=SIGMA, cn=False,
                 sys.stderr.write('WARNING: Out of memory, consider lowering '
                                  'the batch_size parameter.\n')
             return csr_matrix(curr_ds.shape, dtype=float)
+
+    # Regularize correction magnitude (shrinkage).
+    avg_bias *= float(shrink)
 
     if cn:
         avg_bias = csr_matrix(avg_bias)
@@ -898,171 +1006,344 @@ def assemble(datasets, verbose=VERBOSE, view_match=False, knn=KNN,
     if len(datasets) == 1:
         return datasets
 
+    # --- Build alignment graph (edges + matches + weights) ---
+    edge_weights = None
     if alignments is None and matches is None:
-        alignments, matches = find_alignments(
+        alignments, matches, edge_weights = find_alignments(
             datasets, knn=knn, approx=approx, alpha=alpha, verbose=verbose,
         )
 
-    # --- Global, graph-based alignment (order-independent) + refinement ---
-    # Build connected components over the alignment graph; integrate each component.
+    # If matches/alignments were passed explicitly, we can't MST without weights.
+    # Fall back to uniform weights in that case.
+    if edge_weights is None:
+        edge_weights = { e: 1.0 for e in (alignments or []) }
+
+    # Build maximum spanning forest (MSF) over datasets to keep edge set sparse/stable.
     n_ds = len(datasets)
-    adj = [set() for _ in range(n_ds)]
-    for i, j in alignments:
-        adj[i].add(j)
-        adj[j].add(i)
+    parent = list(range(n_ds))
+    rank = [0] * n_ds
 
-    visited = set()
-    components = []
-    for i in range(n_ds):
-        if i in visited:
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra == rb:
+            return False
+        if rank[ra] < rank[rb]:
+            parent[ra] = rb
+        elif rank[ra] > rank[rb]:
+            parent[rb] = ra
+        else:
+            parent[rb] = ra
+            rank[ra] += 1
+        return True
+
+    edges = []
+    for (i, j) in (alignments or []):
+        w = edge_weights.get((i, j), edge_weights.get((j, i), 0.0))
+        edges.append((w, i, j))
+    edges.sort(reverse=True, key=lambda x: x[0])
+
+    mst_edges = []
+    for w, i, j in edges:
+        if union(i, j):
+            mst_edges.append((w, i, j))
+
+    if verbose:
+        if ds_names is None:
+            print('MST/MSF merge edges: {}'.format([ (i, j) for _, i, j in mst_edges ]))
+        else:
+            print('MST/MSF merge edges: {}'.format([ (ds_names[i], ds_names[j]) for _, i, j in mst_edges ]))
+
+    # --- Global symmetric iterative optimization over correction fields ---
+    # f_d is represented explicitly per cell (same shape as X_d).
+    # We iteratively compute robust, locally smoothed residual "pulls" from neighbors.
+    T = 5          # outer iterations
+    eta = 0.5      # damping / step size
+    lam = 0.05     # L2 shrink on f
+    mu = 0.10      # within-dataset Laplacian smoothing on f (structure preserving)
+    lap_k = min(15, max(5, knn))  # kNN for Laplacian smoothing
+    huber_delta = 1.0             # robust correspondence threshold in embedding units
+
+    # Ensure we operate on dense embeddings (low-dimensional space), and use float32.
+    X0 = [ np.asarray(X, dtype=np.float32) for X in datasets ]
+    f = [ np.zeros_like(X, dtype=np.float32) for X in X0 ]
+
+    # Precompute per-dataset kNN for Laplacian smoothing of f (structure preservation).
+    # Store neighbor indices only to keep it light.
+    knn_graph = []
+    for d in range(n_ds):
+        Xd = X0[d]
+        k_eff = int(min(max(2, lap_k), Xd.shape[0]))
+        neigh = NearestNeighbors(n_neighbors=k_eff)
+        neigh.fit(Xd)
+        _, idx = neigh.kneighbors(Xd, return_distance=True)
+        knn_graph.append(idx)
+
+    # Build adjacency list over MSF edges with weights.
+    adj = { i: [] for i in range(n_ds) }
+    for w, i, j in mst_edges:
+        # clamp weight into a stable range and use as confidence
+        w = float(max(0.05, min(1.0, w)))
+        adj[i].append((j, w))
+        adj[j].append((i, w))
+
+    # Helper: robust (Huber IRLS-style) weights from residual squared norms (sqrt-free for most).
+    def huber_weights_r2(r2, delta2, delta):
+        r2 = np.asarray(r2, dtype=np.float32)
+        w = np.ones_like(r2, dtype=np.float32)
+        mask = r2 > np.float32(delta2)
+        if np.any(mask):
+            w[mask] = np.float32(delta) / (np.sqrt(r2[mask]) + np.float32(1e-12))
+        return w
+
+    # Helper: fast approximate quantile via selection (no full sort).
+    def approx_quantile(u, q):
+        u = np.asarray(u, dtype=np.float32)
+        if u.size == 0:
+            return np.float32(0.0)
+        k = int(q * float(u.size - 1))
+        k = max(0, min(u.size - 1, k))
+        return np.float32(np.partition(u, k)[k])
+
+    # Helper: apply Laplacian-like smoothing to correction field f_d.
+    def smooth_field(field, neigh_idx, strength):
+        # field: (n, k), neigh_idx: (n, k_eff)
+        # simple neighbor averaging update: field <- (1-strength)*field + strength*mean(neigh)
+        if strength <= 0.0:
+            return field
+        nbr_mean = np.mean(field[neigh_idx, :], axis=1).astype(np.float32)
+        return (np.float32(1.0) - np.float32(strength)) * field + np.float32(strength) * nbr_mean
+
+    # --- Change #1/#2: cache per-edge anchors + precomputed all-cells->anchors kNN + base Gaussian weights + CSR pattern ---
+    edge_cache = {}
+    for _, d, e in mst_edges:
+        if (d, e) in matches:
+            mutual = matches[(d, e)]
+            ds_ind = np.array([ a for a, _ in mutual ], dtype=int)
+            ref_ind = np.array([ b for _, b in mutual ], dtype=int)
+        elif (e, d) in matches:
+            mutual = matches[(e, d)]
+            ds_ind = np.array([ b for _, b in mutual ], dtype=int)
+            ref_ind = np.array([ a for a, _ in mutual ], dtype=int)
+        else:
             continue
-        stack = [i]
-        comp = []
-        visited.add(i)
-        while stack:
-            u = stack.pop()
-            comp.append(u)
-            for v in adj[u]:
-                if v not in visited:
-                    visited.add(v)
-                    stack.append(v)
-        components.append(sorted(comp))
 
-    # Helper: solve global translations t_i via least squares on all MNN pairs
-    # within a component, then apply them to datasets in-place.
-    def _global_translation_init(comp, ridge=1e-3):
-        if len(comp) <= 1:
-            return
+        if ds_ind.size == 0:
+            continue
 
-        # Map dataset index -> local variable index
-        idx_map = {ds_idx: k for k, ds_idx in enumerate(comp)}
-        d = datasets[comp[0]].shape[1]
-        m = len(comp)
+        A_d = np.asarray(X0[d][ds_ind, :], dtype=np.float32)
+        A_e = np.asarray(X0[e][ref_ind, :], dtype=np.float32)
 
-        # Accumulate linear system: (A^T A + ridge I) t = A^T y
-        # Each match contributes (t_i - t_j) = (x_b^j - x_a^i)
-        L = np.zeros((m, m), dtype=float)
-        B = np.zeros((m, d), dtype=float)
+        k_eff_d = int(min(max(1, 30), A_d.shape[0]))
+        k_eff_e = int(min(max(1, 30), A_e.shape[0]))
 
-        edges_used = 0
-        for (i, j) in alignments:
-            if i not in idx_map or j not in idx_map:
-                continue
-            # Use matches in consistent orientation.
-            if (i, j) in matches:
-                pairs = list(matches[(i, j)])
-                Xi = datasets[i]
-                Xj = datasets[j]
-                # rhs is x_j - x_i
-                rhs = Xj[[b for _, b in pairs], :] - Xi[[a for a, _ in pairs], :]
-            elif (j, i) in matches:
-                pairs = list(matches[(j, i)])
-                Xi = datasets[i]
-                Xj = datasets[j]
-                # matches[(j,i)] is (a in j, b in i); need x_j - x_i
-                rhs = Xj[[a for a, _ in pairs], :] - Xi[[b for _, b in pairs], :]
-            else:
-                continue
+        neigh_d = NearestNeighbors(n_neighbors=k_eff_d).fit(A_d)
+        neigh_e = NearestNeighbors(n_neighbors=k_eff_e).fit(A_e)
 
-            if rhs.shape[0] == 0:
-                continue
+        # Precompute for all cells: neighbor anchors + distances.
+        dists_d, nn_idx_d = neigh_d.kneighbors(X0[d], return_distance=True)
+        dists_e, nn_idx_e = neigh_e.kneighbors(X0[e], return_distance=True)
+        dists_d = np.asarray(dists_d, dtype=np.float32)
+        dists_e = np.asarray(dists_e, dtype=np.float32)
+        nn_idx_d = np.asarray(nn_idx_d, dtype=np.int64)
+        nn_idx_e = np.asarray(nn_idx_e, dtype=np.int64)
 
-            rhs_mean = np.mean(rhs, axis=0)
-            ii = idx_map[i]
-            jj = idx_map[j]
-            L[ii, ii] += 1.0
-            L[jj, jj] += 1.0
-            L[ii, jj] -= 1.0
-            L[jj, ii] -= 1.0
-            B[ii, :] += rhs_mean
-            B[jj, :] -= rhs_mean
-            edges_used += 1
+        # Precompute base Gaussian weights (adaptive bandwidth from median distances).
+        sigma_i_d = np.median(dists_d, axis=1).astype(np.float32)
+        sigma_i_d = (sigma_i_d * np.float32(1.0)).astype(np.float32, copy=False)
+        sigma_i_d = handle_zeros_in_scale(sigma_i_d, copy=False)
+        denom_d = np.float32(2.0) * (sigma_i_d ** np.float32(2.0))
+        denom_d = handle_zeros_in_scale(denom_d, copy=False)
+        g_d = np.exp(-(dists_d ** np.float32(2.0)) / denom_d[:, None]).astype(np.float32)
 
-        if edges_used == 0:
-            return
+        sigma_i_e = np.median(dists_e, axis=1).astype(np.float32)
+        sigma_i_e = (sigma_i_e * np.float32(1.0)).astype(np.float32, copy=False)
+        sigma_i_e = handle_zeros_in_scale(sigma_i_e, copy=False)
+        denom_e = np.float32(2.0) * (sigma_i_e ** np.float32(2.0))
+        denom_e = handle_zeros_in_scale(denom_e, copy=False)
+        g_e = np.exp(-(dists_e ** np.float32(2.0)) / denom_e[:, None]).astype(np.float32)
 
-        # Anchor one dataset (largest) to remove gauge freedom.
-        root = max(comp, key=lambda k: datasets[k].shape[0])
-        root_i = idx_map[root]
+        # CSR sparsity pattern for smoother S (data filled each iteration).
+        indptr_d = np.arange(0, nn_idx_d.size + 1, nn_idx_d.shape[1], dtype=np.int64)
+        indptr_e = np.arange(0, nn_idx_e.size + 1, nn_idx_e.shape[1], dtype=np.int64)
+        indices_d = nn_idx_d.reshape(-1)
+        indices_e = nn_idx_e.reshape(-1)
 
-        # Add ridge and strong anchor constraint for root: t_root = 0
-        M = L + ridge * np.eye(m)
-        M[root_i, :] = 0.0
-        M[:, root_i] = 0.0
-        M[root_i, root_i] = 1.0
-        B[root_i, :] = 0.0
-
-        try:
-            T = np.linalg.solve(M, B)  # (m, d)
-        except np.linalg.LinAlgError:
-            return
-
-        for ds_idx in comp:
-            t = T[idx_map[ds_idx], :]
-            datasets[ds_idx] = np.asarray(datasets[ds_idx] + t)
-
-    # Apply global translation initialization per component.
-    for comp in components:
-        _global_translation_init(comp, ridge=1e-3)
-
-    # Iterative refinement: recompute MNNs after initial alignment and apply
-    # conservative nonlinear corrections using the robust, adaptive transform().
-    # A small number of rounds reduces order effects without heavy cost.
-    n_rounds = 2
-    for r in range(n_rounds):
-        if verbose:
-            print('Refinement round {}'.format(r + 1))
-
-        # Recompute alignments/matches on current (partially corrected) coordinates.
-        alignments_r, matches_r = find_alignments(
-            datasets, knn=knn, approx=approx, alpha=alpha, verbose=0,
-            prenormalized=True,
+        # CSR pattern (data filled each iteration).
+        S_d = scipy.sparse.csr_matrix(
+            (np.ones(indices_d.size, dtype=np.float32), indices_d, indptr_d),
+            shape=(X0[d].shape[0], A_d.shape[0]),
+        )
+        S_e = scipy.sparse.csr_matrix(
+            (np.ones(indices_e.size, dtype=np.float32), indices_e, indptr_e),
+            shape=(X0[e].shape[0], A_e.shape[0]),
         )
 
-        for (i, j) in alignments_r:
-            # Apply one-sided correction toward the larger dataset to reduce drift.
-            if datasets[i].shape[0] >= datasets[j].shape[0]:
-                src, ref = j, i
-            else:
-                src, ref = i, j
+        # Cached row ids for fast normalization without np.repeat(inv_row, np.diff(indptr)).
+        row_ids_d = np.repeat(np.arange(X0[d].shape[0], dtype=np.int64), nn_idx_d.shape[1])
+        row_ids_e = np.repeat(np.arange(X0[e].shape[0], dtype=np.int64), nn_idx_e.shape[1])
 
-            # Build indices for src->ref matches.
-            if (src, ref) in matches_r:
-                pairs = list(matches_r[(src, ref)])
-                ds_ind = [a for a, _ in pairs]
-                ref_ind = [b for _, b in pairs]
-            elif (ref, src) in matches_r:
-                pairs = list(matches_r[(ref, src)])
-                ds_ind = [b for _, b in pairs]
-                ref_ind = [a for a, _ in pairs]
-            else:
+        edge_cache[(d, e)] = {
+            'ds_ind': ds_ind,
+            'ref_ind': ref_ind,
+            'A_d': A_d,
+            'A_e': A_e,
+            'neigh_d': neigh_d,
+            'neigh_e': neigh_e,
+            'nn_idx_d': nn_idx_d,
+            'nn_idx_e': nn_idx_e,
+            'g_d': g_d,
+            'g_e': g_e,
+            'S_d': S_d,
+            'S_e': S_e,
+            'row_ids_d': row_ids_d,
+            'row_ids_e': row_ids_e,
+            'indptr_d': indptr_d,
+            'indptr_e': indptr_e,
+            'indices_d': indices_d,
+            'indices_e': indices_e,
+        }
+
+    for it in range(T):
+        if verbose:
+            print('Global integration iteration {}/{}'.format(it + 1, T))
+
+        Xcorr = [ (X0[d] + f[d]).astype(np.float32, copy=False) for d in range(n_ds) ]
+
+        df = [ np.zeros_like(X, dtype=np.float32) for X in X0 ]
+        wsum = [ 0.0 for _ in range(n_ds) ]
+
+        # Per-dataset clipping caps (computed after df accumulation each iter).
+        clip_caps = [ None for _ in range(n_ds) ]
+        eps = np.float32(1e-12)
+        delta2 = np.float32(huber_delta) * np.float32(huber_delta)
+
+        for w_edge, d, e in mst_edges:
+            w_edge = float(max(0.05, min(1.0, w_edge)))
+
+            cache = edge_cache.get((d, e), None)
+            if cache is None:
                 continue
 
-            if len(ds_ind) == 0:
+            ds_ind = cache['ds_ind']
+            ref_ind = cache['ref_ind']
+            if ds_ind.size == 0:
                 continue
 
-            if verbose > 1:
-                if ds_names is None:
-                    print('Refining {} -> {}'.format(src, ref))
-                else:
-                    print('Refining {} -> {}'.format(ds_names[src], ds_names[ref]))
+            Xd_corr = Xcorr[d]
+            Xe_corr = Xcorr[e]
 
-            bias = transform(
-                datasets[src], datasets[ref],
-                ds_ind, ref_ind, sigma=sigma, batch_size=batch_size
+            Rd = (Xe_corr[ref_ind, :] - Xd_corr[ds_ind, :]).astype(np.float32, copy=False)
+            Re = (Xd_corr[ds_ind, :] - Xe_corr[ref_ind, :]).astype(np.float32, copy=False)
+
+            # Change #5: adaptive per-edge robust threshold (delta) from current residual scale.
+            # Use median ||R|| with a safety floor; compute via partition on squared norms.
+            r2d = np.sum(Rd * Rd, axis=1).astype(np.float32, copy=False)
+            r2e = np.sum(Re * Re, axis=1).astype(np.float32, copy=False)
+
+            # Approx median of ||R|| from r2 using partition (no sort).
+            if r2d.size > 0:
+                med_r2_d = approx_quantile(r2d, 0.5)
+                med_r_d = np.sqrt(med_r2_d).astype(np.float32)
+            else:
+                med_r_d = np.float32(0.0)
+            delta_edge = float(max(0.25, 2.0 * float(med_r_d)))
+            delta2_edge = np.float32(delta_edge * delta_edge)
+
+            wd = huber_weights_r2(r2d, delta2_edge, delta_edge)
+            we = huber_weights_r2(r2e, delta2_edge, delta_edge)
+
+            # Change #1/#2/#3: Use precomputed neighbors + base Gaussian weights + CSR smoother,
+            # and pass cached CSR internals for faster normalization.
+            upd_d = batch_bias(
+                X0[d], None, Rd,
+                batch_size=batch_size, sigma=sigma,
+                k=30, sigma_scale=1.0, anchor_weights=wd,
+                pre_nn_idx=cache['nn_idx_d'], pre_g=cache['g_d'],
+                pre_S=cache['S_d'], pre_row_ids=cache['row_ids_d'],
+                pre_indptr=cache['indptr_d'], pre_indices=cache['indices_d']
             )
-            datasets[src] = np.asarray(datasets[src] + bias)
+            upd_e = batch_bias(
+                X0[e], None, Re,
+                batch_size=batch_size, sigma=sigma,
+                k=30, sigma_scale=1.0, anchor_weights=we,
+                pre_nn_idx=cache['nn_idx_e'], pre_g=cache['g_e'],
+                pre_S=cache['S_e'], pre_row_ids=cache['row_ids_e'],
+                pre_indptr=cache['indptr_e'], pre_indices=cache['indices_e']
+            )
 
-            if expr_datasets:
-                # Apply correction to expression space using same anchors.
-                bias_expr = transform(
-                    expr_datasets[src], expr_datasets[ref],
-                    ds_ind, ref_ind, sigma=sigma, cn=True, batch_size=batch_size
-                )
-                expr_datasets[src] = expr_datasets[src] + bias_expr
+            # Change #4: clip per-cell update magnitudes using selection (no percentile sort).
+            u_d = np.sqrt(np.sum(upd_d * upd_d, axis=1)).astype(np.float32, copy=False)
+            cap_d = approx_quantile(u_d, 0.95)
+            if cap_d > 0:
+                scale_d = np.minimum(np.float32(1.0), cap_d / (u_d + eps)).astype(np.float32, copy=False)
+                upd_d = (upd_d * scale_d[:, None]).astype(np.float32, copy=False)
 
-            if view_match:
-                plot_mapping(datasets[src], datasets[ref], ds_ind, ref_ind)
+            u_e = np.sqrt(np.sum(upd_e * upd_e, axis=1)).astype(np.float32, copy=False)
+            cap_e = approx_quantile(u_e, 0.95)
+            if cap_e > 0:
+                scale_e = np.minimum(np.float32(1.0), cap_e / (u_e + eps)).astype(np.float32, copy=False)
+                upd_e = (upd_e * scale_e[:, None]).astype(np.float32, copy=False)
+
+            df[d] += np.float32(w_edge) * upd_d
+            df[e] += np.float32(w_edge) * upd_e
+            wsum[d] += w_edge
+            wsum[e] += w_edge
+
+        for d in range(n_ds):
+            if wsum[d] > 0:
+                step = df[d] / np.float32(wsum[d])
+            else:
+                step = np.float32(0.0)
+
+            f[d] = (np.float32(1.0) - np.float32(eta) * np.float32(lam)) * f[d] + np.float32(eta) * step
+            f[d] = smooth_field(f[d], knn_graph[d], mu)
+
+    # Apply final corrections to embeddings.
+    for d in range(n_ds):
+        datasets[d] = np.asarray(X0[d] + f[d])
+
+    # Change #5: Reduce expression-correction densification (contain blow-up).
+    # Practical compromise: a single pass, correct only matched cells (anchors),
+    # avoid any toarray() on full expression matrices and avoid batch_bias in gene space.
+    if expr_datasets:
+        Texpr = 1
+        for _ in range(Texpr):
+            for w_edge, d, e in mst_edges:
+                w_edge = float(max(0.05, min(1.0, w_edge)))
+                cache = edge_cache.get((d, e), None)
+                if cache is None:
+                    continue
+
+                ds_ind = cache['ds_ind']
+                ref_ind = cache['ref_ind']
+                if ds_ind.size == 0:
+                    continue
+
+                # Robust weights computed in embedding space using final corrected geometry.
+                Xd_corr = np.asarray(datasets[d], dtype=np.float32)
+                Xe_corr = np.asarray(datasets[e], dtype=np.float32)
+                Rd = Xe_corr[ref_ind, :] - Xd_corr[ds_ind, :]
+                r2d = np.sum(Rd * Rd, axis=1).astype(np.float32, copy=False)
+                wd = huber_weights_r2(r2d, delta2, huber_delta).astype(np.float32, copy=False)
+                we = wd  # symmetric for anchor-only correction
+
+                # Anchor expression residuals.
+                Xd_anchor = expr_datasets[d][ds_ind, :]
+                Xe_anchor = expr_datasets[e][ref_ind, :]
+                bias_d = Xe_anchor - Xd_anchor
+                bias_e = -bias_d
+
+                # Apply robust, per-anchor shrink (no smoothing to all cells in gene space).
+                wd_col = wd[:, None]
+                we_col = we[:, None]
+                expr_datasets[d][ds_ind, :] = expr_datasets[d][ds_ind, :] + (w_edge * eta) * bias_d.multiply(wd_col)
+                expr_datasets[e][ref_ind, :] = expr_datasets[e][ref_ind, :] + (w_edge * eta) * bias_e.multiply(we_col)
 
     return datasets
 

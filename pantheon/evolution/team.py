@@ -452,6 +452,32 @@ class EvolutionTeam:
 
                 logger.info(f"Resumed from iteration {start_iteration}, best_score={best_score:.4f}")
                 logger.info(f"Database has {len(self.database.programs)} programs")
+
+                # Find initial_program (order=0) and best_program from database
+                initial_program = None
+                best_program = None
+                best_program_id = self.database.best_program_id
+
+                for prog in self.database.programs.values():
+                    if prog.order == 0:
+                        initial_program = prog
+                    if prog.id == best_program_id:
+                        best_program = prog
+
+                if initial_program is None:
+                    # Fallback: use first program added
+                    initial_program = min(self.database.programs.values(), key=lambda p: p.order)
+                if best_program is None:
+                    # Fallback: find program with highest fitness
+                    best_program = max(
+                        self.database.programs.values(),
+                        key=lambda p: p.fitness_score(
+                            self.config.feature_dimensions,
+                            self.database.metric_ranges,
+                            self.config.function_weight,
+                            self.config.llm_weight,
+                        )
+                    )
             else:
                 logger.warning(f"No evolution_state.json found in {resume_from}, starting fresh")
                 resume_from = None
