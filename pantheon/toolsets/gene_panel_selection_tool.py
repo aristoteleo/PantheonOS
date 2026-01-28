@@ -326,7 +326,7 @@ class GenePanelToolSet(ToolSet):
             return {"error": str(e)}
 
 # ------
-# annotate adata (CellTypist) — NO adata saving, labels only
+# annotate adata (CellTypist)
 # ------
 
     @tool
@@ -335,35 +335,34 @@ class GenePanelToolSet(ToolSet):
         self,
         adata_path: Optional[str] = None,
         model_path: str = "",                  # trained CellTypist .pkl
-        over_clustering_key: str = "leiden",   # optional
-        majority_voting: str = "true",
+        over_clustering_key: str = "leiden",   # default = leiden (kept as argument)
         prediction_key: str = "celltypist_label",
         out_labels_name: str = "celltypist_labels.csv",
         workdir: Optional[str] = None,
     ) -> dict:
-        """
-        Annotate a dataset with CellTypist 
+        """Annotate cell types in a dataset using a trained CellTypist model.
 
-        The function:
-        - loads the given `.h5ad`
-        - runs CellTypist annotation
-        - writes predicted labels to a CSV
-        - records exactly which dataset the labels correspond to
+        This tool:
+        - loads a `.h5ad` dataset
+        - runs CellTypist annotation with majority voting enabled
+        - uses an existing over-clustering (e.g. Leiden) for voting
+        - saves the final predicted cell-type labels to a CSV file
 
         Args:
-            adata_path (str): Path to `.h5ad` dataset.
-            model_path (str): Path to trained CellTypist `.pkl`.
-            over_clustering_key (str): Optional `adata.obs` key for over-clustering (e.g. "leiden").
-            majority_voting (str): "true" to enable majority voting.
-            prediction_key (str): Column name used in the output CSV.
-            out_labels_name (str): Output CSV filename.
-            workdir (str): Base directory for outputs.
+            adata_path (str): Path to the `.h5ad` dataset. If None, uses default dataset.
+            model_path (str): Path to a trained CellTypist `.pkl` model.
+            over_clustering_key (str): Column in `adata.obs` used for over-clustering
+                                    during majority voting (default: "leiden").
+            prediction_key (str): Name of the column storing predicted labels in the output CSV.
+            out_labels_name (str): Filename of the saved labels CSV.
+            workdir (str): Directory to save results (default = default_workdir).
 
         Returns:
             dict: {
                 "used_dataset": str,
                 "model_used": str,
                 "prediction_key": str,
+                "over_clustering_key": str,
                 "n_cells": int,
                 "saved_to": {
                     "labels": str,
@@ -382,21 +381,19 @@ class GenePanelToolSet(ToolSet):
             logger.info("=" * 60)
 
             # --- Resolve paths ---
-            path = adata_path or self.default_adata_path
+            path = adata_path or getattr(self, "default_adata_path", None)
             if not path:
-                return {"error": "No adata_path provided."}
+                return {"error": "No adata_path provided (and no default_adata_path set)."}
             if not model_path or not os.path.exists(model_path):
                 return {"error": f"Invalid model_path: {model_path}"}
 
-            workdir = workdir or self.default_workdir
+            workdir = workdir or getattr(self, "default_workdir", ".")
             out_dir = os.path.join(workdir, "gene_panels", "celltypist")
             os.makedirs(out_dir, exist_ok=True)
 
-            majority_voting = str(majority_voting).lower() in ("true", "1", "yes")
-
             logger.info(f"Dataset: {path}")
             logger.info(f"Model: {model_path}")
-            logger.info(f"majority_voting={majority_voting}, over_clustering='{over_clustering_key}'")
+            logger.info(f"majority_voting=True, over_clustering_key='{over_clustering_key}'")
 
             # --- Load adata ---
             logger.info("STEP 1: Loading adata...")
@@ -405,44 +402,74 @@ class GenePanelToolSet(ToolSet):
                 adata = adata.to_memory()
             logger.info(f"✓ Loaded adata: {adata.shape}")
 
-            # --- Validate over-clustering ---
-            over_clustering = None
-            if over_clustering_key and over_clustering_key in adata.obs.columns:
-                over_clustering = over_clustering_key
-                logger.info(f"✓ Using over_clustering='{over_clustering}'")
+            # --- Validate over-clustering key ---
+# --- Ensure over-clustering exists (compute Leiden if missing) ---
+            if over_clustering_key not in adata.obs.columns:
+                logger.info(
+                    f"over_clustering_key '{over_clustering_key}' not found → computing Leiden clustering"
+                )
 
-            # --- Annotate ---
+                import scanpy as sc
+
+                # Minimal, robust defaults
+                if "X_pca" not in adata.obsm:
+                    sc.pp.pca(adata, n_comps=50)
+
+                if "neighbors" not in adata.uns:
+                    sc.pp.neighbors(adata, n_neighbors=15)
+
+                sc.tl.leiden(
+                    adata,
+                    resolution=1.0,
+                    key_added=over_clustering_key,
+                )
+
+                logger.info(
+                    f"✓ Computed Leiden clustering stored in adata.obs['{over_clustering_key}']"
+                )
+      
+            # --- Annotate (majority voting always ON) ---
             logger.info("STEP 2: Running CellTypist...")
             t0 = time.time()
             preds = celltypist.annotate(
                 adata,
                 model=model_path,
-                majority_voting=majority_voting,
-                over_clustering=over_clustering,
+                majority_voting=True,
+                over_clustering=over_clustering_key,
             )
             logger.info(f"✓ Annotation done in {time.time() - t0:.2f}s")
 
-            # --- Extract labels (no AnnData duplication) ---
-            if hasattr(preds, "predicted_labels"):
-                labels = preds.predicted_labels
-            else:
-                dfp = preds.to_df()
-                labels = dfp.iloc[:, 0]
+            # --- Extract FINAL labels (1D, safe) ---
+            if not hasattr(preds, "predicted_labels"):
+                return {"error": "CellTypist output missing 'predicted_labels'."}
+
+            df = preds.predicted_labels
+            if "majority_voting" not in df.columns:
+                return {"error": "'majority_voting' column missing from CellTypist output."}
+
+            labels = (
+                pd.Series(df["majority_voting"], index=adata.obs_names)
+                .astype(str)
+                .values
+            )
 
             # --- Save labels CSV ---
             labels_path = os.path.join(out_dir, out_labels_name)
-            pd.DataFrame({
-                "cell_id": adata.obs_names,
-                prediction_key: labels.astype(str).values
-            }).to_csv(labels_path, index=False)
+            pd.DataFrame(
+                {
+                    "cell_id": adata.obs_names,
+                    prediction_key: labels,
+                }
+            ).to_csv(labels_path, index=False)
 
-            # --- Save minimal metadata for traceability ---
+            # --- Save minimal metadata (traceability) ---
             meta_path = labels_path.replace(".csv", "_meta.txt")
             with open(meta_path, "w") as f:
                 f.write(f"adata_path: {path}\n")
                 f.write(f"model_path: {model_path}\n")
-                f.write(f"over_clustering: {over_clustering}\n")
-                f.write(f"majority_voting: {majority_voting}\n")
+                f.write(f"over_clustering_key: {over_clustering_key}\n")
+                f.write("majority_voting: true\n")
+                f.write("label_source: majority_voting\n")
                 f.write(f"prediction_key: {prediction_key}\n")
                 f.write(f"n_cells: {adata.n_obs}\n")
 
@@ -457,6 +484,8 @@ class GenePanelToolSet(ToolSet):
                 "used_dataset": path,
                 "model_used": model_path,
                 "prediction_key": prediction_key,
+                "label_source": "majority_voting",
+                "over_clustering_key": over_clustering_key,
                 "n_cells": int(adata.n_obs),
                 "saved_to": {
                     "labels": labels_path,
@@ -469,6 +498,8 @@ class GenePanelToolSet(ToolSet):
             logger.error("CELLTYPIST ANNOTATE - FAILED")
             logger.error(traceback.format_exc())
             return {"error": str(e)}
+
+
 
     
     #---------------------------------------------------------------------------
