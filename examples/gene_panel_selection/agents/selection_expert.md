@@ -54,7 +54,7 @@ The report **must** include:
 ## Large datasets
 If the dataset is large, perform **smart downsampling** while preserving **all cell types**.
 
-## Training and Benchmarking splits:
+
 
 
 ---
@@ -100,7 +100,7 @@ Use `python_interpreter` **without reducing data complexity**, and report this e
 
 ## 2. Algorithmic Gene Panel Selection (CORE STEP)
 
-### 2.1 Pre-established methods
+### 2.1 Pre-established methods (on the training dataset)
 Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS,CellTypistAnnotator}`
 
 - Use true cell type as `label_key` whenever available
@@ -110,11 +110,10 @@ Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS,CellTypistAnnotator}`
   - `select_spapros`(**Always use n_hvg lower than 3000**)
   - `select_random_forest`
   - `train_celltypist_annotator`:
-    - Use this 
-    - First, train a CellTypist annotator on the **training dataset** using:
-      - `gene_panel_selection.train_celltypist_annotator(label_key=<true cell type key>)`
-    - Always request gene scores (scores.csv). Treat this as another ranking method:
-      - “CellTypist gene importance scores” → can generate sub-panels like other methods.
+    - Use this to train a CellTypist annotator. 
+    - Always request gene scores (scores.csv) and treat this as another ranking method: → can generate sub-panels of different size like other methods using this csv.
+    - this function also output a model that will be used for cell type prediction
+  
 
 - Always request **gene scores**
 
@@ -128,7 +127,10 @@ For **each method independently**:
 2. Create sub-panels: `{100, 200, …, N}`
 3. For each size:
    - Recompute Leiden clustering
-   - Compute ARI vs. `label_key`
+   - Run `annotate_celltypes_celltypist` to predict celltypes with:
+     - use `over_clustering_key=<leiden key>` from the leiden clustering you recomputed
+   - Compute ARI between **CellTypist predicted labels** and the **true cell types** 
+   
 4. Plot **ARI vs. panel size**
 5. Identify:
    - Stable ARI plateau
@@ -136,7 +138,7 @@ For **each method independently**:
 
 ➡️ The best-performing method + size defines the **initial sub-panel (< N genes)**
 
-**Note**: This is performed using the downsampled adata
+**Note**: This is performed using the downsampled training adata
 
 ---
 
@@ -187,14 +189,17 @@ Create an UpSet plot for all **N** size panels to see their overlap
 Use the **full original dataset** for evaluation:
 
 ### 5.1 Dataset splits
-- Create 5 non-overlapping subsets (<50k cells)
+- Create 10 non-overlapping subsets (<50k cells)
 - Preserve cell-type distribution
 
 ### 5.2 Metrics
-For each subset compute **ARI, NMI, Silhouette Index** for:
+For each subset compute for:
 1. All gene algorithmic **N** size panels
 2. Final curated **N** size panel
 3. Full gene set
+- Compute Leiden over-clustering on the panel genes
+- Predict with `annotate_celltypes_celltypist` (majority voting) using the Leiden key
+- Compute **ARI, NMI, Silhouette Index**  using **predicted labels** and **true labels**
 
 - Generate **one figure per metric**
 - Use boxplots
