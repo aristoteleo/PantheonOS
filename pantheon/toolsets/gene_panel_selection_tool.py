@@ -91,15 +91,21 @@ class GenePanelToolSet(ToolSet):
         logger.info(
             f"GenePanelToolSet initialized (name={name}, default_adata_path={default_adata_path}, default_workdir={default_workdir})"
         )
-import os
-from typing import Optional
-from pantheon.toolset import ToolSet, tool
-from pantheon.utils.log import logger
-
-# Tu gardes ton unwrap_llm_dict_call tel quel.
-
-class GenePanelToolSet(ToolSet):
-    # ... __init__ + _coerce déjà présents chez toi ...
+        
+    def _coerce(self, value, default, cast):
+        """
+        Convert values safely.
+        - If value is None, empty string, or 'none' => return default.
+        - Otherwise cast(value) (e.g., int, float).
+        """
+        if value is None:
+            return default
+        if isinstance(value, str) and value.strip().lower() in ("", "none", "null"):
+            return default
+        try:
+            return cast(value)
+        except:
+            return default
 
     # ---------------------------------------------------------------------- #
     #  CellTypist - Train an annotator model
@@ -121,7 +127,7 @@ class GenePanelToolSet(ToolSet):
         workdir: Optional[str] = None,
     ) -> dict:
         """
-        Train a CellTypist annotator and export a SpaPROS-like score file.
+        Train a CellTypist annotator and export a score file.
 
         Args:
             adata_path (str): Path to `.h5ad`. If None, uses default dataset.
@@ -270,7 +276,7 @@ class GenePanelToolSet(ToolSet):
             n_genes_model = int(score_df.shape[0])
 
             # --- Save ONLY scores.csv ---
-            logger.info("STEP 6: Saving scores file (SpaPROS-like)...")
+            logger.info("STEP 6: Saving scores file ...")
             scores_path = os.path.join(out_dir, f"{model_name}_scores.csv")
             score_df.to_csv(scores_path, index=False)
             logger.info(f"✓ Saved scores to: {scores_path}")
