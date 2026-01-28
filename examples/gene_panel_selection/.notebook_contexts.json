@@ -449,7 +449,34 @@
       "notebook_title": "New Notebook",
       "kernel_spec": "python3",
       "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/dataset_understanding.ipynb::f3d336a4-26af-44bf-83fc-1305de94d03a": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/dataset_understanding.ipynb",
+      "session_id": "f3d336a4-26af-44bf-83fc-1305de94d03a",
+      "kernel_session_id": "b8e8ebdd-c77f-44c0-b301-413d46da6fac",
+      "created_at": "2026-01-28T07:26:40.944810",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/phase2/01_dataset_preprocessing.ipynb::f3d336a4-26af-44bf-83fc-1305de94d03a": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/phase2/01_dataset_preprocessing.ipynb",
+      "session_id": "f3d336a4-26af-44bf-83fc-1305de94d03a",
+      "kernel_session_id": "8055af62-a814-4036-9691-21d51f3dea7a",
+      "created_at": "2026-01-28T07:34:58.019297",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/phase2/02_per_method_scoring.ipynb::f3d336a4-26af-44bf-83fc-1305de94d03a": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/phase2/02_per_method_scoring.ipynb",
+      "session_id": "f3d336a4-26af-44bf-83fc-1305de94d03a",
+      "kernel_session_id": "f60dc505-e82c-47ff-930f-de0e7676ad0f",
+      "created_at": "2026-01-28T08:41:15.084995",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
     }
   },
-  "last_updated": "2025-12-18T05:47:09.210452"
+  "last_updated": "2026-01-28T08:41:15.085128"
 }
