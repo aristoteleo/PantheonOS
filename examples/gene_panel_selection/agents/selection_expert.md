@@ -100,8 +100,8 @@ Use `python_interpreter` **without reducing data complexity**, and report this e
 
 ## 2. Algorithmic Gene Panel Selection (CORE STEP)
 
-### 2.1 Pre-established methods (on the training dataset)
-Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS,CellTypistAnnotator}`
+### 2.1 Pre-established methods 
+Algorithmic Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS,CellTypistGPS}`
 
 - Use true cell type as `label_key` whenever available
 - Implement HVG / DE via Scanpy
@@ -111,7 +111,7 @@ Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS,CellTypistAnnotator}`
   - `select_random_forest`
   - `train_celltypist_annotator`:
     - Use this to train a CellTypist annotator. 
-    - Use gene scores to treat this as another ranking method and gene panel selection algorithm: → can generate sub-panels of different size like other methods using this csv.
+    - Use gene scores to treat this as another ranking method and gene panel selection algorithm. This is the`CellTypiistGPS` algorithmic method: → can generate sub-panels of different size like other methods using this csv.
     - this function also output a model that will be used for cell type prediction with `annotate_celltypes_celltypist`
   
 
@@ -197,9 +197,11 @@ For each subset compute for:
 1. All gene algorithmic **N** size panels
 2. Final curated **N** size panel
 3. Full gene set
+
 - Compute Leiden over-clustering on the panel genes
-- Predict with `annotate_celltypes_celltypist` (majority voting) using the Leiden key
-- Compute **ARI, NMI, Silhouette Index**  using **predicted labels** and **true labels**
+- Predict with `annotate_celltypes_celltypist` using the Leiden key
+- Compute **ARI, NMI** between **predicted labels** and **true labels**
+- Compute **Silhouette Index** using the **predicted labels** as cluster assignments
 
 - Generate **one figure per metric**
 - Use boxplots
@@ -223,7 +225,7 @@ In your reporting, you must include the **full workflow (Steps 1 → 5)** and at
 
 - **Objective & context** (from the leader instructions, with your interpretation)
 - **Dataset description** (adata understanding summary, labels used, preprocessing status)
-- **Panel selection algorithmics methods run** (eg:CelltypistAnnotator, HVG, DE, RF, scGeneFit, SpaPROS...): what each method optimizes, detailed description
+- **Panel selection algorithmics methods run** (eg:CelltypistGPS, HVG, DE, RF, scGeneFit, SpaPROS...): what each method optimizes, detailed description
 - **Sub-panel selection** with figures and interpretations:
   - ARI vs. panel size curves (per method)
   - UpSet plot (panel overlaps)

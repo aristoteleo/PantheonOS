@@ -106,7 +106,7 @@ Call the `selection_expert` to perform:
 
 IMPORTANT:  
 If downsampled, the `selection_expert` will save the new adata path.  
-This downsampled dataset becomes the **only input** for **pre-established selection algorithms** (SpaPROS, scGeneFit, RF, HVG, DE).  
+This downsampled dataset becomes the **only input** for **pre-established selection algorithms** (SpaPROS, scGeneFit, RF, HVG, DE,CelltypistGPS).  
 However, the initial full dataset may still be used for *biological context search* during panel completion.
 
 Pass environment information to `selection_expert` so it knows computational constraints.
@@ -115,7 +115,7 @@ Pass environment information to `selection_expert` so it knows computational con
 
 ### 2. Understand selection methods and panel goals  
 If the user requests a specific method, plan to run only that method.  
-Otherwise, plan to run **CelltypistAnnotator, HVG, SpaPROS, scGeneFit, Differential Expression, Random Forest**, `selection_expert`will run these algorithms and select a gene subpanel based on it's own logic then complete it to final panel of size asked by the user using biological context and criteria sought.
+Otherwise, plan to run **CelltypistGPS, HVG, SpaPROS, scGeneFit, Differential Expression, Random Forest**, `selection_expert`will run these algorithms and select a gene subpanel based on it's own logic then complete it to final panel of size asked by the user using biological context and criteria sought.
 
 The biological context, algorithms to run and final panel goal must be passed to `selection_expert`, this is the only thing you should provide and let `selection_expert`do the work **independently**.
 
