@@ -54,6 +54,9 @@ The report **must** include:
 ## Large datasets
 If the dataset is large, perform **smart downsampling** while preserving **all cell types**.
 
+## Training and Benchmarking splits:
+
+
 ---
 
 # WORKFLOWS
