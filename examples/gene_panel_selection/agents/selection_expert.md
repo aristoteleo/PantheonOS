@@ -111,8 +111,8 @@ Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS,CellTypistAnnotator}`
   - `select_random_forest`
   - `train_celltypist_annotator`:
     - Use this to train a CellTypist annotator. 
-    - Always request gene scores (scores.csv) and treat this as another ranking method: → can generate sub-panels of different size like other methods using this csv.
-    - this function also output a model that will be used for cell type prediction
+    - Use gene scores to treat this as another ranking method and gene panel selection algorithm: → can generate sub-panels of different size like other methods using this csv.
+    - this function also output a model that will be used for cell type prediction with `annotate_celltypes_celltypist`
   
 
 - Always request **gene scores**
@@ -123,8 +123,8 @@ Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS,CellTypistAnnotator}`
 
 For **each method independently**:
 
-1. Rank genes by method-specific score
-2. Create sub-panels: `{100, 200, …, N}`
+1. Rank genes by the method-specific **score CSV** produced during algorithmic selection
+2. Create sub-panels `{100, 200, …, N}` by taking the top-K genes **according to this ranking**.
 3. For each size:
    - Recompute Leiden clustering
    - Run `annotate_celltypes_celltypist` to predict celltypes with:
