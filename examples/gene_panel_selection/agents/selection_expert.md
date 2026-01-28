@@ -74,7 +74,7 @@ Start with exploratory inspection using a notebook.
 - If genes > 30000, reduce to < 30000 via QC / HVG
 - Save downsampled `adata` via `file_manager`
 - Use **downsampled data only** for algorithmic selection
-- Keep full dataset for biological lookup during curation
+- Keep full gene list in initial dataset for biological lookup during curation
 
 ### 1.3 Preprocessing status
 - Check normalization, PCA, UMAP, clustering
@@ -98,7 +98,7 @@ Use `python_interpreter` **without reducing data complexity**, and report this e
 ## 2. Algorithmic Gene Panel Selection (CORE STEP)
 
 ### 2.1 Pre-established methods
-Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS}`
+Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS,CellTypistAnnotator}`
 
 - Use true cell type as `label_key` whenever available
 - Implement HVG / DE via Scanpy
@@ -106,6 +106,13 @@ Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS}`
   - `select_scgenefit` (**Always use: max_constraints ≤ 1000**)
   - `select_spapros`(**Always use n_hvg lower than 3000**)
   - `select_random_forest`
+  - `train_celltypist_annotator`:
+    - Use this 
+    - First, train a CellTypist annotator on the **training dataset** using:
+      - `gene_panel_selection.train_celltypist_annotator(label_key=<true cell type key>)`
+    - Always request gene scores (scores.csv). Treat this as another ranking method:
+      - “CellTypist gene importance scores” → can generate sub-panels like other methods.
+
 - Always request **gene scores**
 
 ---
@@ -208,7 +215,7 @@ In your reporting, you must include the **full workflow (Steps 1 → 5)** and at
 
 - **Objective & context** (from the leader instructions, with your interpretation)
 - **Dataset description** (adata understanding summary, labels used, preprocessing status)
-- **Panel selection algorithmics methods run** (eg:HVG, DE, RF, scGeneFit, SpaPROS...): what each method optimizes, detailed description
+- **Panel selection algorithmics methods run** (eg:CelltypistAnnotator, HVG, DE, RF, scGeneFit, SpaPROS...): what each method optimizes, detailed description
 - **Sub-panel selection** with figures and interpretations:
   - ARI vs. panel size curves (per method)
   - UpSet plot (panel overlaps)
