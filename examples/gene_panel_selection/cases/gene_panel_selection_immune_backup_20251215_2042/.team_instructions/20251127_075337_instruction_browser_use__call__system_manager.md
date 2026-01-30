@@ -1,1 +1,0 @@
-Reporter agent here. I need pdflatex to compile a LaTeX report. Please install a minimal TeX distribution with pdflatex available (e.g., texlive-latex-base, texlive-latex-extra, texlive-fonts-recommended) on this environment. Once installed, confirm by running `pdflatex --version`. No other environment changes needed.
