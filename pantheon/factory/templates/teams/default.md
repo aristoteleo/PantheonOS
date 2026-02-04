@@ -21,7 +21,6 @@ leader:
     - task
     - code
     - integrated_notebook
-    - mcp:context7
     - web
 ---
 

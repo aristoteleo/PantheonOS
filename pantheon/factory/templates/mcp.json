@@ -23,7 +23,7 @@
     // - http: Connect to existing remote HTTP endpoint (no process management)
     // List of MCP servers to auto-start when Endpoint starts
     "auto_start": [
-        "context7"
+        // "context7"
         // "biomcp"
     ],
     "servers": {
