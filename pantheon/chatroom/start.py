@@ -1,4 +1,5 @@
 import asyncio
+import getpass
 import os
 import sys
 import uuid
@@ -216,14 +217,62 @@ async def start_services(
     workspace_path: str = None,
     log_level: str = None,
     speech_to_text_model: str = None,
-    endpoint_id_hash: str | None = None,
+    id_hash: str | None = None,
     endpoint_mode: str = "embedded",
     nats_servers: str = None,
     auto_start_nats: bool = False,
+    auto_ui: str | bool | None = None,
     **kwargs,
 ):
     # DIAGNOSTIC: Log startup parameters for debugging
-    logger.debug(f"[DIAGNOSTIC] start_services() called with auto_start_nats={auto_start_nats}")
+    logger.debug(f"[DIAGNOSTIC] start_services() called with auto_start_nats={auto_start_nats}, auto_ui={auto_ui}")
+
+    # Validate auto_ui parameter
+    if auto_ui and not auto_start_nats:
+        raise ValueError(
+            "--auto-ui requires --auto-start-nats to be enabled.\n"
+            "Usage: python -m pantheon.chatroom --auto-start-nats --auto-ui\n"
+            "Or with custom URL: --auto-start-nats --auto-ui \"http://localhost:5173\""
+        )
+
+    # Helper function to open browser with auto-connect config
+    def open_auto_connect_browser(
+        frontend_url: str,
+        nats_url: str,
+        service_id: str,
+    ) -> None:
+        """
+        Open browser with auto-connect configuration.
+
+        Args:
+            frontend_url: Frontend base URL (e.g., "https://pantheon-ui.vercel.app")
+            nats_url: NATS WebSocket URL (e.g., "ws://127.0.0.1:8080")
+            service_id: Service ID for connection
+        """
+        import webbrowser
+
+        # Build full connection URL with parameters
+        # For Vue Router hash mode, query parameters must come after the hash (#/)
+        connection_url = (
+            f"{frontend_url}/#/?nats={nats_url}&service={service_id}&auto=true"
+        )
+
+        logger.info("")
+        logger.info("[FRONTEND] Opening browser for auto-connect...")
+        logger.info(f"  Frontend URL: {frontend_url}")
+        logger.info(f"  NATS WebSocket: {nats_url}")
+        logger.info(f"  Service ID: {service_id}")
+        logger.info(f"  Full Connection URL:")
+        logger.info(f"  {connection_url}")
+        logger.info("")
+
+        try:
+            # Try to open browser
+            webbrowser.open(connection_url)
+            logger.info("[FRONTEND] ✓ Browser opened successfully")
+        except Exception as e:
+            logger.warning(f"[FRONTEND] Could not open browser automatically: {e}")
+            logger.warning(f"[FRONTEND] Please open manually: {connection_url}")
 
     # Helper function for zombie process cleanup
     async def cleanup_zombie_nats(work_dir: Path):
@@ -316,6 +365,11 @@ async def start_services(
         except Exception as e:
             logger.debug(f"[STARTUP] Cleanup: Error removing stale files: {e}")
 
+        # Extra wait time to ensure ports are released (TCP TIME_WAIT state)
+        if nats_cleaned:
+            logger.info("[STARTUP] Cleanup: Waiting for ports to be released...")
+            await asyncio.sleep(2)  # Give OS time to fully release ports
+
         # Final status message
         if nats_cleaned:
             logger.info("[STARTUP] Cleanup: Complete")
@@ -331,7 +385,7 @@ async def start_services(
         workspace_path: The path to the workspace. (default from settings)
         log_level: The level of the log. (default from settings)
         speech_to_text_model: The model to use for speech to text. (default from settings)
-        endpoint_id_hash: Fixed id_hash for endpoint to generate stable service_id. If not provided, auto-generated.
+        id_hash: Hash string to generate stable service_id (e.g., "alice", "bob"). If not provided, uses current username for reproducible ID.
         endpoint_mode: How to start the endpoint. Options: "embedded" (same event loop),
                       "process" (independent subprocess).
         nats_servers: NATS server URL(s). Supports WebSocket (wss://) and TCP (nats://).
@@ -339,6 +393,9 @@ async def start_services(
                      Example: "wss://pantheon.aristoteleo.com/nats"
         auto_start_nats: Automatically start local NATS server (only works with --endpoint-mode embedded).
                         Default: False. When enabled, provides nats://localhost:4222 and ws://127.0.0.1:8080.
+        auto_ui: Automatically open browser with auto-connect config when endpoint is ready.
+                Default: False. Requires --auto-start-nats. Can specify custom URL or use default
+                Vercel deployment. Examples: --auto-ui or --auto-ui "http://localhost:5173"
 
     Note:
         API keys should be set via:
@@ -360,6 +417,7 @@ async def start_services(
 
     # ========== NATS AUTO-START ==========
     nats_manager = None
+    server_info = None
     if auto_start_nats:
         logger.info("[STARTUP] Auto-starting local NATS server...")
 
@@ -496,14 +554,15 @@ async def start_services(
 
     if final_endpoint_service_id is None:
         # Generate id_hash if not provided
-        if endpoint_id_hash is None:
-            endpoint_id_hash = str(uuid.uuid4())
+        if id_hash is None:
+            # Use current username for stable, reproducible Service ID
+            id_hash = getpass.getuser()
 
         # Start endpoint based on mode
         if endpoint_mode == "embedded":
             # Embed mode: return Endpoint instance
             endpoint = await _start_endpoint_embedded(
-                endpoint_id_hash=endpoint_id_hash,
+                endpoint_id_hash=id_hash,
                 workspace_path=workspace_path,
                 log_level=log_level,
                 enable_notebook_streaming=True,  # Enable streaming for chatroom
@@ -512,7 +571,7 @@ async def start_services(
             # Process mode: return service_id
             log_dir = Path(memory_dir) / ".chatroom-logs"
             final_endpoint_service_id = await _start_endpoint_process(
-                endpoint_id_hash=endpoint_id_hash,
+                endpoint_id_hash=id_hash,
                 workspace_path=workspace_path,
                 log_dir=log_dir,
             )
@@ -525,6 +584,28 @@ async def start_services(
         # Using existing endpoint_service_id
         endpoint_mode = "process"
 
+    # ===== Step 1.5: Auto-open browser if requested =====
+    if auto_ui and auto_start_nats and server_info is not None:
+        # Determine frontend URL
+        if isinstance(auto_ui, str):
+            frontend_url = auto_ui
+        else:
+            # Default to Vercel deployment
+            frontend_url = "https://pantheon-ui.vercel.app"
+
+        # Calculate service ID based on id_hash
+        service_id = generate_service_id(id_hash)
+
+        # Get NATS WebSocket URL from server_info
+        nats_ws_url = server_info.get("ws_url", "ws://127.0.0.1:8080")
+
+        # Open browser with auto-connect configuration
+        open_auto_connect_browser(
+            frontend_url=frontend_url,
+            nats_url=nats_ws_url,
+            service_id=service_id,
+        )
+
     # ===== Step 2: Create ChatRoom =====
     chat_room = ChatRoom(
         endpoint=endpoint if endpoint is not None else final_endpoint_service_id,
@@ -534,6 +615,7 @@ async def start_services(
         enable_nats_streaming=True,  # Enable NATS streaming for remote service
         enable_auto_chat_name=True,  # Enable auto chat name for UI mode
         learning_config=settings.get_learning_config(),
+        id_hash=id_hash,  # Pass id_hash to ensure stable Service ID
         **kwargs,
     )
 

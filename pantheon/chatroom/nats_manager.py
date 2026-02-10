@@ -345,7 +345,11 @@ class NATSManager:
 
     async def wait_for_ready(self, timeout: int = 30) -> bool:
         """
-        Poll HTTP monitoring endpoint until server is ready.
+        Poll HTTP monitoring endpoint and TCP port until server is ready.
+
+        This method ensures NATS is fully operational by checking:
+        1. HTTP /healthz endpoint (server process started)
+        2. TCP port connectivity (NATS accepting connections)
 
         Args:
             timeout: Maximum seconds to wait for server readiness
@@ -353,8 +357,10 @@ class NATSManager:
         Returns:
             bool: True if server became ready, False if timeout
         """
-        url = f"http://localhost:{self.http_port}/healthz"
+        http_url = f"http://localhost:{self.http_port}/healthz"
         start_time = asyncio.get_event_loop().time()
+        http_ready = False
+        tcp_ready = False
 
         while asyncio.get_event_loop().time() - start_time < timeout:
             # Check if process died
@@ -364,21 +370,45 @@ class NATSManager:
                 )
                 return False
 
-            # Try health check
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(
-                        url, timeout=aiohttp.ClientTimeout(total=1)
-                    ) as resp:
-                        if resp.status == 200:
-                            logger.debug("[NATS] Health check passed")
-                            return True
-            except Exception as e:
-                logger.debug(f"[NATS] Health check attempt failed: {type(e).__name__}")
+            # Check HTTP healthz endpoint
+            if not http_ready:
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(
+                            http_url, timeout=aiohttp.ClientTimeout(total=1)
+                        ) as resp:
+                            if resp.status == 200:
+                                logger.debug("[NATS] HTTP healthz check passed")
+                                http_ready = True
+                except Exception as e:
+                    logger.debug(f"[NATS] HTTP check failed: {type(e).__name__}")
+
+            # Check TCP port connectivity (crucial for actual client connections)
+            if http_ready and not tcp_ready:
+                try:
+                    reader, writer = await asyncio.wait_for(
+                        asyncio.open_connection("127.0.0.1", self.tcp_port),
+                        timeout=1.0
+                    )
+                    writer.close()
+                    await writer.wait_closed()
+                    logger.debug(f"[NATS] TCP port {self.tcp_port} is ready")
+                    tcp_ready = True
+                except Exception as e:
+                    logger.debug(f"[NATS] TCP check failed: {type(e).__name__}")
+
+            # Both checks passed, server is ready
+            if http_ready and tcp_ready:
+                logger.debug("[NATS] Server is fully ready (HTTP + TCP)")
+                return True
 
             await asyncio.sleep(0.5)
 
-        logger.error(f"[NATS] Health check timeout after {timeout}s")
+        # Timeout reached
+        if http_ready and not tcp_ready:
+            logger.error(f"[NATS] HTTP endpoint ready but TCP port {self.tcp_port} not responding after {timeout}s")
+        else:
+            logger.error(f"[NATS] Health check timeout after {timeout}s (HTTP: {http_ready}, TCP: {tcp_ready})")
         return False
 
     async def stop(self):
