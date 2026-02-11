@@ -69,6 +69,47 @@ class FileTransferToolSet(FileManagerToolSetBase):
         return {"success": True}
 
     @tool
+    async def open_file_for_read(self, file_path: str):
+        """Open a file for chunked reading. Returns handle_id and total_size."""
+        if ".." in file_path:
+            return {"success": False, "error": "File path cannot contain '..'"}
+        path = self.path / file_path
+        if not path.exists():
+            return {"success": False, "error": "File does not exist"}
+        handle_id = str(uuid.uuid4())
+        try:
+            handle = open(path, "rb")
+            total_size = path.stat().st_size
+            self._handles[handle_id] = handle
+            return {"success": True, "handle_id": handle_id, "total_size": total_size}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def read_chunk(self, handle_id: str, size: int = 512 * 1024):
+        """Read a chunk from an open file handle.
+
+        Args:
+            handle_id: File handle ID from open_file_for_read.
+            size: Number of bytes to read (before base64 encoding).
+        """
+        if handle_id not in self._handles:
+            return {"success": False, "error": "Handle not found"}
+        handle = self._handles[handle_id]
+        try:
+            data = handle.read(size)
+            if not data:
+                return {"success": True, "data": "", "bytes_read": 0, "eof": True}
+            return {
+                "success": True,
+                "data": base64.b64encode(data).decode("utf-8"),
+                "bytes_read": len(data),
+                "eof": len(data) < size,
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool
     async def read_file(
         self, file_path: str, receive_chunk=None, chunk_size: int = 1024
     ):
