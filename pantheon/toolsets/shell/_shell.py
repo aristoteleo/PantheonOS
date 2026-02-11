@@ -55,7 +55,7 @@ class AsyncCommandLineInterpreter(abc.ABC):
                 break
             if not line:
                 break
-            line = line.decode(self.encoding)
+            line = line.decode(self.encoding, errors="replace")
             output_lines.append(line)
         return "".join(output_lines)
 
@@ -98,7 +98,7 @@ class AsyncCommandLineInterpreter(abc.ABC):
                 line = await self.process.stdout.readline()
             if not line:
                 break
-            line = line.decode(self.encoding)
+            line = line.decode(self.encoding, errors="replace")
             if self.stop_on_line(line, marker):
                 finished = True
                 break
@@ -164,7 +164,9 @@ class AsyncShell(AsyncCommandLineInterpreter):
             self.env = os.environ.copy()
             self.env["PS1"] = ""
         else:
-            self.env = None
+            self.env = os.environ.copy()
+            # Force UTF-8 output from child processes on Windows
+            self.env["PYTHONIOENCODING"] = "utf-8"
         
         # Status and marker tracking for background command support
         self.status: ShellStatus = ShellStatus.IDLE
@@ -192,6 +194,14 @@ class AsyncShell(AsyncCommandLineInterpreter):
         
         # Fallback to bash
         return "/bin/bash"
+
+    async def start(self) -> str:
+        """Start shell, and switch Windows cmd.exe to UTF-8 code page."""
+        initial = await super().start()
+        if self.is_windows:
+            # Switch to UTF-8 code page so all subsequent output is UTF-8
+            await self.run_command("chcp 65001 >nul", timeout=5)
+        return initial
 
     async def run_command(self, command: str, timeout: float | None = None) -> tuple[str, bool]:
         """
