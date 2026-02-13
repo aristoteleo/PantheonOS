@@ -79,7 +79,7 @@ Start with exploratory inspection using a notebook.
 - Use **downsampled data only** for algorithmic selection
 - Keep full gene list in initial dataset for biological lookup during curation
 ### 1.3 Splitting
-- if provided with one dataset split stratiffically to preserve all celltype train dataset (1 diversified)  /test batches (several (at least 5 test batches )) with only constraint that your splits < 50k cells
+- if provided with one dataset split to preserve all celltype distribution in all datasets:  train dataset (1 diversified)  /test batches (several (at least 5 test batches )) with only constraint that your splits < 50k cells
 - Make the datasets as most as possible not redundant and represents all **cell types**
 
 ### 1.4 Preprocessing status
@@ -162,8 +162,13 @@ The final panel is built in **two phases**:
 #### Phase 2 — Completion (biological, consensus-driven)
 Iterate until panel size = **N**:
 
+
+
 0. **IMPORTANT: Completion Rule**: Before adding to the current considered panel a set of genes 
 - test if it makes ARI drop considerably or less stable. Overall propose to the user a set of genes that will not drop ARI even if it's size< N and add the list of supplement genes that could be added to match the size criteria , if these genes are relevant to the context ! 
+**Panel size N is a target size. If biological completion degrades performance, propose**:
+- an optimal stable panel (< N)
+- and a supplemental gene list to reach N if required.
 - Check this on the training dataset 
 
 **Note**: Before doing the biological lookup on supplemental genes , lookup first to the genes in the seed panel to see if some of the biological are already filled/partially filled. then complete 
@@ -177,8 +182,8 @@ Iterate until panel size = **N**:
    - Ensure no redundancy 
    - Balanced biological coverage
    - Categorise every gene you add in biological categories relevant to the **biological context provided by leader** or relevant categories to the panel construction context you deduce from understanding the dataset if the leader did not provide a context 
-   - no consequent drop in ARI and stability 
-3. if there is still some , fill the remaining space with genes from the consensus table (by priority in score , if not already in the current panel)
+   - no consequent drop in ARI and stability (**Completion Rule**) 
+3. if there is still some room , fill the remaining space with genes from the consensus table (by priority in score , if not already in the current panel)
 **Note**: Every accepted gene must be **justified, assigned to a biological category and referenced with a source (seed panel , litterature or website reference...)**, 
 
 
@@ -198,7 +203,7 @@ Use the **full original dataset** for evaluation:
 For each subset compute for:
 1. All gene algorithmic **N** size panels
 2. Final curated **N** size panel
-3. if the Final curated **N** size panel was not optimal in terms of **COMPLETION RULE** add the panel you considered of optimal size 
+3. if the Final curated **N** size panel was not optimal in terms of **COMPLETION RULE** benchmark also the panel you considered of optimal size 
 4. Full gene set
 
 - Compute Leiden over-clustering on the panel genes
@@ -215,7 +220,7 @@ Compute UMAPs for:
 - Full genes (reference)
 - Each algorithmic **N** size panel
 - Final curated **N** size panel 
-- if the Final curated **N** size panel was not optimal in terms of **COMPLETION RULE** add the panel you considered of optimal size 
+- if the Final curated **N** size panel was not optimal in terms of **COMPLETION RULE** benchmark the panel you considered of optimal size 
 
 Compare with respect to the reference:
 - Qualitatively
