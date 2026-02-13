@@ -61,7 +61,7 @@ If the dataset is large, perform **smart downsampling** while preserving **all c
 
 # WORKFLOWS
 
-## 1. Dataset Understanding
+## 1. Dataset Understanding and Splitting 
 
 Start with exploratory inspection using a notebook.
 
@@ -78,12 +78,15 @@ Start with exploratory inspection using a notebook.
 - Save downsampled `adata` via `file_manager`
 - Use **downsampled data only** for algorithmic selection
 - Keep full gene list in initial dataset for biological lookup during curation
+### 1.3 Splitting
+- if provided with one dataset split stratiffically to preserve all celltype train dataset (1 diversified)  /test batches (several (at least 5 test batches )) with only constraint that your splits < 50k cells
+- Make the datasets as most as possible not redundant and represents all **cell types**
 
-### 1.3 Preprocessing status
+### 1.4 Preprocessing status
 - Check normalization, PCA, UMAP, clustering
 - Recompute only if missing or invalid
 
-### 1.4 Preprocessing (if needed)
+### 1.5 Preprocessing (if needed)
 - QC
 - Normalize / log1p / scale
 - PCA / neighbors / UMAP
@@ -98,10 +101,10 @@ Use `python_interpreter` **without reducing data complexity**, and report this e
 
 ---
 
-## 2. Algorithmic Gene Panel Selection (CORE STEP)
+## 2. Algorithmic Gene Panel Selection (SEED STEP)
 
 ### 2.1 Pre-established methods 
-Algorithmic Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS,CellTypistGPS}`
+Algorithmic Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS}`
 
 - Use true cell type as `label_key` whenever available
 - Implement HVG / DE via Scanpy
@@ -109,11 +112,6 @@ Algorithmic Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS,CellTypistGPS
   - `select_scgenefit` (**Always use: max_constraints ≤ 1000**)
   - `select_spapros`(**Always use n_hvg lower than 3000**)
   - `select_random_forest`
-  - `train_celltypist_annotator`:
-    - Use this to train a CellTypist annotator. 
-    - Use gene scores to treat this as another ranking method and gene panel selection algorithm. This is the`CellTypiistGPS` algorithmic method: → can generate sub-panels of different size like other methods using this csv.
-    - this function also output a model that will be used for cell type prediction with `annotate_celltypes_celltypist`
-  
 
 - Always request **gene scores**
 
@@ -127,9 +125,7 @@ For **each method independently**:
 2. Create sub-panels `{100, 200, …, N}` by taking the top-K genes **according to this ranking**.
 3. For each size:
    - Recompute Leiden clustering
-   - Run `annotate_celltypes_celltypist` to predict celltypes with:
-     - use `over_clustering_key=<leiden key>` from the leiden clustering you recomputed
-   - Compute ARI between **CellTypist predicted labels** and the **true cell types** 
+   - Compute ARI between **leiden clustering** and the **true cell types** 
    
 4. Plot **ARI vs. panel size**
 5. Identify:
@@ -138,7 +134,7 @@ For **each method independently**:
 
 ➡️ The best-performing method + size defines the **initial sub-panel (< N genes)**
 
-**Note**: This is performed using the downsampled training adata
+**Note**: **SEED STEP** is performed using the training adata
 
 ---
 
@@ -160,13 +156,17 @@ After all methods run:
 The final panel is built in **two phases**:
 
 #### Phase 1 — Sub-panel (algorithmic)
-- Use the optimal sub-panel identified in Step 3 as core subpanel, you should not change the gene here.
+- Use the optimal sub-panel identified in Step 3 as seed subpanel, you should not change the gene here.
 
 
 #### Phase 2 — Completion (biological, consensus-driven)
 Iterate until panel size = **N**:
 
+0. **IMPORTANT: Completion Rule**: Before adding to the current considered panel a set of genes 
+- test if it makes ARI drop considerably or less stable. Overall propose to the user a set of genes that will not drop ARI even if it's size< N and add the list of supplement genes that could be added to match the size criteria , if these genes are relevant to the context ! 
+- Check this on the training dataset 
 
+**Note**: Before doing the biological lookup on supplemental genes , lookup first to the genes in the seed panel to see if some of the biological are already filled/partially filled. then complete 
 1. Perform biological lookup with `browser_use` to find genes **biologically relevant** with respect to the **biological context provided by the leader agent**  on sources:
    - GeneCards
    - GO
@@ -177,7 +177,10 @@ Iterate until panel size = **N**:
    - Ensure no redundancy 
    - Balanced biological coverage
    - Categorise every gene you add in biological categories relevant to the **biological context provided by leader** or relevant categories to the panel construction context you deduce from understanding the dataset if the leader did not provide a context 
-**Note**: Every accepted gene must be **justified, assigned to a biological category and referenced with a source**, 
+   - no consequent drop in ARI and stability 
+3. if there is still some , fill the remaining space with genes from the consensus table (by priority in score , if not already in the current panel)
+**Note**: Every accepted gene must be **justified, assigned to a biological category and referenced with a source (seed panel , litterature or website reference...)**, 
+
 
 ---
 
@@ -188,15 +191,15 @@ Create an UpSet plot for all **N** size panels to see their overlap
 
 Use the **full original dataset** for evaluation:
 
-### 5.1 Dataset splits
-- Create 10 non-overlapping subsets (<50k cells)
-- Preserve cell-type distribution
+### 5.1 Dataset
+- Benchmarking is performed on test datasets 
 
 ### 5.2 Metrics
 For each subset compute for:
 1. All gene algorithmic **N** size panels
 2. Final curated **N** size panel
-3. Full gene set
+3. if the Final curated **N** size panel was not optimal in terms of **COMPLETION RULE** add the panel you considered of optimal size 
+4. Full gene set
 
 - Compute Leiden over-clustering on the panel genes
 - Predict with `annotate_celltypes_celltypist` using the Leiden key
@@ -211,7 +214,8 @@ For each subset compute for:
 Compute UMAPs for:
 - Full genes (reference)
 - Each algorithmic **N** size panel
-- Final curated **N** size panel
+- Final curated **N** size panel 
+- if the Final curated **N** size panel was not optimal in terms of **COMPLETION RULE** add the panel you considered of optimal size 
 
 Compare with respect to the reference:
 - Qualitatively
