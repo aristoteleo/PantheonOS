@@ -111,393 +111,393 @@ class GenePanelToolSet(ToolSet):
     #  CellTypist - Train an annotator model
     #  pip install celltypist
     # ---------------------------------------------------------------------- #
-    @tool
-    @unwrap_llm_dict_call
-    async def train_celltypist_annotator(
-        self,
-        adata_path: Optional[str] = None,
-        label_key: str = "",
-        model_name: str = "celltypist_model",
-        n_jobs: str = "10",
-        feature_selection: str = "true",
-        ensure_log1p: str = "true",
-        score_method: str = "maxabs",     # "maxabs" | "l2"
-        return_scores: str = "false",
-        save_meta: str = "true",
-        workdir: Optional[str] = None,
-    ) -> dict:
-        """
-        Train a CellTypist annotator and export a score file.
+#     @tool
+#     @unwrap_llm_dict_call
+#     async def train_celltypist_annotator(
+#         self,
+#         adata_path: Optional[str] = None,
+#         label_key: str = "",
+#         model_name: str = "celltypist_model",
+#         n_jobs: str = "10",
+#         feature_selection: str = "true",
+#         ensure_log1p: str = "true",
+#         score_method: str = "maxabs",     # "maxabs" | "l2"
+#         return_scores: str = "false",
+#         save_meta: str = "true",
+#         workdir: Optional[str] = None,
+#     ) -> dict:
+#         """
+#         Train a CellTypist annotator and export a score file.
 
-        Args:
-            adata_path (str): Path to `.h5ad`. If None, uses default dataset.
-            label_key (str): Column in `adata.obs` containing ground-truth labels (e.g., "cell_type").
-            model_name (str): Output model name (without extension).
-            n_jobs (str): Number of CPU jobs for training.
-            feature_selection (str): "true" to enable CellTypist feature selection.
-            ensure_log1p (str): "true" to apply normalize_total + log1p if data looks like raw counts.
-            score_method (str): Aggregate multiclass weights into a single gene score:
-                                - "maxabs": max_c |w_{c,g}|
-                                - "l2": ||w_{.,g}||_2
-            return_scores (str): "true" -> return [{gene, score}] else return only file paths.
-            save_meta (str): "true" to save a tiny metadata file.
-            workdir (str): Directory to save results (default = default_workdir).
+#         Args:
+#             adata_path (str): Path to `.h5ad`. If None, uses default dataset.
+#             label_key (str): Column in `adata.obs` containing ground-truth labels (e.g., "cell_type").
+#             model_name (str): Output model name (without extension).
+#             n_jobs (str): Number of CPU jobs for training.
+#             feature_selection (str): "true" to enable CellTypist feature selection.
+#             ensure_log1p (str): "true" to apply normalize_total + log1p if data looks like raw counts.
+#             score_method (str): Aggregate multiclass weights into a single gene score:
+#                                 - "maxabs": max_c |w_{c,g}|
+#                                 - "l2": ||w_{.,g}||_2
+#             return_scores (str): "true" -> return [{gene, score}] else return only file paths.
+#             save_meta (str): "true" to save a tiny metadata file.
+#             workdir (str): Directory to save results (default = default_workdir).
 
-        Returns:
-            dict: {
-                "used_dataset": str,
-                "label_key": str,
-                "n_cells": int,
-                "n_genes_input": int,
-                "n_genes_model": int,
-                "score_method": str,
-                "saved_to": {
-                    "model": str,
-                    "scores": str,
-                    "notes": str or None
-                },
-                "genes": List[dict] (only if return_scores=true)
-            }
-        """
-        try:
-            import os, time
-            import scanpy as sc
-            import numpy as np
-            import pandas as pd
-            import celltypist
-            import joblib
+#         Returns:
+#             dict: {
+#                 "used_dataset": str,
+#                 "label_key": str,
+#                 "n_cells": int,
+#                 "n_genes_input": int,
+#                 "n_genes_model": int,
+#                 "score_method": str,
+#                 "saved_to": {
+#                     "model": str,
+#                     "scores": str,
+#                     "notes": str or None
+#                 },
+#                 "genes": List[dict] (only if return_scores=true)
+#             }
+#         """
+#         try:
+#             import os, time
+#             import scanpy as sc
+#             import numpy as np
+#             import pandas as pd
+#             import celltypist
+#             import joblib
 
-            logger.info("=" * 60)
-            logger.info("CELLTYPIST TRAIN - START")
-            logger.info("=" * 60)
+#             logger.info("=" * 60)
+#             logger.info("CELLTYPIST TRAIN - START")
+#             logger.info("=" * 60)
 
-            # --- Resolve dataset path ---
-            path = adata_path or self.default_adata_path
-            if not path:
-                return {"error": "No dataset provided and no default_adata_path defined."}
-            if not label_key:
-                return {"error": "label_key is required (must be a column name in adata.obs)."}
+#             # --- Resolve dataset path ---
+#             path = adata_path or self.default_adata_path
+#             if not path:
+#                 return {"error": "No dataset provided and no default_adata_path defined."}
+#             if not label_key:
+#                 return {"error": "label_key is required (must be a column name in adata.obs)."}
 
-            # --- Resolve workdir + output folder ---
-            workdir = workdir or self.default_workdir
-            out_dir = os.path.join(workdir, "gene_panels", "celltypist")
-            os.makedirs(out_dir, exist_ok=True)
+#             # --- Resolve workdir + output folder ---
+#             workdir = workdir or self.default_workdir
+#             out_dir = os.path.join(workdir, "gene_panels", "celltypist")
+#             os.makedirs(out_dir, exist_ok=True)
 
-            # --- Parse params ---
-            n_jobs = self._coerce(n_jobs, 10, int)
-            feature_selection = str(feature_selection).lower() in ("true", "1", "yes")
-            ensure_log1p = str(ensure_log1p).lower() in ("true", "1", "yes")
-            return_scores = str(return_scores).lower() in ("true", "1", "yes")
-            save_meta = str(save_meta).lower() in ("true", "1", "yes")
-            score_method = (score_method or "maxabs").strip().lower()
-            if score_method not in ("maxabs", "l2"):
-                return {"error": f"score_method must be 'maxabs' or 'l2' (got '{score_method}')."}
+#             # --- Parse params ---
+#             n_jobs = self._coerce(n_jobs, 10, int)
+#             feature_selection = str(feature_selection).lower() in ("true", "1", "yes")
+#             ensure_log1p = str(ensure_log1p).lower() in ("true", "1", "yes")
+#             return_scores = str(return_scores).lower() in ("true", "1", "yes")
+#             save_meta = str(save_meta).lower() in ("true", "1", "yes")
+#             score_method = (score_method or "maxabs").strip().lower()
+#             if score_method not in ("maxabs", "l2"):
+#                 return {"error": f"score_method must be 'maxabs' or 'l2' (got '{score_method}')."}
 
-            logger.info(
-                f"Parameters: model_name={model_name}, n_jobs={n_jobs}, "
-                f"feature_selection={feature_selection}, ensure_log1p={ensure_log1p}, "
-                f"score_method={score_method}, return_scores={return_scores}"
-            )
+#             logger.info(
+#                 f"Parameters: model_name={model_name}, n_jobs={n_jobs}, "
+#                 f"feature_selection={feature_selection}, ensure_log1p={ensure_log1p}, "
+#                 f"score_method={score_method}, return_scores={return_scores}"
+#             )
 
-            # --- Load dataset ---
-            logger.info("STEP 1: Loading h5ad file...")
-            t0 = time.time()
-            adata = sc.read_h5ad(path)
-            logger.info(f"✓ Loaded in {time.time() - t0:.2f}s - Shape: {adata.shape}")
+#             # --- Load dataset ---
+#             logger.info("STEP 1: Loading h5ad file...")
+#             t0 = time.time()
+#             adata = sc.read_h5ad(path)
+#             logger.info(f"✓ Loaded in {time.time() - t0:.2f}s - Shape: {adata.shape}")
 
-            if getattr(adata, "isbacked", False):
-                logger.info("⚠️  Dataset is in 'backed' mode, converting to memory...")
-                adata = adata.to_memory()
-                logger.info("✓ Converted to memory mode")
+#             if getattr(adata, "isbacked", False):
+#                 logger.info("⚠️  Dataset is in 'backed' mode, converting to memory...")
+#                 adata = adata.to_memory()
+#                 logger.info("✓ Converted to memory mode")
 
-            if label_key not in adata.obs.columns:
-                return {"error": f"label_key '{label_key}' not found in adata.obs."}
+#             if label_key not in adata.obs.columns:
+#                 return {"error": f"label_key '{label_key}' not found in adata.obs."}
 
-            n_genes_input = int(adata.n_vars)
+#             n_genes_input = int(adata.n_vars)
 
-            # --- Optional preprocessing guard ---
-            logger.info("STEP 2: Optional preprocessing checks...")
-            if ensure_log1p:
-                looks_like_counts = False
-                try:
-                    Xmax = float(adata.X[: min(1000, adata.n_obs)].max())
-                    looks_like_counts = (Xmax > 50) and float(Xmax).is_integer()
-                except Exception:
-                    pass
+#             # --- Optional preprocessing guard ---
+#             logger.info("STEP 2: Optional preprocessing checks...")
+#             if ensure_log1p:
+#                 looks_like_counts = False
+#                 try:
+#                     Xmax = float(adata.X[: min(1000, adata.n_obs)].max())
+#                     looks_like_counts = (Xmax > 50) and float(Xmax).is_integer()
+#                 except Exception:
+#                     pass
 
-                if looks_like_counts:
-                    logger.info("  → Data looks like raw counts -> normalize_total + log1p")
-                    sc.pp.normalize_total(adata, target_sum=1e4)
-                    sc.pp.log1p(adata)
-                    logger.info("  ✓ Applied normalize_total + log1p")
-                else:
-                    logger.info("  ✓ Skipping normalize/log1p (data does not look like raw counts)")
+#                 if looks_like_counts:
+#                     logger.info("  → Data looks like raw counts -> normalize_total + log1p")
+#                     sc.pp.normalize_total(adata, target_sum=1e4)
+#                     sc.pp.log1p(adata)
+#                     logger.info("  ✓ Applied normalize_total + log1p")
+#                 else:
+#                     logger.info("  ✓ Skipping normalize/log1p (data does not look like raw counts)")
 
-            # --- Train model ---
-            logger.info("STEP 3: Training CellTypist model...")
-            t0 = time.time()
-            model = celltypist.train(
-                adata,
-                labels=label_key,
-                n_jobs=n_jobs,
-                feature_selection=feature_selection,
-            )
-            logger.info(f"✓ Training completed in {time.time() - t0:.2f}s")
+#             # --- Train model ---
+#             logger.info("STEP 3: Training CellTypist model...")
+#             t0 = time.time()
+#             model = celltypist.train(
+#                 adata,
+#                 labels=label_key,
+#                 n_jobs=n_jobs,
+#                 feature_selection=feature_selection,
+#             )
+#             logger.info(f"✓ Training completed in {time.time() - t0:.2f}s")
 
-            # --- Save model ---
-            logger.info("STEP 4: Saving model...")
-            model_path = os.path.join(out_dir, f"{model_name}.pkl")
-            model.write(model_path)
-            logger.info(f"✓ Saved model to: {model_path}")
+#             # --- Save model ---
+#             logger.info("STEP 4: Saving model...")
+#             model_path = os.path.join(out_dir, f"{model_name}.pkl")
+#             model.write(model_path)
+#             logger.info(f"✓ Saved model to: {model_path}")
 
-            # --- Reload + extract scores (stable across versions) ---
-            logger.info("STEP 5: Extracting gene scores...")
-            d = joblib.load(model_path)
-            clf = d.get("Model", None)
-            if clf is None or not hasattr(clf, "coef_") or not hasattr(clf, "features"):
-                return {"error": "Saved model.pkl does not contain expected Model.coef_ and Model.features"}
+#             # --- Reload + extract scores (stable across versions) ---
+#             logger.info("STEP 5: Extracting gene scores...")
+#             d = joblib.load(model_path)
+#             clf = d.get("Model", None)
+#             if clf is None or not hasattr(clf, "coef_") or not hasattr(clf, "features"):
+#                 return {"error": "Saved model.pkl does not contain expected Model.coef_ and Model.features"}
 
-            genes = list(clf.features)
-            W = np.asarray(clf.coef_, dtype=float)
-            if W.ndim == 1:
-                W = W.reshape(1, -1)
-            if W.shape[1] != len(genes):
-                return {"error": f"Shape mismatch: coef_.shape={W.shape} vs len(features)={len(genes)}"}
+#             genes = list(clf.features)
+#             W = np.asarray(clf.coef_, dtype=float)
+#             if W.ndim == 1:
+#                 W = W.reshape(1, -1)
+#             if W.shape[1] != len(genes):
+#                 return {"error": f"Shape mismatch: coef_.shape={W.shape} vs len(features)={len(genes)}"}
 
-            if score_method == "maxabs":
-                scores = np.max(np.abs(W), axis=0)
-            else:
-                scores = np.linalg.norm(W, axis=0)
+#             if score_method == "maxabs":
+#                 scores = np.max(np.abs(W), axis=0)
+#             else:
+#                 scores = np.linalg.norm(W, axis=0)
 
-            score_df = (pd.DataFrame({"gene": genes, "score": scores})
-                        .sort_values("score", ascending=False)
-                        .reset_index(drop=True))
+#             score_df = (pd.DataFrame({"gene": genes, "score": scores})
+#                         .sort_values("score", ascending=False)
+#                         .reset_index(drop=True))
 
-            n_genes_model = int(score_df.shape[0])
+#             n_genes_model = int(score_df.shape[0])
 
-            # --- Save ONLY scores.csv ---
-            logger.info("STEP 6: Saving scores file ...")
-            scores_path = os.path.join(out_dir, f"{model_name}_scores.csv")
-            score_df.to_csv(scores_path, index=False)
-            logger.info(f"✓ Saved scores to: {scores_path}")
+#             # --- Save ONLY scores.csv ---
+#             logger.info("STEP 6: Saving scores file ...")
+#             scores_path = os.path.join(out_dir, f"{model_name}_scores.csv")
+#             score_df.to_csv(scores_path, index=False)
+#             logger.info(f"✓ Saved scores to: {scores_path}")
 
-            # --- Optional meta ---
-            notes_path = None
-            if save_meta:
-                notes_path = os.path.join(out_dir, f"{model_name}_meta.txt")
-                with open(notes_path, "w") as f:
-                    f.write(f"used_dataset: {path}\n")
-                    f.write(f"label_key: {label_key}\n")
-                    f.write(f"n_cells: {int(adata.n_obs)}\n")
-                    f.write(f"n_genes_input: {n_genes_input}\n")
-                    f.write(f"n_genes_model: {n_genes_model}\n")
-                    f.write(f"feature_selection: {feature_selection}\n")
-                    f.write(f"ensure_log1p: {ensure_log1p}\n")
-                    f.write(f"score_method: {score_method}\n")
-                logger.info(f"✓ Saved metadata to: {notes_path}")
+#             # --- Optional meta ---
+#             notes_path = None
+#             if save_meta:
+#                 notes_path = os.path.join(out_dir, f"{model_name}_meta.txt")
+#                 with open(notes_path, "w") as f:
+#                     f.write(f"used_dataset: {path}\n")
+#                     f.write(f"label_key: {label_key}\n")
+#                     f.write(f"n_cells: {int(adata.n_obs)}\n")
+#                     f.write(f"n_genes_input: {n_genes_input}\n")
+#                     f.write(f"n_genes_model: {n_genes_model}\n")
+#                     f.write(f"feature_selection: {feature_selection}\n")
+#                     f.write(f"ensure_log1p: {ensure_log1p}\n")
+#                     f.write(f"score_method: {score_method}\n")
+#                 logger.info(f"✓ Saved metadata to: {notes_path}")
 
-            logger.info("=" * 60)
-            logger.info("CELLTYPIST TRAIN - COMPLETED SUCCESSFULLY")
-            logger.info("=" * 60)
+#             logger.info("=" * 60)
+#             logger.info("CELLTYPIST TRAIN - COMPLETED SUCCESSFULLY")
+#             logger.info("=" * 60)
 
-            return {
-                "used_dataset": path,
-                "label_key": label_key,
-                "n_cells": int(adata.n_obs),
-                "n_genes_input": n_genes_input,
-                "n_genes_model": n_genes_model,
-                "score_method": score_method,
-                "saved_to": {
-                    "model": model_path,
-                    "scores": scores_path,
-                    "notes": notes_path,
-                },
-                "genes": score_df.to_dict(orient="records") if return_scores else [],
-            }
+#             return {
+#                 "used_dataset": path,
+#                 "label_key": label_key,
+#                 "n_cells": int(adata.n_obs),
+#                 "n_genes_input": n_genes_input,
+#                 "n_genes_model": n_genes_model,
+#                 "score_method": score_method,
+#                 "saved_to": {
+#                     "model": model_path,
+#                     "scores": scores_path,
+#                     "notes": notes_path,
+#                 },
+#                 "genes": score_df.to_dict(orient="records") if return_scores else [],
+#             }
 
-        except Exception as e:
-            import traceback
-            logger.error("=" * 60)
-            logger.error("CELLTYPIST TRAIN - FAILED")
-            logger.error(f"Error: {str(e)}")
-            logger.error(f"Error type: {type(e).__name__}")
-            logger.error(f"Traceback:\n{traceback.format_exc()}")
-            logger.error("=" * 60)
-            return {"error": str(e)}
+#         except Exception as e:
+#             import traceback
+#             logger.error("=" * 60)
+#             logger.error("CELLTYPIST TRAIN - FAILED")
+#             logger.error(f"Error: {str(e)}")
+#             logger.error(f"Error type: {type(e).__name__}")
+#             logger.error(f"Traceback:\n{traceback.format_exc()}")
+#             logger.error("=" * 60)
+#             return {"error": str(e)}
 
-# ------
-# annotate adata (CellTypist)
-# ------
+# # ------
+# # annotate adata (CellTypist)
+# # ------
 
-    @tool
-    @unwrap_llm_dict_call
-    async def annotate_celltypes_celltypist(
-        self,
-        adata_path: Optional[str] = None,
-        model_path: str = "",                  # trained CellTypist .pkl
-        over_clustering_key: str = "leiden",   # default = leiden (kept as argument)
-        prediction_key: str = "celltypist_label",
-        out_labels_name: str = "celltypist_labels.csv",
-        workdir: Optional[str] = None,
-    ) -> dict:
-        """Annotate cell types in a dataset using a trained CellTypist model.
+#     @tool
+#     @unwrap_llm_dict_call
+#     async def annotate_celltypes_celltypist(
+#         self,
+#         adata_path: Optional[str] = None,
+#         model_path: str = "",                  # trained CellTypist .pkl
+#         over_clustering_key: str = "leiden",   # default = leiden (kept as argument)
+#         prediction_key: str = "celltypist_label",
+#         out_labels_name: str = "celltypist_labels.csv",
+#         workdir: Optional[str] = None,
+#     ) -> dict:
+#         """Annotate cell types in a dataset using a trained CellTypist model.
 
-        This tool:
-        - loads a `.h5ad` dataset
-        - runs CellTypist annotation with majority voting enabled
-        - uses an existing over-clustering (e.g. Leiden) for voting
-        - saves the final predicted cell-type labels to a CSV file
+#         This tool:
+#         - loads a `.h5ad` dataset
+#         - runs CellTypist annotation with majority voting enabled
+#         - uses an existing over-clustering (e.g. Leiden) for voting
+#         - saves the final predicted cell-type labels to a CSV file
 
-        Args:
-            adata_path (str): Path to the `.h5ad` dataset. If None, uses default dataset.
-            model_path (str): Path to a trained CellTypist `.pkl` model.
-            over_clustering_key (str): Column in `adata.obs` used for over-clustering
-                                    during majority voting (default: "leiden").
-            prediction_key (str): Name of the column storing predicted labels in the output CSV.
-            out_labels_name (str): Filename of the saved labels CSV.
-            workdir (str): Directory to save results (default = default_workdir).
+#         Args:
+#             adata_path (str): Path to the `.h5ad` dataset. If None, uses default dataset.
+#             model_path (str): Path to a trained CellTypist `.pkl` model.
+#             over_clustering_key (str): Column in `adata.obs` used for over-clustering
+#                                     during majority voting (default: "leiden").
+#             prediction_key (str): Name of the column storing predicted labels in the output CSV.
+#             out_labels_name (str): Filename of the saved labels CSV.
+#             workdir (str): Directory to save results (default = default_workdir).
 
-        Returns:
-            dict: {
-                "used_dataset": str,
-                "model_used": str,
-                "prediction_key": str,
-                "over_clustering_key": str,
-                "n_cells": int,
-                "saved_to": {
-                    "labels": str,
-                    "meta": str
-                }
-            }
-        """
-        try:
-            import os, time
-            import scanpy as sc
-            import pandas as pd
-            import celltypist
+#         Returns:
+#             dict: {
+#                 "used_dataset": str,
+#                 "model_used": str,
+#                 "prediction_key": str,
+#                 "over_clustering_key": str,
+#                 "n_cells": int,
+#                 "saved_to": {
+#                     "labels": str,
+#                     "meta": str
+#                 }
+#             }
+#         """
+#         try:
+#             import os, time
+#             import scanpy as sc
+#             import pandas as pd
+#             import celltypist
 
-            logger.info("=" * 60)
-            logger.info("CELLTYPIST ANNOTATE - START")
-            logger.info("=" * 60)
+#             logger.info("=" * 60)
+#             logger.info("CELLTYPIST ANNOTATE - START")
+#             logger.info("=" * 60)
 
-            # --- Resolve paths ---
-            path = adata_path or getattr(self, "default_adata_path", None)
-            if not path:
-                return {"error": "No adata_path provided (and no default_adata_path set)."}
-            if not model_path or not os.path.exists(model_path):
-                return {"error": f"Invalid model_path: {model_path}"}
+#             # --- Resolve paths ---
+#             path = adata_path or getattr(self, "default_adata_path", None)
+#             if not path:
+#                 return {"error": "No adata_path provided (and no default_adata_path set)."}
+#             if not model_path or not os.path.exists(model_path):
+#                 return {"error": f"Invalid model_path: {model_path}"}
 
-            workdir = workdir or getattr(self, "default_workdir", ".")
-            out_dir = os.path.join(workdir, "gene_panels", "celltypist")
-            os.makedirs(out_dir, exist_ok=True)
+#             workdir = workdir or getattr(self, "default_workdir", ".")
+#             out_dir = os.path.join(workdir, "gene_panels", "celltypist")
+#             os.makedirs(out_dir, exist_ok=True)
 
-            logger.info(f"Dataset: {path}")
-            logger.info(f"Model: {model_path}")
-            logger.info(f"majority_voting=True, over_clustering_key='{over_clustering_key}'")
+#             logger.info(f"Dataset: {path}")
+#             logger.info(f"Model: {model_path}")
+#             logger.info(f"majority_voting=True, over_clustering_key='{over_clustering_key}'")
 
-            # --- Load adata ---
-            logger.info("STEP 1: Loading adata...")
-            adata = sc.read_h5ad(path)
-            if getattr(adata, "isbacked", False):
-                adata = adata.to_memory()
-            logger.info(f"✓ Loaded adata: {adata.shape}")
+#             # --- Load adata ---
+#             logger.info("STEP 1: Loading adata...")
+#             adata = sc.read_h5ad(path)
+#             if getattr(adata, "isbacked", False):
+#                 adata = adata.to_memory()
+#             logger.info(f"✓ Loaded adata: {adata.shape}")
 
-            # --- Validate over-clustering key ---
-# --- Ensure over-clustering exists (compute Leiden if missing) ---
-            if over_clustering_key not in adata.obs.columns:
-                logger.info(
-                    f"over_clustering_key '{over_clustering_key}' not found → computing Leiden clustering"
-                )
+#             # --- Validate over-clustering key ---
+# # --- Ensure over-clustering exists (compute Leiden if missing) ---
+#             if over_clustering_key not in adata.obs.columns:
+#                 logger.info(
+#                     f"over_clustering_key '{over_clustering_key}' not found → computing Leiden clustering"
+#                 )
 
-                import scanpy as sc
+#                 import scanpy as sc
 
-                # Minimal, robust defaults
-                if "X_pca" not in adata.obsm:
-                    sc.pp.pca(adata, n_comps=50)
+#                 # Minimal, robust defaults
+#                 if "X_pca" not in adata.obsm:
+#                     sc.pp.pca(adata, n_comps=50)
 
-                if "neighbors" not in adata.uns:
-                    sc.pp.neighbors(adata, n_neighbors=15)
+#                 if "neighbors" not in adata.uns:
+#                     sc.pp.neighbors(adata, n_neighbors=15)
 
-                sc.tl.leiden(
-                    adata,
-                    resolution=1.0,
-                    key_added=over_clustering_key,
-                )
+#                 sc.tl.leiden(
+#                     adata,
+#                     resolution=1.0,
+#                     key_added=over_clustering_key,
+#                 )
 
-                logger.info(
-                    f"✓ Computed Leiden clustering stored in adata.obs['{over_clustering_key}']"
-                )
+#                 logger.info(
+#                     f"✓ Computed Leiden clustering stored in adata.obs['{over_clustering_key}']"
+#                 )
       
-            # --- Annotate (majority voting always ON) ---
-            logger.info("STEP 2: Running CellTypist...")
-            t0 = time.time()
-            preds = celltypist.annotate(
-                adata,
-                model=model_path,
-                majority_voting=True,
-                over_clustering=over_clustering_key,
-            )
-            logger.info(f"✓ Annotation done in {time.time() - t0:.2f}s")
+#             # --- Annotate (majority voting always ON) ---
+#             logger.info("STEP 2: Running CellTypist...")
+#             t0 = time.time()
+#             preds = celltypist.annotate(
+#                 adata,
+#                 model=model_path,
+#                 majority_voting=True,
+#                 over_clustering=over_clustering_key,
+#             )
+#             logger.info(f"✓ Annotation done in {time.time() - t0:.2f}s")
 
-            # --- Extract FINAL labels (1D, safe) ---
-            if not hasattr(preds, "predicted_labels"):
-                return {"error": "CellTypist output missing 'predicted_labels'."}
+#             # --- Extract FINAL labels (1D, safe) ---
+#             if not hasattr(preds, "predicted_labels"):
+#                 return {"error": "CellTypist output missing 'predicted_labels'."}
 
-            df = preds.predicted_labels
-            if "majority_voting" not in df.columns:
-                return {"error": "'majority_voting' column missing from CellTypist output."}
+#             df = preds.predicted_labels
+#             if "majority_voting" not in df.columns:
+#                 return {"error": "'majority_voting' column missing from CellTypist output."}
 
-            labels = (
-                pd.Series(df["majority_voting"], index=adata.obs_names)
-                .astype(str)
-                .values
-            )
+#             labels = (
+#                 pd.Series(df["majority_voting"], index=adata.obs_names)
+#                 .astype(str)
+#                 .values
+#             )
 
-            # --- Save labels CSV ---
-            labels_path = os.path.join(out_dir, out_labels_name)
-            pd.DataFrame(
-                {
-                    "cell_id": adata.obs_names,
-                    prediction_key: labels,
-                }
-            ).to_csv(labels_path, index=False)
+#             # --- Save labels CSV ---
+#             labels_path = os.path.join(out_dir, out_labels_name)
+#             pd.DataFrame(
+#                 {
+#                     "cell_id": adata.obs_names,
+#                     prediction_key: labels,
+#                 }
+#             ).to_csv(labels_path, index=False)
 
-            # --- Save minimal metadata (traceability) ---
-            meta_path = labels_path.replace(".csv", "_meta.txt")
-            with open(meta_path, "w") as f:
-                f.write(f"adata_path: {path}\n")
-                f.write(f"model_path: {model_path}\n")
-                f.write(f"over_clustering_key: {over_clustering_key}\n")
-                f.write("majority_voting: true\n")
-                f.write("label_source: majority_voting\n")
-                f.write(f"prediction_key: {prediction_key}\n")
-                f.write(f"n_cells: {adata.n_obs}\n")
+#             # --- Save minimal metadata (traceability) ---
+#             meta_path = labels_path.replace(".csv", "_meta.txt")
+#             with open(meta_path, "w") as f:
+#                 f.write(f"adata_path: {path}\n")
+#                 f.write(f"model_path: {model_path}\n")
+#                 f.write(f"over_clustering_key: {over_clustering_key}\n")
+#                 f.write("majority_voting: true\n")
+#                 f.write("label_source: majority_voting\n")
+#                 f.write(f"prediction_key: {prediction_key}\n")
+#                 f.write(f"n_cells: {adata.n_obs}\n")
 
-            logger.info(f"✓ Saved labels to: {labels_path}")
-            logger.info(f"✓ Saved metadata to: {meta_path}")
+#             logger.info(f"✓ Saved labels to: {labels_path}")
+#             logger.info(f"✓ Saved metadata to: {meta_path}")
 
-            logger.info("=" * 60)
-            logger.info("CELLTYPIST ANNOTATE - COMPLETED SUCCESSFULLY")
-            logger.info("=" * 60)
+#             logger.info("=" * 60)
+#             logger.info("CELLTYPIST ANNOTATE - COMPLETED SUCCESSFULLY")
+#             logger.info("=" * 60)
 
-            return {
-                "used_dataset": path,
-                "model_used": model_path,
-                "prediction_key": prediction_key,
-                "label_source": "majority_voting",
-                "over_clustering_key": over_clustering_key,
-                "n_cells": int(adata.n_obs),
-                "saved_to": {
-                    "labels": labels_path,
-                    "meta": meta_path,
-                },
-            }
+#             return {
+#                 "used_dataset": path,
+#                 "model_used": model_path,
+#                 "prediction_key": prediction_key,
+#                 "label_source": "majority_voting",
+#                 "over_clustering_key": over_clustering_key,
+#                 "n_cells": int(adata.n_obs),
+#                 "saved_to": {
+#                     "labels": labels_path,
+#                     "meta": meta_path,
+#                 },
+#             }
 
-        except Exception as e:
-            import traceback
-            logger.error("CELLTYPIST ANNOTATE - FAILED")
-            logger.error(traceback.format_exc())
-            return {"error": str(e)}
+#         except Exception as e:
+#             import traceback
+#             logger.error("CELLTYPIST ANNOTATE - FAILED")
+#             logger.error(traceback.format_exc())
+#             return {"error": str(e)}
 
 
 
