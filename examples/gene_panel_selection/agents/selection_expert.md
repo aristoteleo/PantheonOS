@@ -207,9 +207,8 @@ For each subset compute for:
 4. Full gene set
 
 - Compute Leiden over-clustering on the panel genes
-- Predict with `annotate_celltypes_celltypist` using the Leiden key
-- Compute **ARI, NMI** between **predicted labels** and **true labels**
-- Compute **Silhouette Index** using the **predicted labels** as cluster assignments
+- Compute **ARI, NMI** between **leiden* and **true labels**
+- Compute **Silhouette Index** using the **leiden** as cluster assignments
 
 - Generate **one figure per metric**
 - Use boxplots
