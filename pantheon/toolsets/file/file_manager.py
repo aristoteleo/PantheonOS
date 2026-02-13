@@ -1077,9 +1077,14 @@ class FileManagerToolSet(FileManagerToolSetBase):
         MAX_IMAGE_SIZE = 10 * 1024 * 1024
 
         try:
-            i_path = self.path / image_path
+            # Support both relative (to workspace) and absolute paths
+            candidate = Path(image_path)
+            if candidate.is_absolute():
+                i_path = candidate
+            else:
+                i_path = self.path / image_path
 
-            # Security: Check if path is within allowed workspace
+            # Security: Check if path is within allowed directories
             try:
                 resolved_path = i_path.resolve()
                 allowed_path = self.path.resolve()
