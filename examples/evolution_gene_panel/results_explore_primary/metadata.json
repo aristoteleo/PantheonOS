@@ -1,0 +1,198 @@
+{
+  "config": {
+    "max_iterations": 50,
+    "checkpoint_interval": 5,
+    "early_stop_generations": 100,
+    "num_workers": 1,
+    "num_islands": 2,
+    "migration_interval": 20,
+    "migration_rate": 0.1,
+    "feature_dimensions": [
+      "size_score",
+      "prior_overlap",
+      "convergence_improvement",
+      "reward_spread"
+    ],
+    "feature_bins": 10,
+    "feature_range_padding": 0.1,
+    "feature_range_adaptive": true,
+    "archive_ratio": 0.25,
+    "population_size": 500,
+    "num_inspirations": 2,
+    "num_top_programs": 3,
+    "exploration_ratio": 0.2,
+    "exploitation_ratio": 0.7,
+    "evaluation_timeout": 600,
+    "max_parallel_evaluations": 2,
+    "function_weight": 1.0,
+    "llm_weight": 0.0,
+    "cascade_evaluation": false,
+    "cascade_thresholds": [
+      0.3,
+      0.6,
+      0.8
+    ],
+    "feedback_max_lines_per_file": null,
+    "diff_based_evolution": true,
+    "max_code_length": 50000,
+    "max_diff_size": 5000,
+    "temperature": 0.7,
+    "max_retries": 3,
+    "mutation_timeout": 120,
+    "use_analyzer": true,
+    "analyzer_model": "normal",
+    "analyzer_timeout": 180,
+    "top_programs_probability": 0.5,
+    "inspirations_probability": 0.2,
+    "analyzer_exploration_initial": 0.9,
+    "analyzer_exploration_final": 0.1,
+    "analyzer_exploration_decay_generations": 10,
+    "summarizer_timeout": 30,
+    "evolution_history_max_siblings": 5,
+    "evolution_history_max_ancestors": 10,
+    "evolution_history_max_chars": 2000,
+    "mutator_model": "normal",
+    "feedback_model": "normal",
+    "db_path": "results_explore_primary/",
+    "workspace_path": null,
+    "save_prompts": true,
+    "save_all_programs": false,
+    "log_level": "DEBUG",
+    "log_iterations": true,
+    "log_improvements": true
+  },
+  "best_program_id": "7b690ed9",
+  "archive": [
+    "d933f8cc",
+    "e6a91b08",
+    "ea929caf",
+    "10eb7bd0",
+    "adccef9d",
+    "b3e995e5",
+    "9eaafd1d",
+    "9b168899",
+    "7b690ed9"
+  ],
+  "islands": [
+    [
+      "e6a91b08",
+      "55169d7f",
+      "14491f8d",
+      "10eb7bd0",
+      "971ea9b6",
+      "2c732291",
+      "dd33593e",
+      "851457dc",
+      "c15f9900",
+      "9eaafd1d",
+      "651cd9d7",
+      "62d8dc04",
+      "aba2f3b4",
+      "4e1657e4",
+      "aee0d73b",
+      "ea929caf",
+      "48da3e7f",
+      "9b168899",
+      "23bd78d5",
+      "7f7cc31d"
+    ],
+    [
+      "e6a91b08",
+      "dcfcdb34",
+      "277b41d5",
+      "d933f8cc",
+      "64de81ff",
+      "ab04336a",
+      "2b1599f8",
+      "b3e995e5",
+      "2382ead2",
+      "f81c77c6",
+      "808efbbc",
+      "d4736617",
+      "adccef9d",
+      "ea929caf",
+      "7fb9284c",
+      "f939b39d",
+      "96d59cef",
+      "2bca7f27",
+      "9b168899",
+      "7b690ed9",
+      "f3358d9e"
+    ]
+  ],
+  "total_added": 38,
+  "total_improved": 0,
+  "feature_ranges": {
+    "size_score": [
+      0.5,
+      0.548
+    ],
+    "prior_overlap": [
+      0.5,
+      1.0
+    ],
+    "convergence_improvement": [
+      0.0,
+      0.5
+    ],
+    "reward_spread": [
+      0.0,
+      0.5
+    ]
+  },
+  "metric_ranges": {
+    "llm_score": [
+      0.5,
+      0.5
+    ],
+    "final_ari": [
+      0.38669275845568957,
+      0.5129879886217157
+    ],
+    "final_nmi": [
+      0.5429776160187594,
+      0.6211000984057765
+    ],
+    "training_speed": [
+      0.3825394145962928,
+      0.8246385800194508
+    ],
+    "panel_size": [
+      500.0,
+      548.0
+    ],
+    "best_reward": [
+      0.23826510557343508,
+      0.5511349471629619
+    ],
+    "training_time": [
+      12.75914740562439,
+      96.84658288955688
+    ],
+    "n_epochs": [
+      5.0,
+      5.0
+    ],
+    "size_score": [
+      0.5,
+      0.548
+    ],
+    "prior_overlap": [
+      1.0,
+      1.0
+    ],
+    "convergence_improvement": [
+      0.0,
+      0.0
+    ],
+    "reward_spread": [
+      0.0,
+      0.13711555707058223
+    ],
+    "function_score": [
+      0.0,
+      0.0
+    ]
+  },
+  "next_order": 38
+}

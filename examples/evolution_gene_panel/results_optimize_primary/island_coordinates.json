@@ -1,0 +1,300 @@
+[
+  {
+    "bb5bc296": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.10921627793906659
+    },
+    "2b24b8d7": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.0959229631228216
+    },
+    "1ea80a07": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.1197019973049
+    },
+    "0053d897": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.12475308291654087
+    },
+    "fac6a93a": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "f0ea1938": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "67a81f8b": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.12507874820043355
+    },
+    "1aedcb95": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "7caf3c04": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.1398605508679823
+    },
+    "75d4732c": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.06896479635507233
+    },
+    "1b6458c2": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "34f5060c": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.14889699098710635
+    },
+    "786eba31": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.013300781220971856
+    },
+    "ce9bd4ae": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "c35c8469": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.1086071425455553
+    },
+    "74709f6a": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.08768750364693864
+    },
+    "f5b65eca": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "eb78e36c": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.1034247405054788
+    },
+    "ca537cb2": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "4f114247": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "96a5540b": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.11287543423493039
+    },
+    "74702476": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.08890900834374824
+    },
+    "353b40e4": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.10397399763479853
+    },
+    "c36ac2cb": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.07952000858057984
+    },
+    "005617bc": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "2a1486f4": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.10725732058755684
+    },
+    "17a58a7f": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.11189197857485104
+    },
+    "70ac2a8a": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.10124988288434529
+    }
+  },
+  {
+    "a83f75bd": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.11953574709060341
+    },
+    "59ad114a": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.017709084684188782
+    },
+    "d748192b": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "e939f84a": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.13022933469871661
+    },
+    "98b3a7c2": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.10749633086243199
+    },
+    "84fdccf3": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.1015526019143389
+    },
+    "b2eeddb3": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.12691659099414654
+    },
+    "dbb612eb": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.08657915407587388
+    },
+    "52b59150": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.11315553310060243
+    },
+    "99a35c16": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.07708013591561821
+    },
+    "79028ff0": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.09877525377666739
+    },
+    "5172a136": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.0968122485048851
+    },
+    "ce992974": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "751dfc6e": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.08187526457848596
+    },
+    "9244702a": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "b2c9a253": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "ded0a41d": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.10913127822257011
+    },
+    "c562c8a7": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "4aa9dadf": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "8692f7e4": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "cc578403": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    }
+  }
+]

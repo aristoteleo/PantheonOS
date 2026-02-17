@@ -1,0 +1,926 @@
+\documentclass[8pt]{article}
+\usepackage[margin=0.50cm, a4paper]{geometry}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{multicol}
+
+\tcbuselibrary{skins,breakable}
+
+% ── Colors ──────────────────────────────────────────────────────────────
+\definecolor{keychange}{RGB}{41,128,185}
+\definecolor{removed}{RGB}{192,57,43}
+\definecolor{added}{RGB}{39,174,96}
+\definecolor{addedB}{RGB}{25,100,180}
+\definecolor{lightblue}{RGB}{232,244,253}
+\definecolor{lightyellow}{RGB}{253,245,230}
+\definecolor{lightgreen}{RGB}{232,246,232}
+\definecolor{lightcyan}{RGB}{228,241,254}
+\definecolor{hdrA}{RGB}{52,73,94}
+\definecolor{hdrB}{RGB}{34,139,34}
+\definecolor{hdrC}{RGB}{25,100,180}
+
+\algrenewcommand\algorithmicrequire{\textbf{Input:}}
+\algrenewcommand\algorithmicensure{\textbf{Output:}}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{2pt}
+\pagestyle{empty}
+
+% ── Compact boxes ─────────────────────────────────────────────────────
+\newtcolorbox{stepbox}[1][]{%
+    colback=white, colframe=black!30, boxrule=0.3pt, arc=1.5pt,
+    left=2pt, right=2pt, top=1pt, bottom=1pt,
+    fontupper=\footnotesize, #1}
+
+\newtcolorbox{keyboxG}[1][]{%
+    colback=lightgreen!40, colframe=added!70, boxrule=0.5pt, arc=1.5pt,
+    left=2pt, right=2pt, top=1pt, bottom=1pt,
+    fontupper=\footnotesize, #1}
+
+\newtcolorbox{keyboxB}[1][]{%
+    colback=lightcyan!40, colframe=addedB!70, boxrule=0.5pt, arc=1.5pt,
+    left=2pt, right=2pt, top=1pt, bottom=1pt,
+    fontupper=\footnotesize, #1}
+
+\newtcolorbox{warnbox}[1][]{%
+    colback=lightyellow!60, colframe=removed!50, boxrule=0.5pt, arc=1.5pt,
+    left=2pt, right=2pt, top=1pt, bottom=1pt,
+    fontupper=\footnotesize, #1}
+
+% Column width for 3-col portrait layout
+\newlength{\colw}
+
+\begin{document}
+
+% ======================================================================
+%                PAGE 1 -- FLOW: Exploration Strategy
+% ======================================================================
+\setlength{\colw}{0.315\textwidth}
+
+\begin{center}
+{\large\bfseries Algorithmic Flow: Exploration Strategy (\textsc{explore})}\\[1pt]
+{\scriptsize Original RL vs.\ two independently evolved CEM-based strategies for gene panel sampling}
+\end{center}
+\vspace{2pt}
+
+\noindent
+%% ── Column A: Original ──────────────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrA, colframe=hdrA, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering Original RL\\[-2pt]
+{\scriptsize\mdseries $\varepsilon$-greedy + Gaussian noise}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{warnbox}
+\textbf{1. Encode state:}\\
+$S_t = \textsc{Encoder}(\text{stats}(X_\text{panel}))$\\
+Train autoencoder for 5 epochs\\
+{\scriptsize 64-dim latent from 16 global stats}
+\end{warnbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{2. Get per-gene scores:}\\
+\colorbox{lightyellow}{$\text{logits} = \textsc{Actor}(S_t)$}\\
+$p_g = \sigma(\text{logit}_g) \;\forall g$\\
+{\scriptsize\color{removed} Batched actor: $O(G)$ parameters\\per gene --- wasteful for 2000 genes}
+\end{warnbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{3. Sample panel:}\\
+With prob $\varepsilon$: add $\mathcal{N}(0,0.2)$ noise,\\
+\quad target $\sim \mathcal{N}(K_\text{tgt},100)$\\
+Else: use raw probs, target $= K_\text{tgt}$\\
+\colorbox{lightyellow}{Sort by (noisy) prob, take top-$K$}\\
+{\scriptsize\color{removed} 1 panel per step; no diversity control;\\
+noise can produce degenerate panels}
+\end{warnbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{4. Evaluate \& store:}\\
+$r_t = \textsc{reward\_panel}(\text{genes})$\\
+$S_{t+1} = \textsc{Encode}(\text{genes}_{t+1})$\\
+Push $(S_t, \mathbf{a}, r_t, S_{t+1})$ to replay buffer\\
+{\scriptsize\color{removed} Each call = full PCA+Leiden+ARI;\\
+no caching of repeated panels}
+\end{warnbox}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{5.} Repeat for \texttt{N\_explore} steps;\\
+update \texttt{current\_subset} each step
+\end{stepbox}
+
+\vspace{3pt}
+\begin{center}
+{\scriptsize\color{black!50} $O(N_\text{explore})$ expensive evals;\\
+1 panel/step; no proxy screening;\\
+$\varepsilon$-greedy: blind uniform noise}
+\end{center}
+\end{minipage}%
+\hfill
+%% ── Column B: Explore Best ──────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrB, colframe=hdrB, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering Explore Best\\[-2pt]
+{\scriptsize\mdseries CEM + linear surrogate UCB}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{1. Build candidate pool (cheap):}\\
+Generate $M_\text{raw} = 6 \times M$ candidates via:
+\begin{itemize}[leftmargin=1em, itemsep=0pt, topsep=1pt, parsep=0pt]
+\item \colorbox{lightgreen}{Gumbel-TopK} on $\ell_g/T$ (global)
+\item \colorbox{lightgreen}{Local mutation}: swap out low-$p$ genes,\\swap in high-logit genes via Gumbel-top1
+\item \colorbox{lightgreen}{Prior-preserving}: keep $30\%$ prior genes
+\end{itemize}
+{\scriptsize\color{added} 3 strategies ensure diversity}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{2. Novelty filter:}\\
+\colorbox{lightgreen}{Jaccard($c$, ref) $\geq \theta_\text{accept}$? $\to$ reject}\\
+$\theta$ adaptive: low spread $\to 0.90$,\\
+high spread $\to 0.98$\\
+{\scriptsize\color{added} Prevents search collapse to clones}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{3. Rank by surrogate UCB:}\\
+Linear ridge: $\mu = \mathbf{w}^\top \mathbf{x}$,\;
+$\sigma = \sqrt{\sum 1/A_{ii}}$\\
+\colorbox{lightgreen}{Acquisition $= \mu + \kappa\sigma$}\\
+$-\;\lambda_\text{ov} \cdot \max_j \text{Jaccard}(c, \text{ref}_j)$\\
+{\scriptsize\color{added} No neural net; $O(K)$ per candidate}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{4. Boltzmann select \& evaluate:}\\
+\colorbox{lightgreen}{Softmax sample $M$ from pool}\\
+(adaptive $\tau$: low spread $\to$ flatter)\\
+Evaluate $\textsc{reward\_panel}$;\\
+\colorbox{lightgreen}{memoize by sorted-index tuple}\\
+{\scriptsize\color{added} Reduces expensive evals $\sim$80\%}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{5. Adaptive temperature kick:}\\
+spread $< 0.05 \to T \times 1.5$\\
+spread $> 0.15 \to T \times 0.9$\\
+{\scriptsize\color{added} Escapes plateaus dynamically}
+\end{keyboxG}
+\end{minipage}%
+\hfill
+%% ── Column C: Optimize Best ────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrC, colframe=hdrC, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering Optimize Best\\[-2pt]
+{\scriptsize\mdseries CEM + neural surrogate UCB}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{1. Sample via Gumbel-TopK:}\\
+\colorbox{lightcyan}{$s_g = \ell_g / \tau + \text{Gumbel}(0,1)$}\\
+Take top-$K$ indices as panel\\
+$\tau = \tau_\text{base} \cdot (1 + 1.5\varepsilon)$\\
+$\tau_\text{base}$: anneal $1.5 \to 0.4$ ($\times 0.98$/epoch)\\
+{\scriptsize\color{addedB} Plackett--Luce without-replacement}
+\end{keyboxB}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{2. Generate large pool:}\\
+$M_\text{pool} = 6\times M$ candidates\\
+from Gumbel-TopK at current $\tau$\\
+{\scriptsize Single sampling strategy (no mutation)}
+\end{keyboxB}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{3. Neural surrogate screening:}\\
+\colorbox{lightcyan}{Embedding$(g) \to$ mean-pool $\to$ MLP}\\
+MC Dropout ($T{=}8$ fwd passes):\\
+$\mu, \sigma \gets \text{mean}(\hat{r}), \text{std}(\hat{r})$\\
+\colorbox{lightcyan}{UCB $= \mu + \lambda\sigma$}\\
+{\scriptsize\color{addedB} Richer model; higher overhead}
+\end{keyboxB}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{4. Racing: top fraction evaluated:}\\
+Rank by UCB (or PCA proxy);\\
+evaluate top $35\%$ with reward\_panel\\
+\colorbox{lightcyan}{Memoize by sorted-index key}\\
+{\scriptsize\color{addedB} PCA centroid-separation fallback\\
+before surrogate warmup (128 samples)}
+\end{keyboxB}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{5. Elitism:}\\
+\colorbox{lightcyan}{Always evaluate incumbent + best}\\
+Update current\_subset to epoch-best\\
+{\scriptsize\color{addedB} Guarantees monotonic tracking}
+\end{keyboxB}
+
+\vspace{3pt}
+\begin{center}
+{\scriptsize\color{black!50} No novelty filter;\\
+no adaptive temperature kick;\\
+relies on $\tau$ annealing only}
+\end{center}
+\end{minipage}
+
+% ======================================================================
+%              PAGE 2 -- FLOW: Optimization / Distribution Update
+% ======================================================================
+\newpage
+\setlength{\colw}{0.315\textwidth}
+
+\begin{center}
+{\large\bfseries Algorithmic Flow: Distribution Update (\textsc{optimize})}\\[1pt]
+{\scriptsize How each variant updates the gene selection distribution after exploration}
+\end{center}
+\vspace{2pt}
+
+\noindent
+%% ── Column A: Original ──────────────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrA, colframe=hdrA, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering Original RL\\[-2pt]
+{\scriptsize\mdseries Actor-Critic + TD(0)}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{warnbox}
+\textbf{1. Sample from replay buffer:}\\
+$(S_t, \mathbf{a}, r_t, S_{t+1}) \sim \mathcal{B}$\\
+Minibatch of 64 transitions\\
+{\scriptsize Off-policy: transitions from different epochs}
+\end{warnbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{2. Critic update (TD(0)):}\\
+$V_t = \textsc{Critic}(S_t)$\\
+$V_{t+1} = \textsc{Critic}(S_{t+1})$\quad(no grad)\\
+\colorbox{lightyellow}{$\text{target} = r_t + \gamma \cdot V_{t+1}$}\\
+$\mathcal{L}_\text{critic} = \text{MSE}(V_t, \text{target})$\\
+{\scriptsize\color{removed} Bootstrapping off critic's own estimate;\\
+unstable when reward is panel-level\\
+and state transitions are non-Markovian}
+\end{warnbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{3. Actor update (policy gradient):}\\
+$\text{logits} = \textsc{Actor}(S_t)$\\
+$\log\pi = a_g \log\sigma(\ell) + (1{-}a_g)\log\sigma({-}\ell)$\\
+\colorbox{lightyellow}{$\mathcal{L}_\pi = -(\log\pi \cdot A_t).\text{mean}$}\\
+$A_t = \text{target} - V_t$\quad(advantage)\\
+{\scriptsize\color{removed} Single-step advantage; high variance;\\
+per-gene $a_g \in \{0,1\}$ ignores panel-level\\
+combinatorial structure}
+\end{warnbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{4. Entropy regularization:}\\
+$H = -(p\log p + (1{-}p)\log(1{-}p))$\\
+$\mathcal{L}_\text{ent} = -\beta_\text{ent} \cdot H.\text{mean}$\\
+$\beta_\text{ent} = 0.01$ (fixed)\\
+{\scriptsize\color{removed} Fixed coefficient; no scheduling}
+\end{warnbox}\vspace{1pt}
+
+\begin{stepbox}
+\textbf{5.} $\varepsilon \gets \max(0.10, \varepsilon \times 0.97)$
+\end{stepbox}
+
+\vspace{3pt}
+\begin{center}
+{\scriptsize\color{black!50} Policy gradient on per-gene Bernoullis;\\
+critic estimates state-value for a\\
+non-sequential combinatorial problem;\\
+objective--architecture mismatch}
+\end{center}
+\end{minipage}%
+\hfill
+%% ── Column B: Explore Best ──────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrB, colframe=hdrB, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering Explore Best\\[-2pt]
+{\scriptsize\mdseries Logit-space CEM + rank weights}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{1. Select elites:}\\
+Sort population by reward descending\\
+\colorbox{lightgreen}{$E = \lceil \rho \cdot M \rceil$ elites} ($\rho$ adaptive)\\
+Low spread $\to \rho \times 1.25$\\
+High spread $\to \rho \times 0.9$\\
+{\scriptsize\color{added} Wider elite pool when stagnant}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{2. Rank-based elite weights:}\\
+\colorbox{lightgreen}{$w_i = \exp(-\text{rank}_i / \tau_r)$}; normalize\\
+{\scriptsize\color{added} Robust to reward scale; top-ranked\\
+elites contribute more regardless\\
+of absolute reward difference}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{3. Weighted gene frequencies:}\\
+$\text{freq}_g = \sum_i w_i \cdot \mathbb{1}[g \in \text{panel}_i]$\\
+Vectorized via \texttt{np.bincount}\\
+Clip $\geq p_\text{min}$; normalize to simplex\\
+$\hat{\ell}_g = \log(\text{freq}_g)$
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{4. Logit-space smoothing:}\\
+\colorbox{lightgreen}{$\ell_g \gets (1-\alpha)\ell_g + \alpha\hat{\ell}_g$}\\
+Repeat for $N_\text{opt}$ steps\\
+$\alpha$ adaptive: stronger when best improves\\
+{\scriptsize\color{added} EMA in log-space prevents simplex\\
+corner collapse; multiple passes\\
+for smoother convergence}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{5. Recover probabilities:}\\
+$p_g = \text{softmax}(\ell_g)$; clip $\geq p_\text{min}$\\
+$\ell_g \gets \log(p_g)$\quad(re-sync)
+\end{keyboxG}
+
+\vspace{3pt}
+\begin{center}
+{\scriptsize\color{black!50} No neural networks in update loop;\\
+no critic; no TD bootstrapping;\\
+pure combinatorial optimization}
+\end{center}
+\end{minipage}%
+\hfill
+%% ── Column C: Optimize Best ────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrC, colframe=hdrC, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering Optimize Best\\[-2pt]
+{\scriptsize\mdseries KL-regularized CEM (trust region)}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{1. Sample from replay buffer:}\\
+$(S_t, \mathbf{a}, r_t, \ldots) \sim \mathcal{B}$; minibatch 64\\
+Standardize: $r \gets (r - \bar{r})/(\sigma_r + \varepsilon)$
+\end{keyboxB}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{2. Select elites + softmax weights:}\\
+$E = \lceil \rho \cdot |\text{batch}| \rceil$ elites\\
+\colorbox{lightcyan}{$w_i = \text{softmax}(r_i / \tau)$}; $\tau = 0.75$\\
+{\scriptsize Magnitude-based: sensitive to reward scale}
+\end{keyboxB}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{3. Elite empirical marginals:}\\
+$m_g = \sum_i w_i \cdot a_{ig}$\\
+Anti-collapse: \colorbox{lightcyan}{$m \gets (1{-}\lambda)m + \lambda p_0$}\\
+$p_0 = K/G$; $\lambda$ decays with $\varepsilon$\\
+{\scriptsize\color{addedB} Prevents distribution degeneration}
+\end{keyboxB}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{4. Trust-region update:}\\
+$p_\text{old} = \sigma(\ell_g)$ (current logits)\\
+$p_\text{new} = (1-\eta)\,p_\text{old} + \eta\, m$\\
+\colorbox{lightcyan}{Check $\text{KL}_\text{Bern}(p_\text{old} \| p_\text{new}) \leq \delta_\text{KL}$}\\
+If violated: \colorbox{lightcyan}{$\eta \gets \eta \times 0.5$} (up to 20$\times$)\\
+{\scriptsize\color{addedB} TRPO-style: guarantees stable updates;\\
+no overshooting in probability space}
+\end{keyboxB}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{5. Commit:}\\
+$p_\text{new} = \text{clamp}(p_\text{new}, \varepsilon, 1{-}\varepsilon)$\\
+$\ell_g \gets \text{logit}(p_\text{new})$\\
+$\tau_\text{sample} \gets \max(\tau_\text{end}, \tau \times 0.98)$\\
+{\scriptsize\color{addedB} Temperature monotonically decreases}
+\end{keyboxB}
+
+\vspace{3pt}
+\begin{center}
+{\scriptsize\color{black!50} KL constraint ensures safe updates;\\
+but monotonic $\tau$ decay limits ability\\
+to escape local optima once converged}
+\end{center}
+\end{minipage}
+
+% ======================================================================
+%               PAGE 3 -- FLOW: Reward Function
+% ======================================================================
+\newpage
+\setlength{\colw}{0.315\textwidth}
+
+\begin{center}
+{\large\bfseries Algorithmic Flow: Reward Function (\textsc{reward\_panel})}\\[1pt]
+{\scriptsize How each variant scores a candidate gene panel}
+\end{center}
+\vspace{2pt}
+
+\noindent
+%% ── Column A: Original ──────────────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrA, colframe=hdrA, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering Original RL\\[-2pt]
+{\scriptsize\mdseries ARI + size penalty}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{warnbox}
+\textbf{1. Clustering:}\\
+PCA $\to$ neighbors $\to$ Leiden\\
+{\scriptsize Standard scanpy / rapids pipeline}
+\end{warnbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{2. Single metric:}\\
+\colorbox{lightyellow}{$\text{ARI} = \textsc{AdjRandScore}(\text{true}, \text{clusters})$}\\
+{\scriptsize\color{removed} Only ARI; ignores NMI \& silhouette}
+\end{warnbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{3. Size penalty:}\\
+{\small$s = \begin{cases} 1 & K \leq K_\text{tgt} \\ (1 - \frac{K-K_\text{tgt}}{K_\text{max}-K_\text{tgt}})^\beta & K_\text{tgt} {<} K {\leq} K_\text{max} \\ 0 & K > K_\text{max}\end{cases}$}
+\end{warnbox}\vspace{1pt}
+
+\begin{warnbox}
+\textbf{4. Final reward:}\\
+\colorbox{lightyellow}{$r = \alpha \cdot \text{ARI} + (1-\alpha) \cdot s$}\\
+$\alpha = 0.8$ (fixed)\\
+{\scriptsize\color{removed} Linear combination; equal scaling;\\
+no NMI/SI signal; misses clustering\\
+quality dimensions}
+\end{warnbox}
+
+\vspace{3pt}
+\begin{center}
+{\scriptsize\color{black!50} Sparse reward signal;\\
+ARI-only misses complementary\\
+quality information from NMI \& SI}
+\end{center}
+\end{minipage}%
+\hfill
+%% ── Column B: Explore Best ──────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrB, colframe=hdrB, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering Explore Best\\[-2pt]
+{\scriptsize\mdseries Multi-metric + nonlinear shaping}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{1. Clustering:} same pipeline +\\
+\colorbox{lightgreen}{deterministic Leiden} (\texttt{random\_state=0})
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{2. Multi-metric quality:}\\
+$\text{ARI}, \text{NMI} \gets$ sklearn\\
+\colorbox{lightgreen}{SI $\gets$ silhouette on PCA (subsampled)}\\
+$\text{SI}_s = \tanh(\text{SI})$\\
+$q = 0.5\,\text{ARI} + 0.3\,\text{NMI} + 0.2\,\text{SI}_s$\\
+{\scriptsize\color{added} Captures complementary quality axes}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{3. Nonlinear shaping:}\\
+\colorbox{lightgreen}{$q' = (\text{clamp}(q, 0, 1))^{1.5}$}\\
+{\scriptsize\color{added} Amplifies difference between\\
+good and mediocre panels}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{4. Missing-gene penalty:}\\
+If $K < K_\text{tgt}$:\\
+\colorbox{lightgreen}{$\text{pen} = c_\text{miss} \cdot (K_\text{tgt} - K) / K_\text{tgt}$}\\
+$c_\text{miss} = 0.05$\\
+{\scriptsize\color{added} Discourages under-sized panels}
+\end{keyboxG}\vspace{1pt}
+
+\begin{keyboxG}
+\textbf{5. Final reward:}\\
+\colorbox{lightgreen}{$r = q' - \text{pen}$}\\
+{\scriptsize Decoupled from size term $s$;\\
+size handled by Lagrangian in trainer}
+\end{keyboxG}
+\end{minipage}%
+\hfill
+%% ── Column C: Optimize Best ────────────────────────────────────
+\begin{minipage}[t]{\colw}
+\begin{tcolorbox}[colback=hdrC, colframe=hdrC, fontupper=\bfseries\footnotesize\color{white},
+    arc=2pt, left=2pt, right=2pt, top=1pt, bottom=1pt]
+\centering Optimize Best\\[-2pt]
+{\scriptsize\mdseries Multi-metric + power shaping}
+\end{tcolorbox}
+\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{1. Clustering:} same pipeline\\
+{\scriptsize Deterministic Leiden for CPU path}
+\end{keyboxB}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{2. Multi-metric quality:}\\
+ARI, NMI via sklearn\\
+\colorbox{lightcyan}{SI: silhouette $\to$ $(r+1)/2 \in [0,1]$}\\
+$q_g = w_\text{ARI} \cdot f(\text{ARI}) + w_\text{NMI} \cdot f(\text{NMI})$\\
+$\quad + w_\text{SI} \cdot f(\text{SI})$\\
+weights $= (0.45, 0.45, 0.10)$\\
+{\scriptsize\color{addedB} More ARI/NMI weight; less SI}
+\end{keyboxB}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{3. Per-metric power shaping:}\\
+\colorbox{lightcyan}{$f(x) = (\text{clamp}(x, 0, 1))^{2.0}$}\\
+Applied to each metric individually\\
+{\scriptsize\color{addedB} Stronger shaping (power 2.0 vs 1.5);\\
+good metrics amplified more}
+\end{keyboxB}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{4. Size penalty:}\\
+Same $s$ formula as original\\
+$\text{pen} = \lambda_s \cdot (1 - s)$; $\lambda_s = 0.25$\\
+{\scriptsize\color{addedB} Soft Lagrangian rather than hard mix}
+\end{keyboxB}\vspace{1pt}
+
+\begin{keyboxB}
+\textbf{5. Final reward:}\\
+\colorbox{lightcyan}{$r = q_g - \lambda_s \cdot (1 - s)$}\\
+{\scriptsize Quality dominates; size penalty\\
+only activates above $K_\text{tgt}$}
+\end{keyboxB}
+\end{minipage}
+
+% ======================================================================
+%              PAGE 4 -- PSEUDOCODE: explore()
+% ======================================================================
+\newpage
+
+\begin{center}
+{\large\bfseries Detailed Pseudocode Comparison}\\[3pt]
+{\normalsize Algorithmic differences in exploration (\textsc{explore}) and optimization (\textsc{optimize})}
+\end{center}
+\vspace{4pt}
+
+{\large\bfseries 1. Exploration Strategy (\textsc{explore})}
+
+\vspace{3pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 1a:} Original RL --- $\varepsilon$-greedy per-gene sampling},
+    colback=white, colframe=black!60, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require Current panel $G_t$, Actor network, replay buffer $\mathcal{B}$, $\varepsilon$
+\Ensure Updated panel $G_{t+1}$, rewards list
+\For{step $= 1, \ldots, N_\text{explore}$}
+    \State $S_t \gets \textsc{EncodeState}(G_t)$ \Comment{16 stats $\to$ 64-dim latent}
+    \State $\text{logits} \gets \textsc{Actor}(S_t)$; \quad $p_g \gets \sigma(\text{logit}_g) \;\forall g$
+    \If{$\text{rand}() < \varepsilon$} \Comment{\colorbox{lightyellow}{Blind noise exploration}}
+        \State $K \gets \text{clip}(\mathcal{N}(K_\text{tgt}, 100), 200, K_\text{max})$
+        \State $\tilde{p}_g \gets p_g + \mathcal{N}(0, 0.2) \;\forall g$
+    \Else
+        \State $K \gets K_\text{tgt}$; \quad $\tilde{p}_g \gets p_g$
+    \EndIf
+    \State $G_{t+1} \gets \text{top-}K \text{ genes by } \tilde{p}$
+    \State $r_t \gets \textsc{reward\_panel}(G_{t+1})$ \Comment{\colorbox{lightyellow}{Expensive: PCA + Leiden + ARI}}
+    \State $\mathcal{B}.\text{push}(S_t, \mathbf{a}, r_t, S_{t+1})$
+\EndFor
+\end{algorithmic}
+\end{tcolorbox}
+
+\vspace{4pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 1b:} Explore Best --- Two-stage CEM with linear surrogate UCB},
+    colback=lightgreen!20, colframe=added!80, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require Logits $\boldsymbol{\ell}$, temperature $T$, eval budget $M$, elite archive, best panel $G^*$
+\Ensure Updated $\boldsymbol{\ell}$, elite archive, rewards list
+\State \colorbox{lightgreen}{\textbf{Stage A: Generate candidate pool}} ($M_\text{raw} = 6M$)
+\For{$j = 1, \ldots, M_\text{raw}$}
+    \State Strategy $\gets$ \{global, local-mutation, prior-preserving\} by fraction
+    \State $C_j \gets$ \textsc{GumbelTopK}($\boldsymbol{\ell}/T$, $K$) or \textsc{Mutate}(base, max\_swaps) or \textsc{PriorSample}
+    \State \colorbox{lightgreen}{If $\max_\text{ref} \text{Jaccard}(C_j, \text{ref}) \geq \theta_\text{accept}$: \textbf{reject}} \Comment{Novelty filter}
+\EndFor
+\State \colorbox{lightgreen}{\textbf{Stage B: Rank \& select for expensive evaluation}}
+\State $\text{acq}_j \gets \mathbf{w}^\top \mathbf{x}_j + \kappa \sqrt{\sum 1/A_{ii,j}} - \lambda_\text{ov} \cdot \text{Jaccard}(C_j, \text{refs})$ \Comment{Surrogate UCB}
+\State $\text{Eval set} \gets \text{BoltzmannSample}(\text{acq}, M, \tau_\text{proxy})$ $\cup$ \{seeds, elites\}
+\For{each $C \in \text{Eval set}$}
+    \State \colorbox{lightgreen}{$r \gets \textsc{reward\_panel\_memoized}(C)$} \Comment{Sorted-index cache}
+    \State Update best, elite archive, reward stats
+\EndFor
+\State \colorbox{lightgreen}{Adaptive $T$: spread $< 0.05 \to T \times 1.5$; spread $> 0.15 \to T \times 0.9$}
+\end{algorithmic}
+\end{tcolorbox}
+
+\vspace{4pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 1c:} Optimize Best --- Gumbel-TopK + neural surrogate racing},
+    colback=lightcyan!30, colframe=addedB!70, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require Panel logits $\boldsymbol{\ell}$, temperature $\tau$, surrogate model $(E, h)$, buffer $\mathcal{B}$
+\Ensure Updated buffer, best panel, rewards list
+\State $\tau_\text{eff} \gets \tau \cdot (1 + 1.5\varepsilon)$ \Comment{More exploratory when $\varepsilon$ high}
+\State Generate pool of $6M$ candidates via \textsc{GumbelTopK}($\boldsymbol{\ell}/\tau_\text{eff}$, $K$)
+\State \colorbox{lightcyan}{\textbf{Surrogate screening:}} Train surrogate on buffer (adaptive schedule)
+\State \colorbox{lightcyan}{$\text{UCB}_j \gets \mu_j + \lambda\sigma_j$} via MC Dropout ($T{=}8$ fwd passes on Embed $\to$ MLP)
+\State If no surrogate: $\text{score}_j \gets$ PCA centroid-separation proxy
+\State Evaluate top $35\%$ by score with full \textsc{reward\_panel}
+\State \colorbox{lightcyan}{Always evaluate incumbent + best-so-far} \Comment{Elitism}
+\State Push transitions to $\mathcal{B}$; update current\_subset to epoch-best
+\end{algorithmic}
+\end{tcolorbox}
+
+% ======================================================================
+%              PAGE 5 -- PSEUDOCODE: optimize()
+% ======================================================================
+\newpage
+
+{\large\bfseries 2. Distribution Update (\textsc{optimize})}
+
+\vspace{3pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 2a:} Original RL --- Actor-Critic policy gradient + TD(0)},
+    colback=white, colframe=black!60, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require Actor, Critic networks; replay buffer $\mathcal{B}$; $\gamma = 0.99$, $\beta_\text{ent} = 0.01$
+\Ensure Updated Actor and Critic parameters
+\For{$i = 1, \ldots, N_\text{opt}$}
+    \State $(S_t, \mathbf{a}, r_t, S_{t+1}) \gets \mathcal{B}.\text{sample}(64)$
+    \State \colorbox{lightyellow}{$\text{target} \gets r_t + \gamma \cdot \textsc{Critic}(S_{t+1})$} \Comment{\textcolor{removed}{TD bootstrap: critic estimates own target}}
+    \State $\mathcal{L}_C \gets \text{MSE}(\textsc{Critic}(S_t), \text{target})$; \quad update Critic
+    \State $\ell_g \gets \textsc{Actor}(S_t)$; \quad $\log\pi \gets a_g \log\sigma(\ell) + (1{-}a_g)\log\sigma({-}\ell)$
+    \State $A_t \gets \text{target} - \textsc{Critic}(S_t)$
+    \State \colorbox{lightyellow}{$\mathcal{L}_\pi \gets -(\log\pi \cdot A_t).\text{mean} - \beta_\text{ent} \cdot H$} \Comment{\textcolor{removed}{Per-gene Bernoulli PG}}
+    \State Update Actor; clip gradients at 1.0
+\EndFor
+\end{algorithmic}
+\end{tcolorbox}
+
+\vspace{4pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 2b:} Explore Best --- Logit-space CEM with rank-based elite weights},
+    colback=lightgreen!20, colframe=added!80, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require Population rewards \& panels from explore(), logits $\boldsymbol{\ell}$, adaptive $\alpha$, $\rho$
+\Ensure Updated logits $\boldsymbol{\ell}$ and probabilities $\mathbf{p}$
+\State Sort population by reward; \colorbox{lightgreen}{$E \gets \lceil \rho \cdot M \rceil$ elites} ($\rho$ adaptive by spread)
+\State \colorbox{lightgreen}{$w_i \gets \exp(-\text{rank}_i / \tau_r)$}; normalize \Comment{Rank-based weighting}
+\State \colorbox{lightgreen}{$\text{freq}_g \gets \texttt{np.bincount}(\text{flat\_idx}, \text{weights}=w_\text{rep})$}; clip; normalize
+\State $\hat{\ell}_g \gets \log(\text{freq}_g)$
+\For{$i = 1, \ldots, N_\text{opt}$}
+    \State \colorbox{lightgreen}{$\ell_g \gets (1 - \alpha)\,\ell_g + \alpha\,\hat{\ell}_g$} \Comment{Logit-space EMA}
+\EndFor
+\State $p_g \gets \text{softmax}(\boldsymbol{\ell})$; clip $\geq p_\text{min}$; renormalize
+\State $\ell_g \gets \log(p_g)$ \Comment{Re-sync logits}
+\end{algorithmic}
+\end{tcolorbox}
+
+\vspace{4pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Algorithm 2c:} Optimize Best --- KL-regularized CEM with trust-region backtracking},
+    colback=lightcyan!30, colframe=addedB!70, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=4pt, right=4pt, top=2pt, bottom=2pt
+]
+\begin{algorithmic}[1]
+\small
+\Require Buffer $\mathcal{B}$, panel logits $\boldsymbol{\ell}$, elite frac $\rho$, step size $\eta$, KL target $\delta$
+\Ensure Updated logits $\boldsymbol{\ell}$
+\For{$i = 1, \ldots, N_\text{opt}$}
+    \State $(S_t, \mathbf{a}, r_t, \ldots) \gets \mathcal{B}.\text{sample}(64)$
+    \State $r \gets (r - \bar{r}) / (\sigma_r + \varepsilon)$ \Comment{Standardize}
+    \State $E \gets \lceil \rho \cdot |\text{batch}| \rceil$ elites by reward
+    \State \colorbox{lightcyan}{$w_i \gets \text{softmax}(r_i / 0.75)$} \Comment{Magnitude-based weights}
+    \State $m_g \gets \sum_i w_i \cdot a_{ig}$ \Comment{Weighted marginals}
+    \State \colorbox{lightcyan}{$m \gets (1 - \lambda)\,m + \lambda\, p_0$} \Comment{Anti-collapse mixing; $p_0 = K/G$}
+    \State $p_\text{old} \gets \sigma(\boldsymbol{\ell})$; \quad $\eta_0 \gets \eta$
+    \For{bt $= 1, \ldots, 20$} \Comment{\colorbox{lightcyan}{Trust-region backtracking}}
+        \State $p_\text{new} \gets (1 - \eta)\,p_\text{old} + \eta\, m$
+        \State \colorbox{lightcyan}{$\text{KL} \gets \text{mean}(p_\text{old} \log\frac{p_\text{old}}{p_\text{new}} + (1{-}p_\text{old})\log\frac{1{-}p_\text{old}}{1{-}p_\text{new}})$}
+        \If{$\text{KL} \leq \delta$} \textbf{break}
+        \Else\; $\eta \gets \eta \times 0.5$
+        \EndIf
+    \EndFor
+    \State $\boldsymbol{\ell} \gets \text{logit}(\text{clamp}(p_\text{new}))$; \quad $\tau_\text{sample} \gets \max(\tau_\text{end}, \tau \times 0.98)$
+\EndFor
+\end{algorithmic}
+\end{tcolorbox}
+
+% ======================================================================
+%              PAGE 6 -- SUMMARY TABLE + PERFORMANCE + EXPLANATIONS
+% ======================================================================
+\newpage
+
+{\large\bfseries 3. Summary of Key Algorithmic Differences}
+
+\vspace{3pt}
+
+\renewcommand{\arraystretch}{1.25}
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}p{2.0cm} p{3.5cm} p{4.4cm} p{4.4cm}@{}}
+\toprule
+\textbf{Component} & \textbf{Original} & \textbf{Explore Best} & \textbf{Optimize Best} \\
+\midrule
+\textbf{Paradigm} &
+    RL (actor-critic) &
+    \textcolor{added}{CEM + logit distribution} &
+    \textcolor{addedB}{CEM + logit distribution} \\
+\addlinespace
+
+\textbf{Sampling} &
+    $\varepsilon$-greedy + $\mathcal{N}$ noise &
+    \textcolor{added}{Gumbel-TopK + mutation + prior-preserve} &
+    \textcolor{addedB}{Gumbel-TopK (single strategy)} \\
+\addlinespace
+
+\textbf{Screening} &
+    None (direct eval) &
+    \textcolor{added}{Linear surrogate UCB ($O(K)$/cand)} &
+    \textcolor{addedB}{Neural surrogate MC-Dropout UCB} \\
+\addlinespace
+
+\textbf{Novelty} &
+    None &
+    \textcolor{added}{Jaccard filter (adaptive $\theta$)} &
+    None \\
+\addlinespace
+
+\textbf{Temp.\ control} &
+    $\varepsilon \times 0.97$ (monotonic) &
+    \textcolor{added}{Adaptive kick: $\times 1.5$/$\times 0.9$ by spread} &
+    \textcolor{addedB}{Monotonic anneal $\times 0.98$} \\
+\addlinespace
+
+\textbf{Update} &
+    Policy gradient + TD(0) critic &
+    \textcolor{added}{Rank-weighted logit-space EMA} &
+    \textcolor{addedB}{KL-regularized trust-region} \\
+\addlinespace
+
+\textbf{Weights} &
+    Advantage $A_t$ &
+    \textcolor{added}{$e^{-\text{rank}/\tau}$ (scale-free)} &
+    \textcolor{addedB}{softmax$(r/0.75)$ (magnitude)} \\
+\addlinespace
+
+\textbf{Reward} &
+    $\alpha \cdot \text{ARI} + (1{-}\alpha) \cdot s$ &
+    \textcolor{added}{$(0.5\text{A}+0.3\text{N}+0.2\text{S})^{1.5} - \text{pen}$} &
+    \textcolor{addedB}{$0.45 f(\text{A})+0.45 f(\text{N})+0.1 f(\text{S}) - \lambda s_p$} \\
+\addlinespace
+
+\textbf{Memo.} &
+    None &
+    \textcolor{added}{Sorted-idx FIFO cache} &
+    \textcolor{addedB}{Sorted-index FIFO cache} \\
+\addlinespace
+
+\textbf{Robustness} &
+    Undefined \texttt{logger} &
+    \textcolor{added}{Gene universe sanitization} &
+    No sanitization \\
+
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{4pt}
+
+{\large\bfseries 4. Performance Comparison}
+
+\vspace{3pt}
+
+\renewcommand{\arraystretch}{1.25}
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}l c c c@{}}
+\toprule
+\textbf{Metric} & \textbf{Original} & \textbf{Explore Best} & \textbf{Optimize Best} \\
+\midrule
+Evolution score & 0.500 & \textbf{1.000} & 0.958 \\
+Best ARI & --- & 0.513 & \textbf{0.646} \\
+Best NMI & --- & 0.621 & \textbf{0.672} \\
+Training speed (best) & --- & \textbf{0.825} & 0.640 \\
+Panel size & 500 & 500--548 & 500 \\
+\addlinespace
+Iterations to best & --- & 27 & \textbf{10} \\
+Post-best stagnation & --- & 22 & 39 \\
+Success rate & --- & 74\% & \textbf{96\%} \\
+Improvement rate & --- & \textbf{26\%} & 20\% \\
+LLM cost & --- & \textbf{\$5.41} & \$6.29 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{4pt}
+
+{\large\bfseries 5. Convergent Evolution: Why Both Abandoned RL for CEM}
+
+\vspace{3pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Shared insight}: RL $\to$ CEM paradigm shift (independently discovered by both runs)},
+    colback=white, colframe=black!60, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=6pt, right=6pt, top=3pt, bottom=3pt
+]
+\small
+\begin{itemize}[leftmargin=1em, itemsep=2pt]
+    \item \textbf{Objective--architecture mismatch}: The original RL treats panel selection as a \emph{sequential decision} (per-gene Bernoulli actions), but reward depends only on the \emph{final set}. TD bootstrapping estimates intermediate state values that have no meaningful interpretation, introducing harmful bias. Both runs eliminated the critic and TD targets entirely.
+
+    \item \textbf{Combinatorial vs.\ sequential}: Selecting 500 from 2000 genes is a combinatorial optimization problem ($\binom{2000}{500}$ candidates). CEM samples and evaluates \emph{complete panels}, directly optimizing over the combinatorial search space rather than decomposing it into $G$ independent binary decisions.
+
+    \item \textbf{Multi-metric reward}: Both runs independently evolved from single-metric (ARI only) to multi-metric (ARI + NMI + SI) rewards with nonlinear shaping, providing a richer optimization signal.
+
+    \item \textbf{Evaluation memoization}: Both discovered sorted-index-tuple caching to avoid redundant expensive clustering evaluations --- a natural consequence of population-based search encountering repeated candidates.
+\end{itemize}
+\end{tcolorbox}
+
+\vspace{4pt}
+
+{\large\bfseries 6. Why Each Variant Improved}
+
+\vspace{3pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Explore Best}: Superior search escape $\to$ higher final score (1.0)},
+    colback=lightgreen!10, colframe=added!60, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=6pt, right=6pt, top=3pt, bottom=3pt
+]
+\small
+\begin{itemize}[leftmargin=1em, itemsep=2pt]
+    \item \textbf{Adaptive temperature kick} (spread-based): When the population's reward spread drops below 0.05 (stagnation), $T$ is multiplied by 1.5, forcing broader sampling. This broke through the 0.956 plateau at iteration 27 to reach 1.0. The Optimize variant's monotonic $\tau$ decay ($\times 0.98$/epoch) cannot recover once converged.
+
+    \item \textbf{Jaccard novelty filter}: Explicitly rejects candidates too similar to best/elites (adaptive threshold 0.90--0.98). This prevents the search from wasting evaluation budget on near-duplicate panels and forces genuine exploration of new gene combinations.
+
+    \item \textbf{Three-strategy sampling}: Global Gumbel-TopK, local swap mutation (probability-biased removal + Gumbel-top1 addition), and prior-preserving sampling cover different scales of variation. The Optimize variant uses only global sampling.
+
+    \item \textbf{Lightweight surrogate}: Linear ridge with diagonal posterior ($O(K)$ per candidate) enables screening $6\times$ more candidates than the neural surrogate, maximizing search breadth within the evaluation budget.
+
+    \item \textbf{Gene universe sanitization}: Deduplication and intersection with \texttt{adata.var\_names} prevents silent failures from duplicate or missing genes, improving robustness across diverse evaluation conditions.
+\end{itemize}
+\end{tcolorbox}
+
+\vspace{4pt}
+
+\begin{tcolorbox}[
+    title={\textbf{Optimize Best}: Superior update stability $\to$ faster early convergence (0.958 by iter 10)},
+    colback=lightcyan!15, colframe=addedB!60, fonttitle=\small\bfseries,
+    boxrule=0.5pt, arc=2pt, left=6pt, right=6pt, top=3pt, bottom=3pt
+]
+\small
+\begin{itemize}[leftmargin=1em, itemsep=2pt]
+    \item \textbf{KL trust-region} guarantees bounded updates: Bernoulli KL$(p_\text{old} \| p_\text{new}) \leq \delta$ with backtracking prevents overshooting. This yields 96\% success rate (vs.\ Explore's 74\%) and reaches 0.958 by iteration 10 (vs.\ Explore's iteration 27 for comparable scores).
+
+    \item \textbf{Anti-collapse prior mixing}: Blending elite marginals with uniform $p_0 = K/G$ (decay rate tied to $\varepsilon$) prevents the distribution from collapsing to a point mass too early, maintaining diversity in early epochs when information is scarce.
+
+    \item \textbf{Neural surrogate with MC-Dropout UCB}: The embedding-based surrogate captures nonlinear gene interactions that the linear model cannot. MC-Dropout uncertainty provides calibrated exploration bonuses, directing evaluation to high-potential but uncertain candidates.
+
+    \item \textbf{Elitism (always evaluate incumbent)}: Guarantees the best-known panel is always scored, preventing regression due to stochastic evaluation noise and ensuring monotonic best-score tracking.
+
+    \item \textbf{Limitation --- no escape mechanism}: The monotonic temperature decay ($\times 0.98$/epoch) and lack of novelty filtering caused 39 iterations of stagnation after reaching 0.958. The distribution converged too early, and the trust-region update (designed for stability) prevented the large jumps needed to escape the local optimum.
+\end{itemize}
+\end{tcolorbox}
+
+\end{document}

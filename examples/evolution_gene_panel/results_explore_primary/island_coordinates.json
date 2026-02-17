@@ -1,0 +1,234 @@
+[
+  {
+    "651cd9d7": {
+      "size_score": 0.548,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.1271381526843502
+    },
+    "14491f8d": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.05453038683885821
+    },
+    "7f7cc31d": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.04449413627618841
+    },
+    "dd33593e": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.06342962390880787
+    },
+    "971ea9b6": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "851457dc": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.04466835057933637
+    },
+    "c15f9900": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.04427348663796395
+    },
+    "9b168899": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.03280704212486639
+    },
+    "2c732291": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 7.613991408791071e-05
+    },
+    "aee0d73b": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.06854627202446371
+    },
+    "48da3e7f": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.01931289848353185
+    },
+    "55169d7f": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "aba2f3b4": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.005822072151872192
+    },
+    "4e1657e4": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.03176753697524593
+    },
+    "23bd78d5": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.08066045368903155
+    },
+    "9eaafd1d": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.05700240419664979
+    },
+    "62d8dc04": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.0
+    },
+    "10eb7bd0": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.013182847181947004
+    }
+  },
+  {
+    "d4736617": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.06772054653285008
+    },
+    "64de81ff": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "e6a91b08": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.05435455831621217
+    },
+    "2bca7f27": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.13711555707058223
+    },
+    "2b1599f8": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.05023016003801961
+    },
+    "7fb9284c": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.016174930074263558
+    },
+    "96d59cef": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.010747941700252195
+    },
+    "ea929caf": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.033661181105111494
+    },
+    "ab04336a": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.012514892934893536
+    },
+    "f81c77c6": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "dcfcdb34": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.006182437161844363
+    },
+    "adccef9d": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.0
+    },
+    "2382ead2": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.02340168225108162
+    },
+    "b3e995e5": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.13348624412552829
+    },
+    "277b41d5": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.07985431650854315
+    },
+    "f3358d9e": {
+      "size_score": 0.5,
+      "prior_overlap": 0.5,
+      "convergence_improvement": 0.5,
+      "reward_spread": 0.5
+    },
+    "d933f8cc": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.05014078989005831
+    },
+    "7b690ed9": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.0
+    },
+    "f939b39d": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 0.05328743853103321
+    },
+    "808efbbc": {
+      "size_score": 0.5,
+      "prior_overlap": 1.0,
+      "convergence_improvement": 0.0,
+      "reward_spread": 1.1649030834300843e-16
+    }
+  }
+]
