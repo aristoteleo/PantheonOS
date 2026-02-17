@@ -219,6 +219,7 @@ evolution_results/
 
 # Evolution example results (only programs/ with individual JSON files)
 examples/evolution_*/*/*/programs/
+examples/evolution_*/data
 examples/code_distillation/*/programs/
 
 # Code distillation large files (model and cached data)

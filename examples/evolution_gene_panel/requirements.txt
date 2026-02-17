@@ -1,0 +1,14 @@
+# Core dependencies for gene panel RL evolution
+pandas
+numpy
+scipy
+torch
+matplotlib
+tqdm
+scanpy
+igraph
+leidenalg
+rapids-singlecell
+anndata
+scikit-learn
+scGeneFit
