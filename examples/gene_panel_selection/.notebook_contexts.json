@@ -494,7 +494,34 @@
       "notebook_title": "New Notebook",
       "kernel_spec": "python3",
       "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/kidney/workdir/selection_expert/dataset_understanding.ipynb::aa128efb-a86a-40b5-8708-06bb492df00c": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/kidney/workdir/selection_expert/dataset_understanding.ipynb",
+      "session_id": "aa128efb-a86a-40b5-8708-06bb492df00c",
+      "kernel_session_id": "48216b6b-dfff-4515-8af8-b0e1f6f28b69",
+      "created_at": "2026-02-13T21:16:29.171800",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/kidney/workdir/selection_expert/panel_benchmark.ipynb::aa128efb-a86a-40b5-8708-06bb492df00c": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/kidney/workdir/selection_expert/panel_benchmark.ipynb",
+      "session_id": "aa128efb-a86a-40b5-8708-06bb492df00c",
+      "kernel_session_id": "e88edc7a-f178-43a9-b93e-3d63d70e6614",
+      "created_at": "2026-02-13T21:21:53.494166",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/kidney/workdir/selection_expert/panel_umap.ipynb::aa128efb-a86a-40b5-8708-06bb492df00c": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/kidney/workdir/selection_expert/panel_umap.ipynb",
+      "session_id": "aa128efb-a86a-40b5-8708-06bb492df00c",
+      "kernel_session_id": "4c3dd7e0-9f21-4e81-9c15-6a1ef7b90f17",
+      "created_at": "2026-02-13T21:27:25.153757",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
     }
   },
-  "last_updated": "2026-01-29T06:29:54.591336"
+  "last_updated": "2026-02-13T21:27:25.153892"
 }
