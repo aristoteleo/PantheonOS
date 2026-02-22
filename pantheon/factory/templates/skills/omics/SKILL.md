@@ -13,6 +13,19 @@ When performing specific analysis tasks, load the relevant skill files to guide 
 
 ## Available Skills
 
+### Gene Panel Selection Workflow
+
+End-to-end workflow for designing **biologically meaningful** and **algorithmically robust**
+gene panels in scRNA-seq and spatial transcriptomics (HVG/DE/RF/scGeneFit/SpaPROS),
+with sub-panel discovery (ARI vs size), consensus scoring, biological completion
+(Completion Rule), and benchmarking on test splits.
+
+**Skill file**: [gene_panel_selection.md](./gene_panel_selection.md)
+
+**When to use**:
+- You need to design a gene panel 
+- You need to benchmark (ARI/NMI/Silhouette + UMAP similarity) already existing panels
+
 ### Single-Cell to Spatial Mapping
 
 If you have both single-cell and spatial data for the same/similar sample,
