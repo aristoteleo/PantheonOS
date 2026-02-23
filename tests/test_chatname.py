@@ -3,9 +3,9 @@
 Chat Name Generator Tests - Real Agent
 Tests using real agent with .env configuration
 
-## How to Run
+## 运行方法
 ```bash
-# Ensure the project root directory has a .env file containing OPENAI_API_KEY
+# 确保项目根目录有 .env 文件包含 OPENAI_API_KEY
 python -m pytest tests/test_chatname.py -v -s
 ```
 """
@@ -17,15 +17,15 @@ from pathlib import Path
 
 import pytest
 
-# Add project path
+# 添加项目路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Load .env file
+# 加载 .env 文件
 try:
     from dotenv import load_dotenv
     load_dotenv(Path(__file__).parent.parent / '.env')
 except ImportError:
-    # If python-dotenv is not available, try to manually load .env
+    # 如果没有python-dotenv，尝试手动加载.env
     env_file = Path(__file__).parent.parent / '.env'
     if env_file.exists():
         with open(env_file) as f:
@@ -40,7 +40,7 @@ from pantheon.chatroom.special_agents import ChatNameGenerator
 
 @pytest.mark.asyncio
 async def test_generate_name_first_conversation():
-    """Test name generation after first conversation - using real agent"""
+    """测试首次对话后生成名称 - 使用真实agent"""
     if not os.getenv("OPENAI_API_KEY"):
         pytest.skip("OPENAI_API_KEY not found in environment")
 
@@ -48,23 +48,23 @@ async def test_generate_name_first_conversation():
     memory = Memory("Test Chat")
     memory.id = str(uuid.uuid4())
 
-    # Add real first conversation
+    # 添加真实的首次对话
     memory.add_messages([
         {"role": "user", "content": "I need help debugging a Python script that processes CSV files and generates reports"},
         {"role": "assistant", "content": "I'd be happy to help you debug your Python CSV processing script!"}
     ])
 
-    # Use real agent to generate name
+    # 使用真实的agent生成名称
     result = await generator.generate_or_update_name(memory)
 
-    # Verify result
+    # 验证结果
     assert isinstance(result, str)
     assert len(result) > 3
     assert len(result) < 100
     assert memory.extra_data["name_generated"] is True
     assert memory.extra_data["last_name_generation_message_count"] == 2
 
-    # Check if the generated name is relevant
+    # 检查生成的名称是否相关
     result_lower = result.lower()
     relevant_keywords = ["python", "csv", "debug", "script", "report", "process", "file"]
     assert any(keyword in result_lower for keyword in relevant_keywords), f"Generated name '{result}' should contain relevant keywords"
@@ -74,7 +74,7 @@ async def test_generate_name_first_conversation():
 
 @pytest.mark.asyncio
 async def test_update_name_after_threshold():
-    """Test updating name after reaching threshold - using real agent"""
+    """测试达到阈值后更新名称 - 使用真实agent"""
     if not os.getenv("OPENAI_API_KEY"):
         pytest.skip("OPENAI_API_KEY not found in environment")
 
@@ -82,18 +82,18 @@ async def test_update_name_after_threshold():
     memory = Memory("Old Chat Name")
     memory.id = str(uuid.uuid4())
 
-    # Simulate that a name was previously generated
+    # 模拟之前已生成过名称
     memory.extra_data["name_generated"] = True
     memory.extra_data["last_name_generation_message_count"] = 2
 
-    # First add the initial 2 messages (simulating previous conversation)
+    # 先添加初始的2条消息（模拟之前的对话）
     initial_messages = [
         {"role": "user", "content": "I need help with Python script"},
         {"role": "assistant", "content": "Sure, I can help!"}
     ]
     memory.add_messages(initial_messages)
 
-    # Add 6 more new messages to reach update threshold (8 messages total)
+    # 再添加6条新消息达到更新阈值（总共8条消息）
     new_messages = [
         {"role": "user", "content": "Now I want to add machine learning features to predict data trends"},
         {"role": "assistant", "content": "Great! We can use scikit-learn to add predictive analytics"},
@@ -104,16 +104,16 @@ async def test_update_name_after_threshold():
     ]
     memory.add_messages(new_messages)
 
-    # Use real agent to update name
+    # 使用真实的agent更新名称
     result = await generator.generate_or_update_name(memory)
 
-    # Verify result
+    # 验证结果
     assert isinstance(result, str)
     assert len(result) > 3
     assert len(result) < 100
     assert memory.extra_data["last_name_generation_message_count"] == 8
 
-    # Check if the updated name reflects the new topic
+    # 检查更新的名称是否反映新的主题
     result_lower = result.lower()
     ml_keywords = ["machine", "learning", "ml", "lstm", "model", "predict", "forecast", "time", "series"]
     assert any(keyword in result_lower for keyword in ml_keywords), f"Updated name '{result}' should reflect ML topic"
@@ -123,17 +123,17 @@ async def test_update_name_after_threshold():
 
 @pytest.mark.asyncio
 async def test_no_generation_insufficient_messages():
-    """Test that name is not generated when messages are insufficient"""
+    """测试消息不足时不生成名称"""
     generator = ChatNameGenerator()
     memory = Memory("Original Name")
     memory.id = str(uuid.uuid4())
 
-    # Add only one message
+    # 只添加一条消息
     memory.add_messages([
         {"role": "user", "content": "Hello"}
     ])
 
-    # Should not generate a name
+    # 不应该生成名称
     result = await generator.generate_or_update_name(memory)
 
     assert result == "Original Name"

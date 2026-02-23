@@ -1,45 +1,45 @@
-# Knowledge Base configuration file
-# This config file defines default settings for the knowledge base, overridable via environment variables
+# Knowledge Base 配置文件
+# 此配置文件定义知识库的默认设置，可通过环境变量覆盖
 
 knowledge:
-  # Storage path (metadata, indexes, etc.)
+  # 存储路径（元数据、索引等）
   storage_path: "~/.pantheon-knowledge"
 
-  # Qdrant vector database configuration
+  # Qdrant 向量数据库配置
   qdrant:
-    # location: Qdrant storage location
-    #   - ":memory:" : In-memory mode (no persistence, for testing)
-    #   - local path : Persist to local file (e.g. "./qdrant_data")
-    #   - URL : Connect to remote Qdrant server (e.g. "http://localhost:6333")
-    # Environment variable override: QDRANT_LOCATION
+    # location: Qdrant 存储位置
+    #   - ":memory:" : 纯内存模式（不持久化，用于测试）
+    #   - 本地路径 : 持久化到本地文件（如 "./qdrant_data"）
+    #   - URL : 连接到远程 Qdrant 服务器（如 "http://localhost:6333"）
+    # 环境变量覆盖: QDRANT_LOCATION
     location: "${storage_path}/qdrant_storage"
 
-    # path: Local file storage path (only used when location is local path; deprecated, use location instead)
-    # Environment variable override: QDRANT_PATH
+    # path: 本地文件存储路径（仅当 location 为本地路径时使用，已废弃，使用 location 代替）
+    # 环境变量覆盖: QDRANT_PATH
     path: null
 
-    # api_key: Qdrant server API key (remote mode only)
-    # Environment variable override: QDRANT_API_KEY
+    # api_key: Qdrant 服务器 API key（仅远程模式）
+    # 环境变量覆盖: QDRANT_API_KEY
     api_key: null
 
-    # prefer_grpc: Whether to use gRPC (remote mode only)
-    # Environment variable override: QDRANT_PREFER_GRPC
+    # prefer_grpc: 是否使用 gRPC（仅远程模式）
+    # 环境变量覆盖: QDRANT_PREFER_GRPC
     prefer_grpc: false
 
-  # Embedding model configuration
+  # Embedding 模型配置
   embedding:
     model: "text-embedding-3-large"
     dimension: 3072
     batch_size: 100
-    parallel: 4  # Number of parallel upload processes, speeds up bulk index building
+    parallel: 4  # 并行上传进程数，加速大批量索引构建
     max_retries: 3
 
-  # Document chunking configuration
+  # 文档分块配置
   chunking:
     buffer_size: 1
     breakpoint_percentile: 95
 
-  # Retrieval configuration
+  # 检索配置
   retrieval:
     use_hybrid: true
     sparse_top_k: 12
@@ -47,7 +47,7 @@ knowledge:
     rerank_model: "ms-marco-MiniLM-L-12-v2"
     rerank_top_n: 5
 
-  # Metadata configuration
+  # 元数据配置
   metadata:
     path: "${storage_path}/metadata.json"
     extract_fields: ["title", "author", "created_at", "doc_type", "page_count"]
@@ -55,7 +55,7 @@ knowledge:
     extract_keywords: false
     extract_summary: false
 
-  # Incremental update configuration
+  # 增量更新配置
   incremental:
     enabled: true
     hash_algorithm: "sha256"

@@ -3,61 +3,61 @@
 NATS Streaming Tests for IntegratedNotebook
 Standard pytest tests for NATS backend streaming functionality
 
-## How to Run
+## 运行方法
 
-### Environment Requirements
-Start the NATS server; using project configuration is recommended:
+### 环境要求
+启动 NATS 服务器，推荐使用项目配置：
 ```bash
-# Enter the pantheon-agents directory
+# 进入 pantheon-agents 目录
 cd pantheon-agents
 
-# Start NATS using project configuration (recommended)
+# 使用项目配置启动 NATS（推荐）
 nats-server -c nats-ws.conf
 
-# Or start basic version using Docker
+# 或使用 Docker 启动基础版本
 # docker run -p 4222:4222 nats:latest
 ```
 
-The project's nats-ws.conf configuration provides:
-- Standard NATS port 4222 (for testing)
-- WebSocket port 8080 (for frontend)
-- JetStream support
-- HTTP monitoring port 8222
+项目的 nats-ws.conf 配置提供：
+- 标准 NATS 端口 4222（用于测试）
+- WebSocket 端口 8080（用于前端）
+- JetStream 支持
+- HTTP 监控端口 8222
 
-### Running Tests
+### 运行测试
 ```bash
-# Run all tests
+# 运行所有测试
 python -m pytest test_nats_streaming.py -v
 
-# Run single test
+# 运行单个测试
 python -m pytest test_nats_streaming.py::test_nats_streaming_basic_execution -v
 
-# Suppress cleanup warnings
+# 抑制清理警告
 python -m pytest test_nats_streaming.py -v 2>/dev/null | grep -E "(PASSED|FAILED|===)"
 ```
 
-## Note on Async Cleanup Errors
+## 关于异步清理错误说明
 
-When running tests, you may see similar errors:
+运行测试时可能会看到类似错误：
 ```
 RuntimeError: Event loop is closed
 Task was destroyed but it is pending!
 ```
 
-**These errors are harmless**, reasons:
-1. pytest closes the event loop when test ends, but NATS client background tasks are still running
-2. This is normal for test environments; it does not affect test results or functional correctness
-3. Can be avoided in production environments through proper application lifecycle management
+**这些错误是无害的**，原因：
+1. pytest 在测试结束时关闭事件循环，但 NATS 客户端的后台任务仍在运行
+2. 这是测试环境的正常现象，不影响测试结果或功能正确性
+3. 在生产环境中通过正确的应用生命周期管理可以避免
 
-As long as "X passed" is seen, all functionality works correctly.
+只要看到 "X passed" 就表明所有功能都工作正常。
 
-## Test Coverage
-- test_nats_streaming_basic_execution: Basic streaming execution
-- test_nats_streaming_progressive_output: Progressive output
-- test_nats_streaming_error_handling: Error handling
-- test_nats_streaming_multiple_cells: Multi-cell execution
-- test_nats_backend_properties: Backend properties
-- test_notebook_session_lifecycle: Session lifecycle
+## 测试覆盖
+- test_nats_streaming_basic_execution: 基本流式执行
+- test_nats_streaming_progressive_output: 渐进式输出
+- test_nats_streaming_error_handling: 错误处理
+- test_nats_streaming_multiple_cells: 多单元格执行
+- test_nats_backend_properties: 后端属性
+- test_notebook_session_lifecycle: 会话生命周期
 """
 
 import asyncio
@@ -71,10 +71,10 @@ from typing import List, Tuple
 import pytest
 import pytest_asyncio
 
-# Add project path
+# 添加项目路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Set environment variables to ensure NATS backend is used
+# 设置环境变量确保使用NATS后端
 os.environ["PANTHEON_REMOTE_BACKEND"] = "nats"
 os.environ["NATS_SERVERS"] = "nats://localhost:4222"
 

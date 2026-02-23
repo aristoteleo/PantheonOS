@@ -1,25 +1,25 @@
 """
-KnowledgeManager Black-box Tests
+KnowledgeManager 黑盒测试
 
-Test Principles:
-- Only test public interfaces (API)
-- Don't test internal state (private attributes)
-- Verify input/output/functional behavior
-- Test data located at tests/data/knowledge/
+测试原则：
+- 只测试公开接口（API）
+- 不测试内部状态（私有属性）
+- 验证输入/输出/功能行为
+- 测试数据位于 tests/data/knowledge/
 
-Test modes (controlled via environment variable QDRANT_LOCATION):
-- Not set or local path: Local Path mode (default, data persists)
-- ":memory:": In-memory mode (no persistence, fastest)
-- "http://...": URL mode (remote Qdrant server, full async support)
+测试模式（通过环境变量 QDRANT_LOCATION 控制）：
+- 未设置或本地路径：本地 Path 模式（默认，数据持久化）
+- ":memory:"：内存模式（不持久化，最快）
+- "http://..."：URL 模式（远程 Qdrant 服务器，完整异步支持）
 
-Examples:
-  # Default local mode
+示例：
+  # 默认本地模式
   pytest tests/test_knowledge.py
 
-  # In-memory mode
+  # 内存模式
   QDRANT_LOCATION=:memory: pytest tests/test_knowledge.py
 
-  # URL mode
+  # URL 模式
   QDRANT_LOCATION=http://localhost:6333 pytest tests/test_knowledge.py
 """
 
@@ -41,14 +41,14 @@ pytestmark = pytest.mark.skipif(
     reason="llama_index.core not installed"
 )
 
-# Load environment variables
+# 加载环境变量
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from pantheon.toolsets.knowledge.knowledge_manager import KnowledgeToolSet
 
-# Test data path
+# 测试数据路径
 TEST_DATA_DIR = Path(__file__).parent / "data" / "knowledge"
 SAMPLE_FILE = TEST_DATA_DIR / "sample.md"
 DOCS_DIR = TEST_DATA_DIR / "docs"
@@ -56,67 +56,67 @@ DOCS_DIR = TEST_DATA_DIR / "docs"
 
 def get_test_config(tmp_dir: str) -> dict:
     """
-    Return test configuration based on environment variables
+    根据环境变量返回测试配置
 
-    Environment variables:
-    - QDRANT_LOCATION: Override qdrant.location
-      - ":memory:" : Pure in-memory mode
-      - local path : Persist to local file
-      - URL : Connect to remote Qdrant server (e.g. "http://localhost:6333")
+    环境变量：
+    - QDRANT_LOCATION: 覆盖 qdrant.location
+      - ":memory:" : 纯内存模式
+      - 本地路径 : 持久化到本地文件
+      - URL : 连接到远程 Qdrant 服务器（如 "http://localhost:6333"）
 
-    If environment variable is not set, defaults to local path mode
+    如果未设置环境变量，默认使用本地路径模式
     """
-    # Base configuration (all tests need independent storage_path)
+    # 基础配置（所有测试都需要独立的 storage_path）
     config = {"knowledge": {"storage_path": str(Path(tmp_dir) / "storage")}}
 
-    # Environment variables will be automatically overridden in load_config()
-    # No need to handle manually here, just provide base configuration
+    # 环境变量会在 load_config() 中自动覆盖
+    # 这里不需要手动处理，只需提供基础配置
     return config
 
 
 async def test_knowledge_full_workflow():
-    """Complete workflow black-box test - tests all public interfaces"""
+    """完整工作流黑盒测试 - 测试所有公开接口"""
     with tempfile.TemporaryDirectory() as tmp_dir:
         import yaml
 
-        # Configuration
+        # 配置
         config_path = Path(tmp_dir) / "test_config.yaml"
         config = get_test_config(tmp_dir)
 
         with open(config_path, "w") as f:
             yaml.dump(config, f)
 
-        # Create KM instance
+        # 创建 KM 实例
         km = KnowledgeToolSet(config_path=str(config_path))
         await km.run_setup()
 
-        # ========== Test 1: Collection Management ==========
-        # List (initially empty)
+        # ========== 测试 1: Collection 管理 ==========
+        # 列表（初始为空）
         result = await km.list_collections()
         assert result["success"] == True
         assert result["total"] == 0
         assert isinstance(result["collections"], list)
 
-        # Create collection
+        # 创建集合
         result = await km.create_collection(
-            name="Test Collection", description="Test collection"
+            name="Test Collection", description="测试集合"
         )
         assert result["success"] == True
         assert "collection" in result
         assert result["collection"]["name"] == "Test Collection"
-        assert result["collection"]["description"] == "Test collection"
+        assert result["collection"]["description"] == "测试集合"
         collection_id = result["collection"]["id"]
 
-        # List (should have 1)
+        # 列表（应该有 1 个）
         result = await km.list_collections()
         assert result["total"] == 1
         assert result["collections"][0]["id"] == collection_id
 
-        # ========== Test 2: Source Management (Files) ==========
+        # ========== 测试 2: Source 管理 (文件) ==========
         if not SAMPLE_FILE.exists():
-            pytest.skip(f"Test file does not exist: {SAMPLE_FILE}")
+            pytest.skip(f"测试文件不存在: {SAMPLE_FILE}")
 
-        # Add file source
+        # 添加文件源
         result = await km.add_sources(
             collection_id=collection_id,
             sources={
@@ -129,21 +129,21 @@ async def test_knowledge_full_workflow():
         assert "source_ids" in result
         source_id_1 = result["source_ids"][0]
 
-        # Wait for processing to complete
+        # 等待处理完成
         await asyncio.sleep(8)
 
-        # List sources
+        # 列表源
         result = await km.list_sources(collection_id=collection_id)
         assert result["success"] == True
         assert result["total"] >= 1
 
-        # Verify source information
+        # 验证源信息
         source = next(s for s in result["sources"] if s["id"] == source_id_1)
         assert source["name"] == "Sample File"
         assert source["type"] == "file"
         assert source["status"] in ["active", "processing"]
 
-        # ========== Test 3: Source Management (Directories) ==========
+        # ========== 测试 3: Source 管理 (目录) ==========
         if DOCS_DIR.exists():
             result = await km.add_sources(
                 collection_id=collection_id,
@@ -156,14 +156,14 @@ async def test_knowledge_full_workflow():
             assert result["success"] == True
             source_id_2 = result["source_ids"][0]
 
-            # Wait for processing
+            # 等待处理
             await asyncio.sleep(8)
 
-            # Verify source count
+            # 验证源数量
             result = await km.list_sources(collection_id=collection_id)
             assert result["total"] == 2
 
-        # ========== Test 4: Basic Retrieval ==========
+        # ========== 测试 4: 基础检索 ==========
         result = await km.search_knowledge(
             query="LlamaIndex",
             collection_ids=[collection_id],
@@ -176,14 +176,14 @@ async def test_knowledge_full_workflow():
         assert "searched_collections" in result
         assert collection_id in result["searched_collections"]
 
-        # Verify result format
+        # 验证结果格式
         if len(result["results"]) > 0:
             first_result = result["results"][0]
             assert "text" in first_result
             assert "score" in first_result
             assert isinstance(first_result["score"], (int, float))
 
-        # ========== Test 5: Hybrid Retrieval ==========
+        # ========== 测试 5: 混合检索 ==========
         result = await km.search_knowledge(
             query="semantic chunking",
             collection_ids=[collection_id],
@@ -193,7 +193,7 @@ async def test_knowledge_full_workflow():
         assert result["success"] == True
         assert "results" in result
 
-        # ========== Test 6: Reranking ==========
+        # ========== 测试 6: Reranking ==========
         result = await km.search_knowledge(
             query="document indexing",
             collection_ids=[collection_id],
@@ -201,87 +201,87 @@ async def test_knowledge_full_workflow():
             use_hybrid=True,
         )
         assert result["success"] == True
-        # After reranking, result count may be <= top_k
+        # Reranking 后结果数可能 <= top_k
         assert len(result["results"]) <= 5
 
-        # ========== Test 7: Chat Configuration ==========
+        # ========== 测试 7: Chat 配置 ==========
         chat_id = "test_chat_001"
 
-        # Get configuration
+        # 获取配置
         result = await km.get_chat_knowledge(chat_id=chat_id)
         assert result["success"] == True
         assert result["config"]["chat_id"] == chat_id
         assert result["config"]["auto_search"] == False
         assert isinstance(result["config"]["active_collection_ids"], list)
 
-        # Enable collection
+        # 启用集合
         result = await km.enable_collection(
             chat_id=chat_id, collection_id=collection_id
         )
         assert result["success"] == True
         assert collection_id in result["config"]["active_collection_ids"]
 
-        # Set auto search
+        # 设置自动搜索
         result = await km.set_auto_search(chat_id=chat_id, enabled=True)
         assert result["success"] == True
         assert result["config"]["auto_search"] == True
 
-        # Verify configuration persistence
+        # 验证配置持久化
         result = await km.get_chat_knowledge(chat_id=chat_id)
         assert result["config"]["auto_search"] == True
         assert collection_id in result["config"]["active_collection_ids"]
 
-        # ========== Test 8: Chat-bound Retrieval ==========
+        # ========== 测试 8: Chat 绑定检索 ==========
         result = await km.search_knowledge(query="test query", chat_id=chat_id, top_k=2)
         assert result["success"] == True
         assert collection_id in result["searched_collections"]
-        # Chat-bound search should only search activated collections
+        # Chat 绑定应该只搜索激活的集合
         assert len(result["searched_collections"]) == 1
 
-        # Disable collection
+        # 禁用集合
         result = await km.disable_collection(
             chat_id=chat_id, collection_id=collection_id
         )
         assert result["success"] == True
         assert collection_id not in result["config"]["active_collection_ids"]
 
-        # ========== Test 9: Error Handling ==========
-        # Non-existent collection
+        # ========== 测试 9: 错误处理 ==========
+        # 不存在的集合
         result = await km.search_knowledge(
             query="test", collection_ids=["col_nonexistent"], top_k=3
         )
-        # Should return empty result or error, but should not crash
+        # 应该返回空结果或错误，但不应崩溃
         assert result["success"] == True or "error" in result
 
-        # Non-existent chat
+        # 不存在的 chat
         result = await km.get_chat_knowledge(chat_id="nonexistent_chat")
-        # Should return default configuration
+        # 应该返回默认配置
         assert result["success"] == True
         assert result["config"]["chat_id"] == "nonexistent_chat"
 
-        # ========== Test 10: Cleanup Operations ==========
-        # Delete source
+        # ========== 测试 10: 清理操作 ==========
+        # 删除源
         result = await km.remove_source(
             collection_id=collection_id, source_id=source_id_1
         )
         assert result["success"] == True
 
-        # Verify deletion
+        # 验证删除
         result = await km.list_sources(collection_id=collection_id)
         remaining_sources = [s for s in result["sources"] if s["id"] == source_id_1]
         assert len(remaining_sources) == 0
 
-        # Delete collection
+        # 删除集合
         result = await km.delete_collection(collection_id=collection_id)
         assert result["success"] == True
 
-        # Verify collection has been deleted
+        # 验证集合已删除
         result = await km.list_collections()
         assert result["total"] == 0
 
 
 async def test_knowledge_collection_crud():
-    """Test Collection CRUD Interface"""
+    """测试 Collection CRUD 接口"""
     with tempfile.TemporaryDirectory() as tmp_dir:
         import yaml
 
@@ -295,27 +295,27 @@ async def test_knowledge_collection_crud():
         await km.run_setup()
 
         try:
-            # Create
+            # 创建
             result = await km.create_collection(
-                name="Test Collection", description="Test"
+                name="Test Collection", description="测试"
             )
             assert result["success"] == True
             collection_id = result["collection"]["id"]
 
-            # List
+            # 列表
             result = await km.list_collections()
             assert result["total"] == 1
             assert result["collections"][0]["name"] == "Test Collection"
 
-            # Delete
+            # 删除
             result = await km.delete_collection(collection_id=collection_id)
             assert result["success"] == True
 
-            # Verify deletion
+            # 验证删除
             result = await km.list_collections()
             assert result["total"] == 0
         finally:
-            # Explicitly close client to release file lock
+            # 显式关闭客户端以释放文件锁
             if hasattr(km, "_qdrant_client") and km._qdrant_client:
                 km._qdrant_client.close()
             if hasattr(km, "_qdrant_aclient") and km._qdrant_aclient:
@@ -323,7 +323,7 @@ async def test_knowledge_collection_crud():
 
 
 async def test_knowledge_chat_configuration():
-    """Test Chat Configuration Interface"""
+    """测试 Chat 配置接口"""
     with tempfile.TemporaryDirectory() as tmp_dir:
         import yaml
 
@@ -337,41 +337,41 @@ async def test_knowledge_chat_configuration():
         await km.run_setup()
 
         try:
-            # Create collection
+            # 创建集合
             result = await km.create_collection(name="Test")
             collection_id = result["collection"]["id"]
 
             chat_id = "test_chat"
 
-            # Get initial configuration
+            # 获取初始配置
             result = await km.get_chat_knowledge(chat_id=chat_id)
             assert result["success"] == True
             assert result["config"]["auto_search"] == False
 
-            # Enable collection
+            # 启用集合
             result = await km.enable_collection(
                 chat_id=chat_id, collection_id=collection_id
             )
             assert result["success"] == True
             assert collection_id in result["config"]["active_collection_ids"]
 
-            # Set auto search
+            # 设置自动搜索
             result = await km.set_auto_search(chat_id=chat_id, enabled=True)
             assert result["success"] == True
             assert result["config"]["auto_search"] == True
 
-            # Disable collection
+            # 禁用集合
             result = await km.disable_collection(
                 chat_id=chat_id, collection_id=collection_id
             )
             assert result["success"] == True
             assert collection_id not in result["config"]["active_collection_ids"]
 
-            # Cleanup: Delete created collection
+            # 清理：删除创建的集合
             result = await km.delete_collection(collection_id=collection_id)
             assert result["success"] == True
         finally:
-            # Explicitly close client to release file lock
+            # 显式关闭客户端以释放文件锁
             if hasattr(km, "_qdrant_client") and km._qdrant_client:
                 km._qdrant_client.close()
             if hasattr(km, "_qdrant_aclient") and km._qdrant_aclient:
@@ -379,7 +379,7 @@ async def test_knowledge_chat_configuration():
 
 
 async def test_knowledge_concurrent_operations():
-    """Test interface behavior for concurrent operations"""
+    """测试并发操作的接口行为"""
     with tempfile.TemporaryDirectory() as tmp_dir:
         import yaml
 
@@ -393,28 +393,28 @@ async def test_knowledge_concurrent_operations():
         await km.run_setup()
 
         try:
-            # Concurrently create collections
+            # 并发创建集合
             tasks = [km.create_collection(name=f"Collection {i}") for i in range(3)]
 
             results = await asyncio.gather(*tasks)
 
-            # Verify all operations succeeded
+            # 验证所有操作成功
             collection_ids = []
             for result in results:
                 assert result["success"] == True
                 assert "collection" in result
                 collection_ids.append(result["collection"]["id"])
 
-            # Verify list
+            # 验证列表
             result = await km.list_collections()
             assert result["total"] == 3
 
-            # Cleanup: Delete all created collections
+            # 清理：删除所有创建的集合
             for collection_id in collection_ids:
                 result = await km.delete_collection(collection_id=collection_id)
                 assert result["success"] == True
         finally:
-            # Explicitly close client to release file lock
+            # 显式关闭客户端以释放文件锁
             if hasattr(km, "_qdrant_client") and km._qdrant_client:
                 km._qdrant_client.close()
             if hasattr(km, "_qdrant_aclient") and km._qdrant_aclient:
@@ -422,7 +422,7 @@ async def test_knowledge_concurrent_operations():
 
 
 async def test_knowledge_api_response_format():
-    """Test consistency of API response format"""
+    """测试 API 响应格式的一致性"""
     with tempfile.TemporaryDirectory() as tmp_dir:
         import yaml
 
@@ -436,7 +436,7 @@ async def test_knowledge_api_response_format():
         await km.run_setup()
 
         try:
-            # All APIs should return a dict containing "success" field
+            # 所有 API 都应该返回包含 "success" 字段的 dict
             result = await km.list_collections()
             assert isinstance(result, dict)
             assert "success" in result
@@ -450,17 +450,17 @@ async def test_knowledge_api_response_format():
             assert isinstance(result, dict)
             assert "success" in result
 
-            # Cleanup: Delete created collection
+            # 清理：删除创建的集合
             result = await km.delete_collection(collection_id=collection_id)
             assert result["success"] == True
         finally:
-            # Explicitly close client to release file lock
+            # 显式关闭客户端以释放文件锁
             if hasattr(km, "_qdrant_client") and km._qdrant_client:
                 km._qdrant_client.close()
             if hasattr(km, "_qdrant_aclient") and km._qdrant_aclient:
                 await km._qdrant_aclient.close()
 
 
-# If running this file directly
+# 如果直接运行此文件
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

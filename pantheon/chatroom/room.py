@@ -697,20 +697,26 @@ class ChatRoom(ToolSet):
                 "has_transfer": False,
             }
 
-        # Get the appropriate team for this chat
-        team = await self.get_team_for_chat(chat_id)
+        try:
+            # Get the appropriate team for this chat
+            team = await self.get_team_for_chat(chat_id)
 
-        # Only expose primary agents (not sub-agents)
-        # Sub-agents are internal implementation, managed by primary agents
-        agents_to_expose = team.team_agents
-        logger.debug(f"Team has {len(team.team_agents)} agents")
+            # Only expose primary agents (not sub-agents)
+            # Sub-agents are internal implementation, managed by primary agents
+            agents_to_expose = team.team_agents
+            logger.debug(f"Team has {len(team.team_agents)} agents")
 
-        return {
-            "success": True,
-            "agents": [get_agent_info(a) for a in agents_to_expose],
-            "can_switch_agents": len(team.team_agents) > 1,
-            "has_transfer": len(team.team_agents) > 1,
-        }
+            return {
+                "success": True,
+                "agents": [get_agent_info(a) for a in agents_to_expose],
+                "can_switch_agents": len(team.team_agents) > 1,
+                "has_transfer": len(team.team_agents) > 1,
+            }
+        except KeyError:
+            return {
+                "success": False,
+                "message": f"Chat '{chat_id}' not found",
+            }
 
     @tool
     async def set_active_agent(self, chat_name: str, agent_name: str):
@@ -906,6 +912,11 @@ class ChatRoom(ToolSet):
                     new_messages.append(message)
                 messages = new_messages
             return {"success": True, "messages": messages}
+        except KeyError:
+            return {
+                "success": False,
+                "message": f"Chat '{chat_id}' not found",
+            }
         except Exception as e:
             logger.error(f"Error getting chat messages: {e}")
             return {"success": False, "message": str(e)}
@@ -1344,6 +1355,11 @@ class ChatRoom(ToolSet):
                 "from_cache": False,
             }
 
+        except KeyError:
+            return {
+                "success": False,
+                "message": f"Chat '{chat_id}' not found",
+            }
         except ValueError as e:
             return {"success": False, "message": str(e)}
         except Exception as e:
@@ -1382,6 +1398,11 @@ class ChatRoom(ToolSet):
             return {
                 "success": False,
                 "message": "No template found and no default template available",
+            }
+        except KeyError:
+            return {
+                "success": False,
+                "message": f"Chat '{chat_id}' not found",
             }
         except Exception as e:
             logger.error(f"Error getting chat template: {e}")
