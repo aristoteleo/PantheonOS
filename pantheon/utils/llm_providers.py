@@ -156,6 +156,30 @@ def _clean_message_fields(message: dict) -> None:
         message["tool_calls"] = None
 
 
+def get_litellm_proxy_kwargs() -> dict:
+    """Get LiteLLM proxy kwargs for API calls.
+
+    When LITELLM_PROXY_ENABLED=true, returns {"api_base": ..., "api_key": ...}
+    to route calls through the LiteLLM Proxy. Otherwise returns empty dict.
+
+    Usage:
+        proxy_kwargs = get_litellm_proxy_kwargs()
+        response = await litellm.aimage_generation(model=model, ..., **proxy_kwargs)
+        response = await litellm.acompletion(model=model, ..., **proxy_kwargs)
+    """
+    import os
+
+    proxy_enabled = os.environ.get("LITELLM_PROXY_ENABLED", "").lower() == "true"
+    proxy_url = os.environ.get("LITELLM_PROXY_URL")
+    proxy_key = os.environ.get("LITELLM_PROXY_KEY")
+
+    if proxy_enabled and proxy_url and proxy_key:
+        logger.info(f"[LITELLM_PROXY] Routing through proxy | URL={proxy_url}")
+        return {"api_base": proxy_url, "api_key": proxy_key}
+
+    return {}
+
+
 def _extract_cost_and_usage(complete_resp: Any) -> tuple[float, dict]:
     """Calculate cost and extract usage from response.
 

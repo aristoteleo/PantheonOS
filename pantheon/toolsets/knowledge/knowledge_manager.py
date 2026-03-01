@@ -83,10 +83,11 @@ class KnowledgeToolSet(ToolSet):
             metadata_config = self.knowledge_config.get("metadata", {})
             self._metadata_extractors = []
 
-            # Helper function to create LLM instance (supports custom API base)
+            # Helper function to create LLM instance (supports custom API base + proxy)
             def _create_llm():
                 from llama_index.llms.openai import OpenAI
                 from pantheon.settings import get_settings
+                from pantheon.utils.llm_providers import get_litellm_proxy_kwargs
                 settings = get_settings()
 
                 llm_kwargs = {
@@ -97,6 +98,13 @@ class KnowledgeToolSet(ToolSet):
                 api_base = settings.get_api_key("OPENAI_API_BASE")
                 if api_base:
                     llm_kwargs["api_base"] = api_base
+
+                # Use LiteLLM proxy if enabled (overrides api_base/api_key)
+                proxy_kwargs = get_litellm_proxy_kwargs()
+                if proxy_kwargs:
+                    llm_kwargs["api_base"] = proxy_kwargs["api_base"]
+                    llm_kwargs["api_key"] = proxy_kwargs["api_key"]
+
                 return OpenAI(**llm_kwargs)
 
             # Title extractor (requires explicit enable, needs LLM)

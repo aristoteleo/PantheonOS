@@ -17,6 +17,7 @@ from pantheon.utils.vision import (
     get_image_store,
     expand_image_references_for_llm,
 )
+from pantheon.utils.llm_providers import get_litellm_proxy_kwargs
 
 # Multimodal models that support image input + output via acompletion API
 # Gemini Nano Banana series: Pro / Nano Banana 2 / Nano Banana first-gen
@@ -175,6 +176,7 @@ class ImageGenerationToolSet(ToolSet):
             prompt=prompt,
             size="1024x1024",
             n=1,
+            **get_litellm_proxy_kwargs(),
         )
 
         # Extract cost from response
@@ -206,7 +208,16 @@ class ImageGenerationToolSet(ToolSet):
         model: str,
         reference_images: list[str] | None,
     ) -> dict:
-        """Multimodal image generation (Gemini Flash Image)."""
+        """Multimodal image generation (Gemini Nano Banana series).
+
+        Uses chat completion API with modalities parameter to generate images.
+        This approach works through LiteLLM Proxy and supports image generation.
+
+        Supported models:
+        - gemini-3-pro-image-preview (Nano Banana Pro, up to 4K)
+        - gemini-3.1-flash-image-preview (Nano Banana 2)
+        - gemini-2.5-flash-image (Nano Banana original)
+        """
         # Build multimodal message
         content = [{"type": "text", "text": prompt}]
         if reference_images:
@@ -224,6 +235,8 @@ class ImageGenerationToolSet(ToolSet):
         response = await litellm.acompletion(
             model=model,
             messages=messages,
+            modalities=["text", "image"],  # Enable image generation output
+            **get_litellm_proxy_kwargs(),  # Use proxy for real API keys
         )
 
         # Extract cost from response
@@ -276,6 +289,7 @@ class ImageGenerationToolSet(ToolSet):
             prompt=prompt,
             size="1024x1024",
             n=1,
+            **get_litellm_proxy_kwargs(),
         )
 
         # Extract cost from response

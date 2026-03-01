@@ -240,17 +240,16 @@ async def acompletion_responses(
     Used for models that require the Responses API (e.g. codex-mini-latest).
     Returns a normalised message dict compatible with ``extract_message_from_response``.
     """
-    import os
     from openai import AsyncOpenAI
+    from .llm_providers import get_litellm_proxy_kwargs
 
     # ========== Build client ==========
-    proxy_enabled = os.environ.get("LITELLM_PROXY_ENABLED", "").lower() == "true"
-    proxy_url = os.environ.get("LITELLM_PROXY_URL")
-    proxy_key = os.environ.get("LITELLM_PROXY_KEY")
-
-    if proxy_enabled and proxy_url and proxy_key:
-        client = AsyncOpenAI(base_url=proxy_url, api_key=proxy_key)
-        logger.info(f"[RESPONSES_API] Using proxy mode | URL={proxy_url}")
+    proxy_kwargs = get_litellm_proxy_kwargs()
+    if proxy_kwargs:
+        client = AsyncOpenAI(
+            base_url=proxy_kwargs["api_base"],
+            api_key=proxy_kwargs["api_key"]
+        )
     elif base_url:
         client = AsyncOpenAI(base_url=base_url)
     else:
@@ -427,17 +426,12 @@ async def acompletion_litellm(
        - Suitable for local development and standalone agent operation
     """
     from pantheon.settings import get_settings
-    import os
+    from .llm_providers import get_litellm_proxy_kwargs
 
     litellm = import_litellm()
     logger.debug(f"[LITELLM.ACOMPLETION] Starting LLM call | Model={model}")
 
     settings = get_settings()
-
-    # ========== Get Proxy Configuration ==========
-    proxy_enabled = os.environ.get("LITELLM_PROXY_ENABLED", "").lower() == "true"
-    proxy_url = os.environ.get("LITELLM_PROXY_URL")
-    proxy_key = os.environ.get("LITELLM_PROXY_KEY")
 
     # ========== Prepare LiteLLM Parameters ==========
     kwargs = {
@@ -454,22 +448,10 @@ async def acompletion_litellm(
         kwargs.update(**model_params)
 
     # ========== Mode Detection & Configuration ==========
-    if proxy_enabled and proxy_url and proxy_key:
-        # PROXY MODE (Hub-launched)
-        # Use Proxy for all API calls with virtual key
-        kwargs["api_base"] = proxy_url
-        kwargs["api_key"] = proxy_key
-        logger.info(
-            f"[LITELLM.ACOMPLETION] Using LiteLLM Proxy mode | URL={proxy_url}"
-        )
+    proxy_kwargs = get_litellm_proxy_kwargs()
+    if proxy_kwargs:
+        kwargs.update(proxy_kwargs)
     else:
-        # STANDALONE MODE (litellm reads API keys from environment automatically)
-        # Don't set api_key or api_base - let litellm read from env vars
-        logger.info(
-            f"[LITELLM.ACOMPLETION] Using standalone mode (Proxy not configured, "
-            f"litellm reads API keys from environment)"
-        )
-
         if base_url:
             kwargs["api_base"] = base_url
         if api_key:
@@ -834,16 +816,27 @@ def process_messages_for_hook_func(messages: list[dict]) -> list[dict]:
 async def openai_embedding(
     texts: list[str], model: str = "text-embedding-3-large"
 ) -> list[list[float]]:
-    import openai
-    from pantheon.settings import get_settings
+    """Get embeddings using litellm (with proxy support).
 
-    settings = get_settings()
-    api_key = settings.get_api_key("OPENAI_API_KEY")
-    base_url = settings.get_api_key("OPENAI_API_BASE")
+    Args:
+        texts: List of texts to embed
+        model: Embedding model to use
 
-    client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
-    resp = await client.embeddings.create(input=texts, model=model)
-    return [d.embedding for d in resp.data]
+    Returns:
+        List of embedding vectors
+    """
+    from .llm_providers import get_litellm_proxy_kwargs
+
+    litellm = import_litellm()
+
+    # litellm.aembedding returns EmbeddingResponse with .data[].embedding
+    response = await litellm.aembedding(
+        model=model,
+        input=texts,
+        **get_litellm_proxy_kwargs(),
+    )
+
+    return [d["embedding"] for d in response.data]
 
 
 def remove_hidden_fields(content: dict) -> dict:

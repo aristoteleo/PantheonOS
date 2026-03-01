@@ -1238,9 +1238,8 @@ class ChatRoom(ToolSet):
             bytes_data: The bytes data of the audio.
         """
         try:
-            import openai
-
-            client = openai.OpenAI()
+            import litellm
+            from pantheon.utils.llm_providers import get_litellm_proxy_kwargs
 
             # Try different audio formats until one works
             formats = ["webm", "mp4", "wav", "mp3"]
@@ -1252,9 +1251,10 @@ class ChatRoom(ToolSet):
                     audio_file = io.BytesIO(bytes_data)
                     audio_file.name = f"audio.{fmt}"
 
-                    response = client.audio.transcriptions.create(
+                    response = await litellm.atranscription(
                         model=self.speech_to_text_model,
                         file=audio_file,
+                        **get_litellm_proxy_kwargs(),
                     )
 
                     return {

@@ -44,6 +44,7 @@ dependencies = [
     "diskcache",
     "python-frontmatter>=1.1.0",
     "prompt-toolkit>=3.0.50",
+    "aiofiles>=24.1.0",
     # Toolsets
     "ddgs>=9.5.2",
     "crawl4ai>=0.5.0",
