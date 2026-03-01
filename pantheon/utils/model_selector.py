@@ -152,10 +152,11 @@ PROVIDER_API_KEYS = {
 DEFAULT_IMAGE_GEN_MODELS = {
     # Gemini: Nano Banana series
     # https://ai.google.dev/gemini-api/docs/image-generation
+    # Note: gemini-2.5-flash-image has quota issues, use 3.1-flash-image-preview instead
     "gemini": {
         "high": ["gemini/gemini-3-pro-image-preview"],                                        # Nano Banana Pro
-        "normal": ["gemini/gemini-3.1-flash-image-preview", "gemini/gemini-2.5-flash-image"], # Nano Banana 2 / first-gen
-        "low": ["gemini/gemini-2.5-flash-image"],                                             # Nano Banana first-gen
+        "normal": ["gemini/gemini-3.1-flash-image-preview"],                                  # Nano Banana 2 (stable)
+        "low": ["gemini/gemini-3.1-flash-image-preview"],                                     # Nano Banana 2 (stable)
     },
     # OpenAI: GPT-Image series
     # https://platform.openai.com/docs/models
