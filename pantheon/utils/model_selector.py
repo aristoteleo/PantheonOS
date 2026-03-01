@@ -152,11 +152,14 @@ PROVIDER_API_KEYS = {
 DEFAULT_IMAGE_GEN_MODELS = {
     # Gemini: Nano Banana series
     # https://ai.google.dev/gemini-api/docs/image-generation
-    # Note: gemini-2.5-flash-image has quota issues, use 3.1-flash-image-preview instead
+    # Note: Use models that LiteLLM recognizes as Google AI Studio (not Vertex AI)
+    # - gemini/gemini-3-pro-image-preview: ✓ Recognized by LiteLLM (Nano Banana Pro)
+    # - gemini/gemini-3.1-flash-image-preview: ✗ NOT in LiteLLM model_cost, use proxy model_name
+    # - gemini/gemini-2.5-flash-image-preview: ✓ Recognized by LiteLLM (Nano Banana preview)
     "gemini": {
-        "high": ["gemini/gemini-3-pro-image-preview"],                                        # Nano Banana Pro
-        "normal": ["gemini/gemini-3.1-flash-image-preview"],                                  # Nano Banana 2 (stable)
-        "low": ["gemini/gemini-3.1-flash-image-preview"],                                     # Nano Banana 2 (stable)
+        "high": ["gemini-3-pro-image-preview"],                                        # Nano Banana Pro (use proxy model_name)
+        "normal": ["gemini-3.1-flash-image-preview"],                                  # Nano Banana 2 (use proxy model_name)
+        "low": ["gemini-2.5-flash-image"],                                             # Nano Banana stable (use proxy model_name)
     },
     # OpenAI: GPT-Image series
     # https://platform.openai.com/docs/models
