@@ -10,10 +10,10 @@ sys.path.insert(0, os.path.abspath('../../'))
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'Pantheon Agents'
-copyright = '2025, Pantheon Team'
-author = 'Pantheon Team'
-release = '0.1.0'
+project = 'PantheonOS'
+copyright = '2026, Qiu Lab'
+author = 'Qiu Lab'
+release = '0.4.4'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -62,13 +62,13 @@ html_js_files = [
 
 # Sphinx Book Theme options
 html_theme_options = {
-    "repository_url": "https://github.com/aristoteleo/pantheon-agents",
+    "repository_url": "https://github.com/aristoteleo/PantheonOS",
     "use_repository_button": True,
     "use_edit_page_button": True,
     "use_source_button": True,
     "use_issues_button": True,
     "use_download_button": True,
-    "path_to_docs": "pantheon-agents/docs/source",
+    "path_to_docs": "docs/source",
     "repository_branch": "main",
     "home_page_in_toc": True,
     "show_navbar_depth": 1,  # Show 2 levels, deeper levels collapsed
@@ -163,7 +163,7 @@ def linkcode_resolve(domain, info):
         return None
     
     filename = info['module'].replace('.', '/')
-    return f"https://github.com/aristoteleo/pantheon-agents/blob/main/pantheon/{filename}.py"
+    return f"https://github.com/aristoteleo/PantheonOS/blob/main/pantheon/{filename}.py"
 
 # Use master_doc for index
 master_doc = 'index'
