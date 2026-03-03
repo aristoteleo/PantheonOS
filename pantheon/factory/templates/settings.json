@@ -227,5 +227,17 @@
         "max_tool_output_length": 3000,
         // Wait this many messages before retrying after a compression failure
         "retry_after_messages": 10
+    },
+    // ===== LLM Retry Configuration =====
+    // Exponential backoff retry for transient LLM API errors (e.g., mid-stream overloaded)
+    "llm_retry": {
+        // Maximum number of retries per model before falling back to the next model
+        "max_retries": 3,
+        // Base delay in seconds (doubles each retry: ~1s, ~2s, ~4s)
+        "base_delay": 1.0,
+        // Maximum delay cap in seconds
+        "max_delay": 30.0,
+        // Jitter factor (0.0-1.0) to randomize delay and avoid thundering herd
+        "jitter": 0.5
     }
 }

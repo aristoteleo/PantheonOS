@@ -2,6 +2,7 @@ import asyncio
 import copy
 import inspect
 import json
+import random
 import re
 import sys
 import time
@@ -379,6 +380,27 @@ class StopRunning(Exception):
     def __init__(self, partial_message: dict | None = None):
         super().__init__()
         self.partial_message = partial_message
+
+
+def _is_retryable_error(error: Exception) -> bool:
+    """Determine if an LLM API error is transient and worth retrying."""
+    try:
+        from litellm.exceptions import (
+            ServiceUnavailableError,
+            InternalServerError,
+            RateLimitError,
+            APIConnectionError,
+        )
+        if isinstance(error, (ServiceUnavailableError, InternalServerError,
+                              RateLimitError, APIConnectionError)):
+            return True
+    except ImportError:
+        pass
+    # Fallback: string matching for common transient error indicators
+    error_str = str(error).lower()
+    return any(kw in error_str for kw in (
+        "overloaded", "rate", "capacity", "temporarily", "503", "502", "429",
+    ))
 
 
 def _get_message_text(message: dict) -> str | None:
@@ -1329,12 +1351,25 @@ class Agent:
         model: str | list[str] | None = None,
         context_variables: dict | None = None,
     ):
-        """Try multiple models with fallback.
-        
-        LiteLLM's num_retries handles retries for each individual model.
-        This method handles switching between models when all retries fail.
+        """Try multiple models with fallback and exponential backoff retry.
+
+        For each model, transient errors (overloaded, rate-limit, 5xx) are
+        retried with exponential backoff.  Non-transient errors skip directly
+        to the next model.  LiteLLM's ``num_retries`` still handles initial
+        connection-level retries; this layer covers mid-stream failures that
+        LiteLLM cannot retry on its own.
         """
-        # Prepare model list
+        # --- Read retry settings (with sensible defaults) ---
+        from .settings import get_settings
+        retry_cfg = get_settings().get("llm_retry", {})
+        if not isinstance(retry_cfg, dict):
+            retry_cfg = {}
+        max_retries: int = int(retry_cfg.get("max_retries", 3))
+        base_delay: float = float(retry_cfg.get("base_delay", 1.0))
+        max_delay: float = float(retry_cfg.get("max_delay", 30.0))
+        jitter: float = float(retry_cfg.get("jitter", 0.5))
+
+        # --- Prepare model list ---
         if model is None:
             models = self.models
         else:
@@ -1342,51 +1377,64 @@ class Agent:
                 models = [model] + self.models
             else:
                 models = model + self.models
-        
+
         if not models:
             raise RuntimeError(f"No model is available. models: {models}")
-        
-        error_count = 0
+
+        model_error_count = 0
         last_error = None
-        
+
         for model_name in models:
-            if error_count > 0:
+            if model_error_count > 0:
                 logger.warning(
                     f"Trying {model_name} due to previous model failure"
                 )
-            
-            try:
-                # LiteLLM's num_retries will handle retries for this model
-                message = await self._acompletion(
-                    history,
-                    model=model_name,
-                    tool_use=tool_use,
-                    response_format=response_format,
-                    process_chunk=process_chunk,
-                    allow_transfer=allow_transfer,
-                    context_variables=context_variables,
-                )
-                
-                return message
-                
-            except StopRunning:
-                raise
-            except Exception as e:
-                last_error = e
-                # Check if it's a rate limit error for better logging
-                error_type = type(e).__name__
-                if "RateLimitError" in error_type or "rate" in str(e).lower():
-                    logger.error(
-                        f"Rate limit exceeded for {model_name} after LiteLLM retries: {e}"
+
+            # max_retries *additional* attempts after the first try
+            for attempt in range(max_retries + 1):
+                try:
+                    message = await self._acompletion(
+                        history,
+                        model=model_name,
+                        tool_use=tool_use,
+                        response_format=response_format,
+                        process_chunk=process_chunk,
+                        allow_transfer=allow_transfer,
+                        context_variables=context_variables,
                     )
-                else:
-                    logger.error(f"Error completing with model {model_name}: {e}")
-                error_count += 1
-                continue
-        
-        # All models failed - raise exception instead of returning empty dict
+                    return message
+
+                except StopRunning:
+                    raise
+                except Exception as e:
+                    last_error = e
+
+                    if _is_retryable_error(e) and attempt < max_retries:
+                        delay = min(base_delay * (2 ** attempt), max_delay)
+                        delay *= random.uniform(1 - jitter, 1 + jitter)
+                        delay = max(delay, 0)
+                        logger.warning(
+                            f"[Agent:{self.name}] Transient error on {model_name} "
+                            f"(attempt {attempt + 1}/{max_retries + 1}): "
+                            f"{type(e).__name__}: {e}. Retrying in {delay:.1f}s..."
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+
+                    # Non-retryable or retries exhausted — log and move to next model
+                    error_type = type(e).__name__
+                    if "RateLimitError" in error_type or "rate" in str(e).lower():
+                        logger.error(
+                            f"Rate limit exceeded for {model_name} after retries: {e}"
+                        )
+                    else:
+                        logger.error(f"Error completing with model {model_name}: {e}")
+                    model_error_count += 1
+                    break  # break retry loop, continue to next model
+
+        # All models failed
         raise RuntimeError(
-            f"All {len(models)} model(s) failed after {error_count} attempts. "
+            f"All {len(models)} model(s) failed after {model_error_count} attempts. "
             f"Models tried: {models}. Last error: {last_error}"
         )
 
