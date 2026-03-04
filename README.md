@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/source/_static/pantheon-github-banner.png" alt="PantheonOS — A framework for building distributed, evolvable multi-agent systems." width="100%" />
+<img src="docs/source/_static/pantheon-github-banner.png" alt="PantheonOS — A framework for building evolvable and distributed multi-agent systems." width="100%" />
 
 [Official Site][official-site] · [Online App][online-app] · [Documents][docs] · [Feedback][github-issues-link]
 
@@ -34,7 +34,7 @@
 
 ## `1` [What is PantheonOS?](#1-what-is-pantheonos)
 
-PantheonOS is an **evolvable, privacy-preserving multi-agent framework** designed to reconcile generality with domain specificity. Autonomous agents powered by large language models collaborate to conduct biological discovery — achieving super-human performance on specialized scientific tasks.
+PantheonOS is an **evolvable and privacy-preserving multi-agent framework** designed to reconcile generality with domain specificity. PantheonOS automates, scales and accelerates data sciences, with a particular focus on end-to-end single cell biology analyses. Cruicially, PantheonOS leverages agentic code evolution to optimize state-of-the-art and nascent algorithms, achieving super-human performance on specialized scientific tasks. 
 
 ### Key Highlights
 
