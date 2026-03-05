@@ -1073,7 +1073,10 @@ class Agent:
             )
 
         # 3. Call the resolved tool
+        from .background import _bg_report
+
         source = all_tools[resolved_name]
+        _bg_report(f"[tool] Calling {resolved_name}...")
         try:
             if source == "base":
                 func = self._base_functions[resolved_name]
@@ -1083,7 +1086,9 @@ class Agent:
                 provider = self.providers[source]
                 tool_name = resolved_name.split("__", 1)[1]
                 result = await provider.call_tool(tool_name, args)
+            _bg_report(f"[tool] {resolved_name} completed")
         except Exception as e:
+            _bg_report(f"[tool] {resolved_name} failed: {e}")
             logger.error(
                 f"Failed to call tool '{resolved_name}' (source: {source}): {e}"
             )
@@ -2281,7 +2286,7 @@ async def _call_agent(
     memory: Memory | None = None,
 ) -> dict:
     """call agent callback to let toolset use llm agent to sample response
-    
+
     Returns:
         dict with keys:
         - success: bool
@@ -2290,6 +2295,24 @@ async def _call_agent(
         - _metadata: dict with cost info (if success)
             - current_cost: float - the cost of this nested LLM call
     """
+    from .background import _bg_report, _bg_output_buffer
+
+    # Progress callback for background context: reports each sub-agent message
+    progress_cb = None
+    if _bg_output_buffer.get() is not None:
+        async def _on_step_message(msg):
+            role = msg.get("role", "")
+            content = str(msg.get("content", "") or "")
+            if role == "assistant" and content:
+                preview = content[:300]
+                if len(content) > 300:
+                    preview += "..."
+                _bg_report(f"[agent] {preview}")
+            elif role == "tool":
+                tool_name = msg.get("name", msg.get("tool_call_id", "tool"))
+                _bg_report(f"[agent] Tool result from {tool_name}")
+        progress_cb = _on_step_message
+
     # not tested with remote mode, should work naturally with reverse call support
     try:
         # Create temporary Agent
@@ -2300,8 +2323,17 @@ async def _call_agent(
             memory=memory,
         )
 
+        _bg_report(f"[agent] Sub-agent starting (model={model or 'default'})")
+
         # Run Agent with the user query
-        result = await agent.run(messages, use_memory=False, update_memory=False)
+        result = await agent.run(
+            messages,
+            use_memory=False,
+            update_memory=False,
+            process_step_message=progress_cb,
+        )
+
+        _bg_report("[agent] Sub-agent completed")
 
         # Extract cost from the agent response
         nested_cost = 0.0
@@ -2321,6 +2353,7 @@ async def _call_agent(
         }
 
     except Exception as e:
+        _bg_report(f"[agent] Sub-agent failed: {e}")
         # log stack trace
         logger.info(f"Error in agent sampling: {e}", exc_info=True)
         return {

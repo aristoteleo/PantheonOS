@@ -50,6 +50,18 @@ def _install_print_hook() -> None:
     _print_hook_installed = True
 
 
+def _bg_report(message: str) -> None:
+    """Append a progress line to the background task output buffer, if active.
+
+    This is a no-op when not running inside a background task context.
+    Use this in tool implementations and agent internals to provide
+    incremental progress that get_background_task() can return.
+    """
+    buf = _bg_output_buffer.get()
+    if buf is not None:
+        buf.append(message)
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ from pantheon.background import (
     BackgroundTask,
     BackgroundTaskManager,
     _bg_output_buffer,
+    _bg_report,
     _install_print_hook,
 )
 
@@ -60,6 +61,22 @@ class TestPrintHook:
             assert "a b c" in buf
         finally:
             _bg_output_buffer.reset(token)
+
+    def test_bg_report_with_buffer(self):
+        """_bg_report appends to the active background buffer."""
+        buf = []
+        token = _bg_output_buffer.set(buf)
+        try:
+            _bg_report("progress 50%")
+            _bg_report("progress 100%")
+            assert buf == ["progress 50%", "progress 100%"]
+        finally:
+            _bg_output_buffer.reset(token)
+
+    def test_bg_report_without_buffer(self):
+        """_bg_report is a no-op when no buffer is active."""
+        _bg_report("should be ignored")
+        # No error, no side effects
 
 
 # =============================================================================
@@ -277,6 +294,26 @@ class TestBackgroundTaskManager:
         assert bg.status == "completed"
         assert any("50%" in line for line in bg.output_lines)
         assert any("100%" in line for line in bg.output_lines)
+
+    @pytest.mark.asyncio
+    async def test_bg_report_in_started_task(self, manager):
+        """_bg_report() inside a started task appends to output_lines."""
+
+        async def _report_work():
+            _bg_report("[step] initializing")
+            await asyncio.sleep(0.01)
+            _bg_report("[step] processing")
+            await asyncio.sleep(0.01)
+            _bg_report("[step] done")
+            return "ok"
+
+        bg = manager.start("report_tool", "tc_r", {}, _report_work())
+        await asyncio.sleep(0.2)
+
+        assert bg.status == "completed"
+        assert any("initializing" in line for line in bg.output_lines)
+        assert any("processing" in line for line in bg.output_lines)
+        assert any("done" in line for line in bg.output_lines)
 
     @pytest.mark.asyncio
     async def test_is_adopted_false_for_started(self, manager):
