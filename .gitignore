@@ -1,4 +1,9 @@
 # ====================
+# Project-specific
+# ====================
+.notebook_contexts.json
+
+# ====================
 # Python
 # ====================
 test.py
@@ -84,6 +89,7 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+docs/source/_build/
 
 # PyBuilder
 .pybuilder/
