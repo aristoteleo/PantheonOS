@@ -227,6 +227,14 @@ Chinese Providers
    * - Baidu ERNIE
      - ``ernie/``
      - ``ernie-bot-4``
+   * - Kimi (Moonshot)
+     - *(none)*
+     - ``kimi-for-coding``
+
+.. note::
+
+   **Kimi Coding**: Use model name ``kimi-for-coding`` with ``LLM_API_BASE=https://api.kimi.com/coding/v1``
+   and your Kimi API key as ``LLM_API_KEY``. See `Kimi Code Docs <https://www.kimi.com/code/docs/en/more/third-party-agents.html>`_ for details.
 
 .. note::
 
@@ -420,9 +428,9 @@ Or add to your ``.env`` / ``~/.pantheon/.env`` file:
 
 **Priority rules:**
 
-- ``OPENAI_API_BASE`` / ``LITELLM_API_BASE`` (provider-specific) > ``LLM_API_BASE`` (universal)
-- When ``LLM_API_BASE`` is active, ``LLM_API_KEY`` is preferred over provider-specific keys
-- When using a provider-specific base URL, provider-specific keys take priority as usual
+- **Base URL**: ``OPENAI_API_BASE`` / ``LITELLM_API_BASE`` (provider-specific) > ``LLM_API_BASE`` (universal)
+- **API Key (unified proxy mode)**: When ``LLM_API_BASE`` is set, ``LLM_API_KEY`` takes priority over provider-specific keys (e.g. ``OPENAI_API_KEY``). This ensures all requests to the proxy use the correct credentials.
+- **API Key (normal mode)**: When no ``LLM_API_BASE`` is set, provider-specific keys (e.g. ``OPENAI_API_KEY``) take priority over ``LLM_API_KEY``.
 
 Azure OpenAI
 ------------

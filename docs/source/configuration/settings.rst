@@ -124,6 +124,22 @@ REPL Settings
 - ``default_template``: Team template to load
 - ``log_level``: DEBUG, INFO, WARNING, ERROR
 
+Template Auto-Update
+~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: json
+
+   {
+     "default_template_auto_update": true
+   }
+
+When ``true`` (default), factory templates are synced to your ``.pantheon/`` directory on startup.
+The sync uses **hash-based change detection** to avoid overwriting user modifications:
+
+- If only the factory template changed, it is updated automatically.
+- If you modified a template (e.g. via ``/model``), your changes are preserved even when the factory version updates.
+- New templates from factory are always copied.
+
 ChatRoom Settings
 ~~~~~~~~~~~~~~~~~
 

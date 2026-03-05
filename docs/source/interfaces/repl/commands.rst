@@ -47,6 +47,35 @@ Compress conversation history to reduce token usage. Useful for long conversatio
 
 The agent will summarize the conversation to preserve key information while reducing tokens.
 
+/model [model_name]
+~~~~~~~~~~~~~~~~~~~
+
+View or change the model for the current agent.
+
+.. code-block:: text
+
+   # Show current model and available models
+   > /model
+
+   # Set model by name
+   > /model openai/gpt-4o
+   > /model kimi-for-coding
+
+   # Set model by quality tag
+   > /model high
+   > /model normal,vision
+
+Model changes are **persisted** to the team template file so they survive restarts.
+
+/new
+~~~~
+
+Create a new chat session within the same REPL.
+
+.. code-block:: text
+
+   > /new
+
 /exit or /quit
 ~~~~~~~~~~~~~~
 
