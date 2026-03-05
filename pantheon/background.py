@@ -90,6 +90,7 @@ class BackgroundTaskManager:
         self._counter: int = 0
         self._max_retained = max_retained
         self._adopted_tasks: set[int] = set()  # id() of adopted asyncio.Tasks
+        self._completed_notifications: list[BackgroundTask] = []
         # Ensure print hook is active
         _install_print_hook()
 
@@ -186,7 +187,16 @@ class BackgroundTaskManager:
                 bg_task.status = "completed"
                 bg_task.result = asyncio_task.result()
 
+        # Queue notification for agent auto-reporting
+        self._completed_notifications.append(bg_task)
+
         self._evict_old()
+
+    def drain_notifications(self) -> list[BackgroundTask]:
+        """Return and clear all pending completion notifications."""
+        notifs = self._completed_notifications
+        self._completed_notifications = []
+        return notifs
 
     def get(self, task_id: str) -> BackgroundTask | None:
         return self._tasks.get(task_id)

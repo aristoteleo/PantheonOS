@@ -343,6 +343,115 @@ class TestBackgroundTaskManager:
 
 
 # =============================================================================
+# Notification queue tests
+# =============================================================================
+
+
+class TestNotificationQueue:
+    @pytest.fixture
+    def manager(self):
+        return BackgroundTaskManager(max_retained=50)
+
+    def test_drain_empty(self, manager):
+        """drain_notifications() returns empty list when nothing queued."""
+        assert manager.drain_notifications() == []
+
+    @pytest.mark.asyncio
+    async def test_on_task_done_queues_notification(self, manager):
+        """Completed task is automatically queued for notification."""
+
+        async def _work():
+            return "result"
+
+        bg = manager.start("tool_a", "tc_1", {}, _work())
+        await asyncio.sleep(0.1)
+
+        assert bg.status == "completed"
+        notifs = manager.drain_notifications()
+        assert len(notifs) == 1
+        assert notifs[0].task_id == bg.task_id
+
+    @pytest.mark.asyncio
+    async def test_drain_clears_queue(self, manager):
+        """drain_notifications() clears the queue after returning."""
+
+        async def _work():
+            return "ok"
+
+        manager.start("tool_a", "tc_1", {}, _work())
+        await asyncio.sleep(0.1)
+
+        first = manager.drain_notifications()
+        assert len(first) == 1
+
+        second = manager.drain_notifications()
+        assert second == []
+
+    @pytest.mark.asyncio
+    async def test_failed_task_queues_notification(self, manager):
+        """Failed tasks are also queued for notification."""
+
+        async def _fail():
+            raise ValueError("boom")
+
+        bg = manager.start("tool_b", "tc_2", {}, _fail())
+        await asyncio.sleep(0.1)
+
+        assert bg.status == "failed"
+        notifs = manager.drain_notifications()
+        assert len(notifs) == 1
+        assert notifs[0].status == "failed"
+
+    @pytest.mark.asyncio
+    async def test_cancelled_task_queues_notification(self, manager):
+        """Cancelled tasks are also queued for notification."""
+
+        async def _long():
+            await asyncio.sleep(100)
+
+        bg = manager.start("tool_c", "tc_3", {}, _long())
+        manager.cancel(bg.task_id)
+        await asyncio.sleep(0.1)
+
+        notifs = manager.drain_notifications()
+        assert len(notifs) == 1
+        assert notifs[0].status == "cancelled"
+
+    @pytest.mark.asyncio
+    async def test_multiple_tasks_queued(self, manager):
+        """Multiple completed tasks accumulate in notification queue."""
+
+        async def _work(val):
+            return val
+
+        bg1 = manager.start("t1", "tc_1", {}, _work("a"))
+        bg2 = manager.start("t2", "tc_2", {}, _work("b"))
+        bg3 = manager.start("t3", "tc_3", {}, _work("c"))
+        await asyncio.sleep(0.1)
+
+        notifs = manager.drain_notifications()
+        assert len(notifs) == 3
+        ids = {n.task_id for n in notifs}
+        assert ids == {bg1.task_id, bg2.task_id, bg3.task_id}
+
+    @pytest.mark.asyncio
+    async def test_adopted_task_queues_notification(self, manager):
+        """Adopted tasks also queue notifications on completion."""
+
+        async def _work():
+            return "adopted_result"
+
+        existing = asyncio.create_task(_work())
+        bg = manager.adopt("tool_d", "tc_4", {}, existing)
+        await asyncio.sleep(0.1)
+
+        assert bg.status == "completed"
+        notifs = manager.drain_notifications()
+        assert len(notifs) == 1
+        assert notifs[0].task_id == bg.task_id
+
+
+# =============================================================================
 # Contextvar isolation tests
 # =============================================================================
 

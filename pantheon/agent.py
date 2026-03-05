@@ -1738,6 +1738,29 @@ IMPORTANT: You are operating in a restricted workspace environment.
             else:
                 history_for_llm = history
 
+            # Inject background task completion notifications (ephemeral)
+            bg_notifs = self._bg_manager.drain_notifications()
+            if bg_notifs:
+                lines = []
+                for bg_task in bg_notifs:
+                    summary = self._bg_manager.to_summary(bg_task)
+                    result_preview = str(summary.get("result", ""))[:500]
+                    lines.append(
+                        f"- task_id='{bg_task.task_id}', tool='{bg_task.tool_name}', "
+                        f"status='{bg_task.status}', result: {result_preview}"
+                    )
+                notif_msg = {
+                    "role": "user",
+                    "content": (
+                        "<EPHEMERAL_MESSAGE>\n"
+                        "[Background Task Notification] The following background tasks have completed:\n"
+                        + "\n".join(lines)
+                        + "\nPlease inform the user about these results."
+                        + "\n</EPHEMERAL_MESSAGE>"
+                    ),
+                }
+                history_for_llm = list(history_for_llm) + [notif_msg]
+
             message = await self._acompletion_with_models(
                 history_for_llm,
                 tool_use,
