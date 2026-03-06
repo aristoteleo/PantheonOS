@@ -139,6 +139,9 @@ packages = {find = {where = ["."], exclude = ["tests*", "examples*", "tmp*", "tr
 "pantheon.chatroom" = [
     "nats-ws.conf",
 ]
+"pantheon.toolsets.knowledge" = [
+    "config.yaml",
+]
 
 [tool.setuptools.dynamic]
 version = {attr = "pantheon.__version__"}
