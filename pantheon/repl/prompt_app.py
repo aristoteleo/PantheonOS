@@ -1041,6 +1041,24 @@ class PantheonInputApp:
             f'{self._separator} <style fg="#888888">[Esc] cancel</style>'
         )
 
+    def _get_bg_task_counts(self) -> tuple[int, int]:
+        """Get (running, total) background task counts from all agents."""
+        running = 0
+        total = 0
+        try:
+            team = getattr(self.repl, "_team", None)
+            if team and hasattr(team, "agents"):
+                for agent in team.agents.values():
+                    bg_mgr = getattr(agent, "_bg_manager", None)
+                    if bg_mgr:
+                        for task in bg_mgr.list_tasks():
+                            total += 1
+                            if task.status == "running":
+                                running += 1
+        except Exception:
+            pass
+        return running, total
+
     def get_status_formatted_text(self) -> HTML:
         """Generate bottom status bar content (model/agent info) in muted gray."""
         # Show 1 decimal place for values < 1%, otherwise show integer
@@ -1051,8 +1069,17 @@ class PantheonInputApp:
         else:
             usage_display = f"ctx: {self._token_usage_pct:.0f}%"
         if self._total_cost and self._total_cost > 0:
-            usage_display += f" │ cost: ${self._total_cost:.4f}"
+            usage_display += f" | cost: ${self._total_cost:.4f}"
         status = "processing..." if self._is_processing else "ready"
+
+        # Background tasks indicator
+        bg_running, bg_total = self._get_bg_task_counts()
+        bg_part = ""
+        if bg_total > 0:
+            if bg_running > 0:
+                bg_part = f" | bg: {bg_running} running"
+            else:
+                bg_part = f" | bg: {bg_total} done"
 
         # Update terminal title as part of status refresh
         # This is a good place because it's called on every render/invalidate
@@ -1060,13 +1087,11 @@ class PantheonInputApp:
         set_title(title)
 
         # Define parts for the new HTML structure
-        model_part = f"⏺ {self._model_name} │ agent: {self._current_agent}"
-        separator = "│"
-        status_part = status
-        tokens_part = usage_display
+        model_part = f"⏺ {self._model_name} | agent: {self._current_agent}"
+        status_part = f"{status} | {usage_display}{bg_part}"
 
         return HTML(
-            f'<style class="status-bar">{model_part} {separator} {status_part} {separator} {tokens_part}</style>'
+            f'<style class="status-bar">{model_part} | {status_part}</style>'
         )
 
     def start_processing(self, input_tokens: int = 0):
