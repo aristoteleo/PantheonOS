@@ -1158,7 +1158,9 @@ class ChatRoom(ToolSet):
 
         for agent in team.agents.values():
             if hasattr(agent, "_bg_manager"):
-                agent._bg_manager.on_complete = _on_bg_complete
+                # Only set if no external consumer (REPL, SDK) has already wired it
+                if agent._bg_manager.on_complete is None:
+                    agent._bg_manager.on_complete = _on_bg_complete
 
     @tool
     async def chat(
