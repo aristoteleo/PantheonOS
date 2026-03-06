@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pantheon.agent import Agent
-from pantheon.memory import Memory
+from pantheon.internal.memory import Memory
 from pantheon.utils.log import logger, temporary_log_level
 
 # ===== SummaryGenerator =====

@@ -13,7 +13,7 @@ These tests use team.run() to test real delegation scenarios with sub-agents.
 import asyncio
 import pytest
 from pantheon.agent import Agent
-from pantheon.memory import Memory
+from pantheon.internal.memory import Memory
 from pantheon.team import PantheonTeam
 
 

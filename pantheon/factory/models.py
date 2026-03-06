@@ -24,6 +24,7 @@ class AgentConfig:
     toolsets: List[str] = field(default_factory=list)
     mcp_servers: List[str] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
+    think_tool: bool = False
     source_path: Optional[str] = None
 
     def to_dict(self) -> dict:
@@ -38,6 +39,7 @@ class AgentConfig:
             "toolsets": self.toolsets,
             "mcp_servers": self.mcp_servers,
             "tags": self.tags,
+            "think_tool": self.think_tool,
             "source_path": self.source_path,
         }
 
@@ -54,6 +56,7 @@ class AgentConfig:
             toolsets=data.get("toolsets", []),
             mcp_servers=data.get("mcp_servers", []),
             tags=data.get("tags", []),
+            think_tool=data.get("think_tool", False),
             source_path=data.get("source_path"),
         )
 
@@ -67,6 +70,7 @@ class AgentConfig:
             "icon": self.icon,
             "toolsets": list(self.toolsets or []),
             "mcp_servers": list(self.mcp_servers or []),
+            "think_tool": self.think_tool,
         }
 
 

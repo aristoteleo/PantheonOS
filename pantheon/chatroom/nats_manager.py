@@ -7,9 +7,12 @@ Manages lifecycle of local NATS server subprocess with:
 - Config generation from template with runtime substitution
 - Subprocess startup/cleanup with health monitoring
 - Error handling and logging
+- Instance tracking via pantheon_dir for multi-instance isolation
 """
 
 import asyncio
+import json
+import os
 import socket
 import shutil
 import aiohttp
@@ -47,6 +50,7 @@ class NATSManager:
         ws_port: int = 8080,
         http_port: int = 8222,
         work_dir: Optional[Path] = None,
+        pantheon_dir: Optional[Path] = None,
     ):
         """
         Initialize NATS Manager.
@@ -57,15 +61,18 @@ class NATSManager:
             ws_port: WebSocket port (default: 8080)
             http_port: HTTP monitoring port (default: 8222)
             work_dir: Directory for logs and JetStream storage (default: current dir)
+            pantheon_dir: Pantheon config directory for instance tracking (default: work_dir/.pantheon)
         """
         self.config_template_path = Path(config_template_path)
         self.tcp_port = tcp_port
         self.ws_port = ws_port
         self.http_port = http_port
         self.work_dir = Path(work_dir) if work_dir else Path.cwd()
+        self.pantheon_dir = Path(pantheon_dir) if pantheon_dir else (self.work_dir / ".pantheon")
 
         self._process: Optional[asyncio.subprocess.Process] = None
         self._config_file: Optional[Path] = None
+        self._instance_file = self.pantheon_dir / ".nats-instance.json"
 
     def check_binary_available(self) -> Tuple[bool, str]:
         """
@@ -102,10 +109,14 @@ class NATSManager:
 
     @staticmethod
     def _is_port_in_use(port: int) -> bool:
-        """Check if a port is in use by attempting to connect to it."""
+        """Check if a port is in use by attempting to bind to it."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(1)
-            return s.connect_ex(("127.0.0.1", port)) == 0
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind(("127.0.0.1", port))
+                return False  # Port is available (bind succeeded)
+            except OSError:
+                return True  # Port is in use (bind failed)
 
     def check_ports_available(self) -> Tuple[bool, list]:
         """
@@ -260,57 +271,107 @@ class NATSManager:
 
     async def detect_existing(self) -> Optional[dict]:
         """
-        Detect if a NATS server is already running on the default ports.
+        Detect if a NATS server is already running for this pantheon_dir.
 
-        Checks HTTP healthz endpoint and TCP connectivity. If both pass,
-        returns server_info dict for reuse. Otherwise returns None.
+        Reads instance tracking file and validates:
+        1. PID is still alive
+        2. Ports match and are accessible
+        3. NATS healthz endpoint responds
+
+        Returns:
+            server_info dict if valid instance found, None otherwise
         """
-        http_url = f"http://localhost:{self.http_port}/healthz"
+        if not self._instance_file.exists():
+            logger.debug(f"[NATS] No instance file found: {self._instance_file}")
+            return None
+
         try:
-            # Check HTTP healthz
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    http_url, timeout=aiohttp.ClientTimeout(total=2)
-                ) as resp:
-                    if resp.status != 200:
-                        return None
+            # Read instance file
+            with open(self._instance_file, 'r') as f:
+                instance_data = json.load(f)
+
+            pid = instance_data.get("pid")
+            tcp_port = instance_data.get("tcp_port")
+            ws_port = instance_data.get("ws_port")
+            http_port = instance_data.get("http_port")
+
+            if not all([pid, tcp_port, ws_port, http_port]):
+                logger.debug("[NATS] Instance file missing required fields")
+                return None
+
+            # Check if process is alive
+            try:
+                os.kill(pid, 0)  # Signal 0 checks if process exists
+            except (OSError, ProcessLookupError):
+                logger.debug(f"[NATS] Process PID={pid} is not alive")
+                # Clean up stale instance file
+                self._instance_file.unlink()
+                return None
+
+            # Check HTTP healthz endpoint
+            http_url = f"http://localhost:{http_port}/healthz"
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        http_url, timeout=aiohttp.ClientTimeout(total=2)
+                    ) as resp:
+                        if resp.status != 200:
+                            logger.debug(f"[NATS] Healthz check failed: {resp.status}")
+                            return None
+            except Exception as e:
+                logger.debug(f"[NATS] Healthz check failed: {e}")
+                return None
 
             # Check TCP connectivity
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection("127.0.0.1", self.tcp_port),
-                timeout=2.0,
-            )
-            writer.close()
-            await writer.wait_closed()
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection("127.0.0.1", tcp_port),
+                    timeout=2.0,
+                )
+                writer.close()
+                await writer.wait_closed()
+            except Exception as e:
+                logger.debug(f"[NATS] TCP connection failed: {e}")
+                return None
 
             # Check WS port connectivity
-            ws_ok = False
             try:
                 r2, w2 = await asyncio.wait_for(
-                    asyncio.open_connection("127.0.0.1", self.ws_port),
+                    asyncio.open_connection("127.0.0.1", ws_port),
                     timeout=2.0,
                 )
                 w2.close()
                 await w2.wait_closed()
-                ws_ok = True
-            except Exception:
-                pass
-
-            if not ws_ok:
-                logger.debug(f"[NATS] Existing server found on TCP:{self.tcp_port} but WS:{self.ws_port} not available")
+            except Exception as e:
+                logger.debug(f"[NATS] WebSocket connection failed: {e}")
                 return None
 
-            logger.info(f"[NATS] Detected existing NATS server on TCP:{self.tcp_port} WS:{self.ws_port} HTTP:{self.http_port}")
+            # All checks passed - reuse existing instance
+            logger.info(f"[NATS] Detected existing NATS server (PID={pid})")
+            logger.info(f"[NATS]   TCP:{tcp_port} WS:{ws_port} HTTP:{http_port}")
+
+            # Update self ports to match existing instance
+            self.tcp_port = tcp_port
+            self.ws_port = ws_port
+            self.http_port = http_port
+
             return {
-                "tcp_url": f"nats://localhost:{self.tcp_port}",
-                "ws_url": f"ws://127.0.0.1:{self.ws_port}",
-                "http_url": f"http://localhost:{self.http_port}",
-                "config_file": None,
-                "log_file": None,
-                "pid": None,
+                "tcp_url": f"nats://localhost:{tcp_port}",
+                "ws_url": f"ws://127.0.0.1:{ws_port}",
+                "http_url": f"http://localhost:{http_port}",
+                "config_file": instance_data.get("config_file"),
+                "log_file": instance_data.get("log_file"),
+                "pid": pid,
                 "reused": True,
             }
-        except Exception:
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"[NATS] Invalid instance file: {e}")
+            # Clean up corrupted file
+            self._instance_file.unlink()
+            return None
+        except Exception as e:
+            logger.debug(f"[NATS] Error detecting existing instance: {e}")
             return None
 
     async def start(self) -> dict:
@@ -409,6 +470,9 @@ class NATSManager:
         logger.info(f"[NATS]   WebSocket: {server_info['ws_url']}")
         logger.info(f"[NATS]   Monitoring: {server_info['http_url']}")
 
+        # Write instance tracking file
+        self._write_instance_file(server_info)
+
         return server_info
 
     async def wait_for_ready(self, timeout: int = 30) -> bool:
@@ -488,6 +552,7 @@ class NATSManager:
         - Wait up to 5 seconds
         - Force kill with SIGKILL if needed
         - Cleanup temporary config file
+        - Remove instance tracking file
         """
         if self._process is None:
             logger.debug("[NATS] No process to stop")
@@ -520,4 +585,57 @@ class NATSManager:
             except Exception as e:
                 logger.warning(f"[NATS] Failed to remove config file: {e}")
 
+        # Remove instance tracking file
+        if self._instance_file.exists():
+            try:
+                self._instance_file.unlink()
+                logger.debug(f"[NATS] Removed instance file: {self._instance_file}")
+            except Exception as e:
+                logger.warning(f"[NATS] Failed to remove instance file: {e}")
+
         self._process = None
+
+    def _write_instance_file(self, server_info: dict):
+        """
+        Write instance tracking file to pantheon_dir.
+
+        Args:
+            server_info: Server connection info dict
+        """
+        try:
+            # Ensure pantheon_dir exists
+            self.pantheon_dir.mkdir(parents=True, exist_ok=True)
+
+            instance_data = {
+                "pid": server_info["pid"],
+                "tcp_port": self.tcp_port,
+                "ws_port": self.ws_port,
+                "http_port": self.http_port,
+                "config_file": server_info.get("config_file"),
+                "log_file": server_info.get("log_file"),
+                "tcp_url": server_info["tcp_url"],
+                "ws_url": server_info["ws_url"],
+                "http_url": server_info["http_url"],
+            }
+
+            with open(self._instance_file, 'w') as f:
+                json.dump(instance_data, f, indent=2)
+
+            logger.debug(f"[NATS] Wrote instance file: {self._instance_file}")
+
+        except Exception as e:
+            logger.warning(f"[NATS] Failed to write instance file: {e}")
+
+    def cleanup_instance_file(self):
+        """
+        Remove instance tracking file if it exists.
+
+        This is useful for cleanup operations when NATS process
+        was killed externally.
+        """
+        if self._instance_file.exists():
+            try:
+                self._instance_file.unlink()
+                logger.debug(f"[NATS] Cleaned up instance file: {self._instance_file}")
+            except Exception as e:
+                logger.warning(f"[NATS] Failed to cleanup instance file: {e}")

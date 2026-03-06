@@ -3,7 +3,7 @@ import uuid
 import asyncio
 
 from pantheon.team import Team
-from pantheon.memory import Memory
+from pantheon.internal.memory import Memory
 from pantheon.utils.misc import run_func
 from pantheon.utils.log import logger
 

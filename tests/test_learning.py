@@ -1129,7 +1129,7 @@ class TestPantheonTeamLearning:
         """Test running single agent in PantheonTeam with ACE learning."""
         from pantheon.agent import Agent
         from pantheon.team import PantheonTeam
-        from pantheon.memory import Memory
+        from pantheon.internal.memory import Memory
 
         skillbook, pipeline = learning_resources
         
@@ -1183,7 +1183,7 @@ class TestPantheonTeamLearning:
         """Test PantheonTeam with tool usage and ACE learning."""
         from pantheon.agent import Agent
         from pantheon.team import PantheonTeam
-        from pantheon.memory import Memory
+        from pantheon.internal.memory import Memory
 
         skillbook, pipeline = learning_resources
         
@@ -1256,7 +1256,7 @@ class TestPantheonTeamLearning:
         """Test that learning is submitted after agent run."""
         from pantheon.agent import Agent
         from pantheon.team import PantheonTeam
-        from pantheon.memory import Memory
+        from pantheon.internal.memory import Memory
 
         skillbook, pipeline = learning_resources
         
@@ -1312,7 +1312,7 @@ class TestPantheonTeamLearning:
         """Test PantheonTeam works fine without ACE (None values)."""
         from pantheon.agent import Agent
         from pantheon.team import PantheonTeam
-        from pantheon.memory import Memory
+        from pantheon.internal.memory import Memory
 
         # Create agent
         agent = Agent(
@@ -1421,7 +1421,7 @@ class TestPantheonTeamLearning:
         """
         from pantheon.agent import Agent
         from pantheon.team import PantheonTeam
-        from pantheon.memory import Memory
+        from pantheon.internal.memory import Memory
 
         skillbook, pipeline = learning_resources
         
@@ -1537,7 +1537,7 @@ Please acknowledge that you understand this rule and will apply it.
         """
         from pantheon.agent import Agent
         from pantheon.team import PantheonTeam
-        from pantheon.memory import Memory
+        from pantheon.internal.memory import Memory
 
         skillbook, pipeline = learning_resources
         
@@ -1620,7 +1620,7 @@ class TestLearningPersistence:
         """
         from pantheon.agent import Agent
         from pantheon.team import PantheonTeam
-        from pantheon.memory import Memory
+        from pantheon.internal.memory import Memory
         from pantheon.settings import get_settings
         import shutil
         

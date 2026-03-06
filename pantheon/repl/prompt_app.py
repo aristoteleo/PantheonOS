@@ -41,7 +41,7 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.history import FileHistory
+from prompt_toolkit.history import FileHistory, InMemoryHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.formatted_text import HTML
 
@@ -762,6 +762,9 @@ class PantheonInputApp:
             }
         )
 
+        # Save history file path for session history switching
+        self._history_file = history_file
+
         # Input Widget (TextArea)
         self.text_area = TextArea(
             multiline=True,
@@ -1041,6 +1044,17 @@ class PantheonInputApp:
         # but since we manual handle Enter, we should optimize)
         buffer.append_to_history()
 
+        # When using session-scoped InMemoryHistory, also persist to global file
+        if isinstance(buffer.history, InMemoryHistory) and text.strip():
+            try:
+                import datetime
+                with open(self._history_file, "ab") as f:
+                    f.write(f"\n# {datetime.datetime.now()}\n".encode("utf-8"))
+                    for line in text.split("\n"):
+                        f.write(f"+{line}\n".encode("utf-8"))
+            except Exception:
+                pass
+
         # Print to stdout so it appears in scrollback (show original text with @)
         # We must use print WITHOUT redirecting to the app buffer, so use proper stdout
         # But we are likely inside patch_stdout, so standard print works well to put text 'above'
@@ -1251,6 +1265,27 @@ class PantheonInputApp:
         except Exception:
             pass
         self.app.invalidate()
+
+    def set_session_history(self, user_messages: list[str] | None):
+        """Switch the input history for ↑/↓ navigation.
+
+        Args:
+            user_messages: List of user input strings for the session.
+                          Pass None to revert to global FileHistory.
+        """
+        buffer = self.text_area.buffer
+        if user_messages is None:
+            # Revert to global file history
+            buffer.history = FileHistory(self._history_file)
+        else:
+            history = InMemoryHistory()
+            for msg in user_messages:
+                history.append_string(msg)
+            buffer.history = history
+        # Force buffer to re-load from the new history object.
+        # reset() cancels _load_history_task and clears _working_lines,
+        # so the next repaint will lazily reload from buffer.history.
+        buffer.reset()
 
     def update_model(self, model_name: str):
         self._model_name = model_name

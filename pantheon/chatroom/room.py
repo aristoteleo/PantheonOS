@@ -12,7 +12,7 @@ from pantheon.factory import (
     get_template_manager,
     TeamConfig,
 )
-from pantheon.memory import MemoryManager, _ALL_CONTEXTS
+from pantheon.internal.memory import MemoryManager, _ALL_CONTEXTS
 from pantheon.settings import get_settings
 from pantheon.team import PantheonTeam
 from pantheon.toolset import ToolSet, tool

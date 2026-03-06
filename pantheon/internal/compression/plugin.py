@@ -12,7 +12,7 @@ from pantheon.utils.log import logger
 
 if TYPE_CHECKING:
     from pantheon.team.pantheon import PantheonTeam
-    from pantheon.memory import Memory
+    from pantheon.internal.memory import Memory
     from pantheon.internal.compression import ContextCompressor
 
 

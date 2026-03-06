@@ -1,5 +1,5 @@
 from pantheon.agent import Agent, AgentInput, AgentResponse, AgentTransfer, RemoteAgent
-from pantheon.memory import Memory
+from pantheon.internal.memory import Memory
 from pantheon.utils.log import logger
 from pantheon.utils.misc import run_func
 from .base import Team

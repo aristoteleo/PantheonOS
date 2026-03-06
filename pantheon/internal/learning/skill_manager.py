@@ -7,15 +7,17 @@ based on reflection analysis.
 
 from __future__ import annotations
 
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from pantheon.agent import Agent
 from pantheon.utils.log import logger
 from .json_parser import parse_to_model
 from .reflector import ReflectorOutput
 from .skillbook import Skillbook
+
+if TYPE_CHECKING:
+    from pantheon.agent import Agent
 
 
 # ===========================================================================
@@ -410,11 +412,12 @@ class SkillManager:
     def __init__(self, model: str | None = None, learning_config: dict | None = None):
         self.model = model  # None uses Agent's default (normal quality)
         self.learning_config = learning_config or {}  # Store for future extensibility
-        self._agent: Optional[Agent] = None
+        self._agent: Optional["Agent"] = None
 
-    def _ensure_agent(self, skillbook: Optional[Skillbook] = None) -> Agent:
+    def _ensure_agent(self, skillbook: Optional[Skillbook] = None) -> "Agent":
         """Lazy initialize the skill manager agent with tools."""
         if self._agent is None:
+            from pantheon.agent import Agent
             # Import tools
             from pantheon.toolsets.file.file_manager import FileManagerToolSet
             

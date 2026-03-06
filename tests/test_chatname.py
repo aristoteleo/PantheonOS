@@ -34,7 +34,7 @@ except ImportError:
                     key, value = line.strip().split('=', 1)
                     os.environ[key] = value
 
-from pantheon.memory import Memory
+from pantheon.internal.memory import Memory
 from pantheon.chatroom.special_agents import ChatNameGenerator
 
 

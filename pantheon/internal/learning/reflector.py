@@ -11,12 +11,12 @@ from typing import List, Literal, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from pantheon.agent import Agent
 from pantheon.utils.log import logger
 from .json_parser import parse_to_model
 from .skillbook import Skillbook
 
 if TYPE_CHECKING:
+    from pantheon.agent import Agent
     from .pipeline import LearningInput
 
 
@@ -328,11 +328,12 @@ class Reflector:
     def __init__(self, model: str | None = None, learning_config: dict | None = None):
         self.model = model  # None uses Agent's default (normal quality)
         self.learning_config = learning_config or {}  # Store for compression params
-        self._agent: Optional[Agent] = None
+        self._agent: Optional["Agent"] = None
     # TODO Add support for agent to read LeaningInput's detialed path for tool details.
-    def _ensure_agent(self, skillbook: Optional[Skillbook] = None) -> Agent:
+    def _ensure_agent(self, skillbook: Optional[Skillbook] = None) -> "Agent":
         """Lazy initialize the reflector agent with tools."""
         if self._agent is None:
+            from pantheon.agent import Agent
             # Import tools
             from pantheon.toolsets.file.file_manager import FileManagerToolSet
             

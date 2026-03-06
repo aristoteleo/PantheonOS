@@ -206,6 +206,77 @@ class TemplateManager:
 
         return total_changes
 
+    def get_updatable_templates(self) -> list[dict]:
+        """Compare factory templates with user copies and return a list of updatable files.
+
+        Returns:
+            List of dicts with keys: rel_path, category, status ('new', 'updated', 'modified')
+            - new: file exists in factory but not in user dir
+            - updated: factory changed, user hasn't modified (safe to update)
+            - modified: factory changed, user also modified (will overwrite user changes)
+        """
+        factory_hashes = self._load_factory_hashes()
+        results = []
+
+        for subdir, dest_dir, category in [
+            ("agents", self.agents_dir, "agents"),
+            ("teams", self.teams_dir, "teams"),
+            ("prompts", self.prompts_dir, "prompts"),
+        ]:
+            src_dir = self.system_templates_dir / subdir
+            if not src_dir.exists():
+                continue
+            for src_file in src_dir.rglob('*'):
+                if not src_file.is_file():
+                    continue
+                rel_path = src_file.relative_to(src_dir)
+                dest_file = dest_dir / rel_path
+                hash_key = f"{category}/{rel_path}"
+
+                if not dest_file.exists():
+                    results.append({"rel_path": str(rel_path), "category": category, "status": "new"})
+                else:
+                    src_hash = self._file_hash(src_file)
+                    dest_hash = self._file_hash(dest_file)
+                    if src_hash == dest_hash:
+                        continue  # identical, nothing to do
+                    stored_hash = factory_hashes.get(hash_key)
+                    if stored_hash is not None and dest_hash != stored_hash:
+                        results.append({"rel_path": str(rel_path), "category": category, "status": "modified"})
+                    else:
+                        results.append({"rel_path": str(rel_path), "category": category, "status": "updated"})
+
+        return results
+
+    def force_update_templates(self, items: list[dict]):
+        """Force update selected template files from factory.
+
+        Args:
+            items: List of dicts from get_updatable_templates() to update.
+        """
+        factory_hashes = self._load_factory_hashes()
+
+        dir_map = {
+            "agents": (self.system_templates_dir / "agents", self.agents_dir),
+            "teams": (self.system_templates_dir / "teams", self.teams_dir),
+            "prompts": (self.system_templates_dir / "prompts", self.prompts_dir),
+        }
+
+        for item in items:
+            category = item["category"]
+            rel_path = item["rel_path"]
+            src_dir, dest_dir = dir_map[category]
+            src_file = src_dir / rel_path
+            dest_file = dest_dir / rel_path
+
+            dest_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_file, dest_file)
+
+            hash_key = f"{category}/{rel_path}"
+            factory_hashes[hash_key] = self._file_hash(src_file)
+
+        self._save_factory_hashes(factory_hashes)
+
     def _ensure_default_templates(self):
         """Copy all default templates (agents, teams, prompts, skills).
 

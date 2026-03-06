@@ -3,8 +3,9 @@ import json
 from pathlib import Path
 from uuid import uuid4
 
-from .utils.llm import process_messages_for_store
-from .utils.log import logger
+from .storage import StorageBackend, JSONBackend, JSONLBackend
+from pantheon.utils.llm import process_messages_for_store
+from pantheon.utils.log import logger
 
 _ALL_CONTEXTS = object()
 
@@ -23,17 +24,50 @@ class Memory:
         extra_data: The extra data of the memory.
     """
 
-    def __init__(self, name: str, file_path: str | None = None, persist_delay: float = 2.0):
+    def __init__(
+        self,
+        name: str,
+        file_path: str | None = None,
+        persist_delay: float = 2.0,
+        storage_backend: StorageBackend | None = None,
+        use_jsonl: bool = True,
+    ):
         self.name = name
         self.id = str(uuid4())
         self._messages: list[dict] = []
         self.extra_data: dict[str, object] = {}
-        
+
         # Debounced persistence (opt-in: only when file_path is set)
         self._file_path: str | None = file_path
         self._persist_delay = persist_delay
         self._persist_task: asyncio.Task | None = None
-        self._dirty: bool = False
+
+        # Storage backend routing (auto-detect format)
+        self._backend: StorageBackend | None = None
+        self._use_jsonl = use_jsonl
+
+        if storage_backend:
+            # Explicit backend injection
+            self._backend = storage_backend
+        elif file_path:
+            # Auto-detect format based on existing files
+            base_path = Path(file_path).parent
+            memory_id = Path(file_path).stem
+
+            if JSONLBackend.detect_format(base_path, memory_id):
+                self._backend = JSONLBackend(base_path)
+                logger.debug(f"Detected JSONL format for memory {memory_id}")
+            elif JSONBackend.detect_format(base_path, memory_id):
+                self._backend = JSONBackend(base_path)
+                logger.debug(f"Detected JSON format for memory {memory_id}")
+            else:
+                # New memory: use configured format
+                if use_jsonl:
+                    self._backend = JSONLBackend(base_path)
+                    logger.debug(f"Using JSONL format for new memory {memory_id}")
+                else:
+                    self._backend = JSONBackend(base_path)
+                    logger.debug(f"Using JSON format for new memory {memory_id}")
 
     def __getitem__(self, key: int | slice):
         """Get a message or slice of messages from the memory."""
@@ -47,40 +81,131 @@ class Memory:
         else:
             raise ValueError(f"Invalid key: {key}")
 
-    def save(self, file_path: str):
+    @property
+    def file_path(self) -> str | None:
+        """
+        Get the primary file path for this memory.
+
+        For JSON backend: returns {id}.json
+        For JSONL backend: returns {id}.jsonl (messages file)
+        For no backend: returns _file_path
+
+        Returns:
+            File path string, or None if no backend/file_path configured
+        """
+        if self._backend:
+            if isinstance(self._backend, JSONLBackend):
+                return str(self._backend._get_jsonl_path(self.id))
+            elif isinstance(self._backend, JSONBackend):
+                return str(self._backend._get_file_path(self.id))
+
+        return self._file_path
+
+    @property
+    def storage_files(self) -> list[str]:
+        """
+        Get all storage files for this memory.
+
+        For JSON backend: returns [{id}.json]
+        For JSONL backend: returns [{id}.meta.json, {id}.jsonl]
+        For no backend: returns [_file_path] if set
+
+        Returns:
+            List of file paths
+        """
+        if self._backend:
+            if isinstance(self._backend, JSONLBackend):
+                return [
+                    str(self._backend._get_meta_path(self.id)),
+                    str(self._backend._get_jsonl_path(self.id)),
+                ]
+            elif isinstance(self._backend, JSONBackend):
+                return [str(self._backend._get_file_path(self.id))]
+
+        if self._file_path:
+            return [self._file_path]
+
+        return []
+
+    def save(self, file_path: str | None = None):
         """
         Save the memory to a file.
 
         Args:
-            file_path: The path to save the memory to.
+            file_path: The path to save the memory to. If None and backend is available,
+                      uses backend's default location. If specified, always saves as
+                      legacy JSON format (single file, portable).
         """
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "id": self.id,
-                    "name": self.name,
-                    "messages": self._messages,
-                    "extra_data": self.extra_data,
-                },
-                f,
-                indent=4,
-            )
+        if file_path:
+            # Explicit file path: always save as legacy JSON format (portable, single file)
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "id": self.id,
+                        "name": self.name,
+                        "messages": self._messages,
+                        "extra_data": self.extra_data,
+                    },
+                    f,
+                    indent=4,
+                )
+        elif self._backend:
+            # Use backend's intelligent persistence
+            self._backend.persist(self)
+        else:
+            raise ValueError("No file_path provided and no backend configured")
 
     @classmethod
-    def load(cls, file_path: str):
+    def load(cls, file_path: str, use_jsonl: bool = True):
         """
-        Load the memory from a file.
+        Load the memory from a file (auto-detects format).
 
         Args:
             file_path: The path to load the memory from.
+            use_jsonl: Default format for new memories (not used for existing files).
         """
-        with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            memory = cls(data["name"])
-            memory.id = data["id"]
-            memory._messages = data["messages"]
-            memory.extra_data = data.get("extra_data", {})
+        file_path_obj = Path(file_path)
+        base_path = file_path_obj.parent
+        memory_id = file_path_obj.stem
+
+        # Auto-detect format
+        if JSONLBackend.detect_format(base_path, memory_id):
+            backend = JSONLBackend(base_path)
+            memory_id, name, extra_data = backend.load_metadata(memory_id)
+            messages = backend.load_messages(memory_id)
+
+            memory = cls(name, file_path=str(file_path), use_jsonl=use_jsonl)
+            memory.id = memory_id
+            memory._messages = messages
+            memory.extra_data = extra_data
+            memory._backend = backend
+            # Initialize tracking for loaded memory
+            backend.initialize_tracking(memory_id, len(messages))
             return memory
+
+        elif JSONBackend.detect_format(base_path, memory_id):
+            backend = JSONBackend(base_path)
+            memory_id, name, extra_data = backend.load_metadata(memory_id)
+            messages = backend.load_messages(memory_id)
+
+            memory = cls(name, file_path=str(file_path), use_jsonl=use_jsonl)
+            memory.id = memory_id
+            memory._messages = messages
+            memory.extra_data = extra_data
+            memory._backend = backend
+            # Initialize tracking for loaded memory
+            backend.initialize_tracking(memory_id, len(messages))
+            return memory
+
+        else:
+            # Fallback to legacy JSON loading
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                memory = cls(data["name"], file_path=str(file_path), use_jsonl=use_jsonl)
+                memory.id = data["id"]
+                memory._messages = data["messages"]
+                memory.extra_data = data.get("extra_data", {})
+                return memory
 
     def clear(self):
         """
@@ -98,7 +223,9 @@ class Memory:
         """
         messages = process_messages_for_store(messages)
         self._messages.extend(messages)
-        self._schedule_persist()  # Trigger debounced auto-persistence
+
+        # Schedule persistence
+        self._schedule_persist()
 
     def mark_dirty(self):
         """Mark memory as dirty to trigger delayed persistence.
@@ -110,38 +237,40 @@ class Memory:
     
     def _schedule_persist(self):
         """Schedule debounced persistence (non-blocking).
-        
+
         Only schedules if file_path is set (opt-in behavior).
         Uses debounce window to batch multiple writes.
         """
         if not self._file_path:
             return
-        
-        self._dirty = True
-        
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             # No event loop running, skip auto-persist
             # (Will be persisted by MemoryManager.save() later)
             return
-        
+
         # Cancel existing scheduled task (debounce)
         if self._persist_task and not self._persist_task.done():
             self._persist_task.cancel()
-        
+
         async def _delayed_persist():
             await asyncio.sleep(self._persist_delay)
             self._do_persist()
-        
+
         self._persist_task = loop.create_task(_delayed_persist())
 
     def _do_persist(self):
-        """Actually write memory to disk."""
-        if self._file_path and self._dirty:
+        """Actually write memory to disk using backend's intelligent persistence."""
+        if self._file_path:
             try:
-                self.save(self._file_path)
-                self._dirty = False
+                if self._backend:
+                    # Backend handles all persistence logic intelligently
+                    self._backend.persist(self)
+                else:
+                    # Fallback to full save
+                    self.save(self._file_path)
                 logger.debug(f"Memory '{self.name}' auto-persisted to {self._file_path}")
             except Exception as e:
                 logger.error(f"Failed to auto-persist memory '{self.name}': {e}")
@@ -251,9 +380,10 @@ class Memory:
         """
         if 0 <= index < len(self._messages):
             self._messages = self._messages[:index]
-            self._dirty = True
             # Force immediate save for revert to prevent race conditions or confusion
-            if self._file_path:
+            if self._backend:
+                self._backend.persist(self)
+            elif self._file_path:
                 self.save(self._file_path)
         else:
             raise ValueError(f"Invalid message index: {index}")
@@ -293,13 +423,13 @@ class Memory:
 
     def _fix_corrupted_messages(self):
         """Remove corrupted messages (missing role and useless).
-        
+
         Removes messages that only contain partial data (e.g. {'agent_name': ...})
         resulting from failed model calls.
         """
         original_len = len(self._messages)
         self._messages = [
-            msg for msg in self._messages 
+            msg for msg in self._messages
             if msg.get("role") is not None
         ]
         removed_count = original_len - len(self._messages)
@@ -307,7 +437,6 @@ class Memory:
             logger.warning(
                 f"Removed {removed_count} corrupted messages (missing role) from memory '{self.name}'"
             )
-            self._dirty = True
 
     def _fix_orphaned_tool_calls(self):
         """Add placeholder responses for orphaned tool_calls and fix context IDs.
@@ -395,8 +524,7 @@ class Memory:
             self._fix_orphaned_tool_calls()
             self._orphans_fixed = True
             # Persist the fixed state immediately
-            if self._dirty:
-                self._schedule_persist()
+            self._schedule_persist()
 
 
 DEFAULT_CHAT_NAME = "New Chat"
@@ -414,9 +542,10 @@ class MemoryManager:
         memory_store: The in-RAM store of the memories.
     """
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, use_jsonl: bool = True):
         self.path = Path(path)
         self.memory_store: dict[str, Memory] = {}
+        self.use_jsonl = use_jsonl  # Default format for new memories
         self.load()
 
     def new_memory(self, name: str | None = None) -> Memory:
@@ -428,10 +557,25 @@ class MemoryManager:
         """
         if name is None:
             name = DEFAULT_CHAT_NAME
-        memory = Memory(name)
+
+        # Create memory with configured format
+        memory = Memory(name, use_jsonl=self.use_jsonl)
         self.memory_store[memory.id] = memory
+
         # Enable auto-persistence for managed memories
         memory._file_path = str(self.path / f"{memory.id}.json")
+
+        # Initialize backend based on format
+        if self.use_jsonl:
+            memory._backend = JSONLBackend(self.path)
+            # Create initial metadata file
+            memory._backend.save_metadata(memory.id, memory.name, memory.extra_data)
+            # Create empty JSONL file
+            jsonl_path = self.path / f"{memory.id}.jsonl"
+            jsonl_path.touch()
+        else:
+            memory._backend = JSONBackend(self.path)
+
         return memory
 
     def get_memory(self, id: str, auto_fix: bool = False) -> Memory:
@@ -470,14 +614,29 @@ class MemoryManager:
         Args:
             id: The ID of the memory.
         """
+        memory = self.memory_store.get(id)
+
         # Delete from memory store
         del self.memory_store[id]
-        
-        # Immediately delete the file from disk
-        file_path = self.path / f"{id}.json"
-        if file_path.exists():
-            file_path.unlink()
-            logger.debug(f"Deleted memory file: {file_path}")
+
+        # Delete files using backend if available
+        if memory and memory._backend:
+            memory._backend.delete(id)
+        else:
+            # Fallback: try to delete both formats
+            json_file = self.path / f"{id}.json"
+            meta_file = self.path / f"{id}.meta.json"
+            jsonl_file = self.path / f"{id}.jsonl"
+
+            if json_file.exists():
+                json_file.unlink()
+                logger.debug(f"Deleted memory file: {json_file}")
+            if meta_file.exists():
+                meta_file.unlink()
+                logger.debug(f"Deleted memory file: {meta_file}")
+            if jsonl_file.exists():
+                jsonl_file.unlink()
+                logger.debug(f"Deleted memory file: {jsonl_file}")
 
     def list_memories(self):
         """
@@ -491,43 +650,97 @@ class MemoryManager:
     def save_one(self, memory_id: str):
         """
         Save a single memory to the file system.
-        
+
         Args:
             memory_id: The ID of the memory to save.
         """
         memory = self.memory_store.get(memory_id)
         if memory:
-            memory.save(str(self.path / f"{memory.id}.json"))
+            # Use backend if available (no file_path argument)
+            memory.save()
         else:
             logger.warning(f"Memory {memory_id} not found in memory store, cannot save")
-    
+
     def save(self):
         """
         Save all the memories to the file system.
         """
         for memory in self.memory_store.values():
-            memory.save(str(self.path / f"{memory.id}.json"))
+            # Use backend if available (no file_path argument)
+            memory.save()
+
+        # Clean up orphaned files (both formats)
+        existing_ids = set(self.memory_store.keys())
+
+        # Clean up JSON files
         for file in self.path.glob("*.json"):
-            if file.stem not in self.memory_store:
+            if file.stem not in existing_ids and not file.name.endswith(".meta.json"):
                 file.unlink()
+                logger.debug(f"Cleaned up orphaned file: {file}")
+
+        # Clean up JSONL format files
+        for file in self.path.glob("*.meta.json"):
+            memory_id = file.stem.replace(".meta", "")
+            if memory_id not in existing_ids:
+                file.unlink()
+                logger.debug(f"Cleaned up orphaned file: {file}")
+                # Also clean up corresponding .jsonl file
+                jsonl_file = self.path / f"{memory_id}.jsonl"
+                if jsonl_file.exists():
+                    jsonl_file.unlink()
+                    logger.debug(f"Cleaned up orphaned file: {jsonl_file}")
 
     def load(self):
         """
-        Load all the memories from the file system.
+        Load all the memories from the file system (auto-detects format).
         """
         if not self.path.exists():
             self.path.mkdir(parents=True)
-        for file in self.path.glob("*.json"):
+
+        # Track loaded memory IDs to avoid duplicates
+        loaded_ids = set()
+
+        # Load JSONL format memories first (check .meta.json files)
+        for meta_file in self.path.glob("*.meta.json"):
+            memory_id = meta_file.stem.replace(".meta", "")
+            if memory_id in loaded_ids:
+                continue
+
             try:
-                memory = Memory.load(str(file))
-                # Enable auto-persistence for managed memories
-                memory._file_path = str(file)
-                logger.debug(f"Loaded memory: {memory.name} from {file}")
+                # Construct a pseudo file path for Memory.load
+                pseudo_path = self.path / f"{memory_id}.json"
+                memory = Memory.load(str(pseudo_path), use_jsonl=self.use_jsonl)
+                memory._file_path = str(pseudo_path)
+                logger.debug(f"Loaded memory (JSONL): {memory.name} from {meta_file}")
                 self.memory_store[memory.id] = memory
+                loaded_ids.add(memory.id)
+
                 if memory.extra_data.get("running"):
                     memory.extra_data["running"] = False
             except Exception as e:
-                logger.error(f"Failed to load memory from {file}: {e}")
+                logger.error(f"Failed to load memory from {meta_file}: {e}")
+
+        # Load JSON format memories (only if not already loaded)
+        for json_file in self.path.glob("*.json"):
+            # Skip .meta.json files
+            if json_file.name.endswith(".meta.json"):
+                continue
+
+            memory_id = json_file.stem
+            if memory_id in loaded_ids:
+                continue
+
+            try:
+                memory = Memory.load(str(json_file), use_jsonl=self.use_jsonl)
+                memory._file_path = str(json_file)
+                logger.debug(f"Loaded memory (JSON): {memory.name} from {json_file}")
+                self.memory_store[memory.id] = memory
+                loaded_ids.add(memory.id)
+
+                if memory.extra_data.get("running"):
+                    memory.extra_data["running"] = False
+            except Exception as e:
+                logger.error(f"Failed to load memory from {json_file}: {e}")
 
     def update_memory_name(self, memory_id: str, name: str):
         """

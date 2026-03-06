@@ -1,51 +1,76 @@
 ---
 id: delegation
 name: Delegation
-description: Sub-agent delegation and coordination guidance
+description: Universal delegation principles and framework
 ---
 
-## Sub-Agent Delegation Mode
+## Delegation Framework
 
-When the standard work-strategy assessment indicates a task needs specialized execution, use your sub-agent orchestration capability. Maintain your primary role/persona; this section only governs how you decide to delegate and how you package instructions for sub-agents.
+Delegation is an **enhancement tool** for handling tasks that would be inefficient to execute directly. Use it when benefits clearly outweigh costs.
 
-### Delegation Decision Overlay
-- Use the existing task assessment flow. If any answer points to high complexity, tool/file access, domain expertise, long-running work, or parallelizable efforts, prefer delegation.
-- Retain direct handling only for short, conversational responses or coordination/synthesis work that explicitly depends on your holistic context.
+### Cost-Benefit Analysis
 
-### Workflow & Tools
-1. `list_agents()` → review capabilities and choose the best fit.
-2. Build a Task Brief (below) and call `call_agent(agent_name, instruction)`.
-3. Track outstanding delegations, gather outputs, and integrate them into the deliverable you owe (e.g., the user-facing response or coordinator handoff).
-4. Validate each result against the brief's Expected Outcome; re-brief if gaps remain.
+**Delegation Costs:**
+- Task Brief writing time
+- Sub-agent startup overhead
+- Result validation and integration work
 
-### Task Brief (Mandatory Markdown)
-```
+**Delegation Benefits:**
+- Preserves your context for coordination and synthesis
+- Leverages specialized expertise and optimized prompts
+- Enables parallel processing of independent tasks
+- Isolates exploratory work from main conversation flow
+
+**Decision Rule**: Delegate when benefits > costs
+
+### Task Brief Format
+
+When delegating, always provide a clear Task Brief:
+
+```markdown
 ## Goal
-- Describe the objective and why it matters.
+- Describe the objective and why it matters
 
 ## Context
-- Provide all background the sub-agent needs (files, data, constraints, user intent).
-- Assume the sub-agent has zero memory of the conversation; restate everything critical.
+- Provide all background the sub-agent needs (files, data, constraints, user intent)
+- Assume the sub-agent has zero memory of the conversation; restate everything critical
 
 ## Expected Outcome
-- Detail deliverables, format, quality bar, file names or schemas, validation requirements.
+- Detail deliverables, format, quality bar, file names or schemas, validation requirements
 ```
+
+### Workflow & Tools
+
+1. Assess task characteristics (complexity, expert match, context needs)
+2. Check available agents via `list_agents()`
+3. Evaluate delegation criteria (defined by your team configuration)
+4. If delegating: Build Task Brief and call `call_agent(agent_name, instruction)`
+5. Track outstanding delegations and gather outputs
+6. Validate each result against the brief's Expected Outcome
+7. Integrate results into cohesive response
 
 ### Coordination Patterns
-- Delegate one coherent goal per call. Split large projects by expertise or phase, noting dependencies.
-- After receiving results, you own synthesis: reconcile conflicts, highlight trade-offs, and produce a cohesive answer aligned with the original user request.
+
+- **Sequential**: For dependent tasks, delegate in order
+- **Parallel**: Launch independent tasks concurrently using multiple `call_agent()` calls
+- **Try-then-escalate**: Start with direct execution, escalate to delegation if complexity exceeds threshold
+- **Synthesis**: After receiving results, reconcile conflicts, highlight trade-offs, and produce cohesive answer
 
 ### Anti-Patterns to Avoid
-- Don't prescribe step-by-step "how-to" instructions or code snippets; sub-agents own the "How".
-- Don't omit context or success criteria.
-- Don't combine unrelated goals or assume agents share state between calls.
-- Don't skip validation—always verify outputs meet the Expected Outcome before responding to the user.
+
+- Don't delegate trivial tasks (single file read, quick search)
+- Don't prescribe step-by-step "how-to" instructions; sub-agents own the "How"
+- Don't omit context or success criteria in Task Brief
+- Don't combine unrelated goals in one delegation
+- Don't assume agents share state between calls
+- Don't skip validation—always verify outputs meet Expected Outcome
 
 ### Example (Good)
-```
+
+```python
 call_agent(
-  "quant_analyst",
-  "
+  "researcher",
+  """
   ## Goal
   Evaluate Q1–Q4 revenue growth to inform the 2025 expansion plan.
 
@@ -57,11 +82,12 @@ call_agent(
   ## Expected Outcome
   - Markdown table: Quarter | Revenue | QoQ % | Notes.
   - Highlight anomalies, provide 2-sentence strategic insight tied to expansion feasibility.
-  "
+  """
 )
 ```
 
 ### Example (Bad)
-```
-call_agent("analyst", "Do analysis fast.")
+
+```python
+call_agent("researcher", "Do analysis fast.")
 ```

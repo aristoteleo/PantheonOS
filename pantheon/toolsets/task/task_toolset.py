@@ -209,10 +209,11 @@ class TaskToolSet(ToolSet):
     def process_tool_messages(
         self, tool_calls: list[dict], tool_messages: list[dict], context_variables: dict
     ):
-        """Process tool messages to detect artifact access.
+        """Process tool messages to detect artifact access and think tool usage.
 
         Called by agent after _handle_tool_calls completes.
         Detects file_manager tool calls that access artifact files.
+        Detects think tool usage to reset think counter.
 
         Args:
             tool_calls: Original tool calls from LLM
@@ -221,8 +222,22 @@ class TaskToolSet(ToolSet):
         """
         brain_dir = self._get_brain_dir(context_variables)
 
-        # Update tool counter
-        self.state.on_tool_call(len(tool_calls))
+        # 先检测 think tool 使用，并分离非 think 工具
+        has_think = False
+        non_think_tools = []
+
+        for call in tool_calls:
+            tool_name = call.get("function", {}).get("name", "")
+            if tool_name == "think":
+                has_think = True
+                self.state.on_think_tool_used()
+                logger.debug(f"[TaskToolSet] Think tool used at step {self.state.current_step}")
+            else:
+                non_think_tools.append(call)
+
+        # 更新工具计数（不包括 think）
+        if non_think_tools:
+            self.state.on_tool_call(len(non_think_tools))
 
         # Detect artifact access via file_manager tools
         FILE_TOOLS = ("read_file", "write_file", "update_file", "view_file")

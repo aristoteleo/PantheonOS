@@ -139,7 +139,7 @@ class SingleCellBenchmarkAdapter:
         # Create fresh team
         team = await self._create_fresh_team()
         
-        from pantheon.memory import Memory
+        from pantheon.internal.memory import Memory
         
         memory = Memory(name=f"bench_{task_id}")
         

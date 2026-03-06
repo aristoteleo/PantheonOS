@@ -172,7 +172,7 @@ class PantheonBixBenchAdapter:
         # Create fresh team for this task to ensure isolation
         team = await self._create_fresh_team()
         
-        from pantheon.memory import Memory
+        from pantheon.internal.memory import Memory
         from pantheon.utils.display import print_agent_message
         
         # Create fresh memory for this task

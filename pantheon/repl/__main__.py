@@ -48,6 +48,7 @@ def start(
     memory_dir: str = None,
     workspace: str = None,
     chat_id: str = None,
+    resume: str | bool = False,
     log_level: str = None,
     quiet: bool = None,
     resync: bool = False,
@@ -59,6 +60,8 @@ def start(
         memory_dir: Directory for chat persistence. (default from settings: .pantheon)
         workspace: Workspace directory for Endpoint.
         chat_id: Resume specific chat by ID.
+        resume: Resume a previous chat. Use --resume to resume the last chat,
+                or --resume=<id> / --resume=<number> to resume a specific one.
         log_level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: CRITICAL.
         quiet: Disable all logging. Use --quiet to enable. (default: False)
         resync: Force resync templates by deleting skills/agents/teams directories. (default: False)
@@ -89,6 +92,51 @@ def start(
     )
     quiet = quiet if quiet is not None else settings.get("repl.quiet", False)
     log_level = log_level or settings.get("repl.log_level", "CRITICAL")
+
+    # Handle --resume: resolve to a chat_id before starting
+    if resume is not False and resume is not None:
+        from datetime import datetime as dt
+        from pantheon.internal.memory import MemoryManager
+        mm = MemoryManager(Path(memory_dir))
+        ids = mm.list_memories()
+        if not ids:
+            print("No chat sessions found.")
+            return
+        # Build chat list sorted by last activity (newest first)
+        chats = []
+        for mid in ids:
+            mem = mm.get_memory(mid)
+            chats.append({
+                "id": mid,
+                "name": mem.name,
+                "last_activity_date": mem.extra_data.get("last_activity_date"),
+            })
+        chats.sort(
+            key=lambda x: dt.fromisoformat(x["last_activity_date"])
+            if x["last_activity_date"] else dt.min,
+            reverse=True,
+        )
+        if resume is True:
+            # --resume without value: pick the most recent chat
+            chat_id = chats[0]["id"]
+        else:
+            # --resume=<value>: match by index number, ID prefix, or name prefix
+            resume_str = str(resume)
+            found = None
+            if resume_str.isdigit():
+                idx = int(resume_str)
+                if 1 <= idx <= len(chats):
+                    found = chats[idx - 1]
+            if not found:
+                for chat in chats:
+                    if chat.get("id", "").startswith(resume_str) or \
+                       chat.get("name", "").lower().startswith(resume_str.lower()):
+                        found = chat
+                        break
+            if not found:
+                print(f"Chat not found: {resume}")
+                return
+            chat_id = found["id"]
 
     # Check for API keys and run setup wizard if none found
     from .setup_wizard import check_and_run_setup

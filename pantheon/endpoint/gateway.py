@@ -179,7 +179,7 @@ class UnifiedMCPGateway:
                 logger.debug(f"Server '{name}' already mounted")
                 return False
 
-            # Mount to unified endpoint with namespace
+            # Mount to unified endpoint with prefix
             self._ensure_unified_mcp().mount(proxy, namespace=name)
 
             # Track metadata

@@ -535,6 +535,7 @@ class UnifiedMarkdownParser:
             toolsets=list(metadata.get("toolsets", []) or []),
             mcp_servers=list(metadata.get("mcp_servers", []) or []),
             tags=list(metadata.get("tags", []) or []),
+            think_tool=bool(metadata.get("think_tool", False)),
             source_path=source_path,
         )
 
@@ -658,6 +659,7 @@ class UnifiedMarkdownParser:
                         toolsets=list(agent_metadata.get("toolsets", []) or []),
                         mcp_servers=list(agent_metadata.get("mcp_servers", []) or []),
                         tags=list(agent_metadata.get("tags", []) or []),
+                        think_tool=bool(agent_metadata.get("think_tool", False)),
                         source_path=source_path,
                     )
                 )

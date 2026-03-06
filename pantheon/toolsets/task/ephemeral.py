@@ -16,6 +16,7 @@ ACTIVE_TASK_REMINDER = """\
 Remember to update the task as appropriate. The current task is:
 task_name:"{task_name}" task_status:"{task_status}" task_summary:"{task_summary}" mode:{ctx_mode}
 Tools since last update: {tools_since_update}
+Task status changes: {task_update_count}
 
 TASK UPDATE GUIDELINES:
 - Update task_boundary only when entering a NEW work phase — NOT with every tool call
@@ -86,6 +87,31 @@ please view these files soon to remind yourself of its contents
 # New: Excessive tools without task boundary reminder (matches Antigravity's emphatic style)
 EXCESSIVE_TOOLS_WITHOUT_TASK_REMINDER = """You have called {count} tools in a row without calling the task_boundary tool. This is extremely unexpected. Since you are doing so much work without active engagement with the user, for the next response or tool call you do please concurrently set the task boundary in parallel before continuing any further."""
 
+# Think Tool Reminder
+THINK_TOOL_REMINDER = """\
+<think_tool_reminder>
+You have called {tools_since_think} tools without using the think tool.
+Before proceeding, consider using think() to:
+- Analyze results from your recent tool calls
+- Verify your approach aligns with requirements
+- Check if you have all necessary information to proceed
+- Identify any potential issues or edge cases
+
+Using think() improves decision quality in complex tool chains.
+</think_tool_reminder>"""
+
+# Too Many Steps in One Task Reminder
+TOO_MANY_STEPS_IN_TASK_REMINDER = """\
+<too_many_steps_in_task_reminder>
+WARNING: You have updated the current task "{task_name}" {task_update_count} times.
+This suggests the task scope may be too broad. Consider:
+1. Should you create a NEW task with a different task_name for the next phase of work?
+2. Remember: Each task should correspond to ONE top-level checklist item in task.md
+3. If you've completed a distinct phase, start a new task instead of continuing to update this one
+
+Consider whether the current work belongs in a new task boundary.
+</too_many_steps_in_task_reminder>"""
+
 
 def generate_ephemeral_message(state: ConversationState, brain_dir: str) -> str:
     """Generate EPHEMERAL_MESSAGE based on current state.
@@ -111,6 +137,7 @@ def generate_ephemeral_message(state: ConversationState, brain_dir: str) -> str:
 
     # 2. Task state reminder (mutually exclusive)
     EXCESSIVE_TOOLS_THRESHOLD = 5
+    TOO_MANY_STEPS_THRESHOLD = 5
 
     if state.active_task:
         t = state.active_task
@@ -121,8 +148,18 @@ def generate_ephemeral_message(state: ConversationState, brain_dir: str) -> str:
                 task_status=t.status,
                 task_summary=t.summary,
                 tools_since_update=state.tools_since_update,
+                task_update_count=state.task_update_count,
             )
         )
+
+        # Add too many steps reminder when threshold exceeded
+        if state.task_update_count >= TOO_MANY_STEPS_THRESHOLD:
+            parts.append(
+                TOO_MANY_STEPS_IN_TASK_REMINDER.format(
+                    task_update_count=state.task_update_count,
+                    task_name=t.name
+                )
+            )
     else:
         parts.append(NO_ACTIVE_TASK_REMINDER.format(reason=state.task_boundary_reason))
 
@@ -160,7 +197,15 @@ def generate_ephemeral_message(state: ConversationState, brain_dir: str) -> str:
             REQUESTED_REVIEW_NOT_IN_TASK_REMINDER.format(reviewed_files=reviewed_files)
         )
 
-    # 6. Artifact access reminder (stale artifacts)
+    # 6. Think Tool reminder (conditional)
+    if state.should_remind_think():
+        parts.append(
+            THINK_TOOL_REMINDER.format(
+                tools_since_think=state.tools_since_think
+            )
+        )
+
+    # 7. Artifact access reminder (stale artifacts)
     STALE_THRESHOLD = 10
     stale_artifacts = [
         path

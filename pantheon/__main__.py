@@ -9,6 +9,7 @@ import warnings
 
 # Suppress DeprecationWarnings before any third-party imports (fastapi, starlette, etc.)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message="urllib3.*doesn't match a supported version")
 
 import os
 import sys
@@ -41,6 +42,78 @@ def setup():
     run_setup_wizard(standalone=True)
 
 
+def update_templates():
+    """Compare and selectively update .pantheon/ templates from factory defaults."""
+    from rich.console import Console
+    from prompt_toolkit import prompt as pt_prompt
+    from pantheon.factory.template_manager import get_template_manager
+
+    console = Console()
+    tm = get_template_manager()
+    items = tm.get_updatable_templates()
+
+    if not items:
+        console.print("[green]All templates are up to date.[/green]")
+        return
+
+    # Display list
+    console.print(f"\n[bold]Found {len(items)} template(s) that can be updated:[/bold]\n")
+
+    STATUS_STYLE = {
+        "new": "[cyan]new[/cyan]",
+        "updated": "[green]updated[/green]",
+        "modified": "[yellow]modified (user-edited)[/yellow]",
+    }
+
+    for i, item in enumerate(items, 1):
+        style = STATUS_STYLE[item["status"]]
+        console.print(f"  [cyan][{i}][/cyan] {item['category']}/{item['rel_path']}  {style}")
+
+    console.print(f"\n  [cyan][a][/cyan] Select all")
+    console.print()
+
+    try:
+        selection = pt_prompt("Select templates to update (comma-separated, e.g. 1,3,5 or a): ")
+    except (EOFError, KeyboardInterrupt):
+        console.print("\nCancelled.")
+        return
+
+    # Parse selection
+    selection = selection.strip().lower()
+    if selection == "a":
+        selected = items
+    else:
+        selected = []
+        for part in selection.split(","):
+            part = part.strip()
+            if part.isdigit():
+                idx = int(part)
+                if 1 <= idx <= len(items):
+                    selected.append(items[idx - 1])
+
+    if not selected:
+        console.print("[yellow]No templates selected.[/yellow]")
+        return
+
+    # Confirm if any modified files
+    modified = [s for s in selected if s["status"] == "modified"]
+    if modified:
+        console.print(f"\n[yellow]Warning: {len(modified)} file(s) have user modifications that will be overwritten:[/yellow]")
+        for item in modified:
+            console.print(f"  - {item['category']}/{item['rel_path']}")
+        try:
+            confirm = pt_prompt("Continue? [y/N]: ")
+        except (EOFError, KeyboardInterrupt):
+            confirm = "n"
+        if confirm.strip().lower() != "y":
+            console.print("Cancelled.")
+            return
+
+    # Execute update
+    tm.force_update_templates(selected)
+    console.print(f"\n[green]Updated {len(selected)} template(s).[/green]")
+
+
 def main():
     # Skip auto-setup if user explicitly requested "pantheon setup"
     if len(sys.argv) < 2 or sys.argv[1] != "setup":
@@ -52,7 +125,7 @@ def main():
     from pantheon.repl.__main__ import start as cli
     from pantheon.chatroom.start import start_services as ui
 
-    fire.Fire({"cli": cli, "ui": ui, "setup": setup}, name="pantheon")
+    fire.Fire({"cli": cli, "ui": ui, "setup": setup, "update-templates": update_templates}, name="pantheon")
 
 
 if __name__ == "__main__":

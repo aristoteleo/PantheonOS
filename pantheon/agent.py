@@ -16,13 +16,14 @@ from uuid import uuid4
 from funcdesc import parse_func
 from pydantic import BaseModel, create_model
 
-from .memory import Memory
 if TYPE_CHECKING:
+    from .internal.memory import Memory
     from .remote import (
         RemoteBackendFactory,
         RemoteConfig,
         RemoteWorker,
     )
+
 from .toolset import ToolSet
 from .utils.llm import (
     TimingTracker,
@@ -126,7 +127,7 @@ class AgentRunContext:
     """Runtime context information for the currently executing Agent.run call."""
 
     agent: "Agent"
-    memory: Memory | None
+    memory: "Memory | None"
     process_step_message: Callable | None
     process_chunk: Callable | None
 
@@ -458,6 +459,11 @@ def _apply_injections(message: dict, injections: list[dict]) -> None:
 
 
 
+def think(thought: str) -> str:
+    """Use this tool to think step-by-step before acting. It records your reasoning without taking any action or obtaining new information. Use it to analyze tool outputs, plan multi-step approaches, verify compliance with instructions, or reconsider your strategy."""
+    return "Thought recorded."
+
+
 class Agent:
     """
     The Agent class is the core component of Pantheon,
@@ -484,6 +490,7 @@ class Agent:
         force_litellm: Whether to force using LiteLLM. (default: False)
         max_tool_content_length: The maximum length of the tool content. (default: 100000)
         description: The description of the agent. (default: None)
+        think_tool: Whether to enable the think tool for structured reasoning. (default: False)
     """
 
     def __init__(
@@ -496,11 +503,12 @@ class Agent:
         tools: list[Callable] | None = None,
         response_format: Any | None = None,
         use_memory: bool = True,
-        memory: Memory | None = None,
+        memory: "Memory | None" = None,
         tool_timeout: int | None = None,
         force_litellm: bool = False,
         max_tool_content_length: int | None = None,
         description: str | None = None,
+        think_tool: bool = False,
     ):
         self.id = uuid4()
         self.name = name
@@ -532,9 +540,16 @@ class Agent:
         if tools:
             for func in tools:
                 self.tool(func)
+
+        if think_tool:
+            self.tool(think, key="think")
+
         self.response_format = response_format
         self.use_memory = use_memory
-        self.memory = memory or Memory(str(uuid4()))
+        if memory is None:
+            from .internal.memory import Memory
+            memory = Memory(str(uuid4()))
+        self.memory = memory
 
         # Store user-specified overrides (if provided, these take priority)
         self._tool_timeout_override = tool_timeout
@@ -2047,7 +2062,7 @@ IMPORTANT: You are operating in a restricted workspace environment.
         msg: AgentInput,
         execution_context_id: str | None = None,
         context_variables: dict | None = None,
-        memory: Memory | None = None,
+        memory: "Memory | None" = None,
         use_memory: bool | None = None,
     ) -> ExecutionContext:
         """Prepare execution context based on input type.
@@ -2138,7 +2153,7 @@ IMPORTANT: You are operating in a restricted workspace environment.
         process_chunk: Callable | None = None,
         process_step_message: Callable | None = None,
         check_stop: Callable | None = None,
-        memory: Memory | None = None,
+        memory: "Memory | None" = None,
         use_memory: bool | None = None,
         update_memory: bool = True,
         tool_timeout: int | None = None,
@@ -2446,7 +2461,7 @@ async def _call_agent(
     messages: list,
     system_prompt: Optional[str],
     model: Optional[str] = None,
-    memory: Memory | None = None,
+    memory: "Memory | None" = None,
 ) -> dict:
     """call agent callback to let toolset use llm agent to sample response
 

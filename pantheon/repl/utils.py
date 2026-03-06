@@ -126,41 +126,109 @@ def get_wave_color(index: int, offset: int) -> str:
     return WAVE_COLORS[pos]
 
 
+class _Utf8StdoutProxy:
+    """Wrapper around StdoutProxy that ensures UTF-8 compatible output.
+
+    On Windows, prompt_toolkit's StdoutProxy.encoding returns the system
+    codepage (e.g. GBK/CP936) from Win32Output. Rich Console uses this
+    encoding, causing UnicodeEncodeError on characters like • (U+2022)
+    from Markdown rendering. This wrapper:
+    1. Reports UTF-8 encoding so Rich doesn't attempt GBK encoding
+    2. Catches any remaining UnicodeEncodeError from downstream writers
+       and replaces unencodable chars with safe alternatives
+    """
+
+    # Characters Rich Markdown produces that aren't in GBK/CP936
+    _SAFE_REPLACEMENTS = {
+        "\u2022": "\u00b7",  # • BULLET → · MIDDLE DOT (GBK-safe)
+        "\u2023": ">",       # ‣ TRIANGULAR BULLET
+        "\u2043": "-",       # ⁃ HYPHEN BULLET
+        "\u25cf": "*",       # ● BLACK CIRCLE
+        "\u2013": "-",       # – EN DASH
+        "\u2014": "--",      # — EM DASH
+        "\u2018": "'",       # ' LEFT SINGLE QUOTE
+        "\u2019": "'",       # ' RIGHT SINGLE QUOTE
+        "\u201c": '"',       # " LEFT DOUBLE QUOTE
+        "\u201d": '"',       # " RIGHT DOUBLE QUOTE
+    }
+
+    def __init__(self, wrapped):
+        self._wrapped = wrapped
+
+    @property
+    def encoding(self):
+        return "utf-8"
+
+    def write(self, s):
+        try:
+            return self._wrapped.write(s)
+        except UnicodeEncodeError:
+            # Replace known problematic chars with GBK-safe alternatives
+            for old, new in self._SAFE_REPLACEMENTS.items():
+                s = s.replace(old, new)
+            try:
+                return self._wrapped.write(s)
+            except UnicodeEncodeError:
+                # Last resort: replace any remaining unencodable chars
+                return self._wrapped.write(
+                    s.encode("gbk", errors="replace").decode("gbk")
+                )
+
+    def flush(self):
+        return self._wrapped.flush()
+
+    def isatty(self):
+        return True
+
+    def __getattr__(self, name):
+        return getattr(self._wrapped, name)
+
+
 class OutputAdapter:
     """Unified output adapter for prompt_toolkit + Rich integration.
-    
+
     When inside patch_stdout(raw=True) context, all output must go through
     sys.stdout to be correctly captured and rendered above the prompt.
     This adapter automatically switches between default Console and
     stdout-bound Console based on context.
     """
-    
+
     def __init__(self):
         # Default Console for non-patch_stdout context (e.g., banner)
         self._default_console = Console()
+        # Patched Console, created when entering patch_stdout context
+        self._patched_console: Console | None = None
         # Whether we're inside patch_stdout context
         self._in_patch_context = False
-    
+
     @property
     def console(self) -> Console:
         """Get the appropriate Console based on current context.
-        
+
         Returns:
             Console bound to sys.stdout when in patch_stdout context,
             otherwise returns the default Console.
         """
-        if self._in_patch_context:
-            # In patch_stdout, use sys.stdout Console for ANSI preservation
-            return Console(file=sys.stdout, force_terminal=True)
+        if self._in_patch_context and self._patched_console is not None:
+            return self._patched_console
         return self._default_console
-    
+
     def enter_patch_context(self):
         """Called when entering patch_stdout context."""
         self._in_patch_context = True
-    
+        # Wrap the patched sys.stdout with UTF-8 encoding declaration.
+        # This prevents Rich from using the system codepage (GBK on Chinese
+        # Windows) which can't encode Unicode chars like • from Markdown.
+        self._patched_console = Console(
+            file=_Utf8StdoutProxy(sys.stdout),
+            force_terminal=True,
+            legacy_windows=False,
+        )
+
     def exit_patch_context(self):
         """Called when exiting patch_stdout context."""
         self._in_patch_context = False
+        self._patched_console = None
     
     def print(self, *args, **kwargs):
         """Print with automatic context-aware console selection."""

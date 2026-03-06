@@ -491,7 +491,7 @@ class TeamLearningPath(BaseLearningPath):
     
     async def process_task(self, input: LearningInput) -> None:
         """Process learning task using skill_learning_team."""
-        from pantheon.memory import Memory
+        from pantheon.internal.memory import Memory
         
         try:
             logger.debug(f"Processing learning for {input.agent_name} (team mode)")

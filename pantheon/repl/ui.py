@@ -1,4 +1,5 @@
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 from rich.live import Live
@@ -117,7 +118,6 @@ class ReplUI:
     def __init__(self):
         # Output adapter for patch_stdout compatibility
         self._output = OutputAdapter()
-        self.console = self._output._default_console
 
         self.input_panel = Panel(
             Text("Type your message here...", style="dim"),
@@ -143,6 +143,11 @@ class ReplUI:
         # Display configuration and renderers
         self.display_config = DisplayConfig()
         self._init_renderers()
+
+    @property
+    def console(self) -> Console:
+        """Context-aware console: uses patched stdout inside patch_stdout."""
+        return self._output.console
 
     @property
     def output(self) -> OutputAdapter:
@@ -420,11 +425,12 @@ class ReplUI:
         self.console.print(table)
 
     async def print_greeting(self):
+        from pantheon import __version__
         self.console.print("[purple]Aristotle © 2025-2026[/purple]")
         print_banner(self.console)
         self.console.print()
         self.console.print(
-            "[bold italic]Multi-agent system for scientific research[/bold italic]"
+            f"[bold italic]Multi-agent system for scientific research[/bold italic]  [dim]v{__version__}[/dim]"
         )
         self.console.print(
             "[bold italic dim]Pantheon is a research project, use with caution.[/bold italic dim]"
@@ -712,9 +718,15 @@ class ReplUI:
             try:
                 # Read-only: displaying memory path, no need to fix
                 memory = chatroom.memory_manager.get_memory(chat_id)
-                file_path = getattr(memory, "_file_path", None)
-                if file_path:
-                    self.console.print(f"[dim]• Memory:   [/dim] {Path(file_path).absolute()}")
+                storage_files = memory.storage_files
+                if storage_files:
+                    if len(storage_files) == 1:
+                        self.console.print(f"[dim]• Memory:   [/dim] {Path(storage_files[0]).absolute()}")
+                    else:
+                        # Multiple files (JSONL backend)
+                        self.console.print(f"[dim]• Memory:   [/dim] {Path(storage_files[0]).parent.absolute()}/")
+                        for f in storage_files:
+                            self.console.print(f"[dim]            [/dim] └─ {Path(f).name}")
             except Exception:
                 pass
 
@@ -750,6 +762,85 @@ class ReplUI:
         else:
             self.console.print(f"[dim]Input:[/dim] basic")
         self.console.print()
+
+    def _replay_chat_history(self, messages: list[dict]):
+        """Replay full chat history to the terminal.
+
+        Renders user inputs, assistant responses, tool calls, and tool results
+        using the same renderers as live streaming for a consistent look.
+        """
+        import json
+        from rich.style import Style as RichStyle
+        from rich.text import Text as RichText
+
+        # Clear terminal via ANSI escape (works inside patch_stdout)
+        print("\033[2J\033[H", end="", flush=True)
+
+        last_agent = None
+
+        for msg in messages:
+            try:
+                role = msg.get("role")
+                if role in ("system", "compression"):
+                    continue
+                content = msg.get("content", "")
+
+                agent_name = msg.get("agent_name")
+
+                if role == "user" and isinstance(content, str) and content.strip():
+                    # Skip internal/compression messages and REPL commands
+                    if msg.get("_compression") or msg.get("_internal"):
+                        continue
+                    if content.strip().startswith("/"):
+                        continue
+                    # Render user input with gray background using Rich
+                    self.console.print()
+                    for line in content.split("\n"):
+                        styled = RichText(f"> {line}")
+                        styled.stylize(RichStyle(bgcolor="grey23"))
+                        self.console.print(styled)
+
+                elif role == "assistant":
+                    # Tool calls
+                    if tool_calls := msg.get("tool_calls"):
+                        for call in tool_calls:
+                            tool_name = call.get("function", {}).get("name")
+                            if tool_name:
+                                try:
+                                    args = json.loads(
+                                        call.get("function", {}).get("arguments", "{}")
+                                    )
+                                except Exception:
+                                    args = {}
+                                self.console.print()
+                                self.tool_call_renderer.render(tool_name, args)
+                    # Text content (with Markdown fallback, same as live rendering)
+                    if isinstance(content, str) and content.strip():
+                        # Print agent name before response (matches live rendering)
+                        if agent_name:
+                            self.console.print(
+                                f"[dim]→[/dim] [bold cyan]{agent_name}[/bold cyan]"
+                            )
+                        self.console.print()
+                        try:
+                            self.console.print(Markdown(content))
+                        except Exception:
+                            self.console.print(content)
+
+                elif role == "tool":
+                    tool_name = msg.get("tool_name", "")
+                    raw = msg.get("raw_content")
+                    if raw is not None and isinstance(raw, dict):
+                        self.tool_result_renderer.render(tool_name, raw)
+                    elif isinstance(content, str) and content.strip():
+                        try:
+                            result = json.loads(content)
+                            self.tool_result_renderer.render(tool_name, result)
+                        except Exception:
+                            self.tool_result_renderer.render(tool_name, {"output": content})
+                    self.console.print()
+            except Exception:
+                continue
 
     async def _print_session_summary(self):
         """Print a brief session summary before exit"""

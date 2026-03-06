@@ -26,7 +26,7 @@ from pantheon.internal.compression import (
     CompressionStatus,
     ContextCompressor,
 )
-from pantheon.memory import Memory
+from pantheon.internal.memory import Memory
 from pantheon.settings import Settings, get_settings
 from pantheon.utils.message_formatter import (
     FormattedConversation,

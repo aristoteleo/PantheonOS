@@ -303,105 +303,82 @@ async def start_services(
 
     # Helper function for zombie process cleanup
     async def cleanup_zombie_nats(work_dir: Path):
-        """Clean up zombie NATS processes and stale config from previous runs."""
+        """
+        Clean up zombie NATS processes for this specific pantheon_dir.
+
+        Only cleans up NATS instances tracked by this work_dir's instance file,
+        avoiding interference with other chatroom instances.
+        """
         logger.info("[STARTUP] Cleanup: Checking for zombie NATS processes...")
 
         import subprocess
         import signal
+        import json
 
-        nats_cleaned = False
+        pantheon_dir = work_dir / ".pantheon"
+        instance_file = pantheon_dir / ".nats-instance.json"
 
-        # Process cleanup - try pgrep first, then fallback to pkill
-        process_cleanup_ok = False
+        # Check if instance file exists
+        if not instance_file.exists():
+            logger.debug("[STARTUP] Cleanup: No instance file found, nothing to clean")
+            return
+
         try:
-            result = subprocess.run(
-                ["pgrep", "-f", "nats-server"],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
+            # Read instance file
+            with open(instance_file, 'r') as f:
+                instance_data = json.load(f)
 
-            if result.returncode == 0 and result.stdout.strip():
-                pids = result.stdout.strip().split('\n')
-                # Changed from WARNING to INFO - finding processes is normal, not an error
-                logger.info(f"[STARTUP] Cleanup: Found {len(pids)} existing NATS process(es)")
+            pid = instance_data.get("pid")
+            if not pid:
+                logger.debug("[STARTUP] Cleanup: Instance file has no PID")
+                instance_file.unlink()
+                return
+
+            # Check if process is alive
+            try:
+                os.kill(pid, 0)  # Signal 0 checks if process exists
+                logger.info(f"[STARTUP] Cleanup: Found zombie NATS process (PID={pid})")
 
                 # Graceful terminate first
-                for pid_str in pids:
+                try:
+                    logger.info(f"[STARTUP] Cleanup: Terminating NATS (PID={pid})...")
+                    os.kill(pid, signal.SIGTERM)
+                    await asyncio.sleep(2)  # Wait for graceful shutdown
+
+                    # Check if still alive
                     try:
-                        pid = int(pid_str)
-                        logger.info(f"[STARTUP] Cleanup: Terminating NATS (PID={pid})...")
-                        os.kill(pid, signal.SIGTERM)
-                    except (ValueError, ProcessLookupError):
+                        os.kill(pid, 0)
+                        # Still alive, force kill
+                        logger.info(f"[STARTUP] Cleanup: Force killing NATS (PID={pid})...")
+                        os.kill(pid, signal.SIGKILL)
+                        await asyncio.sleep(1)
+                    except (OSError, ProcessLookupError):
+                        # Process terminated successfully
                         pass
 
-                await asyncio.sleep(1)  # Wait for graceful shutdown
+                    logger.info("[STARTUP] Cleanup: NATS process terminated")
 
-                # Force kill remaining
-                subprocess.run(
-                    ["pkill", "-9", "-f", "nats-server"],
-                    capture_output=True,
-                    timeout=2
-                )
+                except (OSError, ProcessLookupError):
+                    logger.debug("[STARTUP] Cleanup: Process already terminated")
 
-                logger.info("[STARTUP] Cleanup: NATS processes terminated")
-                process_cleanup_ok = True
-                nats_cleaned = True
+            except (OSError, ProcessLookupError):
+                logger.debug(f"[STARTUP] Cleanup: Process PID={pid} not found (already dead)")
 
-        except FileNotFoundError:
-            # pgrep not available, try pkill fallback
-            logger.debug("[STARTUP] Cleanup: pgrep not available, using pkill fallback...")
-            try:
-                subprocess.run(
-                    ["pkill", "-f", "nats-server"],
-                    capture_output=True,
-                    timeout=2
-                )
-                await asyncio.sleep(1)
+            # Remove instance file
+            instance_file.unlink()
+            logger.debug("[STARTUP] Cleanup: Removed instance file")
 
-                subprocess.run(
-                    ["pkill", "-9", "-f", "nats-server"],
-                    capture_output=True,
-                    timeout=2
-                )
-                process_cleanup_ok = True
-                nats_cleaned = True
-            except subprocess.TimeoutExpired:
-                logger.warning("[STARTUP] Cleanup: pkill timed out")
-            except Exception as e:
-                logger.debug(f"[STARTUP] Cleanup: Could not use pkill: {e}")
-
-        except subprocess.TimeoutExpired:
-            logger.warning("[STARTUP] Cleanup: pgrep timed out")
-        except Exception as e:
-            logger.debug(f"[STARTUP] Cleanup: Error checking processes: {e}")
-
-        # File cleanup - separate try-except block
-        try:
-            nats_dir = work_dir / ".pantheon/chatroom"
-            if nats_dir.exists():
-                stale_files = list(nats_dir.glob(".nats-*"))
-                if stale_files:
-                    logger.info(f"[STARTUP] Cleanup: Removing {len(stale_files)} stale NATS file(s)...")
-                    for file in stale_files:
-                        try:
-                            file.unlink()
-                            logger.debug(f"[STARTUP] Cleanup: Removed {file.name}")
-                        except Exception as e:
-                            logger.warning(f"[STARTUP] Cleanup: Could not remove {file.name}: {e}")
-        except Exception as e:
-            logger.debug(f"[STARTUP] Cleanup: Error removing stale files: {e}")
-
-        # Extra wait time to ensure ports are released (TCP TIME_WAIT state)
-        if nats_cleaned:
+            # Extra wait time to ensure ports are released (TCP TIME_WAIT state)
             logger.info("[STARTUP] Cleanup: Waiting for ports to be released...")
             await asyncio.sleep(2)  # Give OS time to fully release ports
 
-        # Final status message
-        if nats_cleaned:
             logger.info("[STARTUP] Cleanup: Complete")
-        else:
-            logger.debug("[STARTUP] Cleanup: No zombie NATS processes found")
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"[STARTUP] Cleanup: Invalid instance file: {e}")
+            instance_file.unlink()
+        except Exception as e:
+            logger.debug(f"[STARTUP] Cleanup: Error during cleanup: {e}")
 
     # ========== STARTUP ==========
     logger.info("[STARTUP] Starting chatroom service...")
@@ -446,10 +423,18 @@ async def start_services(
                 f"  - {Path(__file__).parent.parent.parent / 'nats-ws.conf'}"
             )
 
-        # Initialize NATS manager
+        # Determine pantheon_dir for instance tracking
+        # Note: We construct it from work_dir here because settings haven't been loaded yet
+        pantheon_dir = work_dir / ".pantheon"
+
+        # Clean up any zombie NATS processes from previous runs
+        await cleanup_zombie_nats(work_dir)
+
+        # Initialize NATS manager with pantheon_dir for instance isolation
         nats_manager = NATSManager(
             config_template_path=config_template,
             work_dir=work_dir,
+            pantheon_dir=pantheon_dir,
         )
 
         try:

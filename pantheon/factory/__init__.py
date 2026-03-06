@@ -16,6 +16,7 @@ async def create_agent(
     mcp_servers: list[str] | None = None,
     description: str | None = None,
     enable_mcp: bool = True,
+    think_tool: bool = False,
     **kwargs,
 ) -> Agent:
     """Create an agent from a template with all providers (toolsets and MCP servers).
@@ -29,6 +30,7 @@ async def create_agent(
         toolsets: List of toolset names to add to the agent.
         mcp_servers: List of MCP server names to add to the agent.
         description: Optional description of the agent's purpose and capabilities.
+        think_tool: Whether to enable the think tool for structured reasoning.
     """
     agent = Agent(
         name=name,
@@ -36,6 +38,7 @@ async def create_agent(
         model=model,
         icon=icon,
         description=description,
+        think_tool=think_tool,
     )
     agent.not_loaded_toolsets = []
     toolsets_added = []
