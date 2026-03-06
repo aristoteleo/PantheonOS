@@ -2317,7 +2317,7 @@ IMPORTANT: You are operating in a restricted workspace environment.
         process_step_message: Callable | None = None,
         check_stop: Callable | None = None,
         context_variables: dict | None = None,
-        memory: Memory | None = None,
+        memory: "Memory | None" = None,
         tool_timeout: int | None = None,
         model: str | list[str] | None = None,
         on_response: Callable | None = None,
