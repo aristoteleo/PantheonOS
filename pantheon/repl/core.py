@@ -331,7 +331,7 @@ class Repl(ReplUI):
                     color = {"completed": "green", "failed": "red", "cancelled": "yellow"}.get(status, "blue")
                     self.console.print(
                         f"\n  [{color}]⬤[/{color}] Background task [bold]{short_name}[/bold] "
-                        f"[{color}]{status}[/{color}] [dim]({task_id})[/dim]"
+                        f"[{color}]{status}[/{color}] [dim]({task_id})[/dim]\n"
                     )
 
                 # Process message
