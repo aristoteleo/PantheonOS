@@ -10,6 +10,7 @@ Usage:
     pantheon store uninstall PACKAGE
     pantheon store info PACKAGE
     pantheon store list [--what installed|published]
+    pantheon store seed [--source SOURCE] [--dry-run]
 """
 
 import asyncio
@@ -324,6 +325,33 @@ class StoreCLI:
             pass
 
         console.print()
+
+    def seed(self, action: str = "prepare", output_dir: str = "store_seed_data",
+             hub_url: str = None, dry_run: bool = False):
+        """Seed the store with initial skills, agents, and teams.
+
+        Two-step workflow:
+          1. prepare: Collect all packages into a local directory
+          2. publish: Batch-publish from the prepared directory to Hub
+
+        Args:
+            action: "prepare" or "publish"
+            output_dir: Directory for prepared data (default: store_seed_data)
+            hub_url: Hub server URL (for publish)
+            dry_run: Preview without publishing (for publish)
+        """
+        from .seed import StoreSeed
+
+        seeder = StoreSeed(hub_url=hub_url)
+
+        if action == "prepare":
+            seeder.prepare(output_dir=output_dir)
+        elif action == "publish":
+            seeder.publish_prepared(input_dir=output_dir, dry_run=dry_run)
+        else:
+            raise SystemExit(
+                f"Unknown action: {action}. Options: prepare, publish"
+            )
 
     def list(self, what: str = "installed", hub_url: str = None):
         """List installed or published packages.
