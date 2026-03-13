@@ -156,29 +156,31 @@ class JupyterKernelToolSet(ToolSet):
 
     def _build_kernel_env(self) -> dict:
         import sys
-        
+
         env = os.environ.copy()
-        
-        # Prune unnecessary large environment variables to avoid E2BIG
-        # LS_COLORS can be several KB and is not needed for kernel operation
+
+        # Note: LS_COLORS removal is now handled by optimize_context_env() in build_context_env()
+        # Keeping this for backwards compatibility and extra safety
         env.pop("LS_COLORS", None)
-        
+
         # Get paths from current sys.path and existing PYTHONPATH
         # Prepend sys.path to give it priority for the kernel subprocess
         current_paths = [p for p in sys.path if p]
         existing_pythonpath = env.get("PYTHONPATH", "")
         existing_paths = [p for p in existing_pythonpath.split(os.pathsep) if p]
-        
+
         # Combine and deduplicate while preserving order
         all_paths = current_paths + existing_paths
         unique_paths = list(dict.fromkeys(all_paths))
-        
+
         env["PYTHONPATH"] = os.pathsep.join(unique_paths)
 
+        # build_context_env() now automatically optimizes environment size
         return build_context_env(
             workdir=self._get_effective_workdir() or self.workdir,
             context_variables=self._current_context_dict(),
             base_env=env,
+            optimize=True,  # Enable automatic optimization
         )
 
     def _context_prefix_code(self) -> str:
@@ -307,34 +309,20 @@ class JupyterKernelToolSet(ToolSet):
 
             # Start kernel in specified working directory with Pantheon context
             env = self._build_kernel_env()
-            # DEBUG: Diagnose Argument list too long error
-            total_env_size = sum(len(str(k)) + len(str(v)) + 1 for k, v in env.items())
-            logger.info(f"jupyter_kernel:create_session - Total environment size: {total_env_size} bytes")
 
-            if total_env_size > 10000:  # Warn if > 100KB
-                logger.warning(f"Environment size {total_env_size} bytes is large.")
-                
+            # Diagnostic logging for environment size
+            total_env_size = sum(len(str(k)) + len(str(v)) + 1 for k, v in env.items())
+            logger.debug(f"jupyter_kernel:create_session - Total environment size: {total_env_size} bytes")
+
+            # Note: Environment optimization is now handled by optimize_context_env() in build_context_env()
+            # This diagnostic code is kept for monitoring purposes
+            if total_env_size > 100000:  # Warn if > 100KB (was 10000, likely a typo)
+                logger.warning(f"Environment size {total_env_size} bytes is large after optimization.")
+
                 # Identify largest environment variables
                 sorted_env = sorted(env.items(), key=lambda x: len(str(x[1])), reverse=True)
                 for k, v in sorted_env[:3]:
                     logger.warning(f"Large Env Var: {k} (Size: {len(str(v))} bytes)")
-                
-                # If PANTHEON_CONTEXT is large, analyze it
-                if "PANTHEON_CONTEXT" in env:
-                    try:
-                        import json
-                        ctx = json.loads(env["PANTHEON_CONTEXT"])
-                        if "context_variables" in ctx:
-                            cv = ctx["context_variables"]
-                            # Use str(v) for approximation to avoid expensive json.dumps if possible, 
-                            # but json.dumps is more accurate for size.
-                            sorted_cv = sorted(cv.items(), key=lambda x: len(json.dumps(x[1])) if x[1] else 0, reverse=True)
-                            logger.warning("Top 5 largest context_variables in PANTHEON_CONTEXT:")
-                            for k, v in sorted_cv[:5]:
-                                size = len(json.dumps(v))
-                                logger.warning(f"  - {k}: {size} bytes")
-                    except Exception as e:
-                        logger.error(f"Failed to analyze PANTHEON_CONTEXT: {e}")
 
             await km.start_kernel(cwd=self._get_effective_workdir() or self.workdir, env=env)
 

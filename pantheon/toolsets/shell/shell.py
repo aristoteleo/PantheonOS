@@ -54,13 +54,85 @@ class ShellToolSet(ToolSet):
         env = self._build_runtime_env()
         if not env:
             return
-        exports = " && ".join(
-            f"export {key}={shlex.quote(value)}" for key, value in env.items()
+
+        # Calculate environment variables size
+        total_size = sum(len(str(k)) + len(str(v)) for k, v in env.items())
+
+        # For small environments, use traditional method (faster)
+        if total_size < 10000:  # 10KB threshold
+            # Use appropriate command separator for platform
+            separator = " & " if shell.is_windows else " && "
+            set_cmd = "set" if shell.is_windows else "export"
+
+            exports = separator.join(
+                f"{set_cmd} {key}={shlex.quote(value)}" for key, value in env.items()
+            )
+            try:
+                await shell.run_command(exports)
+                return
+            except Exception as e:
+                logger.debug(f"Traditional export failed: {e}, trying alternative method")
+
+        # For large environments, use platform-specific method to avoid ARG_MAX limit
+        logger.debug(
+            f"Using alternative method to set {len(env)} environment variables ({total_size} bytes)"
         )
-        try:
-            await shell.run_command(exports)
-        except Exception:
-            logger.warning("Failed to propagate context variables to shell session")
+
+        # Windows: Use multiple set commands (cmd.exe doesn't have heredoc)
+        # Unix: Use source with heredoc to execute in current shell
+        if shell.is_windows:
+            # Windows: Execute set commands in batches to avoid ARG_MAX
+            # Split into chunks of ~5KB each
+            chunk_size = 5000
+            current_chunk = []
+            current_size = 0
+
+            for key, value in env.items():
+                cmd = f"set {key}={shlex.quote(value)}"
+                cmd_size = len(cmd)
+
+                if current_size + cmd_size > chunk_size and current_chunk:
+                    # Execute current chunk
+                    chunk_cmd = " & ".join(current_chunk)
+                    try:
+                        await shell.run_command(chunk_cmd)
+                    except Exception as e:
+                        logger.error(f"Failed to set environment variables chunk: {e}")
+                        raise
+                    current_chunk = []
+                    current_size = 0
+
+                current_chunk.append(cmd)
+                current_size += cmd_size
+
+            # Execute remaining chunk
+            if current_chunk:
+                chunk_cmd = " & ".join(current_chunk)
+                try:
+                    await shell.run_command(chunk_cmd)
+                except Exception as e:
+                    logger.error(f"Failed to set environment variables chunk: {e}")
+                    raise
+        else:
+            # Unix: Use source with heredoc (bash/zsh)
+            export_lines = [
+                f"export {key}={shlex.quote(value)}"
+                for key, value in env.items()
+            ]
+            export_script = "\n".join(export_lines)
+
+            # Use process substitution with heredoc to execute in current shell
+            # This ensures environment variables persist
+            heredoc_command = f"""source <(cat <<'PANTHEON_ENV_EOF'
+{export_script}
+PANTHEON_ENV_EOF
+)"""
+
+            try:
+                await shell.run_command(heredoc_command)
+            except Exception as e:
+                logger.error(f"Failed to propagate context variables via heredoc: {e}")
+                raise
 
     @tool(exclude=True)
     async def new_shell(self) -> dict:

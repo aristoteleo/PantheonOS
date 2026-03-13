@@ -114,10 +114,12 @@ class PythonInterpreterToolSet(ToolSet):
         return dict(self.get_context() or {})
 
     async def _inject_runtime_context(self, interpreter_id: str):
+        # build_context_env() now automatically optimizes environment size
         env = build_context_env(
             workdir=str(self.workdir),
             context_variables=self._current_context_dict(),
             base_env=os.environ.copy(),  # Inherit all env vars including R_HOME, LD_LIBRARY_PATH, etc.
+            optimize=True,  # Enable automatic optimization
         )
         if not env:
             return
