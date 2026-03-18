@@ -656,14 +656,34 @@ class ChatRoom(ToolSet):
                 f"chatroom proxy_toolset: method_name={method_name}, toolset_name={toolset_name}, args={args}"
             )
 
+            # Get session_id from args, fallback to _current_chat_id
+            session_id = (args or {}).get("session_id") or getattr(self, '_current_chat_id', None)
+
             # Inject workdir from project metadata if session_id is available
-            session_id = (args or {}).get("session_id")
             if session_id:
                 try:
-                    # Read-only: reading project metadata, no need to fix
                     memory = await run_func(self.memory_manager.get_memory, session_id)
                     project = memory.extra_data.get("project", {})
                     workspace_path = project.get("workspace_path") if isinstance(project, dict) else None
+
+                    # Workspace backfill for historical sessions
+                    if not workspace_path:
+                        settings = get_settings()
+                        session_workspace_dir = settings.pantheon_dir / "workspaces" / session_id
+                        try:
+                            session_workspace_dir.mkdir(parents=True, exist_ok=True)
+                            workspace_path = str(session_workspace_dir)
+                            logger.info(f"Created workspace for historical session {session_id}: {workspace_path}")
+
+                            # Persist to memory
+                            if not isinstance(project, dict):
+                                project = {}
+                            project["workspace_path"] = workspace_path
+                            memory.extra_data["project"] = project
+                            memory.mark_dirty()
+                        except Exception as e:
+                            logger.warning(f"Failed to create workspace for session {session_id}: {e}")
+
                     if workspace_path:
                         from pantheon.toolset import get_current_context_variables
                         ctx = get_current_context_variables()
@@ -798,7 +818,7 @@ class ChatRoom(ToolSet):
 
     @tool
     async def create_chat(
-        self, 
+        self,
         chat_name: str | None = None,
         project_name: str | None = None,
         workspace_path: str | None = None,
@@ -810,31 +830,44 @@ class ChatRoom(ToolSet):
             project_name: Optional project name for grouping.
             workspace_path: Optional workspace directory path.
         """
-        # Ensure workspace directory exists if provided
-        if workspace_path:
+        memory = await run_func(self.memory_manager.new_memory, chat_name)
+        memory.extra_data["last_activity_date"] = datetime.now().isoformat()
+
+        # Auto-create per-session workspace directory if not provided
+        if not workspace_path:
+            settings = get_settings()
+            session_workspace_dir = settings.pantheon_dir / "workspaces" / memory.id
+            try:
+                session_workspace_dir.mkdir(parents=True, exist_ok=True)
+                workspace_path = str(session_workspace_dir)
+                logger.info(f"Created session workspace directory: {workspace_path}")
+            except Exception as e:
+                logger.warning(f"Failed to create session workspace directory: {e}")
+                # Continue without workspace_path - will fallback to default
+        else:
+            # Ensure custom workspace directory exists
             import os
             try:
                 os.makedirs(workspace_path, exist_ok=True)
                 logger.info(f"Ensured workspace directory exists: {workspace_path}")
             except Exception as e:
                 logger.warning(f"Failed to create workspace directory {workspace_path}: {e}")
-                # Continue anyway - the directory might be created later or error will surface when used
-        
-        memory = await run_func(self.memory_manager.new_memory, chat_name)
-        memory.extra_data["last_activity_date"] = datetime.now().isoformat()
-        
-        # Set project metadata if provided
+
+        # Set project metadata
+        project = {}
         if project_name:
-            project = {"name": project_name}
-            if workspace_path:
-                project["workspace_path"] = workspace_path
+            project["name"] = project_name
+        if workspace_path:
+            project["workspace_path"] = workspace_path
+        if project:
             memory.extra_data["project"] = project
-        
+
         return {
             "success": True,
             "message": "Chat created successfully",
             "chat_name": memory.name,
             "chat_id": memory.id,
+            "workspace_path": workspace_path,
         }
 
     @tool
@@ -844,9 +877,42 @@ class ChatRoom(ToolSet):
         Args:
             chat_id: The ID of the chat.
         """
+        import shutil
+
         try:
+            # Get workspace_path before deleting memory
+            workspace_path_to_delete = None
+            try:
+                memory = await run_func(self.memory_manager.get_memory, chat_id)
+                project = memory.extra_data.get("project", {})
+                workspace_path = project.get("workspace_path") if isinstance(project, dict) else None
+
+                # Only delete workspace if it's under .pantheon/workspaces/ (auto-created session workspace)
+                if workspace_path:
+                    settings = get_settings()
+                    workspaces_dir = settings.pantheon_dir / "workspaces"
+                    workspace_path_obj = Path(workspace_path)
+                    # Check if workspace_path is under .pantheon/workspaces/
+                    try:
+                        workspace_path_obj.relative_to(workspaces_dir)
+                        workspace_path_to_delete = workspace_path_obj
+                    except ValueError:
+                        # Not under .pantheon/workspaces/, don't delete (user-specified path)
+                        pass
+            except Exception as e:
+                logger.debug(f"Could not get workspace path for chat {chat_id}: {e}")
+
+            # Delete the memory
             await run_func(self.memory_manager.delete_memory, chat_id)
-            # File is deleted immediately by delete_memory, no need for save()
+
+            # Delete workspace folder if it's an auto-created session workspace
+            if workspace_path_to_delete and workspace_path_to_delete.exists():
+                try:
+                    shutil.rmtree(workspace_path_to_delete)
+                    logger.info(f"Deleted session workspace: {workspace_path_to_delete}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete workspace folder {workspace_path_to_delete}: {e}")
+
             return {"success": True, "message": "Chat deleted successfully"}
         except Exception as e:
             logger.error(f"Error deleting chat: {e}")
@@ -921,6 +987,10 @@ class ChatRoom(ToolSet):
             # Frontend query: skip auto-fix for better performance (5-10x faster)
             # Messages will be fixed automatically when agent execution starts
             memory = await run_func(self.memory_manager.get_memory, chat_id)
+
+            # Sync _current_chat_id to keep backend state aligned with UI
+            self._current_chat_id = chat_id
+
             # Get full raw history for UI
             messages = await run_func(memory.get_messages, _ALL_CONTEXTS, False)
 

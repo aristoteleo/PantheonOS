@@ -11,6 +11,7 @@ import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="urllib3.*doesn't match a supported version")
 
+import asyncio
 import os
 import sys
 
@@ -120,6 +121,14 @@ def main():
         from pantheon.repl.setup_wizard import check_and_run_setup
 
         check_and_run_setup()
+
+    # Ensure an event loop exists for Fire + async functions (Python 3.10+)
+    # Python Fire internally calls asyncio.get_event_loop() when handling async functions,
+    # which raises RuntimeError in Python 3.12+ if no loop exists.
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
 
     # Import REAL functions — Fire reads their signatures for --help
     from pantheon.repl.__main__ import start as cli

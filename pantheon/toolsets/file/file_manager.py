@@ -392,6 +392,8 @@ class FileManagerToolSetBase(ToolSet):
         if not old_path.exists():
             return {"success": False, "error": "Old path does not exist"}
         new_path = self._resolve_path(new_path)
+        # Ensure parent directory exists before moving
+        new_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(old_path, new_path)
         return {"success": True}
 
