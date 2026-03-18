@@ -2036,15 +2036,23 @@ class Repl(ReplUI):
         """Handle /keys command - show or set LLM provider API keys.
 
         Usage:
-            /keys              - List all providers and their status
-            /keys 1 sk-xxx     - Set key by number
-            /keys openai sk-xxx - Set key by provider name
-            /keys rm 0         - Remove custom endpoint
-            /keys rm 1         - Remove provider key by number
+            /keys                                              - List all providers and their status
+            /keys 1 sk-xxx                                     - Set key by number
+            /keys openai sk-xxx                                - Set key by provider name
+            /keys 17 <base_url> <api_key> [model]              - Set custom endpoint by number
+            /keys custom_anthropic <base_url> <api_key> [model] - Set custom endpoint by name
+            /keys rm 0                                         - Remove legacy custom endpoint
+            /keys rm 1                                         - Remove provider key by number
+            /keys rm custom_anthropic                          - Remove custom endpoint by name
         """
         import os
-        from .setup_wizard import PROVIDER_MENU, _save_key_to_env_file, _remove_key_from_env_file
+        from .setup_wizard import (
+            PROVIDER_MENU, CUSTOM_ENDPOINT_MENU,
+            _save_key_to_env_file, _remove_key_from_env_file,
+            _remove_custom_endpoint_from_env, _save_custom_model_to_settings,
+        )
         from pantheon.utils.model_selector import reset_model_selector
+        ALL_MENU = PROVIDER_MENU + CUSTOM_ENDPOINT_MENU
 
         if not args:
             # List custom API endpoint
@@ -2066,7 +2074,8 @@ class Repl(ReplUI):
                 self.console.print(f"  [cyan] 0[/cyan]  {label:<16} {env_var:<24} {status}")
 
             # Provider list
-            for i, (provider_key, display_name, env_var) in enumerate(PROVIDER_MENU, 1):
+            for i, entry in enumerate(PROVIDER_MENU, 1):
+                provider_key, display_name, env_var = entry.provider_key, entry.display_name, entry.env_var
                 val = os.environ.get(env_var, "")
                 if val:
                     masked = val[:4] + "..." + val[-4:] if len(val) > 12 else "***"
@@ -2074,10 +2083,30 @@ class Repl(ReplUI):
                 else:
                     status = "[dim]not set[/dim]"
                 self.console.print(f"  [cyan]{i:>2}[/cyan]  {display_name:<16} {env_var:<24} {status}")
+
+            # Custom endpoint list
+            offset = len(PROVIDER_MENU) + 1
+            for i, entry in enumerate(CUSTOM_ENDPOINT_MENU):
+                config = entry.custom_config
+                num = offset + i
+                self.console.print(f"  [cyan]{num:>2}[/cyan]  [bold]{entry.display_name}[/bold]")
+                for env_var, label in [(config.api_base_env, "Base URL"), (config.api_key_env, "API Key"), (config.model_env, "Model")]:
+                    val = os.environ.get(env_var, "")
+                    if val:
+                        if "KEY" in env_var:
+                            masked = val[:4] + "..." + val[-4:] if len(val) > 12 else "***"
+                        else:
+                            masked = val
+                        status = f"[green]{masked}[/green]"
+                    else:
+                        status = "[dim]not set[/dim]"
+                    self.console.print(f"        {label:<10} {env_var:<30} {status}")
+
             self.console.print()
-            self.console.print("[dim]Usage: /keys <number|name> <api_key>[/dim]")
-            self.console.print("[dim]       /keys 0 <base_url> <api_key>  (custom endpoint)[/dim]")
-            self.console.print("[dim]       /keys rm <number|name>         (remove key)[/dim]")
+            self.console.print("[dim]Usage: /keys <number|name> <api_key>                    (standard provider)[/dim]")
+            self.console.print("[dim]       /keys <number|name> <base_url> <api_key> [model] (custom endpoint)[/dim]")
+            self.console.print("[dim]       /keys 0 <base_url> <api_key>                     (legacy custom endpoint)[/dim]")
+            self.console.print("[dim]       /keys rm <number|name>                            (remove key)[/dim]")
             self.console.print("[dim]Keys are saved to ~/.pantheon/.env[/dim]")
             self.console.print()
             return
@@ -2085,9 +2114,10 @@ class Repl(ReplUI):
         # Parse args
         parts = args.split(None, 1)
         if len(parts) < 2:
-            self.console.print("[yellow]Usage: /keys <number|name> <api_key>[/yellow]")
-            self.console.print("[yellow]       /keys 0 <base_url> <api_key>[/yellow]")
-            self.console.print("[yellow]       /keys rm <number|name>[/yellow]")
+            self.console.print("[yellow]Usage: /keys <number|name> <api_key>                    (standard provider)[/yellow]")
+            self.console.print("[yellow]       /keys <number|name> <base_url> <api_key> [model] (custom endpoint)[/yellow]")
+            self.console.print("[yellow]       /keys 0 <base_url> <api_key>                     (legacy custom endpoint)[/yellow]")
+            self.console.print("[yellow]       /keys rm <number|name>                            (remove key)[/yellow]")
             return
 
         provider_arg, rest = parts[0], parts[1].strip()
@@ -2105,11 +2135,11 @@ class Repl(ReplUI):
             target = None
             if target_arg.isdigit():
                 idx = int(target_arg)
-                if 1 <= idx <= len(PROVIDER_MENU):
-                    target = PROVIDER_MENU[idx - 1]
+                if 1 <= idx <= len(ALL_MENU):
+                    target = ALL_MENU[idx - 1]
             else:
-                for entry in PROVIDER_MENU:
-                    if entry[0] == target_arg.lower():
+                for entry in ALL_MENU:
+                    if entry.provider_key == target_arg.lower():
                         target = entry
                         break
 
@@ -2117,10 +2147,12 @@ class Repl(ReplUI):
                 self.console.print(f"[red]Unknown provider: {target_arg}[/red]")
                 return
 
-            _, display_name, env_var = target
-            _remove_key_from_env_file(env_var)
+            if target.is_custom:
+                _remove_custom_endpoint_from_env(target.provider_key)
+            else:
+                _remove_key_from_env_file(target.env_var)
             reset_model_selector()
-            self.console.print(f"[green]\u2713[/green] {display_name} ({env_var}) removed from ~/.pantheon/.env")
+            self.console.print(f"[green]\u2713[/green] {target.display_name} removed from ~/.pantheon/.env")
             return
 
         # Handle custom API endpoint (option 0)
@@ -2144,12 +2176,12 @@ class Repl(ReplUI):
         target = None
         if provider_arg.isdigit():
             idx = int(provider_arg)
-            if 1 <= idx <= len(PROVIDER_MENU):
-                target = PROVIDER_MENU[idx - 1]
+            if 1 <= idx <= len(ALL_MENU):
+                target = ALL_MENU[idx - 1]
         else:
             provider_arg_lower = provider_arg.lower()
-            for entry in PROVIDER_MENU:
-                if entry[0] == provider_arg_lower:
+            for entry in ALL_MENU:
+                if entry.provider_key == provider_arg_lower:
                     target = entry
                     break
 
@@ -2158,11 +2190,31 @@ class Repl(ReplUI):
             self.console.print("[dim]Use /keys to see available providers[/dim]")
             return
 
-        _, display_name, env_var = target
-        _save_key_to_env_file(env_var, api_key)
-        os.environ[env_var] = api_key
-        reset_model_selector()
-        self.console.print(f"[green]\u2713[/green] {display_name} ({env_var}) saved to ~/.pantheon/.env")
+        if target.is_custom:
+            # Custom endpoint: /keys <number|name> <base_url> <api_key> [model]
+            config = target.custom_config
+            custom_parts = rest.split()
+            if len(custom_parts) < 2:
+                self.console.print(f"[yellow]Usage: /keys {provider_arg} <base_url> <api_key> [model][/yellow]")
+                return
+            base_url, api_key_val = custom_parts[0], custom_parts[1]
+            model_name = custom_parts[2] if len(custom_parts) >= 3 else None
+            _save_key_to_env_file(config.api_base_env, base_url)
+            os.environ[config.api_base_env] = base_url
+            _save_key_to_env_file(config.api_key_env, api_key_val)
+            os.environ[config.api_key_env] = api_key_val
+            if model_name:
+                _save_key_to_env_file(config.model_env, model_name)
+                os.environ[config.model_env] = model_name
+                _save_custom_model_to_settings(target.provider_key, model_name)
+            reset_model_selector()
+            self.console.print(f"[green]\u2713[/green] {target.display_name} saved to ~/.pantheon/.env")
+        else:
+            display_name, env_var = target.display_name, target.env_var
+            _save_key_to_env_file(env_var, api_key)
+            os.environ[env_var] = api_key
+            reset_model_selector()
+            self.console.print(f"[green]\u2713[/green] {display_name} ({env_var}) saved to ~/.pantheon/.env")
 
     async def _handle_model_command(self, args: str):
         """Handle /model command - list or set model."""

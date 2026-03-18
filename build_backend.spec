@@ -19,6 +19,7 @@ datas = [
 ]
 datas += copy_metadata('fastmcp')
 datas += collect_data_files('litellm', includes=['**/*.json'])
+datas += collect_data_files('tiktoken_ext', includes=['**/*.py'])
 # fakeredis: model/_command_info.py loads os.path.join(dirname(__file__), '..', 'commands.json')
 # PyInstaller must include the JSON so the relative path resolves at runtime.
 # Also include model/__init__.py so the model/ directory exists in the bundle
@@ -63,12 +64,15 @@ a = Analysis(
         'fastmcp.server',
         'fastmcp.client',
         'lupa', 'lupa.lua51',
+        'tiktoken',
+        'tiktoken_ext',
+        'tiktoken_ext.openai_public',
         'importlib.metadata',
         'importlib_metadata',
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['runtime_hook_tiktoken.py'],
     excludes=[
         # ── Knowledge / vector DB (lancedb only used in RAG toolset, lazy import) ──
         'lancedb', 'lance', 'pyarrow', 'llama_index', 'qdrant_client',
