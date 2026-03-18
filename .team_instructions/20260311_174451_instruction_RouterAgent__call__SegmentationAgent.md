@@ -1,0 +1,1 @@
+Run segmentation on /data/patient_001/ct.nii.gz, targeting liver, spleen, kidney_right, kidney_left. Save results in /data/patient_001/seg_output.

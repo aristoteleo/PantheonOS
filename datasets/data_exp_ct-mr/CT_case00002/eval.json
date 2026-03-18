@@ -1,0 +1,40 @@
+{
+  "status": "success",
+  "n_organs": 4,
+  "organs": {
+    "kidney_left": {
+      "dice": 0.9529,
+      "hd95_mm": -1.0,
+      "volume_pred_ml": 232.08,
+      "volume_gt_ml": 226.0,
+      "pred_path": "/home/mwei26/codebase/PantheonOS/datasets/data_exp_ct-mr/CT_case00002/pred/kidney_left.nii.gz",
+      "gt_path": "/home/mwei26/codebase/PantheonOS/datasets/data_exp_ct-mr/CT_case00002/gt/kidney_left.nii.gz"
+    },
+    "kidney_right": {
+      "dice": 0.9535,
+      "hd95_mm": -1.0,
+      "volume_pred_ml": 184.64,
+      "volume_gt_ml": 184.81,
+      "pred_path": "/home/mwei26/codebase/PantheonOS/datasets/data_exp_ct-mr/CT_case00002/pred/kidney_right.nii.gz",
+      "gt_path": "/home/mwei26/codebase/PantheonOS/datasets/data_exp_ct-mr/CT_case00002/gt/kidney_right.nii.gz"
+    },
+    "liver": {
+      "dice": 0.9772,
+      "hd95_mm": -1.0,
+      "volume_pred_ml": 2717.49,
+      "volume_gt_ml": 2740.85,
+      "pred_path": "/home/mwei26/codebase/PantheonOS/datasets/data_exp_ct-mr/CT_case00002/pred/liver.nii.gz",
+      "gt_path": "/home/mwei26/codebase/PantheonOS/datasets/data_exp_ct-mr/CT_case00002/gt/liver.nii.gz"
+    },
+    "spleen": {
+      "dice": 0.9511,
+      "hd95_mm": -1.0,
+      "volume_pred_ml": 160.43,
+      "volume_gt_ml": 161.58,
+      "pred_path": "/home/mwei26/codebase/PantheonOS/datasets/data_exp_ct-mr/CT_case00002/pred/spleen.nii.gz",
+      "gt_path": "/home/mwei26/codebase/PantheonOS/datasets/data_exp_ct-mr/CT_case00002/gt/spleen.nii.gz"
+    }
+  },
+  "mean_dice": 0.9587,
+  "mean_hd95": -1.0
+}

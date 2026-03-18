@@ -1,0 +1,279 @@
+{
+  "tool_name": "TotalSegmentator",
+  "tool_description": "TotalSegmentator is an open-source deep learning tool for automatic segmentation of over 100 anatomical structures in CT and MR images. It supports various tasks including organ volumetry, disease characterization, and surgical planning. The tool is available as a Python package, a 3D Slicer extension, and a web application.",
+  "tool_author": "Jakob Wasserthal et al.",
+  "tool_version": "2.2.1",
+  "tool_url": "https://github.com/wasserth/TotalSegmentator",
+  "demo_commands": [
+    "TotalSegmentator -i ct.nii.gz -o seg -ta lung_vessels --fast",
+    "TotalSegmentator -i ct.nii.gz -o seg --ml --statistics --preview",
+    "TotalSegmentator -i ct.nii.gz -o seg --roi_subset liver kidney spleen",
+    "TotalSegmentator -i ct.nii.gz -o seg --radiomics --save_probabilities probs.npz"
+  ],
+  "input_schema": {
+    "type": "object",
+    "required": [
+      "input",
+      "output"
+    ],
+    "properties": {
+      "input": {
+        "type": "string",
+        "description": "Path to the input CT/MR image file (NIfTI format) or a folder/zip file containing DICOM slices."
+      },
+      "output": {
+        "type": "string",
+        "description": "Directory path where the segmentation results will be saved."
+      },
+      "output_type": {
+        "type": "string",
+        "enum": [
+          "nifti",
+          "dicom"
+        ],
+        "default": "nifti",
+        "description": "Format of the output segmentation files."
+      },
+      "ml": {
+        "type": "boolean",
+        "default": false,
+        "description": "Save one multilabel image for all classes."
+      },
+      "fast": {
+        "type": "boolean",
+        "default": false,
+        "description": "Use faster lower resolution model (3mm)."
+      },
+      "preview": {
+        "type": "boolean",
+        "default": false,
+        "description": "Generate a PNG preview of the segmentation."
+      },
+      "task": {
+        "type": "string",
+        "enum": [
+          "total",
+          "lung_vessels",
+          "total_mr"
+        ],
+        "default": "total",
+        "description": "Select which model to use. This determines what is predicted."
+      },
+      "statistics": {
+        "type": "boolean",
+        "default": false,
+        "description": "Calculate volume (in mm\u00b3) and mean intensity. Results will be in statistics.json."
+      },
+      "radiomics": {
+        "type": "boolean",
+        "default": false,
+        "description": "Calculate radiomics features. Requires pyradiomics. Results will be in statistics_radiomics.json."
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "segmentation_files": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "List of file paths to the generated segmentation masks."
+      },
+      "statistics_file": {
+        "type": "string",
+        "description": "Path to the statistics.json file containing volume and mean intensity information."
+      },
+      "radiomics_file": {
+        "type": "string",
+        "description": "Path to the statistics_radiomics.json file containing radiomics features."
+      },
+      "preview_image": {
+        "type": "string",
+        "description": "Path to the generated PNG preview of the segmentation."
+      },
+      "probabilities_file": {
+        "type": "string",
+        "description": "Path to the saved probabilities file, if generated."
+      }
+    }
+  },
+  "class_maps": {
+    "total_mr": {
+      "1": "spleen",
+      "2": "kidney_right",
+      "3": "kidney_left",
+      "4": "gallbladder",
+      "5": "liver",
+      "6": "stomach",
+      "7": "pancreas",
+      "8": "adrenal_gland_right",
+      "9": "adrenal_gland_left",
+      "10": "lung_left",
+      "11": "lung_right",
+      "12": "esophagus",
+      "13": "small_bowel",
+      "14": "duodenum",
+      "15": "colon",
+      "16": "urinary_bladder",
+      "17": "prostate",
+      "18": "sacrum",
+      "19": "vertebrae",
+      "20": "intervertebral_discs",
+      "21": "spinal_cord",
+      "22": "heart",
+      "23": "aorta",
+      "24": "inferior_vena_cava",
+      "25": "portal_vein_and_splenic_vein",
+      "26": "iliac_artery_left",
+      "27": "iliac_artery_right",
+      "28": "iliac_vena_left",
+      "29": "iliac_vena_right",
+      "30": "humerus_left",
+      "31": "humerus_right",
+      "32": "scapula_left",
+      "33": "scapula_right",
+      "34": "clavicula_left",
+      "35": "clavicula_right",
+      "36": "femur_left",
+      "37": "femur_right",
+      "38": "hip_left",
+      "39": "hip_right",
+      "40": "gluteus_maximus_left",
+      "41": "gluteus_maximus_right",
+      "42": "gluteus_medius_left",
+      "43": "gluteus_medius_right",
+      "44": "gluteus_minimus_left",
+      "45": "gluteus_minimus_right",
+      "46": "autochthon_left",
+      "47": "autochthon_right",
+      "48": "iliopsoas_left",
+      "49": "iliopsoas_right",
+      "50": "brain"
+    },
+    "lung_vessels": {
+      "1": "lung_vessels",
+      "2": "lung_trachea_bronchia"
+    },
+    "total": {
+      "1": "spleen",
+      "2": "kidney_right",
+      "3": "kidney_left",
+      "4": "gallbladder",
+      "5": "liver",
+      "6": "stomach",
+      "7": "pancreas",
+      "8": "adrenal_gland_right",
+      "9": "adrenal_gland_left",
+      "10": "lung_upper_lobe_left",
+      "11": "lung_lower_lobe_left",
+      "12": "lung_upper_lobe_right",
+      "13": "lung_middle_lobe_right",
+      "14": "lung_lower_lobe_right",
+      "15": "esophagus",
+      "16": "trachea",
+      "17": "thyroid_gland",
+      "18": "small_bowel",
+      "19": "duodenum",
+      "20": "colon",
+      "21": "urinary_bladder",
+      "22": "prostate",
+      "23": "kidney_cyst_left",
+      "24": "kidney_cyst_right",
+      "25": "sacrum",
+      "26": "vertebrae_S1",
+      "27": "vertebrae_L5",
+      "28": "vertebrae_L4",
+      "29": "vertebrae_L3",
+      "30": "vertebrae_L2",
+      "31": "vertebrae_L1",
+      "32": "vertebrae_T12",
+      "33": "vertebrae_T11",
+      "34": "vertebrae_T10",
+      "35": "vertebrae_T9",
+      "36": "vertebrae_T8",
+      "37": "vertebrae_T7",
+      "38": "vertebrae_T6",
+      "39": "vertebrae_T5",
+      "40": "vertebrae_T4",
+      "41": "vertebrae_T3",
+      "42": "vertebrae_T2",
+      "43": "vertebrae_T1",
+      "44": "vertebrae_C7",
+      "45": "vertebrae_C6",
+      "46": "vertebrae_C5",
+      "47": "vertebrae_C4",
+      "48": "vertebrae_C3",
+      "49": "vertebrae_C2",
+      "50": "vertebrae_C1",
+      "51": "heart",
+      "52": "aorta",
+      "53": "pulmonary_vein",
+      "54": "brachiocephalic_trunk",
+      "55": "subclavian_artery_right",
+      "56": "subclavian_artery_left",
+      "57": "common_carotid_artery_right",
+      "58": "common_carotid_artery_left",
+      "59": "brachiocephalic_vein_left",
+      "60": "brachiocephalic_vein_right",
+      "61": "atrial_appendage_left",
+      "62": "superior_vena_cava",
+      "63": "inferior_vena_cava",
+      "64": "portal_vein_and_splenic_vein",
+      "65": "iliac_artery_left",
+      "66": "iliac_artery_right",
+      "67": "iliac_vena_left",
+      "68": "iliac_vena_right",
+      "69": "humerus_left",
+      "70": "humerus_right",
+      "71": "scapula_left",
+      "72": "scapula_right",
+      "73": "clavicula_left",
+      "74": "clavicula_right",
+      "75": "femur_left",
+      "76": "femur_right",
+      "77": "hip_left",
+      "78": "hip_right",
+      "79": "spinal_cord",
+      "80": "gluteus_maximus_left",
+      "81": "gluteus_maximus_right",
+      "82": "gluteus_medius_left",
+      "83": "gluteus_medius_right",
+      "84": "gluteus_minimus_left",
+      "85": "gluteus_minimus_right",
+      "86": "autochthon_left",
+      "87": "autochthon_right",
+      "88": "iliopsoas_left",
+      "89": "iliopsoas_right",
+      "90": "brain",
+      "91": "skull",
+      "92": "rib_left_1",
+      "93": "rib_left_2",
+      "94": "rib_left_3",
+      "95": "rib_left_4",
+      "96": "rib_left_5",
+      "97": "rib_left_6",
+      "98": "rib_left_7",
+      "99": "rib_left_8",
+      "100": "rib_left_9",
+      "101": "rib_left_10",
+      "102": "rib_left_11",
+      "103": "rib_left_12",
+      "104": "rib_right_1",
+      "105": "rib_right_2",
+      "106": "rib_right_3",
+      "107": "rib_right_4",
+      "108": "rib_right_5",
+      "109": "rib_right_6",
+      "110": "rib_right_7",
+      "111": "rib_right_8",
+      "112": "rib_right_9",
+      "113": "rib_right_10",
+      "114": "rib_right_11",
+      "115": "rib_right_12",
+      "116": "sternum",
+      "117": "costal_cartilages"
+    }
+  }
+}

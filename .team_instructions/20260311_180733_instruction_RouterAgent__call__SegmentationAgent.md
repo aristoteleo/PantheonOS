@@ -1,0 +1,1 @@
+{\"image_path\": \"/data/patient_001/ct.nii.gz\", \"output_dir\": \"/data/patient_001/seg_output\", \"organs\": \"liver, spleen, kidney_right, kidney_left\"}

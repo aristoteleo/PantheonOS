@@ -1,0 +1,40 @@
+{
+  "status": "success",
+  "n_organs": 4,
+  "organs": {
+    "liver": {
+      "dice": 0.9627,
+      "hd95_mm": -1.0,
+      "volume_pred_ml": 892.79,
+      "volume_gt_ml": 882.48,
+      "pred_path": "/home/mwei26/codebase/PantheonOS/tmp/seg_out_mr/liver.nii.gz",
+      "gt_path": "/home/mwei26/codebase/PantheonOS/datasets/data_exp_ct-mr/MRI_7014_0000/gt/liver.nii.gz"
+    },
+    "pancreas": {
+      "dice": 0.8329,
+      "hd95_mm": -1.0,
+      "volume_pred_ml": 42.76,
+      "volume_gt_ml": 42.69,
+      "pred_path": "/home/mwei26/codebase/PantheonOS/tmp/seg_out_mr/pancreas.nii.gz",
+      "gt_path": "/home/mwei26/codebase/PantheonOS/datasets/data_exp_ct-mr/MRI_7014_0000/gt/pancreas.nii.gz"
+    },
+    "spleen": {
+      "dice": 0.9413,
+      "hd95_mm": -1.0,
+      "volume_pred_ml": 157.41,
+      "volume_gt_ml": 157.84,
+      "pred_path": "/home/mwei26/codebase/PantheonOS/tmp/seg_out_mr/spleen.nii.gz",
+      "gt_path": "/home/mwei26/codebase/PantheonOS/datasets/data_exp_ct-mr/MRI_7014_0000/gt/spleen.nii.gz"
+    },
+    "stomach": {
+      "dice": 0.907,
+      "hd95_mm": -1.0,
+      "volume_pred_ml": 126.0,
+      "volume_gt_ml": 120.93,
+      "pred_path": "/home/mwei26/codebase/PantheonOS/tmp/seg_out_mr/stomach.nii.gz",
+      "gt_path": "/home/mwei26/codebase/PantheonOS/datasets/data_exp_ct-mr/MRI_7014_0000/gt/stomach.nii.gz"
+    }
+  },
+  "mean_dice": 0.911,
+  "mean_hd95": -1.0
+}
