@@ -115,9 +115,15 @@ def update_templates():
     console.print(f"\n[green]Updated {len(selected)} template(s).[/green]")
 
 
+def doctor():
+    """Check environment: Python version, API keys, core packages, optional runtimes."""
+    from pantheon.doctor import run_doctor
+    sys.exit(run_doctor())
+
+
 def main():
-    # Skip auto-setup if user explicitly requested "pantheon setup"
-    if len(sys.argv) < 2 or sys.argv[1] != "setup":
+    # Skip auto-setup if user explicitly requested "pantheon setup" or "pantheon doctor"
+    if len(sys.argv) < 2 or sys.argv[1] not in ("setup", "doctor"):
         from pantheon.repl.setup_wizard import check_and_run_setup
 
         check_and_run_setup()
@@ -141,6 +147,7 @@ def main():
             "setup": setup,
             "update-templates": update_templates,
             "store": StoreCLI,
+            "doctor": doctor,
         },
         name="pantheon",
     )
