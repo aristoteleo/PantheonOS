@@ -252,3 +252,14 @@ def get_oauth_manager(auth_path: Optional[Path] = None) -> OpenAIOAuthManager:
             if _oauth_manager is None:  # Double-check pattern
                 _oauth_manager = OpenAIOAuthManager(auth_path)
     return _oauth_manager
+
+
+def reset_oauth_manager() -> None:
+    """Reset the OAuth manager singleton (for testing).
+
+    This clears the cached singleton instance, allowing a fresh instance
+    to be created on the next call to get_oauth_manager().
+    """
+    global _oauth_manager
+    _oauth_manager = None
+    logger.debug("OAuth manager singleton reset")
