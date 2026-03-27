@@ -14,6 +14,7 @@ Usage:
     models = selector.resolve_model("high,vision")  # Quality + capability combo
 """
 
+import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -217,7 +218,7 @@ class ModelSelector:
         self._available_providers: set[str] | None = None
 
     def _get_available_providers(self) -> set[str]:
-        """Get set of providers with valid API keys (cached)."""
+        """Get set of providers with valid API keys or OAuth tokens (cached)."""
         if self._available_providers is not None:
             return self._available_providers
 
@@ -235,6 +236,11 @@ class ModelSelector:
             if os.environ.get(config.api_key_env, ""):
                 self._available_providers.add(provider_key)
 
+        # Check for OAuth tokens (currently only OpenAI)
+        if self._check_oauth_token_available("openai"):
+            self._available_providers.add("openai")
+            logger.info("OpenAI OAuth token detected as available provider")
+
         # Universal proxy: LLM_API_KEY makes openai provider available
         # (most third-party proxies are OpenAI-compatible)
         # Note: LLM_API_BASE is deprecated, warn user to use custom endpoints instead
@@ -247,6 +253,38 @@ class ModelSelector:
             self._available_providers.add("openai")
 
         return self._available_providers
+
+    def _check_oauth_token_available(self, provider: str) -> bool:
+        """Check if OAuth token is available for a provider.
+
+        Args:
+            provider: Provider name (e.g., "openai")
+
+        Returns:
+            True if valid OAuth token exists, False otherwise
+        """
+        if provider != "openai":
+            # OAuth support only for OpenAI currently
+            return False
+
+        try:
+            # Lazy import to avoid dependency issues
+            from pantheon.auth.openai_oauth_manager import get_oauth_manager
+
+            # Check if OAuth token file exists
+            oauth_manager = get_oauth_manager()
+            if oauth_manager.auth_path.exists():
+                logger.debug(f"OpenAI OAuth token found at {oauth_manager.auth_path}")
+                return True
+        except (ImportError, FileNotFoundError, OSError) as e:
+            logger.debug(f"Failed to check OAuth token: {e}")
+            return False
+        except Exception as e:
+            # Other unexpected errors should be logged as warnings
+            logger.warning(f"Unexpected error checking OAuth token: {e}")
+            return False
+
+        return False
 
     def detect_available_provider(self) -> str | None:
         """Detect first available provider based on API keys.

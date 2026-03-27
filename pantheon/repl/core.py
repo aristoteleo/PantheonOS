@@ -1034,6 +1034,12 @@ class Repl(ReplUI):
             self._handle_keys_command(args)
             return
 
+        # OAuth command
+        elif cmd_lower.startswith("/oauth"):
+            args = cmd[7:].strip()  # Handles both "/oauth" and "/oauth login"
+            await self._handle_oauth_command(args)
+            return
+
         # Verbose mode command
         elif cmd_lower in ["/verbose", "/v"]:
             self.set_display_mode(DisplayMode.VERBOSE)
@@ -2215,6 +2221,100 @@ class Repl(ReplUI):
             os.environ[env_var] = api_key
             reset_model_selector()
             self.console.print(f"[green]\u2713[/green] {display_name} ({env_var}) saved to ~/.pantheon/.env")
+
+    async def _handle_oauth_command(self, args: str):
+        """Handle /oauth command - manage OAuth authentication.
+
+        Usage:
+            /oauth login          - Start OpenAI OAuth login flow
+            /oauth status         - Show OpenAI OAuth authentication status
+            /oauth logout         - Clear OpenAI OAuth credentials (logout)
+        """
+        from pantheon.auth.openai_oauth_manager import get_oauth_manager
+
+        subcommand = args.lower().strip() if args else "status"
+
+        if subcommand == "login":
+            self.console.print()
+            self.console.print("[bold]OpenAI OAuth Login[/bold]")
+            self.console.print("[dim]A browser window will open for you to authenticate with OpenAI.[/dim]")
+            self.console.print()
+
+            try:
+                oauth_manager = get_oauth_manager()
+                success = await oauth_manager.login()
+
+                if success:
+                    context = await oauth_manager.get_org_context()
+                    self.console.print("[green]✓ OpenAI OAuth login successful![/green]")
+                    if context.get("organization_id"):
+                        self.console.print(f"  Organization ID: {context['organization_id']}")
+                    if context.get("project_id"):
+                        self.console.print(f"  Project ID: {context['project_id']}")
+                    self.console.print()
+                else:
+                    self.console.print("[red]✗ OpenAI OAuth login failed[/red]")
+                    self.console.print("[dim]Please try again or check your internet connection.[/dim]")
+                    self.console.print()
+            except Exception as e:
+                self.console.print(f"[red]✗ OAuth login error: {e}[/red]")
+                self.console.print()
+
+        elif subcommand == "status":
+            self.console.print()
+            self.console.print("[bold]OpenAI OAuth Status[/bold]")
+            self.console.print()
+
+            try:
+                oauth_manager = get_oauth_manager()
+                status = await oauth_manager.get_status()
+
+                if status.get("authenticated"):
+                    self.console.print("[green]✓ Authenticated[/green]")
+                    if status.get("email"):
+                        self.console.print(f"  Email: {status['email']}")
+                    if status.get("organization_id"):
+                        self.console.print(f"  Organization: {status['organization_id']}")
+                    if status.get("project_id"):
+                        self.console.print(f"  Project: {status['project_id']}")
+                    if status.get("token_expires_at"):
+                        self.console.print(f"  Token Expires: {status['token_expires_at']}")
+                else:
+                    self.console.print("[yellow]Not authenticated[/yellow]")
+                    self.console.print("[dim]Use '/oauth login' to authenticate with OpenAI.[/dim]")
+                self.console.print()
+            except Exception as e:
+                self.console.print(f"[red]✗ Failed to get OAuth status: {e}[/red]")
+                self.console.print()
+
+        elif subcommand == "logout":
+            self.console.print()
+            self.console.print("[bold]OpenAI OAuth Logout[/bold]")
+            self.console.print()
+
+            try:
+                oauth_manager = get_oauth_manager()
+                success = await oauth_manager.clear_token()
+
+                if success:
+                    self.console.print("[green]✓ OpenAI OAuth credentials cleared[/green]")
+                    self.console.print("[dim]You have been logged out. Use '/oauth login' to authenticate again.[/dim]")
+                else:
+                    self.console.print("[yellow]No OAuth credentials to clear[/yellow]")
+                self.console.print()
+            except Exception as e:
+                self.console.print(f"[red]✗ Failed to logout: {e}[/red]")
+                self.console.print()
+
+        else:
+            self.console.print()
+            self.console.print("[bold]OpenAI OAuth Management[/bold]")
+            self.console.print()
+            self.console.print("[dim]Usage:[/dim]")
+            self.console.print("  /oauth login      - Authenticate with OpenAI")
+            self.console.print("  /oauth status     - Show authentication status")
+            self.console.print("  /oauth logout     - Clear stored credentials")
+            self.console.print()
 
     async def _handle_model_command(self, args: str):
         """Handle /model command - list or set model."""

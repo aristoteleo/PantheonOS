@@ -36,6 +36,7 @@ class ProviderMenuEntry:
 # Providers shown in the wizard/keys menu
 PROVIDER_MENU = [
     ProviderMenuEntry("openai", "OpenAI", "OPENAI_API_KEY"),
+    ProviderMenuEntry("openai_oauth", "OpenAI (OAuth)", None),  # OAuth doesn't require API key
     ProviderMenuEntry("anthropic", "Anthropic", "ANTHROPIC_API_KEY"),
     ProviderMenuEntry("gemini", "Google Gemini", "GEMINI_API_KEY"),
     ProviderMenuEntry("google", "Google AI", "GOOGLE_API_KEY"),
@@ -66,14 +67,16 @@ CUSTOM_ENDPOINT_MENU = [
 ]
 
 def check_and_run_setup():
-    """Check if any LLM provider API keys are set; launch wizard if none found.
+    """Check if any LLM provider API keys or OAuth tokens are set; launch wizard if none found.
 
     Called at startup before the event loop starts (sync context).
     Also checks for universal LLM_API_KEY (custom API endpoint) and
     custom endpoint keys (CUSTOM_*_API_KEY).
+    Also checks for OpenAI OAuth tokens.
 
     Skips the wizard if:
     - Any API key is already configured
+    - OpenAI OAuth token is already saved
     - SKIP_SETUP_WIZARD environment variable is set
     """
     # Check if user explicitly wants to skip setup
@@ -90,6 +93,15 @@ def check_and_run_setup():
         if os.environ.get(config.api_key_env, ""):
             return
 
+    # Check for OpenAI OAuth token
+    try:
+        from pantheon.auth.openai_oauth_manager import get_oauth_manager
+        oauth_manager = get_oauth_manager()
+        if oauth_manager.auth_path.exists():
+            return
+    except Exception:
+        pass
+
     # Check legacy universal LLM_API_KEY (with deprecation warning)
     if os.environ.get("LLM_API_KEY", ""):
         if os.environ.get("LLM_API_BASE", ""):
@@ -100,7 +112,7 @@ def check_and_run_setup():
             )
         return
 
-    # No API keys found - launch wizard
+    # No API keys or OAuth found - launch wizard
     run_setup_wizard()
 
 
@@ -202,8 +214,24 @@ def run_setup_wizard(standalone: bool = False):
 
         for idx in delete_standard_indices:
             entry = PROVIDER_MENU[idx]
-            _remove_key_from_env_file(entry.env_var)
-            console.print(f"[green]\u2713 {entry.display_name} ({entry.env_var}) removed[/green]")
+
+            # Special handling for OAuth providers
+            if entry.provider_key == "openai_oauth":
+                try:
+                    from pantheon.auth.openai_oauth_manager import get_oauth_manager
+                    oauth_manager = get_oauth_manager()
+                    if oauth_manager.auth_path.exists():
+                        oauth_manager.auth_path.unlink()
+                        oauth_manager.reset()  # Clear cached manager
+                        console.print(f"[green]✓ {entry.display_name} credentials cleared[/green]")
+                    else:
+                        console.print(f"[yellow]No {entry.display_name} credentials found[/yellow]")
+                except Exception as e:
+                    logger.warning(f"Failed to clear OAuth credentials: {e}")
+                    console.print(f"[yellow]Failed to clear {entry.display_name}: {e}[/yellow]")
+            else:
+                _remove_key_from_env_file(entry.env_var)
+                console.print(f"[green]\u2713 {entry.display_name} ({entry.env_var}) removed[/green]")
 
         if (delete_legacy_custom or delete_custom_indices or delete_standard_indices) and not standard_indices and not custom_indices and not has_legacy_custom:
             console.print()
@@ -303,6 +331,16 @@ def run_setup_wizard(standalone: bool = False):
         # Collect API keys for selected standard providers
         for idx in standard_indices:
             entry = PROVIDER_MENU[idx]
+
+            # Special handling for OAuth providers (no API key needed)
+            if entry.provider_key == "openai_oauth":
+                console.print(f"\n[bold]Configure {entry.display_name}[/bold]")
+                console.print("[dim]OAuth login will be handled through the CLI.[/dim]")
+                console.print("[dim]Use '/oauth login' command in Pantheon REPL to authenticate.[/dim]")
+                console.print("[green]✓ OpenAI OAuth provider configured[/green]")
+                configured_any = True
+                continue
+
             console.print(f"\n[bold]Enter API key for {entry.display_name}[/bold]")
             try:
                 api_key = pt_prompt(f"{entry.env_var}: ", is_password=True)
