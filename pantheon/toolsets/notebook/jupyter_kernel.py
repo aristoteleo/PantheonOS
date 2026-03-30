@@ -156,32 +156,39 @@ class JupyterKernelToolSet(ToolSet):
 
     def _build_kernel_env(self) -> dict:
         import sys
-
+        
         env = os.environ.copy()
-
-        # Note: LS_COLORS removal is now handled by optimize_context_env() in build_context_env()
-        # Keeping this for backwards compatibility and extra safety
+        
+        # Prune unnecessary large environment variables to avoid E2BIG
+        # LS_COLORS can be several KB and is not needed for kernel operation
         env.pop("LS_COLORS", None)
-
+        
         # Get paths from current sys.path and existing PYTHONPATH
         # Prepend sys.path to give it priority for the kernel subprocess
         current_paths = [p for p in sys.path if p]
         existing_pythonpath = env.get("PYTHONPATH", "")
         existing_paths = [p for p in existing_pythonpath.split(os.pathsep) if p]
-
+        
         # Combine and deduplicate while preserving order
         all_paths = current_paths + existing_paths
         unique_paths = list(dict.fromkeys(all_paths))
-
+        
         env["PYTHONPATH"] = os.pathsep.join(unique_paths)
 
-        # build_context_env() now automatically optimizes environment size
-        return build_context_env(
+        kernel_env = build_context_env(
             workdir=self._get_effective_workdir() or self.workdir,
             context_variables=self._current_context_dict(),
             base_env=env,
-            optimize=True,  # Enable automatic optimization
         )
+
+        # PANTHEON_CONTEXT is re-injected after kernel starts via _context_prefix_code(),
+        # which encodes it as base64 Python and executes it in the first cell.
+        # Keeping it in the spawn environment only inflates execve() argument size and
+        # risks [Errno 7] Argument list too long (E2BIG) on macOS when the agent
+        # context grows large during a session.
+        kernel_env.pop("PANTHEON_CONTEXT", None)
+
+        return kernel_env
 
     def _context_prefix_code(self) -> str:
         env = build_context_env(
@@ -288,67 +295,6 @@ class JupyterKernelToolSet(ToolSet):
 
 
 
-    def _kernel_env_context(self) -> dict:
-        """Return a diagnostic snapshot of the kernel environment.
-        Included in every create_session error so the agent can self-heal."""
-        import sys, shutil
-
-        workdir = self._get_effective_workdir() or self.workdir
-
-        # Enumerate all registered kernelspecs with their Python path
-        kernelspecs: dict = {}
-        try:
-            from jupyter_client.kernelspec import KernelSpecManager
-            for name, info in KernelSpecManager().get_all_specs().items():
-                argv = info.get("spec", {}).get("argv", [])
-                python = argv[0] if argv else "unknown"
-                if python and "{sys.executable}" in python:
-                    python = python.replace("{sys.executable}", sys.executable)
-                kernelspecs[name] = python
-        except Exception:
-            pass
-
-        needs_fix = not os.path.isabs(kernelspecs.get("python3", ""))
-        return {
-            "workdir": workdir,
-            "available_kernelspecs": kernelspecs,
-            "uv_available": shutil.which("uv") is not None,
-            "sys_python": sys.executable,
-            "is_frozen_app": getattr(sys, "frozen", False),
-            "kernelspec_needs_fix": needs_fix,
-            # Self-healing guide for agents:
-            # 1. Use `uv` (preferred, uv_available tells you if it exists) or pip to install
-            #    ipykernel into the Python for the project workdir.
-            # 2. Register with an ABSOLUTE path: `<abs_python> -m ipykernel install --user`
-            #    (kernelspec_needs_fix=True means the current one uses a relative 'python',
-            #     which breaks when the app is launched from Finder — launchd PATH differs
-            #     from the user's shell PATH).
-            # 3. Call create_session again — no restart needed.
-            "hint": (
-                "Install ipykernel into the project Python, then re-register the kernelspec "
-                "using the ABSOLUTE Python path (`<abs_python> -m ipykernel install --user`). "
-                "kernelspec_needs_fix=True means the current kernelspec uses a relative path "
-                "which is unreliable when the app is GUI-launched. "
-                "After fixing, call create_session again (no restart needed)."
-            ),
-        }
-
-    def _kernel_python(self, kernel_spec_name: str = "python3") -> str:
-        """Return the Python interpreter path used by the given kernelspec."""
-        ctx = self._kernel_env_context()
-        python = ctx["available_kernelspecs"].get(kernel_spec_name, "")
-        if python and os.path.isfile(python):
-            return python
-        workdir = ctx["workdir"]
-        for c in [
-            os.path.join(workdir, ".venv", "bin", "python"),
-            os.path.join(workdir, ".venv", "bin", "python3"),
-            os.path.join(workdir, ".venv", "Scripts", "python.exe"),
-        ]:
-            if os.path.isfile(c):
-                return c
-        return ctx["sys_python"]
-
     @tool
     async def create_session(
         self, kernel_spec: str = "python3", kernel_session_id: str = None
@@ -370,20 +316,34 @@ class JupyterKernelToolSet(ToolSet):
 
             # Start kernel in specified working directory with Pantheon context
             env = self._build_kernel_env()
-
-            # Diagnostic logging for environment size
+            # DEBUG: Diagnose Argument list too long error
             total_env_size = sum(len(str(k)) + len(str(v)) + 1 for k, v in env.items())
-            logger.debug(f"jupyter_kernel:create_session - Total environment size: {total_env_size} bytes")
+            logger.info(f"jupyter_kernel:create_session - Total environment size: {total_env_size} bytes")
 
-            # Note: Environment optimization is now handled by optimize_context_env() in build_context_env()
-            # This diagnostic code is kept for monitoring purposes
-            if total_env_size > 100000:  # Warn if > 100KB (was 10000, likely a typo)
-                logger.warning(f"Environment size {total_env_size} bytes is large after optimization.")
-
+            if total_env_size > 10000:  # Warn if > 10KB
+                logger.warning(f"Environment size {total_env_size} bytes is large.")
+                
                 # Identify largest environment variables
                 sorted_env = sorted(env.items(), key=lambda x: len(str(x[1])), reverse=True)
                 for k, v in sorted_env[:3]:
                     logger.warning(f"Large Env Var: {k} (Size: {len(str(v))} bytes)")
+                
+                # If PANTHEON_CONTEXT is large, analyze it
+                if "PANTHEON_CONTEXT" in env:
+                    try:
+                        import json
+                        ctx = json.loads(env["PANTHEON_CONTEXT"])
+                        if "context_variables" in ctx:
+                            cv = ctx["context_variables"]
+                            # Use str(v) for approximation to avoid expensive json.dumps if possible, 
+                            # but json.dumps is more accurate for size.
+                            sorted_cv = sorted(cv.items(), key=lambda x: len(json.dumps(x[1])) if x[1] else 0, reverse=True)
+                            logger.warning("Top 5 largest context_variables in PANTHEON_CONTEXT:")
+                            for k, v in sorted_cv[:5]:
+                                size = len(json.dumps(v))
+                                logger.warning(f"  - {k}: {size} bytes")
+                    except Exception as e:
+                        logger.error(f"Failed to analyze PANTHEON_CONTEXT: {e}")
 
             await km.start_kernel(cwd=self._get_effective_workdir() or self.workdir, env=env)
 
@@ -403,9 +363,7 @@ class JupyterKernelToolSet(ToolSet):
                 await kc.wait_for_ready(timeout=30)
             except RuntimeError as e:
                 await km.shutdown_kernel()
-                import json
-                ctx = self._kernel_env_context()
-                return {"success": False, "error": f"Kernel failed to start: {e}\n\nKernel environment:\n{json.dumps(ctx, indent=2)}"}
+                return {"success": False, "error": f"Kernel failed to start: {e}"}
 
             # Store references
             self.kernel_managers[kernel_session_id] = km
@@ -448,9 +406,7 @@ class JupyterKernelToolSet(ToolSet):
 
         except Exception as e:
             logger.error(f"Failed to create session: {e}")
-            import json
-            ctx = self._kernel_env_context()
-            return {"success": False, "error": f"{e}\n\nKernel environment:\n{json.dumps(ctx, indent=2)}"}
+            return {"success": False, "error": str(e)}
 
     @tool
     async def execute_request(
