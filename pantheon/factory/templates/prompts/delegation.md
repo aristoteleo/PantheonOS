@@ -91,3 +91,24 @@ call_agent(
 ```python
 call_agent("researcher", "Do analysis fast.")
 ```
+
+### Failure Recovery
+
+Tool failures and sub-agent errors are expected — **never terminate without producing output.**
+
+When a tool call fails, apply the following recovery ladder in order:
+
+**File write failures** (e.g. content too large, output truncation):
+1. **Use Two-Phase Write Protocol**: `write_file` (skeleton only) → `update_file` (one section at a time) → `append_file` (BibTeX / list batches). Never retry `write_file` with the same large content.
+2. **Downgrade format**: If `.tex` fails after protocol, write `.md`; if `.md` fails, write `.txt`
+3. **Inline output**: If all file writes fail, output the full content as a code block in the chat
+
+**Sub-agent failures** (researcher or illustrator returns error or empty result):
+1. **Retry with narrower scope**: Re-delegate with a smaller, more focused Task Brief
+2. **Self-execute fallback**: Handle the task directly if sub-agent repeatedly fails
+3. **Partial output**: Deliver what was completed and clearly state what is missing
+
+**Hard rule — no silent failures:**
+- Always produce at least one artifact per session, even if degraded
+- When falling back to a simpler format, tell the user explicitly: what you tried, why it failed, what you're delivering instead
+- A partial result delivered is always better than a perfect result abandoned
