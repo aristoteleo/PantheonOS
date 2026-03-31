@@ -2226,36 +2226,62 @@ class Repl(ReplUI):
         """Handle /oauth command - manage OAuth authentication.
 
         Usage:
-            /oauth login          - Start OpenAI OAuth login flow
-            /oauth status         - Show OpenAI OAuth authentication status
-            /oauth logout         - Clear OpenAI OAuth credentials (logout)
+            /oauth login [provider]   - Start OAuth login flow (default: openai)
+            /oauth status [provider]  - Show OAuth authentication status
+            /oauth logout [provider]  - Clear OAuth credentials
+            /oauth list              - List available providers
         """
-        from pantheon.auth.openai_oauth_manager import get_oauth_manager
+        from pantheon.auth.oauth_manager import get_oauth_manager
         import asyncio
 
-        subcommand = args.lower().strip() if args else "status"
+        parts = args.lower().strip().split() if args else []
+        subcommand = parts[0] if parts else "status"
+        provider = parts[1] if len(parts) > 1 else None
+
         oauth_manager = get_oauth_manager()
 
-        if subcommand == "login":
+        if subcommand == "list":
             self.console.print()
-            self.console.print("[bold]OpenAI OAuth Login[/bold]")
-            self.console.print("[dim]A browser window will open for you to authenticate with OpenAI.[/dim]")
+            self.console.print("[bold]Available OAuth Providers[/bold]")
+            self.console.print()
+
+            providers = oauth_manager.list_providers()
+            default_provider = oauth_manager.default_provider
+
+            for p in providers:
+                marker = " (default)" if p == default_provider else ""
+                self.console.print(f"  • {p}{marker}")
+
+            self.console.print()
+            self.console.print("[dim]Usage: /oauth login <provider>[/dim]")
+            self.console.print()
+
+        elif subcommand == "login":
+            self.console.print()
+            provider_name = provider or "openai"
+            self.console.print(f"[bold]{provider_name.title()} OAuth Login[/bold]")
+            self.console.print("[dim]A browser window will open for you to authenticate.[/dim]")
             self.console.print()
 
             try:
                 loop = asyncio.get_event_loop()
-                success = await loop.run_in_executor(None, oauth_manager.login)
+                success = await loop.run_in_executor(
+                    None,
+                    lambda: oauth_manager.login(provider)
+                )
 
                 if success:
-                    status = oauth_manager.get_status()
-                    self.console.print("[green]✓ OpenAI OAuth login successful![/green]")
+                    status = oauth_manager.get_status(provider)
+                    self.console.print(f"[green]✓ {provider_name.title()} OAuth login successful![/green]")
+                    if status.email:
+                        self.console.print(f"  Email: {status.email}")
                     if status.organization_id:
                         self.console.print(f"  Organization ID: {status.organization_id}")
                     if status.project_id:
                         self.console.print(f"  Project ID: {status.project_id}")
                     self.console.print()
                 else:
-                    self.console.print("[red]✗ OpenAI OAuth login failed[/red]")
+                    self.console.print(f"[red]✗ {provider_name.title()} OAuth login failed[/red]")
                     self.console.print("[dim]Please try again or check your internet connection.[/dim]")
                     self.console.print()
             except Exception as e:
@@ -2264,11 +2290,12 @@ class Repl(ReplUI):
 
         elif subcommand == "status":
             self.console.print()
-            self.console.print("[bold]OpenAI OAuth Status[/bold]")
+            provider_name = provider or oauth_manager.default_provider
+            self.console.print(f"[bold]{provider_name.title()} OAuth Status[/bold]")
             self.console.print()
 
             try:
-                status = oauth_manager.get_status()
+                status = oauth_manager.get_status(provider)
 
                 if status.authenticated:
                     self.console.print("[green]✓ Authenticated[/green]")
@@ -2282,7 +2309,7 @@ class Repl(ReplUI):
                         self.console.print(f"  Token Expires: {status.token_expires_at}")
                 else:
                     self.console.print("[yellow]Not authenticated[/yellow]")
-                    self.console.print("[dim]Use '/oauth login' to authenticate with OpenAI.[/dim]")
+                    self.console.print("[dim]Use '/oauth login openai' to authenticate.[/dim]")
                 self.console.print()
             except Exception as e:
                 self.console.print(f"[red]✗ Failed to get OAuth status: {e}[/red]")
@@ -2290,26 +2317,22 @@ class Repl(ReplUI):
 
         elif subcommand == "logout":
             self.console.print()
-            self.console.print("[bold]OpenAI OAuth Logout[/bold]")
+            provider_name = provider or oauth_manager.default_provider
+            self.console.print(f"[bold]{provider_name.title()} OAuth Logout[/bold]")
             self.console.print()
 
             try:
-                oauth_manager.logout()
-                self.console.print("[green]✓ OpenAI OAuth credentials cleared[/green]")
-                self.console.print("[dim]You have been logged out. Use '/oauth login' to authenticate again.[/dim]")
+                oauth_manager.logout(provider)
+                self.console.print(f"[green]✓ {provider_name.title()} OAuth credentials cleared[/green]")
+                self.console.print("[dim]Use '/oauth login openai' to authenticate again.[/dim]")
                 self.console.print()
             except Exception as e:
                 self.console.print(f"[red]✗ Failed to logout: {e}[/red]")
                 self.console.print()
 
         else:
-            self.console.print()
-            self.console.print("[bold]OpenAI OAuth Management[/bold]")
-            self.console.print()
-            self.console.print("[dim]Usage:[/dim]")
-            self.console.print("  /oauth login      - Authenticate with OpenAI")
-            self.console.print("  /oauth status     - Show authentication status")
-            self.console.print("  /oauth logout     - Clear stored credentials")
+            self.console.print(f"[red]Unknown subcommand: {subcommand}[/red]")
+            self.console.print("[dim]Use /oauth login, /oauth status, /oauth logout, or /oauth list[/dim]")
             self.console.print()
 
     async def _handle_model_command(self, args: str):
