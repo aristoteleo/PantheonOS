@@ -510,3 +510,150 @@ async def test_manage_path_comprehensive(temp_toolset):
     result = await temp_toolset.manage_path("delete", "nonexistent.txt")
     assert result["success"] is False
     assert "does not exist" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# Output-token truncation guards (PR #52)
+# ---------------------------------------------------------------------------
+
+async def test_write_file_rejects_large_content(temp_toolset):
+    """write_file must reject content > 12,000 chars."""
+    big = "x" * 13_000
+    res = await temp_toolset.write_file("big.txt", big)
+    assert not res["success"]
+    assert res["reason"] == "content_too_large"
+    assert "12,000" in res["error"]
+    # File must NOT exist on disk
+    assert not (temp_toolset.path / "big.txt").exists()
+
+
+async def test_write_file_accepts_content_at_limit(temp_toolset):
+    """write_file must accept content exactly at 12,000 chars."""
+    content = "a" * 12_000
+    res = await temp_toolset.write_file("exact.txt", content)
+    assert res["success"]
+    assert (temp_toolset.path / "exact.txt").read_text() == content
+
+
+async def test_append_file_basic(temp_toolset):
+    """append_file appends to existing file."""
+    await temp_toolset.write_file("log.txt", "header\n")
+    res = await temp_toolset.append_file("log.txt", "line1\nline2\n")
+    assert res["success"]
+    assert res["appended_chars"] == len("line1\nline2\n")
+    content = (await temp_toolset.read_file("log.txt"))["content"]
+    assert content == "header\nline1\nline2\n"
+
+
+async def test_append_file_multiple_batches(temp_toolset):
+    """append_file supports multiple sequential appends (BibTeX batch pattern)."""
+    await temp_toolset.write_file("refs.bib", "% Bibliography\n")
+    for i in range(5):
+        batch = f"@article{{ref{i},\n  title={{Title {i}}},\n}}\n\n"
+        res = await temp_toolset.append_file("refs.bib", batch)
+        assert res["success"], f"Batch {i} failed: {res}"
+    content = (await temp_toolset.read_file("refs.bib"))["content"]
+    assert content.startswith("% Bibliography\n")
+    assert content.count("@article{") == 5
+
+
+async def test_append_file_rejects_nonexistent(temp_toolset):
+    """append_file must reject when target file does not exist."""
+    res = await temp_toolset.append_file("missing.txt", "data")
+    assert not res["success"]
+    assert res["reason"] == "file_not_found"
+
+
+async def test_append_file_rejects_large_content(temp_toolset):
+    """append_file must reject content > 6,000 chars."""
+    await temp_toolset.write_file("base.txt", "ok\n")
+    big = "x" * 7_000
+    res = await temp_toolset.append_file("base.txt", big)
+    assert not res["success"]
+    assert res["reason"] == "content_too_large"
+    assert "6,000" in res["error"]
+    # Original content must be unchanged
+    content = (await temp_toolset.read_file("base.txt"))["content"]
+    assert content == "ok\n"
+
+
+async def test_append_file_accepts_content_at_limit(temp_toolset):
+    """append_file must accept content exactly at 6,000 chars."""
+    await temp_toolset.write_file("base.txt", "start\n")
+    chunk = "b" * 6_000
+    res = await temp_toolset.append_file("base.txt", chunk)
+    assert res["success"]
+    content = (await temp_toolset.read_file("base.txt"))["content"]
+    assert content == "start\n" + chunk
+
+
+async def test_update_file_rejects_large_new_string(temp_toolset):
+    """update_file must reject new_string > 8,000 chars."""
+    await temp_toolset.write_file("doc.txt", "PLACEHOLDER\n")
+    big = "y" * 9_000
+    res = await temp_toolset.update_file("doc.txt", "PLACEHOLDER", big)
+    assert not res["success"]
+    assert res["reason"] == "content_too_large"
+    assert "8,000" in res["error"]
+    # Original content must be unchanged
+    content = (await temp_toolset.read_file("doc.txt"))["content"]
+    assert content == "PLACEHOLDER\n"
+
+
+async def test_update_file_accepts_new_string_at_limit(temp_toolset):
+    """update_file must accept new_string exactly at 8,000 chars."""
+    await temp_toolset.write_file("doc.txt", "STUB\n")
+    replacement = "c" * 8_000
+    res = await temp_toolset.update_file("doc.txt", "STUB", replacement)
+    assert res["success"]
+    content = (await temp_toolset.read_file("doc.txt"))["content"]
+    assert replacement in content
+
+
+async def test_two_phase_write_protocol(temp_toolset):
+    """End-to-end: scaffold → section fill → append (the protocol PR #52 teaches)."""
+    # Phase 1: scaffold
+    skeleton = (
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        "\\section{Introduction}\n"
+        "% INTRO_PLACEHOLDER\n"
+        "\\section{Methods}\n"
+        "% METHODS_PLACEHOLDER\n"
+        "\\end{document}\n"
+    )
+    res = await temp_toolset.write_file("paper.tex", skeleton)
+    assert res["success"]
+
+    # Phase 2: fill sections via update_file
+    res = await temp_toolset.update_file(
+        "paper.tex",
+        "% INTRO_PLACEHOLDER",
+        "This paper presents a novel approach to analyzing single-cell data.",
+    )
+    assert res["success"]
+
+    res = await temp_toolset.update_file(
+        "paper.tex",
+        "% METHODS_PLACEHOLDER",
+        "We applied dimensionality reduction using UMAP.",
+    )
+    assert res["success"]
+
+    # Phase 3: append bibliography
+    bib_entries = "\\begin{thebibliography}{9}\n\\bibitem{ref1} Author, Title, 2024.\n\\end{thebibliography}\n"
+    # Insert before \end{document} via update_file
+    res = await temp_toolset.update_file(
+        "paper.tex",
+        "\\end{document}",
+        bib_entries + "\\end{document}",
+    )
+    assert res["success"]
+
+    # Verify final document
+    content = (await temp_toolset.read_file("paper.tex"))["content"]
+    assert "novel approach" in content
+    assert "UMAP" in content
+    assert "\\bibitem{ref1}" in content
+    assert "INTRO_PLACEHOLDER" not in content
+    assert "METHODS_PLACEHOLDER" not in content
