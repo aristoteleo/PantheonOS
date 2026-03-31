@@ -817,33 +817,50 @@ class FileManagerToolSet(FileManagerToolSetBase):
         content: str = "",
         overwrite: bool = True,
     ) -> dict:
-        """Use this tool to CREATE NEW file.
+        """Use this tool to CREATE a NEW file with a skeleton or short content.
 
-        This tool writes content to a file, automatically creating parent
-        directories if they do not exist.
+        ⚠️  LARGE FILE PROTOCOL — MUST FOLLOW FOR PAPERS, REPORTS, LaTeX, BibTeX:
+        NEVER pass an entire document as `content` in one call.
+        Use the Two-Phase Write Protocol instead:
 
-        IMPORTANT: For EDITING existing file, use `update_file` instead.
-        DO NOT rewrite entire file when only small changes are needed, its is wasteful and error-prone.
+          Phase 1 — Scaffold  (this tool, once):
+            write_file(path, content=<skeleton with section stubs, ~20-50 lines>)
 
-        Use this tool when:
-        - Creating a brand new file
-        - Completely rewriting a file from scratch (rare)
+          Phase 2 — Fill  (per semantic section):
+            update_file(path, old_string=<section stub>, new_string=<full section>)
+            → one call per semantic unit (Introduction, Methods, Results, etc.)
 
-        DO NOT use this tool when:
-        - Making partial modifications to an existing file
-        - Changing a few lines in a large file
-        - For these cases, use `update_file` instead
+          For lists / bibliographies  (append_file, batched):
+            append_file(path, content=<10 BibTeX entries or 1 table block at a time>)
+
+        This tool will REFUSE content longer than 12,000 characters. Writing large
+        content in one shot causes output-token truncation and silent data loss.
 
         Args:
             file_path: The path to the file to write.
             content: The content to write to the file.
             overwrite: When False, abort if the target file already exists.
-                       Default is True, but consider using update_file for edits.
 
         Returns:
             dict: Success status or error message.
         """
-
+        _WRITE_FILE_MAX_CHARS = 12000
+        if len(content) > _WRITE_FILE_MAX_CHARS:
+            return {
+                "success": False,
+                "reason": "content_too_large",
+                "error": (
+                    f"Content is {len(content):,} chars, exceeding the "
+                    f"{_WRITE_FILE_MAX_CHARS:,}-char limit per write_file call. "
+                    f"Use the Two-Phase Write Protocol:\n"
+                    f"  1. write_file('{file_path}', content=<skeleton with empty section stubs>)\n"
+                    f"  2. update_file('{file_path}', old_string=<stub>, new_string=<section>)  "
+                    f"← one call per section\n"
+                    f"  3. append_file('{file_path}', content=<batch>)  "
+                    f"← for BibTeX / lists (<=10 items per call)\n"
+                    f"Do NOT retry write_file with the same large content."
+                ),
+            }
         target_path = self._resolve_path(file_path)
         if not overwrite and target_path.exists():
             return {
@@ -859,6 +876,65 @@ class FileManagerToolSet(FileManagerToolSetBase):
             return {"success": True, "overwritten": overwrite}
         except Exception as exc:
             logger.error(f"write_file failed for {file_path}: {exc}")
+            return {"success": False, "error": str(exc)}
+
+    @tool
+    async def append_file(
+        self,
+        file_path: str,
+        content: str,
+    ) -> dict:
+        """Append content to the end of an existing file without overwriting it.
+
+        ## Primary use case: chunked writing for large documents
+
+        When a single write_file or update_file call would be too large, split
+        the content and stream it in parts:
+
+            write_file(path, skeleton)          # 1. write header / skeleton
+            append_file(path, introduction)     # 2. append Introduction section
+            append_file(path, methods)          # 3. append Methods section
+            append_file(path, results)          # 4. append Results + Discussion
+            append_file(path, bibliography)     # 5. append Bibliography
+
+        ## For BibTeX bibliographies:
+        Split into batches of <=10 @article / @inproceedings blocks per call.
+
+        ## Limits:
+        Content must be <=6,000 characters per call. Split further if needed.
+        File must already exist (use write_file to create it first).
+
+        Args:
+            file_path: Path to the file to append to (relative to workspace root).
+            content: Text to append. Include a leading newline if needed.
+
+        Returns:
+            dict: {success: true, appended_chars: int} or {success: false, error: str}
+        """
+        _APPEND_FILE_MAX_CHARS = 6000
+        if len(content) > _APPEND_FILE_MAX_CHARS:
+            return {
+                "success": False,
+                "reason": "content_too_large",
+                "error": (
+                    f"Content is {len(content):,} chars, exceeding the "
+                    f"{_APPEND_FILE_MAX_CHARS:,}-char limit per append_file call. "
+                    f"Split into smaller batches (<=10 BibTeX entries or one section at a time)."
+                ),
+            }
+        target_path = self._resolve_path(file_path)
+        if not target_path.exists():
+            return {
+                "success": False,
+                "error": f"File '{file_path}' does not exist. Use write_file to create it first.",
+                "reason": "file_not_found",
+            }
+        try:
+            with open(target_path, "a", encoding="utf-8") as f:
+                f.write(content)
+            return {"success": True, "appended_chars": len(content)}
+        except Exception as exc:
+            logger.error(f"append_file failed for {file_path}: {exc}")
             return {"success": False, "error": str(exc)}
 
     @tool
@@ -893,6 +969,18 @@ class FileManagerToolSet(FileManagerToolSetBase):
         Returns:
             dict: {success: bool, replacements: int} or {success: False, error: str}
         """
+        _UPDATE_FILE_MAX_CHARS = 8000
+        if len(new_string) > _UPDATE_FILE_MAX_CHARS:
+            return {
+                "success": False,
+                "reason": "content_too_large",
+                "error": (
+                    f"new_string is {len(new_string):,} chars, exceeding the "
+                    f"{_UPDATE_FILE_MAX_CHARS:,}-char limit per update_file call. "
+                    f"Split this section into smaller semantic units and call "
+                    f"update_file once per unit (e.g. one paragraph or subsection at a time)."
+                ),
+            }
         target_path = self._resolve_path(file_path)
         if not target_path.exists():
             return {"success": False, "error": "File does not exist"}
