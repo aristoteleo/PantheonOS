@@ -255,35 +255,17 @@ class ModelSelector:
         return self._available_providers
 
     def _check_oauth_token_available(self, provider: str) -> bool:
-        """Check if OAuth token is available for a provider.
-
-        Args:
-            provider: Provider name (e.g., "openai")
-
-        Returns:
-            True if valid OAuth token exists, False otherwise
-        """
+        """Check if OAuth token is available for a provider."""
         if provider != "openai":
-            # OAuth support only for OpenAI currently
             return False
-
         try:
-            # Lazy import to avoid dependency issues
             from pantheon.auth.openai_oauth_manager import get_oauth_manager
-
-            # Check if OAuth token file exists
             oauth_manager = get_oauth_manager()
             if oauth_manager.auth_path.exists():
                 logger.debug(f"OpenAI OAuth token found at {oauth_manager.auth_path}")
                 return True
-        except (ImportError, FileNotFoundError, OSError) as e:
-            logger.debug(f"Failed to check OAuth token: {e}")
-            return False
         except Exception as e:
-            # Other unexpected errors should be logged as warnings
-            logger.warning(f"Unexpected error checking OAuth token: {e}")
-            return False
-
+            logger.debug(f"Failed to check OAuth token: {e}")
         return False
 
     def detect_available_provider(self) -> str | None:

@@ -2231,8 +2231,10 @@ class Repl(ReplUI):
             /oauth logout         - Clear OpenAI OAuth credentials (logout)
         """
         from pantheon.auth.openai_oauth_manager import get_oauth_manager
+        import asyncio
 
         subcommand = args.lower().strip() if args else "status"
+        oauth_manager = get_oauth_manager()
 
         if subcommand == "login":
             self.console.print()
@@ -2241,16 +2243,16 @@ class Repl(ReplUI):
             self.console.print()
 
             try:
-                oauth_manager = get_oauth_manager()
-                success = await oauth_manager.login()
+                loop = asyncio.get_event_loop()
+                success = await loop.run_in_executor(None, oauth_manager.login)
 
                 if success:
-                    context = await oauth_manager.get_org_context()
+                    status = oauth_manager.get_status()
                     self.console.print("[green]✓ OpenAI OAuth login successful![/green]")
-                    if context.get("organization_id"):
-                        self.console.print(f"  Organization ID: {context['organization_id']}")
-                    if context.get("project_id"):
-                        self.console.print(f"  Project ID: {context['project_id']}")
+                    if status.organization_id:
+                        self.console.print(f"  Organization ID: {status.organization_id}")
+                    if status.project_id:
+                        self.console.print(f"  Project ID: {status.project_id}")
                     self.console.print()
                 else:
                     self.console.print("[red]✗ OpenAI OAuth login failed[/red]")
@@ -2266,19 +2268,18 @@ class Repl(ReplUI):
             self.console.print()
 
             try:
-                oauth_manager = get_oauth_manager()
-                status = await oauth_manager.get_status()
+                status = oauth_manager.get_status()
 
-                if status.get("authenticated"):
+                if status.authenticated:
                     self.console.print("[green]✓ Authenticated[/green]")
-                    if status.get("email"):
-                        self.console.print(f"  Email: {status['email']}")
-                    if status.get("organization_id"):
-                        self.console.print(f"  Organization: {status['organization_id']}")
-                    if status.get("project_id"):
-                        self.console.print(f"  Project: {status['project_id']}")
-                    if status.get("token_expires_at"):
-                        self.console.print(f"  Token Expires: {status['token_expires_at']}")
+                    if status.email:
+                        self.console.print(f"  Email: {status.email}")
+                    if status.organization_id:
+                        self.console.print(f"  Organization: {status.organization_id}")
+                    if status.project_id:
+                        self.console.print(f"  Project: {status.project_id}")
+                    if status.token_expires_at:
+                        self.console.print(f"  Token Expires: {status.token_expires_at}")
                 else:
                     self.console.print("[yellow]Not authenticated[/yellow]")
                     self.console.print("[dim]Use '/oauth login' to authenticate with OpenAI.[/dim]")
@@ -2293,14 +2294,9 @@ class Repl(ReplUI):
             self.console.print()
 
             try:
-                oauth_manager = get_oauth_manager()
-                success = await oauth_manager.clear_token()
-
-                if success:
-                    self.console.print("[green]✓ OpenAI OAuth credentials cleared[/green]")
-                    self.console.print("[dim]You have been logged out. Use '/oauth login' to authenticate again.[/dim]")
-                else:
-                    self.console.print("[yellow]No OAuth credentials to clear[/yellow]")
+                oauth_manager.logout()
+                self.console.print("[green]✓ OpenAI OAuth credentials cleared[/green]")
+                self.console.print("[dim]You have been logged out. Use '/oauth login' to authenticate again.[/dim]")
                 self.console.print()
             except Exception as e:
                 self.console.print(f"[red]✗ Failed to logout: {e}[/red]")

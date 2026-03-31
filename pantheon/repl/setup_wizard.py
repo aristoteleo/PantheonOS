@@ -156,8 +156,12 @@ def run_setup_wizard(standalone: bool = False):
         # Show provider menu
         console.print("\nStandard Providers:")
         for i, entry in enumerate(PROVIDER_MENU, 1):
-            already_set = " [green](configured)[/green]" if os.environ.get(entry.env_var, "") else ""
-            console.print(f"  [cyan][{i}][/cyan] {entry.display_name:<20} ({entry.env_var}){already_set}")
+            # Handle OAuth providers which don't have env_var
+            if entry.env_var is None:
+                already_set = ""
+            else:
+                already_set = " [green](configured)[/green]" if os.environ.get(entry.env_var, "") else ""
+            console.print(f"  [cyan][{i}][/cyan] {entry.display_name:<20} ({entry.env_var or 'OAuth'}){already_set}")
         console.print()
         console.print("[dim]  Prefix with 'd' to delete, e.g. d0, d1,d3[/dim]")
         console.print()
