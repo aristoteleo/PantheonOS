@@ -517,19 +517,20 @@ async def test_manage_path_comprehensive(temp_toolset):
 # ---------------------------------------------------------------------------
 
 async def test_write_file_rejects_large_content(temp_toolset):
-    """write_file must reject content > 12,000 chars."""
-    big = "x" * 13_000
+    """write_file must reject content exceeding WRITE_FILE_MAX_CHARS."""
+    limit = temp_toolset.WRITE_FILE_MAX_CHARS
+    big = "x" * (limit + 1000)
     res = await temp_toolset.write_file("big.txt", big)
     assert not res["success"]
     assert res["reason"] == "content_too_large"
-    assert "12,000" in res["error"]
     # File must NOT exist on disk
     assert not (temp_toolset.path / "big.txt").exists()
 
 
 async def test_write_file_accepts_content_at_limit(temp_toolset):
-    """write_file must accept content exactly at 12,000 chars."""
-    content = "a" * 12_000
+    """write_file must accept content exactly at WRITE_FILE_MAX_CHARS."""
+    limit = temp_toolset.WRITE_FILE_MAX_CHARS
+    content = "a" * limit
     res = await temp_toolset.write_file("exact.txt", content)
     assert res["success"]
     assert (temp_toolset.path / "exact.txt").read_text() == content
@@ -565,22 +566,23 @@ async def test_append_file_rejects_nonexistent(temp_toolset):
 
 
 async def test_append_file_rejects_large_content(temp_toolset):
-    """append_file must reject content > 6,000 chars."""
+    """append_file must reject content exceeding APPEND_FILE_MAX_CHARS."""
     await temp_toolset.write_file("base.txt", "ok\n")
-    big = "x" * 7_000
+    limit = temp_toolset.APPEND_FILE_MAX_CHARS
+    big = "x" * (limit + 1000)
     res = await temp_toolset.append_file("base.txt", big)
     assert not res["success"]
     assert res["reason"] == "content_too_large"
-    assert "6,000" in res["error"]
     # Original content must be unchanged
     content = (await temp_toolset.read_file("base.txt"))["content"]
     assert content == "ok\n"
 
 
 async def test_append_file_accepts_content_at_limit(temp_toolset):
-    """append_file must accept content exactly at 6,000 chars."""
+    """append_file must accept content exactly at APPEND_FILE_MAX_CHARS."""
     await temp_toolset.write_file("base.txt", "start\n")
-    chunk = "b" * 6_000
+    limit = temp_toolset.APPEND_FILE_MAX_CHARS
+    chunk = "b" * limit
     res = await temp_toolset.append_file("base.txt", chunk)
     assert res["success"]
     content = (await temp_toolset.read_file("base.txt"))["content"]
@@ -588,22 +590,23 @@ async def test_append_file_accepts_content_at_limit(temp_toolset):
 
 
 async def test_update_file_rejects_large_new_string(temp_toolset):
-    """update_file must reject new_string > 8,000 chars."""
+    """update_file must reject new_string exceeding UPDATE_FILE_MAX_CHARS."""
     await temp_toolset.write_file("doc.txt", "PLACEHOLDER\n")
-    big = "y" * 9_000
+    limit = temp_toolset.UPDATE_FILE_MAX_CHARS
+    big = "y" * (limit + 1000)
     res = await temp_toolset.update_file("doc.txt", "PLACEHOLDER", big)
     assert not res["success"]
     assert res["reason"] == "content_too_large"
-    assert "8,000" in res["error"]
     # Original content must be unchanged
     content = (await temp_toolset.read_file("doc.txt"))["content"]
     assert content == "PLACEHOLDER\n"
 
 
 async def test_update_file_accepts_new_string_at_limit(temp_toolset):
-    """update_file must accept new_string exactly at 8,000 chars."""
+    """update_file must accept new_string exactly at UPDATE_FILE_MAX_CHARS."""
     await temp_toolset.write_file("doc.txt", "STUB\n")
-    replacement = "c" * 8_000
+    limit = temp_toolset.UPDATE_FILE_MAX_CHARS
+    replacement = "c" * limit
     res = await temp_toolset.update_file("doc.txt", "STUB", replacement)
     assert res["success"]
     content = (await temp_toolset.read_file("doc.txt"))["content"]

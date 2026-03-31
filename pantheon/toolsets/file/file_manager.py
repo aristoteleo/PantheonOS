@@ -810,6 +810,15 @@ class FileManagerToolSet(FileManagerToolSetBase):
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    # Configurable size guards (defense-in-depth).
+    # With max_tokens properly set at the LLM call layer, these are safety
+    # nets — not the primary truncation fix.  Defaults are generous enough
+    # for most single-section writes; the Two-Phase Protocol is recommended
+    # only for truly huge documents.
+    WRITE_FILE_MAX_CHARS = 40_000
+    APPEND_FILE_MAX_CHARS = 20_000
+    UPDATE_FILE_MAX_CHARS = 30_000
+
     @tool
     async def write_file(
         self,
@@ -817,24 +826,13 @@ class FileManagerToolSet(FileManagerToolSetBase):
         content: str = "",
         overwrite: bool = True,
     ) -> dict:
-        """Use this tool to CREATE a NEW file with a skeleton or short content.
+        """Create or overwrite a file.
 
-        ⚠️  LARGE FILE PROTOCOL — MUST FOLLOW FOR PAPERS, REPORTS, LaTeX, BibTeX:
-        NEVER pass an entire document as `content` in one call.
-        Use the Two-Phase Write Protocol instead:
-
-          Phase 1 — Scaffold  (this tool, once):
-            write_file(path, content=<skeleton with section stubs, ~20-50 lines>)
-
-          Phase 2 — Fill  (per semantic section):
-            update_file(path, old_string=<section stub>, new_string=<full section>)
-            → one call per semantic unit (Introduction, Methods, Results, etc.)
-
-          For lists / bibliographies  (append_file, batched):
-            append_file(path, content=<10 BibTeX entries or 1 table block at a time>)
-
-        This tool will REFUSE content longer than 12,000 characters. Writing large
-        content in one shot causes output-token truncation and silent data loss.
+        For very large documents (papers, reports), prefer the Two-Phase
+        Write Protocol:
+          1. write_file(path, skeleton)
+          2. update_file(path, stub, full_section)  — per section
+          3. append_file(path, batch)  — for BibTeX / lists
 
         Args:
             file_path: The path to the file to write.
@@ -844,7 +842,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
         Returns:
             dict: Success status or error message.
         """
-        _WRITE_FILE_MAX_CHARS = 12000
+        _WRITE_FILE_MAX_CHARS = self.WRITE_FILE_MAX_CHARS
         if len(content) > _WRITE_FILE_MAX_CHARS:
             return {
                 "success": False,
@@ -884,34 +882,18 @@ class FileManagerToolSet(FileManagerToolSetBase):
         file_path: str,
         content: str,
     ) -> dict:
-        """Append content to the end of an existing file without overwriting it.
+        """Append content to the end of an existing file.
 
-        ## Primary use case: chunked writing for large documents
-
-        When a single write_file or update_file call would be too large, split
-        the content and stream it in parts:
-
-            write_file(path, skeleton)          # 1. write header / skeleton
-            append_file(path, introduction)     # 2. append Introduction section
-            append_file(path, methods)          # 3. append Methods section
-            append_file(path, results)          # 4. append Results + Discussion
-            append_file(path, bibliography)     # 5. append Bibliography
-
-        ## For BibTeX bibliographies:
-        Split into batches of <=10 @article / @inproceedings blocks per call.
-
-        ## Limits:
-        Content must be <=6,000 characters per call. Split further if needed.
         File must already exist (use write_file to create it first).
 
         Args:
-            file_path: Path to the file to append to (relative to workspace root).
-            content: Text to append. Include a leading newline if needed.
+            file_path: Path to the file to append to.
+            content: Text to append.
 
         Returns:
             dict: {success: true, appended_chars: int} or {success: false, error: str}
         """
-        _APPEND_FILE_MAX_CHARS = 6000
+        _APPEND_FILE_MAX_CHARS = self.APPEND_FILE_MAX_CHARS
         if len(content) > _APPEND_FILE_MAX_CHARS:
             return {
                 "success": False,
@@ -969,7 +951,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
         Returns:
             dict: {success: bool, replacements: int} or {success: False, error: str}
         """
-        _UPDATE_FILE_MAX_CHARS = 8000
+        _UPDATE_FILE_MAX_CHARS = self.UPDATE_FILE_MAX_CHARS
         if len(new_string) > _UPDATE_FILE_MAX_CHARS:
             return {
                 "success": False,

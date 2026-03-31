@@ -447,6 +447,21 @@ async def acompletion_litellm(
     if model_params:
         kwargs.update(**model_params)
 
+    # ========== Ensure max_tokens (output) is set ==========
+    # Without explicit max_tokens, some providers (Anthropic) default to
+    # very low output limits (4096), causing tool_use JSON to be truncated
+    # mid-generation when the model writes large file content.
+    # Set to the model's declared max_output_tokens if not already specified.
+    if "max_tokens" not in kwargs and "max_output_tokens" not in kwargs:
+        try:
+            from litellm.utils import get_model_info
+            _info = get_model_info(model)
+            _max_out = _info.get("max_output_tokens")
+            if _max_out and _max_out > 0:
+                kwargs["max_tokens"] = _max_out
+        except Exception:
+            pass  # Fall through to provider default
+
     # ========== Mode Detection & Configuration ==========
     proxy_kwargs = get_litellm_proxy_kwargs()
     if proxy_kwargs:
