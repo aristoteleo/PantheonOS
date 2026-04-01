@@ -6,28 +6,57 @@ from contextlib import asynccontextmanager
 from copy import deepcopy
 from typing import Any, Callable
 
+from pantheon.auth.openai_auth_strategy import (
+    is_api_key_auth_enabled,
+    is_oauth_auth_enabled,
+)
 from .log import logger
 from .misc import run_func
 
 
 def _get_openai_api_key() -> str | None:
-    """Get OpenAI API key, preferring OAuth token over environment variable.
+    """Get OpenAI API key from environment.
     
     Returns:
         API key string, or None if not available
     """
-    # First try OAuth token
-    try:
-        from pantheon.auth.oauth_manager import get_oauth_token
-        token = get_oauth_token("openai", refresh_if_needed=True)
-        if token:
-            return token
-    except Exception:
-        pass
-    
-    # Fall back to environment variable
     import os
+    if not is_api_key_auth_enabled():
+        return None
     return os.environ.get("OPENAI_API_KEY")
+
+
+def _get_codex_oauth_client_kwargs() -> dict[str, Any] | None:
+    """Return dedicated client kwargs for Codex OAuth transport when available."""
+    if not is_oauth_auth_enabled():
+        return None
+    try:
+        from pantheon.auth.openai_provider import get_openai_oauth_provider
+
+        provider = get_openai_oauth_provider()
+        context = provider.build_codex_auth_context(
+            refresh_if_needed=True,
+            import_codex_if_missing=True,
+        )
+        if not context:
+            return None
+
+        default_headers: dict[str, str] = {}
+        if context.get("account_id"):
+            default_headers["ChatGPT-Account-Id"] = str(context["account_id"])
+        if context.get("organization_id"):
+            default_headers["OpenAI-Organization"] = str(context["organization_id"])
+
+        client_kwargs: dict[str, Any] = {
+            "base_url": str(context["base_url"]),
+            "api_key": str(context["access_token"]),
+        }
+        if default_headers:
+            client_kwargs["default_headers"] = default_headers
+        return client_kwargs
+    except Exception as exc:
+        logger.debug(f"[CODEX_OAUTH] Failed to build Codex OAuth client config: {exc}")
+        return None
 
 _PATTERN_BASE64_DATA_URI = re.compile(
     r"data:image/([a-zA-Z0-9+-]+);base64,([A-Za-z0-9+/=]+)"
@@ -256,6 +285,7 @@ async def acompletion_responses(
     base_url: str | None = None,
     model_params: dict | None = None,
     num_retries: int = 3,
+    codex_oauth_transport: bool = False,
 ) -> dict:
     """Call OpenAI Responses API with streaming.
 
@@ -268,12 +298,19 @@ async def acompletion_responses(
     # ========== Build client ==========
     proxy_kwargs = get_litellm_proxy_kwargs()
     api_key = _get_openai_api_key()
+    codex_oauth_kwargs = _get_codex_oauth_client_kwargs() if codex_oauth_transport else None
     
     if proxy_kwargs:
         client = AsyncOpenAI(
             base_url=proxy_kwargs["api_base"],
             api_key=proxy_kwargs["api_key"]
         )
+    elif codex_oauth_kwargs:
+        logger.info(
+            f"[RESPONSES_API] Using Codex OAuth transport | model={model} | "
+            f"base_url={codex_oauth_kwargs['base_url']}"
+        )
+        client = AsyncOpenAI(**codex_oauth_kwargs)
     elif base_url:
         client = AsyncOpenAI(base_url=base_url, api_key=api_key)
     else:
@@ -290,8 +327,12 @@ async def acompletion_responses(
         "input": input_items,
         "stream": True,
     }
+    if codex_oauth_kwargs:
+        kwargs["store"] = False
     if instructions is not None:
         kwargs["instructions"] = instructions
+    elif codex_oauth_kwargs:
+        kwargs["instructions"] = "You are Codex."
     if converted_tools is not None:
         kwargs["tools"] = converted_tools
     if response_format is not None:

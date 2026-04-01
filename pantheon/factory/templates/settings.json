@@ -107,6 +107,19 @@
         "SCRAPER_API_KEY": null, // ScraperAPI key
         "HUGGINGFACE_TOKEN": null
     },
+    // ===== OpenAI Authentication Strategy =====
+    "auth": {
+        "openai": {
+            // auto | prefer_api_key | prefer_oauth | api_key_only | oauth_only
+            "mode": "auto",
+            "enable_api_key": true,
+            "enable_oauth": true,
+            // Keep false by default: codex transport is OAuth-specific today.
+            "allow_codex_fallback_to_api_key": false,
+            // Keep false by default: OAuth tokens are not generic OpenAI API keys.
+            "allow_openai_api_fallback_to_oauth": false
+        }
+    },
     // ===== Knowledge/RAG Configuration =====
     "knowledge": {
         // Knowledge base storage path

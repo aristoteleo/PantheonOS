@@ -19,6 +19,8 @@ from typing import Optional
 
 from pantheon.utils.model_selector import PROVIDER_API_KEYS, CUSTOM_ENDPOINT_ENVS, CustomEndpointConfig
 from pantheon.utils.log import logger
+from pantheon.settings import load_jsonc
+from pantheon.auth.openai_auth_strategy import summarize_openai_auth_state
 
 
 # ============ Data Classes for Better Readability ============
@@ -66,17 +68,41 @@ CUSTOM_ENDPOINT_MENU = [
     for config in CUSTOM_ENDPOINT_ENVS.values()
 ]
 
+
+def _get_openai_oauth_status():
+    try:
+        from pantheon.auth.oauth_manager import get_oauth_manager
+        return get_oauth_manager().get_status("openai")
+    except Exception:
+        return None
+
+
+def _render_openai_auth_summary(console, title: str = "OpenAI Auth Status"):
+    oauth_status = _get_openai_oauth_status()
+    state = summarize_openai_auth_state(
+        api_key_present=bool(os.environ.get("OPENAI_API_KEY")),
+        oauth_authenticated=bool(oauth_status and oauth_status.authenticated),
+    )
+
+    console.print()
+    console.print(f"[bold]{title}[/bold]")
+    console.print(f"  API Key: {'configured' if state['api_key_present'] else 'not configured'}")
+    console.print(f"  OAuth: {'authenticated' if state['oauth_authenticated'] else 'not authenticated'}")
+    console.print(f"  Mode: {state['mode']}")
+    console.print(
+        f"  Routing: api_key={'on' if state['effective_api_key_enabled'] else 'off'}, "
+        f"oauth={'on' if state['effective_oauth_enabled'] else 'off'}"
+    )
+    console.print()
+
 def check_and_run_setup():
-    """Check if any LLM provider API keys or OAuth tokens are set; launch wizard if none found.
+    """Check if any callable LLM provider credentials are set; launch wizard if none found.
 
     Called at startup before the event loop starts (sync context).
     Also checks for universal LLM_API_KEY (custom API endpoint) and
     custom endpoint keys (CUSTOM_*_API_KEY).
-    Also checks for OpenAI OAuth tokens.
-
     Skips the wizard if:
     - Any API key is already configured
-    - OpenAI OAuth token is already saved
     - SKIP_SETUP_WIZARD environment variable is set
     """
     # Check if user explicitly wants to skip setup
@@ -92,14 +118,6 @@ def check_and_run_setup():
     for config in CUSTOM_ENDPOINT_ENVS.values():
         if os.environ.get(config.api_key_env, ""):
             return
-
-    # Check for OpenAI OAuth token
-    try:
-        from pantheon.auth.oauth_manager import is_oauth_available
-        if is_oauth_available("openai"):
-            return
-    except Exception:
-        pass
 
     # Check legacy universal LLM_API_KEY (with deprecation warning)
     if os.environ.get("LLM_API_KEY", ""):
@@ -138,6 +156,7 @@ def run_setup_wizard(standalone: bool = False):
             border_style="cyan",
         )
     )
+    _render_openai_auth_summary(console, "Current OpenAI Auth Status")
 
     configured_any = False
 
@@ -334,10 +353,34 @@ def run_setup_wizard(standalone: bool = False):
             # Special handling for OAuth providers (no API key needed)
             if entry.provider_key == "openai_oauth":
                 console.print(f"\n[bold]Configure {entry.display_name}[/bold]")
-                console.print("[dim]OAuth login will be handled through the CLI.[/dim]")
-                console.print("[dim]Use '/oauth login' command in Pantheon REPL to authenticate.[/dim]")
-                console.print("[green]✓ OpenAI OAuth provider configured[/green]")
-                configured_any = True
+                console.print("[dim]A browser window will open so you can authenticate with OpenAI.[/dim]")
+                console.print("[dim]This enables Codex OAuth transport. Standard OpenAI API model calls still require an API key or compatible endpoint.[/dim]")
+
+                try:
+                    from pantheon.auth.oauth_manager import get_oauth_manager
+
+                    oauth_manager = get_oauth_manager()
+                    success = oauth_manager.login("openai")
+
+                    if success:
+                        status = oauth_manager.get_status("openai")
+                        console.print("[green]✓ OpenAI OAuth login successful[/green]")
+                        if status.email:
+                            console.print(f"  Email: {status.email}")
+                        if status.organization_id:
+                            console.print(f"  Organization: {status.organization_id}")
+                        if status.project_id:
+                            console.print(f"  Project: {status.project_id}")
+                        configured_any = True
+                    else:
+                        console.print("[red]✗ OpenAI OAuth login failed[/red]")
+                        console.print("[dim]You can retry later with '/oauth login openai' in the REPL.[/dim]")
+                except (EOFError, KeyboardInterrupt):
+                    console.print("\n[yellow]OAuth login cancelled.[/yellow]")
+                except Exception as e:
+                    logger.warning(f"OpenAI OAuth login from setup wizard failed: {e}")
+                    console.print(f"[red]✗ OpenAI OAuth login error: {e}[/red]")
+                    console.print("[dim]You can retry later with '/oauth login openai' in the REPL.[/dim]")
                 continue
 
             console.print(f"\n[bold]Enter API key for {entry.display_name}[/bold]")
@@ -367,7 +410,9 @@ def run_setup_wizard(standalone: bool = False):
 
     if configured_any:
         env_path = Path.home() / ".pantheon" / ".env"
-        console.print(f"\n[green]\u2713 API keys saved to {env_path}[/green]")
+        console.print(f"\n[green]\u2713 Provider credentials updated[/green]")
+        console.print(f"[dim]Environment file: {env_path}[/dim]")
+        _render_openai_auth_summary(console, "Final OpenAI Auth Status")
         if not standalone:
             console.print("  Starting Pantheon...\n")
     else:
@@ -529,3 +574,39 @@ def _remove_custom_model_from_settings(provider_key: str):
                 break
     except Exception as e:
         logger.warning(f"Failed to remove custom model from settings.json: {e}")
+
+
+def _ensure_user_settings_file() -> Path | None:
+    settings_path = Path.home() / ".pantheon" / "settings.json"
+    if settings_path.exists():
+        return settings_path
+
+    try:
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        template = Path(__file__).parent.parent / "factory" / "templates" / "settings.json"
+        if template.exists():
+            shutil.copy(template, settings_path)
+            logger.debug(f"Created {settings_path} from factory template")
+            return settings_path
+    except Exception as e:
+        logger.warning(f"Failed to create user settings.json: {e}")
+    return None
+
+
+def _save_openai_auth_settings_to_settings(updates: dict):
+    """Persist auth.openai preferences to ~/.pantheon/settings.json."""
+    settings_path = _ensure_user_settings_file()
+    if settings_path is None:
+        return False
+
+    try:
+        data = load_jsonc(settings_path)
+        auth = data.setdefault("auth", {})
+        openai = auth.setdefault("openai", {})
+        openai.update(updates)
+        settings_path.write_text(json.dumps(data, indent=4), encoding="utf-8")
+        logger.debug(f"Updated auth.openai settings in {settings_path}")
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to update auth.openai settings: {e}")
+        return False

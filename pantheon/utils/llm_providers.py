@@ -13,6 +13,11 @@ from enum import Enum
 from typing import Any, Callable, Optional, NamedTuple
 from dataclasses import dataclass
 
+from pantheon.auth.openai_auth_strategy import (
+    get_openai_auth_settings,
+    is_api_key_auth_enabled,
+    should_use_codex_oauth_transport,
+)
 from .misc import run_func
 from .log import logger
 
@@ -105,9 +110,12 @@ def detect_provider(model: str, force_litellm: bool) -> ProviderConfig:
             compat_base, compat_key_env = OPENAI_COMPATIBLE_PROVIDERS[provider_lower]
             base_url = os.environ.get(f"{provider_lower.upper()}_API_BASE", compat_base)
             api_key = os.environ.get(compat_key_env, "")
-        # Check if it's explicitly openai provider
+        # Check if it's explicitly openai/codex provider
         elif provider_lower == "openai":
             provider_type = ProviderType.OPENAI
+        elif provider_lower == "codex":
+            provider_type = ProviderType.OPENAI
+            model_name = model
         else:
             # All other prefixed models go through LiteLLM (zhipu, anthropic, etc.)
             provider_type = ProviderType.LITELLM
@@ -136,7 +144,10 @@ def is_responses_api_model(config: ProviderConfig) -> bool:
     """
     return (
         config.provider_type == ProviderType.OPENAI
-        and "codex" in config.model_name.lower()
+        and (
+            "codex" in config.model_name.lower()
+            or config.model_name.lower().startswith("codex/")
+        )
     )
 
 
@@ -200,6 +211,9 @@ def get_api_key_for_provider(provider: ProviderType) -> Optional[str]:
 
     settings = get_settings()
     provider_lower = provider.value.lower()
+
+    if provider == ProviderType.OPENAI and not is_api_key_auth_enabled():
+        return None
 
     # 1. Check custom endpoint key first
     custom_key = f"custom_{provider_lower}"
@@ -494,7 +508,18 @@ async def call_llm_provider(
         from .llm import acompletion_responses
 
         model_name = config.model_name
+        use_codex_oauth_transport = should_use_codex_oauth_transport(config.model_name)
+
+        if config.model_name.lower().startswith("codex/") and not use_codex_oauth_transport:
+            prefs = get_openai_auth_settings()
+            raise RuntimeError(
+                "Codex OAuth transport is disabled by auth.openai settings "
+                f"(mode={prefs.mode}, enable_oauth={prefs.enable_oauth})."
+            )
+
         if model_name.startswith("openai/"):
+            model_name = model_name.split("/", 1)[1]
+        elif model_name.startswith("codex/"):
             model_name = model_name.split("/", 1)[1]
 
         logger.debug(
@@ -509,6 +534,7 @@ async def call_llm_provider(
             process_chunk=process_chunk,
             base_url=config.base_url,
             model_params=model_params,
+            codex_oauth_transport=use_codex_oauth_transport,
         )
 
     if config.provider_type == ProviderType.OPENAI:

@@ -1877,7 +1877,7 @@ class ChatRoom(ToolSet):
             return {"success": False, "message": str(e)}
 
     def _validate_model_provider(self, model: str) -> tuple[bool, str]:
-        """Validate that the provider for a model has a valid API key.
+        """Validate that the provider for a model has usable credentials.
 
         Args:
             model: Model name or tag.
@@ -1904,6 +1904,25 @@ class ChatRoom(ToolSet):
                 "vertex_ai": "gemini",
             }
             provider = provider_aliases.get(provider, provider)
+
+            if provider == "codex":
+                try:
+                    from pantheon.auth.openai_auth_strategy import is_oauth_auth_enabled
+                    from pantheon.auth.openai_provider import get_openai_oauth_provider
+
+                    if not is_oauth_auth_enabled():
+                        return False, "Provider 'codex' disabled by auth.openai settings"
+
+                    oauth_provider = get_openai_oauth_provider()
+                    context = oauth_provider.build_codex_auth_context(
+                        refresh_if_needed=True,
+                        import_codex_if_missing=True,
+                    )
+                    if context and context.get("access_token"):
+                        return True, ""
+                    return False, "Provider 'codex' not available (missing OAuth login)"
+                except Exception:
+                    return False, "Provider 'codex' not available (missing OAuth login)"
 
             if provider not in available:
                 return False, f"Provider '{provider}' not available (missing API key)"

@@ -2226,13 +2226,24 @@ class Repl(ReplUI):
         """Handle /oauth command - manage OAuth authentication.
 
         Usage:
-            /oauth login [provider]   - Start OAuth login flow (default: openai)
-            /oauth status [provider]  - Show OAuth authentication status
-            /oauth logout [provider]  - Clear OAuth credentials
-            /oauth list              - List available providers
+            /oauth login [provider]      - Start OAuth login flow (default: openai)
+            /oauth status [provider]     - Show OAuth authentication status
+            /oauth logout [provider]     - Clear OAuth credentials
+            /oauth import-codex          - Import authentication from Codex CLI
+            /oauth prefs                 - Show API key/OAuth routing preferences
+            /oauth mode <mode>           - Set auth mode
+            /oauth enable <api-key|oauth>
+            /oauth disable <api-key|oauth>
         """
         from pantheon.auth.oauth_manager import get_oauth_manager
+        from pantheon.auth.openai_auth_strategy import (
+            VALID_OPENAI_AUTH_MODES,
+            summarize_openai_auth_state,
+        )
+        from pantheon.repl.setup_wizard import _save_openai_auth_settings_to_settings
+        from pantheon.settings import get_settings
         import asyncio
+        import os
 
         parts = args.lower().strip().split() if args else []
         subcommand = parts[0] if parts else "status"
@@ -2273,6 +2284,7 @@ class Repl(ReplUI):
                 if success:
                     status = oauth_manager.get_status(provider)
                     self.console.print(f"[green]✓ {provider_name.title()} OAuth login successful![/green]")
+                    self.console.print("[dim]This logs in your OpenAI account, but does not replace OPENAI_API_KEY for OpenAI API model calls.[/dim]")
                     if status.email:
                         self.console.print(f"  Email: {status.email}")
                     if status.organization_id:
@@ -2330,9 +2342,97 @@ class Repl(ReplUI):
                 self.console.print(f"[red]✗ Failed to logout: {e}[/red]")
                 self.console.print()
 
+        elif subcommand == "import-codex":
+            self.console.print()
+            self.console.print("[bold]Import from Codex CLI[/bold]")
+            self.console.print("[dim]Reading existing Codex CLI authentication...[/dim]")
+            self.console.print()
+
+            try:
+                from pantheon.auth.openai_provider import import_from_codex_cli
+                success = import_from_codex_cli()
+
+                if success:
+                    status = oauth_manager.get_status("openai")
+                    self.console.print("[green]✓ Successfully imported Codex CLI authentication![/green]")
+                    self.console.print("[dim]Imported OAuth credentials are kept for account login/status only, not used as an OpenAI API key.[/dim]")
+                    if status.email:
+                        self.console.print(f"  Email: {status.email}")
+                    self.console.print()
+                    self.console.print("[dim]You can now manage the linked OpenAI account from PantheonOS.[/dim]")
+                    self.console.print()
+                else:
+                    self.console.print("[red]✗ Failed to import Codex CLI authentication[/red]")
+                    self.console.print("[dim]Make sure you have run 'codex login' first.[/dim]")
+                    self.console.print()
+            except Exception as e:
+                self.console.print(f"[red]✗ Import error: {e}[/red]")
+                self.console.print()
+
+        elif subcommand == "prefs":
+            self.console.print()
+            self.console.print("[bold]OpenAI Authentication Preferences[/bold]")
+            self.console.print()
+            try:
+                oauth_status = oauth_manager.get_status("openai")
+            except Exception:
+                oauth_status = None
+
+            state = summarize_openai_auth_state(
+                api_key_present=bool(os.environ.get("OPENAI_API_KEY")),
+                oauth_authenticated=bool(oauth_status and oauth_status.authenticated),
+            )
+            self.console.print(f"  Mode: {state['mode']}")
+            self.console.print(f"  API Key Enabled: {state['enable_api_key']}")
+            self.console.print(f"  OAuth Enabled: {state['enable_oauth']}")
+            self.console.print(f"  API Key Present: {state['api_key_present']}")
+            self.console.print(f"  OAuth Authenticated: {state['oauth_authenticated']}")
+            self.console.print(f"  Effective API Key Routing: {state['effective_api_key_enabled']}")
+            self.console.print(f"  Effective OAuth Routing: {state['effective_oauth_enabled']}")
+            self.console.print()
+            self.console.print("[dim]Modes: auto, prefer_api_key, prefer_oauth, api_key_only, oauth_only[/dim]")
+            self.console.print()
+
+        elif subcommand == "mode":
+            mode = parts[1] if len(parts) > 1 else ""
+            if mode not in VALID_OPENAI_AUTH_MODES:
+                self.console.print("[yellow]Usage: /oauth mode <auto|prefer_api_key|prefer_oauth|api_key_only|oauth_only>[/yellow]")
+                self.console.print()
+                return
+
+            if _save_openai_auth_settings_to_settings({"mode": mode}):
+                get_settings().reload()
+                self.console.print(f"[green]✓ OpenAI auth mode set to {mode}[/green]")
+            else:
+                self.console.print("[red]✗ Failed to update auth mode[/red]")
+            self.console.print()
+
+        elif subcommand in {"enable", "disable"}:
+            target = parts[1] if len(parts) > 1 else ""
+            enabled = subcommand == "enable"
+            key_map = {
+                "api-key": "enable_api_key",
+                "apikey": "enable_api_key",
+                "api_key": "enable_api_key",
+                "oauth": "enable_oauth",
+            }
+            setting_key = key_map.get(target)
+            if not setting_key:
+                self.console.print("[yellow]Usage: /oauth enable <api-key|oauth> or /oauth disable <api-key|oauth>[/yellow]")
+                self.console.print()
+                return
+
+            if _save_openai_auth_settings_to_settings({setting_key: enabled}):
+                get_settings().reload()
+                verb = "enabled" if enabled else "disabled"
+                self.console.print(f"[green]✓ {target} {verb} for OpenAI auth routing[/green]")
+            else:
+                self.console.print("[red]✗ Failed to update auth preference[/red]")
+            self.console.print()
+
         else:
             self.console.print(f"[red]Unknown subcommand: {subcommand}[/red]")
-            self.console.print("[dim]Use /oauth login, /oauth status, /oauth logout, or /oauth list[/dim]")
+            self.console.print("[dim]Use /oauth login, /oauth status, /oauth logout, /oauth import-codex, /oauth prefs, /oauth mode, /oauth enable, or /oauth disable[/dim]")
             self.console.print()
 
     async def _handle_model_command(self, args: str):

@@ -1,12 +1,29 @@
 """
 OpenAI OAuth 2.0 Provider for PantheonOS.
+
+Security Notes:
+- JWT tokens are base64-decoded for payload extraction but signature is NOT verified.
+  This is a common simplification for client-side token inspection. The OAuth flow
+  itself provides security via PKCE and HTTPS. Only use tokens from trusted sources.
+- Token files are saved with 0o600 permissions (user-only read/write).
+- Logout attempts to revoke tokens on OpenAI's server.
+
+Known Risks:
+- This implementation reuses OpenAI Codex CLI's OAuth client ID and originator.
+  OpenAI does not currently offer public OAuth app registration for third-party tools.
+  OpenAI can revoke or restrict this client ID at any time, breaking auth for all users.
+  This is an undocumented, unsupported integration path that could change without notice.
+- OAuth tokens managed here are account credentials. PantheonOS should not inject them
+  into generic OpenAI API SDK calls as a substitute for ``OPENAI_API_KEY``.
 """
 from __future__ import annotations
 
 import base64
 import hashlib
 import json
+import os
 import secrets
+import stat
 import threading
 import time
 import webbrowser
@@ -31,6 +48,10 @@ OPENAI_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 OPENAI_ORIGINATOR = "pi"
 OPENAI_CALLBACK_PORT = 1455
 OPENAI_SCOPE = "openid profile email offline_access"
+OPENAI_CODEX_BASE_URL = "https://chatgpt.com/backend-api"
+OPENAI_OIDC_CONFIG_URL = f"{OPENAI_AUTH_ISSUER}/.well-known/openid-configuration"
+_OIDC_CONFIG_CACHE: dict[str, object] = {"value": None, "expires_at": 0.0}
+_JWKS_CLIENT_CACHE: dict[str, object] = {"value": None, "expires_at": 0.0}
 
 
 def _utc_now() -> str:
@@ -47,7 +68,7 @@ def _pkce_pair() -> tuple:
     return verifier, challenge
 
 
-def _decode_jwt_payload(token: str) -> dict:
+def _decode_jwt_payload_unverified(token: str) -> dict:
     parts = (token or "").split(".")
     if len(parts) != 3 or not parts[1]:
         return {}
@@ -59,6 +80,92 @@ def _decode_jwt_payload(token: str) -> dict:
     except Exception:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _get_oidc_config() -> dict:
+    now = time.time()
+    cached = _OIDC_CONFIG_CACHE.get("value")
+    if isinstance(cached, dict) and now < float(_OIDC_CONFIG_CACHE.get("expires_at", 0.0)):
+        return cached
+
+    response = requests.get(OPENAI_OIDC_CONFIG_URL, timeout=10)
+    response.raise_for_status()
+    config = response.json()
+    if not isinstance(config, dict):
+        raise RuntimeError("OIDC discovery returned invalid payload")
+
+    _OIDC_CONFIG_CACHE["value"] = config
+    _OIDC_CONFIG_CACHE["expires_at"] = now + 3600
+    return config
+
+
+def _get_jwks_client():
+    now = time.time()
+    cached = _JWKS_CLIENT_CACHE.get("value")
+    if cached is not None and now < float(_JWKS_CLIENT_CACHE.get("expires_at", 0.0)):
+        return cached
+
+    try:
+        import jwt
+    except ImportError as exc:
+        raise RuntimeError("PyJWT is required for JWT signature verification") from exc
+
+    config = _get_oidc_config()
+    jwks_uri = str(config.get("jwks_uri") or "").strip()
+    if not jwks_uri:
+        raise RuntimeError("OIDC discovery did not include jwks_uri")
+
+    client = jwt.PyJWKClient(jwks_uri)
+    _JWKS_CLIENT_CACHE["value"] = client
+    _JWKS_CLIENT_CACHE["expires_at"] = now + 3600
+    return client
+
+
+def _decode_jwt_payload_verified(token: str) -> dict:
+    if not token:
+        return {}
+
+    try:
+        import jwt
+
+        jwks_client = _get_jwks_client()
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            issuer=OPENAI_AUTH_ISSUER,
+            options={"verify_aud": False},
+        )
+        return payload if isinstance(payload, dict) else {}
+    except Exception as exc:
+        logger.warning(f"JWT signature verification failed: {exc}")
+        return {}
+
+
+def _decode_jwt_payload(token: str, *, allow_unverified_fallback: bool = False) -> dict:
+    payload = _decode_jwt_payload_verified(token)
+    if payload:
+        return payload
+    if allow_unverified_fallback:
+        return _decode_jwt_payload_unverified(token)
+    return {}
+
+
+def jwt_auth_claims(token: str) -> dict:
+    payload = _decode_jwt_payload(token)
+    nested = payload.get("https://api.openai.com/auth")
+    return nested if isinstance(nested, dict) else {}
+
+
+def jwt_org_context(token: str) -> dict:
+    claims = jwt_auth_claims(token)
+    context = {}
+    for key in ("organization_id", "project_id", "chatgpt_account_id"):
+        value = str(claims.get(key) or "").strip()
+        if value:
+            context[key] = value
+    return context
 
 
 def _extract_org_context(token: str) -> dict:
@@ -76,7 +183,7 @@ def _extract_org_context(token: str) -> dict:
 
 
 def _token_expired(token: str, skew_seconds: int = 300) -> bool:
-    payload = _decode_jwt_payload(token)
+    payload = _decode_jwt_payload(token, allow_unverified_fallback=True)
     exp = payload.get("exp")
     if not isinstance(exp, (int, float)):
         return True
@@ -88,11 +195,40 @@ def _extract_email(token: str) -> str:
     return payload.get("email", "")
 
 
+def _extract_token_exp(token: str) -> float | None:
+    payload = _decode_jwt_payload(token, allow_unverified_fallback=True)
+    exp = payload.get("exp")
+    if isinstance(exp, (int, float)):
+        return float(exp)
+    return None
+
+
 class _OAuthCallbackHandler(BaseHTTPRequestHandler):
     server_version = "PantheonOAuth/1.0"
+    ALLOWED_ORIGINS = {"https://auth.openai.com", "https://openai.com"}
+
+    def _check_origin(self) -> bool:
+        origin = self.headers.get("Origin", "")
+        referer = self.headers.get("Referer", "")
+        
+        if origin:
+            for allowed in self.ALLOWED_ORIGINS:
+                if origin.startswith(allowed):
+                    return True
+        if referer:
+            for allowed in self.ALLOWED_ORIGINS:
+                if referer.startswith(allowed):
+                    return True
+        if not origin and not referer:
+            return True
+        return False
 
     def do_GET(self) -> None:
         from urllib.parse import parse_qs, urlparse
+
+        if not self._check_origin():
+            self.send_error(403)
+            return
 
         parsed = urlparse(self.path)
         if parsed.path != "/auth/callback":
@@ -257,6 +393,7 @@ class OpenAIOAuthProvider:
             self.auth_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.auth_path, "w") as f:
                 json.dump(record.to_dict(), f, indent=2)
+            os.chmod(self.auth_path, stat.S_IRUSR | stat.S_IWUSR)
         except Exception as e:
             logger.warning(f"Failed to save auth record: {e}")
 
@@ -301,8 +438,10 @@ class OpenAIOAuthProvider:
 
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
+            time.sleep(0.5)
 
             logger.info(f"OAuth server started on port {port}")
+            logger.info(f"Callback URL: {redirect_uri}")
 
             try:
                 if open_browser:
@@ -375,6 +514,52 @@ class OpenAIOAuthProvider:
 
         return access_token
 
+    def ensure_access_token_with_codex_fallback(
+        self,
+        *,
+        refresh_if_needed: bool = True,
+        import_codex_if_missing: bool = True,
+    ) -> Optional[str]:
+        """Return a usable access token, importing Codex CLI auth when available."""
+        access_token = self.ensure_access_token(refresh_if_needed=refresh_if_needed)
+        if access_token or not import_codex_if_missing:
+            return access_token
+
+        imported = import_from_codex_cli()
+        if not imported:
+            return None
+
+        return self.ensure_access_token(refresh_if_needed=refresh_if_needed)
+
+    def build_codex_auth_context(
+        self,
+        *,
+        refresh_if_needed: bool = True,
+        import_codex_if_missing: bool = True,
+    ) -> Optional[dict]:
+        """Build auth context for Codex-specific OAuth calls.
+
+        This is intentionally separate from generic OpenAI API auth. The returned
+        context is only meant for the Codex/ChatGPT backend path.
+        """
+        access_token = self.ensure_access_token_with_codex_fallback(
+            refresh_if_needed=refresh_if_needed,
+            import_codex_if_missing=import_codex_if_missing,
+        )
+        if not access_token:
+            return None
+
+        auth = self._load_auth_record()
+        tokens = auth.tokens if auth else OAuthTokens("", access_token, "")
+
+        return {
+            "base_url": f"{OPENAI_CODEX_BASE_URL}/codex",
+            "access_token": access_token,
+            "account_id": tokens.account_id,
+            "organization_id": tokens.organization_id,
+            "project_id": tokens.project_id,
+        }
+
     def get_status(self) -> OAuthStatus:
         """Get current OAuth status."""
         auth = self._load_auth_record()
@@ -385,7 +570,6 @@ class OpenAIOAuthProvider:
         access_token = auth.tokens.access_token
         id_token = auth.tokens.id_token
 
-        token_expires_at = None
         if access_token and _token_expired(access_token):
             refresh_token = auth.tokens.refresh_token
             if refresh_token:
@@ -398,6 +582,10 @@ class OpenAIOAuthProvider:
                 except Exception as e:
                     logger.warning(f"Token refresh failed: {e}")
 
+        token_expires_at = _extract_token_exp(id_token) if id_token else None
+        if token_expires_at is None:
+            token_expires_at = _extract_token_exp(access_token) if access_token else None
+
         return OAuthStatus(
             authenticated=bool(access_token),
             email=_extract_email(id_token) if id_token else "",
@@ -408,9 +596,91 @@ class OpenAIOAuthProvider:
         )
 
     def logout(self) -> None:
-        """Clear OAuth credentials."""
+        """Clear OAuth credentials and revoke tokens on OpenAI server."""
+        auth = self._load_auth_record()
+
+        if auth and auth.tokens.access_token:
+            try:
+                requests.post(
+                    f"{OPENAI_AUTH_ISSUER}/oauth/revoke",
+                    data={"token": auth.tokens.access_token},
+                    timeout=10,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to revoke access token: {e}")
+
+            try:
+                requests.post(
+                    f"{OPENAI_AUTH_ISSUER}/oauth/revoke",
+                    data={"token": auth.tokens.refresh_token},
+                    timeout=10,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to revoke refresh token: {e}")
+
         if self.auth_path.exists():
             self.auth_path.unlink()
+
+
+CODEX_CLI_AUTH_PATH = Path.home() / ".codex" / "auth.json"
+
+
+def import_from_codex_cli() -> bool:
+    """Import authentication from Codex CLI.
+    
+    Reads the existing Codex CLI authentication and converts it to our format.
+    This allows PantheonOS to use Codex CLI's existing login session.
+    
+    Returns:
+        True if import successful, False otherwise
+    """
+    import json
+    from datetime import datetime, timezone
+    
+    if not CODEX_CLI_AUTH_PATH.exists():
+        logger.warning(f"Codex CLI auth file not found: {CODEX_CLI_AUTH_PATH}")
+        return False
+    
+    try:
+        with open(CODEX_CLI_AUTH_PATH, "r") as f:
+            codex_data = json.load(f)
+        
+        tokens_data = codex_data.get("tokens", {})
+        if not tokens_data:
+            logger.warning("Codex CLI auth file has no tokens")
+            return False
+        
+        access_token = tokens_data.get("access_token")
+        id_token = tokens_data.get("id_token")
+        refresh_token = tokens_data.get("refresh_token")
+        
+        if not access_token:
+            logger.warning("Codex CLI has no access token")
+            return False
+        
+        account_id = tokens_data.get("account_id")
+        
+        auth_record = AuthRecord(
+            provider="openai",
+            tokens=OAuthTokens(
+                id_token=id_token or "",
+                access_token=access_token,
+                refresh_token=refresh_token or "",
+                account_id=account_id,
+            ),
+            last_refresh=datetime.now(timezone.utc).isoformat(),
+            email=_extract_email(id_token) if id_token else "",
+        )
+        
+        provider = OpenAIOAuthProvider()
+        provider._save_auth_record(auth_record)
+        
+        logger.info(f"Successfully imported Codex CLI authentication")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to import Codex CLI auth: {e}")
+        return False
 
 
 def get_openai_oauth_provider() -> OpenAIOAuthProvider:

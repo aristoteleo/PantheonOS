@@ -125,6 +125,15 @@ class TestProviderDetection:
             result = selector.detect_available_provider()
             assert result == "deepseek"
 
+    def test_openai_not_available_when_api_key_routing_disabled(self, mock_settings):
+        selector = ModelSelector(mock_settings)
+        selector._available_providers = None
+
+        with patch("pantheon.utils.model_selector.should_treat_openai_api_key_as_available", return_value=False):
+            with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test123"}, clear=False):
+                available = selector._get_available_providers()
+                assert "openai" not in available
+
 
 class TestModelResolution:
     """Test model tag resolution."""
