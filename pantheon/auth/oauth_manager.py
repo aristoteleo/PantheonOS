@@ -196,3 +196,45 @@ def reset_oauth_manager() -> None:
     """Reset the OAuth manager singleton."""
     global _oauth_manager
     _oauth_manager = None
+
+
+def get_oauth_token(provider: str = "openai", refresh_if_needed: bool = True) -> Optional[str]:
+    """Get a valid OAuth access token for the specified provider.
+    
+    This is a convenience function for other modules to get OAuth tokens.
+    
+    Args:
+        provider: The OAuth provider name (default: "openai")
+        refresh_if_needed: Whether to refresh the token if expired
+        
+    Returns:
+        The access token string, or None if not available
+    """
+    try:
+        manager = get_oauth_manager()
+        return manager.ensure_access_token(provider, refresh_if_needed)
+    except Exception:
+        return None
+
+
+def is_oauth_available(provider: str = "openai") -> bool:
+    """Check if OAuth is available for the specified provider.
+    
+    Args:
+        provider: The OAuth provider name (default: "openai")
+        
+    Returns:
+        True if OAuth tokens are available, False otherwise
+    """
+    try:
+        from pathlib import Path
+        
+        manager = get_oauth_manager()
+        oauth_provider = manager.get_provider(provider)
+        
+        # Check if auth file exists
+        if hasattr(oauth_provider, 'auth_path') and oauth_provider.auth_path.exists():
+            return True
+        return False
+    except Exception:
+        return False

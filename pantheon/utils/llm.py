@@ -9,6 +9,26 @@ from typing import Any, Callable
 from .log import logger
 from .misc import run_func
 
+
+def _get_openai_api_key() -> str | None:
+    """Get OpenAI API key, preferring OAuth token over environment variable.
+    
+    Returns:
+        API key string, or None if not available
+    """
+    # First try OAuth token
+    try:
+        from pantheon.auth.oauth_manager import get_oauth_token
+        token = get_oauth_token("openai", refresh_if_needed=True)
+        if token:
+            return token
+    except Exception:
+        pass
+    
+    # Fall back to environment variable
+    import os
+    return os.environ.get("OPENAI_API_KEY")
+
 _PATTERN_BASE64_DATA_URI = re.compile(
     r"data:image/([a-zA-Z0-9+-]+);base64,([A-Za-z0-9+/=]+)"
 )
@@ -45,11 +65,13 @@ async def acompletion_openai(
 ):
     from openai import NOT_GIVEN, APIConnectionError, AsyncOpenAI
 
+    api_key = _get_openai_api_key()
+    
     # Create client with custom base_url if provided
     if base_url:
-        client = AsyncOpenAI(base_url=base_url)
+        client = AsyncOpenAI(base_url=base_url, api_key=api_key)
     else:
-        client = AsyncOpenAI()
+        client = AsyncOpenAI(api_key=api_key)
     chunks = []
     _tools = tools or NOT_GIVEN
     _pcall = (tools is not None) or NOT_GIVEN
@@ -245,15 +267,17 @@ async def acompletion_responses(
 
     # ========== Build client ==========
     proxy_kwargs = get_litellm_proxy_kwargs()
+    api_key = _get_openai_api_key()
+    
     if proxy_kwargs:
         client = AsyncOpenAI(
             base_url=proxy_kwargs["api_base"],
             api_key=proxy_kwargs["api_key"]
         )
     elif base_url:
-        client = AsyncOpenAI(base_url=base_url)
+        client = AsyncOpenAI(base_url=base_url, api_key=api_key)
     else:
-        client = AsyncOpenAI()
+        client = AsyncOpenAI(api_key=api_key)
 
     # ========== Convert inputs ==========
     instructions, input_items = _convert_messages_to_responses_input(messages)

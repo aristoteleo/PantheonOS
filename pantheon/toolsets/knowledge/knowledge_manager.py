@@ -88,12 +88,18 @@ class KnowledgeToolSet(ToolSet):
                 from llama_index.llms.openai import OpenAI
                 from pantheon.settings import get_settings
                 from pantheon.utils.llm_providers import get_litellm_proxy_kwargs
+                from pantheon.auth.oauth_manager import get_oauth_token
                 settings = get_settings()
 
+                # Prefer OAuth token, fall back to API key
+                api_key = get_oauth_token("openai", refresh_if_needed=True)
+                if not api_key:
+                    api_key = settings.get_api_key("OPENAI_API_KEY")
+                
                 llm_kwargs = {
                     "model": "gpt-4o-mini",
                     "temperature": 0.1,
-                    "api_key": settings.get_api_key("OPENAI_API_KEY"),
+                    "api_key": api_key,
                 }
                 api_base = settings.get_api_key("OPENAI_API_BASE")
                 if api_base:

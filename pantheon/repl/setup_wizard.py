@@ -95,9 +95,8 @@ def check_and_run_setup():
 
     # Check for OpenAI OAuth token
     try:
-        from pantheon.auth.openai_oauth_manager import get_oauth_manager
-        oauth_manager = get_oauth_manager()
-        if oauth_manager.auth_path.exists():
+        from pantheon.auth.oauth_manager import is_oauth_available
+        if is_oauth_available("openai"):
             return
     except Exception:
         pass
@@ -222,14 +221,10 @@ def run_setup_wizard(standalone: bool = False):
             # Special handling for OAuth providers
             if entry.provider_key == "openai_oauth":
                 try:
-                    from pantheon.auth.openai_oauth_manager import get_oauth_manager
+                    from pantheon.auth.oauth_manager import get_oauth_manager
                     oauth_manager = get_oauth_manager()
-                    if oauth_manager.auth_path.exists():
-                        oauth_manager.auth_path.unlink()
-                        oauth_manager.reset()  # Clear cached manager
-                        console.print(f"[green]✓ {entry.display_name} credentials cleared[/green]")
-                    else:
-                        console.print(f"[yellow]No {entry.display_name} credentials found[/yellow]")
+                    oauth_manager.logout("openai")
+                    console.print(f"[green]✓ {entry.display_name} credentials cleared[/green]")
                 except Exception as e:
                     logger.warning(f"Failed to clear OAuth credentials: {e}")
                     console.print(f"[yellow]Failed to clear {entry.display_name}: {e}[/yellow]")

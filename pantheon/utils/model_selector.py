@@ -259,11 +259,8 @@ class ModelSelector:
         if provider != "openai":
             return False
         try:
-            from pantheon.auth.openai_oauth_manager import get_oauth_manager
-            oauth_manager = get_oauth_manager()
-            if oauth_manager.auth_path.exists():
-                logger.debug(f"OpenAI OAuth token found at {oauth_manager.auth_path}")
-                return True
+            from pantheon.auth.oauth_manager import is_oauth_available
+            return is_oauth_available(provider)
         except Exception as e:
             logger.debug(f"Failed to check OAuth token: {e}")
         return False
