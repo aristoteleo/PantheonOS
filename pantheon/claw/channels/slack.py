@@ -9,8 +9,10 @@ from typing import Any
 from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
 
+import aiohttp
+
 from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime
+from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks
 
 logger = logging.getLogger("pantheon.claw.channels.slack")
 
@@ -78,11 +80,60 @@ class SlackGatewayApp(ChannelRuntime):
         await self._post(client, body, result.get("message") or "", thread=bool(route.thread_id))
         return True
 
-    async def _analysis_wrapper(self, route: ConversationRoute, body: dict[str, Any], client, user_text: str) -> None:
+    async def _download_files(self, client, event: dict[str, Any]) -> list[str]:
+        """Download image files from a Slack event and return data-URI list."""
+        files = event.get("files") or []
+        uris: list[str] = []
+        for f in files:
+            mimetype = f.get("mimetype") or ""
+            if not mimetype.startswith("image/"):
+                continue
+            url = f.get("url_private_download") or f.get("url_private") or ""
+            if not url:
+                continue
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        url,
+                        headers={"Authorization": f"Bearer {self._bot_token}"},
+                        timeout=aiohttp.ClientTimeout(total=30),
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.read()
+                            uris.append(bytes_to_data_uri(data, f.get("name") or "image.png"))
+            except Exception:
+                logger.debug("Slack file download failed: %s", f.get("name"))
+        return uris
+
+    async def _send_image(self, client, channel: str, thread_ts: str | None, data_uri: str) -> None:
+        """Upload a base64 data-URI as a file to Slack."""
+        raw, mime = data_uri_to_bytes(data_uri)
+        if not raw:
+            return
+        ext = mime.split("/")[-1] if mime else "png"
+        try:
+            await client.files_upload_v2(
+                channel=channel,
+                content=raw,
+                filename=f"image.{ext}",
+                thread_ts=thread_ts,
+            )
+        except Exception:
+            logger.warning("Slack image upload failed")
+
+    async def _analysis_wrapper(
+        self,
+        route: ConversationRoute,
+        body: dict[str, Any],
+        client,
+        user_text: str,
+        image_uris: list[str] | None = None,
+    ) -> None:
         route_key = route.route_key()
         placeholder = await self._post(client, body, ":thinking_face: Thinking...", thread=bool(route.thread_id))
         placeholder_ts = str(placeholder["ts"])
         llm_buf: list[str] = []
+        image_buf: list[str] = []
         last_progress = ""
         last_edit = 0.0
 
@@ -100,8 +151,9 @@ class SlackGatewayApp(ChannelRuntime):
             last_progress = label
 
         on_chunk = self.make_chunk_callback(llm_buf, on_update=lambda: _refresh(False))
-        on_step = self.make_step_callback(
+        on_step = self.make_image_step_callback(
             llm_buf,
+            image_buf,
             progress_cb=_set_progress,
             refresh_cb=lambda: _refresh(True),
         )
@@ -110,11 +162,18 @@ class SlackGatewayApp(ChannelRuntime):
             result = await self._bridge.run_chat(
                 route,
                 user_text,
+                image_uris=image_uris,
                 process_chunk=on_chunk,
                 process_step_message=on_step,
             )
             final_text = str(result.get("response") or "".join(llm_buf) or "Done.")
             await self._update(client, body, placeholder_ts, final_text[-3500:])
+            # Send any response images
+            event = body["event"]
+            channel = event["channel"]
+            thread_ts = event.get("thread_ts") or event.get("ts")
+            for uri in image_buf:
+                await self._send_image(client, channel, thread_ts, uri)
         except asyncio.CancelledError:
             await self._update(client, body, placeholder_ts, "Cancelled.")
             raise
@@ -140,36 +199,43 @@ class SlackGatewayApp(ChannelRuntime):
             if route.scope_type != "dm" and not event.get("thread_ts"):
                 return
             text = str(event.get("text") or "").strip()
-            if not text:
+            image_uris = await self._download_files(client, event)
+            if not text and not image_uris:
                 return
             cmd, tail = self._command_parts(text)
             if cmd and await self._handle_control(route, body, client, text):
                 return
             route_key = route.route_key()
             if self._get_running(route_key) is not None:
-                self._queue_message(route_key, tail or text)
+                self._queue_message(route_key, tail or text or "[image]")
                 await self._post(client, body, "Queued after current analysis.", thread=bool(route.thread_id))
                 return
-            task = asyncio.create_task(self._analysis_wrapper(route, body, client, tail or text))
-            self._set_task(route_key, task, tail or text)
+            task = asyncio.create_task(
+                self._analysis_wrapper(route, body, client, tail or text, image_uris=image_uris or None)
+            )
+            self._set_task(route_key, task, tail or text or "[image]")
 
         @self._app.event("app_mention")
         async def _handle_mention(body, client, ack):
             await ack()
             route = self._route_from_event(body)
-            text = str(body["event"].get("text") or "").strip()
+            event = body["event"]
+            text = str(event.get("text") or "").strip()
             parts = text.split(maxsplit=1)
             cleaned = parts[1] if len(parts) > 1 else text
+            image_uris = await self._download_files(client, event)
             cmd, tail = self._command_parts(cleaned)
             if cmd and await self._handle_control(route, body, client, cleaned):
                 return
             route_key = route.route_key()
             if self._get_running(route_key) is not None:
-                self._queue_message(route_key, tail or cleaned)
+                self._queue_message(route_key, tail or cleaned or "[image]")
                 await self._post(client, body, "Queued after current analysis.", thread=True)
                 return
-            task = asyncio.create_task(self._analysis_wrapper(route, body, client, tail or cleaned))
-            self._set_task(route_key, task, tail or cleaned)
+            task = asyncio.create_task(
+                self._analysis_wrapper(route, body, client, tail or cleaned, image_uris=image_uris or None)
+            )
+            self._set_task(route_key, task, tail or cleaned or "[image]")
 
     async def run(self) -> None:
         handler = AsyncSocketModeHandler(self._app, self._app_token)

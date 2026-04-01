@@ -26,6 +26,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
+import base64
+import mimetypes
+
 from pantheon.claw.registry import ConversationRoute
 from pantheon.settings import get_settings
 
@@ -251,6 +254,51 @@ def parse_step_text(step: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+# ─── Image helpers ───────────────────────────────────────────────────────────
+
+_DATA_URI_RE = r"data:image/[^;]+;base64,[A-Za-z0-9+/=]+"
+
+
+def bytes_to_data_uri(data: bytes, filename: str = "") -> str:
+    """Convert raw image bytes to a ``data:image/...;base64,...`` URI."""
+    mime, _ = mimetypes.guess_type(filename or "image.png")
+    if not mime or not mime.startswith("image/"):
+        mime = "image/png"
+    encoded = base64.b64encode(data).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
+def data_uri_to_bytes(uri: str) -> tuple[bytes, str]:
+    """Convert a data URI back to ``(raw_bytes, mime_type)``.
+
+    Returns ``(b"", "")`` when the URI is not a valid base64 data URI.
+    """
+    if not uri or not uri.startswith("data:"):
+        return b"", ""
+    try:
+        header, payload = uri.split(",", 1)
+        mime = header.split(";")[0].replace("data:", "")
+        return base64.b64decode(payload), mime
+    except Exception:
+        return b"", ""
+
+
+def extract_images_from_result(result: Dict[str, Any]) -> List[str]:
+    """Pull base64 data-URIs from a chatroom response.
+
+    Scans ``result["messages"]`` for tool-result messages that carry a
+    ``base64_uri`` field in their ``raw_content``.
+    """
+    uris: List[str] = []
+    for msg in result.get("messages") or []:
+        raw = msg.get("raw_content")
+        if isinstance(raw, dict):
+            uri = raw.get("base64_uri") or ""
+            if uri:
+                uris.append(uri)
+    return uris
+
+
 # ─── ChannelRuntime ──────────────────────────────────────────────────────────
 
 class ChannelRuntime:
@@ -344,6 +392,38 @@ class ChannelRuntime:
                 llm_buf.append(txt)
 
             # Show tool/agent-transfer progress
+            progress = parse_step_progress(step)
+            if progress is not None and progress_cb is not None:
+                await progress_cb(progress)
+
+            if refresh_cb is not None:
+                await refresh_cb()
+
+        return _on_step
+
+    def make_image_step_callback(
+        self,
+        llm_buf: List[str],
+        image_buf: List[str],
+        progress_cb: Optional[Callable[[str], Coroutine]] = None,
+        refresh_cb: Optional[Callable[[], Coroutine]] = None,
+    ) -> Callable[[Dict[str, Any]], Coroutine]:
+        """Like ``make_step_callback`` but also collects images from tool results
+        into *image_buf* (as data-URI strings)."""
+        async def _on_step(step: Dict[str, Any]) -> None:
+            txt = parse_step_text(step)
+            if txt:
+                llm_buf.clear()
+                llm_buf.append(txt)
+
+            # Collect images from tool results
+            if step.get("role") == "tool" and not step.get("transfer"):
+                raw = step.get("raw_content")
+                if isinstance(raw, dict):
+                    uri = raw.get("base64_uri") or ""
+                    if uri:
+                        image_buf.append(uri)
+
             progress = parse_step_progress(step)
             if progress is not None and progress_cb is not None:
                 await progress_cb(progress)

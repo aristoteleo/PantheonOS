@@ -36,7 +36,7 @@ class ChatRoomGatewayBridge:
 
     async def _chat_exists(self, chat_id: str) -> bool:
         try:
-            result = await self._chatroom.get_chat_messages(chat_id=chat_id, filter_out_images=True)
+            result = await self._chatroom.get_chat_messages(chat_id=chat_id, filter_out_images=False)
         except Exception:
             return False
         return bool(result.get("success", False))
@@ -446,11 +446,30 @@ class ChatRoomGatewayBridge:
             chat_name=created["chat_name"],
         )
 
+    @staticmethod
+    def _build_message(user_text: str, image_uris: list[str] | None = None) -> list[dict[str, Any]]:
+        """Build a message payload, optionally with images.
+
+        When *image_uris* are provided the message uses the multimodal content-
+        array format (``_llm_content`` for the LLM, ``content`` for display).
+        """
+        if not image_uris:
+            return [{"role": "user", "content": user_text}]
+
+        llm_parts: list[dict[str, Any]] = []
+        if user_text:
+            llm_parts.append({"type": "text", "text": user_text})
+        for uri in image_uris:
+            llm_parts.append({"type": "image_url", "image_url": {"url": uri}})
+        display = user_text or f"[{len(image_uris)} image(s)]"
+        return [{"role": "user", "content": display, "_llm_content": llm_parts}]
+
     async def run_chat(
         self,
         route: ConversationRoute,
         user_text: str,
         *,
+        image_uris: list[str] | None = None,
         process_chunk=None,
         process_step_message=None,
     ) -> dict[str, Any]:
@@ -458,7 +477,7 @@ class ChatRoomGatewayBridge:
         return await self._dispatch(
             self._chatroom.chat(
                 chat_id=entry["chat_id"],
-                message=[{"role": "user", "content": user_text}],
+                message=self._build_message(user_text, image_uris),
                 process_chunk=process_chunk,
                 process_step_message=process_step_message,
             )

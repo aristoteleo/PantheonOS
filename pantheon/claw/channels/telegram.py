@@ -11,7 +11,7 @@ from telegram.constants import ChatType
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime, text_chunks
+from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks
 
 logger = logging.getLogger("pantheon.claw.channels.telegram")
 
@@ -34,6 +34,7 @@ class TelegramGatewayBot(ChannelRuntime):
         }
         self._stop_event = stop_event
         self._app = Application.builder().token(self._token).build()
+        self._app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, self._handle_photo))
         self._app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_text))
         self._app.add_handler(MessageHandler(filters.COMMAND, self._handle_text))
 
@@ -68,11 +69,48 @@ class TelegramGatewayBot(ChannelRuntime):
 
     # ── Analysis wrapper ─────────────────────────────────────────────────────
 
+    async def _download_photo(self, update: Update) -> list[str]:
+        """Download photo(s) from a Telegram message and return data-URI list."""
+        message = update.effective_message
+        if message is None:
+            return []
+        uris: list[str] = []
+        if message.photo:
+            photo = message.photo[-1]  # highest resolution
+            tg_file = await photo.get_file()
+            data = await tg_file.download_as_bytearray()
+            uris.append(bytes_to_data_uri(bytes(data), "photo.jpg"))
+        if message.document and (message.document.mime_type or "").startswith("image/"):
+            tg_file = await message.document.get_file()
+            data = await tg_file.download_as_bytearray()
+            uris.append(bytes_to_data_uri(bytes(data), message.document.file_name or "image.png"))
+        return uris
+
+    async def _send_image(self, message, data_uri: str) -> None:
+        """Send a base64 data-URI as a photo to the Telegram chat."""
+        raw, mime = data_uri_to_bytes(data_uri)
+        if not raw:
+            return
+        import io
+        ext = mime.split("/")[-1] if mime else "png"
+        buf = io.BytesIO(raw)
+        buf.name = f"image.{ext}"
+        try:
+            await message.reply_photo(photo=buf)
+        except Exception:
+            logger.debug("Telegram send_photo failed, falling back to document")
+            buf.seek(0)
+            try:
+                await message.reply_document(document=buf)
+            except Exception:
+                logger.warning("Telegram image send failed completely")
+
     async def _analysis_wrapper(
         self,
         route: ConversationRoute,
         update: Update,
         user_text: str,
+        image_uris: list[str] | None = None,
     ) -> None:
         route_key = route.route_key()
         message = update.effective_message
@@ -81,6 +119,7 @@ class TelegramGatewayBot(ChannelRuntime):
 
         placeholder = await message.reply_text("Thinking...")
         llm_buf: list[str] = []
+        image_buf: list[str] = []
         last_progress = ""
         last_edit = 0.0
 
@@ -101,8 +140,9 @@ class TelegramGatewayBot(ChannelRuntime):
             last_progress = label
 
         on_chunk = self.make_chunk_callback(llm_buf, on_update=lambda: _refresh(False))
-        on_step = self.make_step_callback(
+        on_step = self.make_image_step_callback(
             llm_buf,
+            image_buf,
             progress_cb=_set_progress,
             refresh_cb=lambda: _refresh(True),
         )
@@ -111,22 +151,23 @@ class TelegramGatewayBot(ChannelRuntime):
             result = await self._bridge.run_chat(
                 route,
                 user_text,
+                image_uris=image_uris,
                 process_chunk=on_chunk,
                 process_step_message=on_step,
             )
             final = str(result.get("response") or "".join(llm_buf) or "Done.")
-            # Force a final edit so the user sees the clean result
             try:
                 await placeholder.edit_text(final[-3500:])
             except Exception:
                 pass
-            # If response is longer than Telegram's limit, send overflow as
-            # additional messages
             for extra in text_chunks(final, limit=_MAX_MSG)[1:]:
                 try:
                     await message.reply_text(extra)
                 except Exception:
                     pass
+            # Send any images from the response
+            for uri in image_buf:
+                await self._send_image(message, uri)
         except asyncio.CancelledError:
             try:
                 await placeholder.edit_text("Cancelled.")
@@ -148,6 +189,36 @@ class TelegramGatewayBot(ChannelRuntime):
                 self._set_task(route_key, task, next_text)
 
     # ── Message handler ───────────────────────────────────────────────────────
+
+    async def _handle_photo(
+        self,
+        update: Update,
+        _context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        if not self._allowed(update):
+            return
+        message = update.effective_message
+        if message is None:
+            return
+
+        image_uris = await self._download_photo(update)
+        if not image_uris:
+            return
+
+        text = (message.caption or "").strip()
+        route = self._route_from_update(update)
+        route_key = route.route_key()
+
+        running = self._get_running(route_key)
+        if running is not None:
+            self._queue_message(route_key, text or "[image]")
+            await message.reply_text("Queued after current analysis.")
+            return
+
+        task = asyncio.create_task(
+            self._analysis_wrapper(route, update, text, image_uris=image_uris)
+        )
+        self._set_task(route_key, task, text or "[image]")
 
     async def _handle_text(
         self,
