@@ -75,7 +75,7 @@ uv sync
 
 # With optional dependencies
 uv sync --extra knowledge  # RAG/vector search support
-uv sync --extra slack      # Slack integration
+uv sync --extra claw       # PantheonClaw mobile gateway channels
 uv sync --extra r          # R language support (requires R installed)
 ```
 
@@ -87,7 +87,7 @@ pip install pantheon-agents
 
 # With optional dependencies
 pip install "pantheon-agents[knowledge]"  # RAG/vector search support
-pip install "pantheon-agents[slack]"      # Slack integration
+pip install "pantheon-agents[claw]"       # PantheonClaw mobile gateway channels
 ```
 
 ### Development Installation

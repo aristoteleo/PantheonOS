@@ -28,10 +28,18 @@ async def create_agent(
         model: The model to use for the agent.
         icon: The icon to use for the agent.
         toolsets: List of toolset names to add to the agent.
+            "think" is a reserved name that enables the think tool.
         mcp_servers: List of MCP server names to add to the agent.
         description: Optional description of the agent's purpose and capabilities.
-        think_tool: Whether to enable the think tool for structured reasoning.
+        think_tool: Whether to enable the think tool (deprecated, use toolsets=["think"] instead).
     """
+    toolsets = list(toolsets or [])
+
+    # Extract "think" from toolsets — it's a built-in tool, not a remote toolset
+    if "think" in toolsets:
+        think_tool = True
+        toolsets = [t for t in toolsets if t != "think"]
+
     agent = Agent(
         name=name,
         instructions=instructions,
@@ -43,7 +51,6 @@ async def create_agent(
     agent.not_loaded_toolsets = []
     toolsets_added = []
     mcp_server_added = []
-    toolsets = list(toolsets or [])
     mcp_servers = list(mcp_servers or [])
     
     # ===== Parse toolsets to extract MCP specs =====

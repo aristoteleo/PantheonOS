@@ -5,7 +5,7 @@ icon: 🏠
 id: default
 name: General Team
 type: team
-version: 1.2.0
+version: 1.3.0
 agents:
   - leader
   - researcher
@@ -14,16 +14,15 @@ leader:
   id: leader
   name: Leader
   icon: 🧭
-  think_tool: true
   toolsets:
     - file_manager
     - shell
     - package
     - task
-    - code
     - integrated_notebook
     - web
     - evolution
+    - think
 ---
 
 {{agentic_general}}

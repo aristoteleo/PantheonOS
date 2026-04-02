@@ -459,7 +459,7 @@ class EvolutionToolSet(ToolSet):
         with_buffer = int(base_time * 1.3)  # Add 30% buffer
         return max(60, min(with_buffer, 300))  # Clamp to 60-300 seconds
 
-    @tool
+    @tool(exclude=True)
     async def evolve_code(
         self,
         code: str,
@@ -609,7 +609,7 @@ class EvolutionToolSet(ToolSet):
                     "message": f"Timeout after {timeout}s, continuing in background.",
                 }
 
-    @tool
+    @tool(exclude=True)
     async def evolve_codebase(
         self,
         codebase_path: str,
@@ -999,7 +999,7 @@ class EvolutionToolSet(ToolSet):
 
     # ===== Frontend-only Tools =====
 
-    @tool
+    @tool(exclude=True)
     async def get_evolution_status(
         self,
         evolution_id: str,
@@ -1197,7 +1197,7 @@ class EvolutionToolSet(ToolSet):
                 details=str(e)
             )
     
-    @tool
+    @tool(exclude=True)
     async def cancel_evolution(
         self,
         evolution_id: str,
@@ -1491,3 +1491,143 @@ class EvolutionToolSet(ToolSet):
                 "success": False,
                 "error": str(e)
             }
+
+    # ===== Unified Tools (LLM-facing) =====
+
+    @tool
+    async def evolve(
+        self,
+        type: str,
+        evaluator_code: str,
+        objective: str,
+        code: Optional[str] = None,
+        codebase_path: Optional[str] = None,
+        include_patterns: Optional[List[str]] = None,
+        iterations: Optional[int] = None,
+        islands: Optional[int] = None,
+        model: str = "normal",
+        output_path: Optional[str] = None,
+        async_mode: bool = True,
+        timeout: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Evolve and optimize code using evolutionary algorithms with LLM-guided mutation.
+
+        Args:
+            type: Evolution type:
+                - "code": Optimize a single code string (requires `code` arg)
+                - "codebase": Optimize a multi-file project (requires `codebase_path` arg)
+
+            code: Initial code to optimize (required when type="code")
+
+            codebase_path: Path to directory containing the codebase (required when type="codebase")
+
+            evaluator_code: Python function: evaluate(workspace_path: str) -> Dict[str, float]
+                MUST return individual metrics (0-1 range) AND a "fitness_weights" dict.
+                Example:
+                ```python
+                def evaluate(workspace_path):
+                    import sys; sys.path.insert(0, workspace_path)
+                    from main import func
+                    correct = float(func(test_data) == expected)
+                    speed = 1.0 / (1.0 + elapsed)
+                    return {
+                        "correctness": correct,
+                        "speed": speed,
+                        "fitness_weights": {"correctness": 0.7, "speed": 0.3},
+                    }
+                ```
+
+            objective: Optimization goal (e.g., "Optimize for speed")
+
+            include_patterns: For codebase type: glob patterns for files (default: ["**/*.py"])
+
+            iterations: Max iterations (default: 50)
+
+            islands: Evolution islands for diversity (default: 3)
+
+            model: Mutation model quality (default: "normal", options: "high", "normal", "low")
+
+            output_path: For codebase type: path to save optimized codebase
+
+            async_mode: Run in background (default: True, RECOMMENDED for iterations > 20)
+
+            timeout: Timeout seconds for sync mode (default: auto-estimate)
+
+        Returns:
+            dict with evolution_id and status
+        """
+        if type == "code":
+            if not code:
+                return error_response("INVALID_INPUT", "'code' is required when type='code'")
+            return await self.evolve_code(
+                code=code,
+                evaluator_code=evaluator_code,
+                objective=objective,
+                iterations=iterations,
+                islands=islands,
+                model=model,
+                async_mode=async_mode,
+                timeout=timeout,
+            )
+        elif type == "codebase":
+            if not codebase_path:
+                return error_response("INVALID_INPUT", "'codebase_path' is required when type='codebase'")
+            return await self.evolve_codebase(
+                codebase_path=codebase_path,
+                evaluator_code=evaluator_code,
+                objective=objective,
+                include_patterns=include_patterns,
+                iterations=iterations,
+                islands=islands,
+                model=model,
+                output_path=output_path,
+                async_mode=async_mode,
+            )
+        else:
+            return error_response("INVALID_INPUT", f"Unknown type '{type}'. Must be 'code' or 'codebase'.")
+
+    @tool
+    async def evolution_manage(
+        self,
+        evolution_id: str,
+        action: str = "status",
+        include_code: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Manage and monitor evolution sessions.
+
+        Args:
+            evolution_id: Unique evolution identifier from evolve()
+            action: Operation to perform:
+                - "status": Get evolution status and progress (default)
+                - "cancel": Cancel a running evolution
+            include_code: For status action: include files and evaluator_code (default: False)
+
+        Returns:
+            dict with evolution status or cancellation result
+
+        Examples:
+            # Check progress
+            evolution_manage(evolution_id, action="status")
+
+            # Get full results when completed
+            evolution_manage(evolution_id, action="status", include_code=True)
+
+            # Cancel a running evolution
+            evolution_manage(evolution_id, action="cancel")
+        """
+        if action == "status":
+            return await self.get_evolution_status(
+                evolution_id=evolution_id,
+                include_code=include_code,
+            )
+        elif action == "cancel":
+            return await self.cancel_evolution(
+                evolution_id=evolution_id,
+            )
+        else:
+            return error_response(
+                "INVALID_INPUT",
+                f"Unknown action '{action}'. Must be 'status' or 'cancel'."
+            )

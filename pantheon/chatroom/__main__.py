@@ -8,8 +8,9 @@ from dotenv import load_dotenv
 # Load .env file with override=False to NOT override existing environment variables
 # This allows command-line args (like --auto-start-nats) to take precedence
 load_dotenv(override=False)
-# Also load global API keys from ~/.pantheon/.env
+# Also load global API keys from ~/.pantheon/.env and ~/.env (legacy fallback)
 load_dotenv(os.path.join(os.path.expanduser("~"), ".pantheon", ".env"), override=False)
+load_dotenv(os.path.join(os.path.expanduser("~"), ".env"), override=False)
 
 # Now safe to import other modules
 from pantheon.chatroom.start import start_services

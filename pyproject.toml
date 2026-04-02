@@ -96,6 +96,19 @@ dev = [
     "pytest-asyncio>=0.25.0",
     "pytest-timeout>=2.3.1",
 ]
+claw = [
+    "slack-sdk",
+    "slack-bolt",
+    "python-telegram-bot>=21.3",
+    "discord.py>=2.5",
+    "lark-oapi",
+    "requests>=2.0",
+    "pillow>=9.0",
+    "nbformat>=5.0",
+    "cryptography>=42.0.0",
+    "websocket-client>=1.8",
+    "qrcode"
+]
 slack = [
     "slack-sdk",
     "slack-bolt",
@@ -129,6 +142,8 @@ dev = [
     "build>=1.2.2.post1",
     "slack-sdk",
     "slack-bolt",
+    "python-telegram-bot>=21.3",
+    "discord.py>=2.5",
 ]
 
 [tool.setuptools]

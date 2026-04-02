@@ -115,8 +115,9 @@ class PythonInterpreterToolSet(ToolSet):
 
     async def _inject_runtime_context(self, interpreter_id: str):
         # build_context_env() now automatically optimizes environment size
+        effective_workdir = self._get_effective_workdir() or str(self.workdir)
         env = build_context_env(
-            workdir=str(self.workdir),
+            workdir=effective_workdir,
             context_variables=self._current_context_dict(),
             base_env=os.environ.copy(),  # Inherit all env vars including R_HOME, LD_LIBRARY_PATH, etc.
             optimize=True,  # Enable automatic optimization
@@ -307,8 +308,9 @@ class PythonInterpreterToolSet(ToolSet):
         if fig_path is not None:
             res["fig_storage_path"] = fig_path
             open_path = fig_path
-            if self.workdir:
-                open_path = os.path.join(self.workdir, fig_path)
+            effective_wd = self._get_effective_workdir() or (str(self.workdir) if self.workdir else None)
+            if effective_wd:
+                open_path = os.path.join(effective_wd, fig_path)
             with open(open_path, "rb") as f:
                 base64_img = base64.b64encode(f.read()).decode("utf-8")
             base64_uri = f"data:image/png;base64,{base64_img}"
@@ -354,10 +356,11 @@ class PythonInterpreterToolSet(ToolSet):
         g = job.result()
         await g.asend(None)  # Initialize the generator
         self.interpreters[job.id] = g
-        if self.workdir is not None:
+        effective_workdir = self._get_effective_workdir() or str(self.workdir) if self.workdir else None
+        if effective_workdir is not None:
             # Use repr() to properly escape backslashes on Windows
             await self.run_code_in_interpreter(
-                f"import os; os.chdir({repr(str(self.workdir))})", job.id
+                f"import os; os.chdir({repr(effective_workdir)})", job.id
             )
         if self.init_code is not None:
             await self.run_code_in_interpreter(self.init_code, job.id)

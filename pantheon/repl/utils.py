@@ -268,12 +268,25 @@ async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict) -> d
         model = (agent.models[0] if isinstance(getattr(agent, 'models', None), list) 
                  else getattr(agent, 'models', None) or getattr(agent, 'model', 'unknown'))
         
+        # Resolve model tags (e.g. "high", "normal") to actual model names
+        # so litellm.get_model_info() can look up the correct context window
+        try:
+            from pantheon.agent import _is_model_tag, _resolve_model_tag
+            if isinstance(model, str) and _is_model_tag(model):
+                resolved = _resolve_model_tag(model)
+                if resolved:
+                    model = resolved[0]
+        except Exception:
+            pass
+        
         system_prompt = getattr(agent, 'instructions', None)
         
         try:
              tools = await agent.get_tools_for_llm()
         except Exception as e:
              logger.warning(f"Failed to get tools: {e}")
+
+    tool_names = [t["function"]["name"] for t in tools] if tools else []
 
     # Try to get messages from chatroom via memory_manager
     if chatroom and chat_id:
@@ -307,7 +320,25 @@ async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict) -> d
                 tools=tools
             )
             
-        
+            # ✅ Fix max_tokens fallback: if count_tokens_in_messages returned
+            # the generic 200K default (litellm doesn't recognize the model),
+            # read the runtime-recorded max_tokens from message metadata instead.
+            # This is the same approach the REPL fast path uses (core.py:597).
+            if info.get("max_tokens", 0) <= 200_000 and raw_messages:
+                # Find last message with runtime metadata (written by collect_message_stats_lightweight)
+                for msg in reversed(raw_messages):
+                    meta = msg.get("_metadata", {})
+                    runtime_max = meta.get("max_tokens", 0)
+                    if runtime_max > 200_000:
+                        # Override with runtime value and recalculate derived fields
+                        info["max_tokens"] = runtime_max
+                        info["remaining"] = max(0, runtime_max - info.get("total", 0))
+                        total = info.get("total", 0)
+                        info["usage_percent"] = round(total / runtime_max * 100, 1) if runtime_max > 0 else 0
+                        info["warning_90"] = info["usage_percent"] >= 90
+                        info["critical_95"] = info["usage_percent"] >= 95
+                        break
+
             # ✅ Recalculate total_cost from ALL messages (including compressed)
             # Use for_llm=False to get full message history
             all_messages_for_cost = memory.get_messages(for_llm=False)
@@ -319,19 +350,28 @@ async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict) -> d
             info["total_cost"] = total_cost
             
             info["model"] = model
+            info["leader_tools"] = tool_names
             return info
         except Exception as e:
             logger.warning(f"Failed to count tokens: {e}")
 
-    # Fallback if calculation failed
+    # Fallback if calculation failed — also try to read max_tokens from metadata
+    runtime_max_tokens = 200_000
+    if raw_messages:
+        for msg in reversed(raw_messages):
+            meta = msg.get("_metadata", {})
+            if meta.get("max_tokens", 0) > 0:
+                runtime_max_tokens = meta["max_tokens"]
+                break
+
     total = fallback.get("total_input_tokens", 0) + fallback.get("total_output_tokens", 0)
     return {
-        "total": total, "max_tokens": 200000, "remaining": 200000 - total,
-        "usage_percent": round(total / 200000 * 100, 1) if total else 0,
+        "total": total, "max_tokens": runtime_max_tokens, "remaining": runtime_max_tokens - total,
+        "usage_percent": round(total / runtime_max_tokens * 100, 1) if total else 0,
         "by_role": {"user": fallback.get("total_input_tokens", 0), "assistant": fallback.get("total_output_tokens", 0)},
         "message_counts": {"user": fallback.get("message_count", 0), "assistant": fallback.get("message_count", 0)},
         "warning_90": False, "critical_95": False, "current_cost": 0, "model": model,
-        "system_prompt": 0, "tools_definition": 0, "error": None
+        "system_prompt": 0, "tools_definition": 0, "error": None, "leader_tools": tool_names
     }
 
 

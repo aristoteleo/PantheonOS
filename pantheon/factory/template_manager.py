@@ -409,6 +409,9 @@ class TemplateManager:
             payload = agent.to_creation_payload()
             agent_payloads[agent.id] = payload
 
+        # "think" is a built-in tool handled by Agent, not a remote toolset
+        required_toolsets.discard("think")
+
         return (
             agent_payloads,
             required_toolsets,

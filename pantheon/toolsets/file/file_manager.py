@@ -117,7 +117,7 @@ class FileManagerToolSetBase(ToolSet):
     Provides unified path management and file operations.
     """
 
-    @tool
+    @tool(exclude=True)
     async def manage_path(
         self,
         operation: str,
@@ -219,7 +219,7 @@ class FileManagerToolSetBase(ToolSet):
             return Path(file_path)
         return self._get_root() / file_path
 
-    @tool
+    @tool(exclude=True)
     async def get_cwd(self) -> dict:
         """Get current working directory."""
         return {"success": True, "cwd": str(self._get_root())}
@@ -392,6 +392,8 @@ class FileManagerToolSetBase(ToolSet):
         if not old_path.exists():
             return {"success": False, "error": "Old path does not exist"}
         new_path = self._resolve_path(new_path)
+        # Ensure parent directory exists before moving
+        new_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(old_path, new_path)
         return {"success": True}
 
@@ -621,6 +623,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
         start_line: int | None = None,
         end_line: int | None = None,
         max_chars: int | None = None,
+        symbol: str | None = None,
     ) -> dict:
         """Read the contents of a text file.
 
@@ -630,12 +633,16 @@ class FileManagerToolSet(FileManagerToolSetBase):
         - To read the entire file, do not pass start_line or end_line.
         - To read a specific range, pass both start_line and end_line.
         - max_chars: Optional character limit (default: 50000 from settings).
+        - symbol: Optional. Extract a specific class/function/method by name
+          (e.g., "MyClass", "MyClass.my_method", "helper_func").
 
         Args:
             file_path: Path to the file to read (relative to workspace root).
             start_line: Optional. First line to read (1-indexed, inclusive).
             end_line: Optional. Last line to read (1-indexed, inclusive).
             max_chars: Optional. Maximum characters to return (for quick preview, use lower values like 5000).
+            symbol: Optional. Qualified name of a code symbol to extract (dot notation).
+                   Examples: "MyClass", "MyClass.my_method", "helper_function"
 
         Returns:
             dict: {success, content, total_lines, format, [truncated, truncation_info, suggestions]}
@@ -644,6 +651,19 @@ class FileManagerToolSet(FileManagerToolSetBase):
             Large files are limited to max_file_read_lines and max_file_read_chars.
             Use start_line/end_line to paginate or max_chars to control output size.
         """
+        # Symbol extraction mode: use tree-sitter to extract specific code item
+        if symbol:
+            try:
+                from pantheon.toolsets.code.tree_sitter_parser import get_code_item
+                target_path = self._resolve_path(file_path)
+                if not target_path.exists():
+                    return {"success": False, "error": "File does not exist"}
+                return get_code_item(target_path, symbol)
+            except ImportError:
+                return {"success": False, "error": "Code navigation requires 'pantheon-agents[toolsets]'"}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
         # Support both absolute and relative paths
         target_path = self._resolve_path(file_path)
         if not target_path.exists():
@@ -656,7 +676,16 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 lines = f.readlines()
 
             total_lines = len(lines)
-            
+
+            # Empty file - return early
+            if total_lines == 0:
+                return {
+                    "success": True,
+                    "content": "",
+                    "total_lines": 0,
+                    "format": "1-indexed",
+                }
+
             # Get line limit from settings
             from pantheon.settings import get_settings
             max_lines = get_settings().max_file_read_lines
@@ -729,6 +758,55 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 "success": False,
                 "error": "File is not a valid text file (binary or encoding issue)",
             }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def view_file_outline(self, file_path: str) -> dict:
+        """Get a structured outline of classes and functions in a file.
+
+        Returns the "skeleton" of a source file: all top-level classes and
+        functions with their line ranges, signatures, and nested members.
+        Useful for understanding large files without reading all the code.
+
+        Args:
+            file_path: Path to the source file (relative to workspace or absolute).
+                      Supports: .py, .js, .ts, .jsx, .tsx
+
+        Returns:
+            dict: {
+                "success": bool,
+                "file": str,
+                "language": str,
+                "total_lines": int,
+                "symbols": [
+                    {
+                        "name": str,
+                        "kind": str,    # "class", "function", "method"
+                        "start_line": int,
+                        "end_line": int,
+                        "signature": str,
+                        "docstring": str,
+                        "children": [...]
+                    }
+                ]
+            }
+
+        Examples:
+            # View outline of a Python file
+            outline = await view_file_outline("src/utils.py")
+
+            # View outline of a JavaScript file
+            outline = await view_file_outline("lib/index.js")
+        """
+        try:
+            from pantheon.toolsets.code.tree_sitter_parser import get_file_outline
+            target_path = self._resolve_path(file_path)
+            if not target_path.exists():
+                return {"success": False, "error": "File does not exist"}
+            return get_file_outline(target_path)
+        except ImportError:
+            return {"success": False, "error": "Code navigation requires 'pantheon-agents[toolsets]'"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -928,7 +1006,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
             )
             return {"success": False, "error": str(e)}
 
-    @tool
+    @tool(exclude=True)
     async def observe_pdf_screenshots(
         self,
         question: str,
@@ -979,15 +1057,35 @@ class FileManagerToolSet(FileManagerToolSetBase):
             return {"success": False, "error": f"Unexpected error: {str(e)}"}
 
     @tool
-    async def read_pdf(self, pdf_path: str) -> dict:
-        """Read a PDF file and return the text inside it.
+    async def read_pdf(
+        self,
+        pdf_path: str,
+        question: str | None = None,
+        page_numbers: list[int] | None = None,
+        dpi: int = 300,
+    ) -> dict:
+        """Read a PDF file. Extracts text by default, or analyzes page screenshots when a question is provided.
 
         Args:
             pdf_path: The path to the PDF file to read.
+            question: Optional. If provided, renders pages as images and answers the question
+                     using multimodal analysis (useful for PDFs with charts, tables, or images).
+            page_numbers: Optional. Specific page numbers to read (0-indexed).
+                         If not provided, reads all pages.
+            dpi: Resolution for screenshot mode (default: 300). Only used when question is provided.
 
         Returns:
             dict: Success status, content, and metadata about the PDF.
         """
+        # If question provided, use screenshot-based multimodal analysis
+        if question:
+            return await self.observe_pdf_screenshots(
+                question=question,
+                pdf_path=pdf_path,
+                page_numbers=page_numbers,
+                dpi=dpi,
+            )
+
         file_path = self._resolve_path(pdf_path)
 
         # Check if file exists
@@ -1527,7 +1625,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
             self._latex_sem = asyncio.Semaphore(3)
         return self._latex_sem
 
-    @tool
+    @tool(exclude=True)
     async def compile_latex(
         self,
         file_path: str,
