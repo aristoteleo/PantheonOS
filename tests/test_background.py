@@ -608,189 +608,301 @@ class TestContextvarIsolation:
 
 
 # =============================================================================
-# Integration: Agent background tools registration
+# Agent integration: tool registration, _background schema injection, dispatch
 # =============================================================================
 
 
-class TestAgentBackgroundToolsRegistration:
-    def test_bg_tools_registered(self):
+class TestAgentBackgroundIntegration:
+    """Agent-level tests: tool registration, _background param injection, schema correctness."""
+
+    def _get_tools_sync(self, agent):
+        return asyncio.get_event_loop().run_until_complete(agent.get_tools_for_llm())
+
+    def _make_agent_with_tool(self, **agent_kwargs):
+        from pantheon.agent import Agent
+
+        agent = Agent(name="test", instructions="test", **agent_kwargs)
+
+        async def my_tool(x: str) -> str:
+            """A test tool."""
+            return x
+
+        agent.tool(my_tool)
+        return agent
+
+    # -- Registration --
+
+    def test_run_in_background_removed(self):
         from pantheon.agent import Agent
 
         agent = Agent(name="test", instructions="test")
-        assert "run_in_background" in agent._base_functions
-        assert "get_background_task" in agent._base_functions
-        assert "cancel_background_task" in agent._base_functions
-        assert "remove_background_task" in agent._base_functions
+        assert "run_in_background" not in agent._base_functions
 
-    def test_bg_manager_exists(self):
+    def test_background_task_tool_registered(self):
+        from pantheon.agent import Agent
+
+        agent = Agent(name="test", instructions="test")
+        assert "background_task" in agent._base_functions
+
+    def test_bg_manager_and_buffers_initialized(self):
         from pantheon.agent import Agent
 
         agent = Agent(name="test", instructions="test")
         assert isinstance(agent._bg_manager, BackgroundTaskManager)
-
-    def test_tool_output_buffers_initialized(self):
-        from pantheon.agent import Agent
-
-        agent = Agent(name="test", instructions="test")
         assert isinstance(agent._tool_output_buffers, dict)
-
-    def test_input_queue_and_loop_state_initialized(self):
-        from pantheon.agent import Agent
-
-        agent = Agent(name="test", instructions="test")
         assert isinstance(agent.input_queue, asyncio.Queue)
         assert agent._loop_running is False
 
+    # -- Schema injection --
 
-# =============================================================================
-# setup_bg_notify_queue tests
-# =============================================================================
+    def test_background_param_injected_on_custom_tool(self):
+        agent = self._make_agent_with_tool()
+        tools = self._get_tools_sync(agent)
+        schema = next(t for t in tools if t["function"]["name"] == "my_tool")
+        props = schema["function"]["parameters"]["properties"]
+        assert "_background" in props
+        assert props["_background"]["type"] == "boolean"
 
-
-class TestSetupBgNotifyQueue:
-    @pytest.mark.asyncio
-    async def test_notify_queue_receives_on_complete(self):
-        """setup_bg_notify_queue wires on_complete to push to external queue."""
+    def test_background_param_excluded_from_background_task(self):
         from pantheon.agent import Agent
 
         agent = Agent(name="test", instructions="test")
-        queue = asyncio.Queue()
-        agent.setup_bg_notify_queue(queue)
+        tools = self._get_tools_sync(agent)
+        bg_tool = next(t for t in tools if t["function"]["name"] == "background_task")
+        assert "_background" not in bg_tool["function"]["parameters"]["properties"]
+
+    def test_background_param_excluded_from_transfer_tools(self):
+        from pantheon.agent import Agent
+
+        agent = Agent(name="test", instructions="test")
+
+        async def transfer_to_helper() -> str:
+            return "transferred"
+
+        async def call_agent_helper() -> str:
+            return "called"
+
+        agent.tool(transfer_to_helper)
+        agent.tool(call_agent_helper)
+        tools = self._get_tools_sync(agent)
+
+        for t in tools:
+            name = t["function"]["name"]
+            if name.startswith("transfer_to_") or name.startswith("call_agent_"):
+                props = t["function"].get("parameters", {}).get("properties", {})
+                assert "_background" not in props, f"{name} should not have _background"
+
+    def test_background_in_required_strict_mode(self):
+        agent = self._make_agent_with_tool(force_litellm=False)
+        tools = self._get_tools_sync(agent)
+        schema = next(t for t in tools if t["function"]["name"] == "my_tool")
+        assert "_background" in schema["function"]["parameters"]["required"]
+
+    def test_background_not_in_required_litellm_mode(self):
+        agent = self._make_agent_with_tool(force_litellm=True)
+        tools = self._get_tools_sync(agent)
+        schema = next(t for t in tools if t["function"]["name"] == "my_tool")
+        assert "_background" not in schema["function"]["parameters"].get("required", [])
+
+    def test_injection_does_not_mutate_cached_schemas(self):
+        agent = self._make_agent_with_tool()
+        tools1 = self._get_tools_sync(agent)
+        tools2 = self._get_tools_sync(agent)
+        s1 = next(t for t in tools1 if t["function"]["name"] == "my_tool")
+        s2 = next(t for t in tools2 if t["function"]["name"] == "my_tool")
+        assert s1["function"]["parameters"] is not s2["function"]["parameters"]
+
+
+class TestBackgroundParamDispatch:
+    """Test _background=True interception in _handle_tool_calls dispatch."""
+
+    @pytest.mark.asyncio
+    async def test_background_stripped_before_tool_execution(self):
+        """_background is popped from params before the actual tool runs."""
+        from pantheon.agent import Agent
+        import json
+
+        agent = Agent(name="test", instructions="test")
+        received_args = {}
+
+        async def capture_tool(x: str) -> str:
+            """Captures args."""
+            received_args["x"] = x
+            return "ok"
+
+        agent.tool(capture_tool)
+
+        tool_call = {
+            "id": "call_test_1",
+            "function": {
+                "name": "capture_tool",
+                "arguments": json.dumps({"x": "hello", "_background": False}),
+            },
+        }
+
+        await agent._handle_tool_calls(
+            tool_calls=[tool_call],
+            context_variables={},
+            timeout=60,
+        )
+
+        assert received_args["x"] == "hello"
+        assert "_background" not in received_args
+
+    @pytest.mark.asyncio
+    async def test_background_true_dispatches_to_bg_manager(self):
+        """_background=True routes to bg_manager.start() and returns task_id."""
+        from pantheon.agent import Agent
+        import json
+
+        agent = Agent(name="test", instructions="test")
+
+        async def my_tool(x: str) -> str:
+            """Test tool."""
+            await asyncio.sleep(0.1)
+            return f"result: {x}"
+
+        agent.tool(my_tool)
+
+        tool_call = {
+            "id": "call_bg_1",
+            "function": {
+                "name": "my_tool",
+                "arguments": json.dumps({"x": "bg_test", "_background": True}),
+            },
+        }
+
+        tool_messages = await agent._handle_tool_calls(
+            tool_calls=[tool_call],
+            context_variables={},
+            timeout=60,
+        )
+
+        assert len(tool_messages) == 1
+        content = tool_messages[0].get("raw_content") or tool_messages[0].get("content")
+        if isinstance(content, str):
+            content = json.loads(content)
+
+        assert content["status"] == "running"
+        assert content["tool_name"] == "my_tool"
+        assert "task_id" in content
+        assert "message" in content
+
+        # Verify bg_manager state
+        task_id = content["task_id"]
+        bg_task = agent._bg_manager.get(task_id)
+        assert bg_task is not None
+        assert bg_task.tool_name == "my_tool"
+        assert bg_task.source == "explicit"
+
+        # Wait for completion
+        await asyncio.sleep(0.3)
+        assert agent._bg_manager.get(task_id).status == "completed"
+
+    @pytest.mark.asyncio
+    async def test_background_false_runs_synchronously(self):
+        """_background=False runs the tool normally, no bg_manager tasks."""
+        from pantheon.agent import Agent
+        import json
+
+        agent = Agent(name="test", instructions="test")
+
+        async def fast_tool(x: str) -> str:
+            """Fast tool."""
+            return f"done: {x}"
+
+        agent.tool(fast_tool)
+
+        tool_call = {
+            "id": "call_normal_1",
+            "function": {
+                "name": "fast_tool",
+                "arguments": json.dumps({"x": "normal", "_background": False}),
+            },
+        }
+
+        tool_messages = await agent._handle_tool_calls(
+            tool_calls=[tool_call],
+            context_variables={},
+            timeout=60,
+        )
+
+        content = tool_messages[0].get("raw_content") or tool_messages[0].get("content")
+        if isinstance(content, str):
+            assert "done: normal" in content
+        else:
+            assert content == "done: normal"
+
+        assert len(agent._bg_manager.list_tasks()) == 0
+
+    @pytest.mark.asyncio
+    async def test_background_task_management_tool(self):
+        """background_task(action="list") returns tasks from bg_manager."""
+        from pantheon.agent import Agent
+        import json
+
+        agent = Agent(name="test", instructions="test")
 
         async def _work():
-            return "result123"
+            return "finished"
 
-        agent._bg_manager.start("my_tool", "tc_1", {}, _work())
+        agent._bg_manager.start("test_tool", "tc_1", {}, _work())
         await asyncio.sleep(0.1)
 
-        assert not queue.empty()
-        notif = queue.get_nowait()
-        assert "my_tool" in notif
-        assert "completed" in notif
+        tool_call = {
+            "id": "call_bg_list",
+            "function": {
+                "name": "background_task",
+                "arguments": json.dumps({"action": "list", "task_id": ""}),
+            },
+        }
+
+        tool_messages = await agent._handle_tool_calls(
+            tool_calls=[tool_call],
+            context_variables={},
+            timeout=60,
+        )
+
+        content = tool_messages[0].get("raw_content") or tool_messages[0].get("content")
+        if isinstance(content, str):
+            content = json.loads(content)
+
+        assert "tasks" in content
+        assert len(content["tasks"]) >= 1
 
     @pytest.mark.asyncio
-    async def test_notify_queue_receives_failure(self):
-        """setup_bg_notify_queue reports failures too."""
+    async def test_background_true_triggers_completion_notification(self):
+        """_background=True task completion pushes notification to external queue."""
         from pantheon.agent import Agent
+        import json
 
         agent = Agent(name="test", instructions="test")
         queue = asyncio.Queue()
         agent.setup_bg_notify_queue(queue)
 
-        async def _fail():
-            raise RuntimeError("boom")
+        async def quick_tool(x: str) -> str:
+            """Quick tool."""
+            return "quick_result"
 
-        agent._bg_manager.start("failing_tool", "tc_2", {}, _fail())
-        await asyncio.sleep(0.1)
+        agent.tool(quick_tool)
+
+        tool_call = {
+            "id": "call_notify_1",
+            "function": {
+                "name": "quick_tool",
+                "arguments": json.dumps({"x": "test", "_background": True}),
+            },
+        }
+
+        await agent._handle_tool_calls(
+            tool_calls=[tool_call],
+            context_variables={},
+            timeout=60,
+        )
+
+        await asyncio.sleep(0.3)
 
         assert not queue.empty()
         notif = queue.get_nowait()
-        assert "failing_tool" in notif
-        assert "failed" in notif
-
-
-# =============================================================================
-# run_loop tests
-# =============================================================================
-
-
-class TestRunLoop:
-    @pytest.mark.asyncio
-    async def test_run_loop_processes_message(self):
-        """run_loop consumes from input_queue and calls run()."""
-        from unittest.mock import AsyncMock, patch
-        from pantheon.agent import Agent
-
-        agent = Agent(name="test", instructions="test")
-        responses = []
-
-        mock_response = AsyncMock()
-        mock_response.content = "hello"
-
-        with patch.object(agent, "run", new_callable=AsyncMock, return_value=mock_response):
-            agent.input_queue.put_nowait("test message")
-            # Schedule stop after a short delay
-            async def _stop_later():
-                await asyncio.sleep(0.2)
-                agent.stop_loop()
-            asyncio.create_task(_stop_later())
-
-            await agent.run_loop(
-                on_response=lambda r: responses.append(r),
-            )
-
-        assert len(responses) == 1
-        assert responses[0] == mock_response
-
-    @pytest.mark.asyncio
-    async def test_stop_loop_exits_cleanly(self):
-        """stop_loop sends sentinel and loop exits."""
-        from pantheon.agent import Agent
-
-        agent = Agent(name="test", instructions="test")
-
-        async def _stop_soon():
-            await asyncio.sleep(0.1)
-            agent.stop_loop()
-
-        asyncio.create_task(_stop_soon())
-        await agent.run_loop()  # Should return quickly
-
-        assert agent._loop_running is False
-        assert agent._bg_manager.on_complete is None
-
-    @pytest.mark.asyncio
-    async def test_run_loop_error_callback(self):
-        """run_loop calls on_error when run() raises."""
-        from unittest.mock import AsyncMock, patch
-        from pantheon.agent import Agent
-
-        agent = Agent(name="test", instructions="test")
-        errors = []
-
-        with patch.object(
-            agent, "run", new_callable=AsyncMock,
-            side_effect=RuntimeError("fail")
-        ):
-            agent.input_queue.put_nowait("bad message")
-            async def _stop():
-                await asyncio.sleep(0.2)
-                agent.stop_loop()
-            asyncio.create_task(_stop())
-
-            await agent.run_loop(on_error=lambda e: errors.append(e))
-
-        assert len(errors) == 1
-        assert isinstance(errors[0], RuntimeError)
-
-    @pytest.mark.asyncio
-    async def test_run_loop_bg_auto_notify(self):
-        """Background task completion auto-enqueues to input_queue in run_loop mode."""
-        from pantheon.agent import Agent
-
-        agent = Agent(name="test", instructions="test")
-        received_msgs = []
-
-        original_run = agent.run
-
-        async def mock_run(msg, **kwargs):
-            received_msgs.append(msg)
-
-        from unittest.mock import AsyncMock, patch
-        with patch.object(agent, "run", side_effect=mock_run):
-            # Start run_loop
-            async def _run_and_stop():
-                await asyncio.sleep(0.05)
-                # Simulate a bg task completing
-                async def _bg_work():
-                    return "bg_done"
-                agent._bg_manager.start("bg_tool", "tc_bg", {}, _bg_work())
-                await asyncio.sleep(0.3)
-                agent.stop_loop()
-
-            asyncio.create_task(_run_and_stop())
-            await agent.run_loop()
-
-        # Should have received the bg completion notification
-        assert len(received_msgs) >= 1
-        assert any("bg_tool" in str(m) for m in received_msgs)
+        assert "quick_tool" in notif
+        assert "completed" in notif

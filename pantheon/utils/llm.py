@@ -1049,6 +1049,53 @@ class TimingTracker:
             self.end(phase)
 
 
+# ============ LiteLLM Model Cost Map ============
+
+
+async def update_litellm_cost_map(delay: float = 2.0) -> bool:
+    """Fetch the latest litellm model cost/context-window data from GitHub.
+
+    LiteLLM's bundled model registry may not include newer models (e.g. gpt-5.4).
+    This function fetches the latest ``model_prices_and_context_window.json``
+    from the upstream LiteLLM repo and merges it into ``litellm.model_cost``
+    so that ``get_model_info()`` returns accurate ``max_input_tokens`` values.
+
+    Designed to be run as a fire-and-forget background task at startup::
+
+        asyncio.create_task(update_litellm_cost_map())
+
+    Args:
+        delay: Seconds to wait before fetching (lets caller finish init).
+
+    Returns:
+        True if the map was updated successfully, False otherwise.
+    """
+    try:
+        import asyncio
+        await asyncio.sleep(delay)
+
+        import litellm
+        import aiohttp
+
+        url = (
+            "https://raw.githubusercontent.com/BerriAI/litellm/main/"
+            "model_prices_and_context_window.json"
+        )
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    new_map = await response.json(content_type=None)
+                    if new_map:
+                        litellm.model_cost.update(new_map)
+                        logger.info(
+                            f"Updated litellm model cost map ({len(new_map)} models)"
+                        )
+                        return True
+    except Exception:
+        pass  # Best-effort background update
+    return False
+
+
 def _fallback_token_count(text: str) -> int:
     """Fallback token counter with language awareness.
     

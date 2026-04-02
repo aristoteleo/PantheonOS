@@ -579,113 +579,68 @@ class Agent:
     def _register_bg_tools(self) -> None:
         """Register background task management tools."""
         bg_manager = self._bg_manager
-        agent_self = self
 
-        _BG_BLOCKED_TOOLS = {
-            "run_in_background",
-            "get_background_task",
-            "cancel_background_task",
-        }
-
-        async def run_in_background(
-            tool_name: str,
-            tool_arguments: str,
+        async def background_task(
+            action: str = "list",
+            task_id: str = "",
         ) -> dict:
-            """Run a tool in the background without blocking the conversation.
-
-            USE THIS when the user asks to run something "in background", or when
-            a task is expected to take a long time (e.g. long shell commands,
-            sub-agent calls, data processing). The task runs asynchronously and
-            you will be automatically notified when it completes.
-
-            You can check progress anytime with get_background_task(task_id).
-            Example: run_in_background("run_command", '{"command": "python train.py"}')
+            """Manage and monitor background tasks.
 
             Args:
-                tool_name: Name of the tool to run in background.
-                tool_arguments: JSON string of the tool arguments.
+                action: Operation to perform:
+                    - "list": List all background tasks (default when no task_id)
+                    - "status": Get status, progress and result of a specific task (requires task_id)
+                    - "cancel": Cancel a running task (requires task_id)
+                    - "remove": Remove a task from the list, cancels if still running (requires task_id)
+                task_id: ID of the task (e.g. 'bg_1'). Required for status/cancel/remove.
+
+            Returns:
+                dict with task details or task list
+
+            Examples:
+                background_task()  # List all tasks
+                background_task(action="status", task_id="bg_1")  # Check progress
+                background_task(action="cancel", task_id="bg_1")  # Cancel task
+                background_task(action="remove", task_id="bg_1")  # Remove task
             """
-            if tool_name in _BG_BLOCKED_TOOLS or tool_name.startswith("transfer_to_"):
-                return {"error": f"Tool '{tool_name}' cannot be run in background."}
-
-            try:
-                args = json.loads(tool_arguments) if tool_arguments else {}
-            except json.JSONDecodeError as e:
-                return {"error": f"Invalid JSON arguments: {e}"}
-
-            from uuid import uuid4 as _uuid4
-
-            bg_tool_call_id = f"bg_call_{_uuid4()}"
-
-            coro = agent_self.call_tool(
-                tool_name, args, context_variables=None, tool_call_id=bg_tool_call_id
-            )
-
-            bg_task = bg_manager.start(
-                tool_name=tool_name,
-                tool_call_id=bg_tool_call_id,
-                args=args,
-                coro=coro,
-                source="explicit",
-            )
-
-            return {
-                "task_id": bg_task.task_id,
-                "status": "running",
-                "tool_name": tool_name,
-            }
-
-        async def get_background_task(task_id: str = "") -> dict:
-            """Check status and output of background tasks.
-
-            Returns incremental stdout output, status, and result.
-            If task_id is provided, get details for that task.
-            If omitted, list all background tasks.
-
-            Args:
-                task_id: ID of a specific task (e.g. 'bg_1'), or empty to list all.
-            """
-            if task_id:
-                task = bg_manager.get(task_id)
-                if task is None:
-                    return {"error": f"Task '{task_id}' not found."}
-                return bg_manager.to_summary(task)
-            else:
+            if action == "list":
                 return {
                     "tasks": [
                         bg_manager.to_summary(t) for t in bg_manager.list_tasks()
                     ]
                 }
 
-        async def cancel_background_task(task_id: str) -> dict:
-            """Cancel a running background task.
+            if action == "status":
+                if not task_id:
+                    return {"error": "task_id is required for status action"}
+                task = bg_manager.get(task_id)
+                if task is None:
+                    return {"error": f"Task '{task_id}' not found."}
+                return bg_manager.to_summary(task)
 
-            Args:
-                task_id: ID of the task to cancel (e.g. 'bg_1').
-            """
-            if bg_manager.cancel(task_id):
-                return {"task_id": task_id, "status": "cancelling"}
-            task = bg_manager.get(task_id)
-            if task is None:
+            elif action == "cancel":
+                if not task_id:
+                    return {"error": "task_id is required for cancel action"}
+                if bg_manager.cancel(task_id):
+                    return {"task_id": task_id, "status": "cancelling"}
+                task = bg_manager.get(task_id)
+                if task is None:
+                    return {"error": f"Task '{task_id}' not found."}
+                return {"error": f"Task '{task_id}' is already {task.status}."}
+
+            elif action == "remove":
+                if not task_id:
+                    return {"error": "task_id is required for remove action"}
+                if bg_manager.remove(task_id):
+                    return {"task_id": task_id, "status": "removed"}
                 return {"error": f"Task '{task_id}' not found."}
-            return {"error": f"Task '{task_id}' is already {task.status}."}
 
-        async def remove_background_task(task_id: str) -> dict:
-            """Remove a background task from the task list.
+            else:
+                return {
+                    "error": f"Unknown action '{action}'. Must be one of: list, status, cancel, remove"
+                }
 
-            Cancels the task first if it is still running, then deletes it.
-
-            Args:
-                task_id: ID of the task to remove (e.g. 'bg_1').
-            """
-            if bg_manager.remove(task_id):
-                return {"task_id": task_id, "status": "removed"}
-            return {"error": f"Task '{task_id}' not found."}
-
-        self._base_functions["run_in_background"] = run_in_background
-        self._base_functions["get_background_task"] = get_background_task
-        self._base_functions["cancel_background_task"] = cancel_background_task
-        self._base_functions["remove_background_task"] = remove_background_task
+        self._base_functions["background_task"] = background_task
 
     def _get_tool_timeout(self) -> int:
         """Get tool timeout with priority: user override > settings."""
@@ -958,7 +913,42 @@ class Agent:
                     f"Agent '{self.name}': Failed to get tools from provider '{provider_name}': {e}"
                 )
 
-        return base_tools + provider_tools
+        # 3. Inject _background parameter into all eligible tool schemas
+        _BG_PARAM_SKIP = {"background_task", "think"}
+        _BG_PARAM_SKIP_PREFIXES = ("transfer_to_", "call_agent_")
+
+        all_tools = base_tools + provider_tools
+        for tool_dict in all_tools:
+            name = tool_dict["function"]["name"]
+            if name in _BG_PARAM_SKIP or any(
+                name.startswith(p) for p in _BG_PARAM_SKIP_PREFIXES
+            ):
+                continue
+
+            func = tool_dict["function"]
+            # Deep copy parameters to avoid mutating cached provider schemas
+            if "parameters" in func:
+                func["parameters"] = copy.deepcopy(func["parameters"])
+            else:
+                func["parameters"] = {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": False,
+                }
+
+            func["parameters"]["properties"]["_background"] = {
+                "type": "boolean",
+                "description": (
+                    "Set true to run in background without blocking. "
+                    "You'll get a task_id to track progress via background_task()."
+                ),
+            }
+            # In strict mode (non-litellm), all params must be in required
+            if not self.force_litellm:
+                func["parameters"].setdefault("required", []).append("_background")
+
+        return all_tools
 
     def _should_inject_context_variables(self, prefixed_name: str) -> bool:
         """Determine if context_variables should be injected for a tool.
@@ -1198,6 +1188,10 @@ class Agent:
 
             allow_timeout = func_name != "call_agent"
 
+            # Pop _background flag before passing params to tool
+            run_in_bg = params.pop("_background", False)
+            from .background import _bg_output_buffer
+
             # Handle parse error or execute tool
             if parse_error:
                 # Treat as execution failure
@@ -1209,10 +1203,42 @@ class Agent:
                     f"JSON error: {parse_error}\n"
                     f"Raw arguments: {truncated}"
                 )
-            else:
-                # Enable stdout capture for this tool call via contextvar
-                from .background import _bg_output_buffer
+            elif run_in_bg:
+                # Explicit background execution via _background=True
+                bg_tool_call_id = f"bg_call_{uuid4()}"
+                _stdout_buffer: list[str] = []
+                _token = _bg_output_buffer.set(_stdout_buffer)
 
+                try:
+                    # Snapshot args before call_tool injects context_variables
+                    # (which contains non-serializable functions like _call_agent)
+                    bg_args = dict(params)
+                    coro = self.call_tool(
+                        func_name, params, context_variables,
+                        tool_call_id=bg_tool_call_id,
+                    )
+                    bg_task = self._bg_manager.start(
+                        tool_name=func_name,
+                        tool_call_id=bg_tool_call_id,
+                        args=bg_args,
+                        coro=coro,
+                        source="explicit",
+                    )
+                finally:
+                    _bg_output_buffer.reset(_token)
+
+                result = {
+                    "task_id": bg_task.task_id,
+                    "status": "running",
+                    "tool_name": func_name,
+                    "message": (
+                        f"Tool launched in background. Use "
+                        f"background_task(action='status', task_id='{bg_task.task_id}') "
+                        f"to check progress."
+                    ),
+                }
+            else:
+                # Normal execution with timeout adoption
                 _stdout_buffer: list[str] = []
                 _token = _bg_output_buffer.set(_stdout_buffer)
 
@@ -1254,7 +1280,7 @@ class Agent:
                             result = (
                                 f"Tool '{func_name}' exceeded timeout ({timeout}s) and was moved to "
                                 f"background execution. task_id='{bg_task.task_id}'. "
-                                f"Use get_background_task('{bg_task.task_id}') to check progress and results."
+                                f"Use background_task(action='status', task_id='{bg_task.task_id}') to check progress and results."
                             )
                             context_variables[tool_call_id] = result
                             break

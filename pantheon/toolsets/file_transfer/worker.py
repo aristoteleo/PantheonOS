@@ -55,7 +55,7 @@ class FileTransferToolSet(FileManagerToolSetBase):
         if ".." in file_path:
             return {"error": "File path cannot contain '..'"}
 
-        path = self.path / file_path
+        path = self._get_root() / file_path
 
         # Ensure parent directory exists
         try:
@@ -239,7 +239,7 @@ class FileTransferToolSet(FileManagerToolSetBase):
         if ".." in file_path:
             return {"success": False, "error": "File path cannot contain '..'"}
 
-        path = self.path / file_path
+        path = self._get_root() / file_path
         if not path.exists():
             return {"success": False, "error": "File does not exist"}
 
@@ -321,7 +321,7 @@ class FileTransferToolSet(FileManagerToolSetBase):
         if ".." in file_path:
             return {"success": False, "error": "File path cannot contain '..'"}
 
-        path = self.path / file_path
+        path = self._get_root() / file_path
         if not path.exists():
             return {"success": False, "error": "File does not exist"}
 

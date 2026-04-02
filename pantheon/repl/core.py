@@ -371,8 +371,9 @@ class Repl(ReplUI):
                             self._status_update_task = None
                         
                         self.prompt_app.stop_processing()
-                        # Final update after processing
-                        await self._update_status_bar_token_usage()
+                        # Final update after processing: use accurate full calculation
+                        # so idle ctx: display matches /tokens output
+                        await self._update_status_bar_accurate()
                     self.message_queue.task_done()
                     
             except asyncio.CancelledError:
@@ -605,13 +606,10 @@ class Repl(ReplUI):
 
                             # Update status bar
                             self.prompt_app.update_token_usage(usage_pct, total_cost)
-                        # else: no valid metadata (e.g., after compression) — keep
-                        # existing status bar values to avoid overwriting a more
-                        # accurate estimate set by _handle_compress
+                        # else: no valid metadata (e.g., after compression) — fall through to accurate path
                         return
-            return
-            
-            # Fallback: Use detailed stats if fast path fails
+
+            # Fallback: Use detailed stats if fast path fails (e.g., no metadata found)
             from .utils import get_detailed_token_stats
             fallback = {
                 "total_input_tokens": self.total_input_tokens,
@@ -624,10 +622,34 @@ class Repl(ReplUI):
             usage_pct = token_info.get("usage_percent", 0)
             total_cost = token_info.get("total_cost") or 0.0
             self.prompt_app.update_token_usage(usage_pct, total_cost)
-            
+
         except Exception:
             pass  # Silently ignore errors
 
+
+    async def _update_status_bar_accurate(self):
+        """Accurate status bar update using full token calculation (same as /tokens).
+
+        Called once after processing completes so the idle display matches /tokens.
+        Slower than _update_status_bar_token_usage but gives the correct value.
+        """
+        if not self.prompt_app:
+            return
+        try:
+            from .utils import get_detailed_token_stats
+            fallback = {
+                "total_input_tokens": self.total_input_tokens,
+                "total_output_tokens": self.total_output_tokens,
+                "message_count": self.message_count,
+            }
+            token_info = await get_detailed_token_stats(
+                self._chatroom, self._chat_id, self._team, fallback
+            )
+            usage_pct = token_info.get("usage_percent", 0)
+            total_cost = token_info.get("total_cost") or 0.0
+            self.prompt_app.update_token_usage(usage_pct, total_cost)
+        except Exception:
+            pass  # Silently ignore errors
 
     async def _status_update_loop(self):
         """Background loop for real-time status bar updates.

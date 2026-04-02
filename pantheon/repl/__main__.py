@@ -26,8 +26,9 @@ _ORIGINAL_CWD = os.getcwd()
 
 # Load environment variables from .env file
 load_dotenv()
-# Also load global API keys from ~/.pantheon/.env
+# Also load global API keys from ~/.pantheon/.env and ~/.env (legacy fallback)
 load_dotenv(os.path.join(os.path.expanduser("~"), ".pantheon", ".env"), override=False)
+load_dotenv(os.path.join(os.path.expanduser("~"), ".env"), override=False)
 
 # Enable UTF-8 mode on Windows for fancy Unicode characters
 if sys.platform == "win32":
@@ -161,27 +162,10 @@ def start(
 async def _update_litellm_cost_map():
     """Background task to update litellm model cost map.
 
-    This runs after startup to fetch the latest model pricing data
-    from GitHub without blocking the UI.
+    Delegates to the shared utility in pantheon.utils.llm.
     """
-    try:
-        await asyncio.sleep(2)  # Wait for REPL to fully initialize
-        import litellm
-        import aiohttp
-
-        # Manually fetch the latest model metadata from GitHub using aiohttp.
-        # We fetch manually because litellm.get_model_cost_map filters some models,
-        # and litellm.register_model triggers interactive authentication prompts.
-        url = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=10) as response:
-                if response.status == 200:
-                    new_map = await response.json(content_type=None)
-                    if new_map:
-                        litellm.model_cost.update(new_map)
-    except Exception:
-        pass  # Silently ignore - this is a best-effort background update
+    from pantheon.utils.llm import update_litellm_cost_map
+    await update_litellm_cost_map()
 
 
 async def _start_async(

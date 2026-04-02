@@ -474,6 +474,14 @@ class UnifiedMarkdownParser:
         # Track current file path for relative path resolution in prompts
         self._current_file_path: Optional[Path] = None
 
+    @staticmethod
+    def _merge_think_into_toolsets(metadata: dict) -> List[str]:
+        """Build toolsets list, absorbing legacy think_tool flag into it."""
+        toolsets = list(metadata.get("toolsets", []) or [])
+        if metadata.get("think_tool") and "think" not in toolsets:
+            toolsets.append("think")
+        return toolsets
+
     def parse_file(self, path: Path) -> Union[AgentConfig, TeamConfig]:
         """Parse a markdown file, auto-detecting whether it's an agent or team."""
         if not path.exists():
@@ -532,10 +540,9 @@ class UnifiedMarkdownParser:
             model=str(metadata.get("model", "")),
             icon=str(metadata.get("icon", "🤖")),
             instructions=instructions,
-            toolsets=list(metadata.get("toolsets", []) or []),
+            toolsets=self._merge_think_into_toolsets(metadata),
             mcp_servers=list(metadata.get("mcp_servers", []) or []),
             tags=list(metadata.get("tags", []) or []),
-            think_tool=bool(metadata.get("think_tool", False)),
             source_path=source_path,
         )
 
@@ -656,10 +663,9 @@ class UnifiedMarkdownParser:
                         model=str(agent_metadata.get("model", "")),
                         icon=str(agent_metadata.get("icon", "🤖")),
                         instructions=instructions,
-                        toolsets=list(agent_metadata.get("toolsets", []) or []),
+                        toolsets=self._merge_think_into_toolsets(agent_metadata),
                         mcp_servers=list(agent_metadata.get("mcp_servers", []) or []),
                         tags=list(agent_metadata.get("tags", []) or []),
-                        think_tool=bool(agent_metadata.get("think_tool", False)),
                         source_path=source_path,
                     )
                 )

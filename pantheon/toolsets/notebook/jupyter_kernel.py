@@ -288,6 +288,67 @@ class JupyterKernelToolSet(ToolSet):
 
 
 
+    def _kernel_env_context(self) -> dict:
+        """Return a diagnostic snapshot of the kernel environment.
+        Included in every create_session error so the agent can self-heal."""
+        import sys, shutil
+
+        workdir = self._get_effective_workdir() or self.workdir
+
+        # Enumerate all registered kernelspecs with their Python path
+        kernelspecs: dict = {}
+        try:
+            from jupyter_client.kernelspec import KernelSpecManager
+            for name, info in KernelSpecManager().get_all_specs().items():
+                argv = info.get("spec", {}).get("argv", [])
+                python = argv[0] if argv else "unknown"
+                if python and "{sys.executable}" in python:
+                    python = python.replace("{sys.executable}", sys.executable)
+                kernelspecs[name] = python
+        except Exception:
+            pass
+
+        needs_fix = not os.path.isabs(kernelspecs.get("python3", ""))
+        return {
+            "workdir": workdir,
+            "available_kernelspecs": kernelspecs,
+            "uv_available": shutil.which("uv") is not None,
+            "sys_python": sys.executable,
+            "is_frozen_app": getattr(sys, "frozen", False),
+            "kernelspec_needs_fix": needs_fix,
+            # Self-healing guide for agents:
+            # 1. Use `uv` (preferred, uv_available tells you if it exists) or pip to install
+            #    ipykernel into the Python for the project workdir.
+            # 2. Register with an ABSOLUTE path: `<abs_python> -m ipykernel install --user`
+            #    (kernelspec_needs_fix=True means the current one uses a relative 'python',
+            #     which breaks when the app is launched from Finder — launchd PATH differs
+            #     from the user's shell PATH).
+            # 3. Call create_session again — no restart needed.
+            "hint": (
+                "Install ipykernel into the project Python, then re-register the kernelspec "
+                "using the ABSOLUTE Python path (`<abs_python> -m ipykernel install --user`). "
+                "kernelspec_needs_fix=True means the current kernelspec uses a relative path "
+                "which is unreliable when the app is GUI-launched. "
+                "After fixing, call create_session again (no restart needed)."
+            ),
+        }
+
+    def _kernel_python(self, kernel_spec_name: str = "python3") -> str:
+        """Return the Python interpreter path used by the given kernelspec."""
+        ctx = self._kernel_env_context()
+        python = ctx["available_kernelspecs"].get(kernel_spec_name, "")
+        if python and os.path.isfile(python):
+            return python
+        workdir = ctx["workdir"]
+        for c in [
+            os.path.join(workdir, ".venv", "bin", "python"),
+            os.path.join(workdir, ".venv", "bin", "python3"),
+            os.path.join(workdir, ".venv", "Scripts", "python.exe"),
+        ]:
+            if os.path.isfile(c):
+                return c
+        return ctx["sys_python"]
+
     @tool
     async def create_session(
         self, kernel_spec: str = "python3", kernel_session_id: str = None
@@ -342,7 +403,9 @@ class JupyterKernelToolSet(ToolSet):
                 await kc.wait_for_ready(timeout=30)
             except RuntimeError as e:
                 await km.shutdown_kernel()
-                return {"success": False, "error": f"Kernel failed to start: {e}"}
+                import json
+                ctx = self._kernel_env_context()
+                return {"success": False, "error": f"Kernel failed to start: {e}\n\nKernel environment:\n{json.dumps(ctx, indent=2)}"}
 
             # Store references
             self.kernel_managers[kernel_session_id] = km
@@ -385,7 +448,9 @@ class JupyterKernelToolSet(ToolSet):
 
         except Exception as e:
             logger.error(f"Failed to create session: {e}")
-            return {"success": False, "error": str(e)}
+            import json
+            ctx = self._kernel_env_context()
+            return {"success": False, "error": f"{e}\n\nKernel environment:\n{json.dumps(ctx, indent=2)}"}
 
     @tool
     async def execute_request(

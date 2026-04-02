@@ -18,6 +18,14 @@ datas = [
     ('pantheon/toolsets/knowledge/config.yaml', 'pantheon/toolsets/knowledge'),
 ]
 datas += copy_metadata('fastmcp')
+# jupyter_client loads LocalProvisioner via entry_points at runtime.
+# Without package metadata, 'module' object is not callable error occurs.
+datas += copy_metadata('jupyter_client')
+datas += copy_metadata('ipykernel')
+datas += copy_metadata('traitlets')
+datas += copy_metadata('pyzmq')
+datas += copy_metadata('tornado')
+datas += copy_metadata('nest_asyncio')
 datas += collect_data_files('litellm', includes=['**/*.json'])
 datas += collect_data_files('tiktoken_ext', includes=['**/*.py'])
 # fakeredis: model/_command_info.py loads os.path.join(dirname(__file__), '..', 'commands.json')
@@ -69,6 +77,26 @@ a = Analysis(
         'tiktoken_ext.openai_public',
         'importlib.metadata',
         'importlib_metadata',
+        # Jupyter kernel stack - required for integrated_notebook toolset
+        # jupyter_client uses entry_points to load LocalProvisioner dynamically
+        'jupyter_client',
+        'jupyter_client.provisioning',
+        'jupyter_client.provisioning.factory',
+        'jupyter_client.asynchronous',
+        'jupyter_client.kernelspec',
+        'jupyter_client.manager',
+        'jupyter_client.connect',
+        'ipykernel',
+        'ipykernel.ipkernel',
+        'ipykernel.kernelapp',
+        'ipykernel.iostream',
+        'traitlets',
+        'traitlets.config',
+        'zmq',
+        'zmq.asyncio',
+        'zmq.eventloop',
+        'zmq.eventloop.zmqstream',
+        'nest_asyncio',
     ],
     hookspath=[],
     hooksconfig={},
@@ -92,7 +120,8 @@ a = Analysis(
         # ── Unused heavy modules ──
         'tkinter', '_tkinter',
         'torch', 'tensorflow', 'sklearn', 'cv2',
-        'IPython', 'ipywidgets',
+        # IPython removed from excludes: ipykernel depends on it for notebook execution
+        'ipywidgets',
         'sympy',
         'pandas',                         # ~45MB, not imported by backend code
     ],

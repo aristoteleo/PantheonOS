@@ -12,8 +12,10 @@ from .hub import EndpointHub
 from pantheon.utils.log import logger
 from pantheon.settings import get_settings, load_jsonc
 
-# Load .env file
+# Load .env files: cwd/.env > ~/.pantheon/.env > ~/.env (legacy fallback)
 load_dotenv(override=True)
+load_dotenv(os.path.join(os.path.expanduser("~"), ".pantheon", ".env"), override=False)
+load_dotenv(os.path.join(os.path.expanduser("~"), ".env"), override=False)
 
 
 # Template locations

@@ -442,7 +442,7 @@ class IntegratedNotebookToolSet(ToolSet):
     # Core Tools
     # ═══════════════════════════════════════════════════════════
 
-    @tool
+    @tool(exclude=True)
     async def create_notebook(self, notebook_path: str) -> dict:
         """
         Create or open a notebook file.
@@ -498,7 +498,7 @@ class IntegratedNotebookToolSet(ToolSet):
             logger.error(f"create_notebook failed: {e}")
             return {"success": False, "error": str(e)}
 
-    @tool
+    @tool(exclude=True)
     async def execute_cell(
         self,
         notebook_path: str,
@@ -543,7 +543,7 @@ class IntegratedNotebookToolSet(ToolSet):
 
         return await self._execute_cell_internal(notebook_path, cell_id, session_id)
 
-    @tool
+    @tool(exclude=True)
     async def add_cell(
         self,
         notebook_path: str,
@@ -632,7 +632,7 @@ class IntegratedNotebookToolSet(ToolSet):
 
         return result
 
-    @tool
+    @tool(exclude=True)
     async def update_cell(
         self,
         notebook_path: str,
@@ -759,7 +759,7 @@ class IntegratedNotebookToolSet(ToolSet):
 
         return result
 
-    @tool
+    @tool(exclude=True)
     async def delete_cell(
         self,
         notebook_path: str,
@@ -804,7 +804,7 @@ class IntegratedNotebookToolSet(ToolSet):
                 logger.error(f"delete_cell failed: {e}")
                 return {"success": False, "error": str(e)}
 
-    @tool
+    @tool(exclude=True)
     async def move_cell(
         self,
         notebook_path: str,
@@ -852,7 +852,7 @@ class IntegratedNotebookToolSet(ToolSet):
                 logger.error(f"move_cell failed: {e}")
                 return {"success": False, "error": str(e)}
 
-    @tool
+    @tool(exclude=True)
     async def read_cells(
         self,
         notebook_path: str,
@@ -1068,7 +1068,7 @@ class IntegratedNotebookToolSet(ToolSet):
             notebook_path, validate=validate
         )
 
-    @tool
+    @tool(exclude=True)
     async def list_notebooks(self) -> dict:
         """
         List running notebooks for current session
@@ -1101,7 +1101,7 @@ class IntegratedNotebookToolSet(ToolSet):
 
         return {"success": True, "notebooks": notebooks, "count": len(notebooks)}
 
-    @tool
+    @tool(exclude=True)
     async def manage_kernel(
         self,
         notebook_path: str,
@@ -1447,6 +1447,241 @@ class IntegratedNotebookToolSet(ToolSet):
         except Exception as e:
             logger.error(f"Execution failed: {e}")
             return {"success": False, "error": str(e), "notebook_path": notebook_path}
+
+    # ═══════════════════════════════════════════════════════════
+    # Unified Tools (LLM-facing, consolidated interface)
+    # ═══════════════════════════════════════════════════════════
+
+    @tool
+    async def notebook_edit(
+        self,
+        notebook_path: str,
+        action: str,
+        cell_id: Optional[str] = None,
+        cell_type: str = "code",
+        content: str = "",
+        old_content: Optional[str] = None,
+        position: Optional[str] = None,
+        execute: bool = False,
+    ) -> dict:
+        """
+        Unified tool for notebook structure operations.
+
+        Args:
+            notebook_path: Path to notebook file
+            action: Operation to perform:
+                - "create": Create or open a notebook
+                - "add_cell": Add a new cell
+                - "update_cell": Update cell content
+                - "delete_cell": Delete a cell
+                - "move_cell": Move a cell to a different position
+            cell_id: Cell identifier (required for update/delete/move, optional for add)
+            cell_type: Cell type for add_cell: "code", "markdown", "raw" (default: "code")
+            content: Cell content for add_cell or update_cell
+            old_content: For update_cell partial replacement mode
+            position: Target position:
+                - For add_cell: None=append to end, "0"/"1"/"-1"=index, or a cell_id=insert after that cell
+                - For move_cell: None=move to top, or a cell_id=move after that cell
+            execute: For add_cell/update_cell: execute the cell after modification (recommended for code cells)
+
+        Returns:
+            dict with action-specific results
+
+        Examples:
+            # Create notebook
+            notebook_edit("analysis.ipynb", action="create")
+
+            # Add and execute a code cell
+            notebook_edit("analysis.ipynb", action="add_cell",
+                         content="import pandas as pd", execute=True)
+
+            # Update cell content
+            notebook_edit("analysis.ipynb", action="update_cell",
+                         cell_id="abc123", content="x = 2", execute=True)
+
+            # Partial replacement
+            notebook_edit("analysis.ipynb", action="update_cell",
+                         cell_id="abc123", content="n=30", old_content="n=15", execute=True)
+
+            # Delete a cell
+            notebook_edit("analysis.ipynb", action="delete_cell", cell_id="abc123")
+
+            # Move a cell after another
+            notebook_edit("analysis.ipynb", action="move_cell",
+                         cell_id="abc123", position="def456")
+        """
+        if action == "create":
+            return await self.create_notebook(notebook_path)
+
+        elif action == "add_cell":
+            return await self.add_cell(
+                notebook_path=notebook_path,
+                cell_type=cell_type,
+                content=content,
+                cell_id=cell_id,
+                position=position,
+                execute=execute,
+            )
+
+        elif action == "update_cell":
+            if not cell_id:
+                return {"success": False, "error": "cell_id is required for update_cell"}
+            return await self.update_cell(
+                notebook_path=notebook_path,
+                cell_id=cell_id,
+                content=content,
+                old_content=old_content,
+                execute=execute,
+            )
+
+        elif action == "delete_cell":
+            if not cell_id:
+                return {"success": False, "error": "cell_id is required for delete_cell"}
+            return await self.delete_cell(
+                notebook_path=notebook_path,
+                cell_id=cell_id,
+            )
+
+        elif action == "move_cell":
+            if not cell_id:
+                return {"success": False, "error": "cell_id is required for move_cell"}
+            return await self.move_cell(
+                notebook_path=notebook_path,
+                cell_id=cell_id,
+                below_cell_id=position,
+            )
+
+        else:
+            return {
+                "success": False,
+                "error": f"Unknown action '{action}'. Must be one of: create, add_cell, update_cell, delete_cell, move_cell",
+            }
+
+    @tool
+    async def notebook_execute(
+        self,
+        notebook_path: str,
+        action: str = "execute",
+        cell_id: Optional[str] = None,
+    ) -> dict:
+        """
+        Execute cells and manage kernel lifecycle.
+
+        Args:
+            notebook_path: Path to notebook file
+            action: Operation to perform:
+                - "execute": Execute a cell (requires cell_id)
+                - "restart": Restart kernel (clears all state)
+                - "interrupt": Interrupt running execution
+                - "shutdown": Shutdown kernel session
+            cell_id: Cell identifier (required for "execute" action)
+
+        Returns:
+            dict with execution results or kernel status
+
+        Examples:
+            # Execute a cell
+            notebook_execute("analysis.ipynb", action="execute", cell_id="abc123")
+
+            # Interrupt a long-running execution
+            notebook_execute("analysis.ipynb", action="interrupt")
+
+            # Restart kernel (clears all variables)
+            notebook_execute("analysis.ipynb", action="restart")
+        """
+        if action == "execute":
+            if not cell_id:
+                return {"success": False, "error": "cell_id is required for execute action"}
+            return await self.execute_cell(
+                notebook_path=notebook_path,
+                cell_id=cell_id,
+            )
+
+        elif action in ("restart", "interrupt", "shutdown"):
+            return await self.manage_kernel(
+                notebook_path=notebook_path,
+                action=action,
+            )
+
+        else:
+            return {
+                "success": False,
+                "error": f"Unknown action '{action}'. Must be one of: execute, restart, interrupt, shutdown",
+            }
+
+    @tool
+    async def notebook_read(
+        self,
+        notebook_path: Optional[str] = None,
+        action: str = "read_cells",
+        include_details: bool = False,
+        cell_ids: Optional[list[str]] = None,
+    ) -> dict:
+        """
+        Read notebook content, list notebooks, or query kernel state.
+
+        Args:
+            notebook_path: Path to notebook file (required for read_cells and kernel queries)
+            action: Operation to perform:
+                - "read_cells": Read cells with execution status (default)
+                - "list": List running notebooks for current session
+                - "kernel_status": Get kernel status
+                - "kernel_variables": List kernel variables
+            include_details: For read_cells: include full source and outputs (default: False)
+            cell_ids: For read_cells: optional list of specific cell IDs to read
+
+        Returns:
+            dict with notebook data
+
+        Examples:
+            # Read all cells (summary mode)
+            notebook_read("analysis.ipynb")
+
+            # Read specific cells with full details
+            notebook_read("analysis.ipynb", include_details=True, cell_ids=["cell_1"])
+
+            # List all running notebooks
+            notebook_read(action="list")
+
+            # Check kernel status
+            notebook_read("analysis.ipynb", action="kernel_status")
+
+            # Get kernel variables
+            notebook_read("analysis.ipynb", action="kernel_variables")
+        """
+        if action == "read_cells":
+            if not notebook_path:
+                return {"success": False, "error": "notebook_path is required for read_cells"}
+            return await self.read_cells(
+                notebook_path=notebook_path,
+                include_details=include_details,
+                cell_ids=cell_ids,
+            )
+
+        elif action == "list":
+            return await self.list_notebooks()
+
+        elif action == "kernel_status":
+            if not notebook_path:
+                return {"success": False, "error": "notebook_path is required for kernel_status"}
+            return await self.manage_kernel(
+                notebook_path=notebook_path,
+                action="status",
+            )
+
+        elif action == "kernel_variables":
+            if not notebook_path:
+                return {"success": False, "error": "notebook_path is required for kernel_variables"}
+            return await self.manage_kernel(
+                notebook_path=notebook_path,
+                action="variables",
+            )
+
+        else:
+            return {
+                "success": False,
+                "error": f"Unknown action '{action}'. Must be one of: read_cells, list, kernel_status, kernel_variables",
+            }
 
     async def cleanup(self):
         """Cleanup all resources"""

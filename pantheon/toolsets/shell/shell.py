@@ -153,7 +153,7 @@ PANTHEON_ENV_EOF
             "initial_output": initial_output,
         }
 
-    @tool
+    @tool(exclude=True)
     async def close_shell(self, shell_id: str) -> dict:
         """Close a shell.
 
@@ -344,9 +344,9 @@ PANTHEON_ENV_EOF
         to execute. Environment variables and working directory are preserved
         across commands in the same session.
 
-        For long-running commands (builds, training, data processing), use
-        run_in_background("run_command", '{"command": "..."}') instead, which
-        provides incremental output tracking and auto-notification on completion.
+        For long-running commands (builds, training, data processing), set
+        _background=True, which provides incremental output tracking and
+        auto-notification on completion.
 
         Args:
             command: The command to run.

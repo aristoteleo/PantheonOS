@@ -139,6 +139,9 @@ class ChatRoom(ToolSet):
         # Auto chat name generation (disabled by default, enable for UI mode)
         self._enable_auto_chat_name = enable_auto_chat_name
 
+        # PantheonClaw gateway manager (lazy init; tied to chatroom event loop)
+        self._gateway_channel_manager = None
+
         # Plugin system (learning, compression, etc.)
         self._init_plugins(learning_config)
 
@@ -225,6 +228,12 @@ class ChatRoom(ToolSet):
             task = asyncio.create_task(self._ensure_plugins())
             self._background_tasks.add(task)
 
+        # Update litellm model cost map in background (non-blocking)
+        # This fetches latest model metadata (context window sizes, pricing) from GitHub.
+        # Without this, newer models (e.g. gpt-5.4) fall back to 200K max_tokens.
+        # Same logic as REPL's _update_litellm_cost_map() in __main__.py.
+        asyncio.create_task(self._update_litellm_cost_map())
+
         # Register activity callback for _ping responses (used by Hub idle cleanup)
         if hasattr(self, 'worker') and self.worker and hasattr(self.worker, 'set_activity_callback'):
             self.worker.set_activity_callback(self._get_activity_status)
@@ -246,6 +255,15 @@ class ChatRoom(ToolSet):
             "bg_tasks": bg_task_count,
             "has_active_tasks": has_active_tasks,
         }
+
+    @staticmethod
+    async def _update_litellm_cost_map():
+        """Background task to update litellm model cost map.
+
+        Delegates to the shared utility in pantheon.utils.llm.
+        """
+        from pantheon.utils.llm import update_litellm_cost_map
+        await update_litellm_cost_map()
 
     async def _ensure_plugins(self, endpoint_service: object = None) -> list:
         """Lazily initialize plugins (idempotent).
@@ -608,6 +626,98 @@ class ChatRoom(ToolSet):
             logger.error(f"Error setting endpoint service: {e}")
             return {"success": False, "message": str(e)}
 
+    def _get_gateway_manager(self):
+        if self._gateway_channel_manager is None:
+            from pantheon.claw import GatewayChannelManager
+
+            self._gateway_channel_manager = GatewayChannelManager(
+                chatroom=self,
+                loop=asyncio.get_running_loop(),
+            )
+        return self._gateway_channel_manager
+
+    @tool
+    async def get_gateway_channel_config(self) -> dict:
+        manager = self._get_gateway_manager()
+        return {
+            "success": True,
+            "config": manager.get_config(masked=True),
+            "channels": manager.list_states(),
+        }
+
+    @tool
+    async def save_gateway_channel_config(self, config: dict) -> dict:
+        manager = self._get_gateway_manager()
+        manager.save_config(config)
+        return {
+            "success": True,
+            "config": manager.get_config(masked=True),
+            "channels": manager.list_states(),
+        }
+
+    @tool
+    async def list_gateway_channels(self) -> dict:
+        manager = self._get_gateway_manager()
+        return {
+            "success": True,
+            "channels": manager.list_states(),
+        }
+
+    @tool
+    async def start_gateway_channel(self, channel: str) -> dict:
+        manager = self._get_gateway_manager()
+        result = manager.start_channel(channel)
+        return {
+            "success": bool(result.get("ok")),
+            **result,
+            "channels": manager.list_states(),
+        }
+
+    @tool
+    async def stop_gateway_channel(self, channel: str) -> dict:
+        manager = self._get_gateway_manager()
+        result = manager.stop_channel(channel)
+        return {
+            "success": bool(result.get("ok")),
+            **result,
+            "channels": manager.list_states(),
+        }
+
+    @tool
+    async def get_gateway_channel_logs(self, channel: str) -> dict:
+        manager = self._get_gateway_manager()
+        return {
+            "success": True,
+            "channel": channel,
+            "logs": manager.get_logs(channel),
+        }
+
+    @tool
+    async def wechat_login_qr(self) -> dict:
+        manager = self._get_gateway_manager()
+        try:
+            result = await asyncio.to_thread(manager.wechat_get_login_qr)
+            return {"success": True, **result}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    @tool
+    async def wechat_login_status(self, qrcode_id: str) -> dict:
+        manager = self._get_gateway_manager()
+        try:
+            result = await asyncio.to_thread(manager.wechat_poll_login_status, qrcode_id)
+            return {"success": True, **result}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    @tool
+    async def list_gateway_sessions(self) -> dict:
+        manager = self._get_gateway_manager()
+        return {
+            "success": True,
+            "sessions": await manager.list_sessions(),
+        }
+
     @tool
     async def get_toolsets(self) -> dict:
         """Get all available toolsets from the endpoint service.
@@ -656,19 +766,31 @@ class ChatRoom(ToolSet):
                 f"chatroom proxy_toolset: method_name={method_name}, toolset_name={toolset_name}, args={args}"
             )
 
-            # Inject workdir from project metadata if session_id is available
-            session_id = (args or {}).get("session_id")
+            # Inject workdir from project metadata if session is in isolated mode
+            session_id = (args or {}).get("session_id") or getattr(self, '_current_chat_id', None)
+            # Special '__global__' session_id: explicitly use project root (clear any workdir)
+            if session_id == '__global__':
+                from pantheon.toolset import get_current_context_variables
+                ctx = get_current_context_variables()
+                if ctx is not None:
+                    ctx.pop("workdir", None)
+                session_id = None
             if session_id:
                 try:
-                    # Read-only: reading project metadata, no need to fix
                     memory = await run_func(self.memory_manager.get_memory, session_id)
                     project = memory.extra_data.get("project", {})
-                    workspace_path = project.get("workspace_path") if isinstance(project, dict) else None
-                    if workspace_path:
+                    if isinstance(project, dict):
+                        workspace_mode = project.get("workspace_mode",
+                            "isolated" if project.get("workspace_path") else "project")
+                        workspace_path = project.get("workspace_path")
                         from pantheon.toolset import get_current_context_variables
                         ctx = get_current_context_variables()
                         if ctx is not None:
-                            ctx["workdir"] = workspace_path
+                            if workspace_mode == "isolated" and workspace_path:
+                                ctx["workdir"] = workspace_path
+                            else:
+                                # Clear workdir so toolset falls back to project root
+                                ctx.pop("workdir", None)
                 except Exception as e:
                     logger.debug(f"Could not inject workdir for session {session_id}: {e}")
 
@@ -798,10 +920,11 @@ class ChatRoom(ToolSet):
 
     @tool
     async def create_chat(
-        self, 
+        self,
         chat_name: str | None = None,
         project_name: str | None = None,
         workspace_path: str | None = None,
+        workspace_mode: str = "project",
     ) -> dict:
         """Create a new chat.
 
@@ -809,32 +932,49 @@ class ChatRoom(ToolSet):
             chat_name: The name of the chat.
             project_name: Optional project name for grouping.
             workspace_path: Optional workspace directory path.
+            workspace_mode: Workspace mode - "project" (shared, default) or "isolated" (per-chat).
         """
-        # Ensure workspace directory exists if provided
+        memory = await run_func(self.memory_manager.new_memory, chat_name)
+        memory.extra_data["last_activity_date"] = datetime.now().isoformat()
+
         if workspace_path:
+            # Explicit path provided — always isolated
+            workspace_mode = "isolated"
             import os
             try:
                 os.makedirs(workspace_path, exist_ok=True)
                 logger.info(f"Ensured workspace directory exists: {workspace_path}")
             except Exception as e:
                 logger.warning(f"Failed to create workspace directory {workspace_path}: {e}")
-                # Continue anyway - the directory might be created later or error will surface when used
-        
-        memory = await run_func(self.memory_manager.new_memory, chat_name)
-        memory.extra_data["last_activity_date"] = datetime.now().isoformat()
-        
-        # Set project metadata if provided
+        elif workspace_mode == "isolated":
+            # Create per-session workspace
+            settings = get_settings()
+            session_workspace_dir = settings.pantheon_dir / "workspaces" / memory.id
+            try:
+                session_workspace_dir.mkdir(parents=True, exist_ok=True)
+                workspace_path = str(session_workspace_dir)
+                logger.info(f"Created session workspace directory: {workspace_path}")
+            except Exception as e:
+                logger.warning(f"Failed to create session workspace directory: {e}")
+                workspace_mode = "project"  # Fallback to project mode
+
+        # Set project metadata
+        project = {}
         if project_name:
-            project = {"name": project_name}
-            if workspace_path:
-                project["workspace_path"] = workspace_path
+            project["name"] = project_name
+        project["workspace_mode"] = workspace_mode
+        if workspace_path:
+            project["workspace_path"] = workspace_path
+        if project:
             memory.extra_data["project"] = project
-        
+
         return {
             "success": True,
             "message": "Chat created successfully",
             "chat_name": memory.name,
             "chat_id": memory.id,
+            "workspace_mode": workspace_mode,
+            "workspace_path": workspace_path,
         }
 
     @tool
@@ -844,9 +984,40 @@ class ChatRoom(ToolSet):
         Args:
             chat_id: The ID of the chat.
         """
+        import shutil
+
         try:
+            # Check if chat has an isolated workspace to clean up
+            workspace_path_to_delete = None
+            try:
+                memory = await run_func(self.memory_manager.get_memory, chat_id)
+                project = memory.extra_data.get("project", {})
+                if isinstance(project, dict):
+                    workspace_mode = project.get("workspace_mode",
+                        "isolated" if project.get("workspace_path") else "project")
+                    workspace_path = project.get("workspace_path")
+                    if workspace_mode == "isolated" and workspace_path:
+                        settings = get_settings()
+                        workspaces_dir = settings.pantheon_dir / "workspaces"
+                        workspace_path_obj = Path(workspace_path)
+                        try:
+                            workspace_path_obj.relative_to(workspaces_dir)
+                            workspace_path_to_delete = workspace_path_obj
+                        except ValueError:
+                            pass  # Not under .pantheon/workspaces/, don't delete
+            except Exception as e:
+                logger.debug(f"Could not get workspace path for chat {chat_id}: {e}")
+
             await run_func(self.memory_manager.delete_memory, chat_id)
-            # File is deleted immediately by delete_memory, no need for save()
+
+            # Clean up isolated workspace directory
+            if workspace_path_to_delete and workspace_path_to_delete.exists():
+                try:
+                    shutil.rmtree(workspace_path_to_delete)
+                    logger.info(f"Deleted session workspace: {workspace_path_to_delete}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete workspace folder {workspace_path_to_delete}: {e}")
+
             return {"success": True, "message": "Chat deleted successfully"}
         except Exception as e:
             logger.error(f"Error deleting chat: {e}")
@@ -921,6 +1092,10 @@ class ChatRoom(ToolSet):
             # Frontend query: skip auto-fix for better performance (5-10x faster)
             # Messages will be fixed automatically when agent execution starts
             memory = await run_func(self.memory_manager.get_memory, chat_id)
+
+            # Sync _current_chat_id to keep backend state aligned with UI
+            self._current_chat_id = chat_id
+
             # Get full raw history for UI
             messages = await run_func(memory.get_messages, _ALL_CONTEXTS, False)
 
@@ -984,11 +1159,65 @@ class ChatRoom(ToolSet):
             }
 
     @tool
+    async def set_chat_workspace_mode(
+        self,
+        chat_id: str,
+        workspace_mode: str,
+    ) -> dict:
+        """Toggle workspace mode for a chat.
+
+        Args:
+            chat_id: The chat ID.
+            workspace_mode: "project" (shared) or "isolated" (per-chat).
+
+        Returns:
+            A dictionary with success status, workspace_mode, and workspace_path.
+        """
+        if workspace_mode not in ("project", "isolated"):
+            return {"success": False, "message": "workspace_mode must be 'project' or 'isolated'"}
+
+        try:
+            memory = await run_func(self.memory_manager.get_memory, chat_id)
+            project = memory.extra_data.get("project", {})
+            if not isinstance(project, dict):
+                project = {}
+
+            workspace_path = project.get("workspace_path")
+
+            if workspace_mode == "isolated" and not workspace_path:
+                # Create per-session workspace if switching to isolated
+                settings = get_settings()
+                session_workspace_dir = settings.pantheon_dir / "workspaces" / chat_id
+                try:
+                    session_workspace_dir.mkdir(parents=True, exist_ok=True)
+                    workspace_path = str(session_workspace_dir)
+                    project["workspace_path"] = workspace_path
+                    logger.info(f"Created workspace for chat {chat_id}: {workspace_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to create workspace for chat {chat_id}: {e}")
+                    return {"success": False, "message": f"Failed to create workspace: {e}"}
+
+            project["workspace_mode"] = workspace_mode
+            memory.extra_data["project"] = project
+            memory.mark_dirty()
+
+            return {
+                "success": True,
+                "message": f"Workspace mode set to '{workspace_mode}'",
+                "workspace_mode": workspace_mode,
+                "workspace_path": workspace_path if workspace_mode == "isolated" else None,
+            }
+        except Exception as e:
+            logger.error(f"Error setting workspace mode: {e}")
+            return {"success": False, "message": str(e)}
+
+    @tool
     async def set_chat_project(
         self,
         chat_id: str,
         project_name: str | None = None,
         workspace_path: str | None = None,
+        workspace_mode: str | None = None,
         **kwargs,
     ) -> dict:
         """Set or update project metadata for a chat.
@@ -997,34 +1226,38 @@ class ChatRoom(ToolSet):
             chat_id: The ID of the chat.
             project_name: Project name (None to remove project).
             workspace_path: Optional workspace directory path.
+            workspace_mode: Optional workspace mode ("project" or "isolated").
             **kwargs: Additional project metadata (color, icon, etc.)
 
         Returns:
             A dictionary with success status and message.
         """
         try:
-            # Read-only: setting project metadata, no need to fix
             memory = await run_func(self.memory_manager.get_memory, chat_id)
 
-            if project_name is None:
+            if project_name is None and workspace_path is None and workspace_mode is None and not kwargs:
                 # Remove project metadata
                 memory.extra_data.pop("project", None)
                 message = "Project metadata removed"
             else:
                 # Create or update project object
                 project = memory.extra_data.get("project", {})
-                project["name"] = project_name
+                if not isinstance(project, dict):
+                    project = {}
 
+                if project_name is not None:
+                    project["name"] = project_name
                 if workspace_path is not None:
                     project["workspace_path"] = workspace_path
+                if workspace_mode is not None:
+                    project["workspace_mode"] = workspace_mode
 
-                # Support future extensions (color, icon, etc.)
                 for key, value in kwargs.items():
                     if value is not None:
                         project[key] = value
 
                 memory.extra_data["project"] = project
-                message = f"Project '{project_name}' set for chat"
+                message = f"Project metadata updated for chat"
 
             memory.mark_dirty()
             return {"success": True, "message": message}
@@ -1350,12 +1583,15 @@ class ChatRoom(ToolSet):
         team = await self.get_team_for_chat(chat_id)
         self._setup_bg_auto_notify(chat_id, team)
 
-        # Inject workdir from project metadata if available
+        # Inject workdir from project metadata if in isolated mode
         project = memory.extra_data.get("project", {})
-        workspace_path = project.get("workspace_path") if isinstance(project, dict) else None
-        if workspace_path:
-            context_variables = context_variables or {}
-            context_variables["workdir"] = workspace_path
+        if isinstance(project, dict):
+            workspace_mode = project.get("workspace_mode",
+                "isolated" if project.get("workspace_path") else "project")
+            workspace_path = project.get("workspace_path")
+            if workspace_mode == "isolated" and workspace_path:
+                context_variables = context_variables or {}
+                context_variables["workdir"] = workspace_path
 
         thread = Thread(
             team_getter,  # Pass team getter
@@ -1845,6 +2081,34 @@ class ChatRoom(ToolSet):
             logger.error(f"Error setting agent model: {e}")
             return {"success": False, "message": str(e)}
 
+
+    @tool
+    async def get_token_stats(self, chat_id: str) -> dict:
+        """Get detailed token usage statistics for a chat.
+
+        Returns token breakdown by role (system/user/assistant/tool),
+        usage percentage, cost, model info, and context window utilization.
+
+        Args:
+            chat_id: The chat to get token stats for
+
+        Returns:
+            dict with success status and token statistics
+        """
+        try:
+            team = await self.get_team_for_chat(chat_id)
+            from pantheon.repl.utils import get_detailed_token_stats
+
+            token_info = await get_detailed_token_stats(
+                chatroom=self,
+                chat_id=chat_id,
+                team=team,
+                fallback={},
+            )
+            return {"success": True, **token_info}
+        except Exception as e:
+            logger.error(f"Error getting token stats: {e}")
+            return {"success": False, "error": str(e)}
 
     @tool
     async def compress_chat(self, chat_id: str) -> dict:

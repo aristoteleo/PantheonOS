@@ -11,16 +11,20 @@ import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message="urllib3.*doesn't match a supported version")
 
+import asyncio
 import os
 import sys
 
 import fire
 from dotenv import load_dotenv
 
-# Load .env files
+# Load .env files: cwd/.env > ~/.pantheon/.env > ~/.env (legacy fallback)
 load_dotenv()
 load_dotenv(
     os.path.join(os.path.expanduser("~"), ".pantheon", ".env"), override=False
+)
+load_dotenv(
+    os.path.join(os.path.expanduser("~"), ".env"), override=False
 )
 
 # Windows UTF-8 setup
@@ -121,12 +125,28 @@ def main():
 
         check_and_run_setup()
 
+    # Ensure an event loop exists for Fire + async functions (Python 3.10+)
+    # Python Fire internally calls asyncio.get_event_loop() when handling async functions,
+    # which raises RuntimeError in Python 3.12+ if no loop exists.
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
     # Import REAL functions — Fire reads their signatures for --help
     from pantheon.repl.__main__ import start as cli
     from pantheon.chatroom.start import start_services as ui
     from pantheon.store.cli import StoreCLI
-
-    fire.Fire({"cli": cli, "ui": ui, "setup": setup, "update-templates": update_templates, "store": StoreCLI}, name="pantheon")
+    fire.Fire(
+        {
+            "cli": cli,
+            "ui": ui,
+            "setup": setup,
+            "update-templates": update_templates,
+            "store": StoreCLI,
+        },
+        name="pantheon",
+    )
 
 
 if __name__ == "__main__":
