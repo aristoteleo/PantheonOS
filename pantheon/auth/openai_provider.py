@@ -563,27 +563,13 @@ class OpenAIOAuthProvider:
             "project_id": tokens.project_id,
         }
 
-    def get_status(self) -> OAuthStatus:
-        """Get current OAuth status."""
-        auth = self._load_auth_record()
-
+    def _status_from_auth_record(self, auth: AuthRecord | None) -> OAuthStatus:
+        """Build status from a loaded auth record without refreshing tokens."""
         if not auth or not auth.tokens.access_token:
             return OAuthStatus(authenticated=False, provider="openai")
 
         access_token = auth.tokens.access_token
         id_token = auth.tokens.id_token
-
-        if access_token and _token_expired(access_token):
-            refresh_token = auth.tokens.refresh_token
-            if refresh_token:
-                try:
-                    self.refresh()
-                    auth = self._load_auth_record()
-                    if auth:
-                        access_token = auth.tokens.access_token
-                        id_token = auth.tokens.id_token
-                except Exception as e:
-                    logger.warning(f"Token refresh failed: {e}")
 
         token_expires_at = _extract_token_exp(id_token) if id_token else None
         if token_expires_at is None:
@@ -597,6 +583,29 @@ class OpenAIOAuthProvider:
             token_expires_at=token_expires_at,
             provider="openai",
         )
+
+    def peek_status(self) -> OAuthStatus:
+        """Read current OAuth status from disk without refreshing tokens."""
+        auth = self._load_auth_record()
+        return self._status_from_auth_record(auth)
+
+    def get_status(self) -> OAuthStatus:
+        """Get current OAuth status, refreshing expired tokens when possible."""
+        auth = self._load_auth_record()
+        if not auth or not auth.tokens.access_token:
+            return OAuthStatus(authenticated=False, provider="openai")
+
+        access_token = auth.tokens.access_token
+        if access_token and _token_expired(access_token):
+            refresh_token = auth.tokens.refresh_token
+            if refresh_token:
+                try:
+                    self.refresh()
+                    auth = self._load_auth_record()
+                except Exception as e:
+                    logger.warning(f"Token refresh failed: {e}")
+
+        return self._status_from_auth_record(auth)
 
     def logout(self) -> None:
         """Clear OAuth credentials and revoke tokens on OpenAI server."""

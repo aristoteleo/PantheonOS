@@ -1,31 +1,13 @@
-# OAuth Guide
-
-## Overview
-
-- Pantheon has a generic OAuth provider registry
-- OAuth credentials are stored per provider
-- Providers can expose provider-specific behavior on top of the shared flow
-
-Today, Pantheon only ships one concrete OAuth provider: `openai`.
+# OpenAI OAuth 2.0 Guide
 
 ## Why OAuth?
 
-- Browser-based account authentication
+- Browser-based OpenAI account authentication
 - Automatic token refresh
 - Codex CLI credential import
 - Account status inspection in Pantheon
 
-## Current Providers
-
-Use `/oauth list` to see registered providers.
-
-At the moment, the built-in provider set is:
-
-- `openai`
-
-Future providers can be added through the same `OAuthManager` registry without changing the `/oauth` command surface.
-
-## Important Limitation For OpenAI
+## Important Limitation
 
 Pantheon's OAuth support manages OpenAI account credentials only. It does not treat the
 resulting OAuth access token as a substitute for `OPENAI_API_KEY` when calling the OpenAI API.
@@ -66,8 +48,7 @@ For maintainers:
 
 ```bash
 pantheon
-/oauth list
-/oauth login openai
+/oauth login
 # Browser opens - log in and authorize
 ```
 
@@ -75,26 +56,15 @@ pantheon
 
 | Command | Description |
 |---------|-------------|
-| `/oauth list` | List registered OAuth providers |
-| `/oauth login [provider]` | Start provider login flow |
-| `/oauth status [provider]` | Check authentication status |
-| `/oauth logout [provider]` | Clear provider credentials |
-| `/oauth explain [model]` | Explain which auth method a model will use |
-| `/oauth prefs [provider]` | Show provider auth preferences |
-
-If no provider is supplied, Pantheon uses `auth.default_oauth_provider`.
+| `/oauth status` | Check authentication |
+| `/oauth login` | Initiate login |
+| `/oauth logout` | Clear credentials |
 
 ## API Reference
 
 ### `get_oauth_manager() -> OAuthManager`
 
 Get the singleton provider registry for OAuth-capable providers.
-
-### Generic Concepts
-
-- `OAuthManager`: provider registry, default-provider selection, shared command entry point
-- `OAuthProvider`: protocol for `login()`, `get_status()`, `logout()`, `ensure_access_token()`
-- `OAuthStatus`: normalized status payload used by the REPL and setup wizard
 
 ### `OpenAIOAuthProvider`
 
@@ -122,28 +92,6 @@ if token:
 
 ## Configuration
 
-Pantheon now uses a provider-aware auth layout:
-
-```json
-{
-  "auth": {
-    "default_oauth_provider": "openai",
-    "providers": {
-      "openai": {
-        "mode": "auto",
-        "enable_api_key": true,
-        "enable_oauth": true
-      }
-    }
-  }
-}
-```
-
-Backward compatibility:
-
-- Existing `auth.openai` settings are still read
-- New writes should target `auth.providers.openai`
-
 ```python
 # Custom token location
 from pathlib import Path
@@ -170,8 +118,7 @@ export OPENAI_API_KEY="sk-..."
 
 ## Security
 
-- Provider auth files use the pattern `~/.pantheon/oauth_<provider>.json`
-- OpenAI tokens are stored at `~/.pantheon/oauth_openai.json`
+- Tokens stored at `~/.pantheon/oauth_openai.json`
 - Tokens auto-refresh when ~5 min from expiry
 - JWT claims used for email / org / project context are signature-verified before use
 - OAuth callback requests are checked against `Origin` / `Referer` when headers are present

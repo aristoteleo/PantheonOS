@@ -6,9 +6,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, Optional
 
-from pantheon.auth.auth_settings import get_default_oauth_provider
-
-
 @dataclass
 class OAuthTokens:
     """Generic OAuth tokens."""
@@ -120,16 +117,11 @@ class OAuthManager:
 
     def __init__(self):
         self._providers: dict[str, OAuthProvider] = {}
-        self._default_provider: str = get_default_oauth_provider()
+        self._default_provider: str = "openai"
 
     def register(self, provider: OAuthProvider) -> None:
         """Register an OAuth provider."""
         self._providers[provider.name] = provider
-        configured_default = get_default_oauth_provider()
-        if configured_default == provider.name:
-            self._default_provider = provider.name
-        elif len(self._providers) == 1 and self._default_provider not in self._providers:
-            self._default_provider = provider.name
 
     def set_default(self, provider_name: str) -> None:
         """Set the default provider."""

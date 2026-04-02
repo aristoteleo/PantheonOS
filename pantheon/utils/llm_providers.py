@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from pantheon.auth.openai_auth_strategy import (
     get_openai_auth_settings,
     is_api_key_auth_enabled,
-    resolve_openai_auth_decision,
     should_use_codex_oauth_transport,
 )
 from .misc import run_func
@@ -509,14 +508,13 @@ async def call_llm_provider(
         from .llm import acompletion_responses
 
         model_name = config.model_name
-        auth_decision = resolve_openai_auth_decision(config.model_name)
-        use_codex_oauth_transport = auth_decision.oauth_transport and auth_decision.selected_auth == "oauth"
+        use_codex_oauth_transport = should_use_codex_oauth_transport(config.model_name)
 
         if config.model_name.lower().startswith("codex/") and not use_codex_oauth_transport:
             prefs = get_openai_auth_settings()
             raise RuntimeError(
-                "Codex OAuth transport is unavailable for this model "
-                f"(reason={auth_decision.reason}, mode={prefs.mode}, enable_oauth={prefs.enable_oauth})."
+                "Codex OAuth transport is disabled by auth.openai settings "
+                f"(mode={prefs.mode}, enable_oauth={prefs.enable_oauth})."
             )
 
         if model_name.startswith("openai/"):

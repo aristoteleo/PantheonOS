@@ -109,13 +109,12 @@ class TestSetupWizardBackwardCompatibility(unittest.TestCase):
 
     def test_both_auth_methods_available(self):
         """Test that both OAuth and API Key are available."""
-        from pantheon.repl.setup_wizard import PROVIDER_MENU, _oauth_provider_menu
+        from pantheon.repl.setup_wizard import PROVIDER_MENU
 
         provider_keys = [e.provider_key for e in PROVIDER_MENU]
-        oauth_provider_keys = [e.provider_key for e in _oauth_provider_menu()]
 
         assert "openai" in provider_keys, "API Key option must be present"
-        assert "oauth:openai" in oauth_provider_keys, "OAuth option must be present"
+        assert "openai_oauth" in provider_keys, "OAuth option must be present"
 
     def test_menu_structure_preserved(self):
         """Test that menu structure is still valid."""
@@ -305,18 +304,20 @@ class TestBackwardCompatibilityIntegration:
 
     def test_api_key_and_oauth_menu_both_present(self):
         """Test that both auth options are in Setup Wizard."""
-        from pantheon.repl.setup_wizard import PROVIDER_MENU, _oauth_provider_menu
+        from pantheon.repl.setup_wizard import PROVIDER_MENU
 
         provider_keys = [e.provider_key for e in PROVIDER_MENU]
-        oauth_provider_keys = [e.provider_key for e in _oauth_provider_menu()]
 
         # Both must be present
         assert "openai" in provider_keys
-        assert "oauth:openai" in oauth_provider_keys
+        assert "openai_oauth" in provider_keys
 
         # Count should be 2 for OpenAI options
-        openai_count = sum(1 for e in PROVIDER_MENU if e.provider_key == "openai")
-        openai_count += sum(1 for e in _oauth_provider_menu() if e.provider_key == "oauth:openai")
+        openai_count = sum(
+            1
+            for e in PROVIDER_MENU
+            if e.provider_key in ["openai", "openai_oauth"]
+        )
         assert openai_count == 2
 
 
