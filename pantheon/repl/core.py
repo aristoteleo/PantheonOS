@@ -2222,34 +2222,98 @@ class Repl(ReplUI):
             reset_model_selector()
             self.console.print(f"[green]\u2713[/green] {display_name} ({env_var}) saved to ~/.pantheon/.env")
 
+    def _get_current_agent_primary_model(self) -> str | None:
+        current_agent_name = self._current_agent_name
+        if not current_agent_name and self._team and self._team.agents:
+            current_agent_name = list(self._team.agents.keys())[0]
+
+        if not current_agent_name or not self._team:
+            return None
+
+        agent = self._team.agents.get(current_agent_name)
+        if not agent or not hasattr(agent, "models") or not agent.models:
+            return None
+        return agent.models[0]
+
+    def _resolve_model_for_auth_explain(self, model_name: str | None) -> tuple[str | None, str | None]:
+        if not model_name:
+            return None, "No model selected."
+
+        try:
+            from pantheon.agent import _is_model_tag, _resolve_model_tag
+
+            if _is_model_tag(model_name):
+                resolved = _resolve_model_tag(model_name)
+                if not resolved:
+                    return None, f"Model tag '{model_name}' did not resolve to a concrete model."
+                return resolved[0], f"Model tag '{model_name}' resolved to '{resolved[0]}'."
+        except Exception as exc:
+            return None, f"Failed to resolve model tag '{model_name}': {exc}"
+
+        return model_name, None
+
+    def _format_openai_auth_reason(self, reason: str) -> str:
+        reason_map = {
+            "codex_models_use_oauth_transport": "Codex models use OAuth transport when OpenAI OAuth is authenticated",
+            "codex_oauth_unavailable_fell_back_to_api_key": "OpenAI OAuth was unavailable, so Codex fell back to API key",
+            "oauth_disabled_for_codex_models": "OAuth routing is disabled for Codex models",
+            "oauth_required_for_codex_models": "Codex models require OpenAI OAuth authentication",
+            "standard_openai_api_uses_api_key": "Standard OpenAI API models use API key auth",
+            "standard_openai_api_fell_back_to_oauth": "Standard OpenAI API fell back to OAuth because fallback is enabled",
+            "oauth_does_not_replace_standard_openai_api_key": "OpenAI OAuth does not replace OPENAI_API_KEY for standard OpenAI API models",
+            "api_key_routing_disabled_for_standard_openai_api": "API key routing is disabled for standard OpenAI API models",
+            "missing_openai_api_key_for_standard_openai_api": "OPENAI_API_KEY is missing for standard OpenAI API models",
+        }
+        return reason_map.get(reason, reason.replace("_", " "))
+
+    def _openai_auth_next_step_hint(self, reason: str, model_name: str) -> str:
+        if reason in {"oauth_required_for_codex_models", "oauth_disabled_for_codex_models"}:
+            return "Run '/oauth login openai' or switch to a standard OpenAI API model with OPENAI_API_KEY configured."
+        if reason == "oauth_does_not_replace_standard_openai_api_key":
+            return "Configure OPENAI_API_KEY for standard OpenAI API models, or switch to a codex/... model if you intend to use OAuth transport."
+        if reason in {
+            "api_key_routing_disabled_for_standard_openai_api",
+            "missing_openai_api_key_for_standard_openai_api",
+        }:
+            return f"Configure OPENAI_API_KEY or switch to a codex/... model. Current model: {model_name}"
+        return "Adjust auth settings with /oauth prefs, /oauth mode, /oauth enable, or /oauth disable."
+
     async def _handle_oauth_command(self, args: str):
         """Handle /oauth command - manage OAuth authentication.
 
         Usage:
-            /oauth login [provider]      - Start OAuth login flow (default: openai)
+            /oauth list                  - List configured OAuth providers
+            /oauth login [provider]      - Start OAuth login flow
             /oauth status [provider]     - Show OAuth authentication status
             /oauth logout [provider]     - Clear OAuth credentials
+            /oauth explain [model]       - Explain which auth method a model will use
             /oauth import-codex          - Import authentication from Codex CLI
-            /oauth prefs                 - Show API key/OAuth routing preferences
+            /oauth prefs [provider]      - Show API key/OAuth routing preferences
             /oauth mode <mode>           - Set auth mode
             /oauth enable <api-key|oauth>
             /oauth disable <api-key|oauth>
         """
+        from pantheon.auth.auth_settings import get_default_oauth_provider
         from pantheon.auth.oauth_manager import get_oauth_manager
         from pantheon.auth.openai_auth_strategy import (
             VALID_OPENAI_AUTH_MODES,
+            decide_openai_auth,
+            get_openai_auth_runtime_state,
             summarize_openai_auth_state,
         )
-        from pantheon.repl.setup_wizard import _save_openai_auth_settings_to_settings
+        from pantheon.repl.setup_wizard import _save_provider_auth_settings_to_settings
         from pantheon.settings import get_settings
         import asyncio
         import os
 
         parts = args.lower().strip().split() if args else []
         subcommand = parts[0] if parts else "status"
-        provider = parts[1] if len(parts) > 1 else None
+        provider_subcommands = {"login", "status", "logout", "prefs"}
+        provider = parts[1] if len(parts) > 1 and subcommand in provider_subcommands else None
 
         oauth_manager = get_oauth_manager()
+        default_provider = get_default_oauth_provider()
+        active_provider = provider or default_provider
 
         if subcommand == "list":
             self.console.print()
@@ -2257,20 +2321,20 @@ class Repl(ReplUI):
             self.console.print()
 
             providers = oauth_manager.list_providers()
-            default_provider = oauth_manager.default_provider
 
             for p in providers:
                 marker = " (default)" if p == default_provider else ""
                 self.console.print(f"  • {p}{marker}")
 
             self.console.print()
-            self.console.print("[dim]Usage: /oauth login <provider>[/dim]")
+            self.console.print("[dim]Usage: /oauth login <provider> | /oauth status <provider> | /oauth logout <provider>[/dim]")
             self.console.print()
 
         elif subcommand == "login":
             self.console.print()
-            provider_name = provider or "openai"
-            self.console.print(f"[bold]{provider_name.title()} OAuth Login[/bold]")
+            provider_name = active_provider
+            provider_display = oauth_manager.get_provider(provider_name).display_name
+            self.console.print(f"[bold]{provider_display} OAuth Login[/bold]")
             self.console.print("[dim]A browser window will open for you to authenticate.[/dim]")
             self.console.print()
 
@@ -2278,13 +2342,14 @@ class Repl(ReplUI):
                 loop = asyncio.get_event_loop()
                 success = await loop.run_in_executor(
                     None,
-                    lambda: oauth_manager.login(provider)
+                    lambda: oauth_manager.login(provider_name)
                 )
 
                 if success:
-                    status = oauth_manager.get_status(provider)
-                    self.console.print(f"[green]✓ {provider_name.title()} OAuth login successful![/green]")
-                    self.console.print("[dim]This logs in your OpenAI account, but does not replace OPENAI_API_KEY for OpenAI API model calls.[/dim]")
+                    status = oauth_manager.get_status(provider_name)
+                    self.console.print(f"[green]✓ {provider_display} OAuth login successful![/green]")
+                    if provider_name == "openai":
+                        self.console.print("[dim]This logs in your OpenAI account, but does not replace OPENAI_API_KEY for OpenAI API model calls.[/dim]")
                     if status.email:
                         self.console.print(f"  Email: {status.email}")
                     if status.organization_id:
@@ -2293,7 +2358,7 @@ class Repl(ReplUI):
                         self.console.print(f"  Project ID: {status.project_id}")
                     self.console.print()
                 else:
-                    self.console.print(f"[red]✗ {provider_name.title()} OAuth login failed[/red]")
+                    self.console.print(f"[red]✗ {provider_display} OAuth login failed[/red]")
                     self.console.print("[dim]Please try again or check your internet connection.[/dim]")
                     self.console.print()
             except Exception as e:
@@ -2302,12 +2367,13 @@ class Repl(ReplUI):
 
         elif subcommand == "status":
             self.console.print()
-            provider_name = provider or oauth_manager.default_provider
-            self.console.print(f"[bold]{provider_name.title()} OAuth Status[/bold]")
+            provider_name = active_provider
+            provider_display = oauth_manager.get_provider(provider_name).display_name
+            self.console.print(f"[bold]{provider_display} OAuth Status[/bold]")
             self.console.print()
 
             try:
-                status = oauth_manager.get_status(provider)
+                status = oauth_manager.get_status(provider_name)
 
                 if status.authenticated:
                     self.console.print("[green]✓ Authenticated[/green]")
@@ -2321,7 +2387,7 @@ class Repl(ReplUI):
                         self.console.print(f"  Token Expires: {status.token_expires_at}")
                 else:
                     self.console.print("[yellow]Not authenticated[/yellow]")
-                    self.console.print("[dim]Use '/oauth login openai' to authenticate.[/dim]")
+                    self.console.print(f"[dim]Use '/oauth login {provider_name}' to authenticate.[/dim]")
                 self.console.print()
             except Exception as e:
                 self.console.print(f"[red]✗ Failed to get OAuth status: {e}[/red]")
@@ -2329,14 +2395,15 @@ class Repl(ReplUI):
 
         elif subcommand == "logout":
             self.console.print()
-            provider_name = provider or oauth_manager.default_provider
-            self.console.print(f"[bold]{provider_name.title()} OAuth Logout[/bold]")
+            provider_name = active_provider
+            provider_display = oauth_manager.get_provider(provider_name).display_name
+            self.console.print(f"[bold]{provider_display} OAuth Logout[/bold]")
             self.console.print()
 
             try:
-                oauth_manager.logout(provider)
-                self.console.print(f"[green]✓ {provider_name.title()} OAuth credentials cleared[/green]")
-                self.console.print("[dim]Use '/oauth login openai' to authenticate again.[/dim]")
+                oauth_manager.logout(provider_name)
+                self.console.print(f"[green]✓ {provider_display} OAuth credentials cleared[/green]")
+                self.console.print(f"[dim]Use '/oauth login {provider_name}' to authenticate again.[/dim]")
                 self.console.print()
             except Exception as e:
                 self.console.print(f"[red]✗ Failed to logout: {e}[/red]")
@@ -2371,8 +2438,21 @@ class Repl(ReplUI):
 
         elif subcommand == "prefs":
             self.console.print()
-            self.console.print("[bold]OpenAI Authentication Preferences[/bold]")
+            provider_name = active_provider
+            provider_display = oauth_manager.get_provider(provider_name).display_name
+            self.console.print(f"[bold]{provider_display} Authentication Preferences[/bold]")
             self.console.print()
+            if provider_name != "openai":
+                try:
+                    status = oauth_manager.get_status(provider_name)
+                    self.console.print(f"  OAuth Authenticated: {bool(status and status.authenticated)}")
+                    self.console.print("[dim]Provider-specific routing preferences are currently only implemented for OpenAI.[/dim]")
+                    self.console.print()
+                except Exception as e:
+                    self.console.print(f"[red]✗ Failed to get OAuth status: {e}[/red]")
+                    self.console.print()
+                return
+
             try:
                 oauth_status = oauth_manager.get_status("openai")
             except Exception:
@@ -2382,6 +2462,16 @@ class Repl(ReplUI):
                 api_key_present=bool(os.environ.get("OPENAI_API_KEY")),
                 oauth_authenticated=bool(oauth_status and oauth_status.authenticated),
             )
+            standard_decision = decide_openai_auth(
+                "openai/gpt-5.4",
+                api_key_present=state["api_key_present"],
+                oauth_authenticated=state["oauth_authenticated"],
+            )
+            codex_decision = decide_openai_auth(
+                "codex/gpt-5.4",
+                api_key_present=state["api_key_present"],
+                oauth_authenticated=state["oauth_authenticated"],
+            )
             self.console.print(f"  Mode: {state['mode']}")
             self.console.print(f"  API Key Enabled: {state['enable_api_key']}")
             self.console.print(f"  OAuth Enabled: {state['enable_oauth']}")
@@ -2390,8 +2480,52 @@ class Repl(ReplUI):
             self.console.print(f"  Effective API Key Routing: {state['effective_api_key_enabled']}")
             self.console.print(f"  Effective OAuth Routing: {state['effective_oauth_enabled']}")
             self.console.print()
+            self.console.print("  Effective Decisions:")
+            self.console.print(f"    openai/gpt-5.4 -> {standard_decision.selected_auth} ({self._format_openai_auth_reason(standard_decision.reason)})")
+            self.console.print(f"    codex/gpt-5.4 -> {codex_decision.selected_auth} ({self._format_openai_auth_reason(codex_decision.reason)})")
+            self.console.print()
             self.console.print("[dim]Modes: auto, prefer_api_key, prefer_oauth, api_key_only, oauth_only[/dim]")
             self.console.print()
+
+        elif subcommand == "explain":
+            self.console.print()
+            provider_name = active_provider
+            if provider_name != "openai":
+                self.console.print(f"[yellow]Detailed auth explain is currently only implemented for OpenAI. Provider: {provider_name}[/yellow]")
+                self.console.print()
+                return
+
+            requested_model = parts[1] if len(parts) > 1 else self._get_current_agent_primary_model()
+            model_name, resolution_note = self._resolve_model_for_auth_explain(requested_model)
+            if not model_name:
+                self.console.print("[yellow]Usage: /oauth explain <model_name>[/yellow]")
+                self.console.print("[dim]Example: /oauth explain openai/gpt-5.4[/dim]")
+                if resolution_note:
+                    self.console.print(f"[dim]{resolution_note}[/dim]")
+                self.console.print()
+                return
+
+            runtime_state = get_openai_auth_runtime_state()
+            decision = decide_openai_auth(
+                model_name,
+                api_key_present=runtime_state["api_key_present"],
+                oauth_authenticated=runtime_state["oauth_authenticated"],
+            )
+            self.console.print(f"[bold]OpenAI Auth Explain[/bold]")
+            self.console.print(f"  Model: {model_name}")
+            if resolution_note:
+                self.console.print(f"  Note: {resolution_note}")
+            self.console.print(f"  Selected Auth: {decision.selected_auth}")
+            self.console.print(f"  Reason: {self._format_openai_auth_reason(decision.reason)}")
+            self.console.print(f"  OAuth Transport: {decision.oauth_transport}")
+            self.console.print(f"  Fallback Used: {decision.fallback_used}")
+            self.console.print(f"  API Key Present: {runtime_state['api_key_present']}")
+            self.console.print(f"  OAuth Authenticated: {runtime_state['oauth_authenticated']}")
+            self.console.print(f"  Mode: {runtime_state['mode']}")
+            self.console.print()
+            if decision.selected_auth == "unavailable":
+                self.console.print(f"[dim]{self._openai_auth_next_step_hint(decision.reason, model_name)}[/dim]")
+                self.console.print()
 
         elif subcommand == "mode":
             mode = parts[1] if len(parts) > 1 else ""
@@ -2400,7 +2534,7 @@ class Repl(ReplUI):
                 self.console.print()
                 return
 
-            if _save_openai_auth_settings_to_settings({"mode": mode}):
+            if _save_provider_auth_settings_to_settings("openai", {"mode": mode}):
                 get_settings().reload()
                 self.console.print(f"[green]✓ OpenAI auth mode set to {mode}[/green]")
             else:
@@ -2422,7 +2556,7 @@ class Repl(ReplUI):
                 self.console.print()
                 return
 
-            if _save_openai_auth_settings_to_settings({setting_key: enabled}):
+            if _save_provider_auth_settings_to_settings("openai", {setting_key: enabled}):
                 get_settings().reload()
                 verb = "enabled" if enabled else "disabled"
                 self.console.print(f"[green]✓ {target} {verb} for OpenAI auth routing[/green]")
@@ -2432,7 +2566,7 @@ class Repl(ReplUI):
 
         else:
             self.console.print(f"[red]Unknown subcommand: {subcommand}[/red]")
-            self.console.print("[dim]Use /oauth login, /oauth status, /oauth logout, /oauth import-codex, /oauth prefs, /oauth mode, /oauth enable, or /oauth disable[/dim]")
+            self.console.print("[dim]Use /oauth list, /oauth login, /oauth status, /oauth logout, /oauth explain, /oauth import-codex, /oauth prefs, /oauth mode, /oauth enable, or /oauth disable[/dim]")
             self.console.print()
 
     async def _handle_model_command(self, args: str):

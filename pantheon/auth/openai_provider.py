@@ -139,6 +139,9 @@ def _decode_jwt_payload_verified(token: str) -> dict:
         )
         return payload if isinstance(payload, dict) else {}
     except Exception as exc:
+        if exc.__class__.__name__ == "ExpiredSignatureError":
+            logger.debug("JWT signature verification skipped for expired token during local inspection")
+            return {}
         logger.warning(f"JWT signature verification failed: {exc}")
         return {}
 

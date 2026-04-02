@@ -109,12 +109,13 @@ class TestSetupWizardBackwardCompatibility(unittest.TestCase):
 
     def test_both_auth_methods_available(self):
         """Test that both OAuth and API Key are available."""
-        from pantheon.repl.setup_wizard import PROVIDER_MENU
+        from pantheon.repl.setup_wizard import PROVIDER_MENU, _oauth_provider_menu
 
         provider_keys = [e.provider_key for e in PROVIDER_MENU]
+        oauth_provider_keys = [e.provider_key for e in _oauth_provider_menu()]
 
         assert "openai" in provider_keys, "API Key option must be present"
-        assert "openai_oauth" in provider_keys, "OAuth option must be present"
+        assert "oauth:openai" in oauth_provider_keys, "OAuth option must be present"
 
     def test_menu_structure_preserved(self):
         """Test that menu structure is still valid."""
@@ -127,6 +128,21 @@ class TestSetupWizardBackwardCompatibility(unittest.TestCase):
         for entry in PROVIDER_MENU:
             assert hasattr(entry, "provider_key")
             assert hasattr(entry, "display_name")
+
+    def test_existing_oauth_skips_automatic_setup_wizard(self):
+        """Test that authenticated OAuth counts as existing credentials for startup."""
+        from pantheon.auth.oauth_manager import OAuthStatus
+        from pantheon.repl import setup_wizard
+
+        mock_manager = Mock()
+        mock_manager.list_providers.return_value = ["openai"]
+        mock_manager.get_status.return_value = OAuthStatus(authenticated=True, provider="openai")
+
+        with patch("pantheon.repl.setup_wizard.get_oauth_manager", return_value=mock_manager):
+            with patch("pantheon.repl.setup_wizard.run_setup_wizard") as mock_run:
+                with patch.dict(os.environ, {}, clear=True):
+                    setup_wizard.check_and_run_setup()
+                mock_run.assert_not_called()
 
 
 class TestREPLBackwardCompatibility(unittest.TestCase):
@@ -289,20 +305,18 @@ class TestBackwardCompatibilityIntegration:
 
     def test_api_key_and_oauth_menu_both_present(self):
         """Test that both auth options are in Setup Wizard."""
-        from pantheon.repl.setup_wizard import PROVIDER_MENU
+        from pantheon.repl.setup_wizard import PROVIDER_MENU, _oauth_provider_menu
 
         provider_keys = [e.provider_key for e in PROVIDER_MENU]
+        oauth_provider_keys = [e.provider_key for e in _oauth_provider_menu()]
 
         # Both must be present
         assert "openai" in provider_keys
-        assert "openai_oauth" in provider_keys
+        assert "oauth:openai" in oauth_provider_keys
 
         # Count should be 2 for OpenAI options
-        openai_count = sum(
-            1
-            for e in PROVIDER_MENU
-            if e.provider_key in ["openai", "openai_oauth"]
-        )
+        openai_count = sum(1 for e in PROVIDER_MENU if e.provider_key == "openai")
+        openai_count += sum(1 for e in _oauth_provider_menu() if e.provider_key == "oauth:openai")
         assert openai_count == 2
 
 
