@@ -15,7 +15,7 @@ import logging
 import warnings
 from pathlib import Path
 
-# Warning filters and litellm config are already set in pantheon/__init__.py
+# Warning filters are already set in pantheon/__init__.py
 # which runs before this __main__.py
 
 import fire
@@ -158,14 +158,6 @@ def start(
         )
     )
 
-
-async def _update_litellm_cost_map():
-    """Background task to update litellm model cost map.
-
-    Delegates to the shared utility in pantheon.utils.llm.
-    """
-    from pantheon.utils.llm import update_litellm_cost_map
-    await update_litellm_cost_map()
 
 
 async def _start_async(
@@ -310,9 +302,6 @@ async def _start_async(
 
     # Disable logging unless explicitly set to DEBUG
     disable_logging = quiet and log_level != "DEBUG"
-
-    # Start background task to update litellm cost map (non-blocking)
-    asyncio.create_task(_update_litellm_cost_map())
 
     await repl.run(message=initial_input, disable_logging=disable_logging, log_level=log_level)
 

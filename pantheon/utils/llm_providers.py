@@ -21,10 +21,14 @@ from .log import logger
 
 
 class ProviderType(Enum):
-    """Supported LLM providers"""
+    """Supported LLM providers.
+
+    OPENAI: Direct OpenAI or OpenAI-compatible providers
+    NATIVE: Non-OpenAI providers using native SDKs (anthropic, gemini, etc.)
+    """
 
     OPENAI = "openai"
-    LITELLM = "litellm"
+    NATIVE = "native"
 
 
 @dataclass
@@ -35,10 +39,10 @@ class ProviderConfig:
     model_name: str
     base_url: Optional[str] = None
     api_key: Optional[str] = None
-    force_litellm: bool = False
+    relaxed_schema: bool = False
 
 
-# OpenAI-compatible providers that litellm doesn't natively support.
+# OpenAI-compatible providers that need custom base_url.
 # Maps provider prefix → (api_base_url, api_key_env_var)
 OPENAI_COMPATIBLE_PROVIDERS: dict[str, tuple[str, str]] = {}
 
@@ -46,18 +50,18 @@ OPENAI_COMPATIBLE_PROVIDERS: dict[str, tuple[str, str]] = {}
 # ============ Provider Detection ============
 
 
-def detect_provider(model: str, force_litellm: bool) -> ProviderConfig:
+def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
     """Detect provider from model string.
 
     Model format:
-    - "gpt-4" → OpenAI (via LiteLLM)
-    - "provider/model" → LiteLLM (handles zhipu, anthropic, etc. natively)
+    - "gpt-4" → OpenAI provider
+    - "provider/model" → Native SDK (handles anthropic, gemini, etc.)
     - "custom_anthropic/model" → OpenAI-compatible with CUSTOM_ANTHROPIC_* env vars
     - "custom_openai/model" → OpenAI-compatible with CUSTOM_OPENAI_* env vars
 
     Args:
         model: Model identifier string
-        force_litellm: Force using LiteLLM backend
+        relaxed_schema: Use relaxed (non-strict) tool schema mode
 
     Returns:
         ProviderConfig with detected provider and model name
@@ -78,21 +82,21 @@ def detect_provider(model: str, force_litellm: bool) -> ProviderConfig:
             base_url = os.environ.get(config.api_base_env, "")
             api_key = os.environ.get(config.api_key_env, "")
 
-            # Determine the litellm model format based on endpoint type
-            # LiteLLM needs a provider prefix to route correctly.
+            # Determine the resolved model format based on endpoint type.
+            # A provider prefix is needed to route correctly.
             # Explicitly passed api_key in call_llm_provider overrides env vars.
             if "anthropic" in provider_lower:
-                litellm_model = f"anthropic/{model_name}"
+                resolved_model = f"anthropic/{model_name}"
             else:
-                litellm_model = f"openai/{model_name}"
+                resolved_model = f"openai/{model_name}"
 
-            logger.debug(f"Using custom endpoint '{provider_lower}' with base_url={base_url}, litellm_model={litellm_model}")
+            logger.debug(f"Using custom endpoint '{provider_lower}' with base_url={base_url}, resolved_model={resolved_model}")
             return ProviderConfig(
                 provider_type=ProviderType.OPENAI,
-                model_name=litellm_model,
+                model_name=resolved_model,
                 base_url=base_url or None,
                 api_key=api_key or None,
-                force_litellm=force_litellm,
+                relaxed_schema=relaxed_schema,
             )
 
     if "/" in model:
@@ -109,35 +113,39 @@ def detect_provider(model: str, force_litellm: bool) -> ProviderConfig:
         elif provider_lower == "openai":
             provider_type = ProviderType.OPENAI
         else:
-            # All other prefixed models go through LiteLLM (zhipu, anthropic, etc.)
-            provider_type = ProviderType.LITELLM
-            model_name = model  # Keep full model string for LiteLLM
+            # All other prefixed models use native SDK adapters (anthropic, gemini, etc.)
+            provider_type = ProviderType.NATIVE
+            model_name = model  # Keep full model string for native adapter
     else:
         provider_type = ProviderType.OPENAI
         model_name = model
 
-    # Override with LiteLLM if forced
-    if force_litellm and provider_type != ProviderType.LITELLM:
-        provider_type = ProviderType.LITELLM
+    # Override with NATIVE if relaxed_schema is forced
+    if relaxed_schema and provider_type != ProviderType.NATIVE:
+        provider_type = ProviderType.NATIVE
 
     return ProviderConfig(
         provider_type=provider_type,
         model_name=model_name,
         base_url=base_url,
         api_key=api_key or None,
-        force_litellm=force_litellm,
+        relaxed_schema=relaxed_schema,
     )
 
 
 def is_responses_api_model(config: ProviderConfig) -> bool:
     """Check if model should use the OpenAI Responses API instead of Chat Completions.
 
-    Currently triggers for OpenAI models with "codex" in the name (e.g. codex-mini-latest).
+    Triggers for:
+    - Models with "codex" in the name (e.g. codex-mini-latest)
+    - Pro models (gpt-5.x-pro, gpt-5.2-pro) which are Responses-only
     """
-    return (
-        config.provider_type == ProviderType.OPENAI
-        and "codex" in config.model_name.lower()
-    )
+    name_lower = config.model_name.lower()
+    if config.provider_type != ProviderType.OPENAI:
+        return False
+    # Strip "openai/" prefix for matching
+    bare = name_lower.split("/")[-1] if "/" in name_lower else name_lower
+    return "codex" in bare or bare.endswith("-pro")
 
 
 def get_base_url(provider: ProviderType) -> Optional[str]:
@@ -258,26 +266,26 @@ def _clean_message_fields(message: dict) -> None:
         message["tool_calls"] = None
 
 
-def get_litellm_proxy_kwargs() -> dict:
-    """Get LiteLLM proxy kwargs for API calls.
+def get_proxy_kwargs() -> dict:
+    """Get proxy kwargs for API calls.
 
-    When LITELLM_PROXY_ENABLED=true, returns {"api_base": ..., "api_key": ...}
-    to route calls through the LiteLLM Proxy. Otherwise returns empty dict.
-
-    Usage:
-        proxy_kwargs = get_litellm_proxy_kwargs()
-        response = await litellm.aimage_generation(model=model, ..., **proxy_kwargs)
-        response = await litellm.acompletion(model=model, ..., **proxy_kwargs)
+    When LLM_PROXY_ENABLED=true (or LITELLM_PROXY_ENABLED for backward compat),
+    returns {"base_url": ..., "api_key": ...} to route calls through a proxy.
+    Otherwise returns empty dict.
     """
     import os
 
-    proxy_enabled = os.environ.get("LITELLM_PROXY_ENABLED", "").lower() == "true"
-    proxy_url = os.environ.get("LITELLM_PROXY_URL")
-    proxy_key = os.environ.get("LITELLM_PROXY_KEY")
+    # Check new env vars first, fall back to legacy LITELLM_ prefix
+    proxy_enabled = (
+        os.environ.get("LLM_PROXY_ENABLED", "").lower() == "true"
+        or os.environ.get("LITELLM_PROXY_ENABLED", "").lower() == "true"
+    )
+    proxy_url = os.environ.get("LLM_PROXY_URL") or os.environ.get("LITELLM_PROXY_URL")
+    proxy_key = os.environ.get("LLM_PROXY_KEY") or os.environ.get("LITELLM_PROXY_KEY")
 
     if proxy_enabled and proxy_url and proxy_key:
-        logger.info(f"[LITELLM_PROXY] Routing through proxy | URL={proxy_url}")
-        return {"api_base": proxy_url, "api_key": proxy_key}
+        logger.info(f"[LLM_PROXY] Routing through proxy | URL={proxy_url}")
+        return {"base_url": proxy_url, "api_key": proxy_key}
 
     return {}
 
@@ -286,7 +294,7 @@ def _extract_cost_and_usage(complete_resp: Any) -> tuple[float, dict]:
     """Calculate cost and extract usage from response.
 
     Cost and usage are extracted independently - cost calculation failures
-    (e.g., for new models not yet in litellm's price map) should not prevent
+    (e.g., for new models not yet in the price catalog) should not prevent
     usage data from being captured.
     """
     cost = 0.0
@@ -305,16 +313,15 @@ def _extract_cost_and_usage(complete_resp: Any) -> tuple[float, dict]:
             except Exception:
                 pass
 
-    # Try to calculate cost (may fail for new/unmapped models)
+    # Calculate cost from catalog pricing
     try:
-        from litellm import completion_cost
+        from pantheon.utils.provider_registry import completion_cost
 
         cost = completion_cost(completion_response=complete_resp) or 0.0
     except Exception as e:
-        # DEBUG level: this is expected for new models not yet in litellm's price map
         logger.debug(f"Cost calculation unavailable: {e}")
 
-    # Fallback: estimate cost from usage if litellm failed but we have token counts
+    # Fallback: estimate cost from usage if catalog lookup failed but we have token counts
     if cost == 0.0 and usage_dict:
         input_tokens = usage_dict.get("prompt_tokens", 0)
         output_tokens = usage_dict.get("completion_tokens", 0)
@@ -450,9 +457,8 @@ async def call_llm_provider(
     Returns:
         Extracted and cleaned message dictionary
     """
-    # Import here to avoid circular imports
     from .llm import (
-        acompletion_litellm,
+        acompletion,
         remove_metadata,
     )
 
@@ -489,7 +495,21 @@ async def call_llm_provider(
     clean_messages = remove_metadata(clean_messages)
 
     # Call appropriate provider
-    # Route codex models through the OpenAI Responses API
+    # Route Codex OAuth models through their dedicated adapter
+    if "codex/" in config.model_name.lower() or config.model_name.startswith("codex/"):
+        from .llm import acompletion
+        logger.debug(f"[CALL_LLM_PROVIDER] Using Codex OAuth for model={config.model_name}")
+        # acompletion handles codex specially — returns message dict directly
+        return await acompletion(
+            messages=clean_messages,
+            model=config.model_name,
+            tools=tools,
+            response_format=response_format,
+            process_chunk=process_chunk,
+            model_params=model_params,
+        )
+
+    # Route codex/pro models through the OpenAI Responses API
     if is_responses_api_model(config):
         from .llm import acompletion_responses
 
@@ -512,7 +532,7 @@ async def call_llm_provider(
         )
 
     if config.provider_type == ProviderType.OPENAI:
-        # LiteLLM requires explicit provider prefixes for models it cannot auto-detect.
+        # Provider adapters require explicit provider prefixes for models they cannot auto-detect.
         # Ensure OpenAI models include the provider namespace to avoid BadRequestError.
         model_name = config.model_name
 
@@ -522,7 +542,7 @@ async def call_llm_provider(
         logger.debug(
             f"[CALL_LLM_PROVIDER] Using OpenAI provider with model={model_name}, base_url={config.base_url}"
         )
-        complete_resp = await acompletion_litellm(
+        complete_resp = await acompletion(
             messages=clean_messages,
             model=model_name,
             tools=tools,
@@ -534,11 +554,11 @@ async def call_llm_provider(
         )
         error_prefix = "OpenAI"
 
-    else:  # LITELLM
+    else:  # NATIVE
         logger.debug(
-            f"[CALL_LLM_PROVIDER] Using LiteLLM provider with model={config.model_name}"
+            f"[CALL_LLM_PROVIDER] Using native provider with model={config.model_name}"
         )
-        complete_resp = await acompletion_litellm(
+        complete_resp = await acompletion(
             messages=clean_messages,
             model=config.model_name,
             tools=tools,
@@ -548,7 +568,7 @@ async def call_llm_provider(
             api_key=config.api_key,
             model_params=model_params,
         )
-        error_prefix = "LiteLLM"
+        error_prefix = "Native"
 
     # Extract and clean message
     return extract_message_from_response(complete_resp, error_prefix)

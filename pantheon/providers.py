@@ -414,7 +414,7 @@ class LocalProvider(ToolProvider):
 
                     # Generate OpenAI format schema using desc_to_openai_dict
                     oai_dict = desc_to_openai_dict(
-                        desc, skip_params=[], litellm_mode=True
+                        desc, skip_params=[], relaxed_schema=True
                     )
 
                     # Extract the "function" part (without "type": "function")
@@ -545,7 +545,7 @@ class ToolSetProvider(ToolProvider):
 
                     # Generate OpenAI format schema using desc_to_openai_dict
                     oai_dict = desc_to_openai_dict(
-                        desc, skip_params=[], litellm_mode=True
+                        desc, skip_params=[], relaxed_schema=True
                     )
 
                     # Extract the "function" part (without "type": "function")

@@ -58,7 +58,7 @@ Common Functions
 
    from pantheon.utils.llm import (
        acompletion_openai,
-       acompletion_litellm,
+       acompletion,  # adapter-based completion
        process_messages_for_model,
        remove_hidden_fields
    )

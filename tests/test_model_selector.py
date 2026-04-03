@@ -288,8 +288,10 @@ class TestAutoGeneration:
         """Test auto-generation for provider not in defaults."""
         selector = ModelSelector(mock_settings)
 
-        # Mock litellm - imports are inside the method so patch at litellm level
-        mock_models_by_provider = {"custom_provider": ["model1", "model2", "model3"]}
+        # Mock provider_registry functions
+        mock_get_models = MagicMock(
+            return_value=["custom_provider/model1", "custom_provider/model2", "custom_provider/model3"]
+        )
         mock_model_info = MagicMock(
             return_value={
                 "mode": "chat",
@@ -299,11 +301,11 @@ class TestAutoGeneration:
 
         with (
             patch(
-                "litellm.models_by_provider",
-                mock_models_by_provider,
+                "pantheon.utils.provider_registry.models_by_provider",
+                mock_get_models,
             ),
             patch(
-                "litellm.utils.get_model_info",
+                "pantheon.utils.provider_registry.get_model_info",
                 mock_model_info,
             ),
         ):

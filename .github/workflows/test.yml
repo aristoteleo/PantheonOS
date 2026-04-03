@@ -49,7 +49,7 @@ jobs:
         uses: astral-sh/setup-uv@v2
 
       - name: Install project dependencies
-        run: uv sync --extra dev --extra knowledge --extra slack
+        run: uv sync --extra dev --extra knowledge
 
       - name: Run all tests (core, NATS, and API-dependent)
         env:

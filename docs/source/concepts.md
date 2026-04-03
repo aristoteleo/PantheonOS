@@ -43,7 +43,7 @@ Every agent has instructions that define its behavior and personality. These ins
 Agents become powerful through tools - functions that extend their abilities beyond pure conversation. Tools allow agents to interact with external systems, perform calculations, access databases, browse the web, execute code, and much more. The tool system is extensible, allowing you to add custom capabilities tailored to your specific needs.
 
 #### Model Selection
-Agents can use any LLM supported by LiteLLM. Model selection can be configured at the agent level or globally through settings. Fallback chains allow graceful degradation when primary models are unavailable.
+Agents can use any LLM from the supported providers (OpenAI, Anthropic, Gemini, DeepSeek, and more). Model selection can be configured at the agent level or globally through settings. Fallback chains allow graceful degradation when primary models are unavailable.
 
 ---
 

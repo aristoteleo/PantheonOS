@@ -6,7 +6,7 @@ Configure which LLM models your agents use.
 Overview
 --------
 
-Pantheon uses `LiteLLM <https://github.com/BerriAI/litellm>`_ as its unified LLM interface, providing access to **100+ LLM providers** through a consistent API. This means any model supported by LiteLLM works with Pantheon.
+Pantheon provides a unified LLM interface with native SDK adapters, giving access to **many LLM providers** through a consistent API.
 
 Key features:
 
@@ -119,7 +119,7 @@ Provider priority (configurable in settings.json):
 Supported Providers
 -------------------
 
-Pantheon supports all LiteLLM providers. Here are the most common ones:
+Pantheon supports many LLM providers. Here are the most common ones:
 
 Major Cloud Providers
 ~~~~~~~~~~~~~~~~~~~~~
@@ -238,7 +238,7 @@ Chinese Providers
 
 .. note::
 
-   For the complete list of 100+ supported providers, see the `LiteLLM Providers Documentation <https://docs.litellm.ai/docs/providers>`_.
+   For additional providers, see the Pantheon documentation or configure custom endpoints.
 
 Model Format
 ------------
@@ -428,7 +428,7 @@ Or add to your ``.env`` / ``~/.pantheon/.env`` file:
 
 **Priority rules:**
 
-- **Base URL**: ``OPENAI_API_BASE`` / ``LITELLM_API_BASE`` (provider-specific) > ``LLM_API_BASE`` (universal)
+- **Base URL**: ``OPENAI_API_BASE`` (provider-specific) > ``LLM_API_BASE`` (universal)
 - **API Key (unified proxy mode)**: When ``LLM_API_BASE`` is set, ``LLM_API_KEY`` takes priority over provider-specific keys (e.g. ``OPENAI_API_KEY``). This ensures all requests to the proxy use the correct credentials.
 - **API Key (normal mode)**: When no ``LLM_API_BASE`` is set, provider-specific keys (e.g. ``OPENAI_API_KEY``) take priority over ``LLM_API_KEY``.
 

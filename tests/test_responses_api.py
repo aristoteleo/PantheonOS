@@ -40,13 +40,13 @@ class TestIsResponsesApiModel:
         config = ProviderConfig(provider_type=ProviderType.OPENAI, model_name="gpt-4o")
         assert is_responses_api_model(config) is False
 
-    def test_codex_model_litellm_provider(self):
-        """Codex model but via LiteLLM provider should NOT use Responses API."""
-        config = ProviderConfig(provider_type=ProviderType.LITELLM, model_name="codex-mini-latest")
+    def test_codex_model_native_provider(self):
+        """Codex model but via native provider should NOT use Responses API."""
+        config = ProviderConfig(provider_type=ProviderType.NATIVE, model_name="codex-mini-latest")
         assert is_responses_api_model(config) is False
 
-    def test_non_codex_litellm(self):
-        config = ProviderConfig(provider_type=ProviderType.LITELLM, model_name="anthropic/claude-3-opus")
+    def test_non_codex_native(self):
+        config = ProviderConfig(provider_type=ProviderType.NATIVE, model_name="anthropic/claude-3-opus")
         assert is_responses_api_model(config) is False
 
     def test_o1_model_not_codex(self):
@@ -442,7 +442,7 @@ class TestResponsesApiRealCalls:
             detect_provider,
         )
 
-        config = detect_provider(CODEX_MODEL, force_litellm=False)
+        config = detect_provider(CODEX_MODEL, relaxed_schema=False)
         assert is_responses_api_model(config) is True
 
         result = await call_llm_provider(
@@ -466,7 +466,7 @@ class TestResponsesApiRealCalls:
 
 def detect_provider_for_test(model: str) -> ProviderConfig:
     from pantheon.utils.llm_providers import detect_provider
-    return detect_provider(model, force_litellm=False)
+    return detect_provider(model, relaxed_schema=False)
 
 
 # ============ Agent.run() End-to-End Tests ============

@@ -228,11 +228,11 @@ async def test_agent_transfer():
     assert resp.to_agent == classic_literature_fan.name
 
 
-async def test_agent_force_litellm():
+async def test_agent_relaxed_schema():
     agent = Agent(
         name="test",
         instructions="",
-        force_litellm=True,
+        relaxed_schema=True,
     )
 
     resp = await agent.run("What is the weather in Palo Alto?")

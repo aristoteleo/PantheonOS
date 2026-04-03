@@ -51,9 +51,9 @@ Constructor Parameters
    * - tool_timeout
      - int
      - Tool execution timeout in seconds (default: 600)
-   * - force_litellm
+   * - relaxed_schema
      - bool
-     - Force use of litellm backend (default: False)
+     - Use relaxed (non-strict) tool schema mode (default: False)
    * - max_tool_content_length
      - int | None
      - Maximum length for tool outputs (default: 100000)

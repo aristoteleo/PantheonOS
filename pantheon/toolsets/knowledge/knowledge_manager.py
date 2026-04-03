@@ -87,7 +87,7 @@ class KnowledgeToolSet(ToolSet):
             def _create_llm():
                 from llama_index.llms.openai import OpenAI
                 from pantheon.settings import get_settings
-                from pantheon.utils.llm_providers import get_litellm_proxy_kwargs
+                from pantheon.utils.llm_providers import get_proxy_kwargs
                 settings = get_settings()
 
                 llm_kwargs = {
@@ -99,10 +99,10 @@ class KnowledgeToolSet(ToolSet):
                 if api_base:
                     llm_kwargs["api_base"] = api_base
 
-                # Use LiteLLM proxy if enabled (overrides api_base/api_key)
-                proxy_kwargs = get_litellm_proxy_kwargs()
+                # Use proxy if enabled (overrides api_base/api_key)
+                proxy_kwargs = get_proxy_kwargs()
                 if proxy_kwargs:
-                    llm_kwargs["api_base"] = proxy_kwargs["api_base"]
+                    llm_kwargs["api_base"] = proxy_kwargs["base_url"]
                     llm_kwargs["api_key"] = proxy_kwargs["api_key"]
 
                 return OpenAI(**llm_kwargs)

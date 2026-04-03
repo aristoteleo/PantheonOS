@@ -6,18 +6,13 @@ Supports text-only models (DALL-E, Imagen), multimodal models (Gemini Nano Banan
 and native image editing models (OpenAI gpt-image).
 """
 
-import litellm
-
-# Suppress litellm debug output (Provider List message)
-litellm.suppress_debug_info = True
-litellm.set_verbose = False
 from pantheon.toolset import ToolSet, tool
 from pantheon.utils.vision import (
     ImageStore,
     get_image_store,
     expand_image_references_for_llm,
 )
-from pantheon.utils.llm_providers import get_litellm_proxy_kwargs
+from pantheon.utils.llm_providers import get_proxy_kwargs
 
 # Multimodal models that support image input + output via acompletion API
 # Gemini Nano Banana series: Pro / Nano Banana 2 / Nano Banana first-gen
@@ -91,16 +86,16 @@ class ImageGenerationToolSet(ToolSet):
         return "default"
 
     def _extract_cost_from_response(self, response) -> float:
-        """Extract cost from LiteLLM response.
-        
+        """Extract cost from API response.
+
         Args:
-            response: LiteLLM response object from acompletion or aimage_generation
-            
+            response: Response object from acompletion or aimage_generation
+
         Returns:
             Cost in USD, or 0.0 if calculation fails
         """
         try:
-            from litellm import completion_cost
+            from pantheon.utils.provider_registry import completion_cost
             cost = completion_cost(completion_response=response) or 0.0
             from pantheon.utils.log import logger
             logger.debug(f"Image generation cost: ${cost:.6f}")
@@ -171,12 +166,17 @@ class ImageGenerationToolSet(ToolSet):
         model: str,
     ) -> dict:
         """Text-only image generation (DALL-E, Imagen)."""
-        response = await litellm.aimage_generation(
+        from pantheon.utils.adapters import get_adapter
+
+        proxy_kwargs = get_proxy_kwargs()
+        adapter = get_adapter("openai")
+        response = await adapter.aimage_generation(
             model=model,
             prompt=prompt,
             size="1024x1024",
             n=1,
-            **get_litellm_proxy_kwargs(),
+            base_url=proxy_kwargs.get("base_url"),
+            api_key=proxy_kwargs.get("api_key"),
         )
 
         # Extract cost from response
@@ -211,7 +211,7 @@ class ImageGenerationToolSet(ToolSet):
         """Multimodal image generation (Gemini Nano Banana series).
 
         Uses chat completion API with modalities parameter to generate images.
-        This approach works through LiteLLM Proxy and supports image generation.
+        This approach works through the LLM Proxy and supports image generation.
 
         Supported models:
         - gemini-3-pro-image-preview (Nano Banana Pro, up to 4K)
@@ -232,12 +232,26 @@ class ImageGenerationToolSet(ToolSet):
         self.image_store.process_message_images(messages[0], chat_id)
         messages = expand_image_references_for_llm(messages)
 
-        response = await litellm.acompletion(
-            model=model,
+        from pantheon.utils.adapters import get_adapter
+        from pantheon.utils.provider_registry import find_provider_for_model
+
+        proxy_kwargs = get_proxy_kwargs()
+        provider_key, model_name, provider_config = find_provider_for_model(model)
+        sdk_type = provider_config.get("sdk", "openai")
+        if proxy_kwargs:
+            sdk_type = "openai"
+        adapter = get_adapter(sdk_type)
+
+        collected_chunks = await adapter.acompletion(
+            model=model_name if not proxy_kwargs else model,
             messages=messages,
-            modalities=["text", "image"],  # Enable image generation output
-            **get_litellm_proxy_kwargs(),  # Use proxy for real API keys
+            stream=True,
+            base_url=proxy_kwargs.get("base_url") or provider_config.get("base_url"),
+            api_key=proxy_kwargs.get("api_key"),
+            modalities=["text", "image"],
         )
+        from pantheon.utils.llm import stream_chunk_builder
+        response = stream_chunk_builder(collected_chunks)
 
         # Extract cost from response
         cost = self._extract_cost_from_response(response)
@@ -283,13 +297,18 @@ class ImageGenerationToolSet(ToolSet):
             resolved = self.image_store.normalize_local_path(path)
             resolved_paths.append(resolved)
 
-        response = await litellm.aimage_edit(
+        from pantheon.utils.adapters import get_adapter
+
+        proxy_kwargs = get_proxy_kwargs()
+        adapter = get_adapter("openai")
+        response = await adapter.aimage_edit(
             model=model,
             image=resolved_paths,
             prompt=prompt,
             size="1024x1024",
             n=1,
-            **get_litellm_proxy_kwargs(),
+            base_url=proxy_kwargs.get("base_url"),
+            api_key=proxy_kwargs.get("api_key"),
         )
 
         # Extract cost from response

@@ -115,7 +115,7 @@ Supported Models
 
 - ``dall-e-3``
 - ``dall-e-2``
-- Any model supported by LiteLLM's ``aimage_generation`` API
+- Any model supported by the provider adapter's ``aimage_generation`` API
 
 Model Selection
 ---------------

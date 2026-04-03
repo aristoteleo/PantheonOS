@@ -246,7 +246,7 @@ Use provider/model format for exact model selection:
    agent = Agent(model="anthropic/claude-opus-4-5-20251101")
    agent = Agent(model="anthropic/claude-sonnet-4-5-20250929")
 
-   # Other providers (via LiteLLM)
+   # Other providers (via native SDK adapters)
    agent = Agent(model="gemini/gemini-3-pro-preview")
    agent = Agent(model="deepseek/deepseek-chat")
    agent = Agent(model="mistral/mistral-large")

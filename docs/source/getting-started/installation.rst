@@ -131,7 +131,7 @@ Core Dependencies
 
 Core dependencies are automatically installed:
 
-- **LiteLLM** - Unified LLM API access (OpenAI, Anthropic, etc.)
+- **Provider Adapters** - Unified LLM API access (OpenAI, Anthropic, etc.)
 - **Rich** - Terminal UI and formatting
 - **prompt-toolkit** - Interactive REPL
 - **NATS** - Distributed messaging
@@ -155,7 +155,7 @@ Set up your LLM provider API keys:
    # Anthropic Claude
    export ANTHROPIC_API_KEY="your-anthropic-key"
 
-   # Or use other providers supported by LiteLLM
+   # Or use other supported providers
    export GEMINI_API_KEY="your-gemini-key"
 
 You can also create a ``.env`` file in your project directory:

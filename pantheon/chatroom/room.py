@@ -1624,7 +1624,20 @@ class ChatRoom(ToolSet):
 
             # Publish chat finished message if NATS streaming enabled
             if self._nats_adapter is not None:
-                await self._nats_adapter.publish_chat_finished(chat_id)
+                resp = thread.response or {}
+                if resp.get("success") is False:
+                    # Send error to frontend so it can display to user
+                    error_msg = resp.get("message", "Unknown error")
+                    await self._nats_adapter.publish(
+                        chat_id, "chat_finished",
+                        {
+                            "type": "chat_finished",
+                            "status": "error",
+                            "metadata": {"message": error_msg},
+                        },
+                    )
+                else:
+                    await self._nats_adapter.publish_chat_finished(chat_id)
 
             return thread.response
         except asyncio.CancelledError:
@@ -1672,9 +1685,9 @@ class ChatRoom(ToolSet):
             bytes_data: The bytes data of the audio (bytes, base64 string, or list).
         """
         try:
-            import litellm
             import base64
-            from pantheon.utils.llm_providers import get_litellm_proxy_kwargs
+            from pantheon.utils.llm_providers import get_proxy_kwargs
+            from pantheon.utils.adapters import get_adapter
 
             logger.info(f"[STT] Received bytes_data type={type(bytes_data).__name__}, "
                         f"len={len(bytes_data) if hasattr(bytes_data, '__len__') else 'N/A'}")
@@ -1706,12 +1719,15 @@ class ChatRoom(ToolSet):
             audio_file = io.BytesIO(bytes_data)
             audio_file.name = "audio.webm"
 
-            logger.info("[STT] Calling litellm.atranscription...")
+            logger.info("[STT] Calling transcription adapter...")
+            proxy_kwargs = get_proxy_kwargs()
+            adapter = get_adapter("openai")
             response = await asyncio.wait_for(
-                litellm.atranscription(
+                adapter.atranscription(
                     model=self.speech_to_text_model,
                     file=audio_file,
-                    **get_litellm_proxy_kwargs(),
+                    base_url=proxy_kwargs.get("base_url"),
+                    api_key=proxy_kwargs.get("api_key"),
                 ),
                 timeout=30,
             )
@@ -1951,6 +1967,9 @@ class ChatRoom(ToolSet):
             from pantheon.utils.model_selector import get_model_selector
 
             selector = get_model_selector()
+            # Clear provider cache so dynamic providers (Ollama, OAuth) are re-detected
+            selector._available_providers = None
+            selector._detected_provider = None
             return selector.list_available_models()
         except Exception as e:
             logger.error(f"Error listing available models: {e}")
@@ -2329,3 +2348,129 @@ class ChatRoom(ToolSet):
 
         has_any_key = any(v["configured"] for v in keys.values())
         return {"keys": keys, "has_any_key": has_any_key}
+
+    # ============ OAuth Management ============
+
+    @tool
+    async def oauth_status(self) -> dict:
+        """Get OAuth authentication status for all supported providers.
+
+        Returns:
+            Dict with provider statuses including authentication state and account info.
+        """
+        from pantheon.utils.oauth import CodexOAuthManager
+        from pantheon.utils.oauth.codex import CODEX_CLI_AUTH
+
+        codex = CodexOAuthManager()
+        # Actually verify the token works (auto_refresh=True will try to refresh if expired)
+        access_token = codex.get_access_token(auto_refresh=True)
+        codex_authenticated = access_token is not None
+        codex_account_id = codex.get_account_id() if codex_authenticated else None
+        cli_available = CODEX_CLI_AUTH.exists()
+
+        return {
+            "providers": {
+                "codex": {
+                    "authenticated": codex_authenticated,
+                    "account_id": codex_account_id,
+                    "description": "OpenAI Codex (ChatGPT backend-api, free with ChatGPT Plus)",
+                    "supports_browser_login": True,
+                    "supports_import": cli_available,
+                },
+            },
+        }
+
+    @tool
+    async def oauth_login(self, provider: str = "codex") -> dict:
+        """Start browser-based OAuth login flow.
+
+        Opens the system browser for the user to authenticate.
+        Token is saved automatically after successful login.
+
+        Args:
+            provider: OAuth provider name (currently only 'codex' supported)
+
+        Returns:
+            Dict with success status and account info.
+        """
+        if provider != "codex":
+            return {"success": False, "error": f"Unsupported OAuth provider: {provider}"}
+
+        from pantheon.utils.oauth import CodexOAuthManager, CodexOAuthError
+
+        try:
+            mgr = CodexOAuthManager()
+            mgr.login(open_browser=True, timeout_seconds=300)
+
+            # Reload settings so model selector detects new provider
+            from pantheon.utils.model_selector import reset_model_selector
+            reset_model_selector()
+
+            return {
+                "success": True,
+                "provider": "codex",
+                "account_id": mgr.get_account_id(),
+                "message": "Codex OAuth login successful. You can now use codex/ models.",
+            }
+        except CodexOAuthError as e:
+            return {"success": False, "error": str(e)}
+        except Exception as e:
+            logger.error(f"OAuth login failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def oauth_import(self, provider: str = "codex") -> dict:
+        """Import OAuth tokens from native CLI tools.
+
+        For Codex: imports from ~/.codex/auth.json (Codex CLI).
+
+        Args:
+            provider: OAuth provider name (currently only 'codex' supported)
+
+        Returns:
+            Dict with success status.
+        """
+        if provider != "codex":
+            return {"success": False, "error": f"Unsupported OAuth provider: {provider}"}
+
+        from pantheon.utils.oauth import CodexOAuthManager
+
+        try:
+            mgr = CodexOAuthManager()
+            result = mgr.import_from_codex_cli()
+
+            if result:
+                from pantheon.utils.model_selector import reset_model_selector
+                reset_model_selector()
+                return {
+                    "success": True,
+                    "provider": "codex",
+                    "account_id": mgr.get_account_id(),
+                    "message": "Imported Codex CLI tokens successfully.",
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "No Codex CLI auth found (~/.codex/auth.json). Install Codex CLI or use browser login.",
+                }
+        except Exception as e:
+            logger.error(f"OAuth import failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def ollama_status(self, url: str = "http://localhost:11434") -> dict:
+        """Check Ollama server status and list available models.
+
+        Args:
+            url: Ollama server URL (default: http://localhost:11434)
+
+        Returns:
+            Dict with running status, model list, and URL.
+        """
+        try:
+            from pantheon.utils.model_selector import _detect_ollama, _list_ollama_models
+            running = _detect_ollama(url)
+            models = _list_ollama_models(url) if running else []
+            return {"running": running, "models": models, "url": url}
+        except Exception as e:
+            return {"running": False, "models": [], "url": url}

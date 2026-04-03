@@ -250,7 +250,7 @@ async def start_services(
         - .env file: OPENAI_API_KEY=sk-...
         - settings.json api_keys section
 
-        Use LiteLLM Proxy mode for secure API key handling (LITELLM_PROXY_ENABLED environment variable).
+        Use LLM Proxy mode for secure API key handling (LLM_PROXY_ENABLED environment variable).
     """
     # DIAGNOSTIC: Log startup parameters for debugging
     logger.debug(f"[DIAGNOSTIC] start_services() called with auto_start_nats={auto_start_nats}, auto_ui={auto_ui}")
