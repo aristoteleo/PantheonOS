@@ -1,6 +1,7 @@
 import os
 import io
 import ast
+import asyncio
 import base64
 import json
 import traceback
@@ -91,6 +92,7 @@ class PythonInterpreterToolSet(ToolSet):
         workdir: str | None = None,
         engine: Engine | None = None,
         init_code: str | None = DEFAULT_INIT_CODE,
+        shared_executor=None,
         **kwargs,
     ):
         super().__init__(name, **kwargs)
@@ -98,6 +100,7 @@ class PythonInterpreterToolSet(ToolSet):
         self.jobs = {}
         self._engine = engine
         self.engine = None
+        self.shared_executor = shared_executor
         self.clientid_to_interpreterid = {}
         self.workdir = Path(workdir).expanduser().resolve() if workdir else Path.cwd()
         self.init_code = init_code
@@ -159,6 +162,20 @@ class PythonInterpreterToolSet(ToolSet):
                 "stderr": str,          # Captured standard error
             }
         """
+        if self.shared_executor is not None:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.shared_executor.execute(code),
+            )
+            return {
+                "success": result.get("error") is None,
+                "result": result.get("result"),
+                "stdout": result.get("output", ""),
+                "stderr": result.get("error", "") or "",
+            }
+        # ─────────────────────────────────────────────────────────────────
+
         if interpreter_id:
              p_id = interpreter_id
         else:

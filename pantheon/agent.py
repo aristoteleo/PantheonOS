@@ -128,8 +128,12 @@ class AgentRunContext:
 
     agent: "Agent"
     memory: "Memory | None"
-    process_step_message: Callable | None
-    process_chunk: Callable | None
+    execution_context_id: str | None = None
+    process_step_message: Callable | None = None
+    process_chunk: Callable | None = None
+    cache_safe_runtime_params: Any | None = None
+    cache_safe_prompt_messages: list[dict] | None = None
+    cache_safe_tool_definitions: list[dict] | None = None
 
 
 _RUN_CONTEXT: ContextVar[AgentRunContext | None] = ContextVar(
@@ -878,7 +882,8 @@ class Agent:
         # Providers return ToolInfo with pre-generated inputSchema (the "function" part)
         logger.debug(f"get tools for llm: {self.providers} ")
         provider_tools = []
-        for provider_name, provider in self.providers.items():
+        for provider_name in sorted(self.providers):
+            provider = self.providers[provider_name]
             try:
                 # Get tools from provider (uses cached list if available)
                 tools = await provider.list_tools()
@@ -948,7 +953,9 @@ class Agent:
             if not self.force_litellm:
                 func["parameters"].setdefault("required", []).append("_background")
 
-        return all_tools
+        from pantheon.utils.token_optimization import stabilize_tool_definitions
+
+        return stabilize_tool_definitions(all_tools)
 
     def _should_inject_context_variables(self, prefixed_name: str) -> bool:
         """Determine if context_variables should be injected for a tool.
@@ -1349,7 +1356,8 @@ class Agent:
                 # Process and truncate tool result in one step
                 content = process_tool_result(
                     result,
-                    max_length=self.max_tool_content_length
+                    max_length=self.max_tool_content_length,
+                    tool_name=func_name,
                 )
                 
                 tool_message.update({
@@ -1413,7 +1421,39 @@ class Agent:
 
         # Step 1: Process messages for the model
         async with tracker.measure("message_processing"):
+            from pantheon.utils.token_optimization import (
+                build_llm_view_async,
+                inject_cache_control_markers,
+                is_anthropic_model,
+            )
+
+            run_context = get_current_run_context()
+            optimization_memory = run_context.memory if run_context else None
+            is_main_thread = (
+                run_context.execution_context_id is None if run_context else True
+            )
+            messages = await build_llm_view_async(
+                messages,
+                memory=optimization_memory,
+                is_main_thread=is_main_thread,
+                autocompact_model=model,
+            )
             messages = process_messages_for_model(messages, model)
+            # Inject Anthropic prompt-cache markers so the server-side cache
+            # activates — mirrors Claude Code's getCacheControl() strategy.
+            if is_anthropic_model(model):
+                messages = inject_cache_control_markers(messages)
+            if run_context is not None:
+                # Selective copy: shallow for messages with string content,
+                # deepcopy only for messages with list content (Anthropic blocks
+                # from inject_cache_control_markers) to avoid mutation issues.
+                cached = []
+                for m in messages:
+                    if isinstance(m.get("content"), list):
+                        cached.append(copy.deepcopy(m))
+                    else:
+                        cached.append({**m})
+                run_context.cache_safe_prompt_messages = cached
 
         # Step 2: Detect provider and get configuration
         provider_config = detect_provider(model, self.force_litellm)
@@ -1449,6 +1489,8 @@ class Agent:
                 # Use get_tools_for_llm() for unified tool access
                 # This includes both base_functions and provider tools
                 tools = await self.get_tools_for_llm() or None
+                if run_context is not None and tools is not None:
+                    run_context.cache_safe_tool_definitions = copy.deepcopy(tools)
 
                 # For non-OpenAI providers or OpenAI-compatible providers, adjust tool format
                 # OpenAI-compatible providers (e.g. minimax) have api_key set in config
@@ -1491,6 +1533,15 @@ class Agent:
         if context_variables and "model_params" in context_variables:
             # Runtime overrides instance defaults
             model_params = {**self.model_params, **context_variables["model_params"]}
+
+        if run_context is not None:
+            from pantheon.utils.token_optimization import build_cache_safe_runtime_params
+
+            run_context.cache_safe_runtime_params = build_cache_safe_runtime_params(
+                model=model,
+                model_params=model_params,
+                response_format=response_format,
+            )
         
         # Step 8: Call LLM provider (unified interface)
         # logger.info(f"Raw messages: {messages}")
@@ -2100,6 +2151,11 @@ IMPORTANT: You are operating in a restricted workspace environment.
         # Determine whether to use memory
         should_use_memory = use_memory if use_memory is not None else self.use_memory
         memory_instance = memory or self.memory
+        working_context_variables = (context_variables or {}).copy()
+        fork_context_messages = working_context_variables.pop(
+            "_cache_safe_fork_context_messages",
+            None,
+        )
 
         input_messages = None  # Only set for normal user input, not AgentTransfer
 
@@ -2129,16 +2185,21 @@ IMPORTANT: You are operating in a restricted workspace environment.
             conversation_history = (
                 memory_instance.get_messages(
                     execution_context_id=execution_context_id,
-                    for_llm=True
+                    for_llm=False
                 )
                 if (should_use_memory and memory_instance)
                 else []
             )
+            if isinstance(fork_context_messages, list) and fork_context_messages:
+                conversation_history = [
+                    *copy.deepcopy(fork_context_messages),
+                    *conversation_history,
+                ]
             conversation_history += input_messages
             conversation_history = self._sanitize_messages(conversation_history)
 
         # preserve execution_context_id if tool need
-        context_variables = (context_variables or {}).copy()
+        context_variables = working_context_variables
 
         # Inject global context variables from settings
         from .settings import get_settings
@@ -2278,6 +2339,7 @@ IMPORTANT: You are operating in a restricted workspace environment.
             run_context = AgentRunContext(
                 agent=self,
                 memory=exec_context.memory_instance,
+                execution_context_id=exec_context.execution_context_id,
                 process_step_message=_process_step_message,
                 process_chunk=_process_chunk,
             )
