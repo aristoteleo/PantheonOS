@@ -1,4 +1,6 @@
+import base64
 import os
+import re
 import shlex
 import uuid
 from pathlib import Path
@@ -7,6 +9,9 @@ from ._shell import AsyncShell, ShellStatus
 from pantheon.toolset import ToolSet, tool
 from pantheon.utils.log import logger
 from pantheon.internal.package_runtime.context import build_context_env
+
+_PYTHON_CMD_RE = re.compile(r"(?:^|\s|&&|\|)python[23]?\s", re.IGNORECASE)
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 
 
 class ShellToolSet(ToolSet):
@@ -371,6 +376,11 @@ PANTHEON_ENV_EOF
             run_command(command="ls -la")
             run_command(command="R -e 'install(...)'", max_output=5000)
         """
+        # Snapshot image files before execution so we can detect new ones
+        pre_snapshot: dict[str, float] = {}
+        if command and _PYTHON_CMD_RE.search(command):
+            pre_snapshot = self._snapshot_images()
+
         # If shell_id is provided, use it directly (Manual Mode)
         if shell_id:
             result = await self.run_command_in_shell(
@@ -447,6 +457,48 @@ PANTHEON_ENV_EOF
             # No max_output specified
             result["truncated"] = False
 
+        # Detect images produced by Python/matplotlib commands so claw
+        # channels (e.g. Telegram) can forward them to the user.
+        if result.get("success") and command and _PYTHON_CMD_RE.search(command):
+            result = self._attach_new_images(result, pre_snapshot)
+
+        return result
+
+    # ------------------------------------------------------------------
+    # Image detection helpers
+    # ------------------------------------------------------------------
+
+    def _snapshot_images(self) -> dict[str, float]:
+        """Return {path: mtime} for image files in the working directory."""
+        scan_dir = Path(self._get_effective_workdir() or str(self.workdir))
+        snapshot: dict[str, float] = {}
+        try:
+            for p in scan_dir.iterdir():
+                if p.suffix.lower() in _IMAGE_EXTENSIONS and p.is_file():
+                    snapshot[str(p)] = p.stat().st_mtime
+        except OSError:
+            pass
+        return snapshot
+
+    def _attach_new_images(
+        self, result: dict, pre_snapshot: dict[str, float]
+    ) -> dict:
+        """Compare pre/post snapshots; base64-encode any new or updated images."""
+        post = self._snapshot_images()
+        uris: list[str] = []
+        for path, mtime in post.items():
+            if path not in pre_snapshot or mtime > pre_snapshot[path]:
+                try:
+                    with open(path, "rb") as f:
+                        b64 = base64.b64encode(f.read()).decode("utf-8")
+                    ext = Path(path).suffix.lower().lstrip(".")
+                    mime = "jpeg" if ext in ("jpg", "jpeg") else "png"
+                    uris.append(f"data:image/{mime};base64,{b64}")
+                except OSError:
+                    continue
+        if uris:
+            result["base64_uri"] = uris
+            result["hidden_to_model"] = ["base64_uri"]
         return result
 
     def _should_restart(self, error_message: str | None) -> bool:

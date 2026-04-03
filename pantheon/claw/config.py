@@ -41,7 +41,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "bot_token": None,
     },
     "telegram": {
-        "token": None,
+        "token": "None",
         "allowed_users": [],
     },
     "discord": {
