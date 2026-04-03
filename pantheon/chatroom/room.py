@@ -1601,6 +1601,7 @@ class ChatRoom(ToolSet):
 
         # Inject workdir from project metadata if in isolated mode
         project = memory.extra_data.get("project", {})
+        workspace_path = None
         if isinstance(project, dict):
             workspace_mode = project.get("workspace_mode",
                 "isolated" if project.get("workspace_path") else "project")
@@ -1608,6 +1609,22 @@ class ChatRoom(ToolSet):
             if workspace_mode == "isolated" and workspace_path:
                 context_variables = context_variables or {}
                 context_variables["workdir"] = workspace_path
+
+        # Set up a designated image output directory so agents save images
+        # to a known location and claw channels can detect them cheaply.
+        from pantheon.utils.image_detection import (
+            IMAGE_OUTPUT_DIR, snapshot_images, diff_snapshots, encode_images_to_uris,
+        )
+        image_output_path: str | None = None
+        if workspace_path:
+            import os
+            image_output_path = os.path.join(workspace_path, IMAGE_OUTPUT_DIR)
+            os.makedirs(image_output_path, exist_ok=True)
+            context_variables = context_variables or {}
+            context_variables["image_output_dir"] = image_output_path
+
+        # Pre-snapshot: only scan the designated image output directory
+        pre_image_snapshot = snapshot_images(image_output_path) if image_output_path else {}
 
         thread = Thread(
             team_getter,  # Pass team getter
@@ -1630,6 +1647,19 @@ class ChatRoom(ToolSet):
 
         try:
             await thread.run()
+
+            # Post-execution image detection: scan the designated image
+            # output directory for any newly created images.
+            if image_output_path and pre_image_snapshot is not None:
+                post_image_snapshot = snapshot_images(image_output_path)
+                new_image_paths = diff_snapshots(pre_image_snapshot, post_image_snapshot)
+                if new_image_paths:
+                    uris = encode_images_to_uris(new_image_paths)
+                    if uris:
+                        await thread.process_step_message({
+                            "role": "tool",
+                            "raw_content": {"base64_uri": uris},
+                        })
 
             # Generate or update chat name in background (non-blocking)
             # Only enabled for UI mode to avoid unnecessary LLM calls in REPL/API

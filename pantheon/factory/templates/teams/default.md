@@ -23,7 +23,6 @@ leader:
     - web
     - evolution
     - think
-    - python_interpreter
 ---
 
 {{agentic_general}}

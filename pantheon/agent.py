@@ -1879,6 +1879,14 @@ IMPORTANT: You are operating in a restricted workspace environment.
 - When specifying file paths, use relative paths or absolute paths within {workdir}
 - The file manager and shell tools enforce this restriction at the code level
 </workdir_constraint>"""
+            if context_variables.get("image_output_dir"):
+                img_dir = context_variables["image_output_dir"]
+                workdir_constraint += f"""
+
+<image_output_constraint>
+When you generate or save images (plots, charts, figures, etc.), ALWAYS save them to: {img_dir}
+This directory is monitored so images saved here are automatically sent back to the user.
+</image_output_constraint>"""
             system_prompt += workdir_constraint
         
         current_timestamp = time.time()

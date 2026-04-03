@@ -424,8 +424,11 @@ class ChannelRuntime:
                 if isinstance(raw, dict):
                     uri_val = raw.get("base64_uri")
                     if isinstance(uri_val, list):
-                        image_buf.extend(u for u in uri_val if isinstance(u, str) and u)
-                    elif isinstance(uri_val, str) and uri_val:
+                        image_buf.extend(
+                            u for u in uri_val
+                            if isinstance(u, str) and u and u not in image_buf
+                        )
+                    elif isinstance(uri_val, str) and uri_val and uri_val not in image_buf:
                         image_buf.append(uri_val)
 
             progress = parse_step_progress(step)
