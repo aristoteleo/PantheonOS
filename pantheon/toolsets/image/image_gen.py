@@ -194,16 +194,17 @@ class ImageGenerationToolSet(ToolSet):
 
         chat_id = self._get_chat_id()
         saved_paths = []
+        data_uris = []
         for item in response.data:
             if item.b64_json:
-                path = self.image_store.save_base64_image(
-                    chat_id, f"data:image/png;base64,{item.b64_json}"
-                )
+                uri = f"data:image/png;base64,{item.b64_json}"
+                path = self.image_store.save_base64_image(chat_id, uri)
                 saved_paths.append(path)
+                data_uris.append(uri)
             elif item.url:
                 saved_paths.append(item.url)
 
-        return {
+        result = {
             "success": True,
             "images": saved_paths,
             "model_used": model,
@@ -211,6 +212,10 @@ class ImageGenerationToolSet(ToolSet):
                 "current_cost": cost,
             }
         }
+        if data_uris:
+            result["base64_uri"] = data_uris
+            result["hidden_to_model"] = ["base64_uri"]
+        return result
 
     async def _multimodal_image_gen(
         self,
@@ -272,6 +277,7 @@ class ImageGenerationToolSet(ToolSet):
         # Save generated images
         # Format: [{'image_url': {'url': 'data:image/png;base64,...'}}]
         saved_paths = []
+        data_uris = []
         for img in images:
             if isinstance(img, dict):
                 url = img.get("image_url", {}).get("url", "")
@@ -280,8 +286,10 @@ class ImageGenerationToolSet(ToolSet):
             if url:
                 path = self.image_store.save_base64_image(chat_id, url)
                 saved_paths.append(path)
+                if url.startswith("data:"):
+                    data_uris.append(url)
 
-        return {
+        result = {
             "success": True,
             "images": saved_paths,
             "text": message.content,
@@ -290,6 +298,10 @@ class ImageGenerationToolSet(ToolSet):
                 "current_cost": cost,
             }
         }
+        if data_uris:
+            result["base64_uri"] = data_uris
+            result["hidden_to_model"] = ["base64_uri"]
+        return result
 
     async def _image_edit_gen(
         self,
@@ -333,16 +345,17 @@ class ImageGenerationToolSet(ToolSet):
 
         chat_id = self._get_chat_id()
         saved_paths = []
+        data_uris = []
         for item in response.data:
             if item.b64_json:
-                path = self.image_store.save_base64_image(
-                    chat_id, f"data:image/png;base64,{item.b64_json}"
-                )
+                uri = f"data:image/png;base64,{item.b64_json}"
+                path = self.image_store.save_base64_image(chat_id, uri)
                 saved_paths.append(path)
+                data_uris.append(uri)
             elif item.url:
                 saved_paths.append(item.url)
 
-        return {
+        result = {
             "success": True,
             "images": saved_paths,
             "model_used": model,
@@ -350,6 +363,10 @@ class ImageGenerationToolSet(ToolSet):
                 "current_cost": cost,
             }
         }
+        if data_uris:
+            result["base64_uri"] = data_uris
+            result["hidden_to_model"] = ["base64_uri"]
+        return result
 
     async def _describe_reference_images(self, reference_images: list[str]) -> str:
         """Vision fallback: describe reference images for text-only models."""

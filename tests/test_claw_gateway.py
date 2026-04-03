@@ -223,13 +223,13 @@ class DummyChatroom:
             "chat_id": chat_id,
             "message": message,
         }
-        # Simulate a tool result with an image if step callback is provided
+        # Simulate a tool result with an image (list format, matching python_interpreter)
         if process_step_message is not None:
             await process_step_message({
                 "role": "tool",
                 "tool_name": "python",
                 "raw_content": {
-                    "base64_uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==",
+                    "base64_uri": ["data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="],
                     "stdout": "plot generated",
                 },
             })
@@ -412,7 +412,7 @@ class BridgeImageTests(unittest.IsolatedAsyncioTestCase):
         llm_buf: list[str] = []
         on_step = runtime.make_image_step_callback(llm_buf, image_buf)
 
-        # Simulate a tool result with a base64_uri image
+        # Simulate a tool result with base64_uri as a string
         await on_step({
             "role": "tool",
             "tool_name": "python",
@@ -424,6 +424,28 @@ class BridgeImageTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(image_buf), 1)
         self.assertEqual(image_buf[0], "data:image/png;base64,fakechart")
+
+    async def test_run_chat_collects_images_from_step_callback_list_format(self):
+        """The image step callback should handle base64_uri as a list (python_interpreter format)."""
+        from pantheon.claw.runtime import ChannelRuntime
+
+        runtime = ChannelRuntime(bridge=self.bridge)
+        image_buf: list[str] = []
+        llm_buf: list[str] = []
+        on_step = runtime.make_image_step_callback(llm_buf, image_buf)
+
+        await on_step({
+            "role": "tool",
+            "tool_name": "python",
+            "raw_content": {
+                "base64_uri": ["data:image/png;base64,chart1", "data:image/png;base64,chart2"],
+                "stdout": "done",
+            },
+        })
+
+        self.assertEqual(len(image_buf), 2)
+        self.assertEqual(image_buf[0], "data:image/png;base64,chart1")
+        self.assertEqual(image_buf[1], "data:image/png;base64,chart2")
 
     async def test_run_chat_step_callback_ignores_non_image_tools(self):
         """Tool results without base64_uri should not add to image_buf."""

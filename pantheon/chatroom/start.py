@@ -669,6 +669,22 @@ async def start_services(
         logger.info(f"[STARTUP] PANTHEON_READY event emitted (service_id={service_id})")
         # ────────────────────────────────────────────────────────────────────
 
+        # ── Auto-start configured Claw channels ─────────────────────────────
+        try:
+            from pantheon.claw import ClawConfigStore
+            claw_cfg = ClawConfigStore().load()
+            auto_channels = claw_cfg.get("auto_start") or []
+            if auto_channels:
+                gw_manager = chat_room._get_gateway_manager()
+                for ch in auto_channels:
+                    ch = str(ch).strip()
+                    if ch:
+                        res = gw_manager.start_channel(ch, source="auto_start")
+                        logger.info(f"[STARTUP] Claw auto-start {ch}: {res}")
+        except Exception as exc:
+            logger.warning(f"[STARTUP] Claw auto-start failed: {exc}")
+        # ────────────────────────────────────────────────────────────────────
+
         if auto_ui:
             # Determine frontend URL
             if isinstance(auto_ui, str):

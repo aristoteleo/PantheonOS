@@ -682,6 +682,10 @@ class IntegratedNotebookToolSet(ToolSet):
             )
             exec_result.pop("notebook_path", None)
             result["execution"] = exec_result
+            # Hoist image URIs to top level so step message callbacks can find them
+            if "base64_uri" in exec_result:
+                result["base64_uri"] = exec_result["base64_uri"]
+                result["hidden_to_model"] = ["base64_uri"]
 
         return result
 
@@ -814,6 +818,10 @@ class IntegratedNotebookToolSet(ToolSet):
             )
             exec_result.pop("notebook_path", None)
             result["execution"] = exec_result
+            # Hoist image URIs to top level so step message callbacks can find them
+            if "base64_uri" in exec_result:
+                result["base64_uri"] = exec_result["base64_uri"]
+                result["hidden_to_model"] = ["base64_uri"]
 
         return result
 
@@ -1535,6 +1543,19 @@ class IntegratedNotebookToolSet(ToolSet):
 
             # Add notebook-specific fields
             exec_result["notebook_path"] = notebook_path
+
+            # Extract base64 images from outputs for downstream consumers (e.g. Claw channels)
+            image_uris = []
+            for output in outputs:
+                if output.get("output_type") in ("display_data", "execute_result"):
+                    data = output.get("data", {})
+                    for mime in ("image/png", "image/jpeg", "image/gif", "image/svg+xml"):
+                        img_b64 = data.get(mime)
+                        if img_b64 and isinstance(img_b64, str):
+                            image_uris.append(f"data:{mime};base64,{img_b64}")
+            if image_uris:
+                exec_result["base64_uri"] = image_uris
+                exec_result["hidden_to_model"] = ["base64_uri"]
 
             return exec_result
 

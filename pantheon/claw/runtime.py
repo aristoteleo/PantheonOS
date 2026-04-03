@@ -258,7 +258,7 @@ def parse_step_text(step: Dict[str, Any]) -> Optional[str]:
 
 _DATA_URI_RE = r"data:image/[^;]+;base64,[A-Za-z0-9+/=]+"
 
-
+#image bytes into a string you can embed anywhere
 def bytes_to_data_uri(data: bytes, filename: str = "") -> str:
     """Convert raw image bytes to a ``data:image/...;base64,...`` URI."""
     mime, _ = mimetypes.guess_type(filename or "image.png")
@@ -293,9 +293,11 @@ def extract_images_from_result(result: Dict[str, Any]) -> List[str]:
     for msg in result.get("messages") or []:
         raw = msg.get("raw_content")
         if isinstance(raw, dict):
-            uri = raw.get("base64_uri") or ""
-            if uri:
-                uris.append(uri)
+            uri_val = raw.get("base64_uri")
+            if isinstance(uri_val, list):
+                uris.extend(u for u in uri_val if isinstance(u, str) and u)
+            elif isinstance(uri_val, str) and uri_val:
+                uris.append(uri_val)
     return uris
 
 
@@ -420,9 +422,11 @@ class ChannelRuntime:
             if step.get("role") == "tool" and not step.get("transfer"):
                 raw = step.get("raw_content")
                 if isinstance(raw, dict):
-                    uri = raw.get("base64_uri") or ""
-                    if uri:
-                        image_buf.append(uri)
+                    uri_val = raw.get("base64_uri")
+                    if isinstance(uri_val, list):
+                        image_buf.extend(u for u in uri_val if isinstance(u, str) and u)
+                    elif isinstance(uri_val, str) and uri_val:
+                        image_buf.append(uri_val)
 
             progress = parse_step_progress(step)
             if progress is not None and progress_cb is not None:
