@@ -30,32 +30,14 @@ Key Features:
    - Handles edge cases (circular refs, non-serializable objects)
 
 Configuration:
-  - max_tool_content_length: 50K (global fallback; per-tool thresholds take priority)
-  - max_file_read_chars: 50K-100K (read_file internal limit)
+  - max_tool_content_length: 10K (LLM context limit)
+  - max_file_read_chars: 50K (read_file internal limit)
   - Recursion depth: 2 layers (covers 99% cases)
 """
 
 import json
 from pathlib import Path
 from typing import Any
-
-
-def _format_file_size(num_bytes: int) -> str:
-    """Format byte count as human-readable size string."""
-    value = float(num_bytes)
-    for unit in ["B", "KB", "MB", "GB"]:
-        if value < 1024 or unit == "GB":
-            if unit == "B":
-                return f"{int(value)}{unit}"
-            return f"{value:.1f}{unit}"
-        value /= 1024
-    return f"{num_bytes}B"
-
-
-# Unified externalization markers — shared with token_optimization.py
-PERSISTED_OUTPUT_TAG = "<persisted-output>"
-PERSISTED_OUTPUT_CLOSING_TAG = "</persisted-output>"
-PREVIEW_SIZE_BYTES = 2000
 
 
 def truncate_string(content: str, max_length: int) -> str:
@@ -96,21 +78,24 @@ def _format_truncated_message(
     filepath: Path,
     preview_size: int | None = None,
 ) -> str:
-    """Format truncated content message using unified <persisted-output> format.
-
-    This format is recognized by token_optimization.py's _is_already_externalized()
-    so that the LLM-view pipeline can correctly detect already-externalized content.
+    """Format truncated content message.
+    
+    Args:
+        preview: Preview content to show
+        total_size: Total size of original content
+        filepath: Path where full content is saved
+        preview_size: Optional preview size (if None, uses len(preview))
+        
+    Returns:
+        Formatted message with preview
     """
     if preview_size is None:
         preview_size = len(preview)
-
+    
     return (
-        f"{PERSISTED_OUTPUT_TAG}\n"
-        f"Output too large ({_format_file_size(total_size)}). "
-        f"Full output saved to: {filepath}\n\n"
-        f"Preview (first {_format_file_size(preview_size)}):\n"
-        f"{preview}\n"
-        f"{PERSISTED_OUTPUT_CLOSING_TAG}"
+        f"[truncated {preview_size:,}/{total_size:,} chars]\n"
+        f"Full content saved to: {filepath}\n\n"
+        f"{preview}"
     )
 
 
@@ -203,7 +188,7 @@ def _truncate_non_dict(
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(content)
             
-            preview_size = min(PREVIEW_SIZE_BYTES, max_length // 2)
+            preview_size = min(2000, max_length // 2)
             preview = content[:preview_size]
             return _format_truncated_message(
                 preview=preview,
@@ -224,16 +209,14 @@ def _truncate_json_path(
     temp_dir: str,
 ) -> str:
     """Handle JSON tools truncation.
-
+    
     Special handling for tools with 'truncated' field:
     - Skip base64 filtering (already processed by tool)
-    - Length limits are ALWAYS applied (per-tool thresholds are the
-      primary control; Layer 1's truncated flag only means the tool
-      did its own pre-processing, not that no further limits apply).
+    - Skip length limits (trust tool's truncation)
     """
     # Check if tool already handled truncation
     has_truncated_field = 'truncated' in result
-
+    
     # Step 1: Base64 filter (skip for tools with truncated field)
     if filter_base64 and not has_truncated_field:
         try:
@@ -245,7 +228,7 @@ def _truncate_json_path(
         except Exception as e:
             from pantheon.utils.log import logger
             logger.warning(f"Skipping base64 filter due to error: {e}")
-
+    
     # Step 2: Format to JSON
     try:
         formatted = json.dumps(result, ensure_ascii=False)
@@ -253,11 +236,11 @@ def _truncate_json_path(
         from pantheon.utils.log import logger
         logger.warning(f"JSON serialization failed: {e}, using repr")
         formatted = repr(result)
-
-    # Step 3: Length check — always applied regardless of truncated field
-    if len(formatted) <= max_length:
+    
+    # Step 3: Length check (skip for tools with truncated field)
+    if has_truncated_field or len(formatted) <= max_length:
         return formatted
-
+    
     # Step 4: Save and generate preview
     return _save_and_preview_json(result, formatted, max_length, temp_dir)
 

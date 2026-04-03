@@ -661,13 +661,11 @@ class Settings:
     def max_tool_content_length(self) -> int:
         """
         Maximum characters for tool output content.
-        Used as fallback for smart truncation at agent level.
-        Per-tool thresholds (from token_optimization.py) take priority
-        when available.
-        Defaults to 50000 (~12.5K tokens).
+        Used for smart truncation at agent level.
+        Defaults to 10000 (~5K tokens).
         """
         self._ensure_loaded()
-        return self._settings.get("endpoint", {}).get("max_tool_content_length", 50000)
+        return self._settings.get("endpoint", {}).get("max_tool_content_length", 10000)
 
     @property
     def max_file_read_lines(self) -> int:
@@ -681,16 +679,17 @@ class Settings:
     @property
     def max_file_read_chars(self) -> int:
         """
-        Maximum characters for read_file output (safety valve).
-
-        Acts as an upper bound to prevent unbounded output from pathological
-        files. Per-tool thresholds (from token_optimization.py) handle the
-        actual LLM-context sizing at Layer 2.
-
-        Defaults to 500000 characters.
+        Maximum characters for read_file output.
+        
+        Set higher than max_tool_content_length to allow reading larger files
+        while preventing unbounded output. When exceeded, read_file returns
+        truncated content with a 'truncated' flag to prevent infinite loops.
+        
+        Industry reference: Cursor uses 100K limit.
+        Defaults to 50000 characters.
         """
         self._ensure_loaded()
-        return self._settings.get("endpoint", {}).get("max_file_read_chars", 500000)
+        return self._settings.get("endpoint", {}).get("max_file_read_chars", 50000)
 
     @property
     def max_glob_results(self) -> int:

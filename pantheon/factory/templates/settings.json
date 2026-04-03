@@ -25,12 +25,12 @@
         // - "thread": Execute in separate thread (isolated, for heavy tasks)
         "local_toolset_execution_mode": "direct",
         // === Tool Output Limits ===
-        // Maximum characters for tool output (fallback; per-tool thresholds take priority)
-        "max_tool_content_length": 50000,
+        // Maximum characters for tool output (used for smart truncation)
+        "max_tool_content_length": 10000,
         // Maximum lines for file read operations
         "max_file_read_lines": 1000,
-        // Maximum characters for file read operations (safety valve; per-tool thresholds handle LLM sizing)
-        "max_file_read_chars": 500000,
+        // Maximum characters for file read operations (prevents single-line overflow)
+        "max_file_read_chars": 100000,
         // Maximum results for glob/search operations
         "max_glob_results": 50,
         // Enable notebook execution logging (JSONL files in .pantheon/logs/notebook/)

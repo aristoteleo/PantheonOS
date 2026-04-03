@@ -877,49 +877,37 @@ def remove_hidden_fields(content: dict) -> dict:
 
 
 def process_tool_result(
-    result: Any,
+    result: Any, 
     max_length: int | None = None,
-    tool_name: str | None = None,
 ) -> Any:
     """Process tool result with optional truncation.
-
+    
     Args:
         result: Raw tool result
-        max_length: Global max length for truncation (fallback)
-        tool_name: Tool name for per-tool threshold lookup
-
+        max_length: Optional max length for truncation
+        
     Returns:
         Processed result
     """
     # Remove hidden fields
     result = remove_hidden_fields(result)
-
-    # Determine effective limit: per-tool threshold takes priority over global
-    effective_limit = max_length
+    
+    # Apply smart truncation if max_length specified
+    # (includes base64 filtering for JSON tools)
     if max_length is not None:
         try:
-            from pantheon.utils.token_optimization import (
-                get_per_tool_limit,
-            )
-            effective_limit = int(get_per_tool_limit(tool_name, max_length))
-        except Exception as e:
-            logger.debug(f"get_per_tool_limit failed for {tool_name}: {e}")
-
-    # Apply smart truncation if limit specified
-    if effective_limit is not None:
-        try:
             from pantheon.utils.truncate import smart_truncate_result
-            return smart_truncate_result(result, effective_limit, filter_base64=True)
+            return smart_truncate_result(result, max_length, filter_base64=True)
         except Exception as e:
             # Fallback to simple string conversion if truncation fails
             logger.warning(f"Smart truncation failed: {e}, falling back to simple conversion")
             content = str(result) if not isinstance(result, str) else result
-            if len(content) > effective_limit:
+            if len(content) > max_length:
                 # Simple truncation: head + tail
-                half = effective_limit // 2
+                half = max_length // 2
                 return f"{content[:half]}\n...[truncated]...\n{content[-half:]}"
             return content
-
+    
     return result
 
 

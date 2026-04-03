@@ -132,24 +132,23 @@ def test_format_consistency():
 
 
 def test_smart_truncate_with_truncated_field():
-    """Test tools with 'truncated' field: skip base64 filter, but
-    length limits are still applied (per-tool thresholds are always enforced)."""
-    # Simulate read_file/shell output (small enough to be under limit)
+    """Test tools with 'truncated' field skip base64 filter and length limits."""
+    # Simulate read_file/shell output
     result = {
         "content": "file content here",
         "truncated": False,
         "path": "/some/path",
     }
-
+    
     output = smart_truncate_result(result, max_length=100)
-
+    
     # Should be JSON formatted (unified format)
     parsed = json.loads(output)
     assert parsed["content"] == "file content here"
     assert parsed["truncated"] == False
     assert parsed["path"] == "/some/path"
-
-    # Small content under limit → passes through as-is
+    
+    # Should NOT apply length limits (trust tool's truncation)
     assert isinstance(output, str)
     print("✓ test_smart_truncate_with_truncated_field passed")
 
@@ -185,9 +184,9 @@ def test_smart_truncate_path2_oversized():
             temp_dir=tmpdir
         )
         
-        # Should indicate truncation (unified <persisted-output> format)
-        assert "Full output saved to:" in output
-        assert "<persisted-output>" in output
+        # Should indicate truncation
+        assert "[truncated" in output
+        assert "Full content saved to:" in output
         
         # Should contain preview
         assert "small_field" in output
@@ -210,10 +209,10 @@ def test_smart_truncate_non_dict():
     result1 = smart_truncate_result("simple string", max_length=100)
     assert result1 == "simple string"
     
-    # Large string - when saved to file, uses <persisted-output> format
+    # Large string - allow more tolerance
     result2 = smart_truncate_result("x" * 1000, max_length=100)
-    # May be truncated inline or saved to file with persisted-output wrapper
-    assert "[truncated" in result2 or "<persisted-output>" in result2
+    assert len(result2) <= 200  # More tolerance for suffix
+    assert "[truncated" in result2
     
     print("✓ test_smart_truncate_non_dict passed")
 
