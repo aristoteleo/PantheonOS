@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import logging
 import threading
 import time
@@ -10,6 +12,7 @@ from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
 
 import aiohttp
+from PIL import Image
 
 from pantheon.claw.registry import ConversationRoute
 from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks
@@ -81,7 +84,11 @@ class SlackGatewayApp(ChannelRuntime):
         return True
 
     async def _download_files(self, client, event: dict[str, Any]) -> list[str]:
-        """Download image files from a Slack event and return data-URI list."""
+        """Download image files from a Slack event and return data-URI list.
+
+        Images are normalised through PIL so the data-URI always contains
+        a format that OpenAI / other LLM providers accept (PNG or JPEG).
+        """
         files = event.get("files") or []
         uris: list[str] = []
         for f in files:
@@ -98,11 +105,25 @@ class SlackGatewayApp(ChannelRuntime):
                         headers={"Authorization": f"Bearer {self._bot_token}"},
                         timeout=aiohttp.ClientTimeout(total=30),
                     ) as resp:
-                        if resp.status == 200:
-                            data = await resp.read()
-                            uris.append(bytes_to_data_uri(data, f.get("name") or "image.png"))
+                        if resp.status != 200:
+                            logger.warning("Slack file download HTTP %s for %s", resp.status, f.get("name"))
+                            continue
+                        data = await resp.read()
+                # Normalise through PIL → always PNG or JPEG
+                img = Image.open(io.BytesIO(data))
+                buf = io.BytesIO()
+                if img.mode in ("RGBA", "LA", "P"):
+                    img.save(buf, format="PNG")
+                    out_mime = "png"
+                else:
+                    if img.mode != "RGB":
+                        img = img.convert("RGB")
+                    img.save(buf, format="JPEG", quality=85)
+                    out_mime = "jpeg"
+                encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+                uris.append(f"data:image/{out_mime};base64,{encoded}")
             except Exception:
-                logger.debug("Slack file download failed: %s", f.get("name"))
+                logger.exception("Slack file download/convert failed: %s", f.get("name"))
         return uris
 
     async def _send_image(self, client, channel: str, thread_ts: str | None, data_uri: str) -> None:
@@ -119,7 +140,7 @@ class SlackGatewayApp(ChannelRuntime):
                 thread_ts=thread_ts,
             )
         except Exception:
-            logger.warning("Slack image upload failed")
+            logger.exception("Slack image upload failed")
 
     async def _analysis_wrapper(
         self,
