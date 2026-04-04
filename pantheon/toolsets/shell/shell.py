@@ -1,4 +1,5 @@
 import os
+import re
 import shlex
 import uuid
 from pathlib import Path
@@ -8,6 +9,8 @@ from pantheon.toolset import ToolSet, tool
 from pantheon.utils.log import logger
 from pantheon.utils.image_detection import snapshot_images, diff_snapshots, encode_images_to_uris
 from pantheon.internal.package_runtime.context import build_context_env
+
+_PYTHON_CMD_RE = re.compile(r"(?:^|\s|&&|\|)python[23]?\s", re.IGNORECASE)
 
 
 class ShellToolSet(ToolSet):
@@ -373,7 +376,9 @@ PANTHEON_ENV_EOF
             run_command(command="R -e 'install(...)'", max_output=5000)
         """
         # Snapshot image files before execution so we can detect new ones
-        pre_snapshot = self._snapshot_images() if command else {}
+        pre_snapshot: dict[str, float] = {}
+        if command and _PYTHON_CMD_RE.search(command):
+            pre_snapshot = self._snapshot_images()
 
         # If shell_id is provided, use it directly (Manual Mode)
         if shell_id:
@@ -451,9 +456,9 @@ PANTHEON_ENV_EOF
             # No max_output specified
             result["truncated"] = False
 
-        # Detect images produced by shell commands so claw channels can
-        # forward them to the user.
-        if result.get("success") and command and pre_snapshot is not None:
+        # Detect images produced by Python/matplotlib commands so claw
+        # channels (e.g. Telegram) can forward them to the user.
+        if result.get("success") and command and _PYTHON_CMD_RE.search(command):
             result = self._attach_new_images(result, pre_snapshot)
 
         return result
