@@ -551,5 +551,166 @@ class RuntimeImageUtilTests(unittest.TestCase):
         self.assertTrue(uri.startswith("data:image/png;base64,"))
 
 
+class MarkdownConverterTests(unittest.TestCase):
+    """Tests for the Markdown format converters in runtime.py."""
+
+    def test_md_to_slack_bold(self):
+        from pantheon.claw.runtime import md_to_slack
+        self.assertEqual(md_to_slack("**hello**"), "*hello*")
+
+    def test_md_to_slack_italic(self):
+        from pantheon.claw.runtime import md_to_slack
+        self.assertEqual(md_to_slack("*hello*"), "_hello_")
+
+    def test_md_to_slack_bold_and_italic(self):
+        from pantheon.claw.runtime import md_to_slack
+        result = md_to_slack("**bold** and *italic*")
+        self.assertEqual(result, "*bold* and _italic_")
+
+    def test_md_to_slack_strikethrough(self):
+        from pantheon.claw.runtime import md_to_slack
+        self.assertEqual(md_to_slack("~~deleted~~"), "~deleted~")
+
+    def test_md_to_slack_link(self):
+        from pantheon.claw.runtime import md_to_slack
+        self.assertEqual(md_to_slack("[text](https://example.com)"), "<https://example.com|text>")
+
+    def test_md_to_slack_header(self):
+        from pantheon.claw.runtime import md_to_slack
+        self.assertEqual(md_to_slack("## Title"), "*Title*")
+
+    def test_md_to_slack_unordered_list(self):
+        from pantheon.claw.runtime import md_to_slack
+        self.assertEqual(md_to_slack("- item one\n- item two"), "• item one\n• item two")
+
+    def test_md_to_slack_code_block_preserved(self):
+        from pantheon.claw.runtime import md_to_slack
+        text = "```python\n**not bold**\n```"
+        result = md_to_slack(text)
+        self.assertIn("**not bold**", result)
+
+    def test_md_to_slack_inline_code_preserved(self):
+        from pantheon.claw.runtime import md_to_slack
+        result = md_to_slack("use `**raw**` here")
+        self.assertIn("`**raw**`", result)
+
+    # ── md_to_telegram (MarkdownV2) ─────────────────────────────────────────
+
+    def test_md_to_telegram_bold(self):
+        from pantheon.claw.runtime import md_to_telegram
+        self.assertEqual(md_to_telegram("**hello**"), "*hello*")
+
+    def test_md_to_telegram_italic(self):
+        from pantheon.claw.runtime import md_to_telegram
+        self.assertEqual(md_to_telegram("*hello*"), "_hello_")
+
+    def test_md_to_telegram_bold_and_italic(self):
+        from pantheon.claw.runtime import md_to_telegram
+        result = md_to_telegram("**bold** and *italic*")
+        self.assertEqual(result, "*bold* and _italic_")
+
+    def test_md_to_telegram_strikethrough(self):
+        from pantheon.claw.runtime import md_to_telegram
+        self.assertEqual(md_to_telegram("~~deleted~~"), "~deleted~")
+
+    def test_md_to_telegram_escapes_special_chars(self):
+        from pantheon.claw.runtime import md_to_telegram
+        result = md_to_telegram("hello! (world) test.end")
+        self.assertIn("\\!", result)
+        self.assertIn("\\(", result)
+        self.assertIn("\\.", result)
+
+    def test_md_to_telegram_link(self):
+        from pantheon.claw.runtime import md_to_telegram
+        result = md_to_telegram("[click](https://example.com)")
+        self.assertIn("[click](https://example.com)", result)
+
+    def test_md_to_telegram_header(self):
+        from pantheon.claw.runtime import md_to_telegram
+        self.assertEqual(md_to_telegram("## Title"), "*Title*")
+
+    def test_md_to_telegram_code_block_not_escaped(self):
+        from pantheon.claw.runtime import md_to_telegram
+        text = "```\nhello! (world)\n```"
+        result = md_to_telegram(text)
+        # Content inside code blocks should NOT be escaped
+        self.assertIn("hello! (world)", result)
+
+    def test_md_to_telegram_inline_code_not_escaped(self):
+        from pantheon.claw.runtime import md_to_telegram
+        result = md_to_telegram("use `a.b!c` here")
+        self.assertIn("`a.b!c`", result)
+
+    # ── md_to_plain ─────────────────────────────────────────────────────────
+
+    def test_md_to_plain_strips_bold(self):
+        from pantheon.claw.runtime import md_to_plain
+        self.assertEqual(md_to_plain("**hello**"), "hello")
+
+    def test_md_to_plain_strips_italic(self):
+        from pantheon.claw.runtime import md_to_plain
+        self.assertEqual(md_to_plain("*hello*"), "hello")
+
+    def test_md_to_plain_strips_strikethrough(self):
+        from pantheon.claw.runtime import md_to_plain
+        self.assertEqual(md_to_plain("~~deleted~~"), "deleted")
+
+    def test_md_to_plain_link_shows_text_and_url(self):
+        from pantheon.claw.runtime import md_to_plain
+        result = md_to_plain("[click](https://example.com)")
+        self.assertIn("click", result)
+        self.assertIn("https://example.com", result)
+
+    def test_md_to_plain_strips_header(self):
+        from pantheon.claw.runtime import md_to_plain
+        self.assertEqual(md_to_plain("## Title"), "Title")
+
+    def test_md_to_plain_strips_code_fences(self):
+        from pantheon.claw.runtime import md_to_plain
+        result = md_to_plain("```python\nprint('hi')\n```")
+        self.assertIn("print('hi')", result)
+        self.assertNotIn("```", result)
+
+    def test_md_to_plain_strips_inline_code(self):
+        from pantheon.claw.runtime import md_to_plain
+        self.assertEqual(md_to_plain("use `code` here"), "use code here")
+
+    def test_md_to_plain_list(self):
+        from pantheon.claw.runtime import md_to_plain
+        self.assertEqual(md_to_plain("- item"), "• item")
+
+    # ── Combined / edge cases ───────────────────────────────────────────────
+
+    def test_all_converters_handle_empty_string(self):
+        from pantheon.claw.runtime import md_to_slack, md_to_telegram, md_to_plain
+        self.assertEqual(md_to_slack(""), "")
+        self.assertEqual(md_to_telegram(""), "")
+        self.assertEqual(md_to_plain(""), "")
+
+    def test_all_converters_handle_plain_text(self):
+        from pantheon.claw.runtime import md_to_slack, md_to_telegram, md_to_plain
+        self.assertEqual(md_to_slack("hello world"), "hello world")
+        self.assertEqual(md_to_plain("hello world"), "hello world")
+
+    def test_slack_full_message(self):
+        from pantheon.claw.runtime import md_to_slack
+        md = "## Summary\n**Bold** and *italic*\n- Item 1\n- Item 2\n[link](https://x.com)"
+        result = md_to_slack(md)
+        self.assertIn("*Summary*", result)
+        self.assertIn("*Bold*", result)
+        self.assertIn("_italic_", result)
+        self.assertIn("• Item 1", result)
+        self.assertIn("<https://x.com|link>", result)
+
+    def test_telegram_full_message(self):
+        from pantheon.claw.runtime import md_to_telegram
+        md = "## Summary\n**Bold** and *italic*\n- Item 1\n~~old~~"
+        result = md_to_telegram(md)
+        self.assertIn("*Summary*", result)
+        self.assertIn("*Bold*", result)
+        self.assertIn("_italic_", result)
+        self.assertIn("~old~", result)
+
+
 if __name__ == "__main__":
     unittest.main()
