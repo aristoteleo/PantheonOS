@@ -15,7 +15,7 @@ import aiohttp
 from PIL import Image
 
 from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks
+from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_slack
 
 logger = logging.getLogger("pantheon.claw.channels.slack")
 
@@ -165,7 +165,7 @@ class SlackGatewayApp(ChannelRuntime):
                 return
             last_edit = now
             preview = "".join(llm_buf).strip() or last_progress or "Thinking..."
-            await self._update(client, body, placeholder_ts, preview[-2800:])
+            await self._update(client, body, placeholder_ts, md_to_slack(preview[-2800:]))
 
         async def _set_progress(label: str) -> None:
             nonlocal last_progress
@@ -188,7 +188,7 @@ class SlackGatewayApp(ChannelRuntime):
                 process_step_message=on_step,
             )
             final_text = str(result.get("response") or "".join(llm_buf) or "Done.")
-            await self._update(client, body, placeholder_ts, final_text[-3500:])
+            await self._update(client, body, placeholder_ts, md_to_slack(final_text[-3500:]))
             # Send any response images
             event = body["event"]
             channel = event["channel"]

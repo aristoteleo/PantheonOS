@@ -15,7 +15,7 @@ import requests
 from pathlib import Path
 
 from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime, Deduper, data_uri_to_bytes, bytes_to_data_uri, text_chunks
+from pantheon.claw.runtime import ChannelRuntime, Deduper, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain
 
 logger = logging.getLogger("pantheon.claw.channels.feishu")
 
@@ -307,7 +307,7 @@ class FeishuRuntime(ChannelRuntime):
             if not force and (now - last_edit) < _EDIT_GAP_SECONDS:
                 return
             preview = "".join(llm_buf).strip() or last_progress or "Thinking..."
-            ok = await asyncio.to_thread(self._client.edit_text, draft_id, preview[-_MAX_TEXT:])
+            ok = await asyncio.to_thread(self._client.edit_text, draft_id, md_to_plain(preview[-_MAX_TEXT:]))
             if ok:
                 last_edit = now
 
@@ -331,7 +331,7 @@ class FeishuRuntime(ChannelRuntime):
                 process_chunk=on_chunk,
                 process_step_message=on_step,
             )
-            final_text = str(result.get("response") or "".join(llm_buf) or "Done.")
+            final_text = md_to_plain(str(result.get("response") or "".join(llm_buf) or "Done."))
             if draft_id and not await asyncio.to_thread(self._client.edit_text, draft_id, final_text[-_MAX_TEXT:]):
                 await self._send_text(chat_id, final_text)
             for uri in image_buf:

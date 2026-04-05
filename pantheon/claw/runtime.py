@@ -254,6 +254,168 @@ def parse_step_text(step: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+# ─── Markdown format converters ──────────────────────────────────────────────
+
+import re as _re
+
+
+def md_to_slack(text: str) -> str:
+    """Convert Markdown to Slack mrkdwn format."""
+    blocks: List[str] = []
+
+    def _stash_block(m: _re.Match) -> str:
+        blocks.append(m.group(0))
+        return f"\x00BLOCK{len(blocks) - 1}\x00"
+
+    text = _re.sub(r"```[\s\S]*?```", _stash_block, text)
+
+    inlines: List[str] = []
+
+    def _stash_inline(m: _re.Match) -> str:
+        inlines.append(m.group(0))
+        return f"\x00INLINE{len(inlines) - 1}\x00"
+
+    text = _re.sub(r"`[^`]+`", _stash_inline, text)
+
+    text = _re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"<\2|\1>", text)
+    text = _re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r"<\2|\1>", text)
+    # Bold: **text** → stash, then restore as *text* after italic pass
+    bolds: List[str] = []
+
+    def _stash_bold(m: _re.Match) -> str:
+        bolds.append(m.group(1))
+        return f"\x00BOLD{len(bolds) - 1}\x00"
+
+    text = _re.sub(r"\*\*(.+?)\*\*", _stash_bold, text)
+    # Italic: *text* → _text_ (now safe since ** already stashed)
+    text = _re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"_\1_", text)
+    # Restore bold as Slack bold
+    for i, content in enumerate(bolds):
+        text = text.replace(f"\x00BOLD{i}\x00", f"*{content}*")
+    text = _re.sub(r"~~(.+?)~~", r"~\1~", text)
+    text = _re.sub(r"^#{1,6}\s+(.+)$", r"*\1*", text, flags=_re.MULTILINE)
+    text = _re.sub(r"^(\s*)[-*]\s+", r"\1• ", text, flags=_re.MULTILINE)
+
+    for i, code in enumerate(inlines):
+        text = text.replace(f"\x00INLINE{i}\x00", code)
+    for i, block in enumerate(blocks):
+        text = text.replace(f"\x00BLOCK{i}\x00", block)
+
+    return text
+
+
+_TG_ESCAPE_CHARS = _re.compile(r"([_*\[\]()~`>#+\-=|{}.!\\])")
+
+
+def _tg_escape(text: str) -> str:
+    """Escape special characters for Telegram MarkdownV2 plain text."""
+    return _TG_ESCAPE_CHARS.sub(r"\\\1", text)
+
+
+def md_to_telegram(text: str) -> str:
+    """Convert standard Markdown to Telegram MarkdownV2.
+
+    Strategy: extract all formatting entities into placeholders, escape the
+    remaining plain text, then restore the entities with correct MV2 syntax.
+    """
+    stash: List[str] = []
+
+    def _put(mv2: str) -> str:
+        stash.append(mv2)
+        return f"\x00S{len(stash) - 1}\x00"
+
+    # 1. Stash code blocks (``` ... ```) — content must NOT be escaped
+    def _stash_codeblock(m: _re.Match) -> str:
+        raw = m.group(0)
+        # Extract lang hint and body
+        inner = _re.sub(r"^```\w*\n?", "", raw)
+        inner = _re.sub(r"\n?```$", "", inner)
+        return _put(f"```\n{inner}\n```")
+
+    text = _re.sub(r"```[\s\S]*?```", _stash_codeblock, text)
+
+    # 2. Stash inline code — content must NOT be escaped
+    def _stash_inline(m: _re.Match) -> str:
+        return _put(m.group(0))
+
+    text = _re.sub(r"`[^`]+`", _stash_inline, text)
+
+    # 3. Stash links [text](url) — text gets escaped, url doesn't
+    def _stash_link(m: _re.Match) -> str:
+        return _put(f"[{_tg_escape(m.group(1))}]({m.group(2)})")
+
+    text = _re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", _stash_link, text)
+    text = _re.sub(r"\[([^\]]+)\]\(([^)]+)\)", _stash_link, text)
+
+    # 4. Stash bold **text** → *escaped_text*
+    def _stash_bold(m: _re.Match) -> str:
+        return _put(f"*{_tg_escape(m.group(1))}*")
+
+    text = _re.sub(r"\*\*(.+?)\*\*", _stash_bold, text)
+
+    # 5. Stash italic *text* → _escaped\_text_
+    def _stash_italic(m: _re.Match) -> str:
+        return _put(f"_{_tg_escape(m.group(1))}_")
+
+    text = _re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", _stash_italic, text)
+
+    # 6. Stash strikethrough ~~text~~ → ~escaped_text~
+    def _stash_strike(m: _re.Match) -> str:
+        return _put(f"~{_tg_escape(m.group(1))}~")
+
+    text = _re.sub(r"~~(.+?)~~", _stash_strike, text)
+
+    # 7. Headers → bold
+    def _stash_header(m: _re.Match) -> str:
+        return _put(f"*{_tg_escape(m.group(1))}*")
+
+    text = _re.sub(r"^#{1,6}\s+(.+)$", _stash_header, text, flags=_re.MULTILINE)
+
+    # 8. Lists: - item → • item (done after escaping below)
+    text = _re.sub(r"^(\s*)[-]\s+", r"\1• ", text, flags=_re.MULTILINE)
+
+    # 9. Escape all remaining plain text
+    text = _tg_escape(text)
+
+    # 10. Restore stashed entities
+    for i, entity in enumerate(stash):
+        text = text.replace(f"\\x00S{i}\\x00", entity)
+        text = text.replace(f"\x00S{i}\x00", entity)
+
+    return text
+
+
+def md_to_plain(text: str) -> str:
+    """Strip Markdown to plain text for channels that don't support markup."""
+    blocks: List[str] = []
+
+    def _stash_block(m: _re.Match) -> str:
+        # Keep the code content but strip the fences
+        content = m.group(0)
+        content = _re.sub(r"^```\w*\n?", "", content)
+        content = _re.sub(r"\n?```$", "", content)
+        blocks.append(content)
+        return f"\x00BLOCK{len(blocks) - 1}\x00"
+
+    text = _re.sub(r"```[\s\S]*?```", _stash_block, text)
+
+    text = _re.sub(r"`([^`]+)`", r"\1", text)
+    text = _re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r"\1", text)
+    text = _re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", text)
+    text = _re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = _re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"\1", text)
+    text = _re.sub(r"__(.+?)__", r"\1", text)
+    text = _re.sub(r"(?<!_)_(?!_)(.+?)(?<!_)_(?!_)", r"\1", text)
+    text = _re.sub(r"~~(.+?)~~", r"\1", text)
+    text = _re.sub(r"^#{1,6}\s+(.+)$", r"\1", text, flags=_re.MULTILINE)
+    text = _re.sub(r"^(\s*)[-*]\s+", r"\1• ", text, flags=_re.MULTILINE)
+
+    for i, block in enumerate(blocks):
+        text = text.replace(f"\x00BLOCK{i}\x00", block)
+
+    return text
+
+
 # ─── Image helpers ───────────────────────────────────────────────────────────
 
 _DATA_URI_RE = r"data:image/[^;]+;base64,[A-Za-z0-9+/=]+"

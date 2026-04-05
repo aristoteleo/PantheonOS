@@ -11,7 +11,7 @@ from telegram.constants import ChatType
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks
+from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_telegram
 
 logger = logging.getLogger("pantheon.claw.channels.telegram")
 
@@ -130,10 +130,14 @@ class TelegramGatewayBot(ChannelRuntime):
                 return
             last_edit = now
             preview = "".join(llm_buf).strip() or last_progress or "Thinking..."
+            converted = md_to_telegram(preview[-3500:])
             try:
-                await placeholder.edit_text(preview[-3500:])
+                await placeholder.edit_text(converted, parse_mode="MarkdownV2")
             except Exception:
-                pass
+                try:
+                    await placeholder.edit_text(preview[-3500:])
+                except Exception:
+                    pass
 
         async def _set_progress(label: str) -> None:
             nonlocal last_progress
@@ -156,15 +160,22 @@ class TelegramGatewayBot(ChannelRuntime):
                 process_step_message=on_step,
             )
             final = str(result.get("response") or "".join(llm_buf) or "Done.")
+            converted_final = md_to_telegram(final[-3500:])
             try:
-                await placeholder.edit_text(final[-3500:])
+                await placeholder.edit_text(converted_final, parse_mode="MarkdownV2")
             except Exception:
-                pass
-            for extra in text_chunks(final, limit=_MAX_MSG)[1:]:
                 try:
-                    await message.reply_text(extra)
+                    await placeholder.edit_text(final[-3500:])
                 except Exception:
                     pass
+            for extra in text_chunks(final, limit=_MAX_MSG)[1:]:
+                try:
+                    await message.reply_text(md_to_telegram(extra), parse_mode="MarkdownV2")
+                except Exception:
+                    try:
+                        await message.reply_text(extra)
+                    except Exception:
+                        pass
             # Send any images from the response
             for uri in image_buf:
                 await self._send_image(message, uri)
