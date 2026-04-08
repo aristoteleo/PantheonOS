@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime, Deduper, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain
+from pantheon.claw.runtime import ChannelRuntime, Deduper, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain, extract_display_text
 
 logger = logging.getLogger("pantheon.claw.channels.qq")
 
@@ -412,7 +412,7 @@ class QQRuntime(ChannelRuntime):
                 process_chunk=on_chunk,
                 process_step_message=on_step,
             )
-            reply = md_to_plain(str(result.get("response") or "".join(llm_buf) or "Done."))
+            reply = md_to_plain(extract_display_text(result, llm_buf))
             for chunk in text_chunks(reply, limit=_MAX_TEXT):
                 await asyncio.to_thread(self._send_text, target, chunk, msg_id)
             for uri in image_buf:

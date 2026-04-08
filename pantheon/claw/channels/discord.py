@@ -11,7 +11,7 @@ import discord
 import aiohttp
 
 from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks
+from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, extract_display_text
 
 logger = logging.getLogger("pantheon.claw.channels.discord")
 
@@ -164,7 +164,7 @@ class DiscordGatewayBot(discord.Client, ChannelRuntime):
                 process_chunk=on_chunk,
                 process_step_message=on_step,
             )
-            final = str(result.get("response") or "".join(llm_buf) or "Done.")
+            final = extract_display_text(result, llm_buf)
             chunks = text_chunks(final, limit=_MAX_MSG)
             try:
                 await placeholder.edit(content=chunks[0] if chunks else "Done.")

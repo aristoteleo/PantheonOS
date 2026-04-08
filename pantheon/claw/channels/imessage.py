@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain
+from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain, extract_display_text
 
 logger = logging.getLogger("pantheon.claw.channels.imessage")
 
@@ -472,7 +472,7 @@ class IMessageGatewayBot(ChannelRuntime):
                 process_chunk=on_chunk,
                 process_step_message=on_step,
             )
-            final_text = md_to_plain(str(result.get("response") or "".join(llm_buf) or "Done."))
+            final_text = md_to_plain(extract_display_text(result, llm_buf))
             await self._send_text(target, final_text)
             for uri in image_buf:
                 await self._send_image(target, uri)

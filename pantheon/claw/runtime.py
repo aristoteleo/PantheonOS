@@ -254,6 +254,37 @@ def parse_step_text(step: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def extract_display_text(result: Dict[str, Any], llm_buf: List[str]) -> str:
+    """Extract human-readable text from a chat result.
+
+    Handles normal responses and interrupt/plan results where the response
+    field may contain a raw JSON-like string from a tool result.
+    """
+    response = result.get("response") or ""
+
+    # Detect interrupt/notify_user tool results embedded in the response.
+    # These look like: {"success": true, "interrupt": true, "message": "..."}
+    # We want the "message" field, not the raw dict string.
+    if isinstance(response, str) and '"interrupt"' in response:
+        import json as _json
+        try:
+            parsed = _json.loads(response)
+            if isinstance(parsed, dict) and parsed.get("interrupt"):
+                msg = parsed.get("message", "")
+                questions = parsed.get("questions", [])
+                parts = [msg] if msg else []
+                if questions:
+                    parts.append("\n".join(f"• {q}" for q in questions))
+                if parts:
+                    return "\n\n".join(parts)
+        except (ValueError, TypeError):
+            pass
+
+    if response:
+        return str(response)
+    return "".join(llm_buf).strip() or "Done."
+
+
 # ─── Markdown format converters ──────────────────────────────────────────────
 
 import re as _re

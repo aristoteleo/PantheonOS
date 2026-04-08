@@ -15,7 +15,7 @@ import aiohttp
 from PIL import Image
 
 from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_slack
+from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_slack, extract_display_text
 
 logger = logging.getLogger("pantheon.claw.channels.slack")
 
@@ -193,7 +193,7 @@ class SlackGatewayApp(ChannelRuntime):
                 process_chunk=on_chunk,
                 process_step_message=on_step,
             )
-            final_text = str(result.get("response") or "".join(llm_buf) or "Done.")
+            final_text = extract_display_text(result, llm_buf)
             await self._update(client, body, placeholder_ts, md_to_slack(final_text[-3500:]))
             # Send any response images
             event = body["event"]
