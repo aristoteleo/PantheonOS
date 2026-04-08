@@ -1161,6 +1161,22 @@ class Agent:
         try:
             if source == "base":
                 func = self._base_functions[resolved_name]
+                # Filter out unexpected kwargs to handle Gemini's parameter mixing
+                import inspect
+                try:
+                    sig = inspect.signature(func)
+                    has_var_keyword = any(
+                        p.kind == inspect.Parameter.VAR_KEYWORD
+                        for p in sig.parameters.values()
+                    )
+                    if not has_var_keyword:
+                        valid_params = set(sig.parameters.keys())
+                        extra = set(args.keys()) - valid_params
+                        if extra:
+                            logger.debug(f"Stripping unexpected args from {resolved_name}: {extra}")
+                            args = {k: v for k, v in args.items() if k in valid_params}
+                except (ValueError, TypeError):
+                    pass
                 result = await run_func(func, **args)
             else:
                 # Provider tool: source is the provider_name
