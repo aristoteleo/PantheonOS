@@ -277,8 +277,8 @@ def md_to_slack(text: str) -> str:
 
     text = _re.sub(r"`[^`]+`", _stash_inline, text)
 
+    text = _re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", "", text)  # Remove image links (sent separately)
     text = _re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"<\2|\1>", text)
-    text = _re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r"<\2|\1>", text)
     # Bold: **text** → stash, then restore as *text* after italic pass
     bolds: List[str] = []
 
@@ -340,11 +340,13 @@ def md_to_telegram(text: str) -> str:
 
     text = _re.sub(r"`[^`]+`", _stash_inline, text)
 
-    # 3. Stash links [text](url) — text gets escaped, url doesn't
+    # 3. Remove image links ![text](url) — images are sent separately
+    text = _re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", "", text)
+
+    # 4. Stash links [text](url) — text gets escaped, url doesn't
     def _stash_link(m: _re.Match) -> str:
         return _put(f"[{_tg_escape(m.group(1))}]({m.group(2)})")
 
-    text = _re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", _stash_link, text)
     text = _re.sub(r"\[([^\]]+)\]\(([^)]+)\)", _stash_link, text)
 
     # 4. Stash bold **text** → *escaped_text*
@@ -400,7 +402,7 @@ def md_to_plain(text: str) -> str:
     text = _re.sub(r"```[\s\S]*?```", _stash_block, text)
 
     text = _re.sub(r"`([^`]+)`", r"\1", text)
-    text = _re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r"\1", text)
+    text = _re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", "", text)  # Remove image links (sent separately)
     text = _re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", text)
     text = _re.sub(r"\*\*(.+?)\*\*", r"\1", text)
     text = _re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"\1", text)
