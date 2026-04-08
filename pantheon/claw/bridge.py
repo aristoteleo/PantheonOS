@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any
 
-logger = logging.getLogger("pantheon.claw.bridge")
+from pantheon.utils.log import logger
 
 from .registry import ClawRouteRegistry, ConversationRoute
 
