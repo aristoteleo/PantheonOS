@@ -63,6 +63,17 @@ If the dataset is large, perform **smart downsampling** while preserving **all c
 
 ---
 
+## Gene Panel Selection Hyperparameters
+<!-- Recommended defaults: trade-off between precision and fast enough computation. Adjust if needed for your dataset. -->
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SCGENEFIT_MAX_CONSTRAINTS` | 1000 | Max constraints for scGeneFit optimization |
+| `SPAPROS_N_HVG` | 3000 | Max HVGs for SpaPROS input |
+| `ARI_DROP_THRESHOLD` | 5% | Max acceptable ARI degradation during panel completion |
+
+---
+
 # Workflow (IMPORTANT : STRICLY FOLLOW NEEDED STEPS)
 
 ## 0. Dataset
@@ -251,9 +262,37 @@ If provided one dataset, split to preserve all cell type distribution across all
 - constraint: each split **< 50k cells**
 - make splits as non-redundant as possible and represent **all cell types**
 
+### 1.4 Disk Space Management (MANDATORY)
+
+> [!CRITICAL]
+> Gene panel selection generates large intermediate files. You **must** minimize disk usage
+> to avoid running out of space mid-pipeline.
+
+Rules:
+- **Process in memory whenever possible.** Do not save intermediate h5ad files unless they
+  will be re-read later by a different step. Chain downsampling → splitting → preprocessing
+  in one notebook session when feasible.
+- **Keep only these files on disk:**
+  - The **raw downloaded dataset** (Step 0 output) — for reproducibility
+  - The **training split** (preprocessed) — used by all algorithmic methods
+  - The **test splits** — used by benchmarking (Step 5)
+- **Delete intermediate h5ad files** after they are no longer needed:
+  - After downsampling + splitting is complete, delete the intermediate downsampled file
+    (you already have the splits).
+  - After preprocessing the training split, delete the unprocessed training split
+    (you now have the preprocessed version).
+- **Check available disk space** before downloading datasets (Step 0):
+  ```python
+  import shutil
+  free_gb = shutil.disk_usage('/').free / (1024**3)
+  print(f"Available disk space: {free_gb:.1f} GB")
+  # Ensure at least 50GB free before proceeding
+  ```
+  If less than 50 GB available, warn the user before downloading.
+
 ---
 
-### 1.4 Preprocessing status
+### 1.5 Preprocessing status
 Check:
 - normalization
 - PCA
@@ -264,7 +303,7 @@ Recompute only if missing or invalid.
 
 ---
 
-### 1.5 Preprocessing (if needed)
+### 1.6 Preprocessing (if needed)
 - QC (follow the QC skill if available)
 - Normalize / log1p / scale
 - PCA / neighbors / UMAP
@@ -297,8 +336,8 @@ selection_tool = GenePanelToolSet(
 )
 
 # Advanced methods (tool calls)
-# - select_scgenefit   (ALWAYS: max_constraints <= 1000)
-# - select_spapros     (ALWAYS: n_hvg < 3000)
+# - select_scgenefit   (ALWAYS: max_constraints <= SCGENEFIT_MAX_CONSTRAINTS)
+# - select_spapros     (ALWAYS: n_hvg < SPAPROS_N_HVG)
 # - select_random_forest
 #
 # Example calls (adjust args as needed):
@@ -351,7 +390,7 @@ Final panel is built in **two phases**:
 **0) Completion Rule**
 Before adding a batch of genes:
 - test whether it makes ARI drop considerably or become less stable (training)
-- If completing the panel up to size **N** degrades performance substantially (eg ARI drop >5%), propose:
+- If completing the panel up to size **N** degrades performance substantially (eg ARI drop > `ARI_DROP_THRESHOLD`), propose:
   - an optimal stable panel (< N)
   - a supplemental gene list to reach N if required
 - a modest ARI drop is acceptable if it adds important biological coverage

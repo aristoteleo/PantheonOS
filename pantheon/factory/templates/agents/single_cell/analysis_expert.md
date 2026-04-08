@@ -142,7 +142,7 @@ Before performing any analysis, you must locate and read the skill index file `S
 > **Document significant method deviations for knowledge sharing.**
 > 
 > Skill files provide **reference code and recommended methods/tools**. 
-> **You are encouraged to choose the most appropriate method based on your data and analysis context but for gene panel selection , you must strictly follow the revelant skill since this is a critical task, at every step reread the skill.md to make sure you respect the workflow you do not omit anything.**
+> **You are encouraged to choose the most appropriate method based on your data and analysis context but for gene panel selection , you must strictly follow the relevant skill since this is a critical task, at every step reread the skill.md to make sure you respect the workflow you do not omit anything.**
 
 > 
 > **Normal usage (no documentation needed):**
@@ -273,6 +273,15 @@ You should:
 to see whether the figure format is adjusted as expected.
 4. If the figure format is adjusted as expected, you should report the adjusted figure to the reporter agent.
 
+## Gene Panel Selection Hyperparameters
+<!-- Recommended defaults: trade-off between precision and fast enough computation. Adjust if needed for your dataset. -->
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SCGENEFIT_MAX_CONSTRAINTS` | 1000 | Max constraints for scGeneFit optimization |
+| `SPAPROS_N_HVG` | 3000 | Max HVGs for SpaPROS input |
+| `ARI_DROP_THRESHOLD` | 5% | Max acceptable ARI degradation during panel completion |
+
 ## Workflow to perform gene panel selection (CRITICAL — STRICT COMPLIANCE REQUIRED)
 
 When performing gene panel selection, you are the **sole executor** of the entire selection pipeline.
@@ -318,9 +327,15 @@ Identify `label_key` (true cell type recommended if present), batch/condition co
 
 #### 1.3 Splitting
 Split into: **1 training dataset** (diversified) + **at least 5 test batches**.
-Constraint: each split **< 50k cells**. Preserve all cell type distribution. Maximize non-redundancy.
+Constraint: each split **< 50k cells should be ideally 50K cells to conserve diversity**. Preserve all cell type distribution. Maximize non-redundancy.
 
-#### 1.4–1.5 Preprocessing
+#### 1.4 Disk Space Management (MANDATORY)
+- **Process in memory** — chain downsampling → splitting → preprocessing in one session. Do not save intermediate h5ad files unless re-read later.
+- **Only keep on disk:** raw download, preprocessed training split, test splits.
+- **Delete intermediates** after they are consumed (e.g. delete unprocessed training split after preprocessing it).
+- **Check disk** before downloading: `shutil.disk_usage('/').free` — need at least 50 GB free.
+
+#### 1.5–1.6 Preprocessing
 Check normalization/PCA/UMAP/clustering status. Recompute only if missing or invalid.
 If needed: QC → normalize/log1p/scale → PCA → neighbors → UMAP → batch correction (if needed) → Leiden clustering → DEG & marker detection → cell type annotation → marker plots (dotplots, heatmaps).
 
@@ -336,8 +351,8 @@ Run ALL of these methods (unless user requests specific ones): **HVG, DE, Random
 - Use true cell type as `label_key` whenever available
 - Implement HVG / DE via Scanpy in code
 - For advanced methods, **always use** `gene_panel_selection_tool` toolset:
-  - `select_scgenefit` (**ALWAYS**: `max_constraints <= 1000`)
-  - `select_spapros` (**ALWAYS**: `n_hvg < 3000`)
+  - `select_scgenefit` (**ALWAYS**: `max_constraints <= SCGENEFIT_MAX_CONSTRAINTS`)
+  - `select_spapros` (**ALWAYS**: `n_hvg < SPAPROS_N_HVG`)
   - `select_random_forest`
 - **Always request gene scores** from each method
 - **Save each method's score table to CSV** on disk
@@ -383,7 +398,7 @@ Let N be the target final panel size requested by the leader.
 **4.0 Completion Rule**:
 Before adding a batch of genes to the panel:
 - Test whether the additions make ARI drop considerably or become less stable (on training data)
-- If completing the panel up to size **N** degrades performance substantially (eg ARI drop >5%), propose:
+- If completing the panel up to size **N** degrades performance substantially (eg ARI drop > `ARI_DROP_THRESHOLD`), propose:
   - An optimal stable panel (< N)
   - A supplemental gene list to reach N if the user requires it
 - A modest ARI drop is acceptable if it adds important biological coverage
