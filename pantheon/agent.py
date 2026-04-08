@@ -1229,8 +1229,22 @@ class Agent:
                 args_str = call["function"]["arguments"]
                 if not args_str.endswith("}"):
                     args_str = args_str + "}"
-                params = json.loads(call["function"]["arguments"]) or {}
+                params = json.loads(args_str) or {}
                 parse_error = None
+            except json.JSONDecodeError as e:
+                # Handle "Extra data" — Gemini sometimes appends content after valid JSON
+                if "Extra data" in str(e) and e.pos:
+                    try:
+                        params = json.loads(args_str[:e.pos]) or {}
+                        parse_error = None
+                        logger.debug(f"Recovered tool args by truncating extra data at pos {e.pos}")
+                    except Exception:
+                        params = {}
+                        parse_error = e
+                else:
+                    logger.warning(f"Failed to parse arguments for tool '{func_name}': {e}")
+                    params = {}
+                    parse_error = e
             except Exception as e:
                 logger.warning(f"Failed to parse arguments for tool '{func_name}': {e}")
                 params = {}
