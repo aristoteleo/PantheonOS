@@ -1161,22 +1161,6 @@ class Agent:
         try:
             if source == "base":
                 func = self._base_functions[resolved_name]
-                # Filter out unexpected kwargs to handle Gemini's parameter mixing
-                import inspect
-                try:
-                    sig = inspect.signature(func)
-                    has_var_keyword = any(
-                        p.kind == inspect.Parameter.VAR_KEYWORD
-                        for p in sig.parameters.values()
-                    )
-                    if not has_var_keyword:
-                        valid_params = set(sig.parameters.keys())
-                        extra = set(args.keys()) - valid_params
-                        if extra:
-                            logger.debug(f"Stripping unexpected args from {resolved_name}: {extra}")
-                            args = {k: v for k, v in args.items() if k in valid_params}
-                except (ValueError, TypeError):
-                    pass
                 result = await run_func(func, **args)
             else:
                 # Provider tool: source is the provider_name
@@ -1245,22 +1229,8 @@ class Agent:
                 args_str = call["function"]["arguments"]
                 if not args_str.endswith("}"):
                     args_str = args_str + "}"
-                params = json.loads(args_str) or {}
+                params = json.loads(call["function"]["arguments"]) or {}
                 parse_error = None
-            except json.JSONDecodeError as e:
-                # Handle "Extra data" — Gemini sometimes appends content after valid JSON
-                if "Extra data" in str(e) and e.pos:
-                    try:
-                        params = json.loads(args_str[:e.pos]) or {}
-                        parse_error = None
-                        logger.debug(f"Recovered tool args by truncating extra data at pos {e.pos}")
-                    except Exception:
-                        params = {}
-                        parse_error = e
-                else:
-                    logger.warning(f"Failed to parse arguments for tool '{func_name}': {e}")
-                    params = {}
-                    parse_error = e
             except Exception as e:
                 logger.warning(f"Failed to parse arguments for tool '{func_name}': {e}")
                 params = {}

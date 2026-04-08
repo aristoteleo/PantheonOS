@@ -225,16 +225,9 @@ class GeminiAdapter(BaseAdapter):
         if system_instruction:
             config_kwargs["system_instruction"] = system_instruction
 
-        # Tools — disable parallel function calls to prevent Gemini from
-        # mixing parameters across tools (known issue with preview models)
+        # Tools
         if gemini_tools:
             config_kwargs["tools"] = [types.Tool(function_declarations=gemini_tools)]
-            try:
-                config_kwargs["tool_config"] = types.ToolConfig(
-                    function_calling_config=types.FunctionCallingConfig(mode="AUTO"),
-                )
-            except Exception:
-                pass  # Older SDK versions may not support this
 
         # Temperature
         temperature = kwargs.pop("temperature", None)
