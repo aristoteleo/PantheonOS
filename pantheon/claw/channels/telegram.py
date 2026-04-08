@@ -129,7 +129,13 @@ class TelegramGatewayBot(ChannelRuntime):
             if not force and (now - last_edit) < _EDIT_GAP:
                 return
             last_edit = now
-            preview = "".join(llm_buf).strip() or last_progress or "Thinking..."
+            llm_text = "".join(llm_buf).strip()
+            if llm_text:
+                preview = llm_text
+            elif last_progress:
+                preview = f"🤖 Agent is working...\n\n{last_progress}"
+            else:
+                preview = "🤖 Thinking..."
             converted = md_to_telegram(preview[-3500:])
             try:
                 await placeholder.edit_text(converted, parse_mode="MarkdownV2")

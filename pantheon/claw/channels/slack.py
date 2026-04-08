@@ -164,7 +164,13 @@ class SlackGatewayApp(ChannelRuntime):
             if not force and (now - last_edit) < _EDIT_GAP_SECONDS:
                 return
             last_edit = now
-            preview = "".join(llm_buf).strip() or last_progress or "Thinking..."
+            llm_text = "".join(llm_buf).strip()
+            if llm_text:
+                preview = llm_text
+            elif last_progress:
+                preview = f"🤖 Agent is working...\n\n{last_progress}"
+            else:
+                preview = "🤖 Thinking..."
             await self._update(client, body, placeholder_ts, md_to_slack(preview[-2800:]))
 
         async def _set_progress(label: str) -> None:

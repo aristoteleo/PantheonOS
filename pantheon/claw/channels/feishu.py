@@ -306,7 +306,13 @@ class FeishuRuntime(ChannelRuntime):
             now = time.monotonic()
             if not force and (now - last_edit) < _EDIT_GAP_SECONDS:
                 return
-            preview = "".join(llm_buf).strip() or last_progress or "Thinking..."
+            llm_text = "".join(llm_buf).strip()
+            if llm_text:
+                preview = llm_text
+            elif last_progress:
+                preview = f"🤖 Agent is working...\n\n{last_progress}"
+            else:
+                preview = "🤖 Thinking..."
             ok = await asyncio.to_thread(self._client.edit_text, draft_id, md_to_plain(preview[-_MAX_TEXT:]))
             if ok:
                 last_edit = now

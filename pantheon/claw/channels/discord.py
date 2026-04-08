@@ -132,7 +132,13 @@ class DiscordGatewayBot(discord.Client, ChannelRuntime):
             if not force and (now - last_edit) < _EDIT_GAP:
                 return
             last_edit = now
-            preview = "".join(llm_buf).strip() or last_progress or "Thinking..."
+            llm_text = "".join(llm_buf).strip()
+            if llm_text:
+                preview = llm_text
+            elif last_progress:
+                preview = f"🤖 Agent is working...\n\n{last_progress}"
+            else:
+                preview = "🤖 Thinking..."
             try:
                 await placeholder.edit(content=preview[-_MAX_MSG:])
             except Exception:
