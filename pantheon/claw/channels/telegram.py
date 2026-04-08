@@ -307,6 +307,25 @@ class TelegramGatewayBot(ChannelRuntime):
             logger.info("Telegram bot ready as @%s (%s)", info.username, info.id)
         except Exception as exc:
             logger.warning("Telegram get_me failed: %s", exc)
+        # Register bot commands so Telegram's "/" menu matches PantheonClaw's actual commands
+        try:
+            from telegram import BotCommand
+            await me.set_my_commands([
+                BotCommand("menu", "Show command menu"),
+                BotCommand("status", "Show routed chat status"),
+                BotCommand("agents", "Show agents in current team"),
+                BotCommand("agent", "Switch active agent"),
+                BotCommand("team", "Show current team and usage"),
+                BotCommand("model", "Show or set model"),
+                BotCommand("new", "Start a fresh chat"),
+                BotCommand("list", "List routed chats"),
+                BotCommand("resume", "Resume a previous chat"),
+                BotCommand("cancel", "Cancel running analysis"),
+                BotCommand("reset", "Delete chat and start over"),
+            ])
+            logger.info("Telegram bot commands registered")
+        except Exception as exc:
+            logger.warning("Failed to register Telegram bot commands: %s", exc)
         try:
             await asyncio.to_thread(self._stop_event.wait)
         finally:
