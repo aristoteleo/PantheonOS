@@ -585,7 +585,7 @@ class ChannelRuntime:
         refresh_cb: Optional[Callable[[], Coroutine]] = None,
     ) -> Callable[[Dict[str, Any]], Coroutine]:
         """Return an ``on_step`` callback that:
-        - Updates *llm_buf* with assistant text
+        - Updates *llm_buf* with assistant text or notify_user messages
         - Calls *progress_cb(label)* for tool/transfer events
         - Calls *refresh_cb()* to push updates to the channel UI
         """
@@ -595,6 +595,15 @@ class ChannelRuntime:
             if txt:
                 llm_buf.clear()
                 llm_buf.append(txt)
+
+            # Capture notify_user / task completion messages
+            if step.get("role") == "tool" and not step.get("transfer"):
+                raw = step.get("raw_content")
+                if isinstance(raw, dict):
+                    notify_msg = raw.get("message")
+                    if isinstance(notify_msg, str) and notify_msg.strip():
+                        llm_buf.clear()
+                        llm_buf.append(notify_msg)
 
             # Show tool/agent-transfer progress
             progress = parse_step_progress(step)
@@ -614,17 +623,22 @@ class ChannelRuntime:
         refresh_cb: Optional[Callable[[], Coroutine]] = None,
     ) -> Callable[[Dict[str, Any]], Coroutine]:
         """Like ``make_step_callback`` but also collects images from tool results
-        into *image_buf* (as data-URI strings)."""
+        into *image_buf* (as data-URI strings).
+
+        Also captures notify_user / task completion messages into *llm_buf*
+        so they are available as fallback display text.
+        """
         async def _on_step(step: Dict[str, Any]) -> None:
             txt = parse_step_text(step)
             if txt:
                 llm_buf.clear()
                 llm_buf.append(txt)
 
-            # Collect images from tool results
+            # Collect images and notify_user messages from tool results
             if step.get("role") == "tool" and not step.get("transfer"):
                 raw = step.get("raw_content")
                 if isinstance(raw, dict):
+                    # Collect images
                     uri_val = raw.get("base64_uri")
                     if isinstance(uri_val, list):
                         image_buf.extend(
@@ -633,6 +647,12 @@ class ChannelRuntime:
                         )
                     elif isinstance(uri_val, str) and uri_val and uri_val not in image_buf:
                         image_buf.append(uri_val)
+
+                    # Capture notify_user / task completion message
+                    notify_msg = raw.get("message")
+                    if isinstance(notify_msg, str) and notify_msg.strip():
+                        llm_buf.clear()
+                        llm_buf.append(notify_msg)
 
             progress = parse_step_progress(step)
             if progress is not None and progress_cb is not None:
