@@ -34,6 +34,7 @@ class TelegramGatewayBot(ChannelRuntime):
         self._stop_event = stop_event
         self._app = Application.builder().token(self._token).build()
         self._app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, self._handle_photo))
+        self._app.add_handler(MessageHandler(filters.Document.ALL & ~filters.Document.IMAGE, self._handle_document))
         self._app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_text))
         self._app.add_handler(MessageHandler(filters.COMMAND, self._handle_text))
 
@@ -252,6 +253,58 @@ class TelegramGatewayBot(ChannelRuntime):
             self._analysis_wrapper(route, update, text, image_uris=image_uris)
         )
         self._set_task(route_key, task, text or "[image]")
+
+    async def _handle_document(
+        self,
+        update: Update,
+        _context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        """Handle non-image file uploads (PDF, CSV, etc.)."""
+        if not self._allowed(update):
+            return
+        message = update.effective_message
+        if message is None or message.document is None:
+            return
+
+        doc = message.document
+        file_name = doc.file_name or "uploaded_file"
+        caption = (message.caption or "").strip()
+
+        # Download file to a temporary location
+        import os
+        import tempfile
+        tmp_dir = os.path.join(tempfile.gettempdir(), "pantheon_claw_uploads")
+        os.makedirs(tmp_dir, exist_ok=True)
+        local_path = os.path.join(tmp_dir, file_name)
+
+        try:
+            tg_file = await doc.get_file()
+            await tg_file.download_to_drive(local_path)
+        except Exception:
+            logger.warning("Failed to download Telegram document: %s", file_name)
+            await message.reply_text(f"Failed to download file: {file_name}")
+            return
+
+        # Build message with attachment info (same format as frontend pin-file)
+        attachment_text = (
+            f"--- Attachments ---\n"
+            f"User attached the following files:\n"
+            f"{file_name}: {local_path}\n"
+            f"--- End of Attachments ---\n"
+        )
+        user_text = attachment_text + (caption or f"I've uploaded {file_name}. Please process it.")
+
+        route = self._route_from_update(update)
+        route_key = route.route_key()
+
+        running = self._get_running(route_key)
+        if running is not None:
+            self._queue_message(route_key, user_text)
+            await message.reply_text("Queued after current analysis.")
+            return
+
+        task = asyncio.create_task(self._analysis_wrapper(route, update, user_text))
+        self._set_task(route_key, task, f"[file: {file_name}]")
 
     async def _handle_text(
         self,
