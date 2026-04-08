@@ -11,7 +11,7 @@ from telegram.constants import ChatType
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_telegram
+from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_telegram, md_to_plain
 
 logger = logging.getLogger("pantheon.claw.channels.telegram")
 
@@ -135,7 +135,7 @@ class TelegramGatewayBot(ChannelRuntime):
                 await placeholder.edit_text(converted, parse_mode="MarkdownV2")
             except Exception:
                 try:
-                    await placeholder.edit_text(preview[-3500:])
+                    await placeholder.edit_text(md_to_plain(preview[-3500:]))
                 except Exception:
                     pass
 
@@ -165,7 +165,7 @@ class TelegramGatewayBot(ChannelRuntime):
                 await placeholder.edit_text(converted_final, parse_mode="MarkdownV2")
             except Exception:
                 try:
-                    await placeholder.edit_text(final[-3500:])
+                    await placeholder.edit_text(md_to_plain(final[-3500:]))
                 except Exception:
                     pass
             for extra in text_chunks(final, limit=_MAX_MSG)[1:]:
@@ -173,7 +173,7 @@ class TelegramGatewayBot(ChannelRuntime):
                     await message.reply_text(md_to_telegram(extra), parse_mode="MarkdownV2")
                 except Exception:
                     try:
-                        await message.reply_text(extra)
+                        await message.reply_text(md_to_plain(extra))
                     except Exception:
                         pass
             # Send any images from the response
