@@ -164,7 +164,10 @@ class DiscordGatewayBot(discord.Client, ChannelRuntime):
                 process_chunk=on_chunk,
                 process_step_message=on_step,
             )
+            import re as _re
             final = extract_display_text(result, llm_buf)
+            # Strip image links (images are sent separately); keep other markdown
+            final = _re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", "", final)
             chunks = text_chunks(final, limit=_MAX_MSG)
             try:
                 await placeholder.edit(content=chunks[0] if chunks else "Done.")
