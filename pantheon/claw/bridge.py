@@ -488,19 +488,38 @@ class ChatRoomGatewayBridge:
         # Auto-proceed through interrupt/plan-review stages.
         # Claw channels have no "Proceed" button, so we automatically approve
         # and continue execution (up to 5 rounds to prevent infinite loops).
+        import re as _re
         for _ in range(5):
-            response = result.get("response") or ""
-            if not isinstance(response, str) or '"interrupt"' not in response:
-                break
-            import json as _json
-            try:
-                parsed = _json.loads(response)
-            except (ValueError, TypeError):
-                break
-            if not isinstance(parsed, dict) or not parsed.get("interrupt"):
+            response = str(result.get("response") or "")
+            if not response:
                 break
 
-            logger.info(f"[Claw] Auto-proceeding through interrupt in chat {chat_id}")
+            # Detect interrupt: either JSON interrupt format or natural-language
+            # plan review requests (agent asking user to review/proceed)
+            is_interrupt = False
+
+            # 1. JSON interrupt from notify_user tool
+            if '"interrupt"' in response:
+                import json as _json
+                try:
+                    parsed = _json.loads(response)
+                    if isinstance(parsed, dict) and parsed.get("interrupt"):
+                        is_interrupt = True
+                except (ValueError, TypeError):
+                    pass
+
+            # 2. Natural language: agent asking user to review plan/proceed
+            if not is_interrupt and _re.search(
+                r"(?:please review|before I proceed|reply.{0,30}proceed|awaiting.{0,20}review|ready for.{0,20}review)",
+                response,
+                _re.IGNORECASE,
+            ):
+                is_interrupt = True
+
+            if not is_interrupt:
+                break
+
+            logger.info(f"[Claw] Auto-proceeding through plan review in chat {chat_id}")
             result = await self._dispatch(
                 self._chatroom.chat(
                     chat_id=chat_id,
