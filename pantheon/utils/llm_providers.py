@@ -397,6 +397,7 @@ def extract_message_from_response(
 def create_enhanced_process_chunk(
     base_process_chunk: Callable | None,
     message_id: str,
+    agent_name: str = "",
 ) -> Callable | None:
     """Create enhanced chunk processor with metadata.
 
@@ -404,10 +405,12 @@ def create_enhanced_process_chunk(
     - message_id: For correlating chunks with messages
     - chunk_index: Sequential index of chunks
     - timestamp: When the chunk was processed
+    - agent_name: Name of the agent producing this chunk
 
     Args:
         base_process_chunk: Original chunk processor (can be None)
         message_id: Message identifier for this completion
+        agent_name: Name of the agent emitting chunks
 
     Returns:
         Enhanced async function, or None if base_process_chunk is None
@@ -425,6 +428,7 @@ def create_enhanced_process_chunk(
             "message_id": message_id,
             "chunk_index": chunk_index,
             "timestamp": time.time(),
+            "agent_name": agent_name,
         }
         chunk_index += 1
         await run_func(base_process_chunk, enhanced_chunk)

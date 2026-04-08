@@ -1586,7 +1586,7 @@ class Agent:
         # Step 5: Create message ID and enhanced chunk processor
         message_id = str(uuid4())
         enhanced_process_chunk = create_enhanced_process_chunk(
-            process_chunk, message_id
+            process_chunk, message_id, agent_name=self.name
         )
 
         # Step 6: Send begin chunk

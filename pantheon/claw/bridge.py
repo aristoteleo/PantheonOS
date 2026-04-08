@@ -476,62 +476,14 @@ class ChatRoomGatewayBridge:
         process_step_message=None,
     ) -> dict[str, Any]:
         entry = await self.ensure_chat(route)
-        chat_id = entry["chat_id"]
-
-        result = await self._dispatch(
+        return await self._dispatch(
             self._chatroom.chat(
-                chat_id=chat_id,
+                chat_id=entry["chat_id"],
                 message=self._build_message(user_text, image_uris),
                 process_chunk=process_chunk,
                 process_step_message=process_step_message,
             )
         )
-
-        # Auto-proceed through interrupt/plan-review stages.
-        # Claw channels have no "Proceed" button, so we automatically approve
-        # and continue execution (up to 5 rounds to prevent infinite loops).
-        import re as _re
-        for _ in range(5):
-            response = str(result.get("response") or "")
-            if not response:
-                break
-
-            # Detect interrupt: either JSON interrupt format or natural-language
-            # plan review requests (agent asking user to review/proceed)
-            is_interrupt = False
-
-            # 1. JSON interrupt from notify_user tool
-            if '"interrupt"' in response:
-                import json as _json
-                try:
-                    parsed = _json.loads(response)
-                    if isinstance(parsed, dict) and parsed.get("interrupt"):
-                        is_interrupt = True
-                except (ValueError, TypeError):
-                    pass
-
-            # 2. Natural language: agent asking user to review plan/proceed
-            if not is_interrupt and _re.search(
-                r"(?:please review|before I proceed|reply.{0,30}proceed|awaiting.{0,20}review|ready for.{0,20}review)",
-                response,
-                _re.IGNORECASE,
-            ):
-                is_interrupt = True
-
-            if not is_interrupt:
-                break
-
-            logger.info(f"[Claw] Auto-proceeding through plan review in chat {chat_id}")
-            result = await self._dispatch(
-                self._chatroom.chat(
-                    chat_id=chat_id,
-                    message=[{"role": "user", "content": "Approved. Please proceed with execution."}],
-                    process_chunk=process_chunk,
-                    process_step_message=process_step_message,
-                )
-            )
-
-        return result
 
     async def cancel_route(self, route: ConversationRoute) -> dict[str, Any]:
         entry = self._registry.get(route)

@@ -569,8 +569,21 @@ class ChannelRuntime:
         on_update: Optional[Callable[[], Coroutine]] = None,
     ) -> Callable[[Dict[str, Any]], Coroutine]:
         """Return an ``on_chunk`` callback that appends to *buf* and optionally
-        triggers a UI refresh via *on_update*."""
+        triggers a UI refresh via *on_update*.
+
+        Only appends chunks from the primary (first seen) agent; sub-agent
+        streaming is suppressed to avoid confusing intermediate output.
+        """
+        _primary: List[str] = []
+
         async def _on_chunk(chunk: Dict[str, Any]) -> None:
+            agent_name = chunk.get("agent_name", "")
+            if agent_name:
+                if not _primary:
+                    _primary.append(agent_name)
+                elif agent_name != _primary[0]:
+                    return  # suppress sub-agent chunks
+
             text = str(chunk.get("content") or "")
             if text:
                 buf.append(text)
@@ -639,18 +652,22 @@ class ChannelRuntime:
         """
         _file_buf = file_buf if file_buf is not None else []
         _primary_agent: List[str] = []  # tracks the main (first) agent name
+        _in_sub_agent: List[bool] = [False]  # mutable flag for sub-agent state
 
         async def _on_step(step: Dict[str, Any]) -> None:
-            # Only show assistant text from the primary (leader) agent.
-            # Sub-agent intermediate responses are shown as progress instead.
-            txt = parse_step_text(step)
-            if txt:
-                agent_name = step.get("agent_name", "")
+            # Track sub-agent state via agent_name changes
+            agent_name = step.get("agent_name", "")
+            if agent_name:
                 if not _primary_agent:
                     _primary_agent.append(agent_name)
-                if agent_name == _primary_agent[0] or not _primary_agent[0]:
-                    llm_buf.clear()
-                    llm_buf.append(txt)
+                _in_sub_agent[0] = agent_name != _primary_agent[0]
+
+            # Only show assistant text from the primary (leader) agent.
+            # Sub-agent intermediate responses are ignored.
+            txt = parse_step_text(step)
+            if txt and not _in_sub_agent[0]:
+                llm_buf.clear()
+                llm_buf.append(txt)
 
             # Collect images, files, and notify_user messages from tool results
             if step.get("role") == "tool" and not step.get("transfer"):
