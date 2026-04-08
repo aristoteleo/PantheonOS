@@ -474,14 +474,43 @@ class ChatRoomGatewayBridge:
         process_step_message=None,
     ) -> dict[str, Any]:
         entry = await self.ensure_chat(route)
-        return await self._dispatch(
+        chat_id = entry["chat_id"]
+
+        result = await self._dispatch(
             self._chatroom.chat(
-                chat_id=entry["chat_id"],
+                chat_id=chat_id,
                 message=self._build_message(user_text, image_uris),
                 process_chunk=process_chunk,
                 process_step_message=process_step_message,
             )
         )
+
+        # Auto-proceed through interrupt/plan-review stages.
+        # Claw channels have no "Proceed" button, so we automatically approve
+        # and continue execution (up to 5 rounds to prevent infinite loops).
+        for _ in range(5):
+            response = result.get("response") or ""
+            if not isinstance(response, str) or '"interrupt"' not in response:
+                break
+            import json as _json
+            try:
+                parsed = _json.loads(response)
+            except (ValueError, TypeError):
+                break
+            if not isinstance(parsed, dict) or not parsed.get("interrupt"):
+                break
+
+            logger.info(f"[Claw] Auto-proceeding through interrupt in chat {chat_id}")
+            result = await self._dispatch(
+                self._chatroom.chat(
+                    chat_id=chat_id,
+                    message=[{"role": "user", "content": "Approved. Please proceed with execution."}],
+                    process_chunk=process_chunk,
+                    process_step_message=process_step_message,
+                )
+            )
+
+        return result
 
     async def cancel_route(self, route: ConversationRoute) -> dict[str, Any]:
         entry = self._registry.get(route)
