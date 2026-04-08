@@ -1,5 +1,9 @@
 """
-Gemini adapter — handles Google Gemini models via the google-genai SDK.
+Gemini adapter — handles Google Gemini models via the REST API.
+
+Uses the Gemini REST API (generativelanguage.googleapis.com) directly
+instead of the google-genai SDK, following the approach used by litellm.
+This avoids SDK-specific issues with tool call parameter serialization.
 
 Converts between OpenAI message format and Gemini's native format,
 and normalizes streaming events to OpenAI-compatible chunk dicts.
@@ -7,7 +11,10 @@ and normalizes streaming events to OpenAI-compatible chunk dicts.
 
 import json
 import time
+import uuid
 from typing import Any, Callable
+
+import httpx
 
 from ..log import logger
 from ..misc import run_func
@@ -21,7 +28,7 @@ from .base import (
 
 
 def _wrap_gemini_error(e: Exception) -> Exception:
-    """Convert Gemini SDK exceptions to unified exception types."""
+    """Convert Gemini API exceptions to unified exception types."""
     error_str = str(e).lower()
     if "429" in error_str or "resource exhausted" in error_str or "rate" in error_str:
         return RateLimitError(str(e))
@@ -32,6 +39,34 @@ def _wrap_gemini_error(e: Exception) -> Exception:
     elif "connect" in error_str or "timeout" in error_str:
         return APIConnectionError(str(e))
     return e
+
+
+# ============ API URL ============
+
+_GEMINI_API_BASE = "https://generativelanguage.googleapis.com"
+
+# Models gemini-3 and newer use v1alpha; older models use v1beta
+_V1ALPHA_PREFIXES = ("gemini-3", "gemini-4")
+
+
+def _api_version(model: str) -> str:
+    """Select API version based on model name."""
+    bare = model.split("/")[-1] if "/" in model else model
+    for prefix in _V1ALPHA_PREFIXES:
+        if bare.startswith(prefix):
+            return "v1alpha"
+    return "v1beta"
+
+
+def _build_url(model: str, api_key: str, *, stream: bool = True) -> str:
+    """Build the Gemini REST API URL."""
+    bare = model.split("/")[-1] if "/" in model else model
+    version = _api_version(model)
+    endpoint = "streamGenerateContent" if stream else "generateContent"
+    url = f"{_GEMINI_API_BASE}/{version}/models/{bare}:{endpoint}?key={api_key}"
+    if stream:
+        url += "&alt=sse"
+    return url
 
 
 # ============ Message Format Conversion ============
@@ -97,7 +132,7 @@ def _convert_messages_to_gemini(messages: list[dict]) -> tuple[str | None, list[
                     except (json.JSONDecodeError, TypeError):
                         args = {}
                     parts.append({
-                        "function_call": {
+                        "functionCall": {
                             "name": func.get("name", ""),
                             "args": args,
                         }
@@ -110,7 +145,6 @@ def _convert_messages_to_gemini(messages: list[dict]) -> tuple[str | None, list[
         if role == "tool":
             # Tool results → function_response parts
             tool_call_id = msg.get("tool_call_id", "")
-            # Try to find tool name from previous assistant message
             tool_name = msg.get("name", tool_call_id)
             try:
                 result = json.loads(content) if isinstance(content, str) else content
@@ -120,7 +154,7 @@ def _convert_messages_to_gemini(messages: list[dict]) -> tuple[str | None, list[
             contents.append({
                 "role": "user",
                 "parts": [{
-                    "function_response": {
+                    "functionResponse": {
                         "name": tool_name,
                         "response": result if isinstance(result, dict) else {"result": str(result)},
                     }
@@ -170,26 +204,28 @@ def _sanitize_schema_for_gemini(value: Any) -> Any:
     return sanitized
 
 
+# ============ SSE Streaming Parser ============
+
+
+def _parse_sse_line(line: str) -> dict | None:
+    """Parse a single SSE data line into a JSON dict."""
+    line = line.strip()
+    if not line or not line.startswith("data: "):
+        return None
+    payload = line[6:]  # strip "data: "
+    if not payload or payload == "[DONE]":
+        return None
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError:
+        return None
+
+
 # ============ Adapter ============
 
 
 class GeminiAdapter(BaseAdapter):
-    """Adapter for Google Gemini API via google-genai SDK."""
-
-    def _make_client(
-        self,
-        api_key: str | None = None,
-        oauth_client_kwargs: dict[str, Any] | None = None,
-    ):
-        """Create a google-genai client."""
-        from google import genai
-
-        if oauth_client_kwargs:
-            return genai.Client(**oauth_client_kwargs)
-
-        import os
-        key = api_key or os.environ.get("GEMINI_API_KEY", "")
-        return genai.Client(api_key=key)
+    """Adapter for Google Gemini API via REST API (httpx)."""
 
     async def acompletion(
         self,
@@ -205,61 +241,67 @@ class GeminiAdapter(BaseAdapter):
         num_retries: int = 3,
         **kwargs,
     ):
-        """Streaming chat completion using the Google GenAI SDK.
+        """Streaming chat completion using the Gemini REST API.
 
         Returns collected chunks in OpenAI-compatible format.
         """
-        from google.genai import types
-
-        oauth_client_kwargs = kwargs.pop("oauth_client_kwargs", None)
-        client = self._make_client(api_key, oauth_client_kwargs=oauth_client_kwargs)
+        import os
+        kwargs.pop("oauth_client_kwargs", None)
+        key = api_key or os.environ.get("GEMINI_API_KEY", "")
+        if not key:
+            raise ValueError("GEMINI_API_KEY is required")
 
         # Convert messages and tools
         system_instruction, gemini_contents = _convert_messages_to_gemini(messages)
         gemini_tools = _convert_tools_to_gemini(tools)
 
-        # Build config
-        config_kwargs = {}
+        # Build request body
+        request_body: dict[str, Any] = {
+            "contents": gemini_contents,
+        }
 
-        # System instruction
         if system_instruction:
-            config_kwargs["system_instruction"] = system_instruction
+            request_body["systemInstruction"] = {
+                "parts": [{"text": system_instruction}]
+            }
 
-        # Tools
         if gemini_tools:
-            config_kwargs["tools"] = [types.Tool(function_declarations=gemini_tools)]
+            request_body["tools"] = [{"functionDeclarations": gemini_tools}]
 
-        # Temperature
+        # Generation config
+        gen_config: dict[str, Any] = {}
         temperature = kwargs.pop("temperature", None)
         if temperature is not None:
-            config_kwargs["temperature"] = temperature
+            gen_config["temperature"] = temperature
 
-        # Max output tokens
         max_tokens = kwargs.pop("max_tokens", None) or kwargs.pop("max_output_tokens", None)
         if max_tokens:
-            config_kwargs["max_output_tokens"] = max_tokens
-
-        # Response modalities (for multimodal image generation)
-        modalities = kwargs.pop("modalities", None)
-        if modalities:
-            config_kwargs["response_modalities"] = modalities
+            gen_config["maxOutputTokens"] = max_tokens
 
         # Reasoning / thinking config
         reasoning_effort = kwargs.pop("reasoning_effort", None)
         thinking = kwargs.pop("thinking", None)
         if thinking and isinstance(thinking, dict):
             budget = thinking.get("budget_tokens", -1)
-            config_kwargs["thinking_config"] = types.ThinkingConfig(
-                thinking_budget=budget,
-                include_thoughts=True,
-            )
+            gen_config["thinkingConfig"] = {
+                "thinkingBudget": budget,
+                "includeThoughts": True,
+            }
         elif reasoning_effort:
-            config_kwargs["thinking_config"] = types.ThinkingConfig(
-                thinking_budget=-1,  # auto
-                include_thoughts=True,
-            )
+            gen_config["thinkingConfig"] = {
+                "thinkingBudget": -1,
+                "includeThoughts": True,
+            }
 
-        config = types.GenerateContentConfig(**config_kwargs)
+        if gen_config:
+            request_body["generationConfig"] = gen_config
+
+        # Response modalities
+        modalities = kwargs.pop("modalities", None)
+        if modalities:
+            request_body.setdefault("generationConfig", {})["responseModalities"] = modalities
+
+        url = _build_url(model, key, stream=True)
 
         try:
             stream_start_time = time.time()
@@ -269,104 +311,117 @@ class GeminiAdapter(BaseAdapter):
             full_text = ""
             prompt_tokens = 0
             completion_tokens = 0
+            tool_call_idx = 0
 
-            stream_iter = await client.aio.models.generate_content_stream(
-                model=model,
-                contents=gemini_contents,
-                config=config,
-            )
-            async for response in stream_iter:
-                # Extract text from response candidates
-                text = ""
-                tool_calls_data = []
+            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
+                async with client.stream(
+                    "POST",
+                    url,
+                    json=request_body,
+                    headers={"Content-Type": "application/json"},
+                ) as response:
+                    if response.status_code != 200:
+                        body = await response.aread()
+                        error_text = body.decode("utf-8", errors="replace")
+                        raise InternalServerError(
+                            f"Gemini API error {response.status_code}: {error_text[:500]}"
+                        )
 
-                thinking_text = ""
+                    async for line in response.aiter_lines():
+                        data = _parse_sse_line(line)
+                        if data is None:
+                            continue
 
-                if response.candidates:
-                    for candidate in response.candidates:
-                        if candidate.content and candidate.content.parts:
-                            for part in candidate.content.parts:
-                                if getattr(part, "thought", False) and part.text:
-                                    # Thinking/reasoning part
-                                    thinking_text += part.text
-                                elif hasattr(part, "text") and part.text:
-                                    text += part.text
-                                elif hasattr(part, "function_call") and part.function_call:
-                                    fc = part.function_call
+                        # Extract parts from candidates
+                        text = ""
+                        thinking_text = ""
+                        tool_calls_data = []
+
+                        for candidate in data.get("candidates", []):
+                            for part in candidate.get("content", {}).get("parts", []):
+                                if part.get("thought") and part.get("text"):
+                                    thinking_text += part["text"]
+                                elif "text" in part and part["text"]:
+                                    text += part["text"]
+                                elif "functionCall" in part:
+                                    fc = part["functionCall"]
                                     tool_calls_data.append({
-                                        "index": len(tool_calls_data),
-                                        "id": f"call_{fc.name}_{len(tool_calls_data)}",
+                                        "index": tool_call_idx,
+                                        "id": f"call_{uuid.uuid4().hex[:24]}",
                                         "type": "function",
                                         "function": {
-                                            "name": fc.name,
-                                            "arguments": json.dumps(dict(fc.args)) if fc.args else "{}",
+                                            "name": fc.get("name", ""),
+                                            "arguments": json.dumps(
+                                                fc.get("args", {}), ensure_ascii=False
+                                            ),
                                         },
                                     })
+                                    tool_call_idx += 1
 
-                if text:
-                    if first_chunk_time is None:
-                        first_chunk_time = time.time()
-                        ttfb = first_chunk_time - stream_start_time
-                        logger.info(f"⚡ First chunk received: {ttfb:.3f}s (TTFB) [{model}]")
+                        if text:
+                            if first_chunk_time is None:
+                                first_chunk_time = time.time()
+                                ttfb = first_chunk_time - stream_start_time
+                                logger.info(f"⚡ First chunk received: {ttfb:.3f}s (TTFB) [{model}]")
 
-                    full_text += text
+                            full_text += text
 
-                    chunk_dict = {
-                        "choices": [{
-                            "index": 0,
-                            "delta": {
-                                "role": "assistant",
-                                "content": text,
-                            },
-                            "finish_reason": None,
-                        }],
-                    }
-                    collected_chunks.append(chunk_dict)
+                            chunk_dict = {
+                                "choices": [{
+                                    "index": 0,
+                                    "delta": {
+                                        "role": "assistant",
+                                        "content": text,
+                                    },
+                                    "finish_reason": None,
+                                }],
+                            }
+                            collected_chunks.append(chunk_dict)
 
-                    if process_chunk:
-                        chunk_count += 1
-                        await run_func(process_chunk, {
-                            "role": "assistant",
-                            "content": text,
-                        })
+                            if process_chunk:
+                                chunk_count += 1
+                                await run_func(process_chunk, {
+                                    "role": "assistant",
+                                    "content": text,
+                                })
 
-                if thinking_text:
-                    chunk_dict = {
-                        "choices": [{
-                            "index": 0,
-                            "delta": {
-                                "role": "assistant",
-                                "reasoning_content": thinking_text,
-                            },
-                            "finish_reason": None,
-                        }],
-                    }
-                    collected_chunks.append(chunk_dict)
+                        if thinking_text:
+                            chunk_dict = {
+                                "choices": [{
+                                    "index": 0,
+                                    "delta": {
+                                        "role": "assistant",
+                                        "reasoning_content": thinking_text,
+                                    },
+                                    "finish_reason": None,
+                                }],
+                            }
+                            collected_chunks.append(chunk_dict)
 
-                    if process_chunk:
-                        await run_func(process_chunk, {
-                            "role": "assistant",
-                            "reasoning_content": thinking_text,
-                        })
+                            if process_chunk:
+                                await run_func(process_chunk, {
+                                    "role": "assistant",
+                                    "reasoning_content": thinking_text,
+                                })
 
-                if tool_calls_data:
-                    chunk_dict = {
-                        "choices": [{
-                            "index": 0,
-                            "delta": {
-                                "role": "assistant",
-                                "tool_calls": tool_calls_data,
-                            },
-                            "finish_reason": None,
-                        }],
-                    }
-                    collected_chunks.append(chunk_dict)
+                        if tool_calls_data:
+                            chunk_dict = {
+                                "choices": [{
+                                    "index": 0,
+                                    "delta": {
+                                        "role": "assistant",
+                                        "tool_calls": tool_calls_data,
+                                    },
+                                    "finish_reason": None,
+                                }],
+                            }
+                            collected_chunks.append(chunk_dict)
 
-                # Extract usage if available
-                if hasattr(response, "usage_metadata") and response.usage_metadata:
-                    um = response.usage_metadata
-                    prompt_tokens = getattr(um, "prompt_token_count", 0) or 0
-                    completion_tokens = getattr(um, "candidates_token_count", 0) or 0
+                        # Extract usage if available
+                        usage = data.get("usageMetadata", {})
+                        if usage:
+                            prompt_tokens = usage.get("promptTokenCount", 0) or 0
+                            completion_tokens = usage.get("candidatesTokenCount", 0) or 0
 
             # Add finish chunk
             collected_chunks.append({
@@ -396,7 +451,11 @@ class GeminiAdapter(BaseAdapter):
 
             return collected_chunks
 
+        except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as e:
+            raise _wrap_gemini_error(e) from e
         except Exception as e:
+            if isinstance(e, (RateLimitError, ServiceUnavailableError, InternalServerError, APIConnectionError)):
+                raise
             raise _wrap_gemini_error(e) from e
 
     async def aembedding(
@@ -408,16 +467,24 @@ class GeminiAdapter(BaseAdapter):
         api_key: str | None = None,
         **kwargs,
     ) -> list[list[float]]:
-        """Generate embeddings using Gemini API."""
-        client = self._make_client(api_key)
-        try:
-            results = []
+        """Generate embeddings using Gemini REST API."""
+        import os
+        key = api_key or os.environ.get("GEMINI_API_KEY", "")
+        if not key:
+            raise ValueError("GEMINI_API_KEY is required")
+
+        bare = model.split("/")[-1] if "/" in model else model
+        url = f"{_GEMINI_API_BASE}/v1beta/models/{bare}:embedContent?key={key}"
+
+        results = []
+        async with httpx.AsyncClient(timeout=30) as client:
             for text in input:
-                response = await client.aio.models.embed_content(
-                    model=model,
-                    contents=text,
-                )
-                results.append(response.embedding)
-            return results
-        except Exception as e:
-            raise _wrap_gemini_error(e) from e
+                resp = await client.post(url, json={
+                    "content": {"parts": [{"text": text}]},
+                })
+                if resp.status_code != 200:
+                    raise InternalServerError(f"Gemini embedding error: {resp.text[:300]}")
+                data = resp.json()
+                embedding = data.get("embedding", {}).get("values", [])
+                results.append(embedding)
+        return results
