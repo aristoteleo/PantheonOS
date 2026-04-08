@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 import re
 import shutil
@@ -13,7 +12,7 @@ from typing import Any
 from pantheon.claw.registry import ConversationRoute
 from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain, extract_display_text
 
-logger = logging.getLogger("pantheon.claw.channels.imessage")
+from pantheon.utils.log import logger
 
 _MAX_TEXT = 3800
 _IMSG_PERMISSION_DENIED_RE = re.compile(

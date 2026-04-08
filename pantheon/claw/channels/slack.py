@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
-import logging
 import threading
 import time
 from typing import Any
@@ -17,7 +16,7 @@ from PIL import Image
 from pantheon.claw.registry import ConversationRoute
 from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_slack, extract_display_text
 
-logger = logging.getLogger("pantheon.claw.channels.slack")
+from pantheon.utils.log import logger
 
 _EDIT_GAP_SECONDS = 1.5
 

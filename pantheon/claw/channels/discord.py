@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import threading
 import time
 from typing import Any
@@ -13,7 +12,7 @@ import aiohttp
 from pantheon.claw.registry import ConversationRoute
 from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, extract_display_text
 
-logger = logging.getLogger("pantheon.claw.channels.discord")
+from pantheon.utils.log import logger
 
 _EDIT_GAP = 1.5
 _MAX_MSG = 1900  # Discord message limit (leaving headroom)

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import re
 import threading
 import time
@@ -14,7 +13,7 @@ import requests
 from pantheon.claw.registry import ConversationRoute
 from pantheon.claw.runtime import ChannelRuntime, Deduper, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain, extract_display_text
 
-logger = logging.getLogger("pantheon.claw.channels.qq")
+from pantheon.utils.log import logger
 
 _API_BASE = "https://api.sgroup.qq.com"
 _TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken"

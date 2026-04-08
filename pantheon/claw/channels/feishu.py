@@ -4,7 +4,6 @@ import asyncio
 import base64
 import hashlib
 import json
-import logging
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,7 +16,7 @@ from pathlib import Path
 from pantheon.claw.registry import ConversationRoute
 from pantheon.claw.runtime import ChannelRuntime, Deduper, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain, extract_display_text
 
-logger = logging.getLogger("pantheon.claw.channels.feishu")
+from pantheon.utils.log import logger
 
 _MAX_TEXT = 4800
 _MAX_BODY_BYTES = 2 * 1024 * 1024

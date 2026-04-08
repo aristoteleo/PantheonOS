@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-import logging
 import secrets
 import threading
 import time
@@ -15,7 +14,7 @@ import requests
 from pantheon.claw.registry import ConversationRoute
 from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain, extract_display_text
 
-logger = logging.getLogger("pantheon.claw.channels.wechat")
+from pantheon.utils.log import logger
 
 _DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com"
 _DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000

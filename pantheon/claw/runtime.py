@@ -32,7 +32,7 @@ import mimetypes
 from pantheon.claw.registry import ConversationRoute
 from pantheon.settings import get_settings
 
-logger = logging.getLogger("pantheon.claw.runtime")
+from pantheon.utils.log import logger
 
 _DEDUP_TTL_SECONDS = 24 * 60 * 60
 _DEDUP_MAX_ENTRIES = 10_000
