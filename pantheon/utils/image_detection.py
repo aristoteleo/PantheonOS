@@ -1,13 +1,33 @@
 """Shared utilities for detecting newly created image files via filesystem snapshots."""
 
 import base64
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 
 # Standard directory (relative to workspace root) where agents should save
 # generated images so claw channels can detect and forward them.
 IMAGE_OUTPUT_DIR = ".pantheon/images"
+
+# Default limits (can be overridden via claw config images.max_size_bytes / images.max_dimension)
+DEFAULT_MAX_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+DEFAULT_MAX_DIMENSION = 1568
+
+
+def _get_image_limits() -> tuple[int, int]:
+    """Read image size limits from claw config, falling back to defaults."""
+    try:
+        from pantheon.claw.config import ClawConfigStore
+        cfg = ClawConfigStore().load()
+        images_cfg = cfg.get("images", {})
+        max_size = images_cfg.get("max_size_bytes", DEFAULT_MAX_SIZE_BYTES)
+        max_dim = images_cfg.get("max_dimension", DEFAULT_MAX_DIMENSION)
+        return int(max_size), int(max_dim)
+    except Exception:
+        return DEFAULT_MAX_SIZE_BYTES, DEFAULT_MAX_DIMENSION
 
 
 def snapshot_images(workdir: str | Path) -> dict[str, float]:
@@ -35,10 +55,21 @@ def diff_snapshots(
 
 
 def encode_images_to_uris(paths: list[str]) -> list[str]:
-    """Base64-encode image files and return data-URI strings."""
+    """Base64-encode image files and return data-URI strings.
+
+    Skips files that exceed the configured ``max_size_bytes`` limit.
+    """
+    max_size, _max_dim = _get_image_limits()
     uris: list[str] = []
     for path in paths:
         try:
+            file_size = Path(path).stat().st_size
+            if file_size > max_size:
+                logger.warning(
+                    "Skipping image %s: size %d exceeds limit %d",
+                    path, file_size, max_size,
+                )
+                continue
             with open(path, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode("utf-8")
             ext = Path(path).suffix.lower().lstrip(".")

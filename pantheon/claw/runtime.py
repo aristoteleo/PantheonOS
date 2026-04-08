@@ -422,7 +422,15 @@ _DATA_URI_RE = r"data:image/[^;]+;base64,[A-Za-z0-9+/=]+"
 
 #image bytes into a string you can embed anywhere
 def bytes_to_data_uri(data: bytes, filename: str = "") -> str:
-    """Convert raw image bytes to a ``data:image/...;base64,...`` URI."""
+    """Convert raw image bytes to a ``data:image/...;base64,...`` URI.
+
+    Returns an empty string if *data* exceeds the configured size limit.
+    """
+    from pantheon.utils.image_detection import _get_image_limits
+    max_size, _ = _get_image_limits()
+    if len(data) > max_size:
+        logger.warning("Image too large (%d bytes, limit %d), skipping", len(data), max_size)
+        return ""
     mime, _ = mimetypes.guess_type(filename or "image.png")
     if not mime or not mime.startswith("image/"):
         mime = "image/png"

@@ -475,9 +475,16 @@ PANTHEON_ENV_EOF
     def _attach_new_images(
         self, result: dict, pre_snapshot: dict[str, float]
     ) -> dict:
-        """Compare pre/post snapshots; base64-encode any new or updated images."""
+        """Compare pre/post snapshots; base64-encode any new or updated images.
+
+        Paths under the designated image output directory are excluded
+        because ``room.py`` handles those via its own post-execution scan.
+        """
+        from pantheon.utils.image_detection import IMAGE_OUTPUT_DIR
         post = self._snapshot_images()
         new_paths = diff_snapshots(pre_snapshot, post)
+        # Exclude files in the designated image output dir to avoid duplicates
+        new_paths = [p for p in new_paths if IMAGE_OUTPUT_DIR not in p]
         if new_paths:
             uris = encode_images_to_uris(new_paths)
             if uris:
