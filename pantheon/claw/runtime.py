@@ -589,12 +589,18 @@ class ChannelRuntime:
         - Calls *progress_cb(label)* for tool/transfer events
         - Calls *refresh_cb()* to push updates to the channel UI
         """
+        _primary_agent: List[str] = []  # tracks the main (first) agent name
+
         async def _on_step(step: Dict[str, Any]) -> None:
-            # Overwrite LLM buffer with the full assistant message
+            # Only show assistant text from the primary (leader) agent
             txt = parse_step_text(step)
             if txt:
-                llm_buf.clear()
-                llm_buf.append(txt)
+                agent_name = step.get("agent_name", "")
+                if not _primary_agent:
+                    _primary_agent.append(agent_name)
+                if agent_name == _primary_agent[0] or not _primary_agent[0]:
+                    llm_buf.clear()
+                    llm_buf.append(txt)
 
             # Capture notify_user / task completion messages
             if step.get("role") == "tool" and not step.get("transfer"):
@@ -632,12 +638,19 @@ class ChannelRuntime:
         Also captures notify_user / task completion messages into *llm_buf*.
         """
         _file_buf = file_buf if file_buf is not None else []
+        _primary_agent: List[str] = []  # tracks the main (first) agent name
 
         async def _on_step(step: Dict[str, Any]) -> None:
+            # Only show assistant text from the primary (leader) agent.
+            # Sub-agent intermediate responses are shown as progress instead.
             txt = parse_step_text(step)
             if txt:
-                llm_buf.clear()
-                llm_buf.append(txt)
+                agent_name = step.get("agent_name", "")
+                if not _primary_agent:
+                    _primary_agent.append(agent_name)
+                if agent_name == _primary_agent[0] or not _primary_agent[0]:
+                    llm_buf.clear()
+                    llm_buf.append(txt)
 
             # Collect images, files, and notify_user messages from tool results
             if step.get("role") == "tool" and not step.get("transfer"):
