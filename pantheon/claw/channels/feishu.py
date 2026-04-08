@@ -295,6 +295,7 @@ class FeishuRuntime(ChannelRuntime):
         route_key = route.route_key()
         llm_buf: list[str] = []
         image_buf: list[str] = []
+        file_buf: list[str] = []
         last_progress = ""
         draft_id = await self._send_text(chat_id, "Thinking...")
         last_edit = 0.0
@@ -325,6 +326,7 @@ class FeishuRuntime(ChannelRuntime):
         on_step = self.make_image_step_callback(
             llm_buf,
             image_buf,
+            file_buf=file_buf,
             progress_cb=_set_progress,
             refresh_cb=lambda: refresh(True),
         )
@@ -342,6 +344,13 @@ class FeishuRuntime(ChannelRuntime):
                 await self._send_text(chat_id, final_text)
             for uri in image_buf:
                 await self._send_image(chat_id, uri)
+            for fpath in file_buf:
+                import os
+                if os.path.isfile(fpath):
+                    try:
+                        await asyncio.to_thread(self._client.send_file, chat_id, fpath)
+                    except Exception:
+                        logger.warning("Feishu file send failed: %s", fpath)
         except asyncio.CancelledError:
             if draft_id and not await asyncio.to_thread(self._client.edit_text, draft_id, "Cancelled."):
                 await self._send_text(chat_id, "Cancelled.")

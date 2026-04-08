@@ -123,6 +123,7 @@ class DiscordGatewayBot(discord.Client, ChannelRuntime):
         placeholder = await message.reply("Thinking...")
         llm_buf: list[str] = []
         image_buf: list[str] = []
+        file_buf: list[str] = []
         last_progress = ""
         last_edit = 0.0
 
@@ -152,6 +153,7 @@ class DiscordGatewayBot(discord.Client, ChannelRuntime):
         on_step = self.make_image_step_callback(
             llm_buf,
             image_buf,
+            file_buf=file_buf,
             progress_cb=_set_progress,
             refresh_cb=lambda: _refresh(True),
         )
@@ -180,6 +182,13 @@ class DiscordGatewayBot(discord.Client, ChannelRuntime):
                     pass
             for uri in image_buf:
                 await self._send_image(message.channel, uri)
+            for fpath in file_buf:
+                import os
+                if os.path.isfile(fpath):
+                    try:
+                        await message.channel.send(file=discord.File(fpath))
+                    except Exception:
+                        logger.warning("Discord file send failed: %s", fpath)
         except asyncio.CancelledError:
             try:
                 await placeholder.edit(content="Cancelled.")

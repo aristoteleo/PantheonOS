@@ -155,6 +155,7 @@ class SlackGatewayApp(ChannelRuntime):
         placeholder_ts = str(placeholder["ts"])
         llm_buf: list[str] = []
         image_buf: list[str] = []
+        file_buf: list[str] = []
         last_progress = ""
         last_edit = 0.0
 
@@ -181,6 +182,7 @@ class SlackGatewayApp(ChannelRuntime):
         on_step = self.make_image_step_callback(
             llm_buf,
             image_buf,
+            file_buf=file_buf,
             progress_cb=_set_progress,
             refresh_cb=lambda: _refresh(True),
         )
@@ -195,12 +197,24 @@ class SlackGatewayApp(ChannelRuntime):
             )
             final_text = extract_display_text(result, llm_buf)
             await self._update(client, body, placeholder_ts, md_to_slack(final_text[-3500:]))
-            # Send any response images
+            # Send any response images and files
             event = body["event"]
             channel = event["channel"]
             thread_ts = event.get("thread_ts") or event.get("ts")
             for uri in image_buf:
                 await self._send_image(client, channel, thread_ts, uri)
+            for fpath in file_buf:
+                import os
+                if os.path.isfile(fpath):
+                    try:
+                        await client.files_upload_v2(
+                            channel=channel,
+                            thread_ts=thread_ts,
+                            file=fpath,
+                            filename=os.path.basename(fpath),
+                        )
+                    except Exception:
+                        logger.warning("Slack file send failed: %s", fpath)
         except asyncio.CancelledError:
             await self._update(client, body, placeholder_ts, "Cancelled.")
             raise

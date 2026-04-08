@@ -399,10 +399,11 @@ class QQRuntime(ChannelRuntime):
         route_key = route.route_key()
         llm_buf: List[str] = []
         image_buf: List[str] = []
+        file_buf: List[str] = []
         await asyncio.to_thread(self._send_text, target, "Thinking...", msg_id)
 
         on_chunk = self.make_chunk_callback(llm_buf)
-        on_step = self.make_image_step_callback(llm_buf, image_buf)
+        on_step = self.make_image_step_callback(llm_buf, image_buf, file_buf=file_buf)
 
         try:
             result = await self._bridge.run_chat(
@@ -417,6 +418,12 @@ class QQRuntime(ChannelRuntime):
                 await asyncio.to_thread(self._send_text, target, chunk, msg_id)
             for uri in image_buf:
                 await asyncio.to_thread(self._send_image, target, uri, msg_id)
+            # QQ doesn't support file upload via bot API — mention file names
+            if file_buf:
+                import os
+                names = [os.path.basename(p) for p in file_buf if os.path.isfile(p)]
+                if names:
+                    await asyncio.to_thread(self._send_text, target, f"📎 Files: {', '.join(names)}", msg_id)
         except asyncio.CancelledError:
             await asyncio.to_thread(self._send_text, target, "Cancelled.", msg_id)
             raise

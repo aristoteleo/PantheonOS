@@ -105,6 +105,18 @@ class TelegramGatewayBot(ChannelRuntime):
             except Exception:
                 logger.warning("Telegram image send failed completely")
 
+    @staticmethod
+    async def _send_file(message, file_path: str) -> None:
+        """Send a local file as a Telegram document."""
+        import os
+        if not os.path.isfile(file_path):
+            return
+        try:
+            with open(file_path, "rb") as f:
+                await message.reply_document(document=f, filename=os.path.basename(file_path))
+        except Exception:
+            logger.warning("Telegram file send failed: %s", file_path)
+
     async def _analysis_wrapper(
         self,
         route: ConversationRoute,
@@ -120,6 +132,7 @@ class TelegramGatewayBot(ChannelRuntime):
         placeholder = await message.reply_text("Thinking...")
         llm_buf: list[str] = []
         image_buf: list[str] = []
+        file_buf: list[str] = []
         last_progress = ""
         last_edit = 0.0
 
@@ -153,6 +166,7 @@ class TelegramGatewayBot(ChannelRuntime):
         on_step = self.make_image_step_callback(
             llm_buf,
             image_buf,
+            file_buf=file_buf,
             progress_cb=_set_progress,
             refresh_cb=lambda: _refresh(True),
         )
@@ -185,6 +199,9 @@ class TelegramGatewayBot(ChannelRuntime):
             # Send any images from the response
             for uri in image_buf:
                 await self._send_image(message, uri)
+            # Send any files (PDF, markdown, etc.)
+            for fpath in file_buf:
+                await self._send_file(message, fpath)
         except asyncio.CancelledError:
             try:
                 await placeholder.edit_text("Cancelled.")

@@ -459,10 +459,11 @@ class IMessageGatewayBot(ChannelRuntime):
         route_key = route.route_key()
         llm_buf: list[str] = []
         image_buf: list[str] = []
+        file_buf: list[str] = []
         await self._send_text(target, "Thinking...")
 
         on_chunk = self.make_chunk_callback(llm_buf)
-        on_step = self.make_image_step_callback(llm_buf, image_buf)
+        on_step = self.make_image_step_callback(llm_buf, image_buf, file_buf=file_buf)
 
         try:
             result = await self._bridge.run_chat(
@@ -476,6 +477,14 @@ class IMessageGatewayBot(ChannelRuntime):
             await self._send_text(target, final_text)
             for uri in image_buf:
                 await self._send_image(target, uri)
+            # iMessage supports file attachments via send_attachment
+            for fpath in file_buf:
+                import os
+                if os.path.isfile(fpath):
+                    try:
+                        await self.send_attachment(target, fpath)
+                    except Exception:
+                        logger.warning("iMessage file send failed: %s", fpath)
         except asyncio.CancelledError:
             await self._send_text(target, "Cancelled.")
             raise

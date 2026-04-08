@@ -619,22 +619,27 @@ class ChannelRuntime:
         self,
         llm_buf: List[str],
         image_buf: List[str],
+        file_buf: Optional[List[str]] = None,
         progress_cb: Optional[Callable[[str], Coroutine]] = None,
         refresh_cb: Optional[Callable[[], Coroutine]] = None,
     ) -> Callable[[Dict[str, Any]], Coroutine]:
-        """Like ``make_step_callback`` but also collects images from tool results
-        into *image_buf* (as data-URI strings).
+        """Like ``make_step_callback`` but also collects images and file paths
+        from tool results.
 
-        Also captures notify_user / task completion messages into *llm_buf*
-        so they are available as fallback display text.
+        *image_buf* receives data-URI strings for images.
+        *file_buf* (if provided) receives absolute file paths from notify_user
+        ``paths`` fields for non-image attachments (PDF, markdown, etc.).
+        Also captures notify_user / task completion messages into *llm_buf*.
         """
+        _file_buf = file_buf if file_buf is not None else []
+
         async def _on_step(step: Dict[str, Any]) -> None:
             txt = parse_step_text(step)
             if txt:
                 llm_buf.clear()
                 llm_buf.append(txt)
 
-            # Collect images and notify_user messages from tool results
+            # Collect images, files, and notify_user messages from tool results
             if step.get("role") == "tool" and not step.get("transfer"):
                 raw = step.get("raw_content")
                 if isinstance(raw, dict):
@@ -647,6 +652,14 @@ class ChannelRuntime:
                         )
                     elif isinstance(uri_val, str) and uri_val and uri_val not in image_buf:
                         image_buf.append(uri_val)
+
+                    # Collect file paths from notify_user results
+                    paths = raw.get("paths")
+                    if isinstance(paths, list):
+                        import os
+                        for p in paths:
+                            if isinstance(p, str) and p not in _file_buf and os.path.isfile(p):
+                                _file_buf.append(p)
 
                     # Capture notify_user / task completion message
                     notify_msg = raw.get("message")

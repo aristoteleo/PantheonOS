@@ -266,10 +266,11 @@ class WeChatGatewayBot(ChannelRuntime):
         route_key = route.route_key()
         llm_buf: list[str] = []
         image_buf: list[str] = []
+        file_buf: list[str] = []
 
         # WeChat has no message-edit API — use callbacks only for correct buffer assembly
         on_chunk = self.make_chunk_callback(llm_buf)
-        on_step = self.make_image_step_callback(llm_buf, image_buf)
+        on_step = self.make_image_step_callback(llm_buf, image_buf, file_buf=file_buf)
 
         try:
             result = await self._bridge.run_chat(
@@ -283,6 +284,12 @@ class WeChatGatewayBot(ChannelRuntime):
             await self._send_text(to_user_id, context_token, final)
             for uri in image_buf:
                 await self._send_image(to_user_id, context_token, uri)
+            # WeChat doesn't have a file send API — mention file paths in text
+            if file_buf:
+                import os
+                names = [os.path.basename(p) for p in file_buf if os.path.isfile(p)]
+                if names:
+                    await self._send_text(to_user_id, context_token, f"📎 Files: {', '.join(names)}")
         except asyncio.CancelledError:
             await self._send_text(to_user_id, context_token, "Cancelled.")
             raise
