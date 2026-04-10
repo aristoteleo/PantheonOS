@@ -68,6 +68,18 @@ CUSTOM_ENDPOINT_ENVS: dict[str, CustomEndpointConfig] = {
     ),
 }
 
+# Friendly aliases used by UI/users. They are intentionally narrow so that
+# switching among Codex OAuth, OpenAI API, and the configured Kimi coding
+# endpoint follows a single explicit route instead of falling back implicitly.
+EXPLICIT_MODEL_ALIASES: dict[str, str] = {
+    "codex": "codex/gpt-5.4-mini",
+    "codexoauth": "codex/gpt-5.4-mini",
+    "codexchatgpt": "codex/gpt-5.4-mini",
+    "chatgpt": "openai/gpt-5.4",
+    "openaichatgpt": "openai/gpt-5.4",
+    "openaichat": "openai/gpt-5.4",
+}
+
 # Sentinel object for negative cache (better than empty string)
 _NOT_FOUND = object()
 
@@ -75,6 +87,75 @@ _NOT_FOUND = object()
 
 _ollama_cache: dict | None = None
 _ollama_cache_time: float = 0
+
+
+def _canonicalize_alias_key(value: str) -> str:
+    """Normalize a user-facing alias key for comparison."""
+    return "".join(ch for ch in value.strip().lower() if ch.isalnum())
+
+
+def _get_settings_api_value(settings: "Settings | None", key: str) -> str:
+    """Read an env-like setting value from Settings when available."""
+    if settings is None or not hasattr(settings, "get_api_key"):
+        return ""
+    try:
+        value = settings.get_api_key(key)
+    except Exception:
+        return ""
+    return str(value or "").strip()
+
+
+def resolve_custom_endpoint_model(
+    provider_key: str,
+    settings: "Settings | None" = None,
+) -> str | None:
+    """Return the configured explicit model route for a custom endpoint."""
+    import os
+
+    config = CUSTOM_ENDPOINT_ENVS.get(provider_key)
+    if config is None:
+        return None
+
+    model = os.environ.get(config.model_env, "").strip()
+    if not model:
+        model = _get_settings_api_value(settings, config.model_env)
+    if not model:
+        return None
+
+    return f"{provider_key}/{model}"
+
+
+def normalize_model_choice(
+    model: str,
+    settings: "Settings | None" = None,
+) -> str:
+    """Canonicalize friendly aliases into explicit provider/model routes.
+
+    Precedence after normalization becomes:
+    1. Explicit provider/model routes
+    2. Known provider aliases mapped to explicit routes
+    3. Quality/capability tags
+    4. Automatic provider selection
+    """
+    normalized = model.strip()
+    if not normalized:
+        return normalized
+
+    alias_key = _canonicalize_alias_key(normalized)
+    explicit = EXPLICIT_MODEL_ALIASES.get(alias_key)
+    if explicit:
+        return explicit
+
+    if alias_key in {"kimiforcoding", "kimiforcode", "kimicoding"}:
+        explicit = resolve_custom_endpoint_model("custom_anthropic", settings=settings)
+        if explicit:
+            return explicit
+        logger.warning(
+            "Alias '{}' requested but CUSTOM_ANTHROPIC_MODEL is not configured; keeping original value",
+            model,
+        )
+
+    return normalized
 
 
 def _detect_ollama(base_url: str = "http://localhost:11434") -> bool:
@@ -920,4 +1001,7 @@ __all__ = [
     "FALLBACK_TAG",
     "CUSTOM_ENDPOINT_ENVS",
     "CustomEndpointConfig",
+    "EXPLICIT_MODEL_ALIASES",
+    "normalize_model_choice",
+    "resolve_custom_endpoint_model",
 ]

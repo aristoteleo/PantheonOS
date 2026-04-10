@@ -129,6 +129,17 @@ def test_blank_model_is_treated_as_implicit_default():
     assert agent.models
 
 
+def test_agent_normalizes_explicit_provider_aliases(monkeypatch):
+    monkeypatch.setattr(
+        "pantheon.utils.model_selector.normalize_model_choice",
+        lambda model, settings=None: "codex/gpt-5.4-mini" if model == "codex oauth" else model,
+    )
+
+    agent = Agent(name="alias", instructions="x", model="codex oauth")
+
+    assert agent.models == ["codex/gpt-5.4-mini"]
+
+
 async def test_call_agent_prefers_current_provider_for_quality_tag(monkeypatch):
     captured = {}
 

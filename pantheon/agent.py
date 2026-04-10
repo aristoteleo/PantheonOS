@@ -144,9 +144,14 @@ def _resolve_model_tag(tag: str) -> list[str]:
 def _normalize_model_spec(
     model: str | list[str] | None,
 ) -> str | list[str] | None:
-    """Treat empty string model specs as unspecified."""
-    if isinstance(model, str) and not model.strip():
-        return None
+    """Treat empty string model specs as unspecified and canonicalize aliases."""
+    if isinstance(model, str):
+        from .utils.model_selector import normalize_model_choice
+
+        normalized = normalize_model_choice(model)
+        if not normalized:
+            return None
+        return normalized
     return model
 
 

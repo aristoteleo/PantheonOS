@@ -11,13 +11,16 @@ from pantheon.utils.model_selector import (
     CAPABILITY_MAP,
     DEFAULT_PROVIDER_MODELS,
     DEFAULT_PROVIDER_PRIORITY,
+    EXPLICIT_MODEL_ALIASES,
     ULTIMATE_FALLBACK,
     FALLBACK_TAG,
     QUALITY_TAGS,
     ModelSelector,
     get_default_model,
     get_model_selector,
+    normalize_model_choice,
     reset_model_selector,
+    resolve_custom_endpoint_model,
 )
 
 
@@ -27,6 +30,7 @@ def mock_settings():
     settings = MagicMock()
     # Mock get() to return the default value when key is not found
     settings.get.side_effect = lambda key, default=None: default
+    settings.get_api_key.side_effect = lambda key, default=None: default
     return settings
 
 
@@ -181,6 +185,25 @@ class TestModelResolution:
         assert isinstance(models, list)
         # Should just return normal models since unknown_capability is not in CAPABILITY_MAP
         assert len(models) > 0
+
+    def test_explicit_aliases_normalize_to_routed_models(self):
+        assert EXPLICIT_MODEL_ALIASES["codexoauth"] == "codex/gpt-5.4-mini"
+        assert normalize_model_choice("codex oauth") == "codex/gpt-5.4-mini"
+        assert normalize_model_choice("openai chatgpt") == "openai/gpt-5.4"
+
+    def test_kimi_alias_normalizes_to_configured_custom_endpoint(self, mock_settings):
+        mock_settings.get_api_key.side_effect = (
+            lambda key, default=None: "K2.5" if key == "CUSTOM_ANTHROPIC_MODEL" else default
+        )
+
+        assert (
+            resolve_custom_endpoint_model("custom_anthropic", settings=mock_settings)
+            == "custom_anthropic/K2.5"
+        )
+        assert (
+            normalize_model_choice("kimi-for-coding", settings=mock_settings)
+            == "custom_anthropic/K2.5"
+        )
 
 
 class TestCapabilityFiltering:
