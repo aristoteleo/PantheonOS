@@ -2106,7 +2106,7 @@ class ChatRoom(ToolSet):
         """
         try:
             from pantheon.agent import _is_model_tag, _resolve_model_tag, _parse_thinking_suffix
-            from pantheon.utils.model_selector import get_model_selector
+            from pantheon.utils.model_selector import normalize_model_choice
 
             # 1. Get team and find target agent
             team = await self.get_team_for_chat(chat_id)
@@ -2122,6 +2122,8 @@ class ChatRoom(ToolSet):
 
             # 2. Parse +think suffix (e.g. "high+think:medium" → thinking="medium")
             clean_model, thinking = _parse_thinking_suffix(model)
+            clean_model = normalize_model_choice(clean_model)
+            persisted_model = f"{clean_model}+think:{thinking}" if thinking else clean_model
 
             # 3. Validate provider if requested
             if validate:
@@ -2170,7 +2172,7 @@ class ChatRoom(ToolSet):
                         agent_name_lower = agent_name.lower()
                         for agent_cfg in original_team.agents:
                             if (agent_cfg.name or "").lower() == agent_name_lower or (agent_cfg.id or "").lower() == agent_name_lower:
-                                agent_cfg.model = model  # Store original input (tag or model name)
+                                agent_cfg.model = persisted_model
                                 break
 
                         # Write back to template file
@@ -2189,9 +2191,7 @@ class ChatRoom(ToolSet):
             # Update the agent's model in template (case-insensitive match)
             for agent_config in team_template.get("agents", []):
                 if (agent_config.get("name") or "").lower() == agent_name_lower or (agent_config.get("id") or "").lower() == agent_name_lower:
-                    agent_config["model"] = (
-                        model  # Store original input (tag or model name)
-                    )
+                    agent_config["model"] = persisted_model
                     break
 
             memory.set_metadata("team_template", team_template)
@@ -2203,7 +2203,7 @@ class ChatRoom(ToolSet):
             return {
                 "success": True,
                 "agent": agent_name,
-                "model": model,
+                "model": persisted_model,
                 "resolved_models": resolved_models,
             }
 
@@ -2283,12 +2283,13 @@ class ChatRoom(ToolSet):
             (is_valid, error_message)
         """
         from pantheon.agent import _is_model_tag
-        from pantheon.utils.model_selector import get_model_selector
+        from pantheon.utils.model_selector import get_model_selector, normalize_model_choice
 
         # Tags are always valid (they resolve based on available providers)
         if _is_model_tag(model):
             return True, ""
 
+        model = normalize_model_choice(model)
         selector = get_model_selector()
         available = selector._get_available_providers()
 
