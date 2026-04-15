@@ -127,6 +127,11 @@ class Memory:
 
         return []
 
+    @property
+    def is_empty(self) -> bool:
+        """Whether this chat has no messages."""
+        return len(self._messages) == 0
+
     def save(self, file_path: str | None = None):
         """
         Save the memory to a file.
@@ -702,6 +707,41 @@ class MemoryManager:
                 memory_ids.add(memory_id)
 
         return list(memory_ids)
+
+    def memory_has_messages(self, memory_id: str) -> bool:
+        """Check if a memory has any messages without fully loading it.
+
+        Uses a fast-path for JSONL backend (file size check) to avoid
+        deserializing all messages just to check emptiness.
+
+        Args:
+            memory_id: The ID of the memory.
+
+        Returns:
+            True if the memory has at least one message.
+        """
+        # If already loaded in cache, check directly
+        if memory_id in self.memory_store:
+            return not self.memory_store[memory_id].is_empty
+
+        # Fast-path: check JSONL file size without loading
+        if self.use_jsonl:
+            jsonl_path = self.path / f"{memory_id}.jsonl"
+            if jsonl_path.exists():
+                return jsonl_path.stat().st_size > 0
+            return False
+
+        # Fallback: check JSON file
+        json_path = self.path / f"{memory_id}.json"
+        if json_path.exists():
+            try:
+                import json as _json
+                with open(json_path, "r", encoding="utf-8") as f:
+                    data = _json.load(f)
+                return len(data.get("messages", [])) > 0
+            except Exception:
+                return False
+        return False
 
     def load_all(self):
         """
