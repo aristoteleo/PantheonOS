@@ -33,18 +33,12 @@ class SingleCellBenchmarkAdapter:
     def __init__(
         self,
         model_name: str = "gemini/gemini-3-flash-preview",
-        enable_learning: bool = False,
         workspace_path: str = None,
-        learning_config: dict = None,
         team: str = "default",
-        injection_mode: str = "auto",
     ):
         self.model_name = model_name
-        self.enable_learning = enable_learning
         self.workspace_path = workspace_path or str(Path.cwd())
-        self.learning_config = learning_config
         self.team_name = team
-        self.injection_mode = injection_mode
         self._team = None
         self._endpoint = None
     
@@ -75,42 +69,11 @@ class SingleCellBenchmarkAdapter:
         # Ensure endpoint is ready
         endpoint = await self._ensure_endpoint()
         
-        # Prepare learning config if enabled (Exact BixBench logic)
-        learning_config = None
-        if self.enable_learning or self.learning_config:
-            settings = get_settings()
-            learning_config = settings.get_learning_config().copy()
-            
-            # Apply injection mode settings
-            if self.enable_learning:
-                learning_config["enable_learning"] = False
-                learning_config["enable_injection"] = True
-                
-                # Configure based on injection mode
-                if self.injection_mode == "static":
-                    learning_config["enable_injection"] = True
-                    learning_config["enable_dynamic_injection"] = False
-                    learning_config["static_injection_sections"] = ["*"]
-                elif self.injection_mode == "dynamic":
-                    learning_config["enable_injection"] = False
-                    learning_config["enable_dynamic_injection"] = True
-                    learning_config["static_injection_sections"] = []
-                # For "auto" mode, use defaults from settings
-            else:
-                learning_config["enable_learning"] = False
-                learning_config["enable_injection"] = False
-                learning_config["enable_dynamic_injection"] = False
-
-            # Merge user-provided config (takes precedence)
-            if self.learning_config:
-                learning_config.update(self.learning_config)
-
-        # Create team using factory (Standard BixBench way)
+        # Create team using factory
         team = await create_team_from_template(
             endpoint_service=endpoint,
             template_id=self.team_name,
-            learning_config=learning_config,
-            enable_mcp=False, # Disable MCP for benchmark as per BixBench default
+            enable_mcp=False,
         )
         
         # --- Model Override Logic (Custom addition to support user request) ---

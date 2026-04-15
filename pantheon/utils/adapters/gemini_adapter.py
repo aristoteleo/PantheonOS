@@ -131,12 +131,17 @@ def _convert_messages_to_gemini(messages: list[dict]) -> tuple[str | None, list[
                         args = json.loads(func.get("arguments", "{}"))
                     except (json.JSONDecodeError, TypeError):
                         args = {}
-                    parts.append({
+                    fc_part: dict[str, Any] = {
                         "functionCall": {
                             "name": func.get("name", ""),
                             "args": args,
                         }
-                    })
+                    }
+                    # Replay thoughtSignature for Gemini 3 thinking models
+                    thought_sig = tc.get("thought_signature")
+                    if thought_sig:
+                        fc_part["thoughtSignature"] = thought_sig
+                    parts.append(fc_part)
 
             if parts:
                 contents.append({"role": "model", "parts": parts})
@@ -296,6 +301,11 @@ class GeminiAdapter(BaseAdapter):
         if gen_config:
             request_body["generationConfig"] = gen_config
 
+        # response_format → responseMimeType for JSON mode
+        if response_format and isinstance(response_format, dict):
+            if response_format.get("type") == "json_object":
+                request_body.setdefault("generationConfig", {})["responseMimeType"] = "application/json"
+
         # Response modalities
         modalities = kwargs.pop("modalities", None)
         if modalities:
@@ -345,7 +355,7 @@ class GeminiAdapter(BaseAdapter):
                                     text += part["text"]
                                 elif "functionCall" in part:
                                     fc = part["functionCall"]
-                                    tool_calls_data.append({
+                                    tc_data = {
                                         "index": tool_call_idx,
                                         "id": f"call_{uuid.uuid4().hex[:24]}",
                                         "type": "function",
@@ -355,7 +365,11 @@ class GeminiAdapter(BaseAdapter):
                                                 fc.get("args", {}), ensure_ascii=False
                                             ),
                                         },
-                                    })
+                                    }
+                                    # Preserve thoughtSignature for Gemini 3 thinking models
+                                    if "thoughtSignature" in part:
+                                        tc_data["thought_signature"] = part["thoughtSignature"]
+                                    tool_calls_data.append(tc_data)
                                     tool_call_idx += 1
 
                         if text:

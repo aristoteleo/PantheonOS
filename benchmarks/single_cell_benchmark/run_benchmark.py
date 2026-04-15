@@ -83,9 +83,6 @@ async def run_benchmark(
         model_name=model,
         team=team,
         workspace_path=str(Path.cwd()),
-        enable_learning=enable_learning,
-        injection_mode=injection_mode,
-        learning_config={"skillbook_path": skillbook_path} if skillbook_path else None,
     )
 
     results = []

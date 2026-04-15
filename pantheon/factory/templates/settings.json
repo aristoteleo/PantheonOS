@@ -162,53 +162,6 @@
     //         "normal": ["dall-e-3"]
     //     }
     // },
-    // ===== ACE (Agentic Context Engineering) Configuration =====
-    // Learning is a long-term memory system that learns from conversation trajectories
-    "learning": {
-        // Enable learning system (extract skills from trajectories of each user request/response run)
-        "enable_learning": false,
-        // Enable skill injection into agent system prompts (user_rules, user-defined strategies, high-score skills)
-        "enable_injection": true,
-        // Enable dynamic skill injection (context injectors), defaults to enable_injection if omitted
-        "enable_dynamic_injection": true,
-        // Learning mode: "pipeline" (default, lightweight) or "team" (multi-agent)
-        "mode": "pipeline",
-        // Team ID for team mode (uses skill_learning_team template)
-        "team_id": "learning/skill_learning_team_v4",
-        // Enable agent-specific skill scope filtering, If false, all agents see all skills (recommended for simpler setups)
-        "enable_agent_scope": false,
-        // LLM model for reflection and skill management, Uses quality level: "high", "normal", "low", or specific model name
-        "learning_model": "low",
-        // Skillbook file path (relative to .pantheon/learning/)
-        "skillbook_path": "skillbook.json",
-        // Learning data directory (relative to .pantheon/learning/)
-        "learning_dir": "tmp",
-        // Max skills per section (null = unlimited, or set a number to auto-evict low-score skills)
-        "max_skills_per_section": null,
-        // Max characters for single skill content (Skillbook limit)
-        "max_content_length": 2000,
-        // Max length for tool argument values in learning trajectory
-        "max_tool_arg_length": 1000,
-        // Max length for tool output in learning trajectory
-        "max_tool_output_length": 3000,
-        // Delete learning trajectory files after processing, Set to true in production for privacy/disk space
-        "cleanup_after_learning": false,
-        // === Static Injection Section Filter ===
-        // Control which skillbook sections are statically injected into agent instructions
-        // - null/undefined: Use default rules (user_rules + type="user" strategies only)
-        // - ["*"]: Inject all sections (enable all skills)
-        // - ["section1", "section2", ...]: Inject only specified sections
-        // Example sections: "user_rules", "strategies", "debugging", "data_analysis", etc.
-        // "static_injection_sections": null,
-        // === Quality Control Thresholds ===
-        // Minimum confidence to process reflection (skip if below)
-        "min_confidence_threshold": 0.5,
-        // Minimum atomicity score for ADD operations (reject if below)
-        "min_atomicity_score": 0.85,
-        // === Dynamic Injection Configuration ===
-        // Maximum number of skills to inject dynamically per task (based on semantic relevance)
-        "dynamic_injection_top_k": 50
-    },
     // ===== Context Compression Configuration =====
     // Automatic context compression when approaching token limits
     "context_compression": {
@@ -227,6 +180,54 @@
         "max_tool_output_length": 3000,
         // Wait this many messages before retrying after a compression failure
         "retry_after_messages": 10
+    },
+    // ===== Long-Term Memory System Configuration =====
+    // Cross-session persistent memory with LLM-based selection and dream consolidation
+    "memory_system": {
+        // Enable the long-term memory system
+        "enabled": true,
+        // LLM model for memory selection (reads frontmatter, judges relevance)
+        // Uses quality level: "high", "normal", "low", or specific model name
+        "selection_model": "low",
+        // Maximum number of memories to retrieve per query (minimum: 1, no upper limit)
+        "max_retrieval_results": 15,
+        // Pre-compression flush: save important info to daily log before compression
+        "flush_enabled": true,
+        // Model for flush extraction (null = use selection_model)
+        "flush_model": null,
+        // Dream consolidation: periodic 4-phase memory distillation
+        "dream_enabled": true,
+        // Model for dream consolidation (null = use selection_model)
+        "dream_model": null,
+        // Minimum hours between dream consolidations
+        "dream_min_hours": 24,
+        // Minimum sessions before triggering dream
+        "dream_min_sessions": 5,
+        // Session note thresholds (for compact shortcut, uncomment to override defaults)
+        // Min context tokens before first extraction (default: 10000)
+        // "session_note_init_tokens": 10000,
+        // Min token growth to trigger update (default: 5000)
+        // "session_note_update_tokens": 5000,
+        // Min tool calls to trigger update (default: 3)
+        // "session_note_tool_calls": 3
+    },
+    // ===== Learning System Configuration =====
+    // Procedural knowledge (skills) managed via skill_manage tool
+    "learning_system": {
+        // Enable the learning system (skill management + toolset)
+        "enabled": true,
+        // LLM model for skill operations
+        // Uses quality level: "high", "normal", "low", or specific model name
+        "model": "low",
+        // Background auto-extraction (disabled by default, use skill_manage tool)
+        // Can be enabled for automatic extraction or future Dream integration
+        "extract_enabled": false,
+        // Model for skill extraction (null = use model above)
+        "extract_model": null,
+        // Extract skills every N runs (when extract_enabled=true)
+        "extract_nudge_interval": 5,
+        // Skills to disable (list of skill names)
+        "disabled_skills": []
     },
     // ===== LLM Retry Configuration =====
     // Exponential backoff retry for transient LLM API errors (e.g., mid-stream overloaded)

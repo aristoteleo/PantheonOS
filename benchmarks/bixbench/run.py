@@ -293,45 +293,13 @@ async def run_benchmark(
     capsules = all_capsules[:capsule_limit]
     
     print(f"📋 Running benchmark on {len(capsules)} capsules")
-    print(f"🧠 Learning: {'Enabled' if enable_learning else 'Disabled'}")
     print(f"📝 Run name: {run_name}")
     print(f"👥 Team: {team}")
-    
-    # Build learning config
-    adapter_learning_config = None
-    if enable_learning:
-        adapter_learning_config = learning_config.copy() if learning_config else {}
-        if skillbook_path:
-            adapter_learning_config["skillbook_path"] = skillbook_path
-            print(f"📚 Skillbook: {skillbook_path}")
-        
-        # Configure injection mode
-        if injection_mode == "static":
-            # Static-only injection: all skills injected upfront
-            adapter_learning_config["enable_injection"] = True
-            adapter_learning_config["enable_dynamic_injection"] = False
-            adapter_learning_config["static_injection_sections"] = ["*"]
-            print("💉 Injection Mode: Static (All Skills Upfront)")
-        elif injection_mode == "dynamic":
-            # Dynamic-only injection: skills injected based on context
-            adapter_learning_config["enable_injection"] = False
-            adapter_learning_config["enable_dynamic_injection"] = True
-            adapter_learning_config["static_injection_sections"] = []  # No static injection
-            print(f"💉 Injection Mode: Dynamic")
-        else:  # auto mode
-            # Use defaults from learning config
-            print("💉 Injection Mode: Auto (Using Config Defaults)")
-    elif skillbook_path or learning_config:
-        # Fallback for non-learning runs if config provided (unlikely but safe)
-        adapter_learning_config = learning_config.copy() if learning_config else {}
-    
+
     # Initialize adapter and grader
     adapter = PantheonBixBenchAdapter(
         model_name=model_name,
-        enable_learning=enable_learning,
-        learning_config=adapter_learning_config,
         team=team,
-        injection_mode=injection_mode,
     )
     grader = BixBenchGrader()
     

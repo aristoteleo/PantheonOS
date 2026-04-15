@@ -673,8 +673,9 @@ class PantheonTeam(Team):
                 sub_agent_result = {
                     "agent_name": target_agent.name,
                     "messages": child_memory._messages,
-                    "chat_id": parent_chat_id,
-                    "question": instruction,  # For sub-agents, include the delegation instruction
+                    "chat_id": parent_chat_id,   # parent chat id for session grouping
+                    "memory": child_memory,       # sub-agent's own memory (messages consistent)
+                    "question": instruction,      # marks this as a sub-agent run — plugins skip on this key
                 }
                 await self._call_plugin_hook("on_run_end", self, sub_agent_result)
 
@@ -739,6 +740,21 @@ class PantheonTeam(Team):
             await self.add_list_agents_tool()
             await self.add_unified_call_agent_tool()
         
+        # Inject toolsets declared by plugins
+        for plugin in self.plugins:
+            try:
+                toolset_specs = await plugin.get_toolsets(self)
+                for toolset_instance, agent_names in toolset_specs:
+                    targets = (
+                        [a for a in self.team_agents if a.name in agent_names]
+                        if agent_names is not None
+                        else self.team_agents
+                    )
+                    for agent in targets:
+                        await agent.toolset(toolset_instance)
+            except Exception as e:
+                logger.warning(f"Plugin {plugin.__class__.__name__}.get_toolsets() failed: {e}")
+
         # Call plugin lifecycle hook
         await self._call_plugin_hook("on_team_created", self)
         
@@ -790,6 +806,7 @@ class PantheonTeam(Team):
                         "agent_name": active_agent.name,
                         "messages": current_messages,
                         "chat_id": memory.id or "",
+                        "memory": memory,
                     }
                     await self._call_plugin_hook("on_run_end", self, run_result)
                 return resp

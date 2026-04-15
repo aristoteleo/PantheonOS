@@ -276,64 +276,29 @@ class Settings:
 
         return ModelSelector(self)
 
-    def get_learning_config(self) -> Dict[str, Any]:
-        """
-        Get learning (Agentic Context Engineering) configuration.
+    def get_section(self, key: str, default: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        """Get a raw config section by key.
 
-        Returns:
-            Dict with learning config: enable_learning, enable_injection, skillbook_path, etc.
+        Generic interface for plugins to read their own config without
+        requiring a dedicated method on Settings.
+
+        Example:
+            raw = settings.get_section("memory_system")
+            raw = settings.get_section("my_plugin", {"enabled": False})
         """
         self._ensure_loaded()
-        learning = self._settings.get("learning", {})
-        
-        # Backward compatibility: fallback to old 'enable' key if 'enable_learning' not set
-        enable_learning = learning.get("enable_learning", learning.get("enable", False))
-        # enable_injection defaults to enable_learning if not explicitly set
-        enable_injection = learning.get("enable_injection", enable_learning)
-        # enable_dynamic_injection defaults to enable_injection if not explicitly set
-        enable_dynamic_injection = learning.get("enable_dynamic_injection", enable_injection)
-        
-        return {
-            "enable_learning": enable_learning,
-            "enable_injection": enable_injection,
-            "enable_dynamic_injection": enable_dynamic_injection,
-            # Keep 'enable' for backward compatibility (maps to enable_learning)
-            "enable": enable_learning,
-            "skillbook_path": str(
-                self.learning_dir / learning.get("skillbook_path", "skillbook.json")
-            ),
-            "learning_model": learning.get("learning_model"),  # None uses Agent's default
-            "learning_dir": str(
-                self.learning_dir / learning.get("learning_dir", "pipeline")
-            ),
-            "max_skills_per_section": learning.get("max_skills_per_section", None),  # None = unlimited
-            "max_content_length": learning.get("max_content_length", 2000),  # For Skillbook (skill content limit, increased to support code snippets)
-            "max_tool_arg_length": learning.get("max_tool_arg_length", 100),  # For learning trajectory
-            "max_tool_output_length": learning.get("max_tool_output_length", 150),  # For learning trajectory
-            "cleanup_after_learning": learning.get("cleanup_after_learning", False),
-            "enable_agent_scope": learning.get("enable_agent_scope", False),
-            # Thresholds for quality control
-            "min_confidence_threshold": learning.get("min_confidence_threshold", 0.3),  # Skip reflection if below
-            "min_atomicity_score": learning.get("min_atomicity_score", 0.7),  # Reject ADD if below
-            # Mode switch: "pipeline" (default) or "team"
-            "mode": learning.get("mode", "pipeline"),
-            "team_id": learning.get("team_id", "skill_learning_team"),
-            # Static injection sections filter (None = use default rules)
-            "static_injection_sections": learning.get("static_injection_sections"),
-            # Dynamic injection top-k limit
-            "dynamic_injection_top_k": learning.get("dynamic_injection_top_k", 50),
-        }
+        return dict(self._settings.get(key, default or {}))
 
     def get_compression_config(self) -> Dict[str, Any]:
         """
         Get context compression configuration.
-        
+
         Returns:
             Dict with compression config: enable, threshold, preserve_recent_messages, etc.
         """
         self._ensure_loaded()
         compression = self._settings.get("context_compression", {})
-        
+
         return {
             "enable": compression.get("enable", False),  # Disabled by default
             "compression_model": compression.get("compression_model"),  # None uses Agent's default

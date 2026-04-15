@@ -88,7 +88,6 @@ class Repl(ReplUI):
                 endpoint=endpoint,
                 memory_dir=memory_dir,
                 enable_nats_streaming=False,
-                learning_config=settings.get_learning_config(),
             )
         else:
             # Mode 4: Auto-create everything
@@ -98,7 +97,6 @@ class Repl(ReplUI):
                 endpoint=None,  # Auto-create Endpoint
                 memory_dir=memory_dir,
                 enable_nats_streaming=False,
-                learning_config=settings.get_learning_config(),
             )
 
         # Current chat session
@@ -212,7 +210,6 @@ class Repl(ReplUI):
             memory_dir=memory_dir,
             enable_nats_streaming=False,
             default_team=team,
-            learning_config=settings.get_learning_config(),
         )
 
     def register_handler(self, handler: CommandHandler | str | Path):

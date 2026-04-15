@@ -1,9 +1,21 @@
 """
 Team plugin system for extending PantheonTeam functionality.
 
-Plugins provide a clean way to add optional features (learning, monitoring, etc.)
-without coupling them directly to PantheonTeam.
+Plugins provide a clean way to add optional features (memory, learning,
+compression, etc.) without coupling them directly to PantheonTeam.
+
+Lifecycle hooks (in execution order):
+    get_toolsets     — declare toolsets to auto-inject into agents (before on_team_created)
+    on_team_created  — after team setup, before any runs
+    on_run_start     — before each agent execution
+    on_run_end       — after each agent execution
+    pre_compression  — before context compression (flush important data)
+    post_compression — after context compression
+    on_tool_call     — after a tool executes
+    on_shutdown      — process exit / cleanup
 """
+
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
@@ -13,68 +25,92 @@ if TYPE_CHECKING:
 
 
 class TeamPlugin(ABC):
+    """Base class for PantheonTeam plugins.
+
+    Subclasses must implement on_team_created(). All other hooks are optional.
     """
-    Base class for PantheonTeam plugins.
-    
-    Plugins can hook into team lifecycle events to add functionality:
-    - on_team_created: Initialize resources after team creation
-    - on_run_start: Prepare before each run
-    - on_run_end: Clean up or learn after each run
-    
-    Example:
-        class MonitoringPlugin(TeamPlugin):
-            async def on_run_start(self, team, user_input):
-                self.start_time = time.time()
-            
-            async def on_run_end(self, team, result):
-                duration = time.time() - self.start_time
-                logger.info(f"Run took {duration}s")
-    """
-    
+
+    async def get_toolsets(self, team: "PantheonTeam") -> list[tuple[Any, list[str] | None]]:
+        """Declare toolsets this plugin wants to inject into agents.
+
+        Called during async_setup, before on_team_created.
+
+        Returns a list of (toolset_instance, agent_names) tuples:
+        - toolset_instance: the ToolSet to inject
+        - agent_names: list of agent names to inject into, or None for all agents
+
+        Example:
+            return [(SkillToolSet(self.runtime), None)]       # all agents
+            return [(SkillToolSet(self.runtime), ["coder"])]  # specific agents only
+        """
+        return []
+
     @abstractmethod
     async def on_team_created(self, team: "PantheonTeam") -> None:
-        """
-        Called after team is created and agents are set up.
-        
-        Use this to:
-        - Initialize plugin resources
-        - Modify team configuration
-        - Register context injectors
-        
-        Args:
-            team: The PantheonTeam instance
-        """
+        """Called after toolsets are injected and team is fully set up."""
         pass
-    
-    async def on_run_start(self, team: "PantheonTeam", user_input: Any, context: dict) -> None:
-        """
-        Called before each run starts.
-        
-        Use this to:
-        - Prepare resources for this run
-        - Modify context (e.g., check cache, perform compression)
-        - Log/monitor run start
-        
-        Args:
-            team: The PantheonTeam instance
-            user_input: User's input message (str or AgentInput)
-            context: Run context dictionary containing:
-                - memory: Memory instance
-                - kwargs: Other run arguments
-        """
+
+    async def on_run_start(
+        self, team: "PantheonTeam", user_input: Any, context: dict
+    ) -> None:
+        """Called before each run starts."""
         pass
-    
+
     async def on_run_end(self, team: "PantheonTeam", result: dict) -> None:
-        """
-        Called after each run completes.
-        
-        Use this to:
-        - Clean up resources
-        - Learn from the run
-        - Log/monitor run completion
-        
-        Args:
-            team: The PantheonTeam instance
-            result: Run result dictionary
-        """
+        """Called after each run completes."""
+        pass
+
+    async def pre_compression(
+        self, team: "PantheonTeam", session_id: str, messages: list[dict]
+    ) -> str | None:
+        """Called before context compression. Return flushed content or None."""
+        return None
+
+    async def post_compression(
+        self, team: "PantheonTeam", result: dict
+    ) -> None:
+        """Called after context compression completes."""
+        pass
+
+    async def on_tool_call(
+        self, team: "PantheonTeam", tool_name: str, args: dict, result: Any
+    ) -> None:
+        """Called after a tool executes."""
+        pass
+
+    async def on_shutdown(self) -> None:
+        """Called on process exit for cleanup."""
+        pass
+
+
+    async def on_run_start(
+        self, team: "PantheonTeam", user_input: Any, context: dict
+    ) -> None:
+        """Called before each run starts."""
+        pass
+
+    async def on_run_end(self, team: "PantheonTeam", result: dict) -> None:
+        """Called after each run completes."""
+        pass
+
+    async def pre_compression(
+        self, team: "PantheonTeam", session_id: str, messages: list[dict]
+    ) -> str | None:
+        """Called before context compression. Return flushed content or None."""
+        return None
+
+    async def post_compression(
+        self, team: "PantheonTeam", result: dict
+    ) -> None:
+        """Called after context compression completes."""
+        pass
+
+    async def on_tool_call(
+        self, team: "PantheonTeam", tool_name: str, args: dict, result: Any
+    ) -> None:
+        """Called after a tool executes."""
+        pass
+
+    async def on_shutdown(self) -> None:
+        """Called on process exit for cleanup."""
         pass

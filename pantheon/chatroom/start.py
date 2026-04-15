@@ -603,7 +603,6 @@ async def start_services(
         speech_to_text_model=speech_to_text_model,
         enable_nats_streaming=True,  # Enable NATS streaming for remote service
         enable_auto_chat_name=True,  # Enable auto chat name for UI mode
-        learning_config=settings.get_learning_config(),
         id_hash=id_hash,  # Pass id_hash to ensure stable Service ID
     )
 

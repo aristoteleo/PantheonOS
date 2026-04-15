@@ -526,6 +526,9 @@ def stream_chunk_builder(chunks: list[dict]) -> Any:
                                 "arguments": "",
                             },
                         }
+                        # Preserve thought_signature for Gemini 3 thinking models
+                        if "thought_signature" in tc:
+                            tool_calls_map[idx]["thought_signature"] = tc["thought_signature"]
                     else:
                         # Merge
                         if tc.get("id"):

@@ -91,7 +91,6 @@ class ChatRoom(ToolSet):
         check_before_chat: Callable | None = None,
         enable_nats_streaming: bool = False,
         default_team: "PantheonTeam | None" = None,
-        learning_config: dict | None = None,
         enable_auto_chat_name: bool = False,
         **kwargs,
     ):
@@ -174,8 +173,8 @@ class ChatRoom(ToolSet):
         # PantheonClaw gateway manager (lazy init; tied to chatroom event loop)
         self._gateway_channel_manager = None
 
-        # Plugin system (learning, compression, etc.)
-        self._init_plugins(learning_config)
+        # Plugin system (memory, learning, compression)
+        self._init_plugins()
 
     async def _get_endpoint_service(self):
         """Get endpoint service object (instance or RemoteService)."""
@@ -201,14 +200,13 @@ class ChatRoom(ToolSet):
             endpoint_service, endpoint_method_name=endpoint_method_name, **kwargs
         )
 
-    def _init_plugins(self, learning_config: dict | None = None) -> None:
+    def _init_plugins(self) -> None:
         """Initialize plugin config (lazy creation).
-        
+
         Actual plugin instances are created in background during run_setup().
         """
-        self._learning_config = learning_config
-        self._learning_plugin = None
         self._compression_plugin = None
+        self._memory_plugin = None
         self._plugins = []  # List of initialized plugins
 
     async def run(self, log_level: str | None = None, remote: bool = True):
@@ -256,9 +254,8 @@ class ChatRoom(ToolSet):
             logger.info("ChatRoom: NATS streaming disabled")
 
         # Start plugin initialization in background (non-blocking warmup)
-        if self._learning_config:
-            task = asyncio.create_task(self._ensure_plugins())
-            self._background_tasks.add(task)
+        task = asyncio.create_task(self._ensure_plugins())
+        self._background_tasks.add(task)
 
         # Register activity callback for _ping responses (used by Hub idle cleanup)
         if hasattr(self, 'worker') and self.worker and hasattr(self.worker, 'set_activity_callback'):
@@ -300,54 +297,28 @@ class ChatRoom(ToolSet):
         return metrics
 
     async def _ensure_plugins(self, endpoint_service: object = None) -> list:
-        """Lazily initialize plugins (idempotent).
-        
-        Creates LearningPlugin and CompressionPlugin on first call.
-        Called in background during run_setup for warmup, and awaited
-        before team creation to ensure plugins are ready.
-        
-        Args:
-            endpoint_service: Active endpoint service. If provided, used to 
-                              initialize team-based capabilities (e.g. learning team).
-        """
+        """Lazily initialize plugins via centralized registry (idempotent)."""
         if self._plugins:
-            # If endpoint_service is provided and we have a learning plugin,
-            # we MUST ensure the learning team is initialized (it might have been skipped during warmup)
-            if endpoint_service and self._learning_plugin:
-                await self._learning_plugin.initialize_learning_team(endpoint_service)
             return self._plugins
-        
-        if not self._learning_config:
-            return []
-        
+
         try:
-            from pantheon.internal.learning.plugin import get_global_learning_plugin
-            from pantheon.internal.compression.plugin import CompressionPlugin
+            from pantheon.team.plugin_registry import create_plugins
             from pantheon.settings import get_settings
-            
-            settings = get_settings()
-            
-            # Create global learning plugin (singleton)
-            self._learning_plugin = await get_global_learning_plugin(self._learning_config)
-            
-            # Initialize learning team if endpoint_service available (now or in future calls)
-            if endpoint_service and self._learning_plugin:
-                await self._learning_plugin.initialize_learning_team(endpoint_service)
-                
-            self._plugins.append(self._learning_plugin)
-            
-            # Create compression plugin
-            compression_config = settings.get_compression_config()
-            if compression_config:
-                self._compression_plugin = CompressionPlugin(compression_config)
-                self._plugins.append(self._compression_plugin)
-            
-            logger.info(f"ChatRoom: {len(self._plugins)} plugins initialized")
+
+            self._plugins = create_plugins(get_settings())
+            # Track memory plugin reference for direct access
+            from pantheon.internal.memory_system.plugin import MemorySystemPlugin
+            for p in self._plugins:
+                if isinstance(p, MemorySystemPlugin):
+                    self._memory_plugin = p
+                    break
+
+            logger.info(f"ChatRoom: {len(self._plugins)} plugins initialized via registry")
         except Exception as e:
             logger.error(f"ChatRoom: Failed to initialize plugins: {e}")
             import traceback
             traceback.print_exc()
-        
+
         return self._plugins
 
     async def cleanup(self) -> None:
@@ -355,13 +326,8 @@ class ChatRoom(ToolSet):
         
         Stops plugins, cancels background tasks, and cleans up the endpoint.
         """
-        # Shutdown global learning plugin (saves skillbook, stops pipeline)
-        if self._learning_plugin:
-            try:
-                from pantheon.internal.learning.plugin import shutdown_global_learning_plugin
-                await shutdown_global_learning_plugin()
-            except Exception:
-                pass
+        # Shutdown plugins
+        self._plugins.clear()
         
         # Clean up endpoint if it exists
         if hasattr(self, "_endpoint") and self._endpoint:
