@@ -119,6 +119,24 @@
             "prefer_grpc": false // Whether to prefer gRPC
         }
     },
+    // ===== Gene Panel Selection (GPS) Configuration =====
+    // Hyperparameters for the GPS workflow. Consumed by
+    // pantheon.toolsets.gene_panel.GenePanelConfig.from_settings().
+    // Override here; defaults apply when keys are omitted.
+    "gene_panel": {
+        // --- Algorithm caps (keep LP / RF tractable) ---
+        "scgenefit_max_constraints": 1000, // Upper bound on LP constraints for scGeneFit
+        "spapros_n_hvg": 3000, // HVG pre-filter size before SpaPROS
+        "rf_n_estimators": 300, // Trees in the Random Forest ranker
+        // --- SpaPROS runtime gate (leader uses notify_user to ask the user) ---
+        "spapros_runtime_warning_minutes": 5.0, // Ask user to confirm if estimate exceeds this
+        "spapros_runtime_skip_minutes": 30.0, // Strong warning; user may choose to skip SpaPROS
+        // --- Workflow thresholds (consumed by the agent) ---
+        "ari_drop_threshold": 0.05, // Max acceptable ARI degradation during panel completion
+        "downsample_max_cells": 500000, // Above this, downsample before selection
+        "gene_count_threshold": 30000, // Above this, subset genes before selection
+        "split_cell_limit": 50000 // Target cells per test split (soft cap)
+    },
     // ===== Model Selection Configuration =====
     // Smart model selection based on available API keys
     "models": {

@@ -149,10 +149,60 @@ If the user provided a dataset path, pass it directly to `analysis_expert` and s
 **1.c Dataset understanding**: Call `analysis_expert` to perform dataset inspection, QC, downsampling if needed (>500k cells), gene subsetting if needed (>30k genes). Pass environment info and the path to `environment.md`.
 If downsampled, that dataset becomes the only input for algorithmic selection.
 
+#### 1.d SpaPROS Runtime Gate (MANDATORY — blocks Step 2 until resolved)
+
+SpaPROS can take tens of minutes to hours on large or high-dimensional datasets.
+Before dispatching the full selection pipeline, you **MUST** gate SpaPROS behind a
+user confirmation whenever its estimated runtime exceeds the warning threshold.
+
+**Protocol**:
+
+1. **Dispatch a short pre-check task** to `analysis_expert` asking *only* for a
+   SpaPROS runtime estimate — nothing else:
+   > "Run `estimate_spapros_runtime(adata_path=<downsampled path>, num_markers=<target N>, n_hvg=<cfg.spapros_n_hvg>)` from `pantheon.toolsets.gene_panel` against the dataset produced by Step 1.c, then return the returned dict verbatim. Do not run any selection method."
+2. Read the returned dict's `severity`:
+   - `"fast"` → proceed to Step 2 with SpaPROS **enabled**; no user prompt needed.
+   - `"slow"` or `"very_slow"` → call `notify_user` **before** Step 2 with
+     `blocked_on_user=true` and a single-choice question (example below).
+3. Pass the user's decision into Step 2's dispatch as an explicit directive —
+   either `"SpaPROS APPROVED by user"` or `"SpaPROS SKIPPED by user"`.
+4. Never run SpaPROS when severity ≥ `"slow"` without recording user approval.
+
+**`notify_user` template** (adapt `message` and `reason` from the estimator output):
+
+```python
+notify_user(
+    blocked_on_user=True,
+    message=(
+        "**SpaPROS runtime estimate exceeds threshold.**\n\n"
+        f"{estimate['reason']}\n\n"
+        "SpaPROS is one of five algorithmic selection methods. The panel "
+        "selection pipeline can complete without it using the remaining four "
+        "(HVG, DE, Random Forest, scGeneFit)."
+    ),
+    paths_to_review=[],
+    confidence_justification="...",  # per agentic_general.md rules
+    confidence_score=0.9,
+    questions=[{
+        "question": "Run SpaPROS despite the long estimated runtime?",
+        "header": "SpaPROS",
+        "input_type": "single_choice",
+        "options": [
+            {"label": "Run SpaPROS", "description": "Include SpaPROS in the panel — accept the wait",   "value": "run"},
+            {"label": "Skip SpaPROS", "description": "Proceed with HVG, DE, RF, scGeneFit only",        "value": "skip"},
+        ],
+    }],
+)
+```
+
 #### 2. Full Selection Pipeline (Steps 2–5)
 Pass the biological context, target panel size, algorithms to run, and goal to `analysis_expert`.
+**Include the resolution of the SpaPROS gate** in the dispatch — e.g.
+`"Algorithms to run: HVG, DE, Random Forest, scGeneFit, SpaPROS (APPROVED by user, estimate: ~Xmin)"`
+or `"Algorithms to run: HVG, DE, Random Forest, scGeneFit (SpaPROS SKIPPED by user)"`.
+
 Let `analysis_expert` execute the **full selection pipeline independently** following the skill workflow:
-- Step 2: Algorithmic methods (HVG, DE, RF, scGeneFit, SpaPROS)
+- Step 2: Algorithmic methods (HVG, DE, RF, scGeneFit, SpaPROS if approved)
 - Step 3: Optimal SEED panel discovery (ARI vs panel size)
 - Step 4: Curation (biological completion + consensus fill)
 - Step 5: Benchmarking on test splits
@@ -191,7 +241,6 @@ The final report must include **AT LEAST**:
 
 - UpSet plot showing intersections between pre-established algorithm outputs
 - Benchmarking section with:
-y
   - dataset splitting strategy
   - ARI/NMI/SI boxplots
   - UMAP comparisons

@@ -237,3 +237,17 @@ examples/code_distillation/data/*.npz
 .DS_Store
 .uploaded_files/
 *.aux.claude/worktrees/
+
+# ====================
+# Gene Panel Selection — paper data (keep across branches)
+# ====================
+# These contain results used in figures_for_paper.ipynb.
+# Do NOT delete even if switching branches or running git clean.
+examples/gene_panel_selection/cases/*/workdir/
+examples/gene_panel_selection/cases/*/.team_instructions/
+test_gps/
+
+# ====================
+# RL Training project — local notes, proposals, data
+# ====================
+rl_training/

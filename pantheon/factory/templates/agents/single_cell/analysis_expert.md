@@ -8,7 +8,6 @@ description: |
 toolsets:
   - file_manager
   - integrated_notebook
-  - gene_panel
   - python_interpreter
 ---
 You are an analysis expert in Single-Cell and Spatial Omics data analysis.
@@ -273,15 +272,6 @@ You should:
 to see whether the figure format is adjusted as expected.
 4. If the figure format is adjusted as expected, you should report the adjusted figure to the reporter agent.
 
-## Gene Panel Selection Hyperparameters
-<!-- Recommended defaults: trade-off between precision and fast enough computation. Adjust if needed for your dataset. -->
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SCGENEFIT_MAX_CONSTRAINTS` | 1000 | Max constraints for scGeneFit optimization |
-| `SPAPROS_N_HVG` | 3000 | Max HVGs for SpaPROS input |
-| `ARI_DROP_THRESHOLD` | 5% | Max acceptable ARI degradation during panel completion |
-
 ## Workflow to perform gene panel selection (CRITICAL — STRICT COMPLIANCE REQUIRED)
 
 When performing gene panel selection, you are the **sole executor** of the entire selection pipeline.
@@ -346,15 +336,40 @@ If needed: QC → normalize/log1p/scale → PCA → neighbors → UMAP → batch
 
 ### Step 2: Algorithmic Gene Panel Selection 
 
-Run ALL of these methods (unless user requests specific ones): **HVG, DE, Random Forest, scGeneFit, SpaPROS**
+Run ALL of these methods (**unless** the leader's dispatch directive or the user restricts the set):
+**HVG, DE, Random Forest, scGeneFit, SpaPROS**
+
+> [!CAUTION]
+> **SpaPROS runtime gate.** The leader owns the SpaPROS gate (it calls
+> `notify_user` and reports the decision to you). Before running SpaPROS you
+> **MUST** read the leader's dispatch directive:
+> - `"SpaPROS APPROVED by user"` → run SpaPROS as normal.
+> - `"SpaPROS SKIPPED by user"` → do **not** run SpaPROS; proceed with the
+>   remaining four methods and document the skip in `report_analysis.md`.
+> - If the leader asks only for an estimate (pre-check), call
+>   `estimate_spapros_runtime(...)` and return the dict verbatim; do **NOT**
+>   run any selection method in that dispatch.
 
 - Use true cell type as `label_key` whenever available
 - Implement HVG / DE via Scanpy in code
-- For advanced methods, **always use** `gene_panel_selection_tool` toolset:
-  - `select_scgenefit` (**ALWAYS**: `max_constraints <= SCGENEFIT_MAX_CONSTRAINTS`)
-  - `select_spapros` (**ALWAYS**: `n_hvg < SPAPROS_N_HVG`)
-  - `select_random_forest`
-- **Always request gene scores** from each method
+- For advanced methods, **always use** the `pantheon.toolsets.gene_panel` library inside a notebook cell:
+  ```python
+  from pantheon.toolsets.gene_panel import (
+      GenePanelConfig,
+      estimate_spapros_runtime,
+      select_scgenefit,
+      select_spapros,
+      select_random_forest,
+  )
+  cfg = GenePanelConfig.from_settings()  # caps sourced from settings.json
+  ```
+  Then call `select_scgenefit` (respecting `cfg.scgenefit_max_constraints`),
+  `select_spapros` (respecting `cfg.spapros_n_hvg` — **only if the leader's
+  directive says "SpaPROS APPROVED" or the pre-check returned severity="fast"**),
+  and `select_random_forest`. Hyperparameter defaults and overrides live under
+  the `gene_panel` section of `settings.json` — do not hardcode magic numbers
+  in notebook cells.
+- **Always request gene scores** from each method (`return_scores=True`)
 - **Save each method's score table to CSV** on disk
 
 ---
@@ -398,7 +413,7 @@ Let N be the target final panel size requested by the leader.
 **4.0 Completion Rule**:
 Before adding a batch of genes to the panel:
 - Test whether the additions make ARI drop considerably or become less stable (on training data)
-- If completing the panel up to size **N** degrades performance substantially (eg ARI drop > `ARI_DROP_THRESHOLD`), propose:
+- If completing the panel up to size **N** degrades performance substantially (eg ARI drop > `cfg.ari_drop_threshold`, see `GenePanelConfig`), propose:
   - An optimal stable panel (< N)
   - A supplemental gene list to reach N if the user requires it
 - A modest ARI drop is acceptable if it adds important biological coverage

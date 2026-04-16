@@ -64,13 +64,21 @@ If the dataset is large, perform **smart downsampling** while preserving **all c
 ---
 
 ## Gene Panel Selection Hyperparameters
-<!-- Recommended defaults: trade-off between precision and fast enough computation. Adjust if needed for your dataset. -->
+<!-- Defaults trade off precision against tractable compute. Override per-project
+     in `settings.json` under the `gene_panel` section; access at runtime via
+     `GenePanelConfig.from_settings()`. -->
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SCGENEFIT_MAX_CONSTRAINTS` | 1000 | Max constraints for scGeneFit optimization |
-| `SPAPROS_N_HVG` | 3000 | Max HVGs for SpaPROS input |
-| `ARI_DROP_THRESHOLD` | 5% | Max acceptable ARI degradation during panel completion |
+| Config field | Default | Description |
+|--------------|---------|-------------|
+| `scgenefit_max_constraints`       | 1000   | Max constraints for scGeneFit LP |
+| `spapros_n_hvg`                   | 3000   | HVG pre-filter size before SpaPROS |
+| `rf_n_estimators`                 | 300    | Trees in the Random Forest ranker |
+| `spapros_runtime_warning_minutes` | 5.0    | Leader prompts the user via `notify_user` if SpaPROS estimate exceeds this |
+| `spapros_runtime_skip_minutes`    | 30.0   | Strong-warning threshold; user may choose to skip SpaPROS |
+| `ari_drop_threshold`              | 0.05   | Max acceptable ARI degradation during completion |
+| `downsample_max_cells`            | 500000 | Above this, downsample before selection |
+| `gene_count_threshold`            | 30000  | Above this, subset genes before selection |
+| `split_cell_limit`                | 50000  | Target cells per test split (soft cap) |
 
 ---
 
@@ -324,30 +332,85 @@ Recompute only if missing or invalid.
 Algorithmic Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS}`
 
 - Use true cell type as `label_key` whenever available
-- Implement HVG / DE via Scanpy on code
-- for more advaced methods **always Use** `gene_panel_selection_tool` toolset :
-```python
-from pantheon.toolsets.gene_panel_selection_tool import GenePanelToolSet
+- Implement HVG / DE via Scanpy directly in code
+- For advanced methods, **always use** the `pantheon.toolsets.gene_panel` library
+  from inside a notebook cell. It is a plain Python library (not a registered
+  toolset) — hyperparameters come from `settings.json` via `GenePanelConfig`:
 
-selection_tool = GenePanelToolSet(
-    name="gene_panel_selection",
-    default_adata_path="adapath",
-    default_workdir="workdir",
+> [!CAUTION]
+> **SpaPROS runtime gate (MANDATORY).** SpaPROS can run for tens of minutes to
+> hours on large datasets. The leader owns the user-facing gate and calls
+> `notify_user` with a single-choice question before Step 2; the result is
+> passed to you as part of the dispatch directive:
+>
+> - `"SpaPROS APPROVED by user"` → run `select_spapros(...)` as normal.
+> - `"SpaPROS SKIPPED by user"` → **do not** call `select_spapros`; report
+>   the skip in `report_analysis.md`.
+> - Pre-check dispatch (estimate only) → call `estimate_spapros_runtime(...)`
+>   and return the dict verbatim; do **not** run any selection method.
+>
+> If severity returned by the estimator is `"fast"` (below
+> `cfg.spapros_runtime_warning_minutes`), the leader proceeds without asking
+> the user — you can run SpaPROS directly.
+
+```python
+from pantheon.toolsets.gene_panel import (
+    GenePanelConfig,
+    estimate_spapros_runtime,
+    select_scgenefit,
+    select_spapros,
+    select_random_forest,
 )
 
-# Advanced methods (tool calls)
-# - select_scgenefit   (ALWAYS: max_constraints <= SCGENEFIT_MAX_CONSTRAINTS)
-# - select_spapros     (ALWAYS: n_hvg < SPAPROS_N_HVG)
-# - select_random_forest
-#
-# Example calls (adjust args as needed):
-await selection_tool.select_scgenefit(label_key="cell_type", n_top_genes="200", max_constraints="1000")
-await selection_tool.select_spapros(label_key="cell_type", num_markers="200", n_hvg="2500")
-await selection_tool.select_random_forest(label_key="cell_type", n_top_genes="1000")
-  ```
+cfg = GenePanelConfig.from_settings()  # loads `gene_panel` section of settings.json
+ADATA = "/abs/path/to/adata.h5ad"
+WORKDIR = "/abs/path/to/workdir"
 
-- Always request **gene scores**
-- Save each method score table to disk (CSV)
+# --- SpaPROS pre-check (only when the leader's dispatch asks for the estimate) ---
+estimate = estimate_spapros_runtime(
+    adata_path=ADATA,
+    num_markers=200,
+    n_hvg=cfg.spapros_n_hvg,
+    warning_minutes=cfg.spapros_runtime_warning_minutes,
+    skip_minutes=cfg.spapros_runtime_skip_minutes,
+)
+print(estimate)  # return this dict verbatim to the leader in the pre-check dispatch
+
+# scGeneFit — respect the LP constraint cap from config
+select_scgenefit(
+    adata_path=ADATA,
+    label_key="cell_type",
+    n_top_genes=200,
+    max_constraints=cfg.scgenefit_max_constraints,
+    return_scores=True,
+    workdir=WORKDIR,
+)
+
+# SpaPROS — ONLY when severity=="fast" or the leader's directive says
+# "SpaPROS APPROVED by user". Otherwise, skip this cell entirely.
+select_spapros(
+    adata_path=ADATA,
+    label_key="cell_type",
+    num_markers=200,
+    n_hvg=cfg.spapros_n_hvg,
+    return_scores=True,
+    workdir=WORKDIR,
+)
+
+# Random Forest
+select_random_forest(
+    adata_path=ADATA,
+    label_key="cell_type",
+    n_top_genes=1000,
+    n_estimators=cfg.rf_n_estimators,
+    return_scores=True,
+    workdir=WORKDIR,
+)
+```
+
+- Always request **gene scores** (`return_scores=True`)
+- Save each method score table to disk (CSV) — the functions do this for you
+- Do **not** hardcode caps in notebook cells; read them from `cfg`
 
 ---
 
@@ -390,7 +453,7 @@ Final panel is built in **two phases**:
 **0) Completion Rule**
 Before adding a batch of genes:
 - test whether it makes ARI drop considerably or become less stable (training)
-- If completing the panel up to size **N** degrades performance substantially (eg ARI drop > `ARI_DROP_THRESHOLD`), propose:
+- If completing the panel up to size **N** degrades performance substantially (eg ARI drop > `cfg.ari_drop_threshold`), propose:
   - an optimal stable panel (< N)
   - a supplemental gene list to reach N if required
 - a modest ARI drop is acceptable if it adds important biological coverage
