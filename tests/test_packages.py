@@ -3,8 +3,15 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+import re
 import sys
 from pathlib import Path
+from textwrap import dedent
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover
+    import tomli as tomllib
 
 import pytest
 
@@ -17,6 +24,7 @@ from pantheon.internal.package_runtime import (
 from pantheon.internal.package_runtime.manager import PackageManager
 
 SAMPLE_WORKSPACE = Path(__file__).parent / "sample_workspace"
+REPO_ROOT = Path(__file__).resolve().parent.parent
 SAMPLE_PACKAGES = {
     path.name
     for path in (SAMPLE_WORKSPACE / ".pantheon" / "packages").iterdir()
@@ -36,15 +44,21 @@ def _prepare_runtime(workspace: Path, packages_dir: Path, monkeypatch) -> object
     return importlib.import_module("pantheon.packages")
 
 
-def test_export_context_filters_non_serializable_entries():
+def test_export_context_filters_non_essential_fields():
+    """build_context_payload applies a whitelist: only ESSENTIAL_CONTEXT_FIELDS survive."""
     payload = build_context_payload(
         workdir="/tmp/workspace",
         context_variables={
+            # essential fields — should survive
+            "client_id": "abc",
+            "image_output_dir": "/tmp/img",
+            # non-essential fields — should be dropped regardless of serializability
             "ok": "value",
             "number": 42,
+            # callables — should be dropped
             "callable": lambda x: x,  # type: ignore[arg-type]
-            "nested": {"valid": 1, "bad": object()},
-            "list": ["hello", object()],
+            # tool_call_id style keys — should be dropped
+            "call_abc123": "tool result",
         },
     )
     env: dict[str, str] = {}
@@ -54,11 +68,12 @@ def test_export_context_filters_non_serializable_entries():
     data = json.loads(serialized)
     ctx_vars = data["context_variables"]
 
-    assert ctx_vars["ok"] == "value"
-    assert ctx_vars["number"] == 42
+    assert ctx_vars["client_id"] == "abc"
+    assert ctx_vars["image_output_dir"] == "/tmp/img"
+    assert "ok" not in ctx_vars
+    assert "number" not in ctx_vars
     assert "callable" not in ctx_vars
-    assert "nested" not in ctx_vars
-    assert "list" not in ctx_vars
+    assert "call_abc123" not in ctx_vars
 
 
 def test_packages_module_adds_packages_path(tmp_path, monkeypatch):
@@ -157,3 +172,20 @@ def test_agent_end_to_end_package_pipeline(monkeypatch):
     assert result["report"]["region"] == "APAC"
     assert result["inventory"]["delta"] == 5
     assert result["notification"]["context_id"] == "exec-42"
+
+
+def test_dockerfile_only_references_declared_optional_dependency_extras():
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+    declared_extras = set(pyproject["project"]["optional-dependencies"])
+    dockerfile = (REPO_ROOT / "docker" / "Dockerfile").read_text()
+    referenced_extras = set(re.findall(r"--extra\s+([A-Za-z0-9_-]+)", dockerfile))
+
+    missing_extras = referenced_extras - declared_extras
+
+    assert not missing_extras, dedent(
+        f"""
+        Dockerfile references optional dependency extras that are not declared in pyproject.toml.
+        Missing extras: {sorted(missing_extras)}
+        Declared extras: {sorted(declared_extras)}
+        """
+    ).strip()

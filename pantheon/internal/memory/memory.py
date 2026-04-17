@@ -234,6 +234,48 @@ class Memory:
         automatically trigger persistence (unlike add_messages).
         """
         self._schedule_persist()
+
+    def set_metadata(self, key: str, value: object) -> bool:
+        """Set a metadata key and schedule debounced persistence if it changed."""
+        if self.extra_data.get(key) == value:
+            return False
+        self.extra_data[key] = value
+        self.mark_dirty()
+        return True
+
+    def set_metadata_in_memory(self, key: str, value: object) -> bool:
+        """Set a metadata key without scheduling persistence."""
+        if self.extra_data.get(key) == value:
+            return False
+        self.extra_data[key] = value
+        return True
+
+    def update_metadata(self, updates: dict[str, object]) -> bool:
+        """Update multiple metadata keys and schedule persistence if any changed."""
+        changed = False
+        for key, value in updates.items():
+            if self.extra_data.get(key) != value:
+                self.extra_data[key] = value
+                changed = True
+
+        if changed:
+            self.mark_dirty()
+        return changed
+
+    def delete_metadata(self, key: str) -> bool:
+        """Delete a metadata key and schedule persistence if it existed."""
+        if key not in self.extra_data:
+            return False
+        del self.extra_data[key]
+        self.mark_dirty()
+        return True
+
+    def delete_metadata_in_memory(self, key: str) -> bool:
+        """Delete a metadata key without scheduling persistence."""
+        if key not in self.extra_data:
+            return False
+        del self.extra_data[key]
+        return True
     
     def _schedule_persist(self):
         """Schedule debounced persistence (non-blocking).
@@ -439,75 +481,29 @@ class Memory:
             )
 
     def _fix_orphaned_tool_calls(self):
-        """Add placeholder responses for orphaned tool_calls and fix context IDs.
+        """Repair tool-call / tool-result pairing in persisted memory."""
+        from pantheon.utils.tool_pairing import ensure_tool_result_pairing_with_stats
 
-        1. Inserts [INTERNAL_ERROR] tool responses for any tool_call that lacks
-           a corresponding tool message.
-        2. Updates existing placeholder messages to ensure they match key metadata
-           (execution_context_id, agent_name) of the parent assistant message.
-        """
-        import time
-        from copy import deepcopy
+        repaired_messages, stats = ensure_tool_result_pairing_with_stats(self._messages)
+        if repaired_messages == self._messages:
+            return
 
-        # Helper to find tool message for a tool_call_id
-        tool_msgs_map = {
-            msg.get("tool_call_id"): msg
-            for msg in self._messages
-            if msg.get("role") == "tool" and msg.get("tool_call_id")
-        }
-
-        insertions = []  # (index, placeholder_message)
-
-        for i, msg in enumerate(self._messages):
-            if msg.get("role") == "assistant" and msg.get("tool_calls"):
-                parent_context_id = msg.get("execution_context_id")
-                parent_agent_name = msg.get("agent_name")
-
-                # Check each tool call in this assistant message
-                for tc in msg["tool_calls"]:
-                    tc_id = tc.get("id")
-                    if not tc_id:
-                        continue
-
-                    existing_tool_msg = tool_msgs_map.get(tc_id)
-
-                    if existing_tool_msg:
-                        continue
-                    else:
-                        # Create Phase: Insert missing tool response
-                        placeholder = {
-                            "role": "tool",
-                            "tool_call_id": tc_id,
-                            "tool_name": tc.get("function", {}).get("name", "unknown"),
-                            "content": "[INTERNAL_ERROR] Session interrupted - tool execution incomplete",
-                            "id": str(uuid4()),
-                            "timestamp": time.time(),
-                            "_recovered": True,
-                        }
-                        # Propagate parent metadata
-                        if parent_context_id:
-                            placeholder["execution_context_id"] = parent_context_id
-                        if parent_agent_name:
-                            placeholder["agent_name"] = parent_agent_name
-
-                        # Use parent's metadata structure if useful (optional, but good for tracking)
-                        if "_metadata" in msg:
-                             # Minimal metadata copy if needed
-                             pass
-
-                        insertions.append((i + 1, placeholder))
-                        # Update map to prevent duplicates if multiple refs exist (unlikely)
-                        tool_msgs_map[tc_id] = placeholder
-
-        # Insert in reverse order to maintain correct indices
-        for idx, placeholder in reversed(insertions):
-            self._messages.insert(idx, placeholder)
-
-        if insertions:
+        self._messages = repaired_messages
+        logger.info(
+            "Fixed memory '{}': {} placeholder tool response(s) inserted, {} orphan tool message(s) dropped, {} duplicate tool_call(s) dropped, {} duplicate tool response(s) dropped",
+            self.name,
+            stats.inserted_placeholder_tool_messages,
+            stats.dropped_orphan_tool_messages,
+            stats.dropped_duplicate_tool_calls,
+            stats.dropped_duplicate_tool_messages,
+        )
+        if stats.dropped_empty_assistant_messages:
             logger.info(
-                f"Fixed memory '{self.name}': {len(insertions)} orphaned tool_call(s) inserted."
+                "Fixed memory '{}': {} empty assistant message(s) dropped after pairing cleanup",
+                self.name,
+                stats.dropped_empty_assistant_messages,
             )
-            self._schedule_persist()
+        self._schedule_persist()
 
     def ensure_fixed(self):
         """Ensure memory is fixed (idempotent).
@@ -568,7 +564,7 @@ class MemoryManager:
 
         # Reset running status
         if memory.extra_data.get("running"):
-            memory.extra_data["running"] = False
+            memory.set_metadata_in_memory("running", False)
 
         return memory
 

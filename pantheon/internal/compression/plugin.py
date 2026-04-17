@@ -6,6 +6,7 @@ and reduce token usage.
 """
 
 from typing import TYPE_CHECKING, Any, Dict
+from datetime import datetime
 
 from pantheon.team.plugin import TeamPlugin
 from pantheon.utils.log import logger
@@ -105,31 +106,41 @@ class CompressionPlugin(TeamPlugin):
         
         # Get active agent's model
         active_agent = team.get_active_agent(memory)
-        model = active_agent.models[0] if active_agent else self.model
+        model = active_agent.models[0] if active_agent and getattr(active_agent, "models", None) else self.model
         
         # Check if compression is needed
         if self.compressor.should_compress(memory._messages, model):
             await self._perform_compression(team, memory)
     
     async def _perform_compression(self, team: "PantheonTeam", memory: "Memory", force: bool = False) -> dict:
-        """
-        Perform context compression on the memory.
-        
-        Args:
-            team: The PantheonTeam instance
-            memory: Memory instance to compress
-            force: If True, bypass chunk size checks and force compression
-            
-        Returns:
-            dict with compression result info
-        """
         from pantheon.settings import get_settings
-        
+        from pantheon.team.plugin import CompactHint
+
         settings = get_settings()
-        # Use ace/learning directory for unified management with ACE learning data
-        learning_config = settings.get_learning_config()
-        compression_dir = learning_config["learning_dir"]
-        
+        compression_dir = str(settings.learning_dir / "pipeline")
+        session_id = getattr(memory, "id", "default")
+
+        # Call pre_compression on all other plugins; collect any CompactHint.
+        compact_hint: CompactHint | None = None
+        try:
+            from pantheon.utils.misc import run_func
+            for plugin in team.plugins:
+                if plugin is self:
+                    continue
+                result = await run_func(plugin.pre_compression, team, session_id, memory._messages)
+                if isinstance(result, CompactHint):
+                    compact_hint = result
+                elif result:
+                    logger.info(f"Pre-compression flush from {plugin.__class__.__name__}")
+        except Exception as e:
+            logger.warning(f"Pre-compression hook failed: {e}")
+
+        # Session Note Compact: use hint from memory plugin (zero LLM calls).
+        if compact_hint is not None:
+            sm_result = self._apply_compact_hint(compact_hint, memory)
+            if sm_result is not None:
+                return sm_result
+
         result = await self.compressor.compress(
             messages=memory._messages,
             compression_dir=compression_dir,
@@ -149,7 +160,13 @@ class CompressionPlugin(TeamPlugin):
                 + memory._messages[compress_end:]
             )
             memory._messages = new_messages
-            
+            # Compression inserts a message in the middle of the history.
+            # append_messages() assumes new messages are at the end and would miss it.
+            # Force a full rewrite to ensure the compression checkpoint is persisted.
+            if memory._backend:
+                memory._backend.rewrite_messages(memory.id, memory._messages)
+                memory._backend._last_persisted_count[memory.id] = len(memory._messages)
+
             logger.info(
                 f"Context compression checkpoint inserted at index {compress_end}. "
                 f"Compressed {compress_end - compress_start} messages ({result.original_tokens} -> {result.new_tokens} tokens)."
@@ -178,16 +195,93 @@ class CompressionPlugin(TeamPlugin):
     async def force_compress(self, team: "PantheonTeam", memory: "Memory") -> dict:
         """
         Force context compression regardless of threshold.
-        
+
         Args:
             team: The PantheonTeam instance
             memory: Memory instance to compress
-            
+
         Returns:
             dict with compression result info
         """
         if not self.compressor:
             return {"success": False, "message": "Compression not enabled in settings"}
-        
+
         # Perform compression with force=True to bypass chunk size checks
         return await self._perform_compression(team, memory, force=True)
+
+    def _apply_compact_hint(self, hint: "CompactHint", memory: "Memory") -> dict | None:
+        """Apply a CompactHint from pre_compression to insert a zero-LLM checkpoint."""
+        from pantheon.team.plugin import CompactHint
+
+        # Insert checkpoint at boundary; preserve everything after it.
+        # Clamp to leave at least 1 message after the checkpoint.
+        keep_start = min(hint.boundary, len(memory._messages) - 1)
+        keep_start = max(keep_start, 0)
+        keep_start = self._adjust_for_tool_pairs(memory._messages, keep_start)
+
+        if keep_start >= len(memory._messages):
+            return None
+
+        original_count = len(memory._messages)
+        compression_index = sum(
+            1 for m in memory._messages if m.get("role") == "compression"
+        ) + 1
+        summary_msg = {
+            "role": "compression",
+            "content": (
+                f"{{{{ CHECKPOINT {compression_index} }}}}\n"
+                f"**The earlier parts of this conversation have been truncated due to its long length. "
+                f"The following content summarizes the truncated context so that you may continue your work.**\n\n"
+                f"{hint.summary}"
+            ),
+            "_metadata": {
+                "method": "session_note_compact",
+                "original_message_count": original_count,
+                "compression_index": compression_index,
+                "timestamp": datetime.now().isoformat(),
+                "current_cost": 0.0,
+            },
+        }
+        memory._messages = (
+            memory._messages[:keep_start]
+            + [summary_msg]
+            + memory._messages[keep_start:]
+        )
+        if memory._backend:
+            memory._backend.rewrite_messages(memory.id, memory._messages)
+            memory._backend._last_persisted_count[memory.id] = len(memory._messages)
+
+        logger.info(f"Session Note Compact: inserted checkpoint at index {keep_start} (zero LLM calls)")
+        return {
+            "success": True,
+            "method": "session_note_compact",
+            "compressed_messages": original_count - len(memory._messages),
+        }
+
+    @staticmethod
+    def _adjust_for_tool_pairs(messages: list[dict], start: int) -> int:
+        """Adjust start index to not split tool_use/tool_result pairs."""
+        if start <= 0 or start >= len(messages):
+            return start
+        # If we'd start at a tool result, include the preceding tool use
+        msg = messages[start]
+        if msg.get("role") == "tool":
+            return max(0, start - 1)
+        return start
+
+
+def _create_compression_plugin(config: dict, settings) -> CompressionPlugin:
+    """Factory function for plugin registry."""
+    return CompressionPlugin(config)
+
+
+# Register with plugin registry
+from pantheon.team.plugin_registry import PluginDef, register_plugin
+
+register_plugin(PluginDef(
+    name="compression",
+    config_key="context_compression",
+    enabled_key="enable",
+    factory=_create_compression_plugin,
+    priority=200,
+))

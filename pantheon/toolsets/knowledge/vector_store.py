@@ -99,14 +99,13 @@ class VectorStoreBackend:
                 logger.info(f"Qdrant client initialized (local mode) at: {location}")
 
             # 2. Initialize embedding model
-            from pantheon.settings import get_settings
-            settings = get_settings()
-            
+            from pantheon.utils.llm_providers import get_llm_config, ProviderType
+
+            api_base, api_key = get_llm_config(ProviderType.OPENAI)
             embed_kwargs = {
                 "model": self.embedding_config["model"],
-                "api_key": settings.get_api_key("OPENAI_API_KEY"),
+                "api_key": api_key,
             }
-            api_base = settings.get_api_key("OPENAI_API_BASE")
             if api_base:
                 embed_kwargs["api_base"] = api_base
 

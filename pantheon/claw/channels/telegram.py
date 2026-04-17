@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import threading
 import time
 from typing import Any
@@ -11,9 +10,9 @@ from telegram.constants import ChatType
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime, text_chunks
+from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_telegram, md_to_plain, extract_display_text
 
-logger = logging.getLogger("pantheon.claw.channels.telegram")
+from pantheon.utils.log import logger
 
 _EDIT_GAP = 1.5   # minimum seconds between placeholder edits
 _MAX_MSG = 4096   # Telegram message length limit
@@ -34,6 +33,8 @@ class TelegramGatewayBot(ChannelRuntime):
         }
         self._stop_event = stop_event
         self._app = Application.builder().token(self._token).build()
+        self._app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, self._handle_photo))
+        self._app.add_handler(MessageHandler(filters.Document.ALL & ~filters.Document.IMAGE, self._handle_document))
         self._app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_text))
         self._app.add_handler(MessageHandler(filters.COMMAND, self._handle_text))
 
@@ -68,11 +69,60 @@ class TelegramGatewayBot(ChannelRuntime):
 
     # ── Analysis wrapper ─────────────────────────────────────────────────────
 
+    async def _download_photo(self, update: Update) -> list[str]:
+        """Download photo(s) from a Telegram message and return data-URI list."""
+        message = update.effective_message
+        if message is None:
+            return []
+        uris: list[str] = []
+        if message.photo:
+            photo = message.photo[-1]  # highest resolution
+            tg_file = await photo.get_file()
+            data = await tg_file.download_as_bytearray()
+            uris.append(bytes_to_data_uri(bytes(data), "photo.jpg"))
+        if message.document and (message.document.mime_type or "").startswith("image/"):
+            tg_file = await message.document.get_file()
+            data = await tg_file.download_as_bytearray()
+            uris.append(bytes_to_data_uri(bytes(data), message.document.file_name or "image.png"))
+        return uris
+
+    async def _send_image(self, message, data_uri: str) -> None:
+        """Send a base64 data-URI as a photo to the Telegram chat."""
+        raw, mime = data_uri_to_bytes(data_uri)
+        if not raw:
+            return
+        import io
+        ext = mime.split("/")[-1] if mime else "png"
+        buf = io.BytesIO(raw)
+        buf.name = f"image.{ext}"
+        try:
+            await message.reply_photo(photo=buf)
+        except Exception:
+            logger.debug("Telegram send_photo failed, falling back to document")
+            buf.seek(0)
+            try:
+                await message.reply_document(document=buf)
+            except Exception:
+                logger.warning("Telegram image send failed completely")
+
+    @staticmethod
+    async def _send_file(message, file_path: str) -> None:
+        """Send a local file as a Telegram document."""
+        import os
+        if not os.path.isfile(file_path):
+            return
+        try:
+            with open(file_path, "rb") as f:
+                await message.reply_document(document=f, filename=os.path.basename(file_path))
+        except Exception:
+            logger.warning("Telegram file send failed: %s", file_path)
+
     async def _analysis_wrapper(
         self,
         route: ConversationRoute,
         update: Update,
         user_text: str,
+        image_uris: list[str] | None = None,
     ) -> None:
         route_key = route.route_key()
         message = update.effective_message
@@ -81,6 +131,8 @@ class TelegramGatewayBot(ChannelRuntime):
 
         placeholder = await message.reply_text("Thinking...")
         llm_buf: list[str] = []
+        image_buf: list[str] = []
+        file_buf: list[str] = []
         last_progress = ""
         last_edit = 0.0
 
@@ -90,43 +142,70 @@ class TelegramGatewayBot(ChannelRuntime):
             if not force and (now - last_edit) < _EDIT_GAP:
                 return
             last_edit = now
-            preview = "".join(llm_buf).strip() or last_progress or "Thinking..."
+            if last_progress:
+                preview = f"🤖 Agent is working...\n\n{last_progress}"
+            else:
+                preview = "🤖 Thinking..."
+            converted = md_to_telegram(preview[-3500:])
             try:
-                await placeholder.edit_text(preview[-3500:])
+                await placeholder.edit_text(converted, parse_mode="MarkdownV2")
             except Exception:
-                pass
+                try:
+                    await placeholder.edit_text(md_to_plain(preview[-3500:]))
+                except Exception:
+                    pass
 
         async def _set_progress(label: str) -> None:
             nonlocal last_progress
             last_progress = label
 
         on_chunk = self.make_chunk_callback(llm_buf, on_update=lambda: _refresh(False))
-        on_step = self.make_step_callback(
+        on_step = self.make_image_step_callback(
             llm_buf,
+            image_buf,
+            file_buf=file_buf,
             progress_cb=_set_progress,
             refresh_cb=lambda: _refresh(True),
         )
+
+        # Extract sender name for group context
+        user = update.effective_user
+        sender_name = None
+        if user and route.scope_type != "dm":
+            sender_name = user.full_name or user.username or str(user.id)
 
         try:
             result = await self._bridge.run_chat(
                 route,
                 user_text,
+                image_uris=image_uris,
+                sender_name=sender_name,
                 process_chunk=on_chunk,
                 process_step_message=on_step,
             )
-            final = str(result.get("response") or "".join(llm_buf) or "Done.")
-            # Force a final edit so the user sees the clean result
+            final = extract_display_text(result, llm_buf)
+            converted_final = md_to_telegram(final[-3500:])
             try:
-                await placeholder.edit_text(final[-3500:])
+                await placeholder.edit_text(converted_final, parse_mode="MarkdownV2")
             except Exception:
-                pass
-            # If response is longer than Telegram's limit, send overflow as
-            # additional messages
-            for extra in text_chunks(final, limit=_MAX_MSG)[1:]:
                 try:
-                    await message.reply_text(extra)
+                    await placeholder.edit_text(md_to_plain(final[-3500:]))
                 except Exception:
                     pass
+            for extra in text_chunks(final, limit=_MAX_MSG)[1:]:
+                try:
+                    await message.reply_text(md_to_telegram(extra), parse_mode="MarkdownV2")
+                except Exception:
+                    try:
+                        await message.reply_text(md_to_plain(extra))
+                    except Exception:
+                        pass
+            # Send any images from the response
+            for uri in image_buf:
+                await self._send_image(message, uri)
+            # Send any files (PDF, markdown, etc.)
+            for fpath in file_buf:
+                await self._send_file(message, fpath)
         except asyncio.CancelledError:
             try:
                 await placeholder.edit_text("Cancelled.")
@@ -148,6 +227,88 @@ class TelegramGatewayBot(ChannelRuntime):
                 self._set_task(route_key, task, next_text)
 
     # ── Message handler ───────────────────────────────────────────────────────
+
+    async def _handle_photo(
+        self,
+        update: Update,
+        _context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        if not self._allowed(update):
+            return
+        message = update.effective_message
+        if message is None:
+            return
+
+        image_uris = await self._download_photo(update)
+        if not image_uris:
+            return
+
+        text = (message.caption or "").strip()
+        route = self._route_from_update(update)
+        route_key = route.route_key()
+
+        running = self._get_running(route_key)
+        if running is not None:
+            self._queue_message(route_key, text or "[image]")
+            await message.reply_text("Queued after current analysis.")
+            return
+
+        task = asyncio.create_task(
+            self._analysis_wrapper(route, update, text, image_uris=image_uris)
+        )
+        self._set_task(route_key, task, text or "[image]")
+
+    async def _handle_document(
+        self,
+        update: Update,
+        _context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        """Handle non-image file uploads (PDF, CSV, etc.)."""
+        if not self._allowed(update):
+            return
+        message = update.effective_message
+        if message is None or message.document is None:
+            return
+
+        doc = message.document
+        file_name = doc.file_name or "uploaded_file"
+        caption = (message.caption or "").strip()
+
+        # Download file to a temporary location
+        import os
+        import tempfile
+        tmp_dir = os.path.join(tempfile.gettempdir(), "pantheon_claw_uploads")
+        os.makedirs(tmp_dir, exist_ok=True)
+        local_path = os.path.join(tmp_dir, file_name)
+
+        try:
+            tg_file = await doc.get_file()
+            await tg_file.download_to_drive(local_path)
+        except Exception:
+            logger.warning("Failed to download Telegram document: %s", file_name)
+            await message.reply_text(f"Failed to download file: {file_name}")
+            return
+
+        # Build message with attachment info (same format as frontend pin-file)
+        attachment_text = (
+            f"--- Attachments ---\n"
+            f"User attached the following files:\n"
+            f"{file_name}: {local_path}\n"
+            f"--- End of Attachments ---\n"
+        )
+        user_text = attachment_text + (caption or f"I've uploaded {file_name}. Please process it.")
+
+        route = self._route_from_update(update)
+        route_key = route.route_key()
+
+        running = self._get_running(route_key)
+        if running is not None:
+            self._queue_message(route_key, user_text)
+            await message.reply_text("Queued after current analysis.")
+            return
+
+        task = asyncio.create_task(self._analysis_wrapper(route, update, user_text))
+        self._set_task(route_key, task, f"[file: {file_name}]")
 
     async def _handle_text(
         self,
@@ -202,6 +363,26 @@ class TelegramGatewayBot(ChannelRuntime):
             logger.info("Telegram bot ready as @%s (%s)", info.username, info.id)
         except Exception as exc:
             logger.warning("Telegram get_me failed: %s", exc)
+        # Register bot commands so Telegram's "/" menu matches PantheonClaw's actual commands
+        try:
+            from telegram import BotCommand
+            await me.set_my_commands([
+                BotCommand("menu", "Show command menu"),
+                BotCommand("status", "Show routed chat status"),
+                BotCommand("agents", "Show agents in current team"),
+                BotCommand("agent", "Switch active agent"),
+                BotCommand("team", "Show current team and usage"),
+                BotCommand("model", "Show or set model"),
+                BotCommand("new", "Start a fresh chat"),
+                BotCommand("list", "List routed chats"),
+                BotCommand("resume", "Resume a previous chat"),
+                BotCommand("isolate", "Toggle workspace isolation"),
+                BotCommand("cancel", "Cancel running analysis"),
+                BotCommand("reset", "Delete chat and start over"),
+            ])
+            logger.info("Telegram bot commands registered")
+        except Exception as exc:
+            logger.warning("Failed to register Telegram bot commands: %s", exc)
         try:
             await asyncio.to_thread(self._stop_event.wait)
         finally:

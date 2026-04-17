@@ -3,6 +3,8 @@ import pytest
 from tempfile import TemporaryDirectory
 from pantheon.toolsets.file import FileManagerToolSet
 
+HAS_OPENAI = bool(os.environ.get("OPENAI_API_KEY"))
+
 @pytest.fixture
 def temp_toolset():
     """Create a FileManagerToolSet with a temporary directory."""
@@ -510,3 +512,105 @@ async def test_manage_path_comprehensive(temp_toolset):
     result = await temp_toolset.manage_path("delete", "nonexistent.txt")
     assert result["success"] is False
     assert "does not exist" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# write_file append mode + large content tests
+# ---------------------------------------------------------------------------
+
+async def test_write_file_append_basic(temp_toolset):
+    """write_file(append=True) appends to existing file."""
+    await temp_toolset.write_file("log.txt", "header\n")
+    res = await temp_toolset.write_file("log.txt", "line1\nline2\n", append=True)
+    assert res["success"]
+    assert res["appended_chars"] == len("line1\nline2\n")
+    content = (await temp_toolset.read_file("log.txt"))["content"]
+    assert content == "header\nline1\nline2\n"
+
+
+async def test_write_file_append_multiple_batches(temp_toolset):
+    """write_file(append=True) supports multiple sequential appends."""
+    await temp_toolset.write_file("refs.bib", "% Bibliography\n")
+    for i in range(5):
+        batch = f"@article{{ref{i},\n  title={{Title {i}}},\n}}\n\n"
+        res = await temp_toolset.write_file("refs.bib", batch, append=True)
+        assert res["success"], f"Batch {i} failed: {res}"
+    content = (await temp_toolset.read_file("refs.bib"))["content"]
+    assert content.startswith("% Bibliography\n")
+    assert content.count("@article{") == 5
+
+
+async def test_write_file_append_rejects_nonexistent(temp_toolset):
+    """write_file(append=True) rejects when file does not exist."""
+    res = await temp_toolset.write_file("missing.txt", "data", append=True)
+    assert not res["success"]
+    assert res["reason"] == "file_not_found"
+
+
+async def test_write_file_large_content(temp_toolset):
+    """write_file accepts large content (no size guards — root cause fixed at LLM layer)."""
+    big = "x" * 100_000
+    res = await temp_toolset.write_file("big.txt", big)
+    assert res["success"]
+    assert (temp_toolset.path / "big.txt").read_text() == big
+
+
+async def test_update_file_large_new_string(temp_toolset):
+    """update_file accepts large new_string (no size guards)."""
+    await temp_toolset.write_file("doc.txt", "PLACEHOLDER\n")
+    big = "y" * 50_000
+    res = await temp_toolset.update_file("doc.txt", "PLACEHOLDER", big)
+    assert res["success"]
+    content = (await temp_toolset.read_file("doc.txt"))["content"]
+    assert big in content
+
+
+async def test_write_file_append_large_content(temp_toolset):
+    """write_file(append=True) accepts large content (no size guards)."""
+    await temp_toolset.write_file("base.txt", "start\n")
+    big = "z" * 50_000
+    res = await temp_toolset.write_file("base.txt", big, append=True)
+    assert res["success"]
+    content = (await temp_toolset.read_file("base.txt"))["content"]
+    assert content == "start\n" + big
+
+
+# ---------------------------------------------------------------------------
+# max_tokens auto-detection (PR #55 — 7920a72)
+# ---------------------------------------------------------------------------
+
+def test_max_tokens_auto_set():
+    """acompletion must auto-set max_tokens from model's max_output_tokens
+    when not explicitly provided (prevents Anthropic 4096 default truncation)."""
+    from pantheon.utils.provider_registry import get_model_info
+
+    # Anthropic model — the original failure case
+    info = get_model_info("anthropic/claude-3-haiku-20240307")
+    max_out = info.get("max_output_tokens", 0)
+    assert max_out > 4096, (
+        f"Expected max_output_tokens > 4096 for claude-3-haiku, got {max_out}"
+    )
+
+    # OpenAI model
+    info = get_model_info("openai/gpt-4.1-mini")
+    max_out = info.get("max_output_tokens", 0)
+    assert max_out > 0, f"Expected max_output_tokens > 0 for gpt-4.1-mini, got {max_out}"
+
+
+@pytest.mark.skipif(not HAS_OPENAI, reason="OPENAI_API_KEY not set")
+async def test_max_tokens_live_openai():
+    """Live test: acompletion sets max_tokens automatically, preventing truncation."""
+    from pantheon.utils.llm_providers import call_llm_provider, detect_provider
+
+    provider_config = detect_provider("openai/gpt-4.1-mini", False)
+    # Call with a simple prompt, no explicit max_tokens in model_params
+    message = await call_llm_provider(
+        config=provider_config,
+        messages=[
+            {"role": "system", "content": "Reply with exactly: OK"},
+            {"role": "user", "content": "Say OK"},
+        ],
+    )
+    assert isinstance(message, dict)
+    content = message.get("content", "")
+    assert len(content) > 0, "Expected non-empty response"

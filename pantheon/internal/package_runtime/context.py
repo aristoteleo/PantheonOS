@@ -12,6 +12,18 @@ from pantheon.utils.log import logger
 CONTEXT_ENV = "PANTHEON_CONTEXT"
 DEFAULT_PACKAGES_SUBDIR = ".pantheon/packages"
 
+# Whitelist of context_variables fields that are safe to serialize into the environment.
+# Only these fields are passed to subprocesses (kernel, shell, interpreter).
+# This prevents tool_call_id accumulation and other runtime garbage from leaking.
+ESSENTIAL_CONTEXT_FIELDS: frozenset[str] = frozenset({
+    "workdir",
+    "client_id",
+    "execution_context_id",
+    "image_output_dir",
+    "agent_name",
+    "model_params",
+})
+
 
 def _default_json(value: Any):
     if isinstance(value, Path):
@@ -41,13 +53,22 @@ def build_context_payload(
     context_variables: Mapping[str, Any] | None = None,
     extras: Mapping[str, Any] | None = None,
 ) -> dict:
-    """Construct a normalized context payload ready for export."""
+    """Construct a normalized context payload ready for export.
+
+    Only fields in ESSENTIAL_CONTEXT_FIELDS are included in context_variables.
+    This prevents runtime garbage (tool_call_id results, callbacks, etc.) from
+    leaking into subprocess environments and causing E2BIG errors.
+    """
     normalized_workdir = _normalize_path(workdir)
-    # remove key value with _ prefix from context_variables keys
     context_variables = dict(context_variables or {})
+    filtered: dict[str, Any] = {
+        k: v
+        for k, v in context_variables.items()
+        if k in ESSENTIAL_CONTEXT_FIELDS and not callable(v)
+    }
     payload: dict[str, Any] = {
         "workdir": normalized_workdir,
-        "context_variables": {k: v for k, v in context_variables.items() if not k.startswith("_")},
+        "context_variables": filtered,
     }
     
     # Auto-inject endpoint_mcp_uri from ENDPOINT_MCP_URI env var if available
@@ -199,39 +220,10 @@ def optimize_context_env(
             env.pop(var)
             logger.debug(f"Removed {var} ({removed_size} bytes)")
 
-    # Step 2: Prune large fields in PANTHEON_CONTEXT
-    pantheon_context = env.get("PANTHEON_CONTEXT")
-    if pantheon_context:
-        try:
-            ctx = json.loads(pantheon_context)
-
-            if "context_variables" in ctx:
-                cv = ctx["context_variables"]
-                original_cv_size = len(json.dumps(cv))
-
-                # Identify large fields (> 10KB)
-                large_fields = []
-                for key, value in list(cv.items()):
-                    value_size = len(json.dumps(value))
-                    if value_size > 10 * 1024:  # 10KB threshold
-                        large_fields.append((key, value_size))
-
-                if large_fields:
-                    logger.warning(f"Found {len(large_fields)} large context variables:")
-                    for key, size in large_fields:
-                        logger.warning(f"  - {key}: {size} bytes")
-                        # Replace with placeholder
-                        cv[key] = f"<removed: too large ({size} bytes)>"
-
-                    # Re-serialize
-                    env["PANTHEON_CONTEXT"] = json.dumps(ctx)
-                    new_cv_size = len(json.dumps(cv))
-                    logger.info(
-                        f"Reduced context_variables from {original_cv_size} to {new_cv_size} bytes"
-                    )
-
-        except Exception as e:
-            logger.error(f"Failed to prune PANTHEON_CONTEXT: {e}")
+    # Step 2 (formerly: prune large PANTHEON_CONTEXT fields) is no longer needed.
+    # build_context_payload now applies a whitelist so PANTHEON_CONTEXT only
+    # contains ESSENTIAL_CONTEXT_FIELDS and will never be large enough to trigger
+    # this path.
 
     # Recalculate size
     new_total_size = sum(len(str(k)) + len(str(v)) for k, v in env.items())
@@ -267,6 +259,7 @@ def get_env_size_info(env: dict) -> dict:
 
 __all__ = [
     "CONTEXT_ENV",
+    "ESSENTIAL_CONTEXT_FIELDS",
     "build_context_payload",
     "derive_packages_path",
     "export_context",

@@ -150,8 +150,10 @@ def _strip_docstring_args(docstring: str | None) -> str:
 def desc_to_openai_dict(
     desc: Description,
     skip_params: List[str] = [],
-    litellm_mode: bool = False,
+    relaxed_schema: bool = False,
 ) -> dict:
+    _relaxed = relaxed_schema
+
     # Filter inputs without modifying original desc.inputs
     filtered_inputs = [arg for arg in desc.inputs if arg.name not in skip_params]
 
@@ -197,7 +199,7 @@ def desc_to_openai_dict(
 
         parameters[arg.name] = pdict
 
-        if litellm_mode:
+        if _relaxed:
             if arg.default is NotDef:
                 required.append(arg.name)
         else:
@@ -208,10 +210,10 @@ def desc_to_openai_dict(
         "function": {
             "name": desc.name,
             "description": tool_description,
-            "strict": not litellm_mode,
+            "strict": not _relaxed,
         },
     }
-    if (not litellm_mode) or (len(parameters) > 0):
+    if (not _relaxed) or (len(parameters) > 0):
         func_dict["function"]["parameters"] = {
             "type": "object",
             "properties": parameters,

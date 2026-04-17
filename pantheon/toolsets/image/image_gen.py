@@ -6,18 +6,16 @@ Supports text-only models (DALL-E, Imagen), multimodal models (Gemini Nano Banan
 and native image editing models (OpenAI gpt-image).
 """
 
-import litellm
+import os
 
-# Suppress litellm debug output (Provider List message)
-litellm.suppress_debug_info = True
-litellm.set_verbose = False
 from pantheon.toolset import ToolSet, tool
 from pantheon.utils.vision import (
     ImageStore,
     get_image_store,
     expand_image_references_for_llm,
 )
-from pantheon.utils.llm_providers import get_litellm_proxy_kwargs
+from pantheon.utils.llm_providers import get_llm_proxy_config
+from pantheon.utils.provider_registry import find_provider_for_model
 
 # Multimodal models that support image input + output via acompletion API
 # Gemini Nano Banana series: Pro / Nano Banana 2 / Nano Banana first-gen
@@ -91,16 +89,16 @@ class ImageGenerationToolSet(ToolSet):
         return "default"
 
     def _extract_cost_from_response(self, response) -> float:
-        """Extract cost from LiteLLM response.
-        
+        """Extract cost from API response.
+
         Args:
-            response: LiteLLM response object from acompletion or aimage_generation
-            
+            response: Response object from acompletion or aimage_generation
+
         Returns:
             Cost in USD, or 0.0 if calculation fails
         """
         try:
-            from litellm import completion_cost
+            from pantheon.utils.provider_registry import completion_cost
             cost = completion_cost(completion_response=response) or 0.0
             from pantheon.utils.log import logger
             logger.debug(f"Image generation cost: ${cost:.6f}")
@@ -171,12 +169,25 @@ class ImageGenerationToolSet(ToolSet):
         model: str,
     ) -> dict:
         """Text-only image generation (DALL-E, Imagen)."""
-        response = await litellm.aimage_generation(
-            model=model,
+        from pantheon.utils.adapters import get_adapter
+
+        provider_key, model_name, provider_config = find_provider_for_model(model)
+        _proxy_base, _proxy_key = get_llm_proxy_config()
+        if _proxy_base:
+            base_url = _proxy_base
+            api_key = _proxy_key
+        else:
+            base_url = provider_config.get("base_url")
+            api_key_env = provider_config.get("api_key_env")
+            api_key = os.environ.get(api_key_env) if api_key_env else None
+        adapter = get_adapter("openai")
+        response = await adapter.aimage_generation(
+            model=model_name if provider_key != "unknown" else model,
             prompt=prompt,
             size="1024x1024",
             n=1,
-            **get_litellm_proxy_kwargs(),
+            base_url=base_url,
+            api_key=api_key,
         )
 
         # Extract cost from response
@@ -184,16 +195,17 @@ class ImageGenerationToolSet(ToolSet):
 
         chat_id = self._get_chat_id()
         saved_paths = []
+        data_uris = []
         for item in response.data:
             if item.b64_json:
-                path = self.image_store.save_base64_image(
-                    chat_id, f"data:image/png;base64,{item.b64_json}"
-                )
+                uri = f"data:image/png;base64,{item.b64_json}"
+                path = self.image_store.save_base64_image(chat_id, uri)
                 saved_paths.append(path)
+                data_uris.append(uri)
             elif item.url:
                 saved_paths.append(item.url)
 
-        return {
+        result = {
             "success": True,
             "images": saved_paths,
             "model_used": model,
@@ -201,6 +213,10 @@ class ImageGenerationToolSet(ToolSet):
                 "current_cost": cost,
             }
         }
+        if data_uris:
+            result["base64_uri"] = data_uris
+            result["hidden_to_model"] = ["base64_uri"]
+        return result
 
     async def _multimodal_image_gen(
         self,
@@ -211,7 +227,7 @@ class ImageGenerationToolSet(ToolSet):
         """Multimodal image generation (Gemini Nano Banana series).
 
         Uses chat completion API with modalities parameter to generate images.
-        This approach works through LiteLLM Proxy and supports image generation.
+        This approach works through the LLM Proxy and supports image generation.
 
         Supported models:
         - gemini-3-pro-image-preview (Nano Banana Pro, up to 4K)
@@ -232,12 +248,24 @@ class ImageGenerationToolSet(ToolSet):
         self.image_store.process_message_images(messages[0], chat_id)
         messages = expand_image_references_for_llm(messages)
 
-        response = await litellm.acompletion(
-            model=model,
+        from pantheon.utils.adapters import get_adapter
+        from pantheon.utils.provider_registry import find_provider_for_model
+
+        _proxy_base, _proxy_key = get_llm_proxy_config()
+        provider_key, model_name, provider_config = find_provider_for_model(model)
+        sdk_type = "openai" if _proxy_base else provider_config.get("sdk", "openai")
+        adapter = get_adapter(sdk_type)
+
+        collected_chunks = await adapter.acompletion(
+            model=model if _proxy_base else model_name,
             messages=messages,
-            modalities=["text", "image"],  # Enable image generation output
-            **get_litellm_proxy_kwargs(),  # Use proxy for real API keys
+            stream=True,
+            base_url=_proxy_base or provider_config.get("base_url"),
+            api_key=_proxy_key or None,
+            modalities=["text", "image"],
         )
+        from pantheon.utils.llm import stream_chunk_builder
+        response = stream_chunk_builder(collected_chunks)
 
         # Extract cost from response
         cost = self._extract_cost_from_response(response)
@@ -248,6 +276,7 @@ class ImageGenerationToolSet(ToolSet):
         # Save generated images
         # Format: [{'image_url': {'url': 'data:image/png;base64,...'}}]
         saved_paths = []
+        data_uris = []
         for img in images:
             if isinstance(img, dict):
                 url = img.get("image_url", {}).get("url", "")
@@ -256,8 +285,10 @@ class ImageGenerationToolSet(ToolSet):
             if url:
                 path = self.image_store.save_base64_image(chat_id, url)
                 saved_paths.append(path)
+                if url.startswith("data:"):
+                    data_uris.append(url)
 
-        return {
+        result = {
             "success": True,
             "images": saved_paths,
             "text": message.content,
@@ -266,6 +297,10 @@ class ImageGenerationToolSet(ToolSet):
                 "current_cost": cost,
             }
         }
+        if data_uris:
+            result["base64_uri"] = data_uris
+            result["hidden_to_model"] = ["base64_uri"]
+        return result
 
     async def _image_edit_gen(
         self,
@@ -283,13 +318,26 @@ class ImageGenerationToolSet(ToolSet):
             resolved = self.image_store.normalize_local_path(path)
             resolved_paths.append(resolved)
 
-        response = await litellm.aimage_edit(
-            model=model,
+        from pantheon.utils.adapters import get_adapter
+
+        provider_key, model_name, provider_config = find_provider_for_model(model)
+        _proxy_base, _proxy_key = get_llm_proxy_config()
+        if _proxy_base:
+            base_url = _proxy_base
+            api_key = _proxy_key
+        else:
+            base_url = provider_config.get("base_url")
+            api_key_env = provider_config.get("api_key_env")
+            api_key = os.environ.get(api_key_env) if api_key_env else None
+        adapter = get_adapter("openai")
+        response = await adapter.aimage_edit(
+            model=model_name if provider_key != "unknown" else model,
             image=resolved_paths,
             prompt=prompt,
             size="1024x1024",
             n=1,
-            **get_litellm_proxy_kwargs(),
+            base_url=base_url,
+            api_key=api_key,
         )
 
         # Extract cost from response
@@ -297,16 +345,17 @@ class ImageGenerationToolSet(ToolSet):
 
         chat_id = self._get_chat_id()
         saved_paths = []
+        data_uris = []
         for item in response.data:
             if item.b64_json:
-                path = self.image_store.save_base64_image(
-                    chat_id, f"data:image/png;base64,{item.b64_json}"
-                )
+                uri = f"data:image/png;base64,{item.b64_json}"
+                path = self.image_store.save_base64_image(chat_id, uri)
                 saved_paths.append(path)
+                data_uris.append(uri)
             elif item.url:
                 saved_paths.append(item.url)
 
-        return {
+        result = {
             "success": True,
             "images": saved_paths,
             "model_used": model,
@@ -314,6 +363,10 @@ class ImageGenerationToolSet(ToolSet):
                 "current_cost": cost,
             }
         }
+        if data_uris:
+            result["base64_uri"] = data_uris
+            result["hidden_to_model"] = ["base64_uri"]
+        return result
 
     async def _describe_reference_images(self, reference_images: list[str]) -> str:
         """Vision fallback: describe reference images for text-only models."""

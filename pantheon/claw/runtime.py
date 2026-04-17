@@ -26,10 +26,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
+import base64
+import mimetypes
+
 from pantheon.claw.registry import ConversationRoute
 from pantheon.settings import get_settings
 
-logger = logging.getLogger("pantheon.claw.runtime")
+from pantheon.utils.log import logger
 
 _DEDUP_TTL_SECONDS = 24 * 60 * 60
 _DEDUP_MAX_ENTRIES = 10_000
@@ -251,6 +254,286 @@ def parse_step_text(step: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def extract_display_text(result: Dict[str, Any], llm_buf: List[str]) -> str:
+    """Extract human-readable text from a chat result.
+
+    Handles normal responses and interrupt/plan results where the response
+    field may contain a raw JSON-like string from a tool result.
+    """
+    response = result.get("response") or ""
+
+    # Detect interrupt/notify_user tool results embedded in the response.
+    # These look like: {"success": true, "interrupt": true, "message": "..."}
+    # We want the "message" field, not the raw dict string.
+    if isinstance(response, str) and '"interrupt"' in response:
+        import json as _json
+        try:
+            parsed = _json.loads(response)
+            if isinstance(parsed, dict) and parsed.get("interrupt"):
+                msg = parsed.get("message", "")
+                questions = parsed.get("questions", [])
+                parts = [msg] if msg else []
+                if questions:
+                    parts.append("\n".join(f"• {q}" for q in questions))
+                if parts:
+                    return "\n\n".join(parts)
+        except (ValueError, TypeError):
+            pass
+
+    if response:
+        return str(response)
+    return "".join(llm_buf).strip() or "Done."
+
+
+# ─── Markdown format converters ──────────────────────────────────────────────
+
+import re as _re
+
+
+def md_to_slack(text: str) -> str:
+    """Convert Markdown to Slack mrkdwn format."""
+    blocks: List[str] = []
+
+    def _stash_block(m: _re.Match) -> str:
+        blocks.append(m.group(0))
+        return f"\x00BLOCK{len(blocks) - 1}\x00"
+
+    text = _re.sub(r"```[\s\S]*?```", _stash_block, text)
+
+    inlines: List[str] = []
+
+    def _stash_inline(m: _re.Match) -> str:
+        inlines.append(m.group(0))
+        return f"\x00INLINE{len(inlines) - 1}\x00"
+
+    text = _re.sub(r"`[^`]+`", _stash_inline, text)
+
+    text = _re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", "", text)  # Remove image links (sent separately)
+    text = _re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"<\2|\1>", text)
+    # Bold: **text** → stash, then restore as *text* after italic pass
+    bolds: List[str] = []
+
+    def _stash_bold(m: _re.Match) -> str:
+        bolds.append(m.group(1))
+        return f"\x00BOLD{len(bolds) - 1}\x00"
+
+    text = _re.sub(r"\*\*(.+?)\*\*", _stash_bold, text)
+    # Italic: *text* → _text_ (now safe since ** already stashed)
+    text = _re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"_\1_", text)
+    # Restore bold as Slack bold
+    for i, content in enumerate(bolds):
+        text = text.replace(f"\x00BOLD{i}\x00", f"*{content}*")
+    text = _re.sub(r"~~(.+?)~~", r"~\1~", text)
+    text = _re.sub(r"^#{1,6}\s+(.+)$", r"*\1*", text, flags=_re.MULTILINE)
+    text = _re.sub(r"^(\s*)[-*]\s+", r"\1• ", text, flags=_re.MULTILINE)
+
+    for i, code in enumerate(inlines):
+        text = text.replace(f"\x00INLINE{i}\x00", code)
+    for i, block in enumerate(blocks):
+        text = text.replace(f"\x00BLOCK{i}\x00", block)
+
+    return text
+
+
+_TG_ESCAPE_CHARS = _re.compile(r"([_*\[\]()~`>#+\-=|{}.!\\])")
+
+
+def _tg_escape(text: str) -> str:
+    """Escape special characters for Telegram MarkdownV2 plain text."""
+    return _TG_ESCAPE_CHARS.sub(r"\\\1", text)
+
+
+def md_to_telegram(text: str) -> str:
+    """Convert standard Markdown to Telegram MarkdownV2.
+
+    Strategy: extract all formatting entities into placeholders, escape the
+    remaining plain text, then restore the entities with correct MV2 syntax.
+    """
+    stash: List[str] = []
+
+    def _put(mv2: str) -> str:
+        stash.append(mv2)
+        return f"\x00S{len(stash) - 1}\x00"
+
+    # 1. Stash code blocks (``` ... ```) — content must NOT be escaped
+    def _stash_codeblock(m: _re.Match) -> str:
+        raw = m.group(0)
+        # Extract lang hint and body
+        inner = _re.sub(r"^```\w*\n?", "", raw)
+        inner = _re.sub(r"\n?```$", "", inner)
+        return _put(f"```\n{inner}\n```")
+
+    text = _re.sub(r"```[\s\S]*?```", _stash_codeblock, text)
+
+    # 2. Stash inline code — content must NOT be escaped
+    def _stash_inline(m: _re.Match) -> str:
+        return _put(m.group(0))
+
+    text = _re.sub(r"`[^`]+`", _stash_inline, text)
+
+    # 3. Remove image links ![text](url) — images are sent separately
+    text = _re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", "", text)
+
+    # 4. Stash links [text](url) — text gets escaped, url doesn't
+    def _stash_link(m: _re.Match) -> str:
+        return _put(f"[{_tg_escape(m.group(1))}]({m.group(2)})")
+
+    text = _re.sub(r"\[([^\]]+)\]\(([^)]+)\)", _stash_link, text)
+
+    # 4. Stash bold **text** → *escaped_text*
+    def _stash_bold(m: _re.Match) -> str:
+        return _put(f"*{_tg_escape(m.group(1))}*")
+
+    text = _re.sub(r"\*\*(.+?)\*\*", _stash_bold, text)
+
+    # 5. Stash italic *text* → _escaped\_text_
+    def _stash_italic(m: _re.Match) -> str:
+        return _put(f"_{_tg_escape(m.group(1))}_")
+
+    text = _re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", _stash_italic, text)
+
+    # 6. Stash strikethrough ~~text~~ → ~escaped_text~
+    def _stash_strike(m: _re.Match) -> str:
+        return _put(f"~{_tg_escape(m.group(1))}~")
+
+    text = _re.sub(r"~~(.+?)~~", _stash_strike, text)
+
+    # 7. Headers → bold
+    def _stash_header(m: _re.Match) -> str:
+        return _put(f"*{_tg_escape(m.group(1))}*")
+
+    text = _re.sub(r"^#{1,6}\s+(.+)$", _stash_header, text, flags=_re.MULTILINE)
+
+    # 8. Lists: - item → • item (done after escaping below)
+    text = _re.sub(r"^(\s*)[-]\s+", r"\1• ", text, flags=_re.MULTILINE)
+
+    # 9. Escape all remaining plain text
+    text = _tg_escape(text)
+
+    # 10. Restore stashed entities
+    for i, entity in enumerate(stash):
+        text = text.replace(f"\\x00S{i}\\x00", entity)
+        text = text.replace(f"\x00S{i}\x00", entity)
+
+    return text
+
+
+def md_to_plain(text: str) -> str:
+    """Strip Markdown to plain text for channels that don't support markup."""
+    blocks: List[str] = []
+
+    def _stash_block(m: _re.Match) -> str:
+        # Keep the code content but strip the fences
+        content = m.group(0)
+        content = _re.sub(r"^```\w*\n?", "", content)
+        content = _re.sub(r"\n?```$", "", content)
+        blocks.append(content)
+        return f"\x00BLOCK{len(blocks) - 1}\x00"
+
+    text = _re.sub(r"```[\s\S]*?```", _stash_block, text)
+
+    text = _re.sub(r"`([^`]+)`", r"\1", text)
+    text = _re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", "", text)  # Remove image links (sent separately)
+    text = _re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1 (\2)", text)
+    text = _re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = _re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"\1", text)
+    text = _re.sub(r"__(.+?)__", r"\1", text)
+    text = _re.sub(r"(?<!_)_(?!_)(.+?)(?<!_)_(?!_)", r"\1", text)
+    text = _re.sub(r"~~(.+?)~~", r"\1", text)
+    text = _re.sub(r"^#{1,6}\s+(.+)$", r"\1", text, flags=_re.MULTILINE)
+    text = _re.sub(r"^(\s*)[-*]\s+", r"\1• ", text, flags=_re.MULTILINE)
+
+    for i, block in enumerate(blocks):
+        text = text.replace(f"\x00BLOCK{i}\x00", block)
+
+    return text
+
+
+# ─── Image helpers ───────────────────────────────────────────────────────────
+
+_DATA_URI_RE = r"data:image/[^;]+;base64,[A-Za-z0-9+/=]+"
+
+#image bytes into a string you can embed anywhere
+def bytes_to_data_uri(data: bytes, filename: str = "") -> str:
+    """Convert raw image bytes to a ``data:image/...;base64,...`` URI.
+
+    Returns an empty string if *data* exceeds the configured size limit.
+    """
+    from pantheon.utils.image_detection import _get_image_limits
+    max_size, _ = _get_image_limits()
+    if len(data) > max_size:
+        logger.warning("Image too large (%d bytes, limit %d), skipping", len(data), max_size)
+        return ""
+    mime, _ = mimetypes.guess_type(filename or "image.png")
+    if not mime or not mime.startswith("image/"):
+        mime = "image/png"
+    encoded = base64.b64encode(data).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
+def data_uri_to_bytes(uri: str) -> tuple[bytes, str]:
+    """Convert a data URI back to ``(raw_bytes, mime_type)``.
+
+    Returns ``(b"", "")`` when the URI is not a valid base64 data URI.
+    """
+    if not uri or not uri.startswith("data:"):
+        return b"", ""
+    try:
+        header, payload = uri.split(",", 1)
+        mime = header.split(";")[0].replace("data:", "")
+        return base64.b64decode(payload), mime
+    except Exception:
+        return b"", ""
+
+
+_DEFAULT_IMGBB_KEY = "b475b7345fe3af9c65a73dba2339199b"
+
+
+def upload_image_to_imgbb(data_uri: str, api_key: str | None = None) -> str | None:
+    """Upload a data-URI image to imgbb and return the public URL.
+
+    Returns None on failure.
+    """
+    import requests as _requests
+
+    raw, _mime = data_uri_to_bytes(data_uri)
+    if not raw:
+        return None
+    key = api_key or _DEFAULT_IMGBB_KEY
+    b64 = base64.b64encode(raw).decode("ascii")
+    try:
+        resp = _requests.post(
+            "https://api.imgbb.com/1/upload",
+            data={"key": key, "image": b64},
+            timeout=30,
+        )
+        data = resp.json()
+        if data.get("success"):
+            return data["data"]["url"]
+        logger.warning(f"imgbb upload failed: {data}")
+    except Exception as e:
+        logger.warning(f"imgbb upload error: {e}")
+    return None
+
+
+def extract_images_from_result(result: Dict[str, Any]) -> List[str]:
+    """Pull base64 data-URIs from a chatroom response.
+
+    Scans ``result["messages"]`` for tool-result messages that carry a
+    ``base64_uri`` field in their ``raw_content``.
+    """
+    uris: List[str] = []
+    for msg in result.get("messages") or []:
+        raw = msg.get("raw_content")
+        if isinstance(raw, dict):
+            uri_val = raw.get("base64_uri")
+            if isinstance(uri_val, list):
+                uris.extend(u for u in uri_val if isinstance(u, str) and u)
+            elif isinstance(uri_val, str) and uri_val:
+                uris.append(uri_val)
+    return uris
+
+
 # ─── ChannelRuntime ──────────────────────────────────────────────────────────
 
 class ChannelRuntime:
@@ -316,8 +599,21 @@ class ChannelRuntime:
         on_update: Optional[Callable[[], Coroutine]] = None,
     ) -> Callable[[Dict[str, Any]], Coroutine]:
         """Return an ``on_chunk`` callback that appends to *buf* and optionally
-        triggers a UI refresh via *on_update*."""
+        triggers a UI refresh via *on_update*.
+
+        Only appends chunks from the primary (first seen) agent; sub-agent
+        streaming is suppressed to avoid confusing intermediate output.
+        """
+        _primary: List[str] = []
+
         async def _on_chunk(chunk: Dict[str, Any]) -> None:
+            agent_name = chunk.get("agent_name", "")
+            if agent_name:
+                if not _primary:
+                    _primary.append(agent_name)
+                elif agent_name != _primary[0]:
+                    return  # suppress sub-agent chunks
+
             text = str(chunk.get("content") or "")
             if text:
                 buf.append(text)
@@ -332,18 +628,105 @@ class ChannelRuntime:
         refresh_cb: Optional[Callable[[], Coroutine]] = None,
     ) -> Callable[[Dict[str, Any]], Coroutine]:
         """Return an ``on_step`` callback that:
-        - Updates *llm_buf* with assistant text
+        - Updates *llm_buf* with assistant text or notify_user messages
         - Calls *progress_cb(label)* for tool/transfer events
         - Calls *refresh_cb()* to push updates to the channel UI
         """
+        _primary_agent: List[str] = []  # tracks the main (first) agent name
+
         async def _on_step(step: Dict[str, Any]) -> None:
-            # Overwrite LLM buffer with the full assistant message
+            # Only show assistant text from the primary (leader) agent
             txt = parse_step_text(step)
             if txt:
+                agent_name = step.get("agent_name", "")
+                if not _primary_agent:
+                    _primary_agent.append(agent_name)
+                if agent_name == _primary_agent[0] or not _primary_agent[0]:
+                    llm_buf.clear()
+                    llm_buf.append(txt)
+
+            # Capture notify_user / task completion messages
+            if step.get("role") == "tool" and not step.get("transfer"):
+                raw = step.get("raw_content")
+                if isinstance(raw, dict):
+                    notify_msg = raw.get("message")
+                    if isinstance(notify_msg, str) and notify_msg.strip():
+                        llm_buf.clear()
+                        llm_buf.append(notify_msg)
+
+            # Show tool/agent-transfer progress
+            progress = parse_step_progress(step)
+            if progress is not None and progress_cb is not None:
+                await progress_cb(progress)
+
+            if refresh_cb is not None:
+                await refresh_cb()
+
+        return _on_step
+
+    def make_image_step_callback(
+        self,
+        llm_buf: List[str],
+        image_buf: List[str],
+        file_buf: Optional[List[str]] = None,
+        progress_cb: Optional[Callable[[str], Coroutine]] = None,
+        refresh_cb: Optional[Callable[[], Coroutine]] = None,
+    ) -> Callable[[Dict[str, Any]], Coroutine]:
+        """Like ``make_step_callback`` but also collects images and file paths
+        from tool results.
+
+        *image_buf* receives data-URI strings for images.
+        *file_buf* (if provided) receives absolute file paths from notify_user
+        ``paths`` fields for non-image attachments (PDF, markdown, etc.).
+        Also captures notify_user / task completion messages into *llm_buf*.
+        """
+        _file_buf = file_buf if file_buf is not None else []
+        _primary_agent: List[str] = []  # tracks the main (first) agent name
+        _in_sub_agent: List[bool] = [False]  # mutable flag for sub-agent state
+
+        async def _on_step(step: Dict[str, Any]) -> None:
+            # Track sub-agent state via agent_name changes
+            agent_name = step.get("agent_name", "")
+            if agent_name:
+                if not _primary_agent:
+                    _primary_agent.append(agent_name)
+                _in_sub_agent[0] = agent_name != _primary_agent[0]
+
+            # Only show assistant text from the primary (leader) agent.
+            # Sub-agent intermediate responses are ignored.
+            txt = parse_step_text(step)
+            if txt and not _in_sub_agent[0]:
                 llm_buf.clear()
                 llm_buf.append(txt)
 
-            # Show tool/agent-transfer progress
+            # Collect images, files, and notify_user messages from tool results
+            if step.get("role") == "tool" and not step.get("transfer"):
+                raw = step.get("raw_content")
+                if isinstance(raw, dict):
+                    # Collect images
+                    uri_val = raw.get("base64_uri")
+                    if isinstance(uri_val, list):
+                        image_buf.extend(
+                            u for u in uri_val
+                            if isinstance(u, str) and u and u not in image_buf
+                        )
+                    elif isinstance(uri_val, str) and uri_val and uri_val not in image_buf:
+                        image_buf.append(uri_val)
+
+                    # Collect file paths from notify_user results
+                    paths = raw.get("paths")
+                    if isinstance(paths, list):
+                        import os
+                        for p in paths:
+                            if isinstance(p, str) and p not in _file_buf and os.path.isfile(p):
+                                _file_buf.append(p)
+
+                    # Capture notify_user / task completion message
+                    notify_msg = raw.get("message")
+                    if isinstance(notify_msg, str) and notify_msg.strip():
+                        llm_buf.clear()
+                        llm_buf.append(notify_msg)
+
             progress = parse_step_progress(step)
             if progress is not None and progress_cb is not None:
                 await progress_cb(progress)

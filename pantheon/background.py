@@ -58,7 +58,7 @@ def _bg_report(message: str) -> None:
 
     This is a no-op when not running inside a background task context.
     Use this in tool implementations and agent internals to provide
-    incremental progress that get_background_task() can return.
+    incremental progress that background_task() can return.
     """
     buf = _bg_output_buffer.get()
     if buf is not None:

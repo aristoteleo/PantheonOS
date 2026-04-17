@@ -1,6 +1,14 @@
 import asyncio
+import copy
 import dataclasses
 import io
+import json as _json
+try:
+    import psutil as _psutil
+    _psutil_process = _psutil.Process()
+except ImportError:
+    _psutil = None  # type: ignore
+    _psutil_process = None
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -26,6 +34,30 @@ if TYPE_CHECKING:
 
 
 DEFAULT_TOOLSETS = []
+
+
+def _custom_models_path() -> Path:
+    """Path to the custom models config file."""
+    from pantheon.settings import get_settings
+    return get_settings().pantheon_dir / "custom_models.json"
+
+
+def _load_custom_models() -> dict:
+    """Load user-defined custom models from custom_models.json."""
+    p = _custom_models_path()
+    if p.exists():
+        try:
+            return _json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def _save_custom_models(models: dict) -> None:
+    """Save user-defined custom models to custom_models.json."""
+    p = _custom_models_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(_json.dumps(models, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 class ChatRoom(ToolSet):
@@ -59,7 +91,6 @@ class ChatRoom(ToolSet):
         check_before_chat: Callable | None = None,
         enable_nats_streaming: bool = False,
         default_team: "PantheonTeam | None" = None,
-        learning_config: dict | None = None,
         enable_auto_chat_name: bool = False,
         **kwargs,
     ):
@@ -142,8 +173,8 @@ class ChatRoom(ToolSet):
         # PantheonClaw gateway manager (lazy init; tied to chatroom event loop)
         self._gateway_channel_manager = None
 
-        # Plugin system (learning, compression, etc.)
-        self._init_plugins(learning_config)
+        # Plugin system (memory, learning, compression)
+        self._init_plugins()
 
     async def _get_endpoint_service(self):
         """Get endpoint service object (instance or RemoteService)."""
@@ -169,14 +200,13 @@ class ChatRoom(ToolSet):
             endpoint_service, endpoint_method_name=endpoint_method_name, **kwargs
         )
 
-    def _init_plugins(self, learning_config: dict | None = None) -> None:
+    def _init_plugins(self) -> None:
         """Initialize plugin config (lazy creation).
-        
+
         Actual plugin instances are created in background during run_setup().
         """
-        self._learning_config = learning_config
-        self._learning_plugin = None
         self._compression_plugin = None
+        self._memory_plugin = None
         self._plugins = []  # List of initialized plugins
 
     async def run(self, log_level: str | None = None, remote: bool = True):
@@ -224,16 +254,19 @@ class ChatRoom(ToolSet):
             logger.info("ChatRoom: NATS streaming disabled")
 
         # Start plugin initialization in background (non-blocking warmup)
-        if self._learning_config:
-            task = asyncio.create_task(self._ensure_plugins())
-            self._background_tasks.add(task)
+        task = asyncio.create_task(self._ensure_plugins())
+        self._background_tasks.add(task)
 
         # Register activity callback for _ping responses (used by Hub idle cleanup)
         if hasattr(self, 'worker') and self.worker and hasattr(self.worker, 'set_activity_callback'):
             self.worker.set_activity_callback(self._get_activity_status)
 
     def _get_activity_status(self) -> dict:
-        """Return current activity status for _ping responses."""
+        """Return current activity status for _ping responses.
+
+        Called synchronously from NATSRemoteWorker._ping().  Must not block.
+        psutil.cpu_percent(interval=None) is non-blocking; first call returns 0.0.
+        """
         active_threads = len(self.threads)
         bg_task_count = 0
         for team in self.chat_teams.values():
@@ -244,61 +277,48 @@ class ChatRoom(ToolSet):
                         if t.status == "running"
                     )
         has_active_tasks = active_threads > 0 or bg_task_count > 0
-        return {
+
+        metrics: dict = {
             "active_threads": active_threads,
             "bg_tasks": bg_task_count,
             "has_active_tasks": has_active_tasks,
         }
 
+        if _psutil is not None and _psutil_process is not None:
+            try:
+                metrics["cpu_percent"] = round(_psutil_process.cpu_percent(interval=None), 1)
+                rss = _psutil_process.memory_info().rss
+                total = _psutil.virtual_memory().total
+                metrics["mem_used_mb"] = round(rss / 1024 / 1024, 1)
+                metrics["mem_percent"] = round(rss / total * 100, 1) if total > 0 else 0.0
+            except Exception:
+                pass  # process may have exited or psutil failed — omit silently
+
+        return metrics
+
     async def _ensure_plugins(self, endpoint_service: object = None) -> list:
-        """Lazily initialize plugins (idempotent).
-        
-        Creates LearningPlugin and CompressionPlugin on first call.
-        Called in background during run_setup for warmup, and awaited
-        before team creation to ensure plugins are ready.
-        
-        Args:
-            endpoint_service: Active endpoint service. If provided, used to 
-                              initialize team-based capabilities (e.g. learning team).
-        """
+        """Lazily initialize plugins via centralized registry (idempotent)."""
         if self._plugins:
-            # If endpoint_service is provided and we have a learning plugin,
-            # we MUST ensure the learning team is initialized (it might have been skipped during warmup)
-            if endpoint_service and self._learning_plugin:
-                await self._learning_plugin.initialize_learning_team(endpoint_service)
             return self._plugins
-        
-        if not self._learning_config:
-            return []
-        
+
         try:
-            from pantheon.internal.learning.plugin import get_global_learning_plugin
-            from pantheon.internal.compression.plugin import CompressionPlugin
+            from pantheon.team.plugin_registry import create_plugins
             from pantheon.settings import get_settings
-            
-            settings = get_settings()
-            
-            # Create global learning plugin (singleton)
-            self._learning_plugin = await get_global_learning_plugin(self._learning_config)
-            
-            # Initialize learning team if endpoint_service available (now or in future calls)
-            if endpoint_service and self._learning_plugin:
-                await self._learning_plugin.initialize_learning_team(endpoint_service)
-                
-            self._plugins.append(self._learning_plugin)
-            
-            # Create compression plugin
-            compression_config = settings.get_compression_config()
-            if compression_config:
-                self._compression_plugin = CompressionPlugin(compression_config)
-                self._plugins.append(self._compression_plugin)
-            
-            logger.info(f"ChatRoom: {len(self._plugins)} plugins initialized")
+
+            self._plugins = create_plugins(get_settings())
+            # Track memory plugin reference for direct access
+            from pantheon.internal.memory_system.plugin import MemorySystemPlugin
+            for p in self._plugins:
+                if isinstance(p, MemorySystemPlugin):
+                    self._memory_plugin = p
+                    break
+
+            logger.info(f"ChatRoom: {len(self._plugins)} plugins initialized via registry")
         except Exception as e:
             logger.error(f"ChatRoom: Failed to initialize plugins: {e}")
             import traceback
             traceback.print_exc()
-        
+
         return self._plugins
 
     async def cleanup(self) -> None:
@@ -306,13 +326,8 @@ class ChatRoom(ToolSet):
         
         Stops plugins, cancels background tasks, and cleans up the endpoint.
         """
-        # Shutdown global learning plugin (saves skillbook, stops pipeline)
-        if self._learning_plugin:
-            try:
-                from pantheon.internal.learning.plugin import shutdown_global_learning_plugin
-                await shutdown_global_learning_plugin()
-            except Exception:
-                pass
+        # Shutdown plugins
+        self._plugins.clear()
         
         # Clean up endpoint if it exists
         if hasattr(self, "_endpoint") and self._endpoint:
@@ -338,7 +353,7 @@ class ChatRoom(ToolSet):
         else:
             team_config = self.template_manager.dict_to_team_config(template_obj)
 
-        extra_data["team_template"] = dataclasses.asdict(team_config)
+        memory.set_metadata_in_memory("team_template", dataclasses.asdict(team_config))
 
     async def get_team_for_chat(self, chat_id: str, save_to_memory: bool = True) -> PantheonTeam:
         """Get the team for a specific chat, creating from memory if needed."""
@@ -386,10 +401,11 @@ class ChatRoom(ToolSet):
             team_template_dict = dataclasses.asdict(default_template)
 
             # Save default template to memory for this chat
-            extra_data["team_template"] = team_template_dict
             if save_to_memory:
-                memory.mark_dirty()
+                memory.set_metadata("team_template", team_template_dict)
                 logger.info(f"Saved default template to memory for chat {chat_id}")
+            else:
+                memory.set_metadata_in_memory("team_template", team_template_dict)
         else:
             logger.info(
                 f"Loading team from stored template '{team_template_dict.get('name', 'unknown')}' for chat {chat_id}"
@@ -406,8 +422,10 @@ class ChatRoom(ToolSet):
                 if original_template and original_template.source_path:
                     team_config.source_path = original_template.source_path
                     # Update memory with source_path for future loads
-                    team_template_dict["source_path"] = original_template.source_path
-                    memory.mark_dirty()
+                    updated_team_template = copy.deepcopy(team_template_dict)
+                    updated_team_template["source_path"] = original_template.source_path
+                    memory.set_metadata("team_template", updated_team_template)
+                    team_template_dict = updated_team_template
                     logger.info(f"Updated memory with source_path: {original_template.source_path}")
             except Exception as e:
                 logger.debug(f"Could not look up source_path for template {team_config.id}: {e}")
@@ -511,15 +529,12 @@ class ChatRoom(ToolSet):
             memory = await run_func(self.memory_manager.get_memory, chat_id)
             self._save_team_template_to_memory(memory, template_obj)
 
-            if "active_agent" in memory.extra_data:
-                del memory.extra_data["active_agent"]
+            memory.delete_metadata("active_agent")
             
             if save_to_memory:
-                # Mark memory as dirty to trigger delayed auto-persistence
-                # This is much faster than saving all chats immediately
-                memory.mark_dirty()
                 # Optionally: use save_one for immediate persistence of just this chat
                 # await run_func(self.memory_manager.save_one, chat_id)
+                pass
 
             # Clear cached team (force recreation next time)
             if chat_id in self.chat_teams:
@@ -920,7 +935,7 @@ class ChatRoom(ToolSet):
             workspace_mode: Workspace mode - "project" (shared, default) or "isolated" (per-chat).
         """
         memory = await run_func(self.memory_manager.new_memory, chat_name)
-        memory.extra_data["last_activity_date"] = datetime.now().isoformat()
+        memory.set_metadata("last_activity_date", datetime.now().isoformat())
 
         if workspace_path:
             # Explicit path provided — always isolated
@@ -950,8 +965,9 @@ class ChatRoom(ToolSet):
         project["workspace_mode"] = workspace_mode
         if workspace_path:
             project["workspace_path"] = workspace_path
+            project["original_cwd"] = str(get_settings().workspace)
         if project:
-            memory.extra_data["project"] = project
+            memory.set_metadata("project", project)
 
         return {
             "success": True,
@@ -1024,9 +1040,16 @@ class ChatRoom(ToolSet):
         try:
             ids = await run_func(self.memory_manager.list_memories)
             chats = []
+            skipped_chats = []
             for id in ids:
-                # Read-only: listing chats, no need to fix
-                memory = await run_func(self.memory_manager.get_memory, id)
+                # Read-only: listing chats, no need to fix.
+                # Skip corrupted entries so one broken metadata file doesn't hide all chats.
+                try:
+                    memory = await run_func(self.memory_manager.get_memory, id)
+                except KeyError as e:
+                    logger.warning(f"Skipping unreadable chat {id}: {e}")
+                    skipped_chats.append({"id": id, "message": str(e)})
+                    continue
                 project = memory.extra_data.get("project", None)
 
                 # Filter by project_name if specified
@@ -1044,6 +1067,7 @@ class ChatRoom(ToolSet):
                             "last_activity_date", None
                         ),
                         "project": project,
+                        "memory_path": memory.file_path,
                     }
                 )
 
@@ -1054,10 +1078,13 @@ class ChatRoom(ToolSet):
                 reverse=True,
             )
 
-            return {
+            result = {
                 "success": True,
                 "chats": chats,
             }
+            if skipped_chats:
+                result["skipped_chats"] = skipped_chats
+            return result
         except Exception as e:
             import traceback
 
@@ -1163,7 +1190,7 @@ class ChatRoom(ToolSet):
 
         try:
             memory = await run_func(self.memory_manager.get_memory, chat_id)
-            project = memory.extra_data.get("project", {})
+            project = copy.deepcopy(memory.extra_data.get("project", {}))
             if not isinstance(project, dict):
                 project = {}
 
@@ -1177,14 +1204,14 @@ class ChatRoom(ToolSet):
                     session_workspace_dir.mkdir(parents=True, exist_ok=True)
                     workspace_path = str(session_workspace_dir)
                     project["workspace_path"] = workspace_path
+                    project["original_cwd"] = str(settings.workspace)
                     logger.info(f"Created workspace for chat {chat_id}: {workspace_path}")
                 except Exception as e:
                     logger.warning(f"Failed to create workspace for chat {chat_id}: {e}")
                     return {"success": False, "message": f"Failed to create workspace: {e}"}
 
             project["workspace_mode"] = workspace_mode
-            memory.extra_data["project"] = project
-            memory.mark_dirty()
+            memory.set_metadata("project", project)
 
             return {
                 "success": True,
@@ -1222,11 +1249,11 @@ class ChatRoom(ToolSet):
 
             if project_name is None and workspace_path is None and workspace_mode is None and not kwargs:
                 # Remove project metadata
-                memory.extra_data.pop("project", None)
+                memory.delete_metadata("project")
                 message = "Project metadata removed"
             else:
                 # Create or update project object
-                project = memory.extra_data.get("project", {})
+                project = copy.deepcopy(memory.extra_data.get("project", {}))
                 if not isinstance(project, dict):
                     project = {}
 
@@ -1234,6 +1261,7 @@ class ChatRoom(ToolSet):
                     project["name"] = project_name
                 if workspace_path is not None:
                     project["workspace_path"] = workspace_path
+                    project.setdefault("original_cwd", str(get_settings().workspace))
                 if workspace_mode is not None:
                     project["workspace_mode"] = workspace_mode
 
@@ -1241,10 +1269,8 @@ class ChatRoom(ToolSet):
                     if value is not None:
                         project[key] = value
 
-                memory.extra_data["project"] = project
+                memory.set_metadata("project", project)
                 message = f"Project metadata updated for chat"
-
-            memory.mark_dirty()
             return {"success": True, "message": message}
         except Exception as e:
             logger.error(f"Error setting chat project: {e}")
@@ -1347,13 +1373,32 @@ class ChatRoom(ToolSet):
         try:
             from .special_agents import get_chat_name_generator
 
+            preferred_model = None
+            try:
+                team = await self.get_team_for_chat(memory.id)
+                active_agent = team.get_active_agent(memory)
+                preferred_model = (
+                    active_agent.models[0] if getattr(active_agent, "models", None) else None
+                )
+            except Exception:
+                preferred_model = None
+
             chat_name_generator = get_chat_name_generator()
-            new_name = await chat_name_generator.generate_or_update_name(memory)
+            new_name = await chat_name_generator.generate_or_update_name(
+                memory,
+                preferred_model=preferred_model,
+            )
             if new_name and new_name != memory.name:
                 memory.name = new_name
                 # Save only this chat's memory
                 await run_func(self.memory_manager.save_one, memory.id)
                 logger.debug(f"Chat renamed in background to: {new_name}")
+                # Notify frontend via NATS
+                if self._nats_adapter is not None:
+                    await self._nats_adapter.publish(
+                        memory.id, "chat_renamed",
+                        {"type": "chat_renamed", "chat_id": memory.id, "name": new_name},
+                    )
         except Exception as e:
             logger.error(f"Background chat rename failed: {e}")
 
@@ -1557,8 +1602,10 @@ class ChatRoom(ToolSet):
             memory = await run_func(self.memory_manager.get_memory, chat_id, True)
         except KeyError:
             return {"success": False, "message": f"Chat '{chat_id}' not found"}
-        memory.extra_data["running"] = True
-        memory.extra_data["last_activity_date"] = datetime.now().isoformat()
+        memory.update_metadata({
+            "running": True,
+            "last_activity_date": datetime.now().isoformat(),
+        })
 
         async def team_getter():
             return await self.get_team_for_chat(chat_id)
@@ -1570,6 +1617,7 @@ class ChatRoom(ToolSet):
 
         # Inject workdir from project metadata if in isolated mode
         project = memory.extra_data.get("project", {})
+        workspace_path = None
         if isinstance(project, dict):
             workspace_mode = project.get("workspace_mode",
                 "isolated" if project.get("workspace_path") else "project")
@@ -1577,6 +1625,22 @@ class ChatRoom(ToolSet):
             if workspace_mode == "isolated" and workspace_path:
                 context_variables = context_variables or {}
                 context_variables["workdir"] = workspace_path
+
+        # Set up a designated image output directory so agents save images
+        # to a known location and claw channels can detect them cheaply.
+        from pantheon.utils.image_detection import (
+            IMAGE_OUTPUT_DIR, snapshot_images, diff_snapshots, encode_images_to_uris,
+        )
+        image_output_path: str | None = None
+        if workspace_path:
+            import os
+            image_output_path = os.path.join(workspace_path, IMAGE_OUTPUT_DIR)
+            os.makedirs(image_output_path, exist_ok=True)
+            context_variables = context_variables or {}
+            context_variables["image_output_dir"] = image_output_path
+
+        # Pre-snapshot: only scan the designated image output directory
+        pre_image_snapshot = snapshot_images(image_output_path) if image_output_path else {}
 
         thread = Thread(
             team_getter,  # Pass team getter
@@ -1597,19 +1661,46 @@ class ChatRoom(ToolSet):
             chat_id, process_chunk, process_step_message, wait=False
         )
 
+        # Generate chat name as soon as user message arrives (non-blocking).
+        # No need to wait for agent response — user message is enough context.
+        # Only fires if the chat still has a default name (e.g. "New Chat").
+        if self._enable_auto_chat_name:
+            task = asyncio.create_task(self._background_rename_chat(memory))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
         try:
             await thread.run()
 
-            # Generate or update chat name in background (non-blocking)
-            # Only enabled for UI mode to avoid unnecessary LLM calls in REPL/API
-            if self._enable_auto_chat_name:
-                task = asyncio.create_task(self._background_rename_chat(memory))
-                self._background_tasks.add(task)
-                task.add_done_callback(self._background_tasks.discard)
+            # Post-execution image detection: scan the designated image
+            # output directory for any newly created images.
+            if image_output_path and pre_image_snapshot is not None:
+                post_image_snapshot = snapshot_images(image_output_path)
+                new_image_paths = diff_snapshots(pre_image_snapshot, post_image_snapshot)
+                if new_image_paths:
+                    uris = encode_images_to_uris(new_image_paths)
+                    if uris:
+                        await thread.process_step_message({
+                            "role": "tool",
+                            "raw_content": {"base64_uri": uris},
+                        })
 
             # Publish chat finished message if NATS streaming enabled
             if self._nats_adapter is not None:
-                await self._nats_adapter.publish_chat_finished(chat_id)
+                resp = thread.response or {}
+                if resp.get("success") is False:
+                    # Send error to frontend so it can display to user
+                    error_msg = resp.get("message", "Unknown error")
+                    await self._nats_adapter.publish(
+                        chat_id, "chat_finished",
+                        {
+                            "type": "chat_finished",
+                            "status": "error",
+                            "metadata": {"message": error_msg},
+                        },
+                    )
+                else:
+                    await self._nats_adapter.publish_chat_finished(chat_id)
 
             return thread.response
         except asyncio.CancelledError:
@@ -1623,8 +1714,10 @@ class ChatRoom(ToolSet):
 
             # Protect persistent state updates from cancellation
             async def _cleanup_persistent_state():
-                memory.extra_data["running"] = False
-                memory.extra_data["last_activity_date"] = datetime.now().isoformat()
+                memory.update_metadata({
+                    "running": False,
+                    "last_activity_date": datetime.now().isoformat(),
+                })
                 try:
                     await run_func(self.memory_manager.save_one, chat_id)
                 except Exception as e:
@@ -1657,9 +1750,9 @@ class ChatRoom(ToolSet):
             bytes_data: The bytes data of the audio (bytes, base64 string, or list).
         """
         try:
-            import litellm
             import base64
-            from pantheon.utils.llm_providers import get_litellm_proxy_kwargs
+            from pantheon.utils.adapters import get_adapter
+            from pantheon.utils.llm_providers import get_llm_proxy_config
 
             logger.info(f"[STT] Received bytes_data type={type(bytes_data).__name__}, "
                         f"len={len(bytes_data) if hasattr(bytes_data, '__len__') else 'N/A'}")
@@ -1691,12 +1784,15 @@ class ChatRoom(ToolSet):
             audio_file = io.BytesIO(bytes_data)
             audio_file.name = "audio.webm"
 
-            logger.info("[STT] Calling litellm.atranscription...")
+            logger.info("[STT] Calling transcription adapter...")
+            _proxy_base, _proxy_key = get_llm_proxy_config()
+            adapter = get_adapter("openai")
             response = await asyncio.wait_for(
-                litellm.atranscription(
+                adapter.atranscription(
                     model=self.speech_to_text_model,
                     file=audio_file,
-                    **get_litellm_proxy_kwargs(),
+                    base_url=_proxy_base or None,
+                    api_key=_proxy_key or None,
                 ),
                 timeout=30,
             )
@@ -1777,8 +1873,18 @@ class ChatRoom(ToolSet):
 
             # Use centralized suggestion generator
             suggestion_generator = get_suggestion_generator()
+            preferred_model = None
+            try:
+                team = await self.get_team_for_chat(chat_id)
+                active_agent = team.get_active_agent(memory)
+                preferred_model = (
+                    active_agent.models[0] if getattr(active_agent, "models", None) else None
+                )
+            except Exception:
+                preferred_model = None
             suggestions_objects = await suggestion_generator.generate_suggestions(
-                formatted_messages
+                formatted_messages,
+                preferred_model=preferred_model,
             )
 
             # Convert to dict format
@@ -1788,13 +1894,11 @@ class ChatRoom(ToolSet):
 
             # Cache suggestions in memory
             if suggestions:
-                memory.extra_data["cached_suggestions"] = suggestions
-                memory.extra_data["last_suggestion_message_count"] = len(messages)
-                memory.extra_data["suggestions_generated_at"] = (
-                    datetime.now().isoformat()
-                )
-                # Use delayed save for caching (non-critical)
-                memory.mark_dirty()
+                memory.update_metadata({
+                    "cached_suggestions": suggestions,
+                    "last_suggestion_message_count": len(messages),
+                    "suggestions_generated_at": datetime.now().isoformat(),
+                })
 
             logger.debug(f"Generated {len(suggestions)} suggestions for chat {chat_id}")
 
@@ -1936,6 +2040,9 @@ class ChatRoom(ToolSet):
             from pantheon.utils.model_selector import get_model_selector
 
             selector = get_model_selector()
+            # Clear provider cache so dynamic providers (Ollama, OAuth) are re-detected
+            selector._available_providers = None
+            selector._detected_provider = None
             return selector.list_available_models()
         except Exception as e:
             logger.error(f"Error listing available models: {e}")
@@ -1966,7 +2073,7 @@ class ChatRoom(ToolSet):
             }
         """
         try:
-            from pantheon.agent import _is_model_tag, _resolve_model_tag
+            from pantheon.agent import _is_model_tag, _resolve_model_tag, _parse_thinking_suffix
             from pantheon.utils.model_selector import get_model_selector
 
             # 1. Get team and find target agent
@@ -1981,20 +2088,27 @@ class ChatRoom(ToolSet):
                     "message": f"Agent '{agent_name}' not found in chat '{chat_id}'",
                 }
 
-            # 2. Validate provider if requested
+            # 2. Parse +think suffix (e.g. "high+think:medium" → thinking="medium")
+            clean_model, thinking = _parse_thinking_suffix(model)
+
+            # 3. Validate provider if requested
             if validate:
-                is_valid, error_msg = self._validate_model_provider(model)
+                is_valid, error_msg = self._validate_model_provider(clean_model)
                 if not is_valid:
                     return {"success": False, "message": error_msg}
 
-            # 3. Resolve model to list
-            if _is_model_tag(model):
-                resolved_models = _resolve_model_tag(model)
+            # 4. Resolve model to list
+            if _is_model_tag(clean_model):
+                resolved_models = _resolve_model_tag(clean_model)
             else:
-                resolved_models = [model]
+                resolved_models = [clean_model]
 
-            # 4. Update runtime agent
+            # 5. Update runtime agent
             target_agent.models = resolved_models
+            if thinking:
+                target_agent.model_params["thinking"] = thinking
+            else:
+                target_agent.model_params.pop("thinking", None)
 
             # 5. Persist to template file (if source_path exists)
             source_path = getattr(team, "_source_path", None)
@@ -2038,7 +2152,7 @@ class ChatRoom(ToolSet):
             # Also update memory template for current session
             # Read-only: updating model config, no need to fix
             memory = await run_func(self.memory_manager.get_memory, chat_id)
-            team_template = memory.extra_data.get("team_template", {})
+            team_template = copy.deepcopy(memory.extra_data.get("team_template", {}))
 
             # Update the agent's model in template (case-insensitive match)
             for agent_config in team_template.get("agents", []):
@@ -2048,8 +2162,7 @@ class ChatRoom(ToolSet):
                     )
                     break
 
-            memory.extra_data["team_template"] = team_template
-            memory.mark_dirty()
+            memory.set_metadata("team_template", team_template)
 
             logger.info(
                 f"Set model for agent '{agent_name}' in chat '{chat_id}': {model} -> {resolved_models}"
@@ -2066,6 +2179,37 @@ class ChatRoom(ToolSet):
             logger.error(f"Error setting agent model: {e}")
             return {"success": False, "message": str(e)}
 
+
+    @tool
+    async def get_token_stats(self, chat_id: str, model: str | None = None) -> dict:
+        """Get detailed token usage statistics for a chat.
+
+        Returns token breakdown by role (system/user/assistant/tool),
+        usage percentage, cost, model info, and context window utilization.
+
+        Args:
+            chat_id: The chat to get token stats for
+            model: Optional model override (e.g. the model currently selected in the UI).
+                   When provided, used for catalog lookup instead of agent.models[0].
+
+        Returns:
+            dict with success status and token statistics
+        """
+        try:
+            team = await self.get_team_for_chat(chat_id)
+            from pantheon.repl.utils import get_detailed_token_stats
+
+            token_info = await get_detailed_token_stats(
+                chatroom=self,
+                chat_id=chat_id,
+                team=team,
+                fallback={},
+                model_override=model,
+            )
+            return {"success": True, **token_info}
+        except Exception as e:
+            logger.error(f"Error getting token stats: {e}")
+            return {"success": False, "error": str(e)}
 
     @tool
     async def compress_chat(self, chat_id: str) -> dict:
@@ -2127,7 +2271,7 @@ class ChatRoom(ToolSet):
             provider = provider_aliases.get(provider, provider)
 
             if provider not in available:
-                return False, f"Provider '{provider}' not available (missing API key)"
+                return False, f"Provider '{provider}' not available (missing credentials)"
 
         return True, ""
 
@@ -2220,6 +2364,27 @@ class ChatRoom(ToolSet):
             return {"success": False, "installs": {}, "error": str(e)}
 
     @tool
+    async def get_custom_models(self) -> dict:
+        """Get all user-defined custom models."""
+        models = _load_custom_models()
+        return {"success": True, "models": models}
+
+    @tool
+    async def save_custom_models(self, models: dict) -> dict:
+        """Save user-defined custom models.
+
+        Args:
+            models: Dict of model_name -> {api_base, api_key, provider_type}
+        """
+        try:
+            _save_custom_models(models)
+            # Reset model selector cache so new models appear
+            from pantheon.utils.model_selector import reset_model_selector
+            reset_model_selector()
+            return {"success": True, "message": "Custom models saved"}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
     async def reload_settings(self) -> dict:
         """Reload configuration settings from .env file and settings.json.
 
@@ -2286,3 +2451,196 @@ class ChatRoom(ToolSet):
 
         has_any_key = any(v["configured"] for v in keys.values())
         return {"keys": keys, "has_any_key": has_any_key}
+
+    # ============ OAuth Management ============
+
+    @tool
+    async def oauth_status(self) -> dict:
+        """Get OAuth authentication status for all supported providers.
+
+        Returns:
+            Dict with provider statuses including authentication state and account info.
+        """
+        from pantheon.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
+        from pantheon.utils.oauth.codex import CODEX_CLI_AUTH
+        from pantheon.utils.oauth.gemini import GEMINI_CLI_AUTH
+
+        codex = CodexOAuthManager()
+        # Actually verify the token works (auto_refresh=True will try to refresh if expired)
+        access_token = codex.get_access_token(auto_refresh=True)
+        codex_authenticated = access_token is not None
+        codex_account_id = codex.get_account_id() if codex_authenticated else None
+        cli_available = CODEX_CLI_AUTH.exists()
+        gemini = GeminiCliOAuthManager()
+        gemini_access = gemini.get_access_token(refresh_if_needed=True)
+        gemini_authenticated = gemini_access is not None
+        gemini_cli_available = GEMINI_CLI_AUTH.exists()
+        gemini_project_id = gemini.get_project_id()
+        gemini_runtime_ready = gemini_authenticated and bool(gemini_project_id)
+        gemini_runtime_error = None
+        if gemini_authenticated and not gemini_runtime_ready:
+            gemini_runtime_error = (
+                "Gemini CLI OAuth is signed in, but no Code Assist project is available yet. "
+                "Pantheon will try to resolve one automatically at runtime; if it still fails, "
+                "set GOOGLE_CLOUD_PROJECT / GOOGLE_CLOUD_PROJECT_ID."
+            )
+
+        return {
+            "providers": {
+                "codex": {
+                    "authenticated": codex_authenticated,
+                    "account_id": codex_account_id,
+                    "description": "OpenAI Codex (ChatGPT backend-api, free with ChatGPT Plus)",
+                    "supports_browser_login": True,
+                    "supports_import": cli_available,
+                },
+                "gemini": {
+                    "authenticated": gemini_authenticated,
+                    "email": gemini.get_email() if gemini_authenticated else None,
+                    "project_id": gemini_project_id if gemini_authenticated else None,
+                    "runtime_ready": gemini_runtime_ready,
+                    "runtime_error": gemini_runtime_error,
+                    "description": "Gemini CLI OAuth (Gemini CLI auth with Code Assist project resolution)",
+                    "supports_browser_login": True,
+                    "supports_import": gemini_cli_available,
+                },
+            },
+        }
+
+    @tool
+    async def oauth_login(self, provider: str = "codex") -> dict:
+        """Start browser-based OAuth login flow.
+
+        Opens the system browser for the user to authenticate.
+        Token is saved automatically after successful login.
+
+        Args:
+            provider: OAuth provider name ('codex' or 'gemini')
+
+        Returns:
+            Dict with success status and account info.
+        """
+        if provider == "codex":
+            from pantheon.utils.oauth import CodexOAuthError, CodexOAuthManager
+
+            try:
+                mgr = CodexOAuthManager()
+                mgr.login(open_browser=True, timeout_seconds=300)
+
+                from pantheon.utils.model_selector import reset_model_selector
+
+                reset_model_selector()
+                return {
+                    "success": True,
+                    "provider": "codex",
+                    "account_id": mgr.get_account_id(),
+                    "message": "Codex OAuth login successful. You can now use codex/ models.",
+                }
+            except CodexOAuthError as e:
+                return {"success": False, "error": str(e)}
+            except Exception as e:
+                logger.error(f"OAuth login failed: {e}")
+                return {"success": False, "error": str(e)}
+
+        if provider == "gemini":
+            from pantheon.utils.oauth import GeminiCliOAuthError, GeminiCliOAuthManager
+
+            try:
+                mgr = GeminiCliOAuthManager()
+                mgr.login(open_browser=True, timeout_seconds=300)
+
+                from pantheon.utils.model_selector import reset_model_selector
+
+                reset_model_selector()
+                return {
+                    "success": True,
+                    "provider": "gemini",
+                    "email": mgr.get_email(),
+                    "project_id": mgr.get_project_id(),
+                    "runtime_ready": bool(mgr.get_project_id()),
+                    "message": "Gemini OAuth login successful. You can now use gemini-cli/ models.",
+                }
+            except GeminiCliOAuthError as e:
+                return {"success": False, "error": str(e)}
+            except Exception as e:
+                logger.error(f"OAuth login failed: {e}")
+                return {"success": False, "error": str(e)}
+
+        return {"success": False, "error": f"Unsupported OAuth provider: {provider}"}
+
+    @tool
+    async def oauth_import(self, provider: str = "codex") -> dict:
+        """Import OAuth tokens from native CLI tools.
+
+        For Codex: imports from ~/.codex/auth.json (Codex CLI).
+        For Gemini: imports from ~/.gemini/oauth_creds.json (Gemini CLI).
+
+        Args:
+            provider: OAuth provider name ('codex' or 'gemini')
+
+        Returns:
+            Dict with success status.
+        """
+        try:
+            if provider == "codex":
+                from pantheon.utils.oauth import CodexOAuthManager
+
+                mgr = CodexOAuthManager()
+                result = mgr.import_from_codex_cli()
+                success_payload = {
+                    "success": True,
+                    "provider": "codex",
+                    "account_id": mgr.get_account_id(),
+                    "message": "Imported Codex CLI tokens successfully.",
+                }
+                error_payload = {
+                    "success": False,
+                    "error": "No Codex CLI auth found (~/.codex/auth.json). Install Codex CLI or use browser login.",
+                }
+            elif provider == "gemini":
+                from pantheon.utils.oauth import GeminiCliOAuthManager
+
+                mgr = GeminiCliOAuthManager()
+                result = mgr.import_from_gemini_cli()
+                success_payload = {
+                    "success": True,
+                    "provider": "gemini",
+                    "email": mgr.get_email(),
+                    "project_id": mgr.get_project_id(),
+                    "runtime_ready": bool(mgr.get_project_id()),
+                    "message": "Imported Gemini CLI auth successfully.",
+                }
+                error_payload = {
+                    "success": False,
+                    "error": "No Gemini CLI auth found (~/.gemini/oauth_creds.json). Install Gemini CLI or use browser login.",
+                }
+            else:
+                return {"success": False, "error": f"Unsupported OAuth provider: {provider}"}
+
+            if result:
+                from pantheon.utils.model_selector import reset_model_selector
+                reset_model_selector()
+                return success_payload
+            else:
+                return error_payload
+        except Exception as e:
+            logger.error(f"OAuth import failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def ollama_status(self, url: str = "http://localhost:11434") -> dict:
+        """Check Ollama server status and list available models.
+
+        Args:
+            url: Ollama server URL (default: http://localhost:11434)
+
+        Returns:
+            Dict with running status, model list, and URL.
+        """
+        try:
+            from pantheon.utils.model_selector import _detect_ollama, _list_ollama_models
+            running = _detect_ollama(url)
+            models = _list_ollama_models(url) if running else []
+            return {"running": running, "models": models, "url": url}
+        except Exception as e:
+            return {"running": False, "models": [], "url": url}

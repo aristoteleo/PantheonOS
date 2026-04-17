@@ -30,9 +30,11 @@ dependencies = [
     "executor-engine>=0.3.3",
     "fire>=0.7.0",
     "funcdesc>=0.1.8",
-    "litellm>=1.81.3",
+    "anthropic>=0.40.0",
+    "google-genai>=1.0.0",
     "loguru>=0.7.3",
     "openai>=2.0.0",
+    "tiktoken>=0.7.0",
     "pillow>=10.4.0",
     "rich>=14.0.0",
     "rich-pyfiglet",
@@ -45,6 +47,7 @@ dependencies = [
     "python-frontmatter>=1.1.0",
     "prompt-toolkit>=3.0.50",
     "aiofiles>=24.1.0",
+    "psutil>=5.9.0",
     # Toolsets
     "ddgs>=9.5.2",
     "crawl4ai>=0.5.0",
@@ -61,6 +64,16 @@ dependencies = [
     "tree-sitter-javascript>=0.24.0",
     # Server
     "nats-server-bin>=2.10.0",
+    # Claw (multi-channel gateway)
+    "slack-sdk",
+    "slack-bolt",
+    "python-telegram-bot>=21.3",
+    "discord.py>=2.5",
+    "lark-oapi",
+    "requests>=2.0",
+    "cryptography>=42.0.0",
+    "websocket-client>=1.8",
+    "qrcode",
 ]
 dynamic = ["version"]
 
@@ -94,23 +107,6 @@ dev = [
     "pytest>=8.3.4",
     "pytest-asyncio>=0.25.0",
     "pytest-timeout>=2.3.1",
-]
-claw = [
-    "slack-sdk",
-    "slack-bolt",
-    "python-telegram-bot>=21.3",
-    "discord.py>=2.5",
-    "lark-oapi",
-    "requests>=2.0",
-    "pillow>=9.0",
-    "nbformat>=5.0",
-    "cryptography>=42.0.0",
-    "websocket-client>=1.8",
-    "qrcode"
-]
-slack = [
-    "slack-sdk",
-    "slack-bolt",
 ]
 r = [
     # R language support for notebooks (requires R installed on system)

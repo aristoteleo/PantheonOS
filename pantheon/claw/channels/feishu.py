@@ -4,7 +4,6 @@ import asyncio
 import base64
 import hashlib
 import json
-import logging
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -12,10 +11,12 @@ from typing import Any, Mapping
 
 import requests
 
-from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime, Deduper, text_chunks
+from pathlib import Path
 
-logger = logging.getLogger("pantheon.claw.channels.feishu")
+from pantheon.claw.registry import ConversationRoute
+from pantheon.claw.runtime import ChannelRuntime, Deduper, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain, extract_display_text
+
+from pantheon.utils.log import logger
 
 _MAX_TEXT = 4800
 _MAX_BODY_BYTES = 2 * 1024 * 1024
@@ -104,6 +105,50 @@ class FeishuClient:
         )
         response.raise_for_status()
         return response.content
+
+    def download_image(self, image_key: str) -> bytes:
+        """Download an image by its image_key from the Feishu API."""
+        response = requests.get(
+            f"https://open.feishu.cn/open-apis/im/v1/images/{image_key}",
+            headers=self._headers(),
+            timeout=60,
+        )
+        response.raise_for_status()
+        return response.content
+
+    def upload_image(self, data: bytes) -> str:
+        """Upload image bytes and return the image_key."""
+        response = requests.post(
+            "https://open.feishu.cn/open-apis/im/v1/images",
+            headers=self._headers(),
+            files={"image": ("image.png", data, "image/png")},
+            data={"image_type": "message"},
+            timeout=60,
+        )
+        response.raise_for_status()
+        result = response.json()
+        if result.get("code") != 0:
+            raise RuntimeError(f"Feishu image upload failed: {result}")
+        return (result.get("data") or {}).get("image_key", "")
+
+    def send_image(self, chat_id: str, image_key: str) -> str | None:
+        """Send an image message to a chat."""
+        payload = {
+            "receive_id": chat_id,
+            "msg_type": "image",
+            "content": json.dumps({"image_key": image_key}, ensure_ascii=False),
+        }
+        response = requests.post(
+            "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+            headers=self._headers(),
+            json=payload,
+            timeout=20,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if data.get("code") != 0:
+            raise RuntimeError(f"Feishu send image failed: {data}")
+        return ((data.get("data") or {}).get("message_id"))
 
 
 class FeishuWebhookSecurity:
@@ -225,9 +270,31 @@ class FeishuRuntime(ChannelRuntime):
             message_id = await asyncio.to_thread(self._client.send_text, chat_id, chunk)
         return message_id
 
-    async def _analysis_wrapper(self, route: ConversationRoute, chat_id: str, user_text: str) -> None:
+    async def _download_image(self, image_key: str) -> str:
+        """Download an image and return as data-URI."""
+        data = await asyncio.to_thread(self._client.download_image, image_key)
+        return bytes_to_data_uri(data, "image.png")
+
+    async def _send_image(self, chat_id: str, data_uri: str) -> None:
+        """Upload and send a data-URI image to a Feishu chat."""
+        raw, _mime = data_uri_to_bytes(data_uri)
+        if not raw:
+            return
+        image_key = await asyncio.to_thread(self._client.upload_image, raw)
+        if image_key:
+            await asyncio.to_thread(self._client.send_image, chat_id, image_key)
+
+    async def _analysis_wrapper(
+        self,
+        route: ConversationRoute,
+        chat_id: str,
+        user_text: str,
+        image_uris: list[str] | None = None,
+    ) -> None:
         route_key = route.route_key()
         llm_buf: list[str] = []
+        image_buf: list[str] = []
+        file_buf: list[str] = []
         last_progress = ""
         draft_id = await self._send_text(chat_id, "Thinking...")
         last_edit = 0.0
@@ -239,8 +306,11 @@ class FeishuRuntime(ChannelRuntime):
             now = time.monotonic()
             if not force and (now - last_edit) < _EDIT_GAP_SECONDS:
                 return
-            preview = "".join(llm_buf).strip() or last_progress or "Thinking..."
-            ok = await asyncio.to_thread(self._client.edit_text, draft_id, preview[-_MAX_TEXT:])
+            if last_progress:
+                preview = f"🤖 Agent is working...\n\n{last_progress}"
+            else:
+                preview = "🤖 Thinking..."
+            ok = await asyncio.to_thread(self._client.edit_text, draft_id, md_to_plain(preview[-_MAX_TEXT:]))
             if ok:
                 last_edit = now
 
@@ -249,8 +319,10 @@ class FeishuRuntime(ChannelRuntime):
             last_progress = label
 
         on_chunk = self.make_chunk_callback(llm_buf, on_update=lambda: refresh(False))
-        on_step = self.make_step_callback(
+        on_step = self.make_image_step_callback(
             llm_buf,
+            image_buf,
+            file_buf=file_buf,
             progress_cb=_set_progress,
             refresh_cb=lambda: refresh(True),
         )
@@ -259,12 +331,22 @@ class FeishuRuntime(ChannelRuntime):
             result = await self._bridge.run_chat(
                 route,
                 user_text,
+                image_uris=image_uris,
                 process_chunk=on_chunk,
                 process_step_message=on_step,
             )
-            final_text = str(result.get("response") or "".join(llm_buf) or "Done.")
+            final_text = md_to_plain(extract_display_text(result, llm_buf))
             if draft_id and not await asyncio.to_thread(self._client.edit_text, draft_id, final_text[-_MAX_TEXT:]):
                 await self._send_text(chat_id, final_text)
+            for uri in image_buf:
+                await self._send_image(chat_id, uri)
+            for fpath in file_buf:
+                import os
+                if os.path.isfile(fpath):
+                    try:
+                        await asyncio.to_thread(self._client.send_file, chat_id, fpath)
+                    except Exception:
+                        logger.warning("Feishu file send failed: %s", fpath)
         except asyncio.CancelledError:
             if draft_id and not await asyncio.to_thread(self._client.edit_text, draft_id, "Cancelled."):
                 await self._send_text(chat_id, "Cancelled.")
@@ -311,6 +393,35 @@ class FeishuRuntime(ChannelRuntime):
             return
         task = asyncio.create_task(self._analysis_wrapper(route, chat_id, tail or text))
         self._set_task(route_key, task, tail or text)
+
+    async def handle_image(
+        self,
+        chat_id: str,
+        thread_id: str | None,
+        image_key: str,
+        *,
+        chat_type: str | None = None,
+        sender_id: str | None = None,
+    ) -> None:
+        """Handle an incoming image message by downloading and routing to bridge."""
+        route = self._route(chat_id, thread_id, chat_type, sender_id)
+        route_key = route.route_key()
+        try:
+            data_uri = await self._download_image(image_key)
+        except Exception:
+            logger.warning("Failed to download Feishu image: %s", image_key)
+            await self._send_text(chat_id, "Failed to download image.")
+            return
+
+        if self._get_running(route_key) is not None:
+            self._queue_message(route_key, "[image]")
+            await self._send_text(chat_id, "Queued after current analysis.")
+            return
+
+        task = asyncio.create_task(
+            self._analysis_wrapper(route, chat_id, "", image_uris=[data_uri])
+        )
+        self._set_task(route_key, task, "[image]")
 
     async def handle_file(
         self,
@@ -457,15 +568,17 @@ def _process_feishu_event_payload(
                 )
             )
     elif message_type == "image":
-        runtime.submit(
-            runtime.handle_text(
-                chat_id,
-                thread_id,
-                "Received an image. Send a text instruction to continue the routed analysis.",
-                chat_type=chat_type,
-                sender_id=sender_id,
+        image_key = (content.get("image_key") or "").strip()
+        if image_key:
+            runtime.submit(
+                runtime.handle_image(
+                    chat_id,
+                    thread_id,
+                    image_key,
+                    chat_type=chat_type,
+                    sender_id=sender_id,
+                )
             )
-        )
     return True
 
 

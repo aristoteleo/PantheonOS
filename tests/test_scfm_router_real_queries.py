@@ -60,7 +60,7 @@ def get_test_model() -> str:
     """
     Get LLM model for testing from environment.
 
-    Supports LiteLLM model strings:
+    Supports provider-prefixed model strings:
     - OpenAI: "gpt-4o-mini", "gpt-4o"
     - Anthropic: "anthropic/claude-sonnet-4-20250514", "anthropic/claude-haiku-3-5-20241022"
     - Gemini: "gemini/gemini-1.5-flash"
@@ -95,17 +95,19 @@ def has_api_key_for_model(model: str) -> bool:
 
 async def create_real_call_agent():
     """
-    Create a real _call_agent function using LiteLLM.
+    Create a real _call_agent function using provider adapters.
 
     Returns an async function compatible with the router's _call_agent interface.
     """
-    import litellm
+    from pantheon.utils.adapters import get_adapter
+    from pantheon.utils.provider_registry import find_provider_for_model
+    from pantheon.utils.llm import stream_chunk_builder
 
     model = get_test_model()
 
     async def _call_agent(messages, system_prompt=None, model_override=None, **kwargs):
         """
-        Call LLM via LiteLLM.
+        Call LLM via provider adapter.
 
         Args:
             messages: List of message dicts with 'role' and 'content'
@@ -125,11 +127,18 @@ async def create_real_call_agent():
         full_messages.extend(messages)
 
         try:
-            response = await litellm.acompletion(
-                model=actual_model,
+            provider_key, model_name, provider_config = find_provider_for_model(actual_model)
+            adapter = get_adapter(provider_config.get("sdk", "openai"))
+            import os
+            api_key = os.environ.get(provider_config.get("api_key_env", ""), "")
+            chunks = await adapter.acompletion(
+                model=model_name,
                 messages=full_messages,
-                temperature=0.0,  # Deterministic for testing
+                base_url=provider_config.get("base_url"),
+                api_key=api_key,
+                temperature=0.0,
             )
+            response = stream_chunk_builder(chunks)
             return {
                 "success": True,
                 "response": response.choices[0].message.content,
@@ -639,12 +648,12 @@ LIVE_TEST_CASES_ALL = REAL_QUERY_TEST_CASES
 @pytest.mark.live_llm
 class TestLiveModelSelection:
     """
-    Live LLM tests using real API calls via LiteLLM.
+    Live LLM tests using real API calls via provider adapters.
 
     Supports multiple providers through environment configuration:
 
     Environment Variables:
-    - SCFM_TEST_MODEL: LiteLLM model string (default: "gpt-4o-mini")
+    - SCFM_TEST_MODEL: Model string (default: "gpt-4o-mini")
     - Provider API keys: OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, etc.
 
     Example usage:

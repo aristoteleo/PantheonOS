@@ -21,12 +21,6 @@ try:
 except ImportError:
     pass
 
-# Suppress litellm debug output via env vars (avoid importing litellm at startup,
-# it costs ~1.5s. The actual suppress_debug_info/set_verbose flags are set in
-# utils/llm.py:import_litellm() the first time litellm is actually used.)
-os.environ.setdefault("LITELLM_LOG", "ERROR")
-# Suppress CLIENT_IP_ENCRYPTION_KEY warning by setting a default value
-os.environ.setdefault("CLIENT_IP_ENCRYPTION_KEY", "pantheon-default-key")
 
 # Suppress MCP SDK INFO logs ("Processing request of type...") that pollute CLI output
 import logging
@@ -34,4 +28,4 @@ logging.getLogger("mcp").setLevel(logging.WARNING)
 logging.getLogger("mcp.server").setLevel(logging.WARNING)
 logging.getLogger("mcp.server.lowlevel.server").setLevel(logging.WARNING)
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"

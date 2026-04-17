@@ -88,7 +88,6 @@ class Repl(ReplUI):
                 endpoint=endpoint,
                 memory_dir=memory_dir,
                 enable_nats_streaming=False,
-                learning_config=settings.get_learning_config(),
             )
         else:
             # Mode 4: Auto-create everything
@@ -98,7 +97,6 @@ class Repl(ReplUI):
                 endpoint=None,  # Auto-create Endpoint
                 memory_dir=memory_dir,
                 enable_nats_streaming=False,
-                learning_config=settings.get_learning_config(),
             )
 
         # Current chat session
@@ -212,7 +210,6 @@ class Repl(ReplUI):
             memory_dir=memory_dir,
             enable_nats_streaming=False,
             default_team=team,
-            learning_config=settings.get_learning_config(),
         )
 
     def register_handler(self, handler: CommandHandler | str | Path):
@@ -371,8 +368,9 @@ class Repl(ReplUI):
                             self._status_update_task = None
                         
                         self.prompt_app.stop_processing()
-                        # Final update after processing
-                        await self._update_status_bar_token_usage()
+                        # Final update after processing: use accurate full calculation
+                        # so idle ctx: display matches /tokens output
+                        await self._update_status_bar_accurate()
                     self.message_queue.task_done()
                     
             except asyncio.CancelledError:
@@ -605,13 +603,10 @@ class Repl(ReplUI):
 
                             # Update status bar
                             self.prompt_app.update_token_usage(usage_pct, total_cost)
-                        # else: no valid metadata (e.g., after compression) — keep
-                        # existing status bar values to avoid overwriting a more
-                        # accurate estimate set by _handle_compress
+                        # else: no valid metadata (e.g., after compression) — fall through to accurate path
                         return
-            return
-            
-            # Fallback: Use detailed stats if fast path fails
+
+            # Fallback: Use detailed stats if fast path fails (e.g., no metadata found)
             from .utils import get_detailed_token_stats
             fallback = {
                 "total_input_tokens": self.total_input_tokens,
@@ -624,10 +619,34 @@ class Repl(ReplUI):
             usage_pct = token_info.get("usage_percent", 0)
             total_cost = token_info.get("total_cost") or 0.0
             self.prompt_app.update_token_usage(usage_pct, total_cost)
-            
+
         except Exception:
             pass  # Silently ignore errors
 
+
+    async def _update_status_bar_accurate(self):
+        """Accurate status bar update using full token calculation (same as /tokens).
+
+        Called once after processing completes so the idle display matches /tokens.
+        Slower than _update_status_bar_token_usage but gives the correct value.
+        """
+        if not self.prompt_app:
+            return
+        try:
+            from .utils import get_detailed_token_stats
+            fallback = {
+                "total_input_tokens": self.total_input_tokens,
+                "total_output_tokens": self.total_output_tokens,
+                "message_count": self.message_count,
+            }
+            token_info = await get_detailed_token_stats(
+                self._chatroom, self._chat_id, self._team, fallback
+            )
+            usage_pct = token_info.get("usage_percent", 0)
+            total_cost = token_info.get("total_cost") or 0.0
+            self.prompt_app.update_token_usage(usage_pct, total_cost)
+        except Exception:
+            pass  # Silently ignore errors
 
     async def _status_update_loop(self):
         """Background loop for real-time status bar updates.
@@ -1695,8 +1714,7 @@ class Repl(ReplUI):
                 # Read-only: clearing team template from extra_data, no need to fix
                 memory = await run_func(self._chatroom.memory_manager.get_memory, self._chat_id)
                 if hasattr(memory, "extra_data") and "team_template" in memory.extra_data:
-                    del memory.extra_data["team_template"]
-                    memory.mark_dirty()
+                    memory.delete_metadata("team_template")
                 # Clear cache so get_team_for_chat creates fresh default
                 self._chatroom.chat_teams.pop(self._chat_id, None)
                 self._team = await self._chatroom.get_team_for_chat(self._chat_id)
@@ -1727,20 +1745,75 @@ class Repl(ReplUI):
         # Load session messages, switch ↑/↓ history, and replay chat
         try:
             from pantheon.utils.misc import run_func
-            memory = await run_func(self._chatroom.memory_manager.get_memory, self._chat_id)
+            from pantheon.repl.conversationRecovery import loadConversationForResume
+            from pantheon.repl.sessionRestore import (
+                exitRestoredWorktree,
+                processResumedConversation,
+                restoreReadFileState,
+            )
+
+            exitRestoredWorktree()
+
+            memory = await run_func(
+                self._chatroom.memory_manager.get_memory,
+                self._chat_id,
+                auto_fix=True,
+            )
             if memory:
                 # Root-level user messages for ↑/↓ history
-                root_msgs = memory.get_messages(execution_context_id=None, for_llm=False)
+                resume_result = loadConversationForResume(
+                    memory,
+                    execution_context_id=None,
+                )
+                processed_resume = await processResumedConversation(
+                    resume_result or {},
+                    {"forkSession": False},
+                    {
+                        "memory": memory,
+                        "initialState": {},
+                    },
+                )
+                root_msgs = processed_resume.get(
+                    "messages",
+                    (resume_result or {}).get(
+                        "messages",
+                        memory.get_messages(execution_context_id=None, for_llm=False),
+                    ),
+                )
+                logger.info(
+                    "[resume] repl chat_id={} root_messages={} resumed_messages={}",
+                    self._chat_id,
+                    len(memory.get_messages(execution_context_id=None, for_llm=False)),
+                    len(root_msgs),
+                )
                 user_inputs = [
                     m["content"] for m in root_msgs
-                    if m.get("role") == "user" and isinstance(m.get("content"), str)
+                    if m.get("role") == "user"
+                    and isinstance(m.get("content"), str)
+                    and not m.get("isMeta")
                 ]
                 if self.prompt_app:
                     self.prompt_app.set_session_history(user_inputs if user_inputs else None)
                 self.command_history = user_inputs.copy()
                 self.history_index = len(self.command_history)
-                # Replay full chat history (all agents) to terminal
-                all_msgs = memory.get_messages(for_llm=False)
+                # Replay full chat history (all agents)
+                full_resume_result = loadConversationForResume(memory)
+                full_processed_resume = await processResumedConversation(
+                    full_resume_result or {},
+                    {"forkSession": False},
+                    {
+                        "memory": memory,
+                        "initialState": {},
+                    },
+                )
+                all_msgs = full_processed_resume.get(
+                    "messages",
+                    (full_resume_result or {}).get(
+                        "messages",
+                        memory.get_messages(for_llm=False),
+                    ),
+                )
+                restoreReadFileState(all_msgs, str(Path.cwd()))
                 self._replay_chat_history(all_msgs)
         except Exception:
             pass

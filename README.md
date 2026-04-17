@@ -2,7 +2,7 @@
 
 <img src="docs/source/_static/pantheon-github-banner.png" alt="PantheonOS — A framework for building evolvable and distributed multi-agent systems." width="100%" />
 
-[Official Site][official-site] · [Online App][online-app] · [Documents][docs] · [Feedback][github-issues-link]
+[Official Site][official-site] · [Online App][online-app] · [Desktop App][desktop-release-link] · [Documents][docs] · [Feedback][github-issues-link]
 
 [official-site]: https://pantheonos.stanford.edu/
 [online-app]: https://app.pantheonos.stanford.edu/
@@ -16,6 +16,7 @@
 
 [![][website-shield]][website-link]
 [![][online-app-shield]][online-app]
+[![][desktop-shield]][desktop-release-link]
 [![][store-shield]][store-link]
 [![][manuscript-shield]][manuscript-link]
 [![][slack-shield]][slack-link]
@@ -50,12 +51,21 @@ PantheonOS is an **evolvable and privacy-preserving multi-agent framework** desi
 | | |
 | :--- | :--- |
 | [![][online-app-shield]][online-app] | Play with our Web UI! |
+| [![][desktop-shield]][desktop-release-link] | Download the latest desktop app release. |
 | [![][store-shield]][store-link] | Browse 1,000+ agents, teams, and skills! |
 | [![][pypi-shield]][pypi-link] | `pip install pantheon-agents` |
 | [![][slack-shield-badge]][slack-link] | Join our Slack community! |
 | [![][discord-shield-badge]][discord-link] | Join our Discord community! |
 
 ## `3` [Installation](#3-installation)
+
+### Desktop App
+
+Download the latest Pantheon Desktop app:
+
+- [Desktop release page][desktop-release-link]
+
+Open the release page to download the latest version for your platform.
 
 ### Using uv (Recommended)
 
@@ -171,6 +181,8 @@ Copyright © 2026 [Qiu Lab](https://www.devo-evo.com/).
 
 [website-link]: https://pantheonos.stanford.edu/
 [website-shield]: https://img.shields.io/badge/official--website-55b467?labelColor=black&logo=safari&logoColor=white&style=flat-square
+[desktop-release-link]: https://github.com/aristoteleo/PantheonOS/releases/tag/desktop-latest
+[desktop-shield]: https://img.shields.io/badge/desktop-download-1f6feb?labelColor=black&logo=github&logoColor=white&style=flat-square
 [manuscript-link]: https://pantheonos.stanford.edu/paper
 [manuscript-shield]: https://img.shields.io/badge/manuscript-read-red?labelColor=black&logo=arxiv&logoColor=white&style=flat-square
 [x-link]: https://x.com/PantheonOS

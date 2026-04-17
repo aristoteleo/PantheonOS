@@ -19,6 +19,21 @@ from typing import TYPE_CHECKING
 
 from .log import logger
 
+
+def _load_custom_models_config() -> dict:
+    """Load user-defined custom models from .pantheon/custom_models.json."""
+    import json
+    try:
+        from pantheon.settings import get_settings
+        p = get_settings().pantheon_dir / "custom_models.json"
+        if p.exists():
+            data = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
 if TYPE_CHECKING:
     from pantheon.settings import Settings
 
@@ -56,11 +71,46 @@ CUSTOM_ENDPOINT_ENVS: dict[str, CustomEndpointConfig] = {
 # Sentinel object for negative cache (better than empty string)
 _NOT_FOUND = object()
 
+# ============ Local Provider Detection ============
+
+_ollama_cache: dict | None = None
+_ollama_cache_time: float = 0
+
+
+def _detect_ollama(base_url: str = "http://localhost:11434") -> bool:
+    """Check if Ollama is running locally."""
+    try:
+        import httpx
+        resp = httpx.get(f"{base_url}/api/tags", timeout=2)
+        return resp.is_success
+    except Exception:
+        return False
+
+
+def _list_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
+    """List available models from local Ollama instance (cached 30s)."""
+    import time
+    global _ollama_cache, _ollama_cache_time
+    if _ollama_cache is not None and time.time() - _ollama_cache_time < 30:
+        return _ollama_cache
+
+    try:
+        import httpx
+        resp = httpx.get(f"{base_url}/api/tags", timeout=5)
+        if resp.is_success:
+            models = [m["name"] for m in resp.json().get("models", [])]
+            _ollama_cache = models
+            _ollama_cache_time = time.time()
+            return models
+    except Exception:
+        pass
+    return []
+
 # ============ Default Configuration ============
 # Built-in defaults based on February 2026 flagship models
 # Users can override in settings.json
 
-DEFAULT_PROVIDER_PRIORITY = ["openai", "anthropic", "gemini", "zai", "deepseek", "minimax", "moonshot"]
+DEFAULT_PROVIDER_PRIORITY = ["openai", "anthropic", "gemini", "gemini-cli", "zai", "deepseek", "minimax", "moonshot", "qwen", "groq", "mistral", "together_ai", "openrouter", "codex", "ollama"]
 
 # Quality levels map to MODEL LISTS (not single models) for fallback chains
 # Models within each level are ordered by preference
@@ -68,9 +118,9 @@ DEFAULT_PROVIDER_MODELS = {
     # OpenAI: GPT-5.4 series
     # https://platform.openai.com/docs/models
     "openai": {
-        "high": ["openai/gpt-5.4-pro", "openai/gpt-5.4", "openai/gpt-5.2-pro", "openai/gpt-5.2"],
+        "high": ["openai/gpt-5.4", "openai/gpt-5.2"],
         "normal": ["openai/gpt-5.4", "openai/gpt-5.2-codex", "openai/gpt-5.2", "openai/gpt-5"],
-        "low": ["openai/gpt-5.4-mini", "openai/gpt-5-mini", "openai/gpt-5-nano", "openai/gpt-4.1-mini"],
+        "low": ["openai/gpt-5.4-mini", "openai/gpt-5.4-nano", "openai/gpt-5-mini", "openai/gpt-4.1-mini"],
     },
     # Anthropic: Claude 4.6 series
     # https://docs.anthropic.com/en/docs/about-claude/models/overview
@@ -95,6 +145,11 @@ DEFAULT_PROVIDER_MODELS = {
         "high": ["gemini/gemini-3.1-pro-preview", "gemini/gemini-3-pro-preview", "gemini/gemini-2.5-pro"],
         "normal": ["gemini/gemini-3-flash-preview", "gemini/gemini-2.5-flash"],
         "low": ["gemini/gemini-3-flash-preview", "gemini/gemini-2.5-flash-lite"],
+    },
+    "gemini-cli": {
+        "high": ["gemini-cli/gemini-3.1-pro-preview", "gemini-cli/gemini-3-pro-preview", "gemini-cli/gemini-2.5-pro"],
+        "normal": ["gemini-cli/gemini-3-flash-preview", "gemini-cli/gemini-2.5-flash"],
+        "low": ["gemini-cli/gemini-3-flash-preview", "gemini-cli/gemini-2.5-flash-lite"],
     },
     # Z.ai (Zhipu): GLM-4.6/4.5 series
     # https://open.bigmodel.cn/
@@ -137,9 +192,50 @@ DEFAULT_PROVIDER_MODELS = {
         "normal": ["moonshot/kimi-k2.5", "moonshot/kimi-k2-0905-preview"],
         "low": ["moonshot/kimi-k2.5", "moonshot/kimi-k2-0905-preview"],
     },
+    # Qwen (DashScope): Qwen3/QwQ series
+    # https://help.aliyun.com/zh/model-studio/
+    "qwen": {
+        "high": ["qwen/qwen3-235b-a22b", "qwen/qwen-max", "qwen/qwq-plus"],
+        "normal": ["qwen/qwen3-32b", "qwen/qwen-plus"],
+        "low": ["qwen/qwen3-30b-a3b", "qwen/qwen-turbo"],
+    },
+    # Groq: Ultra-fast inference
+    # https://console.groq.com/docs/models
+    "groq": {
+        "high": ["groq/openai/gpt-oss-120b", "groq/llama-3.3-70b-versatile"],
+        "normal": ["groq/openai/gpt-oss-20b", "groq/qwen/qwen3-32b", "groq/meta-llama/llama-4-scout-17b-16e-instruct"],
+        "low": ["groq/llama-3.1-8b-instant"],
+    },
+    # Mistral AI
+    # https://docs.mistral.ai/getting-started/models
+    "mistral": {
+        "high": ["mistral/mistral-large-latest", "mistral/mistral-medium-latest"],
+        "normal": ["mistral/mistral-small-latest", "mistral/codestral-latest"],
+        "low": ["mistral/open-mistral-nemo"],
+    },
+    # Together AI: Open-source model hosting
+    # https://docs.together.ai/docs/serverless-models
+    "together_ai": {
+        "high": ["together_ai/Qwen/Qwen3.5-397B-A17B", "together_ai/deepseek-ai/DeepSeek-V3.1"],
+        "normal": ["together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo"],
+        "low": ["together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo"],
+    },
+    # Codex: OpenAI via ChatGPT OAuth (free with ChatGPT Plus)
+    "codex": {
+        "high": ["codex/gpt-5.4", "codex/gpt-5.2-codex"],
+        "normal": ["codex/gpt-5.4-mini", "codex/gpt-5"],
+        "low": ["codex/gpt-5.4-mini", "codex/o4-mini"],
+    },
+    # OpenRouter: Multi-provider aggregator
+    # https://openrouter.ai/models
+    "openrouter": {
+        "high": ["openrouter/anthropic/claude-sonnet-4-6"],
+        "normal": ["openrouter/google/gemini-2.5-flash", "openrouter/deepseek/deepseek-chat"],
+        "low": ["openrouter/meta-llama/llama-3.3-70b-instruct"],
+    },
 }
 
-# Capability tags map to litellm's supports_* fields
+# Capability tags map to catalog supports_* fields
 CAPABILITY_MAP = {
     "vision": "supports_vision",
     "reasoning": "supports_reasoning",
@@ -180,6 +276,10 @@ PROVIDER_API_KEYS = {
     "minimax": "MINIMAX_API_KEY",
     "zai": "ZAI_API_KEY",
     "moonshot": "MOONSHOT_API_KEY",
+    "qwen": "DASHSCOPE_API_KEY",
+    "codex": "",  # OAuth-based, no env var key
+    "gemini-cli": "",  # OAuth-based, no env var key
+    "ollama": "",  # Local, no env var key — detected by _detect_ollama()
 }
 
 # ============ Image Generation Model Defaults ============
@@ -230,10 +330,35 @@ class ModelSelector:
             if api_key_value:
                 self._available_providers.add(provider)
 
-        # Check custom endpoint keys
+        # Check custom endpoint keys (env var or settings.json)
+        from pantheon.settings import get_settings
+        settings = get_settings()
         for provider_key, config in CUSTOM_ENDPOINT_ENVS.items():
-            if os.environ.get(config.api_key_env, ""):
+            if os.environ.get(config.api_key_env, "") or settings.get_api_key(config.api_key_env):
                 self._available_providers.add(provider_key)
+
+        # Check user-defined custom models from custom_models.json
+        custom_models = _load_custom_models_config()
+        if custom_models:
+            self._available_providers.add("custom")
+
+        # Check OAuth providers (e.g., Codex, Gemini CLI)
+        try:
+            from pantheon.utils.oauth import CodexOAuthManager, GeminiCliOAuthManager
+            if CodexOAuthManager().is_authenticated():
+                self._available_providers.add("codex")
+            if GeminiCliOAuthManager().is_authenticated():
+                self._available_providers.add("gemini-cli")
+        except Exception:
+            pass
+
+        # Check local Ollama
+        try:
+            from pantheon.utils.model_selector import _detect_ollama
+            if _detect_ollama():
+                self._available_providers.add("ollama")
+        except Exception:
+            pass
 
         # Universal proxy: LLM_API_KEY makes openai provider available
         # (most third-party proxies are OpenAI-compatible)
@@ -315,9 +440,31 @@ class ModelSelector:
         Returns:
             Dict mapping quality levels to model lists
         """
-        # Custom endpoints don't have predefined model lists in litellm
-        # They use environment-specified models instead
+        # Custom endpoints: use the configured model from env var or settings
         if provider in CUSTOM_ENDPOINT_ENVS:
+            import os
+            from pantheon.settings import get_settings
+            config = CUSTOM_ENDPOINT_ENVS[provider]
+            model = os.environ.get(config.model_env, "") or get_settings().get_api_key(config.model_env) or ""
+            if model:
+                prefixed = f"{provider}/{model}"
+                return {"high": [prefixed], "normal": [prefixed], "low": [prefixed]}
+            return {}
+
+        # User-defined custom models from custom_models.json
+        if provider == "custom":
+            custom_models = _load_custom_models_config()
+            if custom_models:
+                prefixed = [f"custom/{name}" for name in custom_models]
+                return {"high": prefixed, "normal": prefixed, "low": prefixed}
+            return {}
+
+        # Ollama: dynamically list local models
+        if provider == "ollama":
+            models = _list_ollama_models()
+            if models:
+                prefixed = [f"ollama/{m}" for m in models]
+                return {"high": prefixed, "normal": prefixed, "low": prefixed}
             return {}
 
         # Try user configuration first
@@ -331,11 +478,11 @@ class ModelSelector:
             merged = {**default_config, **user_config}
             return merged
 
-        # No configuration - auto-generate from litellm
+        # No configuration - auto-generate from catalog
         return self._auto_generate_provider_config(provider)
 
     def _auto_generate_provider_config(self, provider: str) -> dict[str, list[str]]:
-        """Auto-generate provider config from litellm (sorted by price).
+        """Auto-generate provider config from catalog (sorted by price).
 
         Used when provider has API key but no configuration.
 
@@ -345,28 +492,25 @@ class ModelSelector:
         Returns:
             Dict mapping quality levels to model lists
         """
-        try:
-            from litellm import models_by_provider
-            from litellm.utils import get_model_info
-        except ImportError:
-            logger.warning("litellm not available for auto-generation")
-            return {}
+        from pantheon.utils.provider_registry import models_by_provider as get_models, get_model_info
 
         logger.warning(
-            f"Provider '{provider}' not configured. Auto-generating from litellm. "
+            f"Provider '{provider}' not configured. Auto-generating from catalog. "
             f"Consider adding it to settings.json models.provider_models for better control."
         )
 
-        if provider not in models_by_provider:
-            logger.warning(f"Provider '{provider}' not found in litellm")
+        all_models = get_models(provider)
+        if not all_models:
+            logger.warning(f"Provider '{provider}' not found in catalog")
             return {}
 
         # Collect chat models with prices
         models_with_prices: list[tuple[str, float]] = []
-        for model in models_by_provider[provider]:
+        for model in all_models:
             try:
                 info = get_model_info(model)
-                if info.get("mode") == "chat":
+                mode = info.get("mode", "chat")
+                if mode in ("chat", None):
                     input_cost = info.get("input_cost_per_token", 0) or 0
                     models_with_prices.append((model, input_cost))
             except Exception:
@@ -411,13 +555,12 @@ class ModelSelector:
             return False
 
         try:
-            from litellm.utils import get_model_info
+            from pantheon.utils.provider_registry import get_model_info
 
             info = get_model_info(model)
-            litellm_field = CAPABILITY_MAP[capability]
-            return bool(info.get(litellm_field))
+            field = CAPABILITY_MAP[capability]
+            return bool(info.get(field))
         except Exception:
-            # If we can't check, assume it doesn't support
             return False
 
     def resolve_model(self, tag: str) -> list[str]:
@@ -586,6 +729,47 @@ class ModelSelector:
 
         return result
 
+    def resolve_model_for_provider(self, tag: str, provider: str | None) -> list[str]:
+        """Resolve tag(s) using a preferred provider when possible.
+
+        This is used when the current dialog is already running on a concrete
+        provider/model and an internal helper requests a quality tag like
+        ``low`` or ``high``. In that case we should stay on the same provider
+        instead of re-running global provider auto-selection and accidentally
+        hopping to a different backend.
+        """
+        if not provider:
+            return self.resolve_model(tag)
+
+        provider_models = self._get_provider_models(provider)
+        if not provider_models:
+            return self.resolve_model(tag)
+
+        tags = [t.strip().lower() for t in tag.split(",")]
+        quality_tag = next((t for t in tags if t in QUALITY_TAGS), "normal")
+        capability_tags = [t for t in tags if t in CAPABILITY_MAP]
+
+        models = provider_models.get(quality_tag, [])
+        if isinstance(models, str):
+            models = [models]
+        if not models:
+            return self.resolve_model(tag)
+
+        if not capability_tags:
+            return list(models)
+
+        result: list[str] = []
+        for model in models:
+            if all(
+                self._check_model_capability(model, cap) for cap in capability_tags
+            ):
+                result.append(model)
+
+        if result:
+            return result
+
+        return self.resolve_model(tag)
+
     def resolve_image_gen_model(self, quality: str = "normal") -> list[str]:
         """Resolve image generation model based on available providers.
 
@@ -666,11 +850,21 @@ class ModelSelector:
         # Collect supported tags
         supported_tags = list(QUALITY_TAGS) + list(CAPABILITY_MAP.keys())
 
+        # Collect models that support reasoning/thinking
+        from .provider_registry import get_model_info
+        reasoning_models: list[str] = []
+        for provider_models in models_by_provider.values():
+            for model in provider_models:
+                info = get_model_info(model)
+                if info.get("supports_reasoning"):
+                    reasoning_models.append(model)
+
         return {
             "success": True,
             "available_providers": available_providers,
             "current_provider": current_provider,
             "models_by_provider": models_by_provider,
+            "reasoning_models": reasoning_models,
             "supported_tags": supported_tags,
         }
 

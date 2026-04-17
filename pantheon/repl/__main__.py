@@ -15,7 +15,7 @@ import logging
 import warnings
 from pathlib import Path
 
-# Warning filters and litellm config are already set in pantheon/__init__.py
+# Warning filters are already set in pantheon/__init__.py
 # which runs before this __main__.py
 
 import fire
@@ -159,31 +159,6 @@ def start(
     )
 
 
-async def _update_litellm_cost_map():
-    """Background task to update litellm model cost map.
-
-    This runs after startup to fetch the latest model pricing data
-    from GitHub without blocking the UI.
-    """
-    try:
-        await asyncio.sleep(2)  # Wait for REPL to fully initialize
-        import litellm
-        import aiohttp
-
-        # Manually fetch the latest model metadata from GitHub using aiohttp.
-        # We fetch manually because litellm.get_model_cost_map filters some models,
-        # and litellm.register_model triggers interactive authentication prompts.
-        url = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=10) as response:
-                if response.status == 200:
-                    new_map = await response.json(content_type=None)
-                    if new_map:
-                        litellm.model_cost.update(new_map)
-    except Exception:
-        pass  # Silently ignore - this is a best-effort background update
-
 
 async def _start_async(
     template: str = None,
@@ -258,7 +233,6 @@ async def _start_async(
             memory_dir=memory_dir,
             workspace_path=workspace,
             enable_nats_streaming=False,
-            learning_config=get_settings().get_learning_config(),
             enable_auto_chat_name=True,
         )
 
@@ -293,7 +267,6 @@ async def _start_async(
             memory_dir=memory_dir,
             workspace_path=workspace,
             enable_nats_streaming=False,
-            learning_config=get_settings().get_learning_config(),
             enable_auto_chat_name=True,
         )
         # Note: run_setup() is called in repl.run() AFTER UI display
@@ -327,9 +300,6 @@ async def _start_async(
 
     # Disable logging unless explicitly set to DEBUG
     disable_logging = quiet and log_level != "DEBUG"
-
-    # Start background task to update litellm cost map (non-blocking)
-    asyncio.create_task(_update_litellm_cost_map())
 
     await repl.run(message=initial_input, disable_logging=disable_logging, log_level=log_level)
 

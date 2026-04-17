@@ -1,6 +1,7 @@
 """Tests for notebook execution concurrency control and lock mechanisms."""
 
 import asyncio
+import json
 import pytest
 import tempfile
 import os
@@ -328,4 +329,124 @@ class TestIntegrationConcurrency:
                 if other_marker != marker:
                     assert other_marker not in output_text, \
                         f"Output mixing detected: '{other_marker}' found in output for {marker}"
+
+
+class TestStaleCellIdRecovery:
+    """Tests for recovering from stale / missing cell IDs."""
+
+    @pytest.fixture
+    async def notebook_toolset(self):
+        from pantheon.toolsets.notebook.integrated_notebook import IntegratedNotebookToolSet
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            toolset = IntegratedNotebookToolSet(
+                name="test_notebook",
+                workdir=tmpdir,
+                streaming_mode="local",
+            )
+            await toolset.run_setup()
+            yield toolset, tmpdir
+            await toolset.cleanup()
+
+    def _write_raw_notebook(self, path: str, cells: list[dict]):
+        """Write a minimal nbformat 4.4 notebook (no cell IDs)."""
+        notebook = {
+            "cells": cells,
+            "metadata": {
+                "kernelspec": {
+                    "display_name": "Python 3",
+                    "language": "python",
+                    "name": "python3",
+                },
+                "language_info": {"name": "python"},
+            },
+            "nbformat": 4,
+            "nbformat_minor": 4,
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(notebook, f)
+
+    @pytest.mark.asyncio
+    async def test_read_cells_auto_assigns_stable_ids(self, notebook_toolset):
+        """read_cells should auto-assign deterministic IDs to cells without them."""
+        toolset, tmpdir = notebook_toolset
+        nb_path = os.path.join(tmpdir, "no_ids.ipynb")
+        self._write_raw_notebook(nb_path, [
+            {"cell_type": "code", "execution_count": None, "metadata": {},
+             "outputs": [], "source": "print('hello')"},
+            {"cell_type": "code", "execution_count": None, "metadata": {},
+             "outputs": [], "source": "print('world')"},
+        ])
+
+        result = await toolset.read_cells(nb_path)
+        assert result["success"]
+        ids = [c["cell_id"] for c in result["cells"]]
+        assert all(ids), "All cells should have IDs"
+        assert len(set(ids)) == 2, "IDs should be unique"
+
+        # Read again — IDs should be the same (deterministic)
+        result2 = await toolset.read_cells(nb_path)
+        ids2 = [c["cell_id"] for c in result2["cells"]]
+        assert ids == ids2, "IDs should be stable across reads"
+
+    @pytest.mark.asyncio
+    async def test_execute_cell_with_auto_assigned_id(self, notebook_toolset):
+        """execute_cell should work with IDs that were auto-assigned by read_cells."""
+        toolset, tmpdir = notebook_toolset
+        nb_path = os.path.join(tmpdir, "exec_no_id.ipynb")
+        self._write_raw_notebook(nb_path, [
+            {"cell_type": "code", "execution_count": None, "metadata": {},
+             "outputs": [], "source": "x = 1\nprint(x)"},
+        ])
+
+        # read_cells auto-assigns IDs
+        read_result = await toolset.read_cells(nb_path)
+        assert read_result["success"]
+        cell_id = read_result["cells"][0]["cell_id"]
+        assert cell_id
+
+        # execute_cell should find the cell by its auto-assigned ID
+        exec_result = await toolset.execute_cell(nb_path, cell_id)
+        assert exec_result["success"], exec_result.get("error")
+
+    @pytest.mark.asyncio
+    async def test_update_cell_recovers_via_source_hint(self, notebook_toolset):
+        """update_cell should recover when cell_id is stale but old_content matches."""
+        toolset, tmpdir = notebook_toolset
+        nb_path = os.path.join(tmpdir, "stale_update.ipynb")
+
+        # Create notebook properly (has real IDs)
+        create_result = await toolset.create_notebook(nb_path)
+        assert create_result["success"]
+        add_result = await toolset.add_cell(nb_path, content="x = 1\nprint(x)")
+        assert add_result["success"]
+        real_id = add_result["cell_id"]
+
+        # Update using a stale/wrong cell_id but correct old_content
+        result = await toolset.update_cell(
+            notebook_path=nb_path,
+            cell_id="stale_nonexistent_id",
+            content="x = 2",
+            old_content="x = 1",
+        )
+        assert result["success"], result.get("error")
+
+    @pytest.mark.asyncio
+    async def test_stale_id_without_hint_returns_available_cells(self, notebook_toolset):
+        """When cell_id is stale and no source_hint, error should list available cells."""
+        toolset, tmpdir = notebook_toolset
+        nb_path = os.path.join(tmpdir, "stale_error.ipynb")
+
+        create_result = await toolset.create_notebook(nb_path)
+        assert create_result["success"]
+        add_result = await toolset.add_cell(nb_path, content="hello = 1")
+        assert add_result["success"]
+        real_id = add_result["cell_id"]
+
+        # Try execute with wrong cell_id
+        result = await toolset.execute_cell(nb_path, "totally_wrong_id")
+        assert not result["success"]
+        assert "not found" in result["error"]
+        assert real_id in result["error"], "Error should contain available cell IDs"
+        assert "read_cells" in result["error"], "Error should suggest read_cells"
 

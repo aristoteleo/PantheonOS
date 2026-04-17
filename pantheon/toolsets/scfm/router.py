@@ -39,6 +39,41 @@ VALID_SCFM_TOOLS = [
     "scfm_select_model",
 ]
 
+
+def _normalize_router_output_dict(output_dict: dict[str, Any]) -> dict[str, Any]:
+    """Normalize common LLM plan mistakes into valid SCFM router output.
+
+    In practice the router sometimes emits a model name such as ``scplantllm``
+    as the plan tool. Convert those steps into ``scfm_run`` with
+    ``model_name=<that model>`` while preserving the original args.
+    """
+    if not isinstance(output_dict, dict):
+        return output_dict
+
+    normalized = json.loads(json.dumps(output_dict))
+    registry = get_registry()
+    plan = normalized.get("plan")
+    if not isinstance(plan, list):
+        return normalized
+
+    for step in plan:
+        if not isinstance(step, dict):
+            continue
+        tool_name = step.get("tool")
+        if not isinstance(tool_name, str) or tool_name in VALID_SCFM_TOOLS:
+            continue
+        if registry.get(tool_name.lower()) is None:
+            continue
+
+        args = step.get("args")
+        if not isinstance(args, dict):
+            args = {}
+            step["args"] = args
+        args.setdefault("model_name", tool_name.lower())
+        step["tool"] = "scfm_run"
+
+    return normalized
+
 ROUTER_SYSTEM_PROMPT = """You are an expert scFM (single-cell foundation model) router.
 Your job is to analyze user queries about single-cell data analysis and determine:
 1. Which task they want to perform (embed, integrate, annotate, spatial, perturb, drug_response)
@@ -225,6 +260,7 @@ def validate_router_output(output_dict: dict[str, Any]) -> tuple[bool, list[str]
         Tuple of (is_valid, error_messages, parsed_output)
     """
     errors = []
+    output_dict = _normalize_router_output_dict(output_dict)
     registry = get_registry()
 
     # Validate against Pydantic schema

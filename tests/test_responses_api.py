@@ -11,6 +11,7 @@ from pantheon.utils.llm_providers import (
     is_responses_api_model,
 )
 from pantheon.utils.llm import (
+    _convert_content_to_responses_blocks,
     _convert_messages_to_responses_input,
     _convert_tools_for_responses,
     _convert_model_params_for_responses,
@@ -40,13 +41,13 @@ class TestIsResponsesApiModel:
         config = ProviderConfig(provider_type=ProviderType.OPENAI, model_name="gpt-4o")
         assert is_responses_api_model(config) is False
 
-    def test_codex_model_litellm_provider(self):
-        """Codex model but via LiteLLM provider should NOT use Responses API."""
-        config = ProviderConfig(provider_type=ProviderType.LITELLM, model_name="codex-mini-latest")
+    def test_codex_model_native_provider(self):
+        """Codex model but via native provider should NOT use Responses API."""
+        config = ProviderConfig(provider_type=ProviderType.NATIVE, model_name="codex-mini-latest")
         assert is_responses_api_model(config) is False
 
-    def test_non_codex_litellm(self):
-        config = ProviderConfig(provider_type=ProviderType.LITELLM, model_name="anthropic/claude-3-opus")
+    def test_non_codex_native(self):
+        config = ProviderConfig(provider_type=ProviderType.NATIVE, model_name="anthropic/claude-3-opus")
         assert is_responses_api_model(config) is False
 
     def test_o1_model_not_codex(self):
@@ -171,6 +172,41 @@ class TestConvertMessagesToResponsesInput:
             "output": "Sunny, 72F",
         }
         assert items[3] == {"role": "assistant", "content": "It's sunny and 72F in NYC!"}
+
+    def test_user_multimodal_content_blocks_are_converted(self):
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this image"},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,AAA", "detail": "high"},
+                    },
+                ],
+            }
+        ]
+        instructions, items = _convert_messages_to_responses_input(messages)
+        assert instructions is None
+        assert items == [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": "Describe this image"},
+                    {
+                        "type": "input_image",
+                        "image_url": "data:image/png;base64,AAA",
+                        "detail": "high",
+                    },
+                ],
+            }
+        ]
+
+    def test_assistant_content_blocks_use_output_text(self):
+        assert _convert_content_to_responses_blocks(
+            "assistant",
+            [{"type": "text", "text": "Done"}],
+        ) == [{"type": "output_text", "text": "Done"}]
 
 
 # ============ _convert_tools_for_responses ============
@@ -442,7 +478,7 @@ class TestResponsesApiRealCalls:
             detect_provider,
         )
 
-        config = detect_provider(CODEX_MODEL, force_litellm=False)
+        config = detect_provider(CODEX_MODEL, relaxed_schema=False)
         assert is_responses_api_model(config) is True
 
         result = await call_llm_provider(
@@ -466,7 +502,7 @@ class TestResponsesApiRealCalls:
 
 def detect_provider_for_test(model: str) -> ProviderConfig:
     from pantheon.utils.llm_providers import detect_provider
-    return detect_provider(model, force_litellm=False)
+    return detect_provider(model, relaxed_schema=False)
 
 
 # ============ Agent.run() End-to-End Tests ============

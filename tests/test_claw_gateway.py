@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import tempfile
 import unittest
 import asyncio
@@ -83,6 +85,7 @@ class DummyChatroom:
     def __init__(self):
         self.threads = set()
         self._chat_id = "chat-1"
+        self._last_chat_call: dict | None = None
         self._active_agent = "Leader"
         self._agents = [
             {"name": "Leader", "model": "openai/gpt-5.4", "models": ["openai/gpt-5.4"]},
@@ -209,6 +212,31 @@ class DummyChatroom:
                 return {"success": True, "agent": agent_name, "model": model, "resolved_models": [model]}
         return {"success": False, "message": "agent not found"}
 
+    async def chat(
+        self,
+        chat_id: str,
+        message: list[dict],
+        process_chunk=None,
+        process_step_message=None,
+    ):
+        self._last_chat_call = {
+            "chat_id": chat_id,
+            "message": message,
+        }
+        # Simulate a tool result with an image (list format, matching python_interpreter)
+        if process_step_message is not None:
+            await process_step_message({
+                "role": "tool",
+                "tool_name": "python",
+                "raw_content": {
+                    "base64_uri": ["data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="],
+                    "stdout": "plot generated",
+                },
+            })
+        if process_chunk is not None:
+            await process_chunk({"content": "Here is the result."})
+        return {"response": "Here is the result.", "messages": []}
+
 
 class ChatRoomGatewayBridgeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -267,6 +295,421 @@ class ChatRoomGatewayBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["handled"])
         self.assertTrue(result["clear_pending"])
         self.assertIn("Deleted chat-1", result["message"])
+
+
+class BridgeImageTests(unittest.IsolatedAsyncioTestCase):
+    """Tests for image sending and receiving through the bridge."""
+
+    async def asyncSetUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.registry = ClawRouteRegistry(Path(self.tmpdir.name) / "routes.json")
+        self.chatroom = DummyChatroom()
+        self.bridge = ChatRoomGatewayBridge(
+            chatroom=self.chatroom,
+            registry=self.registry,
+            loop=asyncio.get_running_loop(),
+        )
+        self.route = ConversationRoute(
+            channel="telegram",
+            scope_type="dm",
+            scope_id="user-1",
+            sender_id="user-1",
+        )
+
+    async def asyncTearDown(self):
+        self.tmpdir.cleanup()
+
+    # ── _build_message tests ─────────────────────────────────────────────────
+
+    def test_build_message_text_only(self):
+        """Text-only messages should use the simple string content format."""
+        msgs = ChatRoomGatewayBridge._build_message("hello")
+        self.assertEqual(len(msgs), 1)
+        self.assertEqual(msgs[0]["role"], "user")
+        self.assertEqual(msgs[0]["content"], "hello")
+        self.assertNotIn("_llm_content", msgs[0])
+
+    def test_build_message_with_images(self):
+        """Messages with images should use the multimodal content-array format."""
+        uri = "data:image/png;base64,abc123"
+        msgs = ChatRoomGatewayBridge._build_message("describe this", [uri])
+        self.assertEqual(len(msgs), 1)
+        msg = msgs[0]
+
+        # Display content should be the text
+        self.assertEqual(msg["content"], "describe this")
+
+        # LLM content should be a list with text + image parts
+        llm = msg["_llm_content"]
+        self.assertIsInstance(llm, list)
+        self.assertEqual(len(llm), 2)
+        self.assertEqual(llm[0], {"type": "text", "text": "describe this"})
+        self.assertEqual(llm[1], {"type": "image_url", "image_url": {"url": uri}})
+
+    def test_build_message_image_only_no_text(self):
+        """Image-only messages should use a placeholder for display content."""
+        uri = "data:image/jpeg;base64,xyz"
+        msgs = ChatRoomGatewayBridge._build_message("", [uri])
+        msg = msgs[0]
+
+        self.assertEqual(msg["content"], "[1 image(s)]")
+        llm = msg["_llm_content"]
+        self.assertEqual(len(llm), 1)
+        self.assertEqual(llm[0]["type"], "image_url")
+
+    def test_build_message_multiple_images(self):
+        """Multiple images should all appear in _llm_content."""
+        uris = [
+            "data:image/png;base64,aaa",
+            "data:image/jpeg;base64,bbb",
+            "data:image/gif;base64,ccc",
+        ]
+        msgs = ChatRoomGatewayBridge._build_message("compare these", uris)
+        llm = msgs[0]["_llm_content"]
+        self.assertEqual(len(llm), 4)  # 1 text + 3 images
+        image_parts = [p for p in llm if p["type"] == "image_url"]
+        self.assertEqual(len(image_parts), 3)
+        self.assertEqual(image_parts[0]["image_url"]["url"], uris[0])
+        self.assertEqual(image_parts[2]["image_url"]["url"], uris[2])
+
+    # ── run_chat image flow tests ────────────────────────────────────────────
+
+    async def test_run_chat_sends_images_to_chatroom(self):
+        """run_chat should pass image_uris through to the chatroom as multimodal content."""
+        uri = "data:image/png;base64,testimage"
+        await self.bridge.run_chat(
+            self.route,
+            "analyze this image",
+            image_uris=[uri],
+        )
+
+        # Verify the chatroom received the multimodal message
+        call = self.chatroom._last_chat_call
+        self.assertIsNotNone(call, "chatroom.chat() was never called")
+        msg = call["message"][0]
+        self.assertIn("_llm_content", msg)
+        llm = msg["_llm_content"]
+        image_parts = [p for p in llm if p["type"] == "image_url"]
+        self.assertEqual(len(image_parts), 1)
+        self.assertEqual(image_parts[0]["image_url"]["url"], uri)
+
+    async def test_run_chat_text_only_no_llm_content(self):
+        """run_chat without images should send plain text (no _llm_content key)."""
+        await self.bridge.run_chat(self.route, "just text")
+
+        call = self.chatroom._last_chat_call
+        self.assertIsNotNone(call)
+        msg = call["message"][0]
+        self.assertEqual(msg["content"], "just text")
+        self.assertNotIn("_llm_content", msg)
+
+    async def test_run_chat_collects_images_from_step_callback(self):
+        """The image step callback should collect base64_uri from tool results."""
+        from pantheon.claw.runtime import ChannelRuntime
+
+        runtime = ChannelRuntime(bridge=self.bridge)
+        image_buf: list[str] = []
+        llm_buf: list[str] = []
+        on_step = runtime.make_image_step_callback(llm_buf, image_buf)
+
+        # Simulate a tool result with base64_uri as a string
+        await on_step({
+            "role": "tool",
+            "tool_name": "python",
+            "raw_content": {
+                "base64_uri": "data:image/png;base64,fakechart",
+                "stdout": "done",
+            },
+        })
+
+        self.assertEqual(len(image_buf), 1)
+        self.assertEqual(image_buf[0], "data:image/png;base64,fakechart")
+
+    async def test_run_chat_collects_images_from_step_callback_list_format(self):
+        """The image step callback should handle base64_uri as a list (python_interpreter format)."""
+        from pantheon.claw.runtime import ChannelRuntime
+
+        runtime = ChannelRuntime(bridge=self.bridge)
+        image_buf: list[str] = []
+        llm_buf: list[str] = []
+        on_step = runtime.make_image_step_callback(llm_buf, image_buf)
+
+        await on_step({
+            "role": "tool",
+            "tool_name": "python",
+            "raw_content": {
+                "base64_uri": ["data:image/png;base64,chart1", "data:image/png;base64,chart2"],
+                "stdout": "done",
+            },
+        })
+
+        self.assertEqual(len(image_buf), 2)
+        self.assertEqual(image_buf[0], "data:image/png;base64,chart1")
+        self.assertEqual(image_buf[1], "data:image/png;base64,chart2")
+
+    async def test_run_chat_step_callback_ignores_non_image_tools(self):
+        """Tool results without base64_uri should not add to image_buf."""
+        from pantheon.claw.runtime import ChannelRuntime
+
+        runtime = ChannelRuntime(bridge=self.bridge)
+        image_buf: list[str] = []
+        llm_buf: list[str] = []
+        on_step = runtime.make_image_step_callback(llm_buf, image_buf)
+
+        await on_step({
+            "role": "tool",
+            "tool_name": "search",
+            "raw_content": {"stdout": "found 3 results"},
+        })
+
+        self.assertEqual(len(image_buf), 0)
+
+    async def test_run_chat_step_callback_ignores_transfers(self):
+        """Agent transfers should not add to image_buf."""
+        from pantheon.claw.runtime import ChannelRuntime
+
+        runtime = ChannelRuntime(bridge=self.bridge)
+        image_buf: list[str] = []
+        llm_buf: list[str] = []
+        on_step = runtime.make_image_step_callback(llm_buf, image_buf)
+
+        await on_step({"role": "tool", "transfer": True, "content": "Reviewer"})
+
+        self.assertEqual(len(image_buf), 0)
+
+    async def test_end_to_end_image_round_trip(self):
+        """Full round-trip: send image → chatroom responds with image → collect it."""
+        from pantheon.claw.runtime import ChannelRuntime
+
+        runtime = ChannelRuntime(bridge=self.bridge)
+        llm_buf: list[str] = []
+        image_buf: list[str] = []
+
+        on_chunk = runtime.make_chunk_callback(llm_buf)
+        on_step = runtime.make_image_step_callback(llm_buf, image_buf)
+
+        inbound_uri = "data:image/png;base64,userinput"
+        result = await self.bridge.run_chat(
+            self.route,
+            "what is in this image?",
+            image_uris=[inbound_uri],
+            process_chunk=on_chunk,
+            process_step_message=on_step,
+        )
+
+        # Verify inbound: chatroom received the image
+        call = self.chatroom._last_chat_call
+        llm = call["message"][0]["_llm_content"]
+        self.assertTrue(any(
+            p.get("image_url", {}).get("url") == inbound_uri
+            for p in llm if p["type"] == "image_url"
+        ))
+
+        # Verify outbound: step callback collected the server's response image
+        self.assertEqual(len(image_buf), 1)
+        self.assertEqual(image_buf[0], "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==")
+
+        # Verify text response still works
+        self.assertEqual("".join(llm_buf), "Here is the result.")
+
+
+class RuntimeImageUtilTests(unittest.TestCase):
+    """Tests for the image utility functions in runtime.py."""
+
+    def test_bytes_to_data_uri_and_back(self):
+        from pantheon.claw.runtime import bytes_to_data_uri, data_uri_to_bytes
+
+        original = b"\x89PNG\r\n\x1a\nfake"
+        uri = bytes_to_data_uri(original, "chart.png")
+
+        self.assertTrue(uri.startswith("data:image/png;base64,"))
+
+        recovered, mime = data_uri_to_bytes(uri)
+        self.assertEqual(recovered, original)
+        self.assertEqual(mime, "image/png")
+
+    def test_bytes_to_data_uri_jpeg(self):
+        from pantheon.claw.runtime import bytes_to_data_uri
+
+        uri = bytes_to_data_uri(b"\xff\xd8\xff", "photo.jpg")
+        self.assertTrue(uri.startswith("data:image/jpeg;base64,"))
+
+    def test_data_uri_to_bytes_invalid(self):
+        from pantheon.claw.runtime import data_uri_to_bytes
+
+        raw, mime = data_uri_to_bytes("")
+        self.assertEqual(raw, b"")
+        self.assertEqual(mime, "")
+
+        raw2, mime2 = data_uri_to_bytes("not-a-uri")
+        self.assertEqual(raw2, b"")
+
+    def test_bytes_to_data_uri_unknown_extension(self):
+        from pantheon.claw.runtime import bytes_to_data_uri
+
+        uri = bytes_to_data_uri(b"data", "")
+        self.assertTrue(uri.startswith("data:image/png;base64,"))
+
+
+class MarkdownConverterTests(unittest.TestCase):
+    """Tests for the Markdown format converters in runtime.py."""
+
+    def test_md_to_slack_bold(self):
+        from pantheon.claw.runtime import md_to_slack
+        self.assertEqual(md_to_slack("**hello**"), "*hello*")
+
+    def test_md_to_slack_italic(self):
+        from pantheon.claw.runtime import md_to_slack
+        self.assertEqual(md_to_slack("*hello*"), "_hello_")
+
+    def test_md_to_slack_bold_and_italic(self):
+        from pantheon.claw.runtime import md_to_slack
+        result = md_to_slack("**bold** and *italic*")
+        self.assertEqual(result, "*bold* and _italic_")
+
+    def test_md_to_slack_strikethrough(self):
+        from pantheon.claw.runtime import md_to_slack
+        self.assertEqual(md_to_slack("~~deleted~~"), "~deleted~")
+
+    def test_md_to_slack_link(self):
+        from pantheon.claw.runtime import md_to_slack
+        self.assertEqual(md_to_slack("[text](https://example.com)"), "<https://example.com|text>")
+
+    def test_md_to_slack_header(self):
+        from pantheon.claw.runtime import md_to_slack
+        self.assertEqual(md_to_slack("## Title"), "*Title*")
+
+    def test_md_to_slack_unordered_list(self):
+        from pantheon.claw.runtime import md_to_slack
+        self.assertEqual(md_to_slack("- item one\n- item two"), "• item one\n• item two")
+
+    def test_md_to_slack_code_block_preserved(self):
+        from pantheon.claw.runtime import md_to_slack
+        text = "```python\n**not bold**\n```"
+        result = md_to_slack(text)
+        self.assertIn("**not bold**", result)
+
+    def test_md_to_slack_inline_code_preserved(self):
+        from pantheon.claw.runtime import md_to_slack
+        result = md_to_slack("use `**raw**` here")
+        self.assertIn("`**raw**`", result)
+
+    # ── md_to_telegram (MarkdownV2) ─────────────────────────────────────────
+
+    def test_md_to_telegram_bold(self):
+        from pantheon.claw.runtime import md_to_telegram
+        self.assertEqual(md_to_telegram("**hello**"), "*hello*")
+
+    def test_md_to_telegram_italic(self):
+        from pantheon.claw.runtime import md_to_telegram
+        self.assertEqual(md_to_telegram("*hello*"), "_hello_")
+
+    def test_md_to_telegram_bold_and_italic(self):
+        from pantheon.claw.runtime import md_to_telegram
+        result = md_to_telegram("**bold** and *italic*")
+        self.assertEqual(result, "*bold* and _italic_")
+
+    def test_md_to_telegram_strikethrough(self):
+        from pantheon.claw.runtime import md_to_telegram
+        self.assertEqual(md_to_telegram("~~deleted~~"), "~deleted~")
+
+    def test_md_to_telegram_escapes_special_chars(self):
+        from pantheon.claw.runtime import md_to_telegram
+        result = md_to_telegram("hello! (world) test.end")
+        self.assertIn("\\!", result)
+        self.assertIn("\\(", result)
+        self.assertIn("\\.", result)
+
+    def test_md_to_telegram_link(self):
+        from pantheon.claw.runtime import md_to_telegram
+        result = md_to_telegram("[click](https://example.com)")
+        self.assertIn("[click](https://example.com)", result)
+
+    def test_md_to_telegram_header(self):
+        from pantheon.claw.runtime import md_to_telegram
+        self.assertEqual(md_to_telegram("## Title"), "*Title*")
+
+    def test_md_to_telegram_code_block_not_escaped(self):
+        from pantheon.claw.runtime import md_to_telegram
+        text = "```\nhello! (world)\n```"
+        result = md_to_telegram(text)
+        # Content inside code blocks should NOT be escaped
+        self.assertIn("hello! (world)", result)
+
+    def test_md_to_telegram_inline_code_not_escaped(self):
+        from pantheon.claw.runtime import md_to_telegram
+        result = md_to_telegram("use `a.b!c` here")
+        self.assertIn("`a.b!c`", result)
+
+    # ── md_to_plain ─────────────────────────────────────────────────────────
+
+    def test_md_to_plain_strips_bold(self):
+        from pantheon.claw.runtime import md_to_plain
+        self.assertEqual(md_to_plain("**hello**"), "hello")
+
+    def test_md_to_plain_strips_italic(self):
+        from pantheon.claw.runtime import md_to_plain
+        self.assertEqual(md_to_plain("*hello*"), "hello")
+
+    def test_md_to_plain_strips_strikethrough(self):
+        from pantheon.claw.runtime import md_to_plain
+        self.assertEqual(md_to_plain("~~deleted~~"), "deleted")
+
+    def test_md_to_plain_link_shows_text_and_url(self):
+        from pantheon.claw.runtime import md_to_plain
+        result = md_to_plain("[click](https://example.com)")
+        self.assertIn("click", result)
+        self.assertIn("https://example.com", result)
+
+    def test_md_to_plain_strips_header(self):
+        from pantheon.claw.runtime import md_to_plain
+        self.assertEqual(md_to_plain("## Title"), "Title")
+
+    def test_md_to_plain_strips_code_fences(self):
+        from pantheon.claw.runtime import md_to_plain
+        result = md_to_plain("```python\nprint('hi')\n```")
+        self.assertIn("print('hi')", result)
+        self.assertNotIn("```", result)
+
+    def test_md_to_plain_strips_inline_code(self):
+        from pantheon.claw.runtime import md_to_plain
+        self.assertEqual(md_to_plain("use `code` here"), "use code here")
+
+    def test_md_to_plain_list(self):
+        from pantheon.claw.runtime import md_to_plain
+        self.assertEqual(md_to_plain("- item"), "• item")
+
+    # ── Combined / edge cases ───────────────────────────────────────────────
+
+    def test_all_converters_handle_empty_string(self):
+        from pantheon.claw.runtime import md_to_slack, md_to_telegram, md_to_plain
+        self.assertEqual(md_to_slack(""), "")
+        self.assertEqual(md_to_telegram(""), "")
+        self.assertEqual(md_to_plain(""), "")
+
+    def test_all_converters_handle_plain_text(self):
+        from pantheon.claw.runtime import md_to_slack, md_to_telegram, md_to_plain
+        self.assertEqual(md_to_slack("hello world"), "hello world")
+        self.assertEqual(md_to_plain("hello world"), "hello world")
+
+    def test_slack_full_message(self):
+        from pantheon.claw.runtime import md_to_slack
+        md = "## Summary\n**Bold** and *italic*\n- Item 1\n- Item 2\n[link](https://x.com)"
+        result = md_to_slack(md)
+        self.assertIn("*Summary*", result)
+        self.assertIn("*Bold*", result)
+        self.assertIn("_italic_", result)
+        self.assertIn("• Item 1", result)
+        self.assertIn("<https://x.com|link>", result)
+
+    def test_telegram_full_message(self):
+        from pantheon.claw.runtime import md_to_telegram
+        md = "## Summary\n**Bold** and *italic*\n- Item 1\n~~old~~"
+        result = md_to_telegram(md)
+        self.assertIn("*Summary*", result)
+        self.assertIn("*Bold*", result)
+        self.assertIn("_italic_", result)
+        self.assertIn("~old~", result)
 
 
 if __name__ == "__main__":

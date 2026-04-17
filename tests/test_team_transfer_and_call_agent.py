@@ -15,12 +15,121 @@ Or with specific model:
 
 import asyncio
 import os
+from types import SimpleNamespace
 import pytest
-from pantheon.agent import Agent
+from pantheon.agent import Agent, AgentRunContext, _RUN_CONTEXT
 from pantheon.team import PantheonTeam
 
 # Get model from environment or use default
 TEST_MODEL = os.getenv("PANTHEON_MODEL", "gpt-4o-mini")
+
+
+def test_get_target_agent_rejects_self_delegation():
+    coordinator = Agent(name="omicverse_leader", instructions="lead", model=TEST_MODEL)
+    expert = Agent(name="omicverse_expert", instructions="expert", model=TEST_MODEL)
+    team = PantheonTeam(agents=[coordinator, expert])
+
+    token = _RUN_CONTEXT.set(
+        AgentRunContext(
+            agent=expert,
+            memory=None,
+        )
+    )
+    try:
+        with pytest.raises(ValueError, match="cannot delegate to itself"):
+            team.get_target_agent("omicverse_expert", "do work")
+    finally:
+        _RUN_CONTEXT.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_subagent_cannot_delegate_to_ancestor():
+    leader = Agent(name="omicverse_leader", instructions="lead", model=TEST_MODEL)
+    expert = Agent(name="omicverse_expert", instructions="expert", model=TEST_MODEL)
+    reviewer = Agent(name="omicverse_reviewer", instructions="review", model=TEST_MODEL)
+    team = PantheonTeam(agents=[leader, expert, reviewer])
+    await team.async_setup()
+
+    token = _RUN_CONTEXT.set(
+        AgentRunContext(
+            agent=expert,
+            memory=None,
+            execution_context_id="ctx-subagent",
+        )
+    )
+    try:
+        with pytest.raises(RuntimeError, match="parent or ancestor"):
+            await expert.functions["call_agent"](
+                agent_name="omicverse_leader",
+                instruction="hand back control",
+                context_variables={
+                    "_metadata": {"chain_path": ["omicverse_leader:call-1", "omicverse_expert:call-2"]}
+                },
+            )
+    finally:
+        _RUN_CONTEXT.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_subagent_list_agents_excludes_ancestors_but_keeps_peers():
+    leader = Agent(name="omicverse_leader", instructions="lead", model=TEST_MODEL)
+    expert = Agent(name="omicverse_expert", instructions="expert", model=TEST_MODEL)
+    reviewer = Agent(name="omicverse_reviewer", instructions="review", model=TEST_MODEL)
+    team = PantheonTeam(agents=[leader, expert, reviewer])
+    await team.async_setup()
+
+    token = _RUN_CONTEXT.set(
+        AgentRunContext(
+            agent=expert,
+            memory=None,
+            execution_context_id="ctx-subagent",
+        )
+    )
+    try:
+        result = expert.functions["list_agents"](
+            context_variables={
+                "_metadata": {"chain_path": ["omicverse_leader:call-1", "omicverse_expert:call-2"]}
+            }
+        )
+    finally:
+        _RUN_CONTEXT.reset(token)
+
+    assert "omicverse_leader" not in result
+    assert "omicverse_reviewer" in result
+
+
+@pytest.mark.asyncio
+async def test_subagent_can_delegate_to_non_ancestor(monkeypatch):
+    leader = Agent(name="omicverse_leader", instructions="lead", model=TEST_MODEL)
+    expert = Agent(name="omicverse_expert", instructions="expert", model=TEST_MODEL)
+    reviewer = Agent(name="omicverse_reviewer", instructions="review", model=TEST_MODEL)
+    team = PantheonTeam(agents=[leader, expert, reviewer])
+    await team.async_setup()
+
+    async def fake_run(*args, **kwargs):
+        return SimpleNamespace(content="review complete")
+
+    monkeypatch.setattr(reviewer, "run", fake_run)
+
+    token = _RUN_CONTEXT.set(
+        AgentRunContext(
+            agent=expert,
+            memory=None,
+            execution_context_id="ctx-subagent",
+        )
+    )
+    try:
+        result = await expert.functions["call_agent"](
+            agent_name="omicverse_reviewer",
+            instruction="review this plan",
+            context_variables={
+                "_metadata": {"chain_path": ["omicverse_leader:call-1", "omicverse_expert:call-2"]}
+            },
+        )
+    finally:
+        _RUN_CONTEXT.reset(token)
+
+    assert result == "review complete"
 
 
 # ============ Test 1: Transfer between team agents ============

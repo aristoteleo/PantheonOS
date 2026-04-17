@@ -5,7 +5,7 @@ icon: 🏠
 id: default
 name: General Team
 type: team
-version: 1.2.0
+version: 1.3.0
 agents:
   - leader
   - researcher
@@ -14,16 +14,15 @@ leader:
   id: leader
   name: Leader
   icon: 🧭
-  think_tool: true
   toolsets:
     - file_manager
     - shell
     - package
     - task
-    - code
     - integrated_notebook
     - web
     - evolution
+    - think
 ---
 
 {{agentic_general}}
@@ -89,10 +88,12 @@ call_agent("researcher", "Search the web for best practices on X. Gather informa
 - Data analysis, EDA, statistical analysis
 - Literature review and multi-source research
 
+**Scientific writing gate (MANDATORY):** Before writing any report, paper, or document that requires domain knowledge or citations, you MUST first delegate a research task to `researcher`. Writing without a prior research delegation is not allowed for these task types.
+
 #### Scientific Illustrator
 
-**Delegate for:** Scientific diagrams, publication-quality visualizations, complex figures
-**Execute directly:** Simple chart embedding, displaying existing charts
+**Delegate for:** Schematic diagrams, conceptual illustrations, architecture diagrams, publication-quality figures — tasks where the output is a conceptual diagram, not a data-driven chart.
+**Execute directly (or via Researcher):** Data visualizations, statistical plots, charts derived from analysis results.
 
 ### Decision Summary
 
@@ -101,9 +102,11 @@ call_agent("researcher", "Search the web for best practices on X. Gather informa
 | Explore/read/understand codebase | **MUST delegate** to researcher |
 | Web search or documentation lookup | **MUST delegate** to researcher |
 | Data analysis or research | **MUST delegate** to researcher |
+| Scientific writing (report/paper) | **MUST delegate research first**, then write |
 | Multiple independent research tasks | **MUST parallelize** with multiple researchers |
+| Schematic/pathway/cell diagrams | **Delegate** to scientific_illustrator |
 | Read 1 known file | Execute directly |
-| Write/edit/create files | Execute directly |
+| Write/edit/create files (post-research) | Execute directly |
 | Synthesize researcher results | Execute directly (your core role) |
 
 {{delegation}}

@@ -191,3 +191,68 @@ class TestMemoryPathProperties:
         # Verify files actually exist
         for f in files:
             assert Path(f).exists()
+
+
+class TestMemoryMetadataHelpers:
+    def test_set_metadata_marks_dirty_only_on_change(self):
+        memory = Memory("Test Memory")
+        calls = []
+        memory.mark_dirty = lambda: calls.append("dirty")  # type: ignore[method-assign]
+
+        assert memory.set_metadata("running", True) is True
+        assert memory.extra_data["running"] is True
+        assert calls == ["dirty"]
+
+        assert memory.set_metadata("running", True) is False
+        assert calls == ["dirty"]
+
+    def test_update_metadata_marks_dirty_once(self):
+        memory = Memory("Test Memory")
+        calls = []
+        memory.mark_dirty = lambda: calls.append("dirty")  # type: ignore[method-assign]
+
+        assert memory.update_metadata({"running": True, "active_agent": "Leader"}) is True
+        assert memory.extra_data["running"] is True
+        assert memory.extra_data["active_agent"] == "Leader"
+        assert calls == ["dirty"]
+
+        assert memory.update_metadata({"running": True, "active_agent": "Leader"}) is False
+        assert calls == ["dirty"]
+
+    def test_set_metadata_in_memory_does_not_mark_dirty(self):
+        memory = Memory("Test Memory")
+        calls = []
+        memory.mark_dirty = lambda: calls.append("dirty")  # type: ignore[method-assign]
+
+        assert memory.set_metadata_in_memory("running", True) is True
+        assert memory.extra_data["running"] is True
+        assert calls == []
+
+        assert memory.set_metadata_in_memory("running", True) is False
+        assert calls == []
+
+    def test_delete_metadata_marks_dirty_only_when_key_exists(self):
+        memory = Memory("Test Memory")
+        memory.extra_data["running"] = True
+        calls = []
+        memory.mark_dirty = lambda: calls.append("dirty")  # type: ignore[method-assign]
+
+        assert memory.delete_metadata("running") is True
+        assert "running" not in memory.extra_data
+        assert calls == ["dirty"]
+
+        assert memory.delete_metadata("running") is False
+        assert calls == ["dirty"]
+
+    def test_delete_metadata_in_memory_does_not_mark_dirty(self):
+        memory = Memory("Test Memory")
+        memory.extra_data["running"] = True
+        calls = []
+        memory.mark_dirty = lambda: calls.append("dirty")  # type: ignore[method-assign]
+
+        assert memory.delete_metadata_in_memory("running") is True
+        assert "running" not in memory.extra_data
+        assert calls == []
+
+        assert memory.delete_metadata_in_memory("running") is False
+        assert calls == []

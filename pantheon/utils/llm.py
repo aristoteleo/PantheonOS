@@ -1,7 +1,6 @@
 import json
 import re
 import time
-import warnings
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from typing import Any, Callable
@@ -127,6 +126,60 @@ async def acompletion_openai(
     return final_message
 
 
+def _convert_content_to_responses_blocks(
+    role: str,
+    content: Any,
+) -> Any:
+    """Convert Chat Completions-style content blocks to Responses API blocks."""
+    if content is None or isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return content
+
+    converted: list[dict] = []
+    for item in content:
+        if isinstance(item, str):
+            text_key = "text"
+            text_type = "output_text" if role == "assistant" else "input_text"
+            converted.append({"type": text_type, text_key: item})
+            continue
+
+        if not isinstance(item, dict):
+            text_type = "output_text" if role == "assistant" else "input_text"
+            converted.append({"type": text_type, "text": str(item)})
+            continue
+
+        item_type = item.get("type")
+
+        if role == "assistant":
+            if item_type == "text":
+                converted.append({"type": "output_text", "text": item.get("text", "")})
+            elif item_type in {"output_text", "refusal", "summary_text"}:
+                converted.append(item)
+            else:
+                # Best effort: preserve unsupported assistant blocks as text.
+                converted.append({"type": "output_text", "text": str(item)})
+            continue
+
+        if item_type == "text":
+            converted.append({"type": "input_text", "text": item.get("text", "")})
+        elif item_type == "image_url":
+            image_url = item.get("image_url", {})
+            converted_item = {
+                "type": "input_image",
+                "image_url": image_url.get("url", ""),
+            }
+            if image_url.get("detail"):
+                converted_item["detail"] = image_url["detail"]
+            converted.append(converted_item)
+        elif item_type in {"input_text", "input_image", "input_file"}:
+            converted.append(item)
+        else:
+            converted.append({"type": "input_text", "text": str(item)})
+
+    return converted
+
+
 def _convert_messages_to_responses_input(
     messages: list[dict],
 ) -> tuple[str | None, list[dict]]:
@@ -149,15 +202,24 @@ def _convert_messages_to_responses_input(
                 instructions = content
                 first_system_seen = True
             else:
-                input_items.append({"role": "developer", "content": content})
+                input_items.append({
+                    "role": "developer",
+                    "content": _convert_content_to_responses_blocks("developer", content),
+                })
 
         elif role == "user":
-            input_items.append({"role": "user", "content": content})
+            input_items.append({
+                "role": "user",
+                "content": _convert_content_to_responses_blocks("user", content),
+            })
 
         elif role == "assistant":
             # Text part
             if content:
-                input_items.append({"role": "assistant", "content": content})
+                input_items.append({
+                    "role": "assistant",
+                    "content": _convert_content_to_responses_blocks("assistant", content),
+                })
             # Tool calls → function_call items
             for tc in msg.get("tool_calls") or []:
                 func = tc.get("function", {})
@@ -241,15 +303,15 @@ async def acompletion_responses(
     Returns a normalised message dict compatible with ``extract_message_from_response``.
     """
     from openai import AsyncOpenAI
-    from .llm_providers import get_litellm_proxy_kwargs
+    from .provider_registry import get_model_info, get_output_token_param
+    from .llm_providers import get_llm_proxy_config
 
     # ========== Build client ==========
-    proxy_kwargs = get_litellm_proxy_kwargs()
-    if proxy_kwargs:
-        client = AsyncOpenAI(
-            base_url=proxy_kwargs["api_base"],
-            api_key=proxy_kwargs["api_key"]
-        )
+    _proxy_base, _proxy_key = get_llm_proxy_config()
+    if _proxy_base:
+        # Hub-deployed mode: route through LiteLLM proxy using virtual key.
+        # The proxy exposes /responses natively for OpenAI models.
+        client = AsyncOpenAI(base_url=_proxy_base, api_key=_proxy_key)
     elif base_url:
         client = AsyncOpenAI(base_url=base_url)
     else:
@@ -258,7 +320,19 @@ async def acompletion_responses(
     # ========== Convert inputs ==========
     instructions, input_items = _convert_messages_to_responses_input(messages)
     converted_tools = _convert_tools_for_responses(tools)
-    extra_params = _convert_model_params_for_responses(model_params)
+    response_model_params = dict(model_params or {})
+    if not any(
+        key in response_model_params
+        for key in ("max_tokens", "max_completion_tokens", "max_output_tokens")
+    ):
+        try:
+            max_out = get_model_info(model).get("max_output_tokens")
+            token_param = get_output_token_param(model, api_mode="responses")
+            if token_param and max_out and max_out > 0:
+                response_model_params[token_param] = max_out
+        except Exception:
+            pass
+    extra_params = _convert_model_params_for_responses(response_model_params)
 
     # ========== Build kwargs ==========
     kwargs: dict[str, Any] = {
@@ -371,7 +445,7 @@ async def acompletion_responses(
             "total_tokens": input_tokens + output_tokens,
         }
         try:
-            from litellm import completion_cost
+            from pantheon.utils.provider_registry import completion_cost
             cost = completion_cost(model=model, prompt_tokens=input_tokens, completion_tokens=output_tokens) or 0.0
         except Exception:
             pass
@@ -390,16 +464,147 @@ async def acompletion_responses(
     return message
 
 
-def import_litellm():
-    warnings.filterwarnings("ignore")
-    import litellm
+def stream_chunk_builder(chunks: list[dict]) -> Any:
+    """Assemble streaming chunks into a complete response object.
 
-    litellm.suppress_debug_info = True
-    litellm.set_verbose = False
-    return litellm
+    Aggregates content deltas, tool_call deltas, and usage from collected chunks
+    into a SimpleNamespace that mimics the shape of a chat completion response.
+
+    Replaces the stream_chunk_builder from external dependencies.
+    """
+    from types import SimpleNamespace
+
+    full_content = ""
+    full_reasoning = ""
+    tool_calls_map: dict[int, dict] = {}  # index → tool_call dict
+    finish_reason = None
+    usage = {}
+    model = ""
+    role = "assistant"
+
+    for chunk in chunks:
+        # Handle dict chunks (from adapters)
+        if isinstance(chunk, dict):
+            # Extract usage from usage-only chunks
+            if "usage" in chunk and chunk["usage"]:
+                usage = chunk["usage"]
+            if "model" in chunk:
+                model = chunk["model"]
+
+            choices = chunk.get("choices", [])
+            if not choices:
+                continue
+            choice = choices[0]
+            delta = choice.get("delta", {})
+
+            # Accumulate content
+            if "content" in delta and delta["content"]:
+                full_content += delta["content"]
+
+            # Accumulate reasoning (various field names across providers)
+            # - reasoning_content: DeepSeek, Zhipu, Kimi, Anthropic adapter, Gemini adapter
+            # - reasoning: Groq gpt-oss models
+            if "reasoning_content" in delta and delta["reasoning_content"]:
+                full_reasoning += delta["reasoning_content"]
+            elif "reasoning" in delta and delta["reasoning"]:
+                full_reasoning += delta["reasoning"]
+
+            # Accumulate role
+            if "role" in delta and delta["role"]:
+                role = delta["role"]
+
+            # Accumulate tool calls
+            if "tool_calls" in delta and delta["tool_calls"]:
+                for tc in delta["tool_calls"]:
+                    idx = tc.get("index", 0)
+                    if idx not in tool_calls_map:
+                        tool_calls_map[idx] = {
+                            "id": tc.get("id", ""),
+                            "type": tc.get("type", "function"),
+                            "function": {
+                                "name": tc.get("function", {}).get("name", ""),
+                                "arguments": "",
+                            },
+                        }
+                        # Preserve thought_signature for Gemini 3 thinking models
+                        if "thought_signature" in tc:
+                            tool_calls_map[idx]["thought_signature"] = tc["thought_signature"]
+                    else:
+                        # Merge
+                        if tc.get("id"):
+                            tool_calls_map[idx]["id"] = tc["id"]
+                        func = tc.get("function", {})
+                        if func.get("name"):
+                            tool_calls_map[idx]["function"]["name"] = func["name"]
+
+                    # Always append arguments
+                    args = tc.get("function", {}).get("arguments", "")
+                    if args:
+                        tool_calls_map[idx]["function"]["arguments"] += args
+
+            # Track finish reason
+            fr = choice.get("finish_reason")
+            if fr:
+                finish_reason = fr
+
+        else:
+            # Handle object-style chunks (from OpenAI SDK directly)
+            if hasattr(chunk, "model_dump"):
+                chunk_dict = chunk.model_dump()
+                # Recursively process as dict
+                result = stream_chunk_builder([chunk_dict])
+                return result
+
+    # Build final tool_calls list
+    final_tool_calls = None
+    if tool_calls_map:
+        final_tool_calls = [tool_calls_map[i] for i in sorted(tool_calls_map.keys())]
+
+    # Build message
+    # Keep content and reasoning_content separate so the frontend can
+    # render reasoning in a dedicated "Thinking" section instead of
+    # mixing it into the main response text.
+    effective_content = full_content or None
+
+    message = SimpleNamespace(
+        role=role,
+        content=effective_content,
+        tool_calls=final_tool_calls,
+        reasoning_content=full_reasoning or None,
+    )
+
+    def message_model_dump():
+        d = {"role": message.role, "content": message.content, "tool_calls": message.tool_calls}
+        if message.reasoning_content:
+            d["reasoning_content"] = message.reasoning_content
+        return d
+    message.model_dump = message_model_dump
+
+    # Build choice
+    choice = SimpleNamespace(
+        message=message,
+        finish_reason=finish_reason,
+    )
+
+    # Build usage
+    usage_ns = SimpleNamespace(
+        prompt_tokens=usage.get("prompt_tokens", 0),
+        completion_tokens=usage.get("completion_tokens", 0),
+        total_tokens=usage.get("total_tokens", 0),
+    )
+
+    # Build response
+    resp = SimpleNamespace(
+        choices=[choice],
+        model=model,
+        usage=usage_ns,
+        _hidden_params={},
+    )
+
+    return resp
 
 
-async def acompletion_litellm(
+async def acompletion(
     messages: list[dict],
     model: str,
     tools: list[dict] | None = None,
@@ -410,117 +615,190 @@ async def acompletion_litellm(
     model_params: dict | None = None,
     num_retries: int = 3,
 ):
-    """Call LLM via LiteLLM Proxy (preferred) or traditional API keys (fallback)
+    """Call LLM via provider adapters.
 
     Two modes of operation:
 
     1. PROXY MODE (Hub-launched agents):
-       - LITELLM_PROXY_ENABLED=true with LITELLM_PROXY_URL and LITELLM_PROXY_KEY
-       - Uses virtual key for authentication to Proxy
-       - Real API keys are hidden in Proxy, not in Pod environment
-       - Fake API keys in environment are for detect_available_provider() only
+       - LLM_API_BASE is set to the LiteLLM proxy URL
+       - Provider API keys are set to the user's virtual key
+       - All calls route through the OpenAI-compatible proxy
 
     2. STANDALONE MODE (agents running independently):
-       - LITELLM_PROXY_ENABLED not set or false
+       - LLM_API_BASE not set
        - Falls back to reading real API keys from environment variables
-       - Suitable for local development and standalone agent operation
+       - Uses native SDK adapters (openai, anthropic, google-genai)
     """
-    from pantheon.settings import get_settings
-    from .llm_providers import get_litellm_proxy_kwargs
+    from .provider_registry import (
+        find_provider_for_model,
+        get_provider_config,
+        completion_cost,
+        get_model_info,
+        get_output_token_param,
+    )
+    from .adapters import get_adapter
+    from .llm_providers import get_llm_proxy_config
 
-    litellm = import_litellm()
-    logger.debug(f"[LITELLM.ACOMPLETION] Starting LLM call | Model={model}")
+    logger.debug(f"[ACOMPLETION] Starting LLM call | Model={model}")
 
-    settings = get_settings()
+    # ========== Resolve provider and adapter ==========
+    provider_key, model_name, provider_config = find_provider_for_model(model)
+    sdk_type = provider_config.get("sdk", "openai")
 
-    # ========== Prepare LiteLLM Parameters ==========
-    kwargs = {
-        "model": model,
-        "messages": messages,
-        "tools": tools,
-        "response_format": response_format,
-        "stream": True,
-        "stream_options": {"include_usage": True},
-        "num_retries": num_retries,
-    }
-
-    if model_params:
-        kwargs.update(**model_params)
+    # ========== Ensure output token limit is set from the catalog ==========
+    # Different vendors use different parameter names for the same concept.
+    # The catalog records the preferred parameter name; we use it here so the
+    # first request is correct for known providers/models.
+    model_params = dict(model_params or {})
+    if not any(
+        key in model_params
+        for key in ("max_tokens", "max_completion_tokens", "max_output_tokens")
+    ):
+        try:
+            max_out = get_model_info(model).get("max_output_tokens")
+            token_param = get_output_token_param(model, api_mode="chat")
+            if token_param and max_out and max_out > 0:
+                model_params[token_param] = max_out
+        except Exception:
+            pass  # Fall through to provider default
 
     # ========== Mode Detection & Configuration ==========
-    proxy_kwargs = get_litellm_proxy_kwargs()
-    if proxy_kwargs:
-        kwargs.update(proxy_kwargs)
+    _proxy_base, _proxy_key = get_llm_proxy_config()
+    oauth_client_kwargs = None
+    if _proxy_base:
+        # Proxy mode: LLM_API_BASE is set — all calls go through the
+        # OpenAI-compatible LiteLLM proxy.  Force OpenAI SDK for every
+        # provider (Anthropic, Gemini, etc.) so the proxy receives a
+        # standard /v1/chat/completions request with the full model string.
+        effective_base_url = _proxy_base
+        effective_api_key = _proxy_key
+        sdk_type = "openai"
+        effective_model = model  # pass full "provider/model" string to proxy
+        # Normalize provider-specific token param names to OpenAI-compatible.
+        # e.g. Gemini uses max_output_tokens, but the OpenAI SDK only accepts
+        # max_tokens / max_completion_tokens.
+        if "max_output_tokens" in model_params:
+            model_params["max_tokens"] = model_params.pop("max_output_tokens")
+    elif sdk_type == "codex":
+        # Codex OAuth: get access token from OAuth manager
+        from .oauth import CodexOAuthManager
+        oauth = CodexOAuthManager()
+        effective_api_key = oauth.get_access_token(auto_refresh=True)
+        if not effective_api_key:
+            raise RuntimeError(
+                "[OAUTH_REQUIRED] Codex OAuth session expired or not configured. "
+                "Please re-login in Settings → API Keys → OAuth."
+            )
+        effective_base_url = provider_config.get("base_url")
+        effective_model = model_name
+    elif provider_key == "gemini-cli":
+        sdk_type = "gemini-cli"
+        effective_base_url = base_url or "https://cloudcode-pa.googleapis.com"
+        try:
+            from .oauth import GeminiCliOAuthError, GeminiCliOAuthManager
+
+            gemini_oauth = GeminiCliOAuthManager()
+            effective_api_key = gemini_oauth.build_api_key_payload(
+                refresh_if_needed=True,
+                import_if_missing=True,
+            )
+            if not effective_api_key:
+                raise GeminiCliOAuthError(
+                    "Gemini CLI OAuth session expired or not configured. "
+                    "Please re-login in Settings → API Keys → OAuth."
+                )
+        except GeminiCliOAuthError as e:
+            raise RuntimeError(f"[OAUTH_PROJECT_REQUIRED] {e}") from e
+        except Exception as e:
+            raise RuntimeError(
+                "[OAUTH_REQUIRED] Gemini CLI OAuth session expired or not configured. "
+                "Please re-login in Settings → API Keys → OAuth."
+            ) from e
+        effective_model = model_name
+    elif provider_key == "gemini" or sdk_type == "google-genai":
+        effective_base_url = base_url or provider_config.get("base_url")
+        effective_api_key = api_key
+        if not effective_api_key:
+            import os
+            api_key_env = provider_config.get("api_key_env", "")
+            if api_key_env:
+                effective_api_key = os.environ.get(api_key_env, "")
+        effective_model = model_name
     else:
-        if base_url:
-            kwargs["api_base"] = base_url
-        if api_key:
-            kwargs["api_key"] = api_key
+        effective_base_url = base_url or provider_config.get("base_url")
+        effective_api_key = api_key
+        if not effective_api_key:
+            import os
+            api_key_env = provider_config.get("api_key_env", "")
+            if api_key_env:
+                effective_api_key = os.environ.get(api_key_env, "")
+        # Local providers (Ollama) don't need a real API key
+        if not effective_api_key and provider_config.get("local"):
+            effective_api_key = "ollama"
+        effective_model = model_name  # use bare model name with native SDK
+
+    adapter = get_adapter(sdk_type)
+
+    # ========== Prepare adapter kwargs ==========
+    adapter_kwargs = dict(model_params or {})
+    if oauth_client_kwargs:
+        adapter_kwargs["oauth_client_kwargs"] = oauth_client_kwargs
+
+    # Codex OAuth: pass account_id for chatgpt-account-id header
+    if sdk_type == "codex":
+        from .oauth import CodexOAuthManager
+        account_id = CodexOAuthManager().get_account_id()
+        if account_id:
+            adapter_kwargs["account_id"] = account_id
 
     # Kimi Coding API gates access by User-Agent header
     if "kimi-for-coding" in model:
-        kwargs.setdefault("extra_headers", {})
-        kwargs["extra_headers"].setdefault("User-Agent", "claude-code/0.1.0")
+        adapter_kwargs.setdefault("extra_headers", {})
+        adapter_kwargs["extra_headers"].setdefault("User-Agent", "claude-code/0.1.0")
 
     # ========== Execute Call ==========
+    from pantheon.agent import StopRunning
+
     try:
-        logger.debug(
-            f"[LITELLM.ACOMPLETION] Calling litellm.acompletion with model={model}"
+        logger.debug(f"[ACOMPLETION] Calling {sdk_type} adapter for model={effective_model}")
+        collected_chunks = await adapter.acompletion(
+            model=effective_model,
+            messages=messages,
+            tools=tools,
+            response_format=response_format,
+            stream=True,
+            process_chunk=process_chunk,
+            base_url=effective_base_url,
+            api_key=effective_api_key,
+            num_retries=num_retries,
+            **adapter_kwargs,
         )
-        response = await litellm.acompletion(**kwargs)
-        logger.debug(f"[LITELLM.ACOMPLETION] ✓ LiteLLM call succeeded for model={model}")
+        logger.debug(f"[ACOMPLETION] ✓ Call succeeded for model={effective_model}")
+    except StopRunning:
+        raise
     except Exception as e:
         logger.error(
-            f"[LITELLM.ACOMPLETION] ✗ LiteLLM call failed | "
-            f"Model={model} | Error={type(e).__name__}: {str(e)[:200]}"
+            f"[ACOMPLETION] ✗ Call failed | "
+            f"Model={effective_model} | Error={type(e).__name__}: {str(e)[:200]}"
         )
         raise
 
-    # ========== Stream Processing & Cost Calculation ==========
-    from pantheon.agent import StopRunning
+    # ========== Build complete response ==========
+    # Codex adapter returns a message dict directly (not chunks)
+    if sdk_type == "codex" and isinstance(collected_chunks, dict):
+        return collected_chunks  # Already a normalized message dict
 
-    collected_chunks = []
-    try:
-        async for chunk in response:
-            collected_chunks.append(chunk)
-            if (
-                process_chunk
-                and hasattr(chunk, "choices")
-                and chunk.choices
-                and len(chunk.choices) > 0
-            ):
-                choice = chunk.choices[0]
-                if hasattr(choice, "delta"):
-                    delta = choice.delta.model_dump()
-                    # LiteLLM provides unified reasoning_content field
-                    await run_func(process_chunk, delta)
-                if hasattr(choice, "finish_reason") and choice.finish_reason == "stop":
-                    await run_func(process_chunk, {"stop": True})
-    except StopRunning:
-        # Build partial message from chunks collected so far
-        partial_msg = None
-        if collected_chunks:
-            try:
-                partial_resp = litellm.stream_chunk_builder(collected_chunks)
-                if partial_resp and hasattr(partial_resp, "choices") and partial_resp.choices:
-                    partial_msg = partial_resp.choices[0].message.model_dump()
-                    partial_msg.setdefault("role", "assistant")
-            except Exception:
-                pass
-        raise StopRunning(partial_message=partial_msg)
-
-    complete_resp = litellm.stream_chunk_builder(collected_chunks)
+    complete_resp = stream_chunk_builder(collected_chunks)
 
     # Calculate and attach cost information
     try:
-        cost = litellm.completion_cost(completion_response=complete_resp)
+        cost = completion_cost(completion_response=complete_resp)
         if cost and cost > 0:
-            # Store cost in a way that count_tokens_in_messages can access
             if not hasattr(complete_resp, "_hidden_params"):
                 complete_resp._hidden_params = {}
             complete_resp._hidden_params["response_cost"] = cost
     except Exception:
-        pass  # Silently ignore cost calculation errors
+        pass
 
     return complete_resp
 
@@ -761,14 +1039,30 @@ def remove_ui_fields(messages: list[dict]) -> list[dict]:
     return messages
 
 
+_ALLOWED_MESSAGE_FIELDS = {
+    "role", "content", "name", "tool_calls", "tool_call_id",
+    "refusal", "function_call",  # OpenAI standard fields
+}
+
+
 def remove_metadata(messages: list[dict]) -> list[dict]:
     """
-    Remove _metadata field from messages.
-    This should be called just before sending messages to the LLM.
+    Strip messages down to only standard OpenAI fields before sending to LLM.
+
+    Strict providers like Groq reject ANY unknown field (chat_id, _metadata,
+    _llm_content, _user_metadata, detected_attachments, etc.) and also
+    reject null values for optional fields like tool_calls.
     """
     for msg in messages:
-        if "_metadata" in msg:
-            del msg["_metadata"]
+        # Remove non-standard fields
+        extra_keys = [k for k in msg if k not in _ALLOWED_MESSAGE_FIELDS]
+        for k in extra_keys:
+            del msg[k]
+        # Remove fields with None/null values (Groq rejects "tool_calls": null)
+        null_keys = [k for k in ("tool_calls", "tool_call_id", "name", "function_call", "refusal")
+                     if k in msg and msg[k] is None]
+        for k in null_keys:
+            del msg[k]
     return messages
 
 
@@ -821,7 +1115,7 @@ def process_messages_for_hook_func(messages: list[dict]) -> list[dict]:
 async def openai_embedding(
     texts: list[str], model: str = "text-embedding-3-large"
 ) -> list[list[float]]:
-    """Get embeddings using litellm (with proxy support).
+    """Get embeddings (with proxy support).
 
     Args:
         texts: List of texts to embed
@@ -830,18 +1124,18 @@ async def openai_embedding(
     Returns:
         List of embedding vectors
     """
-    from .llm_providers import get_litellm_proxy_kwargs
+    from .adapters import get_adapter
+    from .llm_providers import get_llm_proxy_config
 
-    litellm = import_litellm()
+    _proxy_base, _proxy_key = get_llm_proxy_config()
+    adapter = get_adapter("openai")
 
-    # litellm.aembedding returns EmbeddingResponse with .data[].embedding
-    response = await litellm.aembedding(
+    return await adapter.aembedding(
         model=model,
         input=texts,
-        **get_litellm_proxy_kwargs(),
+        base_url=_proxy_base or None,
+        api_key=_proxy_key or None,
     )
-
-    return [d["embedding"] for d in response.data]
 
 
 def remove_hidden_fields(content: dict) -> dict:
@@ -862,37 +1156,49 @@ def remove_hidden_fields(content: dict) -> dict:
 
 
 def process_tool_result(
-    result: Any, 
+    result: Any,
     max_length: int | None = None,
+    tool_name: str | None = None,
 ) -> Any:
     """Process tool result with optional truncation.
-    
+
     Args:
         result: Raw tool result
-        max_length: Optional max length for truncation
-        
+        max_length: Global max length for truncation (fallback)
+        tool_name: Tool name for per-tool threshold lookup
+
     Returns:
         Processed result
     """
     # Remove hidden fields
     result = remove_hidden_fields(result)
-    
-    # Apply smart truncation if max_length specified
-    # (includes base64 filtering for JSON tools)
+
+    # Determine effective limit: per-tool threshold takes priority over global
+    effective_limit = max_length
     if max_length is not None:
         try:
+            from pantheon.utils.token_optimization import (
+                get_per_tool_limit,
+            )
+            effective_limit = int(get_per_tool_limit(tool_name, max_length))
+        except Exception as e:
+            logger.debug(f"get_per_tool_limit failed for {tool_name}: {e}")
+
+    # Apply smart truncation if limit specified
+    if effective_limit is not None:
+        try:
             from pantheon.utils.truncate import smart_truncate_result
-            return smart_truncate_result(result, max_length, filter_base64=True)
+            return smart_truncate_result(result, effective_limit, filter_base64=True)
         except Exception as e:
             # Fallback to simple string conversion if truncation fails
             logger.warning(f"Smart truncation failed: {e}, falling back to simple conversion")
             content = str(result) if not isinstance(result, str) else result
-            if len(content) > max_length:
+            if len(content) > effective_limit:
                 # Simple truncation: head + tail
-                half = max_length // 2
+                half = effective_limit // 2
                 return f"{content[:half]}\n...[truncated]...\n{content[-half:]}"
             return content
-    
+
     return result
 
 
@@ -983,7 +1289,6 @@ class TimingTracker:
         finally:
             self.end(phase)
 
-
 def _fallback_token_count(text: str) -> int:
     """Fallback token counter with language awareness.
     
@@ -1039,7 +1344,7 @@ def _safe_token_counter(
 ) -> int:
     """Token counter with fallback for unsupported models."""
     try:
-        from litellm.utils import token_counter
+        from pantheon.utils.provider_registry import token_counter
 
         return token_counter(model=model, messages=messages or [], tools=tools)
     except Exception:
@@ -1160,7 +1465,7 @@ def collect_message_stats_lightweight(
     
     # ========== 3. Max tokens ==========
     try:
-        from litellm.utils import get_model_info
+        from pantheon.utils.provider_registry import get_model_info
         model_info = get_model_info(model)
         meta["max_tokens"] = model_info.get("max_input_tokens", 200000)
     except Exception:
@@ -1178,7 +1483,7 @@ def count_tokens_in_messages(
     Separates system prompt (first system message) and tools definition from other roles.
     """
     try:
-        from litellm.utils import get_model_info
+        from pantheon.utils.provider_registry import get_model_info
 
         total_tokens = 0
         tokens_by_role = {}
@@ -1208,7 +1513,7 @@ def count_tokens_in_messages(
 
         # 2. Count tokens for tools definition
         if tools:
-            # litellm token_counter handles tools definition specifically
+            # token_counter handles tools definition specifically
             tools_definition_tokens = _safe_token_counter(model=model, tools=tools)
             total_tokens += tools_definition_tokens
 

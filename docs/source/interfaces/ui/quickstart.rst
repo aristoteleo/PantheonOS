@@ -106,6 +106,12 @@ Troubleshooting
 - Check the terminal for the connection URL and open it manually
 - Ensure ``--auto-start-nats`` is used together with ``--auto-ui``
 
+**Running in WSL**
+
+- ``--auto-ui`` now tries to open your Windows default browser directly when Pantheon runs inside WSL
+- If automatic launch still fails, copy the ``Full Connection URL`` from the terminal into a Windows browser manually
+- If you use a custom frontend URL, keep ``--auto-start-nats`` enabled so the generated WebSocket connection stays local to your WSL session
+
 **NATS Server Failed to Start**
 
 - Check if another NATS instance is already running on port 4222 or 8080

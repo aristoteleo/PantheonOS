@@ -158,7 +158,7 @@ def setup_file_logging(
 # Warning Suppression
 # =============================================================================
 
-# Suppress aiohttp "Unclosed client session" warnings from litellm.
+# Suppress aiohttp "Unclosed client session" warnings.
 # These warnings are harmless - the OS cleans up connections on process exit.
 warnings.filterwarnings("ignore", message="Unclosed client session", category=ResourceWarning)
 warnings.filterwarnings("ignore", message="Unclosed connector", category=ResourceWarning)

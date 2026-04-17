@@ -57,16 +57,11 @@ def compress_memory(
         ValueError: If memory file is invalid or has no messages
         FileNotFoundError: If memory file doesn't exist
     """
-    from pantheon.settings import get_settings
-
     # Get settings defaults if not provided
-    if max_arg_length is None or max_output_length is None:
-        settings = get_settings()
-        learning_config = settings.get_learning_config()
-        if max_arg_length is None:
-            max_arg_length = learning_config.get("max_tool_arg_length", 200)
-        if max_output_length is None:
-            max_output_length = learning_config.get("max_tool_output_length", 500)
+    if max_arg_length is None:
+        max_arg_length = 200
+    if max_output_length is None:
+        max_output_length = 500
 
     memory_path = Path(memory_path)
     if not memory_path.exists():

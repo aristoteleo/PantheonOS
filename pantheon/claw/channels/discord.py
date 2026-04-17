@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import threading
 import time
 from typing import Any
 
 import discord
 
-from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime, text_chunks
+import aiohttp
 
-logger = logging.getLogger("pantheon.claw.channels.discord")
+from pantheon.claw.registry import ConversationRoute
+from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, extract_display_text
+
+from pantheon.utils.log import logger
 
 _EDIT_GAP = 1.5
 _MAX_MSG = 1900  # Discord message limit (leaving headroom)
@@ -77,6 +78,61 @@ class DiscordGatewayBot(discord.Client, ChannelRuntime):
             return False
         return self.user in message.mentions
 
+    # ── Image helpers ─────────────────────────────────────────────────────────
+
+    @staticmethod
+    async def _download_attachments(message: discord.Message) -> list[str]:
+        """Download image attachments and return data-URI list."""
+        uris: list[str] = []
+        for att in message.attachments:
+            ct = att.content_type or ""
+            if not ct.startswith("image/"):
+                continue
+            try:
+                data = await att.read()
+                uris.append(bytes_to_data_uri(data, att.filename or "image.png"))
+            except Exception:
+                logger.debug("Discord attachment download failed: %s", att.filename)
+        return uris
+
+    @staticmethod
+    async def _download_documents(message: discord.Message) -> list[tuple[str, str]]:
+        """Download non-image file attachments and save locally.
+        Returns list of (filename, local_path) tuples.
+        """
+        import os, tempfile
+        results: list[tuple[str, str]] = []
+        for att in message.attachments:
+            ct = att.content_type or ""
+            if ct.startswith("image/"):
+                continue  # handled by _download_attachments
+            file_name = att.filename or "uploaded_file"
+            tmp_dir = os.path.join(tempfile.gettempdir(), "pantheon_claw_uploads")
+            os.makedirs(tmp_dir, exist_ok=True)
+            local_path = os.path.join(tmp_dir, file_name)
+            try:
+                data = await att.read()
+                with open(local_path, "wb") as f:
+                    f.write(data)
+                results.append((file_name, local_path))
+            except Exception:
+                logger.debug("Discord document download failed: %s", file_name)
+        return results
+
+    @staticmethod
+    async def _send_image(channel, data_uri: str) -> None:
+        """Send a base64 data-URI as a file to a Discord channel."""
+        import io as _io
+        raw, mime = data_uri_to_bytes(data_uri)
+        if not raw:
+            return
+        ext = mime.split("/")[-1] if mime else "png"
+        buf = _io.BytesIO(raw)
+        try:
+            await channel.send(file=discord.File(buf, filename=f"image.{ext}"))
+        except Exception:
+            logger.warning("Discord image send failed")
+
     # ── Analysis wrapper ─────────────────────────────────────────────────────
 
     async def _analysis_wrapper(
@@ -84,10 +140,13 @@ class DiscordGatewayBot(discord.Client, ChannelRuntime):
         route: ConversationRoute,
         message: discord.Message,
         user_text: str,
+        image_uris: list[str] | None = None,
     ) -> None:
         route_key = route.route_key()
         placeholder = await message.reply("Thinking...")
         llm_buf: list[str] = []
+        image_buf: list[str] = []
+        file_buf: list[str] = []
         last_progress = ""
         last_edit = 0.0
 
@@ -97,31 +156,55 @@ class DiscordGatewayBot(discord.Client, ChannelRuntime):
             if not force and (now - last_edit) < _EDIT_GAP:
                 return
             last_edit = now
-            preview = "".join(llm_buf).strip() or last_progress or "Thinking..."
+            if last_progress:
+                preview = f"🤖 Agent is working...\n\n{last_progress}"
+            else:
+                preview = "🤖 Thinking..."
             try:
-                await placeholder.edit(content=preview[-_MAX_MSG:])
-            except Exception:
-                pass
+                loop = self.loop  # discord.py client's event loop
+                if loop and loop.is_running():
+                    import asyncio
+                    future = asyncio.run_coroutine_threadsafe(
+                        placeholder.edit(content=preview[-_MAX_MSG:]), loop
+                    )
+                    future.result(timeout=5)
+                else:
+                    await placeholder.edit(content=preview[-_MAX_MSG:])
+            except Exception as e:
+                logger.debug(f"Discord placeholder edit failed: {e}")
 
         async def _set_progress(label: str) -> None:
             nonlocal last_progress
             last_progress = label
+            logger.info(f"[Discord] progress: {label}")
 
         on_chunk = self.make_chunk_callback(llm_buf, on_update=lambda: _refresh(False))
-        on_step = self.make_step_callback(
+        on_step = self.make_image_step_callback(
             llm_buf,
+            image_buf,
+            file_buf=file_buf,
             progress_cb=_set_progress,
             refresh_cb=lambda: _refresh(True),
         )
+
+        # Sender name for group context
+        sender_name = None
+        if route.scope_type != "dm":
+            sender_name = message.author.display_name or message.author.name
 
         try:
             result = await self._bridge.run_chat(
                 route,
                 user_text,
+                image_uris=image_uris,
+                sender_name=sender_name,
                 process_chunk=on_chunk,
                 process_step_message=on_step,
             )
-            final = str(result.get("response") or "".join(llm_buf) or "Done.")
+            import re as _re
+            final = extract_display_text(result, llm_buf)
+            # Strip image links (images are sent separately); keep other markdown
+            final = _re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", "", final)
             chunks = text_chunks(final, limit=_MAX_MSG)
             try:
                 await placeholder.edit(content=chunks[0] if chunks else "Done.")
@@ -132,6 +215,15 @@ class DiscordGatewayBot(discord.Client, ChannelRuntime):
                     await message.reply(extra)
                 except Exception:
                     pass
+            for uri in image_buf:
+                await self._send_image(message.channel, uri)
+            for fpath in file_buf:
+                import os
+                if os.path.isfile(fpath):
+                    try:
+                        await message.channel.send(file=discord.File(fpath))
+                    except Exception:
+                        logger.warning("Discord file send failed: %s", fpath)
         except asyncio.CancelledError:
             try:
                 await placeholder.edit(content="Cancelled.")
@@ -169,11 +261,24 @@ class DiscordGatewayBot(discord.Client, ChannelRuntime):
         route = self._route_from_message(message)
         route_key = route.route_key()
 
+        # Download image attachments
+        image_uris = await self._download_attachments(message)
+
+        # Download non-image files and inject as attachments
+        docs = await self._download_documents(message)
+
         text = message.content or ""
         if self.user is not None and not isinstance(message.channel, discord.DMChannel):
             text = text.replace(self.user.mention, "").strip()
 
-        if not text:
+        if docs:
+            attachment_text = "--- Attachments ---\nUser attached the following files:\n"
+            for fname, fpath in docs:
+                attachment_text += f"{fname}: {fpath}\n"
+            attachment_text += "--- End of Attachments ---\n"
+            text = attachment_text + (text or f"I've uploaded {', '.join(n for n, _ in docs)}.")
+
+        if not text and not image_uris:
             return
 
         if text.startswith("/"):
@@ -191,12 +296,14 @@ class DiscordGatewayBot(discord.Client, ChannelRuntime):
 
         running = self._get_running(route_key)
         if running is not None:
-            self._queue_message(route_key, body)
+            self._queue_message(route_key, body or "[image]")
             await message.reply("Queued after current analysis.")
             return
 
-        task = asyncio.create_task(self._analysis_wrapper(route, message, body))
-        self._set_task(route_key, task, body)
+        task = asyncio.create_task(
+            self._analysis_wrapper(route, message, body, image_uris=image_uris or None)
+        )
+        self._set_task(route_key, task, body or "[image]")
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 

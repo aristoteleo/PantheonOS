@@ -1,9 +1,12 @@
 import asyncio
 import os
+import platform
 import shutil
+import subprocess
 import sys
 import uuid
 from pathlib import Path
+from urllib.parse import urlencode
 
 # Note: pantheon.endpoint import is deferred to after NATS configuration
 # This ensures environment variables are set before Endpoint reads them
@@ -11,6 +14,74 @@ from pantheon.utils.misc import generate_service_id
 from pantheon.utils.log import logger
 
 from .room import ChatRoom
+
+
+def _is_wsl() -> bool:
+    """Return True when running inside Windows Subsystem for Linux."""
+    if platform.system().lower() != "linux":
+        return False
+
+    release = platform.release().lower()
+    if "microsoft" in release or "wsl" in release:
+        return True
+
+    try:
+        return "microsoft" in Path("/proc/version").read_text(encoding="utf-8").lower()
+    except OSError:
+        return False
+
+
+def _open_url_in_windows_browser(url: str) -> bool:
+    """
+    Open a URL using the Windows default browser from WSL.
+
+    Returns True once one of the Windows launch commands succeeds.
+
+    Note: URLs are quoted to prevent shell metacharacters (e.g. & in query
+    strings) from being interpreted by cmd.exe or PowerShell.
+    """
+    # Quote the URL so & and other shell metacharacters are not interpreted
+    quoted = f'"{url}"'
+    launch_commands = [
+        ["powershell.exe", "-NoProfile", "-Command", f"Start-Process {quoted}"],
+        ["cmd.exe", "/c", f"start \"\" {quoted}"],
+    ]
+
+    last_error = None
+    for command in launch_commands:
+        try:
+            subprocess.run(
+                command,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            return True
+        except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+            last_error = exc
+            logger.warning(f"[FRONTEND] WSL browser command failed: {command[0]}: {exc}")
+
+    if last_error is not None:
+        raise RuntimeError(
+            f"Failed to open Windows browser from WSL using fallback commands: {last_error}"
+        )
+
+    return False
+
+
+def _open_browser_url(url: str) -> bool:
+    """Open a browser URL, preferring the Windows default browser under WSL."""
+    import webbrowser
+
+    if _is_wsl():
+        try:
+            return _open_url_in_windows_browser(url)
+        except Exception as exc:
+            logger.warning(
+                f"[FRONTEND] WSL browser fallback failed, trying Linux opener instead: {exc}"
+            )
+
+    return bool(webbrowser.open(url))
 
 
 async def _start_endpoint_process(
@@ -250,7 +321,7 @@ async def start_services(
         - .env file: OPENAI_API_KEY=sk-...
         - settings.json api_keys section
 
-        Use LiteLLM Proxy mode for secure API key handling (LITELLM_PROXY_ENABLED environment variable).
+        Use LLM Proxy mode for secure API key handling (set LLM_API_BASE environment variable).
     """
     # DIAGNOSTIC: Log startup parameters for debugging
     logger.debug(f"[DIAGNOSTIC] start_services() called with auto_start_nats={auto_start_nats}, auto_ui={auto_ui}")
@@ -277,9 +348,6 @@ async def start_services(
             nats_url: NATS WebSocket URL (e.g., "ws://localhost:8080")
             service_id: Service ID for connection
         """
-        import webbrowser
-        from urllib.parse import urlencode
-
         # Build full connection URL with parameters
         # For Vue Router hash mode, query parameters must come after the hash (#/)
         query = urlencode({"nats": nats_url, "service": service_id, "auto": "true"})
@@ -296,7 +364,7 @@ async def start_services(
 
         try:
             # Try to open browser
-            webbrowser.open(connection_url)
+            _open_browser_url(connection_url)
             logger.info("[FRONTEND] ✓ Browser opened successfully")
         except Exception as e:
             logger.warning(f"[FRONTEND] Could not open browser automatically: {e}")
@@ -603,7 +671,6 @@ async def start_services(
         speech_to_text_model=speech_to_text_model,
         enable_nats_streaming=True,  # Enable NATS streaming for remote service
         enable_auto_chat_name=True,  # Enable auto chat name for UI mode
-        learning_config=settings.get_learning_config(),
         id_hash=id_hash,  # Pass id_hash to ensure stable Service ID
     )
 
@@ -667,6 +734,22 @@ async def start_services(
         }
         print(f"PANTHEON_READY:{_json.dumps(_ready_event)}", flush=True)
         logger.info(f"[STARTUP] PANTHEON_READY event emitted (service_id={service_id})")
+        # ────────────────────────────────────────────────────────────────────
+
+        # ── Auto-start configured Claw channels ─────────────────────────────
+        try:
+            from pantheon.claw import ClawConfigStore
+            claw_cfg = ClawConfigStore().load()
+            auto_channels = claw_cfg.get("auto_start") or []
+            if auto_channels:
+                gw_manager = chat_room._get_gateway_manager()
+                for ch in auto_channels:
+                    ch = str(ch).strip()
+                    if ch:
+                        res = gw_manager.start_channel(ch, source="auto_start")
+                        logger.info(f"[STARTUP] Claw auto-start {ch}: {res}")
+        except Exception as exc:
+            logger.warning(f"[STARTUP] Claw auto-start failed: {exc}")
         # ────────────────────────────────────────────────────────────────────
 
         if auto_ui:

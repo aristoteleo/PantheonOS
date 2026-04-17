@@ -24,8 +24,12 @@ class AgentConfig:
     toolsets: List[str] = field(default_factory=list)
     mcp_servers: List[str] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
-    think_tool: bool = False
     source_path: Optional[str] = None
+
+    @property
+    def think_tool(self) -> bool:
+        """Whether think tool is enabled (derived from 'think' in toolsets)."""
+        return "think" in (self.toolsets or [])
 
     def to_dict(self) -> dict:
         """Convert to dictionary"""
@@ -39,13 +43,16 @@ class AgentConfig:
             "toolsets": self.toolsets,
             "mcp_servers": self.mcp_servers,
             "tags": self.tags,
-            "think_tool": self.think_tool,
             "source_path": self.source_path,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "AgentConfig":
         """Create from dictionary"""
+        toolsets = list(data.get("toolsets", []) or [])
+        # Backward compat: absorb legacy think_tool flag into toolsets
+        if data.get("think_tool") and "think" not in toolsets:
+            toolsets.append("think")
         return cls(
             id=data.get("id", ""),
             name=data.get("name", ""),
@@ -53,10 +60,9 @@ class AgentConfig:
             description=data.get("description", ""),
             icon=data.get("icon", "🤖"),
             instructions=data.get("instructions", ""),
-            toolsets=data.get("toolsets", []),
+            toolsets=toolsets,
             mcp_servers=data.get("mcp_servers", []),
             tags=data.get("tags", []),
-            think_tool=data.get("think_tool", False),
             source_path=data.get("source_path"),
         )
 
@@ -70,7 +76,6 @@ class AgentConfig:
             "icon": self.icon,
             "toolsets": list(self.toolsets or []),
             "mcp_servers": list(self.mcp_servers or []),
-            "think_tool": self.think_tool,
         }
 
 

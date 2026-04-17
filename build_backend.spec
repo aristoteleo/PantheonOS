@@ -26,7 +26,7 @@ datas += copy_metadata('traitlets')
 datas += copy_metadata('pyzmq')
 datas += copy_metadata('tornado')
 datas += copy_metadata('nest_asyncio')
-datas += collect_data_files('litellm', includes=['**/*.json'])
+datas += collect_data_files('pantheon', subdir='utils', includes=['llm_catalog.json'])
 datas += collect_data_files('tiktoken_ext', includes=['**/*.py'])
 # fakeredis: model/_command_info.py loads os.path.join(dirname(__file__), '..', 'commands.json')
 # PyInstaller must include the JSON so the relative path resolves at runtime.
@@ -65,9 +65,10 @@ a = Analysis(
         'pantheon.toolsets.rag',
         'pantheon.toolsets.scfm',
         'nats',
-        'litellm',
         'openai',
         'anthropic',
+        'google.genai',
+        'tiktoken',
         'fastmcp',
         'fastmcp.server',
         'fastmcp.client',
@@ -137,6 +138,7 @@ exe = EXE(
     pyz,
     a.scripts,
     [],
+    exclude_binaries=True,
     name='pantheon-backend-exe',
     debug=False,
     bootloader_ignore_signals=False,

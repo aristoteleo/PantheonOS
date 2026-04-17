@@ -86,24 +86,16 @@ class KnowledgeToolSet(ToolSet):
             # Helper function to create LLM instance (supports custom API base + proxy)
             def _create_llm():
                 from llama_index.llms.openai import OpenAI
-                from pantheon.settings import get_settings
-                from pantheon.utils.llm_providers import get_litellm_proxy_kwargs
-                settings = get_settings()
+                from pantheon.utils.llm_providers import get_llm_config, ProviderType
 
+                api_base, api_key = get_llm_config(ProviderType.OPENAI)
                 llm_kwargs = {
                     "model": "gpt-4o-mini",
                     "temperature": 0.1,
-                    "api_key": settings.get_api_key("OPENAI_API_KEY"),
+                    "api_key": api_key,
                 }
-                api_base = settings.get_api_key("OPENAI_API_BASE")
                 if api_base:
                     llm_kwargs["api_base"] = api_base
-
-                # Use LiteLLM proxy if enabled (overrides api_base/api_key)
-                proxy_kwargs = get_litellm_proxy_kwargs()
-                if proxy_kwargs:
-                    llm_kwargs["api_base"] = proxy_kwargs["api_base"]
-                    llm_kwargs["api_key"] = proxy_kwargs["api_key"]
 
                 return OpenAI(**llm_kwargs)
 

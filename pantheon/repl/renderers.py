@@ -174,12 +174,21 @@ class ToolCallRenderer:
         else:
             toolset_name, function_name = None, tool_name
 
+        # Extract _background flag (without mutating original args)
+        is_background = bool(args.get("_background")) if args else False
+
         # Render header: toolset > function
         self._render_header(toolset_name, function_name)
 
-        # Render arguments
+        # Show background indicator
+        if is_background:
+            self.console.print(f"  | [dim italic]-> running in background[/dim italic]")
+
+        # Render arguments (filter out _background)
         if args:
-            self._render_args(function_name, args)
+            display_args = {k: v for k, v in args.items() if k != "_background"}
+            if display_args:
+                self._render_args(function_name, display_args)
 
     def _render_header(self, toolset_name: Optional[str], function_name: str):
         """Render tool header in format: toolset > function"""
@@ -346,11 +355,11 @@ class ToolResultRenderer:
     FILE_LANG_MAP = ToolCallRenderer.FILE_LANG_MAP
 
     # Core content fields (displayed with special formatting)
-    CORE_CONTENT_FIELDS = {"output", "stdout", "stderr", "content", "result"}
+    CORE_CONTENT_FIELDS = {"output", "stdout", "stderr", "content", "result", "message"}
 
     # Fields to skip in metadata display
     SKIP_METADATA_FIELDS = {
-        "output", "stdout", "stderr", "content", "result",
+        "output", "stdout", "stderr", "content", "result", "message",
         "fig_storage_path", "base64_uri", "hidden_to_model"
     }
 

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pantheon.agent import Agent
+from pantheon.agent import Agent, get_current_run_model
 from pantheon.internal.memory import Memory
 from pantheon.utils.log import logger, temporary_log_level
 
@@ -33,9 +33,13 @@ class SummaryGenerator:
     def __init__(self):
         """Initialize SummaryGenerator (lazy-creates summary agent on first use)."""
         self._summary_agent: Optional[Agent] = None
+        self._summary_agent_model: str | None = None
 
     async def generate_summary(
-        self, messages: list[dict], max_tokens: int = 500
+        self,
+        messages: list[dict],
+        max_tokens: int = 500,
+        preferred_model: str | None = None,
     ) -> str:
         """Generate a concise summary of conversation context.
 
@@ -58,7 +62,7 @@ class SummaryGenerator:
             return ""
 
         # Generate summary using LLM
-        summary = await self._generate_with_llm(context_text, max_tokens)
+        summary = await self._generate_with_llm(context_text, max_tokens, preferred_model)
         return summary or ""
 
     def _format_messages_for_summary(self, messages: list[dict]) -> str:
@@ -89,7 +93,12 @@ class SummaryGenerator:
 
         return "\n".join(text_parts)
 
-    async def _generate_with_llm(self, context_text: str, max_tokens: int) -> str:
+    async def _generate_with_llm(
+        self,
+        context_text: str,
+        max_tokens: int,
+        preferred_model: str | None = None,
+    ) -> str:
         """Use LLM to generate summary of context.
 
         Args:
@@ -99,11 +108,16 @@ class SummaryGenerator:
         Returns:
             Summary string, or empty string on failure
         """
+        preferred_model = preferred_model or get_current_run_model()
+
         # Lazy-create summary agent on first use
-        if not self._summary_agent:
+        if (
+            not self._summary_agent
+            or self._summary_agent_model != preferred_model
+        ):
             self._summary_agent = Agent(
                 name="SummaryGen",
-                model="low",
+                model=preferred_model,
                 instructions="""You are a context summarizer for agent delegation.
 
 Your task: Extract and summarize the parent agent's conversation history to provide sub-agents with essential context for task execution.
@@ -129,6 +143,7 @@ Guidelines:
    - No preamble, no explanation, no meta-commentary
    - Just clean, usable context for the sub-agent""",
             )
+            self._summary_agent_model = preferred_model
 
         prompt = f"""Please summarize the following conversation context for a sub-agent delegation.
 The sub-agent will use this summary as background context for executing a specific task.
@@ -174,28 +189,30 @@ class SuggestionGenerator:
     def __init__(self):
         """Initialize centralized suggestion manager"""
         self._suggestion_agent: Optional[Agent] = None
+        self._suggestion_agent_model: str | None = None
         self._initialization_lock = asyncio.Lock()
         self._is_initialized = False
 
-    async def _ensure_initialized(self):
+    async def _ensure_initialized(self, preferred_model: str | None = None):
         """Ensure the suggestion agent is initialized (lazy loading)"""
-        if self._is_initialized:
+        preferred_model = preferred_model or get_current_run_model()
+        if self._is_initialized and self._suggestion_agent_model == preferred_model:
             return
 
         async with self._initialization_lock:
-            if self._is_initialized:
+            if self._is_initialized and self._suggestion_agent_model == preferred_model:
                 return
 
-            await self._initialize_suggestion_agent()
+            await self._initialize_suggestion_agent(preferred_model=preferred_model)
             self._is_initialized = True
 
-    async def _initialize_suggestion_agent(self):
+    async def _initialize_suggestion_agent(self, preferred_model: str | None = None):
         """Initialize the dedicated suggestion agent"""
         try:
             # Create a simple suggestion agent directly
             self._suggestion_agent = Agent(
                 name="Suggestion Agent",
-                model="low",
+                model=preferred_model,
                 instructions="""You are a suggestion assistant that generates contextual follow-up questions.
 Your role is to analyze conversation context and suggest 3 relevant questions the user might want to ask next.
 
@@ -206,6 +223,7 @@ Rules:
 4. Keep questions concise and natural
 5. Return only the questions, one per line, without numbering or formatting""",
             )
+            self._suggestion_agent_model = preferred_model
 
             if not self._suggestion_agent:
                 raise RuntimeError("Failed to create suggestion agent")
@@ -217,7 +235,10 @@ Rules:
             raise
 
     async def generate_suggestions(
-        self, messages: List[Dict[str, Any]], max_suggestions: int = 3
+        self,
+        messages: List[Dict[str, Any]],
+        max_suggestions: int = 3,
+        preferred_model: str | None = None,
     ) -> List[SuggestedQuestion]:
         """
         Generate contextual follow-up questions using the centralized suggestion team
@@ -236,7 +257,7 @@ Rules:
 
         try:
             # Ensure suggestion agent is initialized
-            await self._ensure_initialized()
+            await self._ensure_initialized(preferred_model=preferred_model)
 
             if not self._suggestion_agent:
                 logger.warning("Suggestion agent not available, skipping suggestions")
@@ -359,22 +380,37 @@ class ChatNameGenerator:
 
     def __init__(self):
         self._name_agent: Optional[Agent] = None
+        self._name_agent_model: str | None = None
 
-    async def generate_or_update_name(self, memory: Memory) -> str:
-        """Generate or update chat name"""
-        agent_messages = memory.get_messages(None)
+    # Default names that indicate the chat hasn't been meaningfully named yet
+    DEFAULT_NAMES = {"New Chat", "New Chat in Project", "新建聊天", "在项目中新建聊天", ""}
 
-        # Only generate after first conversation (2+ messages)
-        if len(agent_messages) < 2:
+    async def generate_or_update_name(
+        self,
+        memory: Memory,
+        preferred_model: str | None = None,
+    ) -> str:
+        """Generate a chat name only if the chat still has a default name.
+
+        Rules:
+        - Only rename if current name is a default placeholder (e.g. "New Chat")
+        - Need at least 1 user message to generate a meaningful name
+        - Never overwrite a name that was already set (by user or previous generation)
+        """
+        # Already has a meaningful name — don't touch it
+        if not self._is_default_name(memory.name):
             return memory.name
 
-        # Check if we should generate/update
-        if not self._should_generate_name(memory, agent_messages):
+        agent_messages = memory.get_messages(None)
+        user_msgs = [m for m in agent_messages if m.get("role") == "user"]
+        if not user_msgs:
             return memory.name
 
         try:
-            # Try AI generation first
-            new_name = await self._generate_with_ai(agent_messages)
+            new_name = await self._generate_with_ai(
+                agent_messages,
+                preferred_model=preferred_model,
+            )
             if new_name:
                 self._update_metadata(memory, len(agent_messages))
                 return new_name
@@ -386,34 +422,32 @@ class ChatNameGenerator:
         self._update_metadata(memory, len(agent_messages))
         return fallback
 
-    def _should_generate_name(
-        self, memory: Memory, messages: List[Dict[str, Any]]
-    ) -> bool:
-        """Milestone-based generation logic to handle exploratory phases"""
-        message_count = len(messages)
-        last_count = memory.extra_data.get("last_name_generation_message_count", 0)
-        has_generated = memory.extra_data.get("name_generated", False)
-
-        # 0. Backfill: If never generated and we have context (2+ msgs)
-        if message_count >= 2 and not has_generated:
+    def _is_default_name(self, name: str) -> bool:
+        """Check if a name is a default placeholder that should be replaced."""
+        if not name:
             return True
-
-        # 1. Milestones: Denser at the start [2, 3, 5, 10, 20, 50]
-        # To capture rapid intent shifts during initial exploratory phases
-        milestones = [2, 3, 5, 10, 20, 50]
-        for milestone in milestones:
-            if message_count >= milestone and last_count < milestone:
-                return True
-
-        # No further automatic updates to preserve stability
+        stripped = name.strip()
+        if stripped in self.DEFAULT_NAMES:
+            return True
+        # Match patterns like "New Chat", "New Chat (2)", "Chat 04-14 11:30"
+        if stripped.startswith("New Chat") or stripped.startswith("Chat "):
+            return True
+        # Chinese defaults: "新建聊天", "新建聊天 (2)"
+        if stripped.startswith("新建聊天"):
+            return True
         return False
 
-    async def _generate_with_ai(self, messages: List[Dict[str, Any]]) -> Optional[str]:
+    async def _generate_with_ai(
+        self,
+        messages: List[Dict[str, Any]],
+        preferred_model: str | None = None,
+    ) -> Optional[str]:
         """Generate name using the most informative user messages"""
-        if not self._name_agent:
+        preferred_model = preferred_model or get_current_run_model()
+        if not self._name_agent or self._name_agent_model != preferred_model:
             self._name_agent = Agent(
                 name="ChatNameGen",
-                model="low",
+                model=preferred_model,
                 instructions=(
                     "You are a helpful assistant that generates chat titles with relevant icons. "
                     "Generate a concise (3-6 words) title based on the user's intent. "
@@ -425,6 +459,7 @@ class ChatNameGenerator:
                     "- Return ONLY the emoji and the title text, no quotes or preamble."
                 ),
             )
+            self._name_agent_model = preferred_model
 
         # 1. Filter for USER messages only
         user_msgs = [m for m in messages if m.get("role") == "user"]
@@ -518,9 +553,11 @@ class ChatNameGenerator:
 
     def _update_metadata(self, memory: Memory, message_count: int):
         """Update simple metadata"""
-        memory.extra_data["name_generated"] = True
-        memory.extra_data["last_name_generation_message_count"] = message_count
-        memory.extra_data["last_name_generation_time"] = datetime.now().isoformat()
+        memory.update_metadata({
+            "name_generated": True,
+            "last_name_generation_message_count": message_count,
+            "last_name_generation_time": datetime.now().isoformat(),
+        })
 
 
 # ===== Singleton instances =====

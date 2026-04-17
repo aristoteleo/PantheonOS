@@ -13,6 +13,7 @@ import os
 import pytest
 from pathlib import Path
 from dotenv import load_dotenv
+from types import SimpleNamespace
 
 # Load environment variables from .env
 load_dotenv()
@@ -65,6 +66,38 @@ class TestToolSetBasics:
         """Test multimodal model detection."""
         assert image_toolset._is_multimodal_model("gemini/gemini-2.5-flash-image-preview")
         assert not image_toolset._is_multimodal_model("dall-e-3")
+
+    @pytest.mark.asyncio
+    async def test_dalle_bypasses_proxy_and_uses_openai_provider(self, image_toolset, monkeypatch):
+        calls = {}
+
+        class FakeAdapter:
+            async def aimage_generation(self, **kwargs):
+                calls.update(kwargs)
+                return SimpleNamespace(
+                    data=[SimpleNamespace(b64_json="ZmFrZQ==", url=None)],
+                    model="dall-e-3",
+                    usage=None,
+                )
+
+        monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+        monkeypatch.setenv("LLM_PROXY_ENABLED", "true")
+        monkeypatch.setenv("LLM_PROXY_URL", "https://proxy.example/v1")
+        monkeypatch.setenv("LLM_PROXY_KEY", "proxy-key")
+        monkeypatch.setattr(
+            "pantheon.utils.adapters.get_adapter",
+            lambda sdk: FakeAdapter(),
+        )
+
+        result = await image_toolset.generate_image(
+            prompt="A yellow star on white background",
+            model="dall-e-3",
+        )
+
+        assert result["success"] is True
+        assert calls["model"] == "dall-e-3"
+        assert calls["api_key"] == "test-openai-key"
+        assert calls["base_url"] == "https://api.openai.com/v1"
 
 
 # ============================================================================

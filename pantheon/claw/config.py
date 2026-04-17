@@ -31,6 +31,11 @@ IMPLEMENTED_CHANNELS: tuple[str, ...] = (
 DEFAULT_CONFIG: dict[str, Any] = {
     "channel": None,
     "auto_start": [],
+    "images": {
+        "enabled": True,
+        "max_size_bytes": 10 * 1024 * 1024,
+        "max_dimension": 1568,
+    },
     "slack": {
         "app_token": None,
         "bot_token": None,
@@ -60,7 +65,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "imessage": {
         "cli_path": "imsg",
         "db_path": "~/Library/Messages/chat.db",
-        "include_attachments": False,
+        "include_attachments": True,
     },
     "qq": {
         "app_id": None,

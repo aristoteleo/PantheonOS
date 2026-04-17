@@ -61,7 +61,7 @@ See :doc:`models` for full details on custom API endpoints and priority rules.
 Models
 ~~~~~~
 
-Pantheon uses LiteLLM and supports smart model selection with quality tags. See :doc:`models` for full details.
+Pantheon supports smart model selection with quality tags. See :doc:`models` for full details.
 
 .. code-block:: json
 

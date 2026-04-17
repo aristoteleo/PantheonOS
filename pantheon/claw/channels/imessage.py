@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 import re
 import shutil
@@ -11,9 +10,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime, text_chunks
+from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain, extract_display_text
 
-logger = logging.getLogger("pantheon.claw.channels.imessage")
+from pantheon.utils.log import logger
 
 _MAX_TEXT = 3800
 _IMSG_PERMISSION_DENIED_RE = re.compile(
@@ -220,6 +219,24 @@ class IMessageRpcClient:
             params["to"] = parsed.value
         return await self.request("send", params, timeout=60.0)
 
+    async def send_attachment(self, target: str, file_path: str) -> Any:
+        """Send a file attachment via the imsg RPC."""
+        parsed = _parse_target(target)
+        params: dict[str, Any] = {
+            "file": file_path,
+            "service": parsed.service or "auto",
+            "region": "US",
+        }
+        if parsed.kind == "chat_id":
+            params["chat_id"] = int(parsed.value)
+        elif parsed.kind == "chat_guid":
+            params["chat_guid"] = parsed.value
+        elif parsed.kind == "chat_identifier":
+            params["chat_identifier"] = parsed.value
+        else:
+            params["to"] = parsed.value
+        return await self.request("send", params, timeout=60.0)
+
     async def _read_stdout(self) -> None:
         assert self._proc is not None and self._proc.stdout is not None
         try:
@@ -380,6 +397,48 @@ class IMessageGatewayBot(ChannelRuntime):
         for chunk in text_chunks(text, limit=_MAX_TEXT):
             await self._client.send_message(target, chunk)
 
+    def _extract_attachment_uris(self, message: dict[str, Any]) -> list[str]:
+        """Read image attachments from an iMessage and return data-URI list."""
+        attachments = message.get("attachments") or []
+        uris: list[str] = []
+        for att in attachments:
+            mime = str(att.get("mime_type") or att.get("uti") or "").lower()
+            if not (mime.startswith("image/") or "image" in mime):
+                continue
+            path = str(att.get("path") or att.get("filename") or "").strip()
+            if not path:
+                continue
+            expanded = os.path.expanduser(path)
+            if not os.path.isfile(expanded):
+                continue
+            try:
+                with open(expanded, "rb") as f:
+                    data = f.read()
+                uris.append(bytes_to_data_uri(data, os.path.basename(expanded)))
+            except Exception:
+                logger.debug("iMessage attachment read failed: %s", expanded)
+        return uris
+
+    async def _send_image(self, target: str, data_uri: str) -> None:
+        """Write a data-URI to a temp file and send it via imsg RPC."""
+        import tempfile
+        raw, mime = data_uri_to_bytes(data_uri)
+        if not raw:
+            return
+        ext = mime.split("/")[-1] if mime else "png"
+        try:
+            with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
+                tmp.write(raw)
+                tmp_path = tmp.name
+            await self._client.send_attachment(target, tmp_path)
+        except Exception:
+            logger.warning("iMessage image send failed")
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
     async def _handle_command(self, route: ConversationRoute, target: str, text: str) -> bool:
         result = await self._bridge.handle_control_command(route, text)
         if not result.get("handled"):
@@ -389,24 +448,42 @@ class IMessageGatewayBot(ChannelRuntime):
         await self._send_text(target, result.get("message") or "")
         return True
 
-    async def _analysis_wrapper(self, route: ConversationRoute, target: str, user_text: str) -> None:
+    async def _analysis_wrapper(
+        self,
+        route: ConversationRoute,
+        target: str,
+        user_text: str,
+        image_uris: list[str] | None = None,
+    ) -> None:
         route_key = route.route_key()
         llm_buf: list[str] = []
+        image_buf: list[str] = []
+        file_buf: list[str] = []
         await self._send_text(target, "Thinking...")
 
-        # iMessage has no message-edit API — use callbacks for correct buffer assembly
         on_chunk = self.make_chunk_callback(llm_buf)
-        on_step = self.make_step_callback(llm_buf)
+        on_step = self.make_image_step_callback(llm_buf, image_buf, file_buf=file_buf)
 
         try:
             result = await self._bridge.run_chat(
                 route,
                 user_text,
+                image_uris=image_uris,
                 process_chunk=on_chunk,
                 process_step_message=on_step,
             )
-            final_text = str(result.get("response") or "".join(llm_buf) or "Done.")
+            final_text = md_to_plain(extract_display_text(result, llm_buf))
             await self._send_text(target, final_text)
+            for uri in image_buf:
+                await self._send_image(target, uri)
+            # iMessage supports file attachments via send_attachment
+            for fpath in file_buf:
+                import os
+                if os.path.isfile(fpath):
+                    try:
+                        await self.send_attachment(target, fpath)
+                    except Exception:
+                        logger.warning("iMessage file send failed: %s", fpath)
         except asyncio.CancelledError:
             await self._send_text(target, "Cancelled.")
             raise
@@ -430,20 +507,23 @@ class IMessageGatewayBot(ChannelRuntime):
         if route is None or not target:
             return
         text = str(message.get("text") or "").strip()
-        if not text and message.get("attachments") and self._include_attachments:
-            text = "<attachment>"
-        if not text:
+        image_uris: list[str] = []
+        if self._include_attachments and message.get("attachments"):
+            image_uris = self._extract_attachment_uris(message)
+        if not text and not image_uris:
             return
         if text.startswith("/") and await self._handle_command(route, target, text):
             return
         route_key = route.route_key()
         self._targets[route_key] = target
         if self._get_running(route_key) is not None:
-            self._queue_message(route_key, text)
+            self._queue_message(route_key, text or "[image]")
             await self._send_text(target, "Queued after current analysis.")
             return
-        task = asyncio.create_task(self._analysis_wrapper(route, target, text))
-        self._set_task(route_key, task, text)
+        task = asyncio.create_task(
+            self._analysis_wrapper(route, target, text, image_uris=image_uris or None)
+        )
+        self._set_task(route_key, task, text or "[image]")
 
 
 async def run_imessage_channel(*, bridge: Any, config: dict[str, Any], stop_event: threading.Event) -> None:

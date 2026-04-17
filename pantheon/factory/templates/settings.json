@@ -25,12 +25,12 @@
         // - "thread": Execute in separate thread (isolated, for heavy tasks)
         "local_toolset_execution_mode": "direct",
         // === Tool Output Limits ===
-        // Maximum characters for tool output (used for smart truncation)
-        "max_tool_content_length": 10000,
+        // Maximum characters for tool output (fallback; per-tool thresholds take priority)
+        "max_tool_content_length": 50000,
         // Maximum lines for file read operations
         "max_file_read_lines": 1000,
-        // Maximum characters for file read operations (prevents single-line overflow)
-        "max_file_read_chars": 100000,
+        // Maximum characters for file read operations (safety valve; per-tool thresholds handle LLM sizing)
+        "max_file_read_chars": 500000,
         // Maximum results for glob/search operations
         "max_glob_results": 50,
         // Enable notebook execution logging (JSONL files in .pantheon/logs/notebook/)
@@ -128,9 +128,9 @@
         // Quality levels map to model lists (fallback chains)
         // "provider_models": {
         //     "openai": {
-        //         "high": ["openai/gpt-5.4-pro", "openai/gpt-5.4", "openai/gpt-5.2-pro", "openai/gpt-5.2"],
+        //         "high": ["openai/gpt-5.4", "openai/gpt-5.2"],
         //         "normal": ["openai/gpt-5.4", "openai/gpt-5.2-codex", "openai/gpt-5.2", "openai/gpt-5"],
-        //         "low": ["openai/gpt-5.4-mini", "openai/gpt-5-mini", "openai/gpt-5-nano", "openai/gpt-4.1-mini"]
+        //         "low": ["openai/gpt-5.4-mini", "openai/gpt-5.4-nano", "openai/gpt-5-mini", "openai/gpt-4.1-mini"]
         //     },
         //     "anthropic": {
         //         "high": ["anthropic/claude-opus-4-6", "anthropic/claude-opus-4-5-20251101"],
@@ -162,53 +162,6 @@
     //         "normal": ["dall-e-3"]
     //     }
     // },
-    // ===== ACE (Agentic Context Engineering) Configuration =====
-    // Learning is a long-term memory system that learns from conversation trajectories
-    "learning": {
-        // Enable learning system (extract skills from trajectories of each user request/response run)
-        "enable_learning": true,
-        // Enable skill injection into agent system prompts (user_rules, user-defined strategies, high-score skills)
-        "enable_injection": true,
-        // Enable dynamic skill injection (context injectors), defaults to enable_injection if omitted
-        "enable_dynamic_injection": true,
-        // Learning mode: "pipeline" (default, lightweight) or "team" (multi-agent)
-        "mode": "pipeline",
-        // Team ID for team mode (uses skill_learning_team template)
-        "team_id": "learning/skill_learning_team_v4",
-        // Enable agent-specific skill scope filtering, If false, all agents see all skills (recommended for simpler setups)
-        "enable_agent_scope": false,
-        // LLM model for reflection and skill management, Uses quality level: "high", "normal", "low", or specific model name
-        "learning_model": "low",
-        // Skillbook file path (relative to .pantheon/learning/)
-        "skillbook_path": "skillbook.json",
-        // Learning data directory (relative to .pantheon/learning/)
-        "learning_dir": "tmp",
-        // Max skills per section (null = unlimited, or set a number to auto-evict low-score skills)
-        "max_skills_per_section": null,
-        // Max characters for single skill content (Skillbook limit)
-        "max_content_length": 2000,
-        // Max length for tool argument values in learning trajectory
-        "max_tool_arg_length": 1000,
-        // Max length for tool output in learning trajectory
-        "max_tool_output_length": 3000,
-        // Delete learning trajectory files after processing, Set to true in production for privacy/disk space
-        "cleanup_after_learning": false,
-        // === Static Injection Section Filter ===
-        // Control which skillbook sections are statically injected into agent instructions
-        // - null/undefined: Use default rules (user_rules + type="user" strategies only)
-        // - ["*"]: Inject all sections (enable all skills)
-        // - ["section1", "section2", ...]: Inject only specified sections
-        // Example sections: "user_rules", "strategies", "debugging", "data_analysis", etc.
-        // "static_injection_sections": null,
-        // === Quality Control Thresholds ===
-        // Minimum confidence to process reflection (skip if below)
-        "min_confidence_threshold": 0.5,
-        // Minimum atomicity score for ADD operations (reject if below)
-        "min_atomicity_score": 0.85,
-        // === Dynamic Injection Configuration ===
-        // Maximum number of skills to inject dynamically per task (based on semantic relevance)
-        "dynamic_injection_top_k": 50
-    },
     // ===== Context Compression Configuration =====
     // Automatic context compression when approaching token limits
     "context_compression": {
@@ -227,6 +180,73 @@
         "max_tool_output_length": 3000,
         // Wait this many messages before retrying after a compression failure
         "retry_after_messages": 10
+    },
+    // ===== Task System Configuration =====
+    // Modal workflow tools (task_boundary, notify_user) for structured agent tasks
+    "task_system": {
+        // Enable the task system (injects TaskToolSet into primary agent)
+        "enabled": true
+    },
+    // ===== Long-Term Memory System Configuration =====
+    // Cross-session persistent memory with LLM-based selection and dream consolidation
+    "memory_system": {
+        // Enable the long-term memory system
+        "enabled": true,
+        // LLM model for memory selection (reads frontmatter, judges relevance)
+        // Uses quality level: "high", "normal", "low", or specific model name
+        "selection_model": "low",
+        // Retrieval limits for memories and recent chats
+        "selection_max_memories": 15, // Max memories to select per query
+        "selection_max_chats": 5, // Max recent chats to select per query
+        "session_notes_retrieval_limit": 15, // Max session notes to scan (must be >= selection_max_chats)
+        // Static index injection: inject MEMORY.md index into system prompt at startup.
+        // Disabled by default — dynamic retrieval (on_run_start) handles context per query.
+        // Enable if you want the agent to always see the full memory index.
+        "static_index_enabled": false,
+        // Dynamic retrieval injection mode:
+        // - "index": inject title, summary, and file path only (default, low token cost)
+        //   Agent can read the full file via file_manager if needed.
+        // - "full": inject complete file content
+        "inject_mode": "index",
+        // Pre-compression flush: save important info to daily log before compression
+        "flush_enabled": true,
+        // Model for flush extraction (null = use selection_model)
+        "flush_model": null,
+        // Dream consolidation: periodic 4-phase memory distillation
+        "dream_enabled": true,
+        // Model for dream consolidation (null = use selection_model)
+        "dream_model": null,
+        // Minimum hours between dream consolidations
+        "dream_min_hours": 24,
+        // Minimum sessions before triggering dream
+        "dream_min_sessions": 5
+        // Session note thresholds (for compact shortcut, uncomment to override defaults)
+        // Min context tokens before first extraction (default: 10000)
+        // "session_note_init_tokens": 10000,
+        // Min token growth to trigger update (default: 5000)
+        // "session_note_update_tokens": 5000,
+        // Min tool calls to trigger update (default: 3)
+        // "session_note_tool_calls": 3
+    },
+    // ===== Learning System Configuration =====
+    // Procedural knowledge (skills) managed via skill_manage tool
+    "learning_system": {
+        // Enable the learning system (skill management + toolset)
+        "enabled": true,
+        // LLM model for skill operations
+        // Uses quality level: "high", "normal", "low", or specific model name
+        "model": "low",
+        // Background auto-extraction (disabled by default, use skill_manage tool)
+        "extract_enabled": false,
+        // Model for skill extraction (null = use model above)
+        "extract_model": null,
+        // Extract skills every N runs (when extract_enabled=true)
+        "extract_nudge_interval": 5,
+        // Skills to disable (list of skill names)
+        "disabled_skills": [],
+        // Skill index injection limits (cap system prompt size)
+        "skill_index_max_items": 50, // Max number of skills listed in system prompt
+        "skill_index_max_tokens": 2000 // Approx token budget for skill index
     },
     // ===== LLM Retry Configuration =====
     // Exponential backoff retry for transient LLM API errors (e.g., mid-stream overloaded)

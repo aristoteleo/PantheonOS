@@ -1,5 +1,6 @@
 """Notebook Contents ToolSet - File-based notebook content management using nbformat standard library"""
 
+import hashlib
 import time
 import uuid
 from pathlib import Path
@@ -114,22 +115,69 @@ class NotebookContentsToolSet(ToolSet):
                 ids.add(cid)
         return ids
 
+    def _build_stable_cell_id(
+        self,
+        cell: nbformat.NotebookNode,
+        cell_index: int,
+        existing_ids: set[str] | None = None,
+    ) -> str:
+        """Build a deterministic cell id from cell content.
+
+        Produces the same id for the same content, so notebooks rewritten
+        with identical cells get stable identifiers.
+        """
+        existing = existing_ids or set()
+        source = self._format_source(cell.get("source", ""))
+        payload = f"{cell.get('cell_type', 'code')}::{source}"
+        base_id = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:8]
+        candidate = base_id
+        suffix = 1
+        while candidate in existing:
+            candidate = f"{base_id}_{suffix}"
+            suffix += 1
+        return candidate
+
     def _find_cell(
-        self, notebook: nbformat.NotebookNode, cell_id: str
+        self,
+        notebook: nbformat.NotebookNode,
+        cell_id: str,
+        source_hint: str | None = None,
     ) -> tuple[int | None, nbformat.NotebookNode | None]:
-        """Find cell by cell_id and return (index, cell_object)
+        """Find cell by cell_id with optional source-based fallback.
+
+        Resolution order:
+        1. Exact cell_id match
+        2. If source_hint is provided and exactly one cell contains it → return that cell
 
         Args:
             notebook: Notebook object
             cell_id: Cell identifier to find
+            source_hint: Optional source content for fallback matching
 
         Returns:
             tuple of (cell_index, cell_object) if found, (None, None) otherwise
         """
         cells = notebook.get("cells", [])
+
+        # 1. Exact id match
         for idx, cell in enumerate(cells):
             if cell.get("id") == cell_id:
                 return idx, cell
+
+        # 2. Source hint fallback — only when exactly one cell matches
+        if source_hint:
+            matches = []
+            for idx, cell in enumerate(cells):
+                cell_source = self._format_source(cell.get("source", ""))
+                if source_hint in cell_source:
+                    matches.append((idx, cell))
+            if len(matches) == 1:
+                logger.info(
+                    f"[_find_cell] cell_id '{cell_id}' not found, "
+                    f"recovered via source_hint → cell index {matches[0][0]}"
+                )
+                return matches[0]
+
         return None, None
 
     def _load_notebook(
@@ -187,12 +235,9 @@ class NotebookContentsToolSet(ToolSet):
 
         existing_ids = self._collect_cell_ids(notebook)
 
-        for cell in notebook.get("cells", []):
+        for idx, cell in enumerate(notebook.get("cells", [])):
             if not isinstance(cell.get("id"), str) or not cell.get("id"):
-                # Generate unique id
-                new_id = uuid.uuid4().hex
-                while new_id in existing_ids:
-                    new_id = uuid.uuid4().hex
+                new_id = self._build_stable_cell_id(cell, idx, existing_ids)
                 cell["id"] = new_id
                 existing_ids.add(new_id)
                 changed = True

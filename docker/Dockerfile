@@ -43,12 +43,12 @@ COPY pantheon/__init__.py ./pantheon/__init__.py
 
 # Install all Python dependencies (no project package itself yet).
 # BuildKit cache mount keeps uv's HTTP cache on the host across builds.
-# --extra r/knowledge/slack: install runtime extras only (dev extra excluded to skip pytest tools).
+# --extra r/knowledge: install runtime extras only (dev extra excluded to skip pytest tools).
 # --no-dev: also excludes [dependency-groups] dev (ipdb, ipython, build tools, etc.).
 # Cache ID includes CACHE_VERSION to allow forced cache invalidation when needed.
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-${CACHE_VERSION} \
     echo "Installing base dependencies (cache: ${CACHE_VERSION}, venv: ${VENV_PATH})" && \
-    uv sync --no-dev --extra r --extra knowledge --extra claw --no-install-project --python /usr/local/bin/python
+    uv sync --no-dev --extra r --extra knowledge --no-install-project --python /usr/local/bin/python
 
 # ── Layer 2: single-cell analysis extras (MOVED TO AFTER FINAL UV SYNC) ────
 # NOTE: Single-cell packages installation moved to Layer 3.5 (after uv sync)
@@ -91,7 +91,7 @@ COPY . /app/
 # the venv is unnecessary and would risk copying source files into /venv,
 # making Layer A (venv) change on every code commit.
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-${CACHE_VERSION} \
-    uv sync --no-dev --extra r --extra knowledge --extra claw --no-install-project --python /usr/local/bin/python
+    uv sync --no-dev --extra r --extra knowledge --no-install-project --python /usr/local/bin/python
 
 # ── Layer 3.5: single-cell analysis extras ──────────────────────────────────
 # IMPORTANT: Install AFTER uv sync to prevent removal by sync's cleanup process.

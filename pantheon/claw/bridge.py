@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from pantheon.utils.log import logger
+
 from .registry import ClawRouteRegistry, ConversationRoute
 
 
@@ -36,7 +38,7 @@ class ChatRoomGatewayBridge:
 
     async def _chat_exists(self, chat_id: str) -> bool:
         try:
-            result = await self._chatroom.get_chat_messages(chat_id=chat_id, filter_out_images=True)
+            result = await self._chatroom.get_chat_messages(chat_id=chat_id, filter_out_images=False)
         except Exception:
             return False
         return bool(result.get("success", False))
@@ -113,6 +115,7 @@ class ChatRoomGatewayBridge:
             "/new            Start a fresh routed chat for this channel scope\n"
             "/list           List routed chats for this channel scope\n"
             "/resume <sel>   Resume a previous routed chat by index, id, or name\n"
+            "/isolate        Toggle workspace isolation (isolated/project)\n"
             "/cancel         Cancel the running analysis\n"
             "/reset          Delete the routed chat and mapping\n"
         )
@@ -379,6 +382,57 @@ class ChatRoomGatewayBridge:
         )
         return f"Resumed chat: {entry['chat_name']} ({entry['chat_id']})"
 
+    async def _handle_isolate_command(self, route: ConversationRoute, args: str) -> str:
+        chat_id = await self._get_chat_id(route)
+        # Get current mode
+        try:
+            resp = await self._dispatch(
+                self._chatroom.get_chat_messages(chat_id=chat_id, limit=0)
+            )
+        except Exception:
+            pass
+
+        # Toggle: if currently isolated → project, if project → isolated
+        mode_arg = (args or "").strip().lower()
+        if mode_arg in ("on", "isolated", "true"):
+            new_mode = "isolated"
+        elif mode_arg in ("off", "project", "false"):
+            new_mode = "project"
+        else:
+            # Auto-toggle: query current mode from memory
+            try:
+                memory_resp = await self._dispatch(
+                    self._chatroom.get_chat_template(chat_id=chat_id)
+                )
+                current = "project"
+                if isinstance(memory_resp, dict):
+                    template = memory_resp.get("template", {})
+                    for agent in template.get("agents", []):
+                        if isinstance(agent, dict) and agent.get("workspace_mode"):
+                            current = agent["workspace_mode"]
+                            break
+                # Also check project metadata
+                project = memory_resp.get("project", {}) if isinstance(memory_resp, dict) else {}
+                if isinstance(project, dict):
+                    current = project.get("workspace_mode", current)
+                new_mode = "project" if current == "isolated" else "isolated"
+            except Exception:
+                new_mode = "project"  # default toggle to project
+
+        try:
+            result = await self._dispatch(
+                self._chatroom.set_chat_workspace_mode(
+                    chat_id=chat_id,
+                    workspace_mode=new_mode,
+                )
+            )
+            if isinstance(result, dict) and result.get("success"):
+                emoji = "🔒" if new_mode == "isolated" else "🌐"
+                return f"{emoji} Workspace mode: {new_mode}"
+            return f"Failed to set workspace mode: {result}"
+        except Exception as e:
+            return f"Error: {e}"
+
     async def handle_control_command(self, route: ConversationRoute, text: str) -> dict[str, Any]:
         cmd, args = self._command_parts(text)
         if not cmd:
@@ -408,6 +462,8 @@ class ChatRoomGatewayBridge:
             return {"handled": True, "message": result.get("message", "reset"), "clear_pending": True}
         if cmd == "/model":
             return {"handled": True, "message": await self._handle_model_command(route, args)}
+        if cmd == "/isolate":
+            return {"handled": True, "message": await self._handle_isolate_command(route, args)}
 
         return {
             "handled": True,
@@ -446,11 +502,42 @@ class ChatRoomGatewayBridge:
             chat_name=created["chat_name"],
         )
 
+    @staticmethod
+    def _build_message(
+        user_text: str,
+        image_uris: list[str] | None = None,
+        sender_name: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Build a message payload, optionally with images.
+
+        When *sender_name* is provided, it is prepended so the agent knows
+        who is speaking (useful in group chats with multiple users).
+
+        When *image_uris* are provided the message uses the multimodal content-
+        array format (``_llm_content`` for the LLM, ``content`` for display).
+        """
+        # Prepend sender name for group context
+        if sender_name:
+            user_text = f"[{sender_name}]: {user_text}" if user_text else f"[{sender_name}]"
+
+        if not image_uris:
+            return [{"role": "user", "content": user_text}]
+
+        llm_parts: list[dict[str, Any]] = []
+        if user_text:
+            llm_parts.append({"type": "text", "text": user_text})
+        for uri in image_uris:
+            llm_parts.append({"type": "image_url", "image_url": {"url": uri}})
+        display = user_text or f"[{len(image_uris)} image(s)]"
+        return [{"role": "user", "content": display, "_llm_content": llm_parts}]
+
     async def run_chat(
         self,
         route: ConversationRoute,
         user_text: str,
         *,
+        image_uris: list[str] | None = None,
+        sender_name: str | None = None,
         process_chunk=None,
         process_step_message=None,
     ) -> dict[str, Any]:
@@ -458,7 +545,7 @@ class ChatRoomGatewayBridge:
         return await self._dispatch(
             self._chatroom.chat(
                 chat_id=entry["chat_id"],
-                message=[{"role": "user", "content": user_text}],
+                message=self._build_message(user_text, image_uris, sender_name),
                 process_chunk=process_chunk,
                 process_step_message=process_step_message,
             )

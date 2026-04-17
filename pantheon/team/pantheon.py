@@ -48,6 +48,162 @@ Example instruction:
     'Expected Outcome: Report with UMAP visualization and marker genes.'"""
 
 
+def _extract_agent_names_from_chain(chain_path: list | None) -> list[str]:
+    names: list[str] = []
+    for entry in chain_path or []:
+        if not isinstance(entry, str) or not entry:
+            continue
+        names.append(entry.split(":", 1)[0] if ":" in entry else entry)
+    return names
+
+
+def _get_ancestor_agent_names(
+    run_context,
+    context_variables: dict | None = None,
+) -> list[str]:
+    parent_metadata = (context_variables or {}).get("_metadata") or {}
+    chain_path = parent_metadata.get("chain_path")
+    if not isinstance(chain_path, list):
+        return []
+
+    agent_names = _extract_agent_names_from_chain(chain_path)
+    current_name = getattr(getattr(run_context, "agent", None), "name", None)
+    if not current_name:
+        return agent_names
+
+    if current_name in agent_names:
+        current_index = agent_names.index(current_name)
+        return agent_names[:current_index]
+    return agent_names
+
+
+def _get_cache_safe_child_run_overrides(
+    run_context,
+    target_agent: Agent | RemoteAgent,
+    child_context_variables: dict,
+) -> tuple[dict, dict]:
+    cache_params = getattr(run_context, "cache_safe_runtime_params", None)
+    caller_agent = getattr(run_context, "agent", None)
+
+    if (
+        cache_params is None
+        or not isinstance(caller_agent, Agent)
+        or not isinstance(target_agent, Agent)
+    ):
+        return {}, child_context_variables
+
+    updated_context_variables = dict(child_context_variables)
+
+    # If the child agent did not explicitly choose a model, inherit the
+    # current dialog/runtime model rather than falling back to global defaults.
+    if not getattr(target_agent, "_model_was_explicit", True):
+        overrides = {"model": cache_params.model}
+        if (
+            "model_params" not in updated_context_variables
+            and cache_params.model_params_raw
+        ):
+            updated_context_variables["model_params"] = copy.deepcopy(
+                cache_params.model_params_raw
+            )
+        return overrides, updated_context_variables
+
+    from pantheon.utils.token_optimization import normalize_cache_safe_value
+
+    if list(target_agent.models) != list(caller_agent.models):
+        return {}, child_context_variables
+
+    if normalize_cache_safe_value(target_agent.response_format) != cache_params.response_format_normalized:
+        return {}, child_context_variables
+
+    overrides = {
+        "model": cache_params.model,
+        "response_format": cache_params.response_format_raw,
+    }
+
+    if (
+        "model_params" not in updated_context_variables
+        and cache_params.model_params_raw
+    ):
+        updated_context_variables["model_params"] = copy.deepcopy(
+            cache_params.model_params_raw
+        )
+
+    return overrides, updated_context_variables
+
+
+def _build_structured_fork_context(run_context) -> "list[dict] | None":
+    """Build a structured fork context from the parent's optimised history.
+
+    Mirrors Claude Code's forkContextMessages: the child receives the parent's
+    already-budget+snipped message list (sans system message) as its initial
+    context, rather than a plain-text summary.  This preserves tool-call
+    structure and lets the child reason over the actual conversation, not a
+    lossy narration of it.
+
+    Returns None if there is no history worth forwarding.
+    """
+    memory = getattr(run_context, "memory", None)
+    if memory is None:
+        return None
+
+    # Use the already-computed cache_safe_prompt_messages if available —
+    # those have already been through build_llm_view (budget + microcompact).
+    cached = getattr(run_context, "cache_safe_prompt_messages", None)
+    if cached:
+        result = [
+            copy.deepcopy(m)
+            for m in cached
+            if m.get("role") != "system"
+        ]
+        return result or None
+
+    # Fallback: build fresh view from memory
+    from pantheon.utils.token_optimization import build_llm_view
+
+    raw = memory.get_messages(None)
+    if not raw:
+        return None
+    projected = build_llm_view(raw, memory=memory, is_main_thread=True)
+    result = [m for m in projected if m.get("role") != "system"]
+    return result or None
+
+
+async def _get_cache_safe_child_fork_context_messages(
+    run_context,
+    target_agent: Agent | RemoteAgent,
+) -> list[dict] | None:
+    caller_agent = getattr(run_context, "agent", None)
+    parent_messages = getattr(run_context, "cache_safe_prompt_messages", None)
+    parent_tools = getattr(run_context, "cache_safe_tool_definitions", None)
+
+    if (
+        parent_messages is None
+        or parent_tools is None
+        or not isinstance(caller_agent, Agent)
+        or not isinstance(target_agent, Agent)
+    ):
+        return None
+
+    if target_agent.instructions != caller_agent.instructions:
+        return None
+
+    if list(target_agent.models) != list(caller_agent.models):
+        return None
+
+    from pantheon.utils.token_optimization import normalize_cache_safe_value
+
+    target_tools = await target_agent.get_tools_for_llm()
+    if normalize_cache_safe_value(target_tools) != normalize_cache_safe_value(parent_tools):
+        return None
+
+    fork_context_messages = [
+        copy.deepcopy(message)
+        for message in parent_messages
+        if message.get("role") != "system"
+    ]
+    return fork_context_messages or None
+
+
 
 def _slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
@@ -218,7 +374,7 @@ class PantheonTeam(Team):
     def __init__(
         self,
         agents: list[Agent | RemoteAgent],
-        use_summary: bool = False,
+        use_summary: bool = True,
         max_delegate_depth: int | None = 5,
         allow_transfer: bool = False,
         plugins: Optional[List["TeamPlugin"]] = None,
@@ -227,8 +383,9 @@ class PantheonTeam(Team):
 
         Args:
             agents: List of agents in the team.
-            use_summary: If True, generate and prepend context summary
-                         when delegating tasks.
+            use_summary: If True (default), generate summary + recent context
+                         instead of full history for delegation. Set to False
+                         to pass only the raw instruction.
             max_delegate_depth: Maximum depth for nested call_agent calls.
             allow_transfer: If True, add transfer_to_agent tool to agents.
             plugins: Optional list of TeamPlugin instances for extending functionality.
@@ -279,22 +436,26 @@ class PantheonTeam(Team):
             logger.debug(
                 f"Active agent not found in memory, setting to {active_agent_name}"
             )
-            memory.extra_data["active_agent"] = active_agent_name
+            memory.set_metadata("active_agent", active_agent_name)
         active_agent = self.agents[active_agent_name]
         return active_agent
 
     def set_active_agent(self, memory: Memory, agent_name: str):
-        memory.extra_data["active_agent"] = agent_name
+        memory.set_metadata("active_agent", agent_name)
 
     async def add_list_agents_tool(self):
         """Add list_agents() tool to all agents."""
 
-        def get_agents_info(exclude_slug: str | None = None) -> list[dict]:
-            """Get info for all agents except the one with exclude_slug."""
+        def get_agents_info(
+            exclude_slug: str | None = None,
+            blocked_slugs: set[str] | None = None,
+        ) -> list[dict]:
+            """Get info for all agents except excluded or blocked slugs."""
             agents_info = []
+            blocked = blocked_slugs or set()
             for agent_name, agent in self.agents.items():
                 slug = _slugify(agent_name)
-                if slug == exclude_slug:
+                if slug == exclude_slug or slug in blocked:
                     continue
                 info = {"name": slug}
                 if hasattr(agent, "description") and agent.description:
@@ -308,11 +469,30 @@ class PantheonTeam(Team):
             def make_list_agents(exclude: str):
                 """Create list_agents function with caller excluded."""
 
-                def list_agents():
+                def list_agents(context_variables: dict | None = None):
                     """List all available agents and their capabilities."""
-                    agents_info = get_agents_info(exclude_slug=exclude)
+                    run_context = get_current_run_context()
+                    blocked_slugs: set[str] = set()
+                    if (
+                        run_context is not None
+                        and run_context.execution_context_id is not None
+                    ):
+                        blocked_slugs.update(
+                            _slugify(name)
+                            for name in _get_ancestor_agent_names(
+                                run_context,
+                                context_variables,
+                            )
+                        )
+                    agents_info = get_agents_info(
+                        exclude_slug=exclude,
+                        blocked_slugs=blocked_slugs,
+                    )
                     if not agents_info:
-                        return "No other agents available."
+                        return (
+                            "No other agents available. Ancestor agents are excluded "
+                            "for delegated sub-agents."
+                        )
 
                     output = "**Available Agents:**\n\n"
                     for info in agents_info:
@@ -354,8 +534,21 @@ class PantheonTeam(Team):
                 Returns:
                     Response content produced by the target agent.
                 """
-                target_agent = self.get_target_agent(agent_name, instruction)
                 run_context = get_current_run_context()
+                ancestor_names = _get_ancestor_agent_names(
+                    run_context,
+                    context_variables,
+                )
+                ancestor_slugs = {_slugify(name) for name in ancestor_names}
+                normalized_target = agent_name.replace(" ", "_").lower()
+                if normalized_target in ancestor_slugs:
+                    raise RuntimeError(
+                        "Delegated sub-agents cannot call their parent or ancestor "
+                        "agent. Delegate to a different agent from list_agents(), "
+                        "or finish the task yourself."
+                    )
+
+                target_agent = self.get_target_agent(agent_name, instruction)
 
                 # Shallow copy context_variables to avoid mutating the original
                 context_variables = dict(context_variables or {})
@@ -376,14 +569,50 @@ class PantheonTeam(Team):
                 child_context_variables["_metadata"] = child_metadata
                 # P2: Set execution_context_id at top level for child agent
                 child_context_variables["execution_context_id"] = execution_context_id
+                child_run_overrides, child_context_variables = (
+                    _get_cache_safe_child_run_overrides(
+                        run_context,
+                        target_agent,
+                        child_context_variables,
+                    )
+                )
+                # CC-style delegation: structured fork is PRIMARY path.
+                # Child receives parent's full optimized message history as
+                # structured messages (forkContextMessages), enabling prompt
+                # cache sharing.  Summary is only a FALLBACK when no
+                # structured context is available.
+                use_summary_fallback = False
+                fork_context_messages = await _get_cache_safe_child_fork_context_messages(
+                    run_context,
+                    target_agent,
+                )
+                if fork_context_messages:
+                    # Path 1: Cache-compatible — share parent prefix byte-for-byte
+                    child_context_variables["_cache_safe_fork_context_messages"] = (
+                        fork_context_messages
+                    )
+                elif run_context.memory:
+                    # Path 2: Incompatible agents — pass optimized structured
+                    # messages (CC's forkContextMessages for non-cache-sharing)
+                    structured_fork = _build_structured_fork_context(run_context)
+                    if structured_fork:
+                        child_context_variables["_cache_safe_fork_context_messages"] = (
+                            structured_fork
+                        )
+                    else:
+                        # Path 3: No structured context available — fall back to
+                        # summary (only when use_summary=True)
+                        use_summary_fallback = self.use_summary
+                else:
+                    use_summary_fallback = self.use_summary
 
-                # Build task message with optional history summary
+                # Build task message — with or without summary
                 task_message = await create_delegation_task_message(
                     history=run_context.memory.get_messages(None)
                     if run_context.memory
                     else [],
                     instruction=instruction,
-                    use_summary=self.use_summary,
+                    use_summary=use_summary_fallback,
                 )
                 if not task_message:
                     return ""
@@ -431,6 +660,7 @@ class PantheonTeam(Team):
                     execution_context_id=execution_context_id,
                     context_variables=child_context_variables,
                     allow_transfer=False,
+                    **child_run_overrides,
                 )
 
                 # Submit sub_agent learning via plugin hooks
@@ -443,8 +673,9 @@ class PantheonTeam(Team):
                 sub_agent_result = {
                     "agent_name": target_agent.name,
                     "messages": child_memory._messages,
-                    "chat_id": parent_chat_id,
-                    "question": instruction,  # For sub-agents, include the delegation instruction
+                    "chat_id": parent_chat_id,   # parent chat id for session grouping
+                    "memory": child_memory,       # sub-agent's own memory (messages consistent)
+                    "question": instruction,      # marks this as a sub-agent run — plugins skip on this key
                 }
                 await self._call_plugin_hook("on_run_end", self, sub_agent_result)
 
@@ -509,9 +740,26 @@ class PantheonTeam(Team):
             await self.add_list_agents_tool()
             await self.add_unified_call_agent_tool()
         
+        # Inject toolsets declared by plugins.
+        # Plugins that need per-LLM-call hooks (ephemeral messages, tool tracking)
+        # register closures directly on the target agent inside get_toolsets().
+        for plugin in self.plugins:
+            try:
+                toolset_specs = await plugin.get_toolsets(self)
+                for toolset_instance, agent_names in toolset_specs:
+                    targets = (
+                        [a for a in self.team_agents if a.name in agent_names]
+                        if agent_names is not None
+                        else self.team_agents
+                    )
+                    for agent in targets:
+                        await agent.toolset(toolset_instance)
+            except Exception as e:
+                logger.warning(f"Plugin {plugin.__class__.__name__}.get_toolsets() failed: {e}")
+
         # Call plugin lifecycle hook
         await self._call_plugin_hook("on_team_created", self)
-        
+
         self._is_initialized = True
 
     async def run(self, msg: AgentInput, memory: Memory | None = None, **kwargs):
@@ -519,12 +767,15 @@ class PantheonTeam(Team):
         if memory is None:
             memory = Memory(name="pantheon-team")
 
-        # Call on_run_start hook for plugins
+        # Call on_run_start hook for plugins; allow plugins to return a modified msg.
         run_context = {
             "memory": memory,
             "kwargs": kwargs,
         }
-        await self._call_plugin_hook("on_run_start", self, msg, run_context)
+        for plugin in self.plugins:
+            result = await run_func(plugin.on_run_start, self, msg, run_context)
+            if result is not None:
+                msg = result
 
         # Record turn start for learning
         turn_start_index = len(memory._messages)
@@ -560,6 +811,7 @@ class PantheonTeam(Team):
                         "agent_name": active_agent.name,
                         "messages": current_messages,
                         "chat_id": memory.id or "",
+                        "memory": memory,
                     }
                     await self._call_plugin_hook("on_run_end", self, run_result)
                 return resp
@@ -580,6 +832,12 @@ class PantheonTeam(Team):
             for aname, agent in self.agents.items()
         }
         agent_name = agent_name.replace(" ", "_").lower()
+        run_context = get_current_run_context()
+        caller_slug = (
+            _slugify(run_context.agent.name)
+            if run_context is not None and getattr(run_context, "agent", None) is not None
+            else None
+        )
 
         if agent_name not in all_agents:
             raise ValueError(
@@ -588,6 +846,12 @@ class PantheonTeam(Team):
 
         if not instruction or not instruction.strip():
             raise ValueError("Instruction cannot be empty")
+
+        if caller_slug is not None and agent_name == caller_slug:
+            raise ValueError(
+                "Agent cannot delegate to itself. Use your own tools to continue, "
+                "or delegate to a different agent from list_agents()."
+            )
 
         target_agent = all_agents[agent_name]
         if not isinstance(target_agent, Agent):
@@ -618,20 +882,34 @@ class PantheonTeam(Team):
 
 
 
+DELEGATION_RECENT_TAIL_SIZE = 20
+
+
 async def create_delegation_task_message(
     history: list[dict],
     instruction: str,
     use_summary: bool = True,
 ) -> str | None:
-    """Create a delegated task message with optional summary context."""
+    """Create a delegated task message with summary-first, on-demand-detail strategy.
+
+    When *use_summary* is True (default):
+      1. Generate a compact LLM summary of the full history.
+      2. Pass only the **recent tail** of the history to
+         ``build_delegation_context_message`` — this avoids embedding the entire
+         parent conversation in the child prompt.
+      3. Append an on-demand hint so the child agent knows it can retrieve
+         full tool outputs from disk if needed.
+
+    When *use_summary* is False (explicit opt-out):
+      Only the raw *instruction* is returned — no history or summary.
+    """
     if not instruction:
         return None
 
-    # If summary is disabled, the instruction is the entire content.
     if not use_summary:
         return instruction
 
-    # Default behavior: Summarize history and append the instruction.
+    # --- summary-first: generate compact summary from full history -----------
     summary_text = None
     if history:
         try:
@@ -642,8 +920,14 @@ async def create_delegation_task_message(
         except Exception as e:
             logger.warning(f"Failed to generate summary for delegation: {e}")
 
-    content_parts = []
-    if summary_text:
-        content_parts.append(f"Context Summary:\n{summary_text}")
-    content_parts.append(f"Task: {instruction}")
-    return "\n\n".join(content_parts)
+    # --- only pass the recent tail to build_delegation_context_message --------
+    # The summary covers older context; recent messages provide necessary detail.
+    recent_history = history[-DELEGATION_RECENT_TAIL_SIZE:] if history else []
+
+    from pantheon.utils.token_optimization import build_delegation_context_message
+
+    return build_delegation_context_message(
+        history=recent_history,
+        instruction=instruction,
+        summary_text=summary_text,
+    )

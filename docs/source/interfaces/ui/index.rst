@@ -32,6 +32,7 @@ Features
 - **Session Persistence**: Conversations are saved and can be resumed
 - **Team Support**: Use any team configuration
 - **Auto-Connect**: ``--auto-ui`` opens the browser with connection pre-configured
+- **WSL Friendly**: On WSL, ``--auto-ui`` attempts to launch your Windows default browser instead of relying on Linux desktop browser handlers
 
 Command Reference
 -----------------

@@ -1,11 +1,6 @@
 # Internal modules for pantheon
 # These modules are internal implementation details
 
-from .learning import (
-    LearningPipeline,
-    Skillbook,
-    create_learning_resources,
-)
 from .compression import (
     CompressionConfig,
     ContextCompressor,

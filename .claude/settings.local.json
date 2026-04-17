@@ -71,7 +71,9 @@
       "Bash(curl:*)",
       "WebFetch(domain:scib.readthedocs.io)",
       "Bash(git ls-tree:*)",
-      "Bash(pdflatex:*)"
+      "Bash(pdflatex:*)",
+      "Bash(npx vue-tsc:*)",
+      "Bash(bash:*)"
     ],
     "deny": [],
     "ask": []

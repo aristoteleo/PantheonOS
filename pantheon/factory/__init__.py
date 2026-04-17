@@ -28,10 +28,18 @@ async def create_agent(
         model: The model to use for the agent.
         icon: The icon to use for the agent.
         toolsets: List of toolset names to add to the agent.
+            "think" is a reserved name that enables the think tool.
         mcp_servers: List of MCP server names to add to the agent.
         description: Optional description of the agent's purpose and capabilities.
-        think_tool: Whether to enable the think tool for structured reasoning.
+        think_tool: Whether to enable the think tool (deprecated, use toolsets=["think"] instead).
     """
+    toolsets = list(toolsets or [])
+
+    # Extract "think" from toolsets — it's a built-in tool, not a remote toolset
+    if "think" in toolsets:
+        think_tool = True
+        toolsets = [t for t in toolsets if t != "think"]
+
     agent = Agent(
         name=name,
         instructions=instructions,
@@ -43,7 +51,6 @@ async def create_agent(
     agent.not_loaded_toolsets = []
     toolsets_added = []
     mcp_server_added = []
-    toolsets = list(toolsets or [])
     mcp_servers = list(mcp_servers or [])
     
     # ===== Parse toolsets to extract MCP specs =====
@@ -82,18 +89,9 @@ async def create_agent(
     # ===== Add ToolSet providers from config =====
 
     for toolset_name in normal_toolsets:
-        # Special handling: "task" toolset is local-only (not via Endpoint)
+        # "task" toolset is now managed by TaskSystemPlugin via plugin registry
         if toolset_name == "task":
-            try:
-                from pantheon.toolsets.task import TaskToolSet
-
-                task_toolset = TaskToolSet()
-                await agent.toolset(task_toolset)
-                toolsets_added.append(toolset_name)
-                logger.debug(f"Agent '{name}': Added local TaskToolSet")
-            except Exception as e:
-                logger.error(f"Agent '{name}': Failed to add local TaskToolSet: {e}")
-                agent.not_loaded_toolsets.append(toolset_name)
+            logger.debug(f"Agent '{name}': 'task' toolset is managed by TaskSystemPlugin, skipping")
             continue
 
         try:
@@ -208,7 +206,6 @@ async def create_agents_from_template(
 async def create_team_from_template(
     endpoint_service,
     template_id: str,
-    learning_config: dict | None = None,
     check_toolsets: bool = True,
     enable_mcp: bool = True,
 ):
@@ -217,42 +214,26 @@ async def create_team_from_template(
     This is the primary factory function for creating teams, suitable for:
     - Benchmark testing
     - Programmatic team creation
-    - Learning pipeline team initialization
 
     Workflow:
     1. Loads the team template by ID
     2. Prepares agent configurations
     3. Optionally checks toolset availability
     4. Creates agents with endpoint connection
-    5. Optionally initializes ACE learning/injection resources
+    5. Initializes plugins (memory, learning, compression)
     6. Returns a fully initialized PantheonTeam
 
     Args:
         endpoint_service: The endpoint service for toolset/MCP connections
         template_id: Team template ID (e.g., "default", "data_research_team")
-        learning_config: Override for ACE configuration dict. Merged with settings.
-                        Keys: enable_learning, enable_injection, learning_model, etc.
         check_toolsets: If True, warns about unavailable toolsets
+        enable_mcp: If True, enables MCP server connections
 
     Returns:
         PantheonTeam: Fully initialized team ready to run
 
     Raises:
         ValueError: If template not found
-
-    Example (Pure Learning):
-        >>> team = await create_team_from_template(
-        ...     endpoint_service,
-        ...     "default",
-        ...     learning_config={"enable_learning": True, "enable_injection": False},
-        ... )
-
-    Example (Pure Injection):
-        >>> team = await create_team_from_template(
-        ...     endpoint_service,
-        ...     "default",
-        ...     learning_config={"enable_learning": False, "enable_injection": True},
-        ... )
     """
     from pantheon.team import PantheonTeam
     from pantheon.utils.misc import call_endpoint_method
@@ -280,23 +261,9 @@ async def create_team_from_template(
         endpoint_service, agent_configs, enable_mcp=enable_mcp
     )
 
-    # 6. Initialize plugins
-    plugins = []
-
-    if learning_config:
-        from pantheon.internal.learning.plugin import get_global_learning_plugin
-        
-        # Create global learning plugin
-        learning_plugin = await get_global_learning_plugin(learning_config)
-        plugins.append(learning_plugin)
-        
-    # Create compression plugin (still from settings for now, or could be passed)
-    # Keeping existing behavior for compression for now unless requested
-    compression_config = get_settings().get_compression_config()
-    if compression_config:
-        from pantheon.internal.compression.plugin import CompressionPlugin
-        compression_plugin = CompressionPlugin(compression_config)
-        plugins.append(compression_plugin)
+    # 6. Initialize plugins via centralized registry
+    from pantheon.team.plugin_registry import create_plugins
+    plugins = create_plugins(get_settings())
 
     # 7. Create and setup team with plugins
     team = PantheonTeam(

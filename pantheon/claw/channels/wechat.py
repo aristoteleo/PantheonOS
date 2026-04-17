@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-import logging
 import secrets
 import threading
 import time
@@ -13,9 +12,9 @@ from typing import Any
 import requests
 
 from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime, text_chunks
+from pantheon.claw.runtime import ChannelRuntime, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain, extract_display_text, upload_image_to_imgbb
 
-logger = logging.getLogger("pantheon.claw.channels.wechat")
+from pantheon.utils.log import logger
 
 _DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com"
 _DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000
@@ -38,13 +37,29 @@ def _extract_text(item_list: Any) -> str:
             text = str(((item.get("voice_item") or {}).get("text") or "")).strip()
             if text:
                 parts.append(text)
-        elif item_type == 2:
-            parts.append("[image]")
         elif item_type == 4:
             parts.append("[file]")
         elif item_type == 5:
             parts.append("[video]")
+        # type 2 (image) is handled separately — don't add placeholder
     return "\n".join(parts).strip()
+
+
+def _extract_image_urls(item_list: Any) -> list[str]:
+    """Extract image download URLs from a WeChat item_list."""
+    if not isinstance(item_list, list):
+        return []
+    urls: list[str] = []
+    for item in item_list:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") != 2:
+            continue
+        img = item.get("image_item") or {}
+        url = str(img.get("url") or img.get("image_url") or "").strip()
+        if url:
+            urls.append(url)
+    return urls
 
 
 class WeChatApiClient:
@@ -125,6 +140,16 @@ class WeChatApiClient:
         read_timeout = max(5.0, (float(timeout_ms) / 1000.0) + 5.0)
         return self._post_json("/ilink/bot/getupdates", payload, timeout=(10.0, read_timeout))
 
+    def download_image(self, url: str) -> bytes:
+        """Download an image from a WeChat CDN URL."""
+        response = requests.get(url, headers=self._get_headers(), timeout=(10.0, 30.0))
+        response.raise_for_status()
+        return response.content
+
+    # Note: WeChat iLink CDN image upload (getuploadurl + AES) requires special
+    # bot permissions not available to all accounts. Image sending is handled
+    # via imgbb upload in the WeChatGatewayBot._send_image method instead.
+
     def send_text(self, *, to_user_id: str, text: str, context_token: str) -> None:
         payload = {
             "msg": {
@@ -172,6 +197,26 @@ class WeChatGatewayBot(ChannelRuntime):
                 context_token=context_token,
             )
 
+    async def _download_images(self, item_list: Any) -> list[str]:
+        """Download images from a WeChat message and return data-URI list."""
+        urls = _extract_image_urls(item_list)
+        uris: list[str] = []
+        for url in urls:
+            try:
+                data = await asyncio.to_thread(self._client.download_image, url)
+                uris.append(bytes_to_data_uri(data, "image.jpg"))
+            except Exception:
+                logger.debug("WeChat image download failed: %s", url)
+        return uris
+
+    async def _send_image(self, to_user_id: str, context_token: str, data_uri: str) -> None:
+        """Upload image to imgbb and send the URL to the WeChat user."""
+        url = await asyncio.to_thread(upload_image_to_imgbb, data_uri)
+        if url:
+            await self._send_text(to_user_id, context_token, f"📷 {url}")
+        else:
+            await self._send_text(to_user_id, context_token, "📷 [Image generated — view in Pantheon UI]")
+
     async def _handle_control(
         self,
         route: ConversationRoute,
@@ -195,27 +240,66 @@ class WeChatGatewayBot(ChannelRuntime):
         to_user_id: str,
         context_token: str,
         user_text: str,
+        image_uris: list[str] | None = None,
     ) -> None:
         route_key = route.route_key()
         llm_buf: list[str] = []
+        image_buf: list[str] = []
+        file_buf: list[str] = []
+        last_progress: list[str] = [""]  # mutable for closure access
+
+        async def _progress_cb(label: str) -> None:
+            last_progress[0] = label
 
         # WeChat has no message-edit API — use callbacks only for correct buffer assembly
         on_chunk = self.make_chunk_callback(llm_buf)
-        on_step = self.make_step_callback(llm_buf)
+        on_step = self.make_image_step_callback(
+            llm_buf, image_buf, file_buf=file_buf, progress_cb=_progress_cb,
+        )
+
+        # Periodic progress reporter — sends status every 10s since WeChat can't edit messages
+        _progress_task: asyncio.Task | None = None
+
+        async def _periodic_progress() -> None:
+            await asyncio.sleep(5)  # initial delay before first progress message
+            last_sent = ""
+            while True:
+                await asyncio.sleep(10)
+                msg = last_progress[0]
+                if msg and msg != last_sent:
+                    await self._send_text(to_user_id, context_token, f"🤖 Agent is working...\n{msg}")
+                    last_sent = msg
+
+        _progress_task = asyncio.create_task(_periodic_progress())
 
         try:
             result = await self._bridge.run_chat(
                 route,
                 user_text,
+                image_uris=image_uris,
                 process_chunk=on_chunk,
                 process_step_message=on_step,
             )
-            final = str(result.get("response") or "".join(llm_buf) or "Done.")
+            _progress_task.cancel()
+            final = md_to_plain(extract_display_text(result, llm_buf))
             await self._send_text(to_user_id, context_token, final)
+            logger.info(f"[WeChat] image_buf has {len(image_buf)} images, file_buf has {len(file_buf)} files")
+            for uri in image_buf:
+                await self._send_image(to_user_id, context_token, uri)
+            # WeChat doesn't have a file send API — mention file paths in text
+            if file_buf:
+                import os
+                names = [os.path.basename(p) for p in file_buf if os.path.isfile(p)]
+                if names:
+                    await self._send_text(to_user_id, context_token, f"📎 Files: {', '.join(names)}")
         except asyncio.CancelledError:
+            if _progress_task:
+                _progress_task.cancel()
             await self._send_text(to_user_id, context_token, "Cancelled.")
             raise
         except Exception as exc:
+            if _progress_task:
+                _progress_task.cancel()
             logger.exception("WeChat analysis failed")
             await self._send_text(to_user_id, context_token, f"Error: {exc}")
         finally:
@@ -247,8 +331,12 @@ class WeChatGatewayBot(ChannelRuntime):
         if group_id:
             logger.info("Ignoring WeChat group message group_id=%s from=%s", group_id, from_user_id)
             return
-        text = _extract_text(raw.get("item_list"))
-        if not text:
+
+        item_list = raw.get("item_list")
+        text = _extract_text(item_list)
+        image_uris = await self._download_images(item_list)
+
+        if not text and not image_uris:
             return
 
         route = ConversationRoute(
@@ -264,7 +352,7 @@ class WeChatGatewayBot(ChannelRuntime):
             return
 
         if self._get_running(route_key) is not None:
-            self._queue_message(route_key, tail or text)
+            self._queue_message(route_key, tail or text or "[image]")
             await self._send_text(from_user_id, context_token, "Queued after current analysis.")
             return
 
@@ -275,9 +363,10 @@ class WeChatGatewayBot(ChannelRuntime):
                 to_user_id=from_user_id,
                 context_token=context_token,
                 user_text=tail or text,
+                image_uris=image_uris or None,
             )
         )
-        self._set_task(route_key, task, tail or text)
+        self._set_task(route_key, task, tail or text or "[image]")
 
     async def run(self) -> None:
         logger.info("WeChat long-poll starting (base_url=%s)", self._client._base_url)

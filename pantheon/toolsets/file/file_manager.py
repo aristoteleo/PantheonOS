@@ -117,7 +117,7 @@ class FileManagerToolSetBase(ToolSet):
     Provides unified path management and file operations.
     """
 
-    @tool
+    @tool(exclude=True)
     async def manage_path(
         self,
         operation: str,
@@ -219,7 +219,7 @@ class FileManagerToolSetBase(ToolSet):
             return Path(file_path)
         return self._get_root() / file_path
 
-    @tool
+    @tool(exclude=True)
     async def get_cwd(self) -> dict:
         """Get current working directory."""
         return {"success": True, "cwd": str(self._get_root())}
@@ -262,42 +262,85 @@ class FileManagerToolSetBase(ToolSet):
         if not target_path.exists():
             return {"success": False, "error": "Directory does not exist"}
 
+        def _build_file_entry(path: Path) -> dict | None:
+            """Safely build metadata for a directory entry.
+
+            Use lstat() so broken symlinks do not crash listing, and skip
+            entries that disappear between enumeration and metadata lookup.
+            """
+            try:
+                stat_result = path.lstat()
+            except FileNotFoundError:
+                return None
+
+            if path.is_symlink():
+                entry_type = "symlink"
+            elif path.is_file():
+                entry_type = "file"
+            elif path.is_dir():
+                entry_type = "directory"
+            else:
+                entry_type = "other"
+
+            return {
+                "name": path.name,
+                "size": stat_result.st_size if entry_type != "directory" else 0,
+                "type": entry_type,
+                "last_modified": datetime.fromtimestamp(
+                    stat_result.st_mtime
+                ).strftime("%Y-%m-%d %H:%M:%S"),
+            }
+
         if not recursive:
             files = list(target_path.glob("*"))
+            entries = []
+            for file in files:
+                if file.name in self.black_list:
+                    continue
+                entry = _build_file_entry(file)
+                if entry is not None:
+                    entries.append(entry)
             return {
                 "success": True,
-                "files": [
-                    {
-                        "name": file.name,
-                        "size": file.stat().st_size if file.is_file() else 0,
-                        "type": "file" if file.is_file() else "directory",
-                        "last_modified": datetime.fromtimestamp(
-                            file.stat().st_mtime
-                        ).strftime("%Y-%m-%d %H:%M:%S"),
-                    }
-                    for file in files
-                    if file.name not in self.black_list
-                ],
+                "files": entries,
             }
         else:
 
-            def _list_tree(path: Path, current_depth: int = 0) -> dict:
+            def _list_tree(path: Path, current_depth: int = 0) -> dict | None:
                 """Helper function to recursively build the tree structure."""
+                try:
+                    stat_result = path.lstat()
+                except FileNotFoundError:
+                    return None
+
+                if path.is_symlink():
+                    entry_type = "symlink"
+                elif path.is_dir():
+                    entry_type = "directory"
+                elif path.is_file():
+                    entry_type = "file"
+                else:
+                    entry_type = "other"
+
                 result = {
                     "name": path.name,
-                    "type": "directory" if path.is_dir() else "file",
-                    "size": path.stat().st_size if path.is_file() else 0,
+                    "type": entry_type,
+                    "size": stat_result.st_size if entry_type != "directory" else 0,
                 }
-                if path.is_dir():
+                if entry_type == "directory":
                     # Check depth limit before recursing
                     if max_depth is not None and current_depth >= max_depth:
                         result["children"] = []  # Empty children at max depth
                     else:
                         result["children"] = []
-                        for item in sorted(path.iterdir()):
-                            result["children"].append(
-                                _list_tree(item, current_depth + 1)
-                            )
+                        try:
+                            items = sorted(path.iterdir())
+                        except FileNotFoundError:
+                            items = []
+                        for item in items:
+                            child = _list_tree(item, current_depth + 1)
+                            if child is not None:
+                                result["children"].append(child)
                 return result
 
             if not target_path.exists():
@@ -623,6 +666,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
         start_line: int | None = None,
         end_line: int | None = None,
         max_chars: int | None = None,
+        symbol: str | None = None,
     ) -> dict:
         """Read the contents of a text file.
 
@@ -632,12 +676,16 @@ class FileManagerToolSet(FileManagerToolSetBase):
         - To read the entire file, do not pass start_line or end_line.
         - To read a specific range, pass both start_line and end_line.
         - max_chars: Optional character limit (default: 50000 from settings).
+        - symbol: Optional. Extract a specific class/function/method by name
+          (e.g., "MyClass", "MyClass.my_method", "helper_func").
 
         Args:
             file_path: Path to the file to read (relative to workspace root).
             start_line: Optional. First line to read (1-indexed, inclusive).
             end_line: Optional. Last line to read (1-indexed, inclusive).
             max_chars: Optional. Maximum characters to return (for quick preview, use lower values like 5000).
+            symbol: Optional. Qualified name of a code symbol to extract (dot notation).
+                   Examples: "MyClass", "MyClass.my_method", "helper_function"
 
         Returns:
             dict: {success, content, total_lines, format, [truncated, truncation_info, suggestions]}
@@ -646,6 +694,19 @@ class FileManagerToolSet(FileManagerToolSetBase):
             Large files are limited to max_file_read_lines and max_file_read_chars.
             Use start_line/end_line to paginate or max_chars to control output size.
         """
+        # Symbol extraction mode: use tree-sitter to extract specific code item
+        if symbol:
+            try:
+                from pantheon.toolsets.code.tree_sitter_parser import get_code_item
+                target_path = self._resolve_path(file_path)
+                if not target_path.exists():
+                    return {"success": False, "error": "File does not exist"}
+                return get_code_item(target_path, symbol)
+            except ImportError:
+                return {"success": False, "error": "Code navigation requires 'pantheon-agents[toolsets]'"}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
         # Support both absolute and relative paths
         target_path = self._resolve_path(file_path)
         if not target_path.exists():
@@ -744,40 +805,105 @@ class FileManagerToolSet(FileManagerToolSetBase):
             return {"success": False, "error": str(e)}
 
     @tool
+    async def view_file_outline(self, file_path: str) -> dict:
+        """Get a structured outline of classes and functions in a file.
+
+        Returns the "skeleton" of a source file: all top-level classes and
+        functions with their line ranges, signatures, and nested members.
+        Useful for understanding large files without reading all the code.
+
+        Args:
+            file_path: Path to the source file (relative to workspace or absolute).
+                      Supports: .py, .js, .ts, .jsx, .tsx
+
+        Returns:
+            dict: {
+                "success": bool,
+                "file": str,
+                "language": str,
+                "total_lines": int,
+                "symbols": [
+                    {
+                        "name": str,
+                        "kind": str,    # "class", "function", "method"
+                        "start_line": int,
+                        "end_line": int,
+                        "signature": str,
+                        "docstring": str,
+                        "children": [...]
+                    }
+                ]
+            }
+
+        Examples:
+            # View outline of a Python file
+            outline = await view_file_outline("src/utils.py")
+
+            # View outline of a JavaScript file
+            outline = await view_file_outline("lib/index.js")
+        """
+        try:
+            from pantheon.toolsets.code.tree_sitter_parser import get_file_outline
+            target_path = self._resolve_path(file_path)
+            if not target_path.exists():
+                return {"success": False, "error": "File does not exist"}
+            return get_file_outline(target_path)
+        except ImportError:
+            return {"success": False, "error": "Code navigation requires 'pantheon-agents[toolsets]'"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool
     async def write_file(
         self,
         file_path: str,
         content: str = "",
         overwrite: bool = True,
+        append: bool = False,
     ) -> dict:
-        """Use this tool to CREATE NEW file.
+        """Create a new file, overwrite an existing one, or append to it.
 
-        This tool writes content to a file, automatically creating parent
-        directories if they do not exist.
+        Parent directories are created automatically if they do not exist.
 
-        IMPORTANT: For EDITING existing file, use `update_file` instead.
-        DO NOT rewrite entire file when only small changes are needed, its is wasteful and error-prone.
+        For EDITING existing files, prefer `update_file` instead — it is
+        safer and more efficient for partial modifications.
 
         Use this tool when:
         - Creating a brand new file
-        - Completely rewriting a file from scratch (rare)
+        - Completely rewriting a file from scratch
+        - Appending content to an existing file (set append=True)
 
-        DO NOT use this tool when:
-        - Making partial modifications to an existing file
-        - Changing a few lines in a large file
-        - For these cases, use `update_file` instead
+        Do NOT use this tool when:
+        - Making partial modifications to an existing file (use `update_file`)
+        - Changing a few lines in a large file (use `update_file`)
 
         Args:
             file_path: The path to the file to write.
             content: The content to write to the file.
-            overwrite: When False, abort if the target file already exists.
-                       Default is True, but consider using update_file for edits.
+            overwrite: When False, abort if the target file already exists (ignored when append=True).
+            append: When True, append content to the end of an existing file instead of overwriting.
+                    The file must already exist when using append mode.
 
         Returns:
             dict: Success status or error message.
         """
-
         target_path = self._resolve_path(file_path)
+
+        if append:
+            if not target_path.exists():
+                return {
+                    "success": False,
+                    "error": f"File '{file_path}' does not exist. Use write_file without append=True to create it first.",
+                    "reason": "file_not_found",
+                }
+            try:
+                with open(target_path, "a", encoding="utf-8") as f:
+                    f.write(content)
+                return {"success": True, "appended_chars": len(content)}
+            except Exception as exc:
+                logger.error(f"write_file(append) failed for {file_path}: {exc}")
+                return {"success": False, "error": str(exc)}
+
         if not overwrite and target_path.exists():
             return {
                 "success": False,
@@ -934,12 +1060,12 @@ class FileManagerToolSet(FileManagerToolSetBase):
             
             return result
         except Exception as e:
-            logger.error(
-                f"Error calling agent for image observation: {e}", exc_info=True
+            logger.opt(exception=True).error(
+                "Error calling agent for image observation: {}", e
             )
             return {"success": False, "error": str(e)}
 
-    @tool
+    @tool(exclude=True)
     async def observe_pdf_screenshots(
         self,
         question: str,
@@ -990,15 +1116,35 @@ class FileManagerToolSet(FileManagerToolSetBase):
             return {"success": False, "error": f"Unexpected error: {str(e)}"}
 
     @tool
-    async def read_pdf(self, pdf_path: str) -> dict:
-        """Read a PDF file and return the text inside it.
+    async def read_pdf(
+        self,
+        pdf_path: str,
+        question: str | None = None,
+        page_numbers: list[int] | None = None,
+        dpi: int = 300,
+    ) -> dict:
+        """Read a PDF file. Extracts text by default, or analyzes page screenshots when a question is provided.
 
         Args:
             pdf_path: The path to the PDF file to read.
+            question: Optional. If provided, renders pages as images and answers the question
+                     using multimodal analysis (useful for PDFs with charts, tables, or images).
+            page_numbers: Optional. Specific page numbers to read (0-indexed).
+                         If not provided, reads all pages.
+            dpi: Resolution for screenshot mode (default: 300). Only used when question is provided.
 
         Returns:
             dict: Success status, content, and metadata about the PDF.
         """
+        # If question provided, use screenshot-based multimodal analysis
+        if question:
+            return await self.observe_pdf_screenshots(
+                question=question,
+                pdf_path=pdf_path,
+                page_numbers=page_numbers,
+                dpi=dpi,
+            )
+
         file_path = self._resolve_path(pdf_path)
 
         # Check if file exists
@@ -1538,7 +1684,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
             self._latex_sem = asyncio.Semaphore(3)
         return self._latex_sem
 
-    @tool
+    @tool(exclude=True)
     async def compile_latex(
         self,
         file_path: str,

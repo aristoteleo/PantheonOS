@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import re
 import threading
 import time
@@ -12,9 +11,9 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from pantheon.claw.registry import ConversationRoute
-from pantheon.claw.runtime import ChannelRuntime, Deduper, text_chunks
+from pantheon.claw.runtime import ChannelRuntime, Deduper, data_uri_to_bytes, bytes_to_data_uri, text_chunks, md_to_plain, extract_display_text
 
-logger = logging.getLogger("pantheon.claw.channels.qq")
+from pantheon.utils.log import logger
 
 _API_BASE = "https://api.sgroup.qq.com"
 _TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken"
@@ -189,6 +188,65 @@ class QQClient:
         else:
             raise RuntimeError(f"Unsupported QQ target kind: {target.kind}")
 
+    def upload_media(
+        self,
+        target: QQTarget,
+        data: bytes,
+        file_type: int = 1,
+    ) -> Optional[str]:
+        """Upload media (image) and return file_info for sending.
+
+        file_type: 1=image, 2=video, 3=voice, 4=file
+        Returns the file_info string needed for rich media messages, or None.
+        """
+        import base64 as _b64
+        if target.kind == "c2c":
+            url = f"/v2/users/{target.id}/files"
+        elif target.kind == "group":
+            url = f"/v2/groups/{target.id}/files"
+        else:
+            return None
+        body = {
+            "file_type": file_type,
+            "file_data": _b64.b64encode(data).decode("ascii"),
+            "srv_send_msg": False,
+        }
+        try:
+            resp = self._api("POST", url, json=body)
+            return resp.get("file_info") or resp.get("file_uuid")
+        except Exception as exc:
+            logger.warning("QQ media upload failed: %s", exc)
+            return None
+
+    def send_media_message(
+        self,
+        target: QQTarget,
+        file_info: str,
+        msg_id: Optional[str] = None,
+        msg_seq: int = 1,
+    ) -> Optional[str]:
+        """Send a previously uploaded media file as a message."""
+        body: Dict[str, Any] = {
+            "content": "",
+            "msg_type": 7,
+            "media": {"file_info": file_info},
+            "msg_seq": msg_seq,
+        }
+        if msg_id:
+            body["msg_id"] = msg_id
+        if target.kind == "c2c":
+            url = f"/v2/users/{target.id}/messages"
+        elif target.kind == "group":
+            url = f"/v2/groups/{target.id}/messages"
+        else:
+            return None
+        try:
+            data = self._api("POST", url, json=body)
+            return data.get("id") or data.get("message_id")
+        except Exception as exc:
+            logger.warning("QQ send media message failed: %s", exc)
+            return None
+
 
 # ── QQRuntime ─────────────────────────────────────────────────────────────────
 
@@ -240,6 +298,16 @@ class QQRuntime(ChannelRuntime):
         seq = self._alloc_seq(msg_id)
         return self._client.send_text(target, text, msg_id=msg_id, msg_seq=seq)
 
+    def _send_image(self, target: QQTarget, data_uri: str, msg_id: Optional[str] = None) -> None:
+        """Upload and send an image to a QQ target."""
+        raw, _mime = data_uri_to_bytes(data_uri)
+        if not raw:
+            return
+        file_info = self._client.upload_media(target, raw, file_type=1)
+        if file_info:
+            seq = self._alloc_seq(msg_id)
+            self._client.send_media_message(target, file_info, msg_id=msg_id, msg_seq=seq)
+
     @staticmethod
     def _route(target: QQTarget, sender_id: Optional[str] = None) -> ConversationRoute:
         scope_map = {"c2c": "dm", "dm": "dm", "group": "group", "guild": "guild"}
@@ -259,6 +327,7 @@ class QQRuntime(ChannelRuntime):
         msg_id: str,
         group_id: Optional[str] = None,
         channel_id: Optional[str] = None,
+        image_uris: Optional[List[str]] = None,
     ) -> None:
         """Synchronous entry point called by the WebSocket gateway thread.
 
@@ -281,7 +350,7 @@ class QQRuntime(ChannelRuntime):
         else:
             target = QQTarget(kind="c2c", id=sender_id)
 
-        self.submit(self._dispatch(target, sender_id, content, msg_id))
+        self.submit(self._dispatch(target, sender_id, content, msg_id, image_uris=image_uris))
 
     async def _dispatch(
         self,
@@ -289,9 +358,10 @@ class QQRuntime(ChannelRuntime):
         sender_id: str,
         raw_text: str,
         msg_id: str,
+        image_uris: Optional[List[str]] = None,
     ) -> None:
         text = re.sub(r"^<@!?\w+>\s*", "", (raw_text or "").strip()).strip()
-        if not text:
+        if not text and not image_uris:
             return
 
         route = self._route(target, sender_id)
@@ -308,12 +378,14 @@ class QQRuntime(ChannelRuntime):
                 return
 
         if self._get_running(route_key) is not None:
-            self._queue_message(route_key, text)
+            self._queue_message(route_key, text or "[image]")
             await asyncio.to_thread(self._send_text, target, "Queued after current analysis.", msg_id)
             return
 
-        task = asyncio.create_task(self._analysis_wrapper(route, target, msg_id, text))
-        self._set_task(route_key, task, text)
+        task = asyncio.create_task(
+            self._analysis_wrapper(route, target, msg_id, text, image_uris=image_uris)
+        )
+        self._set_task(route_key, task, text or "[image]")
 
     async def _analysis_wrapper(
         self,
@@ -321,25 +393,36 @@ class QQRuntime(ChannelRuntime):
         target: QQTarget,
         msg_id: Optional[str],
         user_text: str,
+        image_uris: Optional[List[str]] = None,
     ) -> None:
         route_key = route.route_key()
         llm_buf: List[str] = []
+        image_buf: List[str] = []
+        file_buf: List[str] = []
         await asyncio.to_thread(self._send_text, target, "Thinking...", msg_id)
 
-        # QQ has no message-edit API — use callbacks for correct buffer assembly
         on_chunk = self.make_chunk_callback(llm_buf)
-        on_step = self.make_step_callback(llm_buf)
+        on_step = self.make_image_step_callback(llm_buf, image_buf, file_buf=file_buf)
 
         try:
             result = await self._bridge.run_chat(
                 route,
                 user_text,
+                image_uris=image_uris,
                 process_chunk=on_chunk,
                 process_step_message=on_step,
             )
-            reply = str(result.get("response") or "".join(llm_buf) or "Done.")
+            reply = md_to_plain(extract_display_text(result, llm_buf))
             for chunk in text_chunks(reply, limit=_MAX_TEXT):
                 await asyncio.to_thread(self._send_text, target, chunk, msg_id)
+            for uri in image_buf:
+                await asyncio.to_thread(self._send_image, target, uri, msg_id)
+            # QQ doesn't support file upload via bot API — mention file names
+            if file_buf:
+                import os
+                names = [os.path.basename(p) for p in file_buf if os.path.isfile(p)]
+                if names:
+                    await asyncio.to_thread(self._send_text, target, f"📎 Files: {', '.join(names)}", msg_id)
         except asyncio.CancelledError:
             await asyncio.to_thread(self._send_text, target, "Cancelled.", msg_id)
             raise
@@ -351,12 +434,38 @@ class QQRuntime(ChannelRuntime):
             queued = self._pop_queued(route_key)
             if queued:
                 next_text = "\n\n".join(queued)
-                # Use None for msg_id on queued follow-ups: the original msg_id
-                # has almost certainly expired (>5 min) by now.
                 task = asyncio.create_task(
                     self._analysis_wrapper(route, target, None, next_text)
                 )
                 self._set_task(route_key, task, next_text)
+
+
+# ── Image extraction from QQ attachments ─────────────────────────────────────
+
+def _extract_attachment_urls(dispatch_data: Dict[str, Any]) -> List[str]:
+    """Extract image URLs from QQ dispatch data attachments.
+
+    QQ messages include an ``attachments`` list with image info. Each
+    attachment has a ``url`` field pointing to the QQ CDN image.  We
+    download them inline (they are short-lived) and convert to data-URIs.
+    """
+    attachments = dispatch_data.get("attachments") or []
+    urls: List[str] = []
+    for att in attachments:
+        ct = str(att.get("content_type") or "").lower()
+        if not ct.startswith("image/"):
+            continue
+        url = str(att.get("url") or "").strip()
+        if url:
+            if url.startswith("//"):
+                url = f"https:{url}"
+            try:
+                resp = requests.get(url, timeout=30)
+                resp.raise_for_status()
+                urls.append(bytes_to_data_uri(resp.content, att.get("filename") or "image.png"))
+            except Exception:
+                logger.debug("QQ attachment download failed: %s", url)
+    return urls
 
 
 # ── WebSocket Gateway ─────────────────────────────────────────────────────────
@@ -464,12 +573,14 @@ def _run_gateway(*, client: QQClient, runtime: QQRuntime, stop_event: threading.
                         openid = (d.get("author") or {}).get("user_openid", "")
                         content = d.get("content", "")
                         msg_id = d.get("id", "")
-                        if openid and content.strip():
+                        img_uris = _extract_attachment_urls(d)
+                        if openid and (content.strip() or img_uris):
                             runtime.handle_message(
                                 kind="c2c",
                                 sender_id=openid,
                                 content=content,
                                 msg_id=msg_id,
+                                image_uris=img_uris or None,
                             )
 
                     elif t == "GROUP_AT_MESSAGE_CREATE":
@@ -478,13 +589,15 @@ def _run_gateway(*, client: QQClient, runtime: QQRuntime, stop_event: threading.
                         group_openid = d.get("group_openid", "")
                         content = d.get("content", "")
                         msg_id = d.get("id", "")
-                        if content.strip():
+                        img_uris = _extract_attachment_urls(d)
+                        if content.strip() or img_uris:
                             runtime.handle_message(
                                 kind="group",
                                 sender_id=member_openid,
                                 content=content,
                                 msg_id=msg_id,
                                 group_id=group_openid,
+                                image_uris=img_uris or None,
                             )
 
                     elif t == "AT_MESSAGE_CREATE":
@@ -493,13 +606,15 @@ def _run_gateway(*, client: QQClient, runtime: QQRuntime, stop_event: threading.
                         channel_id = d.get("channel_id", "")
                         content = d.get("content", "")
                         msg_id = d.get("id", "")
-                        if content.strip():
+                        img_uris = _extract_attachment_urls(d)
+                        if content.strip() or img_uris:
                             runtime.handle_message(
                                 kind="guild",
                                 sender_id=sender_id,
                                 content=content,
                                 msg_id=msg_id,
                                 channel_id=channel_id,
+                                image_uris=img_uris or None,
                             )
 
                     elif t == "DIRECT_MESSAGE_CREATE":
@@ -508,13 +623,15 @@ def _run_gateway(*, client: QQClient, runtime: QQRuntime, stop_event: threading.
                         guild_id = d.get("guild_id", "")
                         content = d.get("content", "")
                         msg_id = d.get("id", "")
-                        if content.strip():
+                        img_uris = _extract_attachment_urls(d)
+                        if content.strip() or img_uris:
                             runtime.handle_message(
                                 kind="dm",
                                 sender_id=sender_id,
                                 content=content,
                                 msg_id=msg_id,
                                 channel_id=guild_id,
+                                image_uris=img_uris or None,
                             )
                     return
 

@@ -11,8 +11,10 @@ Tests cover:
 """
 
 import json
+import threading
 import tempfile
 import shutil
+import time
 from pathlib import Path
 
 import pytest
@@ -101,6 +103,28 @@ class TestJSONBackend:
         assert JSONBackend.detect_format(temp_dir, memory_id)
         assert not JSONLBackend.detect_format(temp_dir, memory_id)
 
+    def test_save_metadata_failure_preserves_existing_file(self, backend, temp_dir, monkeypatch):
+        memory_id = "test-memory-atomic-json"
+        backend.save_metadata(memory_id, "Original Name", {"version": 1})
+
+        original_dump = json.dump
+
+        def broken_dump(obj, fp, *args, **kwargs):
+            if obj.get("name") == "Updated Name":
+                fp.write('{"id": "broken')
+                raise RuntimeError("simulated write failure")
+            return original_dump(obj, fp, *args, **kwargs)
+
+        monkeypatch.setattr("pantheon.internal.memory.storage.json.dump", broken_dump)
+
+        with pytest.raises(RuntimeError, match="simulated write failure"):
+            backend.save_metadata(memory_id, "Updated Name", {"version": 2})
+
+        loaded_id, loaded_name, loaded_extra = backend.load_metadata(memory_id)
+        assert loaded_id == memory_id
+        assert loaded_name == "Original Name"
+        assert loaded_extra == {"version": 1}
+
 
 class TestJSONLBackend:
     """Test suite for JSONLBackend (high-performance format)."""
@@ -186,6 +210,28 @@ class TestJSONLBackend:
         assert JSONLBackend.detect_format(temp_dir, memory_id)
         assert not JSONBackend.detect_format(temp_dir, memory_id)
 
+    def test_save_metadata_failure_preserves_existing_file(self, backend, temp_dir, monkeypatch):
+        memory_id = "test-memory-atomic"
+        backend.save_metadata(memory_id, "Original Name", {"version": 1})
+
+        original_dump = json.dump
+
+        def broken_dump(obj, fp, *args, **kwargs):
+            if obj.get("name") == "Updated Name":
+                fp.write('{"id": "broken')
+                raise RuntimeError("simulated write failure")
+            return original_dump(obj, fp, *args, **kwargs)
+
+        monkeypatch.setattr("pantheon.internal.memory.storage.json.dump", broken_dump)
+
+        with pytest.raises(RuntimeError, match="simulated write failure"):
+            backend.save_metadata(memory_id, "Updated Name", {"version": 2})
+
+        loaded_id, loaded_name, loaded_extra = backend.load_metadata(memory_id)
+        assert loaded_id == memory_id
+        assert loaded_name == "Original Name"
+        assert loaded_extra == {"version": 1}
+
 
 class TestFormatDetection:
     """Test format detection logic."""
@@ -247,6 +293,144 @@ class TestPerformance:
         speedup = json_time / jsonl_time
         print(f"\nPerformance: JSON={json_time:.3f}s, JSONL={jsonl_time:.3f}s, Speedup={speedup:.1f}x")
         assert speedup > 5, f"Expected JSONL to be >5x faster, got {speedup:.1f}x"
+
+
+class TestMemoryLocks:
+    """Test per-memory write lock behavior."""
+
+    @pytest.fixture
+    def temp_dir(self):
+        temp_dir = tempfile.mkdtemp()
+        yield Path(temp_dir)
+        shutil.rmtree(temp_dir)
+
+    def _assert_serialized_writes(self, backend, monkeypatch):
+        memory_id = "locked-memory"
+        original_atomic_write = backend._atomic_write_json
+        state = {"active": 0, "max_active": 0}
+        state_lock = threading.Lock()
+
+        def instrumented_atomic_write(path, data):
+            with state_lock:
+                state["active"] += 1
+                state["max_active"] = max(state["max_active"], state["active"])
+            try:
+                time.sleep(0.05)
+                return original_atomic_write(path, data)
+            finally:
+                with state_lock:
+                    state["active"] -= 1
+
+        monkeypatch.setattr(backend, "_atomic_write_json", instrumented_atomic_write)
+
+        threads = [
+            threading.Thread(
+                target=backend.save_metadata,
+                args=(memory_id, f"Name {i}", {"version": i}),
+            )
+            for i in range(2)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert state["max_active"] == 1
+
+    def test_json_backend_serializes_same_memory_writes(self, temp_dir, monkeypatch):
+        backend = JSONBackend(temp_dir)
+        self._assert_serialized_writes(backend, monkeypatch)
+
+    def test_jsonl_backend_serializes_same_memory_writes(self, temp_dir, monkeypatch):
+        backend = JSONLBackend(temp_dir)
+        self._assert_serialized_writes(backend, monkeypatch)
+
+
+class TestRealMemorySamples:
+    """Compatibility tests using real memory files from .pantheon/memory."""
+
+    @pytest.fixture
+    def temp_dir(self):
+        temp_dir = tempfile.mkdtemp()
+        yield Path(temp_dir)
+        shutil.rmtree(temp_dir)
+
+    @pytest.fixture
+    def real_memory_dir(self):
+        memory_dir = Path(__file__).resolve().parents[1] / ".pantheon" / "memory"
+        assert memory_dir.exists(), f"Real memory dir not found: {memory_dir}"
+        return memory_dir
+
+    def _copy_real_json_sample(self, source_dir: Path, dest_dir: Path) -> str:
+        for json_file in sorted(source_dir.glob("*.json")):
+            if json_file.name.endswith(".meta.json"):
+                continue
+            try:
+                data = json.loads(json_file.read_text("utf-8"))
+            except Exception:
+                continue
+            if {"id", "name", "messages"} <= set(data.keys()):
+                shutil.copy2(json_file, dest_dir / json_file.name)
+                return json_file.stem
+        raise AssertionError("No valid real JSON memory sample found")
+
+    def _copy_real_jsonl_sample(self, source_dir: Path, dest_dir: Path) -> str:
+        for meta_file in sorted(source_dir.glob("*.meta.json")):
+            memory_id = meta_file.name[:-10]
+            jsonl_file = source_dir / f"{memory_id}.jsonl"
+            if not jsonl_file.exists():
+                continue
+            try:
+                meta = json.loads(meta_file.read_text("utf-8"))
+                lines = [line for line in jsonl_file.read_text("utf-8").splitlines() if line.strip()]
+                for line in lines:
+                    json.loads(line)
+            except Exception:
+                continue
+            if {"id", "name", "extra_data"} <= set(meta.keys()):
+                shutil.copy2(meta_file, dest_dir / meta_file.name)
+                shutil.copy2(jsonl_file, dest_dir / jsonl_file.name)
+                return memory_id
+        raise AssertionError("No valid real JSONL memory sample found")
+
+    def test_real_json_sample_round_trip(self, temp_dir, real_memory_dir):
+        memory_id = self._copy_real_json_sample(real_memory_dir, temp_dir)
+
+        manager = MemoryManager(temp_dir, use_jsonl=False)
+        memory = manager.get_memory(memory_id)
+        original_message_count = len(memory._messages)
+
+        assert isinstance(memory._backend, JSONBackend)
+        assert original_message_count >= 1
+
+        memory.set_metadata("round_trip_marker", "json-backend")
+        manager.save_one(memory_id)
+
+        manager2 = MemoryManager(temp_dir, use_jsonl=False)
+        reloaded = manager2.get_memory(memory_id)
+
+        assert isinstance(reloaded._backend, JSONBackend)
+        assert len(reloaded._messages) == original_message_count
+        assert reloaded.extra_data["round_trip_marker"] == "json-backend"
+
+    def test_real_jsonl_sample_round_trip(self, temp_dir, real_memory_dir):
+        memory_id = self._copy_real_jsonl_sample(real_memory_dir, temp_dir)
+
+        manager = MemoryManager(temp_dir, use_jsonl=True)
+        memory = manager.get_memory(memory_id)
+        original_message_count = len(memory._messages)
+
+        assert isinstance(memory._backend, JSONLBackend)
+
+        memory.set_metadata("round_trip_marker", "jsonl-backend")
+        manager.save_one(memory_id)
+
+        manager2 = MemoryManager(temp_dir, use_jsonl=True)
+        reloaded = manager2.get_memory(memory_id)
+
+        assert isinstance(reloaded._backend, JSONLBackend)
+        assert len(reloaded._messages) == original_message_count
+        assert reloaded.extra_data["round_trip_marker"] == "jsonl-backend"
 
 
 # ============================================================================
@@ -728,4 +912,3 @@ class TestMemoryExplicitSave:
         manager2 = MemoryManager(temp_dir, use_jsonl=True)
         manager2.load_all()
         assert len(manager2.memory_store) == 2
-

@@ -868,10 +868,208 @@ class TestMultiCompressionScenarios:
         ]
         
         result = format_messages_to_text(messages)
-        
+
         # Compression should be marked as PREVIOUS_SUMMARY
         assert "[PREVIOUS_SUMMARY]" in result.text
         assert "Previous context summary" in result.text
         assert "[USER]" in result.text
         assert "[ASSISTANT]" in result.text
+
+
+# ===========================================================================
+# CompressionPlugin + MemorySystemPlugin 集成测试（真实 Gemini LLM）
+# ===========================================================================
+
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+_repo_root = Path(__file__).parent.parent
+load_dotenv(_repo_root / ".env")
+
+GEMINI_MODEL = "gemini/gemini-3-flash-preview"
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
+
+_requires_gemini = pytest.mark.skipif(not GEMINI_KEY, reason="GEMINI_API_KEY not set")
+
+
+def _make_memory_runtime(workspace: Path):
+    from pantheon.internal.memory_system.runtime import MemoryRuntime
+    config = {
+        "enabled": True,
+        "selection_model": GEMINI_MODEL,
+        "flush_enabled": True,
+        "flush_model": GEMINI_MODEL,
+        "dream_enabled": False,
+        "dream_model": GEMINI_MODEL,
+        "dream_min_hours": 9999,
+        "dream_min_sessions": 9999,
+        "session_note_init_tokens": 100,
+        "session_note_update_tokens": 50,
+        "session_note_tool_calls": 1,
+    }
+    rt = MemoryRuntime(config)
+    rt.initialize(
+        pantheon_dir=workspace / ".pantheon",
+        runtime_dir=workspace / ".pantheon" / "memory-runtime",
+    )
+    return rt
+
+
+def _make_compression_plugin(model: str = GEMINI_MODEL):
+    from pantheon.internal.compression.plugin import CompressionPlugin
+    config = {
+        "enable": True,
+        "threshold": 0.0,  # always trigger in tests
+        "preserve_recent_messages": 2,
+        "compression_model": model,
+        "retry_after_messages": 0,
+    }
+    return CompressionPlugin(config)
+
+
+def _make_team_with_compression(workspace: Path):
+    """Build a PantheonTeam with MemorySystemPlugin + CompressionPlugin."""
+    from pantheon.agent import Agent
+    from pantheon.team import PantheonTeam
+    from pantheon.internal.memory_system.plugin import MemorySystemPlugin
+    from pantheon.internal.compression.plugin import CompressionPlugin
+
+    mem_rt = _make_memory_runtime(workspace)
+    mem_plugin = MemorySystemPlugin(mem_rt)
+    comp_plugin = _make_compression_plugin()
+
+    agent = Agent(name="assistant", instructions="You are helpful.", model=GEMINI_MODEL)
+    team = PantheonTeam(
+        agents=[agent],
+        plugins=[mem_plugin, comp_plugin],
+    )
+    return team, mem_rt, mem_plugin, comp_plugin
+
+
+@pytest.mark.asyncio
+class TestCompressionPluginIntegration:
+    """Integration tests for CompressionPlugin + MemorySystemPlugin collaboration."""
+
+    @_requires_gemini
+    async def test_session_note_compact_path(self, tmp_path):
+        """
+        Path A: Session Note Compact (zero-LLM compression).
+
+        pre_compression now force-updates the session note internally, so no
+        pre-seeding is required. The compact path should succeed automatically.
+        """
+        from pantheon.internal.memory import Memory
+
+        (tmp_path / ".pantheon").mkdir()
+        team, mem_rt, mem_plugin, comp_plugin = _make_team_with_compression(tmp_path)
+        await team.async_setup()
+
+        memory = Memory(name="compact-test")
+
+        # Build enough history (more than preserve_recent_messages=2)
+        for i in range(8):
+            memory._messages.append({"role": "user", "content": f"Q{i}: Introduce Python asyncio module"})
+            memory._messages.append({
+                "role": "assistant",
+                "content": f"A{i}: asyncio is Python's async IO framework providing event loop, coroutines, and tasks.",
+                "_metadata": {"total_tokens": 5000, "max_tokens": 8000},
+            })
+
+        # Add more messages so boundary < total after force_update
+        for i in range(8, 14):
+            memory._messages.append({"role": "user", "content": f"Q{i}: What about Python threading?"})
+            memory._messages.append({
+                "role": "assistant",
+                "content": f"A{i}: Threading in Python is limited by the GIL for CPU-bound tasks.",
+                "_metadata": {"total_tokens": 5000, "max_tokens": 8000},
+            })
+
+        original_count = len(memory._messages)
+        session_id = memory.id
+
+        result = await comp_plugin._perform_compression(team, memory)
+
+        print(f"\n[compression result] {result}")
+        print(f"[message count after] {len(memory._messages)}")
+
+        assert result.get("success"), f"Compression should succeed: {result}"
+        assert result.get("method") == "session_note_compact"
+        assert len(memory._messages) > original_count, "Message count should increase (checkpoint inserted)"
+
+        compression_msgs = [m for m in memory._messages if m.get("role") == "compression"]
+        assert len(compression_msgs) == 1, "Should have exactly one compression checkpoint"
+        assert "CHECKPOINT" in compression_msgs[0]["content"]
+        assert compression_msgs[0]["_metadata"]["method"] == "session_note_compact"
+
+    @_requires_gemini
+    async def test_llm_fallback_compression_path(self, tmp_path):
+        """
+        Path B: LLM fallback compression (when Session Note Compact is unavailable).
+
+        Disable session_note on the runtime so force_update produces no CompactHint,
+        forcing the LLM compressor to run.
+        """
+        from pantheon.internal.memory import Memory
+
+        (tmp_path / ".pantheon").mkdir()
+        team, mem_rt, mem_plugin, comp_plugin = _make_team_with_compression(tmp_path)
+        await team.async_setup()
+
+        # Disable session note so pre_compression returns no CompactHint
+        mem_rt.session_note = None
+
+        memory = Memory(name="llm-compress-test")
+
+        for i in range(6):
+            memory._messages.append({"role": "user", "content": f"Q{i}: Explain the Python GIL."})
+            memory._messages.append({
+                "role": "assistant",
+                "content": f"A{i}: The GIL is CPython's global interpreter lock; only one thread executes bytecode at a time.",
+                "_metadata": {"total_tokens": 5000, "max_tokens": 8000},
+            })
+
+        print(f"\n[original message count] {len(memory._messages)}")
+
+        result = await comp_plugin._perform_compression(team, memory, force=True)
+
+        print(f"\n[compression result] {result}")
+        roles = [m["role"] for m in memory._messages]
+        print(f"[message roles] {roles}")
+
+        assert result.get("success"), f"LLM compression should succeed: {result}"
+        assert "compression" in roles, "role:compression checkpoint should be inserted"
+
+        comp_msg = next(m for m in memory._messages if m["role"] == "compression")
+        assert len(comp_msg["content"]) > 50, "compression message should have real content"
+
+    @_requires_gemini
+    async def test_pre_compression_flush_before_llm_compress(self, tmp_path):
+        """Verify pre_compression hook writes daily log before LLM compression runs."""
+        from pantheon.internal.memory import Memory
+
+        (tmp_path / ".pantheon").mkdir()
+        team, mem_rt, mem_plugin, comp_plugin = _make_team_with_compression(tmp_path)
+        await team.async_setup()
+
+        memory = Memory(name="flush-then-compress")
+        for i in range(6):
+            memory._messages.append({"role": "user", "content": f"Our API endpoint is /api/v{i}/users"})
+            memory._messages.append({
+                "role": "assistant",
+                "content": f"Noted: /api/v{i}/users endpoint recorded.",
+                "_metadata": {"total_tokens": 5000, "max_tokens": 8000},
+            })
+
+        result = await comp_plugin._perform_compression(team, memory, force=True)
+
+        print(f"\n[compression result] {result}")
+
+        logs = mem_rt.store.list_daily_logs()
+        print(f"[daily logs] {[l.name for l in logs]}")
+        assert logs, "pre_compression hook should write daily log"
+
+        log_content = logs[0].read_text()
+        print(f"[Log 内容]\n{log_content[:300]}")
+        assert len(log_content) > 0
 

@@ -191,6 +191,25 @@ class TestValidateRouterOutput:
         assert not is_valid
         assert any("Invalid tool" in e for e in errors)
 
+    def test_model_name_in_plan_is_normalized_to_scfm_run(self):
+        output = {
+            "intent": {"task": "embed", "confidence": 0.9, "constraints": {}},
+            "inputs": {"query": "Embed plant data"},
+            "selection": {
+                "recommended": {"name": "scplantllm", "rationale": "plant model"},
+                "fallbacks": [],
+            },
+            "plan": [{"tool": "scplantllm", "args": {"adata_path": "plant.h5ad"}}],
+        }
+
+        is_valid, errors, parsed = validate_router_output(output)
+
+        assert is_valid
+        assert not errors
+        assert parsed is not None
+        assert parsed.plan[0].tool == "scfm_run"
+        assert parsed.plan[0].args["model_name"] == "scplantllm"
+
 
 # =============================================================================
 # Test JSON Extraction

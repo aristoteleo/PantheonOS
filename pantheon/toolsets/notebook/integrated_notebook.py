@@ -17,6 +17,7 @@ Frontend-only tools (not for agents):
 """
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -103,6 +104,9 @@ class IntegratedNotebookToolSet(ToolSet):
         # Notebook file locks to prevent concurrent edit operations
         import asyncio
         self._notebook_locks: Dict[str, asyncio.Lock] = {}
+
+        # Context creation lock to prevent duplicate kernel creation on concurrent calls
+        self._context_creation_locks: Dict[tuple, asyncio.Lock] = {}
 
     async def run_setup(self):
         """Setup toolset"""
@@ -208,8 +212,169 @@ class IntegratedNotebookToolSet(ToolSet):
         except Exception as e:
             logger.error(f"Failed to save contexts: {e}")
 
+    async def _list_available_kernels(self) -> dict:
+        """List all available Jupyter kernelspecs and discoverable Python environments."""
+        import shutil
+        import subprocess
+
+        kernels = []
+        try:
+            from jupyter_client.kernelspec import KernelSpecManager
+            ksm = KernelSpecManager()
+            specs = ksm.get_all_specs()
+            for name, info in specs.items():
+                spec = info.get("spec", {})
+                argv = spec.get("argv", [])
+                python_path = argv[0] if argv else "unknown"
+                is_abs = os.path.isabs(python_path)
+
+                # Try to get Python version and key packages
+                actual_python = python_path if is_abs else (shutil.which(python_path) or python_path)
+                python_version = None
+                key_packages = []
+                if os.path.isfile(actual_python):
+                    try:
+                        result = subprocess.run(
+                            [actual_python, "-c",
+                             "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'); "
+                             "pkgs = ['scanpy','pertpy','anndata','numpy','pandas','scipy','matplotlib','scvi-tools','cellrank']\n"
+                             "for p in pkgs:\n"
+                             " try:\n"
+                             "  mod=__import__(p.replace('-','_')); print(f'{p} {getattr(mod,\"__version__\",\"?\")}')\n"
+                             " except: pass"],
+                            capture_output=True, text=True, timeout=10,
+                        )
+                        lines = result.stdout.strip().split("\n")
+                        if lines:
+                            python_version = lines[0]
+                            key_packages = lines[1:]
+                    except Exception:
+                        pass
+
+                kernels.append({
+                    "name": name,
+                    "display_name": spec.get("display_name", name),
+                    "python": actual_python,
+                    "python_version": python_version,
+                    "is_absolute_path": is_abs,
+                    "key_packages": key_packages,
+                })
+        except Exception as e:
+            logger.warning(f"Failed to list kernelspecs: {e}")
+
+        # Discover conda/micromamba environments
+        conda_envs = []
+        for conda_cmd in ["conda", "micromamba", "mamba"]:
+            exe = shutil.which(conda_cmd)
+            if not exe:
+                continue
+            try:
+                result = subprocess.run(
+                    [exe, "env", "list", "--json"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                data = json.loads(result.stdout)
+                for env_path in data.get("envs", []):
+                    env_name = os.path.basename(env_path)
+                    python_bin = os.path.join(env_path, "bin", "python")
+                    if not os.path.isfile(python_bin):
+                        python_bin = os.path.join(env_path, "Scripts", "python.exe")
+                    # Check if already registered as a kernel
+                    already_registered = any(
+                        k["python"].startswith(env_path) for k in kernels
+                    )
+                    conda_envs.append({
+                        "name": env_name,
+                        "path": env_path,
+                        "python": python_bin if os.path.isfile(python_bin) else None,
+                        "already_registered": already_registered,
+                    })
+                break  # Use first available conda tool
+            except Exception:
+                continue
+
+        return {
+            "success": True,
+            "kernels": kernels,
+            "conda_envs": conda_envs,
+            "hint": "Use setup_kernel to register an environment as a Jupyter kernel. "
+                    "Then use notebook_edit(action='create', kernel_spec='<name>') to create a notebook with that kernel.",
+        }
+
+    async def _setup_kernel(
+        self,
+        python_path: str,
+        kernel_name: Optional[str] = None,
+        display_name: Optional[str] = None,
+    ) -> dict:
+        """Register a Python environment as a Jupyter kernelspec."""
+        import subprocess
+
+        python_path = os.path.expanduser(python_path)
+        if not os.path.isabs(python_path):
+            return {"success": False, "error": f"python_path must be absolute, got: {python_path}"}
+        if not os.path.isfile(python_path):
+            return {"success": False, "error": f"Python executable not found: {python_path}"}
+
+        # Derive kernel_name from path if not provided
+        if not kernel_name:
+            # e.g. /Users/me/micromamba/envs/my_env/bin/python → my_env
+            parts = python_path.split(os.sep)
+            for i, part in enumerate(parts):
+                if part in ("envs", ".venv", "venv") and i + 1 < len(parts):
+                    kernel_name = parts[i + 1]
+                    break
+            if not kernel_name:
+                kernel_name = "custom_kernel"
+
+        if not display_name:
+            display_name = kernel_name
+
+        # Step 1: Ensure ipykernel is installed
+        try:
+            result = subprocess.run(
+                [python_path, "-c", "import ipykernel"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode != 0:
+                logger.info(f"Installing ipykernel into {python_path}")
+                install_result = subprocess.run(
+                    [python_path, "-m", "pip", "install", "ipykernel", "-q"],
+                    capture_output=True, text=True, timeout=120,
+                )
+                if install_result.returncode != 0:
+                    return {
+                        "success": False,
+                        "error": f"Failed to install ipykernel: {install_result.stderr[:500]}",
+                    }
+        except subprocess.TimeoutExpired:
+            return {"success": False, "error": "Timeout checking/installing ipykernel"}
+
+        # Step 2: Register kernelspec with absolute path
+        try:
+            result = subprocess.run(
+                [python_path, "-m", "ipykernel", "install",
+                 "--user", "--name", kernel_name, "--display-name", display_name],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode != 0:
+                return {
+                    "success": False,
+                    "error": f"Failed to register kernel: {result.stderr[:500]}",
+                }
+        except subprocess.TimeoutExpired:
+            return {"success": False, "error": "Timeout registering kernelspec"}
+
+        return {
+            "success": True,
+            "kernel_name": kernel_name,
+            "display_name": display_name,
+            "python": python_path,
+            "message": f"Kernel '{kernel_name}' registered. Use kernel_spec='{kernel_name}' when creating notebooks.",
+        }
+
     async def _get_or_create_context(
-        self, notebook_path: str, session_id: str
+        self, notebook_path: str, session_id: str, kernel_spec: str = "python3"
     ) -> NotebookContext:
         """
         Get or create notebook context for (notebook_path, session_id)
@@ -220,78 +385,85 @@ class IntegratedNotebookToolSet(ToolSet):
         Auto-recovery: If context exists but kernel session is lost (e.g., after
         backend restart), automatically recreates the kernel with the same ID.
         """
+        import asyncio
         key = (notebook_path, session_id)
 
-        if key not in self.notebook_contexts:
-            logger.info(f"Creating new context: {notebook_path} @ {session_id}")
+        # Per-key lock prevents duplicate kernel creation on concurrent calls
+        if key not in self._context_creation_locks:
+            self._context_creation_locks[key] = asyncio.Lock()
+        creation_lock = self._context_creation_locks[key]
 
-            # 1. Ensure notebook file exists
-            read_result = await self.notebook_contents.read_notebook(notebook_path)
-            notebook_file_is_new = False
-            if not read_result["success"]:
-                create_result = await self.notebook_contents.create_notebook(
-                    notebook_path, "New Notebook"
-                )
-                if not create_result["success"]:
-                    raise Exception(
-                        f"Failed to create notebook: {create_result['error']}"
+        async with creation_lock:
+            if key not in self.notebook_contexts:
+                logger.info(f"Creating new context: {notebook_path} @ {session_id}")
+
+                # 1. Ensure notebook file exists
+                read_result = await self.notebook_contents.read_notebook(notebook_path)
+                notebook_file_is_new = False
+                if not read_result["success"]:
+                    create_result = await self.notebook_contents.create_notebook(
+                        notebook_path, "New Notebook"
                     )
-                notebook_file_is_new = True
+                    if not create_result["success"]:
+                        raise Exception(
+                            f"Failed to create notebook: {create_result['error']}"
+                        )
+                    notebook_file_is_new = True
 
-            # 2. Create kernel session (internal)
-            kernel_result = await self.kernel_toolset.create_session("python3")
-            if not kernel_result["success"]:
-                raise Exception(f"Failed to create kernel: {kernel_result['error']}")
-
-            # 3. Create context
-            self.notebook_contexts[key] = NotebookContext(
-                notebook_path=notebook_path,
-                session_id=session_id,
-                kernel_session_id=kernel_result["session_id"],
-                created_at=datetime.now().isoformat(),
-                notebook_title="New Notebook",
-                kernel_spec="python3",
-                notebook_is_new=notebook_file_is_new,
-            )
-
-            # 4. Persist
-            await self._save_contexts()
-
-            logger.info(f"Created context: {notebook_path} @ {session_id}")
-
-        else:
-            # Context exists - check if kernel session is still alive
-            context = self.notebook_contexts[key]
-
-            if context.kernel_session_id not in self.kernel_toolset.sessions:
-                logger.warning(
-                    f"Kernel session {context.kernel_session_id[:8]} not found for "
-                    f"notebook '{notebook_path}' (possible backend restart). "
-                    f"Auto-recovering kernel..."
-                )
-
-                # Recreate kernel with the SAME session ID to maintain consistency
-                # Use keyword arguments with renamed parameter (kernel_session_id)
-                kernel_result = await self.kernel_toolset.create_session(
-                    kernel_spec=context.kernel_spec,
-                    kernel_session_id=context.kernel_session_id,
-                )
-
+                # 2. Create kernel session (internal)
+                kernel_result = await self.kernel_toolset.create_session(kernel_spec)
                 if not kernel_result["success"]:
-                    error_msg = (
-                        f"Failed to restore kernel session {context.kernel_session_id[:8]}: "
-                        f"{kernel_result.get('error', 'Unknown error')}"
-                    )
-                    logger.error(error_msg)
-                    raise Exception(error_msg)
+                    raise Exception(f"Failed to create kernel: {kernel_result['error']}")
 
-                # Reset rpy2 initialization state (new kernel doesn't have extension loaded)
-                context.rpy2_initialized = False
-
-                logger.info(
-                    f"✅ Successfully restored kernel session {context.kernel_session_id[:8]} "
-                    f"for notebook '{notebook_path}'"
+                # 3. Create context
+                self.notebook_contexts[key] = NotebookContext(
+                    notebook_path=notebook_path,
+                    session_id=session_id,
+                    kernel_session_id=kernel_result["session_id"],
+                    created_at=datetime.now().isoformat(),
+                    notebook_title="New Notebook",
+                    kernel_spec=kernel_spec,
+                    notebook_is_new=notebook_file_is_new,
                 )
+
+                # 4. Persist
+                await self._save_contexts()
+
+                logger.info(f"Created context: {notebook_path} @ {session_id}")
+
+            else:
+                # Context exists - check if kernel session is still alive
+                context = self.notebook_contexts[key]
+
+                if context.kernel_session_id not in self.kernel_toolset.sessions:
+                    logger.warning(
+                        f"Kernel session {context.kernel_session_id[:8]} not found for "
+                        f"notebook '{notebook_path}' (possible backend restart). "
+                        f"Auto-recovering kernel..."
+                    )
+
+                    # Recreate kernel with the SAME session ID to maintain consistency
+                    # Use keyword arguments with renamed parameter (kernel_session_id)
+                    kernel_result = await self.kernel_toolset.create_session(
+                        kernel_spec=context.kernel_spec,
+                        kernel_session_id=context.kernel_session_id,
+                    )
+
+                    if not kernel_result["success"]:
+                        error_msg = (
+                            f"Failed to restore kernel session {context.kernel_session_id[:8]}: "
+                            f"{kernel_result.get('error', 'Unknown error')}"
+                        )
+                        logger.error(error_msg)
+                        raise Exception(error_msg)
+
+                    # Reset rpy2 initialization state (new kernel doesn't have extension loaded)
+                    context.rpy2_initialized = False
+
+                    logger.info(
+                        f"✅ Successfully restored kernel session {context.kernel_session_id[:8]} "
+                        f"for notebook '{notebook_path}'"
+                    )
 
         return self.notebook_contexts[key]
 
@@ -301,20 +473,69 @@ class IntegratedNotebookToolSet(ToolSet):
         """Get existing context (without creating)"""
         return self.notebook_contexts.get((notebook_path, session_id))
 
-    async def _get_cell_by_id(
-        self, notebook_path: str, cell_id: str
-    ) -> tuple[Optional[int], Optional[dict]]:
-        """Get cell index and data by cell_id"""
+    async def _resolve_cell(
+        self,
+        notebook_path: str,
+        cell_id: str,
+        source_hint: str | None = None,
+    ) -> tuple[Optional[int], Optional[dict], Optional[str]]:
+        """Resolve a cell reference, with automatic ID assignment and source fallback.
+
+        Resolution order:
+        1. Read notebook and ensure all cells have stable IDs (auto-assign if missing)
+        2. Exact cell_id match
+        3. source_hint fallback (unique match required)
+        4. Return structured error with available cells
+
+        Returns:
+            (cell_index, cell_data, error_message)
+            On success: (index, cell, None)
+            On failure: (None, None, "error string with available cells")
+        """
         read_result = await self.notebook_contents.read_notebook(notebook_path)
         if not read_result["success"]:
-            return None, None
+            return None, None, read_result.get("error", "Failed to read notebook")
 
-        cells = read_result["notebook"]["cells"]
-        for idx, cell in enumerate(cells):
-            if cell.get("id") == cell_id:
-                return idx, cell
+        notebook = read_result["notebook"]
+        resolved_path = read_result.get("file_path")
 
-        return None, None
+        # Auto-assign stable IDs to cells that lack them, then persist once
+        if resolved_path and any(
+            not cell.get("id") for cell in notebook.get("cells", [])
+        ):
+            changed = await self.notebook_contents._ensure_cell_ids_and_upgrade(
+                Path(resolved_path), notebook
+            )
+            if changed:
+                await self.notebook_contents._save_notebook(Path(resolved_path), notebook)
+
+        # Delegate to low-level _find_cell (supports source_hint fallback)
+        idx, cell = self.notebook_contents._find_cell(notebook, cell_id, source_hint)
+        if idx is not None:
+            return idx, cell, None
+
+        # Build informative error with available cells
+        cells = notebook.get("cells", [])
+        cell_summaries = []
+        for i, c in enumerate(cells):
+            cid = c.get("id", "?")
+            src = self.notebook_contents._format_source(c.get("source", ""))
+            preview = src[:60].replace("\n", " ")
+            if len(src) > 60:
+                preview += "..."
+            cell_summaries.append(f"  [{i}] {cid}: {preview}")
+
+        available = "\n".join(cell_summaries[:15])
+        hint = (
+            " You MUST call read_cells first to get current cell IDs."
+            if not source_hint
+            else " The source_hint also did not match any cell uniquely."
+        )
+        error = (
+            f"Cell '{cell_id}' not found.{hint}\n"
+            f"Available cells ({len(cells)}):\n{available}"
+        )
+        return None, None, error
 
     def _validate_cell_id(self, cell_id: str) -> tuple[bool, str]:
         """
@@ -385,10 +606,14 @@ class IntegratedNotebookToolSet(ToolSet):
             context = await self._get_or_create_context(notebook_path, session_id)
 
             # Find existing cell
-            cell_index, cell_data = await self._get_cell_by_id(notebook_path, cell_id)
-
+            cell_index, cell_data, resolve_error = await self._resolve_cell(
+                notebook_path, cell_id
+            )
             if cell_index is None:
-                return {"success": False, "error": f"Cell {cell_id} not found"}
+                return {"success": False, "error": resolve_error}
+
+            # Use canonical cell_id from the resolved cell
+            cell_id = cell_data.get("id", cell_id)
 
             # Get existing code from cell
             if cell_data and "source" in cell_data:
@@ -442,13 +667,14 @@ class IntegratedNotebookToolSet(ToolSet):
     # Core Tools
     # ═══════════════════════════════════════════════════════════
 
-    @tool
-    async def create_notebook(self, notebook_path: str) -> dict:
+    @tool(exclude=True)
+    async def create_notebook(self, notebook_path: str, kernel_spec: Optional[str] = None) -> dict:
         """
         Create or open a notebook file.
 
         Args:
             notebook_path: Path to notebook file
+            kernel_spec: Jupyter kernel name (default: "python3")
 
         Returns:
             dict with:
@@ -486,11 +712,28 @@ class IntegratedNotebookToolSet(ToolSet):
                 "action": action,
             }
 
-            # Add kernel_session_id if context exists
+            # Eagerly create kernel context if kernel_spec is specified
             if session_id:
                 context = self._get_context(notebook_path, session_id)
                 if context:
                     result["kernel_session_id"] = context.kernel_session_id
+                    result["kernel_spec"] = context.kernel_spec
+                    if kernel_spec and kernel_spec != context.kernel_spec:
+                        result["kernel_warning"] = (
+                            f"Notebook already has an active kernel '{context.kernel_spec}'. "
+                            f"Requested kernel_spec='{kernel_spec}' was ignored. "
+                            f"Use manage_kernel(action='delete') then recreate to switch kernels."
+                        )
+                elif kernel_spec:
+                    # Create context now with the specified kernel
+                    try:
+                        context = await self._get_or_create_context(
+                            notebook_path, session_id, kernel_spec=kernel_spec
+                        )
+                        result["kernel_session_id"] = context.kernel_session_id
+                        result["kernel_spec"] = context.kernel_spec
+                    except Exception as e:
+                        result["kernel_warning"] = f"Notebook created but kernel '{kernel_spec}' failed to start: {e}"
 
             return result
 
@@ -498,7 +741,7 @@ class IntegratedNotebookToolSet(ToolSet):
             logger.error(f"create_notebook failed: {e}")
             return {"success": False, "error": str(e)}
 
-    @tool
+    @tool(exclude=True)
     async def execute_cell(
         self,
         notebook_path: str,
@@ -543,7 +786,7 @@ class IntegratedNotebookToolSet(ToolSet):
 
         return await self._execute_cell_internal(notebook_path, cell_id, session_id)
 
-    @tool
+    @tool(exclude=True)
     async def add_cell(
         self,
         notebook_path: str,
@@ -629,10 +872,14 @@ class IntegratedNotebookToolSet(ToolSet):
             )
             exec_result.pop("notebook_path", None)
             result["execution"] = exec_result
+            # Hoist image URIs to top level so step message callbacks can find them
+            if "base64_uri" in exec_result:
+                result["base64_uri"] = exec_result["base64_uri"]
+                result["hidden_to_model"] = ["base64_uri"]
 
         return result
 
-    @tool
+    @tool(exclude=True)
     async def update_cell(
         self,
         notebook_path: str,
@@ -698,9 +945,14 @@ class IntegratedNotebookToolSet(ToolSet):
                 context = self._get_context(notebook_path, session_id) if session_id else None
 
                 # Read cell data for partial replacement and cell type check
-                cell_index, cell_data = await self._get_cell_by_id(notebook_path, cell_id)
+                cell_index, cell_data, resolve_error = await self._resolve_cell(
+                    notebook_path, cell_id, source_hint=old_content
+                )
                 if cell_index is None:
-                    return {"success": False, "error": f"Cell {cell_id} not found"}
+                    return {"success": False, "error": resolve_error}
+
+                # Use canonical cell_id from the resolved cell
+                cell_id = cell_data.get("id", cell_id)
                 
                 cell_type = cell_data.get("cell_type", "code") if cell_data else "code"
                 replacement_count = None
@@ -756,10 +1008,14 @@ class IntegratedNotebookToolSet(ToolSet):
             )
             exec_result.pop("notebook_path", None)
             result["execution"] = exec_result
+            # Hoist image URIs to top level so step message callbacks can find them
+            if "base64_uri" in exec_result:
+                result["base64_uri"] = exec_result["base64_uri"]
+                result["hidden_to_model"] = ["base64_uri"]
 
         return result
 
-    @tool
+    @tool(exclude=True)
     async def delete_cell(
         self,
         notebook_path: str,
@@ -785,10 +1041,18 @@ class IntegratedNotebookToolSet(ToolSet):
                 # Get context if exists (don't create kernel for simple edit)
                 context = self._get_context(notebook_path, session_id) if session_id else None
 
+                # Resolve cell_id (handles stale IDs, auto-assigns missing IDs)
+                _, cell_data, resolve_error = await self._resolve_cell(
+                    notebook_path, cell_id
+                )
+                if resolve_error:
+                    return {"success": False, "error": resolve_error}
+                canonical_id = cell_data.get("id", cell_id)
+
                 # Call notebook_contents API
                 result = await self.notebook_contents.delete_cell(
                     path=notebook_path,
-                    cell_id=cell_id,
+                    cell_id=canonical_id,
                 )
 
                 # Add context information only if context exists
@@ -804,7 +1068,7 @@ class IntegratedNotebookToolSet(ToolSet):
                 logger.error(f"delete_cell failed: {e}")
                 return {"success": False, "error": str(e)}
 
-    @tool
+    @tool(exclude=True)
     async def move_cell(
         self,
         notebook_path: str,
@@ -832,11 +1096,28 @@ class IntegratedNotebookToolSet(ToolSet):
                 # Get context if exists (don't create kernel for simple edit)
                 context = self._get_context(notebook_path, session_id) if session_id else None
 
+                # Resolve cell references (handles stale IDs, auto-assigns missing IDs)
+                _, cell_data, resolve_error = await self._resolve_cell(
+                    notebook_path, cell_id
+                )
+                if resolve_error:
+                    return {"success": False, "error": resolve_error}
+                canonical_id = cell_data.get("id", cell_id)
+
+                canonical_below_id = below_cell_id
+                if below_cell_id:
+                    _, below_data, resolve_error = await self._resolve_cell(
+                        notebook_path, below_cell_id
+                    )
+                    if resolve_error:
+                        return {"success": False, "error": resolve_error}
+                    canonical_below_id = below_data.get("id", below_cell_id)
+
                 # Call notebook_contents API
                 result = await self.notebook_contents.move_cell(
                     path=notebook_path,
-                    cell_id=cell_id,
-                    below_cell_id=below_cell_id,
+                    cell_id=canonical_id,
+                    below_cell_id=canonical_below_id,
                 )
 
                 # Add context information only if context exists
@@ -852,7 +1133,7 @@ class IntegratedNotebookToolSet(ToolSet):
                 logger.error(f"move_cell failed: {e}")
                 return {"success": False, "error": str(e)}
 
-    @tool
+    @tool(exclude=True)
     async def read_cells(
         self,
         notebook_path: str,
@@ -906,6 +1187,17 @@ class IntegratedNotebookToolSet(ToolSet):
             return read_result
 
         notebook = read_result["notebook"]
+        resolved_path = read_result.get("file_path")
+
+        # Auto-assign stable IDs to cells that lack them
+        if resolved_path and any(
+            not cell.get("id") for cell in notebook.get("cells", [])
+        ):
+            changed = await self.notebook_contents._ensure_cell_ids_and_upgrade(
+                Path(resolved_path), notebook
+            )
+            if changed:
+                await self.notebook_contents._save_notebook(Path(resolved_path), notebook)
 
         # Get context if exists
         context = self._get_context(notebook_path, session_id) if session_id else None
@@ -1068,7 +1360,7 @@ class IntegratedNotebookToolSet(ToolSet):
             notebook_path, validate=validate
         )
 
-    @tool
+    @tool(exclude=True)
     async def list_notebooks(self) -> dict:
         """
         List running notebooks for current session
@@ -1101,7 +1393,7 @@ class IntegratedNotebookToolSet(ToolSet):
 
         return {"success": True, "notebooks": notebooks, "count": len(notebooks)}
 
-    @tool
+    @tool(exclude=True)
     async def manage_kernel(
         self,
         notebook_path: str,
@@ -1430,9 +1722,9 @@ class IntegratedNotebookToolSet(ToolSet):
                 self.completion_service.update_session_context(kernel_session_id, code)
 
             # Post-execution: check system memory (non-intrusive)
-            logger.info(f"Checking system memory usage")
+            logger.debug("Checking system memory usage")
             mem_pct = await self._check_memory_usage()
-            logger.info(f"Memory check result: {mem_pct}")
+            logger.debug(f"Memory check result: {mem_pct}")
             if mem_pct is not None and mem_pct > 75:
                 exec_result["memory_hint"] = (
                     f"⚠️ System memory at {mem_pct:.0f}%. Consider: "
@@ -1442,11 +1734,284 @@ class IntegratedNotebookToolSet(ToolSet):
             # Add notebook-specific fields
             exec_result["notebook_path"] = notebook_path
 
+            # Extract base64 images from outputs for downstream consumers (e.g. Claw channels)
+            image_uris = []
+            for output in outputs:
+                if output.get("output_type") in ("display_data", "execute_result"):
+                    data = output.get("data", {})
+                    for mime in ("image/png", "image/jpeg", "image/gif", "image/svg+xml"):
+                        img_b64 = data.get(mime)
+                        if img_b64 and isinstance(img_b64, str):
+                            image_uris.append(f"data:{mime};base64,{img_b64}")
+            if image_uris:
+                exec_result["base64_uri"] = image_uris
+                exec_result["hidden_to_model"] = ["base64_uri"]
+
             return exec_result
 
         except Exception as e:
             logger.error(f"Execution failed: {e}")
             return {"success": False, "error": str(e), "notebook_path": notebook_path}
+
+    # ═══════════════════════════════════════════════════════════
+    # Unified Tools (LLM-facing, consolidated interface)
+    # ═══════════════════════════════════════════════════════════
+
+    @tool
+    async def notebook_edit(
+        self,
+        notebook_path: str,
+        action: str,
+        cell_id: Optional[str] = None,
+        cell_type: str = "code",
+        content: str = "",
+        old_content: Optional[str] = None,
+        position: Optional[str] = None,
+        execute: bool = False,
+        kernel_spec: Optional[str] = None,
+    ) -> dict:
+        """
+        Unified tool for notebook structure operations.
+
+        Args:
+            notebook_path: Path to notebook file
+            action: Operation to perform:
+                - "create": Create or open a notebook
+                - "add_cell": Add a new cell
+                - "update_cell": Update cell content
+                - "delete_cell": Delete a cell
+                - "move_cell": Move a cell to a different position
+            cell_id: Cell identifier (required for update/delete/move, optional for add)
+            cell_type: Cell type for add_cell: "code", "markdown", "raw" (default: "code")
+            content: Cell content for add_cell or update_cell
+            old_content: For update_cell partial replacement mode
+            position: Target position:
+                - For add_cell: None=append to end, "0"/"1"/"-1"=index, or a cell_id=insert after that cell
+                - For move_cell: None=move to top, or a cell_id=move after that cell
+            execute: For add_cell/update_cell: execute the cell after modification (recommended for code cells)
+            kernel_spec: For create: Jupyter kernel name to use (default: "python3").
+                         Use notebook_execute(action="list_kernels") to see available kernels.
+
+        Returns:
+            dict with action-specific results
+
+        Examples:
+            # Create notebook with default kernel
+            notebook_edit("analysis.ipynb", action="create")
+
+            # Create notebook with a specific kernel
+            notebook_edit("analysis.ipynb", action="create", kernel_spec="my_env")
+
+            # Add and execute a code cell
+            notebook_edit("analysis.ipynb", action="add_cell",
+                         content="import pandas as pd", execute=True)
+
+            # Update cell content
+            notebook_edit("analysis.ipynb", action="update_cell",
+                         cell_id="abc123", content="x = 2", execute=True)
+
+            # Delete a cell
+            notebook_edit("analysis.ipynb", action="delete_cell", cell_id="abc123")
+
+            # Move a cell after another
+            notebook_edit("analysis.ipynb", action="move_cell",
+                         cell_id="abc123", position="def456")
+        """
+        if action == "create":
+            return await self.create_notebook(notebook_path, kernel_spec=kernel_spec)
+
+        elif action == "add_cell":
+            return await self.add_cell(
+                notebook_path=notebook_path,
+                cell_type=cell_type,
+                content=content,
+                cell_id=cell_id,
+                position=position,
+                execute=execute,
+            )
+
+        elif action == "update_cell":
+            if not cell_id:
+                return {"success": False, "error": "cell_id is required for update_cell"}
+            return await self.update_cell(
+                notebook_path=notebook_path,
+                cell_id=cell_id,
+                content=content,
+                old_content=old_content,
+                execute=execute,
+            )
+
+        elif action == "delete_cell":
+            if not cell_id:
+                return {"success": False, "error": "cell_id is required for delete_cell"}
+            return await self.delete_cell(
+                notebook_path=notebook_path,
+                cell_id=cell_id,
+            )
+
+        elif action == "move_cell":
+            if not cell_id:
+                return {"success": False, "error": "cell_id is required for move_cell"}
+            return await self.move_cell(
+                notebook_path=notebook_path,
+                cell_id=cell_id,
+                below_cell_id=position,
+            )
+
+        else:
+            return {
+                "success": False,
+                "error": f"Unknown action '{action}'. Must be one of: create, add_cell, update_cell, delete_cell, move_cell",
+            }
+
+    @tool
+    async def notebook_execute(
+        self,
+        notebook_path: str = "",
+        action: str = "execute",
+        cell_id: Optional[str] = None,
+        kernel_name: Optional[str] = None,
+        python_path: Optional[str] = None,
+        display_name: Optional[str] = None,
+    ) -> dict:
+        """
+        Execute cells and manage kernel lifecycle.
+
+        Args:
+            notebook_path: Path to notebook file (not required for list_kernels/setup_kernel)
+            action: Operation to perform:
+                - "execute": Execute a cell (requires cell_id)
+                - "restart": Restart kernel (clears all state)
+                - "interrupt": Interrupt running execution
+                - "shutdown": Shutdown kernel session
+                - "list_kernels": List all available Jupyter kernels and conda/venv environments
+                - "setup_kernel": Register a Python environment as a Jupyter kernel
+                                  (requires python_path; optional kernel_name, display_name)
+            cell_id: Cell identifier (required for "execute" action)
+            kernel_name: For setup_kernel: name for the new kernelspec (default: derived from path)
+            python_path: For setup_kernel: absolute path to the Python executable
+            display_name: For setup_kernel: display name for the kernel
+
+        Returns:
+            dict with execution results, kernel status, or kernel listing
+
+        Examples:
+            # Execute a cell
+            notebook_execute("analysis.ipynb", action="execute", cell_id="abc123")
+
+            # List available kernels and environments
+            notebook_execute(action="list_kernels")
+
+            # Register a conda env as a Jupyter kernel
+            notebook_execute(action="setup_kernel",
+                python_path="/Users/me/micromamba/envs/my_env/bin/python",
+                kernel_name="my_env",
+                display_name="My Analysis Env")
+
+            # Restart kernel (clears all variables)
+            notebook_execute("analysis.ipynb", action="restart")
+        """
+        if action == "execute":
+            if not cell_id:
+                return {"success": False, "error": "cell_id is required for execute action"}
+            return await self.execute_cell(
+                notebook_path=notebook_path,
+                cell_id=cell_id,
+            )
+
+        elif action in ("restart", "interrupt", "shutdown"):
+            return await self.manage_kernel(
+                notebook_path=notebook_path,
+                action=action,
+            )
+
+        elif action == "list_kernels":
+            return await self._list_available_kernels()
+
+        elif action == "setup_kernel":
+            if not python_path:
+                return {"success": False, "error": "python_path is required for setup_kernel action"}
+            return await self._setup_kernel(python_path, kernel_name, display_name)
+
+        else:
+            return {
+                "success": False,
+                "error": f"Unknown action '{action}'. Must be one of: execute, restart, interrupt, shutdown, list_kernels, setup_kernel",
+            }
+
+    @tool
+    async def notebook_read(
+        self,
+        notebook_path: Optional[str] = None,
+        action: str = "read_cells",
+        include_details: bool = False,
+        cell_ids: Optional[list[str]] = None,
+    ) -> dict:
+        """
+        Read notebook content, list notebooks, or query kernel state.
+
+        Args:
+            notebook_path: Path to notebook file (required for read_cells and kernel queries)
+            action: Operation to perform:
+                - "read_cells": Read cells with execution status (default)
+                - "list": List running notebooks for current session
+                - "kernel_status": Get kernel status
+                - "kernel_variables": List kernel variables
+            include_details: For read_cells: include full source and outputs (default: False)
+            cell_ids: For read_cells: optional list of specific cell IDs to read
+
+        Returns:
+            dict with notebook data
+
+        Examples:
+            # Read all cells (summary mode)
+            notebook_read("analysis.ipynb")
+
+            # Read specific cells with full details
+            notebook_read("analysis.ipynb", include_details=True, cell_ids=["cell_1"])
+
+            # List all running notebooks
+            notebook_read(action="list")
+
+            # Check kernel status
+            notebook_read("analysis.ipynb", action="kernel_status")
+
+            # Get kernel variables
+            notebook_read("analysis.ipynb", action="kernel_variables")
+        """
+        if action == "read_cells":
+            if not notebook_path:
+                return {"success": False, "error": "notebook_path is required for read_cells"}
+            return await self.read_cells(
+                notebook_path=notebook_path,
+                include_details=include_details,
+                cell_ids=cell_ids,
+            )
+
+        elif action == "list":
+            return await self.list_notebooks()
+
+        elif action == "kernel_status":
+            if not notebook_path:
+                return {"success": False, "error": "notebook_path is required for kernel_status"}
+            return await self.manage_kernel(
+                notebook_path=notebook_path,
+                action="status",
+            )
+
+        elif action == "kernel_variables":
+            if not notebook_path:
+                return {"success": False, "error": "notebook_path is required for kernel_variables"}
+            return await self.manage_kernel(
+                notebook_path=notebook_path,
+                action="variables",
+            )
+
+        else:
+            return {
+                "success": False,
+                "error": f"Unknown action '{action}'. Must be one of: read_cells, list, kernel_status, kernel_variables",
+            }
 
     async def cleanup(self):
         """Cleanup all resources"""

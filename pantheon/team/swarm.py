@@ -20,12 +20,12 @@ class SwarmTeam(Team):
             logger.warning(
                 f"Active agent not found in memory, setting to {active_agent_name}"
             )
-            memory.extra_data["active_agent"] = active_agent_name
+            memory.set_metadata("active_agent", active_agent_name)
         active_agent = self.agents[active_agent_name]
         return active_agent
 
     def set_active_agent(self, memory: Memory, agent_name: str):
-        memory.extra_data["active_agent"] = agent_name
+        memory.set_metadata("active_agent", agent_name)
 
     async def run(self, msg: AgentInput, memory: Memory | None = None, **kwargs):
         if memory is None:
