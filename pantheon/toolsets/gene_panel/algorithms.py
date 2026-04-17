@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Any, Optional
 
 from pantheon.toolsets.gene_panel.config import GenePanelConfig
 from pantheon.utils.log import logger
@@ -9,6 +9,14 @@ from pantheon.utils.log import logger
 
 def _resolve_config(config: Optional[GenePanelConfig]) -> GenePanelConfig:
     return config if config is not None else GenePanelConfig.from_settings()
+
+
+def _require_path(adata_path: Optional[str]) -> str:
+    if not adata_path:
+        raise ValueError("adata_path is required (no default configured).")
+    if not os.path.isfile(adata_path):
+        raise FileNotFoundError(f"adata file not found: {adata_path}")
+    return adata_path
 
 
 # ---------------------------------------------------------------------- #
@@ -393,4 +401,117 @@ def select_scgenefit(
         return {"error": str(e)}
 
 
-__all__ = ["select_spapros", "select_random_forest", "select_scgenefit"]
+# ---------------------------------------------------------------------- #
+#  SpaPROS runtime estimator                                              #
+# ---------------------------------------------------------------------- #
+
+
+_SPAPROS_BASE_SECONDS = 60.0
+_SPAPROS_SECS_PER_10K_CELLS_PER_3K_HVG = 180.0
+_SPAPROS_SECS_PER_100_MARKERS = 60.0
+
+
+def estimate_spapros_runtime(
+    adata_path: str,
+    num_markers: int = 100,
+    n_hvg: Optional[int] = None,
+    warning_minutes: Optional[float] = None,
+    skip_minutes: Optional[float] = None,
+    config: Optional[GenePanelConfig] = None,
+) -> dict[str, Any]:
+    """Estimate SpaPROS wall-clock runtime from dataset metadata alone.
+
+    Cheap pre-check the leader can run before committing to a full
+    SpaPROS call. Returns a severity tier so the leader can gate the
+    call behind a ``notify_user`` Run/Skip choice when the estimate is
+    large.
+
+    Args:
+        adata_path: Path to .h5ad dataset (metadata-only read).
+        num_markers: Target panel size for SpaPROS.
+        n_hvg: HVG pre-filter size. Defaults to
+            ``settings.gene_panel.spapros_n_hvg`` (3000).
+        warning_minutes: "fast" → "slow" threshold. Defaults to
+            ``settings.gene_panel.spapros_runtime_warning_minutes`` (5.0).
+        skip_minutes: "slow" → "very_slow" threshold. Defaults to
+            ``settings.gene_panel.spapros_runtime_skip_minutes`` (30.0).
+        config: Override for defaults. Loaded from settings if None.
+
+    Returns:
+        dict with keys: ``n_cells``, ``n_genes_total``,
+        ``n_genes_effective``, ``estimated_seconds``,
+        ``estimated_minutes``, ``severity`` (``"fast"|"slow"|"very_slow"``),
+        ``reason``.
+    """
+    cfg = _resolve_config(config)
+    if n_hvg is None:
+        n_hvg = cfg.spapros_n_hvg
+    if warning_minutes is None:
+        warning_minutes = cfg.spapros_runtime_warning_minutes
+    if skip_minutes is None:
+        skip_minutes = cfg.spapros_runtime_skip_minutes
+
+    path = _require_path(adata_path)
+
+    try:
+        import anndata as ad
+    except ImportError as e:
+        raise ImportError(
+            "anndata is required for runtime estimation. "
+            "Install with: pip install anndata"
+        ) from e
+
+    adata = ad.read_h5ad(path, backed="r")
+    try:
+        n_cells, n_genes_total = map(int, adata.shape)
+    finally:
+        file = getattr(adata, "file", None)
+        if file is not None:
+            try:
+                file.close()
+            except Exception:
+                pass
+
+    n_genes_effective = min(int(n_hvg), n_genes_total)
+
+    seconds = (
+        _SPAPROS_BASE_SECONDS
+        + (n_cells / 10_000)
+        * (n_genes_effective / 3_000)
+        * _SPAPROS_SECS_PER_10K_CELLS_PER_3K_HVG
+        + (num_markers / 100) * _SPAPROS_SECS_PER_100_MARKERS
+    )
+    minutes = seconds / 60.0
+
+    if minutes >= skip_minutes:
+        severity = "very_slow"
+    elif minutes >= warning_minutes:
+        severity = "slow"
+    else:
+        severity = "fast"
+
+    reason = (
+        f"~{minutes:.1f} min estimated for SpaPROS on "
+        f"{n_cells:,} cells × {n_genes_effective:,} HVGs "
+        f"(targeting {num_markers} markers). "
+        f"Severity: {severity} "
+        f"(warning ≥ {warning_minutes:g} min, skip ≥ {skip_minutes:g} min)."
+    )
+
+    return {
+        "n_cells": n_cells,
+        "n_genes_total": n_genes_total,
+        "n_genes_effective": n_genes_effective,
+        "estimated_seconds": round(seconds, 1),
+        "estimated_minutes": round(minutes, 1),
+        "severity": severity,
+        "reason": reason,
+    }
+
+
+__all__ = [
+    "select_spapros",
+    "select_random_forest",
+    "select_scgenefit",
+    "estimate_spapros_runtime",
+]

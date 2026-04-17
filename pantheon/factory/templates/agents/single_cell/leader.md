@@ -163,6 +163,31 @@ The `biologist` must **NOT** intervene in the algorithmic seed selection or pane
 
 **IMPORTANT**: Always ensure `analysis_expert` **STRICTLY** respects the workflow in `.pantheon/skills/omics/gene_panel_selection.md`.
 
+##### SpaPROS runtime gate (leader-owned user interaction)
+
+SpaPROS can run for tens of minutes to hours on large datasets. You (the leader)
+own the user-facing confirmation — `analysis_expert` must **never** call
+`notify_user` itself. The gate works in two dispatches:
+
+1. **Pre-check dispatch** — ask `analysis_expert` to run
+   `estimate_spapros_runtime(...)` **only** and return the estimate dict
+   verbatim (no selection methods). The dict contains `severity` ∈
+   {`"fast"`, `"slow"`, `"very_slow"`} and a user-facing `reason`.
+
+2. **Gate decision**:
+   - `severity == "fast"` → dispatch the full selection step with the
+     directive `"SpaPROS APPROVED by user"` (no prompt needed).
+   - `severity == "slow"` or `"very_slow"` → call `notify_user` with a
+     single-choice question (`choices=["Run SpaPROS", "Skip SpaPROS"]`)
+     and paste the `reason` string as the question body. Then dispatch
+     the full selection step with either `"SpaPROS APPROVED by user"` or
+     `"SpaPROS SKIPPED by user"` based on the user's answer.
+
+When the directive is `"SpaPROS SKIPPED by user"`, `analysis_expert` must
+skip `select_spapros(...)` entirely and note the skip in
+`report_analysis.md`. The rest of the algorithmic methods (HVG, DE, RF,
+scGeneFit) proceed normally.
+
 #### 3. Planning
 Based on dataset structure, selection methods, and computational environment,
 create a project plan in `todolist.md` (markdown checklist format).

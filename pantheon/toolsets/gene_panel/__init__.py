@@ -1,4 +1,5 @@
 from pantheon.toolsets.gene_panel.algorithms import (
+    estimate_spapros_runtime,
     select_random_forest,
     select_scgenefit,
     select_spapros,
@@ -10,4 +11,5 @@ __all__ = [
     "select_spapros",
     "select_random_forest",
     "select_scgenefit",
+    "estimate_spapros_runtime",
 ]

@@ -39,6 +39,13 @@ class GenePanelConfig:
     split_cell_limit: int = 50_000
     """Target cells per test split (soft cap, preserve diversity)."""
 
+    # --- SpaPROS runtime gating thresholds (used by estimate_spapros_runtime) ---
+    spapros_runtime_warning_minutes: float = 5.0
+    """Estimated minutes above which severity becomes ``"slow"``."""
+
+    spapros_runtime_skip_minutes: float = 30.0
+    """Estimated minutes above which severity becomes ``"very_slow"``."""
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "GenePanelConfig":
         """Build from a raw dict, ignoring unknown keys."""

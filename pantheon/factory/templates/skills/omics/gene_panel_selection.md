@@ -70,6 +70,8 @@ If the dataset is large, perform **smart downsampling** while preserving **all c
 |----------|---------|-------------|
 | `SCGENEFIT_MAX_CONSTRAINTS` | 1000 | Max constraints for scGeneFit optimization |
 | `SPAPROS_N_HVG` | 3000 | Max HVGs for SpaPROS input |
+| `SPAPROS_RUNTIME_WARNING_MINUTES` | 5.0 | Leader prompts the user via `notify_user` if SpaPROS estimate exceeds this |
+| `SPAPROS_RUNTIME_SKIP_MINUTES` | 30.0 | Strong-warning threshold; user may choose to skip SpaPROS |
 | `ARI_DROP_THRESHOLD` | 5% | Max acceptable ARI degradation during panel completion |
 
 ---
@@ -327,42 +329,74 @@ Algorithmic Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS}`
 - Implement HVG / DE via Scanpy on code
 - For the advanced methods, import the `pantheon.toolsets.gene_panel` library
   inside the notebook (no dedicated ToolSet — the functions run in the
-  existing Python sandbox):
+  existing Python sandbox). Hyperparameters come from `settings.json` via
+  `GenePanelConfig`.
+
+> [!CAUTION]
+> **SpaPROS runtime gate (MANDATORY).** SpaPROS can run for tens of minutes
+> to hours on large datasets. Run `estimate_spapros_runtime(...)` **first**
+> and inspect the `severity` tier of the returned dict:
+>
+> - `"fast"` → run `select_spapros(...)` directly, no user confirmation needed.
+> - `"slow"` or `"very_slow"` → **stop**, return the estimate dict verbatim
+>   to the leader so it can call `notify_user` with a Run/Skip choice. The
+>   leader then dispatches back with one of:
+>     - `"SpaPROS APPROVED by user"` → run `select_spapros(...)` as normal.
+>     - `"SpaPROS SKIPPED by user"` → **do not** call `select_spapros`;
+>       report the skip in `report_analysis.md` and continue with the other
+>       methods only.
 
 ```python
 from pantheon.toolsets.gene_panel import (
+    GenePanelConfig,
+    estimate_spapros_runtime,
     select_scgenefit,
     select_spapros,
     select_random_forest,
 )
 
+cfg = GenePanelConfig.from_settings()  # loads `gene_panel` section of settings.json
+
+# --- SpaPROS pre-check (cheap, metadata-only read of the .h5ad) ---
+estimate = estimate_spapros_runtime(
+    adata_path=adata_path,
+    num_markers=200,
+    n_hvg=cfg.spapros_n_hvg,
+    warning_minutes=cfg.spapros_runtime_warning_minutes,
+    skip_minutes=cfg.spapros_runtime_skip_minutes,
+)
+print(estimate)
+# If estimate["severity"] != "fast": return this dict verbatim to the
+# leader and STOP. Do not call select_spapros in this dispatch.
+
 # IMPORTANT: call each method ONCE with return_scores=True.
 # This writes a full ranked CSV (every gene + score). For the ARI vs K
 # sweep in Step 3, slice top-K from that CSV in pandas — do NOT re-run
 # the algorithm with different K values.
-#
-# Respect algorithm caps:
-#  - scGeneFit: max_constraints <= SCGENEFIT_MAX_CONSTRAINTS (1000)
-#  - SpaPROS:   n_hvg < SPAPROS_N_HVG (3000)
 
 select_scgenefit(
     adata_path=adata_path,
     label_key="cell_type",
     return_scores=True,
-    max_constraints=1000,
+    max_constraints=cfg.scgenefit_max_constraints,
     workdir=workdir,
 )
+
+# SpaPROS — ONLY when severity=="fast" or the leader's directive says
+# "SpaPROS APPROVED by user". Otherwise, skip this cell entirely.
 select_spapros(
     adata_path=adata_path,
     label_key="cell_type",
     num_markers=200,  # selector cutoff; full table is still saved
-    n_hvg=2500,
+    n_hvg=cfg.spapros_n_hvg,
     return_scores=True,
     workdir=workdir,
 )
+
 select_random_forest(
     adata_path=adata_path,
     label_key="cell_type",
+    n_estimators=cfg.rf_n_estimators,
     return_scores=True,
     workdir=workdir,
 )
@@ -372,6 +406,7 @@ select_random_forest(
 - Outputs land in `workdir/gene_panels/{spapros,random_forest,scgenefit}/`
 - Each method writes a **scores CSV** that is the single source of truth
   for ranking — Step 3 consumes these files directly
+- Do **not** hardcode algorithm caps; read them from `cfg`
 
 ---
 
