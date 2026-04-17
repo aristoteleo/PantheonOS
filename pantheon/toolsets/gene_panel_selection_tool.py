@@ -1,65 +1,9 @@
 import os
-import inspect
 from typing import Optional
-from functools import wraps
 
 from pantheon.toolset import ToolSet, tool
 from pantheon.toolsets.gene_panel_selection_config import GenePanelConfig
 from pantheon.utils.log import logger
-
-
-def unwrap_llm_dict_call(func):
-    """
-    Decorator that transparently expands a single dict argument into named
-    keyword arguments.  This handles the common case where an LLM tool-call
-    runtime passes all parameters packed inside one dictionary.
-
-    Behaviour:
-      - Preserves defaults declared in the function signature.
-      - Treats '' and None as "unspecified" -> falls back to the default.
-      - Ignores extra keys not present in the signature.
-      - Passes through extra kwargs (e.g. context_variables) untouched.
-    """
-    sig = inspect.signature(func)
-    param_names = list(sig.parameters.keys())
-
-    @wraps(func)
-    async def wrapper(*args, **kwargs):
-        # Detect if a dict was passed as the first positional arg (after self)
-        dict_positional = len(args) > 1 and isinstance(args[1], dict)
-
-        # Or nested under the first non-self parameter name via kwargs
-        first_nonself = next((p for p in param_names if p != "self"), None)
-        dict_in_kwargs = (
-            first_nonself in kwargs and isinstance(kwargs[first_nonself], dict)
-        )
-
-        if dict_positional or dict_in_kwargs:
-            if dict_positional:
-                params = args[1]
-                bound = sig.bind_partial(*args[:1])
-            else:
-                params = kwargs.pop(first_nonself)
-                bound = sig.bind_partial(*args)
-
-            for name, param in sig.parameters.items():
-                if name == "self" or name in bound.arguments:
-                    continue
-                v = params.get(name, param.default) if isinstance(params, dict) else param.default
-                if v in ("", None) and param.default is not inspect._empty:
-                    v = param.default
-                if v is not inspect._empty:
-                    bound.arguments[name] = v
-
-            for k, v in kwargs.items():
-                if k not in bound.arguments:
-                    bound.arguments[k] = v
-
-            return await func(*bound.args, **bound.kwargs)
-
-        return await func(*args, **kwargs)
-
-    return wrapper
 
 
 class GenePanelToolSet(ToolSet):
@@ -108,7 +52,6 @@ class GenePanelToolSet(ToolSet):
     # ------------------------------------------------------------------ #
 
     @tool
-    @unwrap_llm_dict_call
     async def select_spapros(
         self,
         adata_path: Optional[str] = None,
@@ -217,7 +160,6 @@ class GenePanelToolSet(ToolSet):
     # ------------------------------------------------------------------ #
 
     @tool
-    @unwrap_llm_dict_call
     async def select_random_forest(
         self,
         adata_path: Optional[str] = None,
@@ -309,7 +251,6 @@ class GenePanelToolSet(ToolSet):
     # ------------------------------------------------------------------ #
 
     @tool
-    @unwrap_llm_dict_call
     async def select_scgenefit(
         self,
         adata_path: Optional[str] = None,
