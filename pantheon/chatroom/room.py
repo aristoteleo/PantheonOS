@@ -928,12 +928,32 @@ class ChatRoom(ToolSet):
     ) -> dict:
         """Create a new chat.
 
+        Automatically cleans up previous empty chats (no messages) to prevent
+        sidebar clutter from unused "New Chat" entries.
+
         Args:
             chat_name: The name of the chat.
             project_name: Optional project name for grouping.
             workspace_path: Optional workspace directory path.
             workspace_mode: Workspace mode - "project" (shared, default) or "isolated" (per-chat).
         """
+        # Clean up existing empty chats before creating a new one.
+        # Load each memory into cache first so we check in-memory messages,
+        # not just the on-disk file (messages may not be persisted yet due to
+        # the 2-second debounce delay).
+        try:
+            ids = await run_func(self.memory_manager.list_memories)
+            for existing_id in ids:
+                try:
+                    memory = await run_func(self.memory_manager.get_memory, existing_id)
+                except KeyError:
+                    continue
+                if memory.is_empty:
+                    await self.delete_chat(existing_id)
+                    logger.info(f"Cleaned up empty chat {existing_id}")
+        except Exception as e:
+            logger.debug(f"Could not clean up empty chats: {e}")
+
         memory = await run_func(self.memory_manager.new_memory, chat_name)
         memory.set_metadata("last_activity_date", datetime.now().isoformat())
 
