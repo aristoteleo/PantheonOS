@@ -1,23 +1,3 @@
-"""
-Gene panel selection algorithms — plain Python library.
-
-Three selection methods:
-
-- :func:`select_spapros` — probe-set selection (SpaPROS)
-- :func:`select_random_forest` — Gini importance ranking
-- :func:`select_scgenefit` — LP-based marker selection
-
-All three are synchronous functions designed to be called from the
-agent's notebook / Python sandbox. They are intentionally *not*
-wrapped as ``@tool`` methods: they do not need their own ToolSet
-registration (see PR #48 review N7).
-
-Each function can accept an optional :class:`GenePanelConfig` to tune
-algorithm caps (LP constraints, HVG pre-filter size, RF tree count).
-When ``config`` is omitted, defaults are loaded from project
-``settings.json`` (section ``gene_panel``).
-"""
-
 from __future__ import annotations
 
 import os

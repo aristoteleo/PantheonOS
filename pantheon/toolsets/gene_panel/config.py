@@ -1,15 +1,3 @@
-"""
-Gene panel selection configuration.
-
-Provides :class:`GenePanelConfig` — a dataclass holding hyperparameters
-for the selection algorithms and the surrounding workflow (downsampling
-limits, ARI degradation threshold, etc.).
-
-Values are loaded from ``settings.json`` via :meth:`from_settings`, with
-sensible defaults baked in so the library is usable even when the user
-has no project-level settings file.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
