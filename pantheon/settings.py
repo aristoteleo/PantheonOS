@@ -627,7 +627,7 @@ class Settings:
         Get gene panel selection (GPS) configuration.
 
         Hyperparameters consumed by
-        :class:`pantheon.toolsets.gene_panel_selection_config.GenePanelConfig`.
+        :class:`pantheon.toolsets.gene_panel.config.GenePanelConfig`.
         Unknown keys are preserved; consumers filter to known fields.
 
         Returns:

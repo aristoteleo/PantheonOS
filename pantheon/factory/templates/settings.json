@@ -242,7 +242,7 @@
     },
     // ===== Gene Panel Selection (GPS) Configuration =====
     // Hyperparameters for the gene panel selection pipeline. Consumed by
-    // pantheon.toolsets.gene_panel_selection_config.GenePanelConfig.
+    // pantheon.toolsets.gene_panel.config.GenePanelConfig.
     "gene_panel": {
         // --- Algorithm caps (keep LP / RF tractable) ---
         // Upper bound on LP constraints fed to scGeneFit
