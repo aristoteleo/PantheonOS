@@ -349,11 +349,16 @@ Run ALL of these methods (unless user requests specific ones): **HVG, DE, Random
 
 - Use true cell type as `label_key` whenever available
 - Implement HVG / DE via Scanpy in code
-- For advanced methods, **always use** `gene_panel_selection_tool` toolset:
+- For advanced methods, import the `pantheon.toolsets.gene_panel` library
+  from inside a notebook cell (it is a plain Python library — **not** a
+  registered toolset). See Step 2.1 in `gene_panel_selection.md` for the
+  full import snippet and the SpaPROS runtime gate.
   - `select_scgenefit` (**ALWAYS**: `max_constraints <= SCGENEFIT_MAX_CONSTRAINTS`)
-  - `select_spapros` (**ALWAYS**: `n_hvg < SPAPROS_N_HVG`)
+  - `select_spapros` (**ALWAYS**: `n_hvg < SPAPROS_N_HVG`, and gated by
+    `estimate_spapros_runtime` — see skill file)
   - `select_random_forest`
-- **Always request gene scores** from each method
+- **Always request gene scores** (`return_scores=True`) — call each method
+  ONCE and slice top-K in pandas for the Step 3 ARI sweep
 - **Save each method's score table to CSV** on disk
 
 ---
