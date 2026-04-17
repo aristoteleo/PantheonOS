@@ -259,6 +259,10 @@
         // Above this gene count, gene subsetting is required before selection
         "gene_count_threshold": 30000,
         // Target cells per test split (soft cap, preserve diversity)
-        "split_cell_limit": 50000
+        "split_cell_limit": 50000,
+        // Number of training datasets to build during the train/test split
+        "n_training_splits": 1,
+        // Minimum number of test splits to build (more is fine)
+        "n_test_splits": 5
     }
 }

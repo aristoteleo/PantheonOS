@@ -64,15 +64,21 @@ If the dataset is large, perform **smart downsampling** while preserving **all c
 ---
 
 ## Gene Panel Selection Hyperparameters
-<!-- Recommended defaults: trade-off between precision and fast enough computation. Adjust if needed for your dataset. -->
+<!-- All defaults below live in `settings.json` under the `gene_panel` section and are loaded at runtime via `GenePanelConfig.from_settings()`. Do NOT hardcode these values — read them from `cfg` (the loaded config object) or adjust per-project in settings. -->
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SCGENEFIT_MAX_CONSTRAINTS` | 1000 | Max constraints for scGeneFit optimization |
-| `SPAPROS_N_HVG` | 3000 | Max HVGs for SpaPROS input |
-| `SPAPROS_RUNTIME_WARNING_MINUTES` | 5.0 | Leader prompts the user via `notify_user` if SpaPROS estimate exceeds this |
-| `SPAPROS_RUNTIME_SKIP_MINUTES` | 30.0 | Strong-warning threshold; user may choose to skip SpaPROS |
-| `ARI_DROP_THRESHOLD` | 5% | Max acceptable ARI degradation during panel completion |
+| Variable (config field) | Default | Description |
+|-------------------------|---------|-------------|
+| `scgenefit_max_constraints` | 1000 | Max constraints for scGeneFit optimization |
+| `spapros_n_hvg` | 3000 | Max HVGs for SpaPROS input |
+| `rf_n_estimators` | 300 | Random Forest tree count |
+| `spapros_runtime_warning_minutes` | 5.0 | Leader prompts the user via `notify_user` if SpaPROS estimate exceeds this |
+| `spapros_runtime_skip_minutes` | 30.0 | Strong-warning threshold; user may choose to skip SpaPROS |
+| `ari_drop_threshold` | 0.05 | Max acceptable ARI degradation during panel completion |
+| `downsample_max_cells` | 500000 | Above this cell count, downsampling is required before selection |
+| `gene_count_threshold` | 30000 | Above this gene count, gene subsetting is required before selection |
+| `n_training_splits` | 1 | Number of training datasets to build during the train/test split |
+| `n_test_splits` | 5 | Minimum number of test splits to build (more is fine) |
+| `split_cell_limit` | 50000 | Target cells per test split (soft cap, preserve diversity) |
 
 ---
 
@@ -190,7 +196,7 @@ to the specific tissue/disease. Prefer datasets with >50k cells and existing cel
        )
    ```
 4. **Always filter `is_primary_data == True`** to avoid duplicate cells
-5. If the dataset is very large (>500k cells), **downsample per category** rather than
+5. If the dataset is very large (above `cfg.downsample_max_cells`, default 500000), **downsample per category** rather than
    dropping entire tissues/diseases. For example, sample up to N cells per
    (tissue, disease) combination to keep diversity while controlling size.
    Alternatively, use the streaming API (`ExperimentAxisQuery`) — see the skill file.
@@ -247,21 +253,25 @@ Checklist:
 ---
 
 ### 1.2 Downsampling (CRITICAL)
+
+First load the config: `cfg = GenePanelConfig.from_settings()`. Then:
+
 Rules:
-- Downsample to **< 500k cells**, **preserving all cell types**
-- If genes > **30000**, reduce to **<=30000** via QC/HVG for compute-heavy steps
+- If `adata.n_obs > cfg.downsample_max_cells` (default 500000): downsample to below that limit, **preserving all cell types**
+- If `adata.n_vars > cfg.gene_count_threshold` (default 30000): reduce to ≤ `cfg.gene_count_threshold` via QC/HVG for compute-heavy steps
 - Save downsampled `adata` to a new file in workdir via `file_manager`
 
 > [!IMPORTANT]
 > Prefer stratified downsampling by `label_key` if available; otherwise stratify by clustering labels.
+> Do NOT hardcode `500000` / `30000` — always read from `cfg` so per-project `settings.json` overrides take effect.
 
 ---
 
 ### 1.3 Splitting
 If provided one dataset, split to preserve all cell type distribution across all datasets:
-- 1 training dataset (diversified)
-- several test batches (**at least 5**)
-- constraint: each split **< 50k cells**
+- `cfg.n_training_splits` training dataset(s), diversified (default: 1)
+- at least `cfg.n_test_splits` test batches (default: 5)
+- constraint: each split should target `cfg.split_cell_limit` cells (default: 50000) to preserve diversity — treat this as a soft cap, go slightly under rather than well under
 - make splits as non-redundant as possible and represent **all cell types**
 
 ### 1.4 Disk Space Management (MANDATORY)

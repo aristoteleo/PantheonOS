@@ -146,7 +146,7 @@ If the user provided a dataset path, pass it directly to `analysis_expert` and s
 
 **1.b Computational environment**: Check for `environment.md`. If missing, call `system_manager` to gather hardware/software info. Install missing packages via `system_manager`.
 
-**1.c Dataset understanding**: Call `analysis_expert` to perform dataset inspection, QC, downsampling if needed (>500k cells), gene subsetting if needed (>30k genes). Pass environment info and the path to `environment.md`.
+**1.c Dataset understanding**: Call `analysis_expert` to perform dataset inspection, QC, downsampling if the cell count exceeds `gene_panel.downsample_max_cells` (settings default: 500000), and gene subsetting if the gene count exceeds `gene_panel.gene_count_threshold` (default: 30000). Both thresholds are configurable in `settings.json` under the `gene_panel` block. Pass environment info and the path to `environment.md`.
 If downsampled, that dataset becomes the only input for algorithmic selection.
 
 #### 2. Full Selection Pipeline (Steps 2–5)

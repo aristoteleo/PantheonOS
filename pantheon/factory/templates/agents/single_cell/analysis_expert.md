@@ -318,15 +318,17 @@ Inspect file format, cell/gene counts, batches/conditions, `.obs`/`.var`/`.obsm`
 Identify `label_key` (true cell type recommended if present), batch/condition columns, and whether `adata.X` is raw counts or normalized.
 
 #### 1.2 Downsampling (CRITICAL)
-- If > 500k cells: downsample preserving all cell types (stratified by `label_key`)
-- If > 30000 genes: reduce to <= 30000 via QC/HVG
+Load the config first: `cfg = GenePanelConfig.from_settings()`. Then:
+- If `adata.n_obs > cfg.downsample_max_cells` (default 500000): downsample preserving all cell types (stratified by `label_key`)
+- If `adata.n_vars > cfg.gene_count_threshold` (default 30000): reduce to ≤ `cfg.gene_count_threshold` via QC/HVG
 - Save downsampled adata via `file_manager`
 - This downsampled dataset becomes the **only input** for algorithmic selection methods
 - Keep full gene list available for biological lookup during curation
+- Do NOT hardcode `500000` / `30000` — read from `cfg` so per-project `settings.json` overrides work
 
 #### 1.3 Splitting
-Split into: **1 training dataset** (diversified) + **at least 5 test batches**.
-Constraint: each split **< 50k cells should be ideally 50K cells to conserve diversity**. Preserve all cell type distribution. Maximize non-redundancy.
+Split into: **`cfg.n_training_splits` training dataset(s)** (default 1, diversified) + **at least `cfg.n_test_splits` test batches** (default 5).
+Constraint: each split should target **`cfg.split_cell_limit` cells** (default 50000) to preserve diversity — go slightly under rather than well under. Preserve all cell type distribution. Maximize non-redundancy.
 
 #### 1.4 Disk Space Management (MANDATORY)
 - **Process in memory** — chain downsampling → splitting → preprocessing in one session. Do not save intermediate h5ad files unless re-read later.

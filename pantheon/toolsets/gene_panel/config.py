@@ -39,6 +39,12 @@ class GenePanelConfig:
     split_cell_limit: int = 50_000
     """Target cells per test split (soft cap, preserve diversity)."""
 
+    n_training_splits: int = 1
+    """Number of training datasets to build during the train/test split."""
+
+    n_test_splits: int = 5
+    """Minimum number of test splits to build (more is fine)."""
+
     # --- SpaPROS runtime gating thresholds (used by estimate_spapros_runtime) ---
     spapros_runtime_warning_minutes: float = 5.0
     """Estimated minutes above which severity becomes ``"slow"``."""
