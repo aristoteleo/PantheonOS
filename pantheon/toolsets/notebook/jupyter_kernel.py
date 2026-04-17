@@ -159,9 +159,12 @@ class JupyterKernelToolSet(ToolSet):
 
         env = os.environ.copy()
 
-        # Note: LS_COLORS removal is now handled by optimize_context_env() in build_context_env()
-        # Keeping this for backwards compatibility and extra safety
-        env.pop("LS_COLORS", None)
+        # PANTHEON_CONTEXT is regenerated fresh by build_context_env from
+        # _current_context_dict(), so stripping the (potentially huge) inherited
+        # value here prevents [Errno 7] E2BIG when Linux execve() hits its
+        # 128KB MAX_ARG_STRLEN limit on kernel launch.
+        for _drop_var in ("LS_COLORS", "LESSOPEN", "LESSCLOSE", "PANTHEON_CONTEXT"):
+            env.pop(_drop_var, None)
 
         # Get paths from current sys.path and existing PYTHONPATH
         # Prepend sys.path to give it priority for the kernel subprocess
@@ -175,12 +178,19 @@ class JupyterKernelToolSet(ToolSet):
 
         env["PYTHONPATH"] = os.pathsep.join(unique_paths)
 
-        # build_context_env() now automatically optimizes environment size
+        # toolu_* entries are LLM tool-call result caches — scientific kernel
+        # code never reads them, and they can push PANTHEON_CONTEXT past the
+        # execve() env-var size limit on long sessions.
+        context_vars = {
+            k: v for k, v in self._current_context_dict().items()
+            if not k.startswith("toolu_")
+        }
+
         return build_context_env(
             workdir=self._get_effective_workdir() or self.workdir,
-            context_variables=self._current_context_dict(),
+            context_variables=context_vars,
             base_env=env,
-            optimize=True,  # Enable automatic optimization
+            optimize=True,
         )
 
     def _context_prefix_code(self) -> str:
