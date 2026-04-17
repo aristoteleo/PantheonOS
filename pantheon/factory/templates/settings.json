@@ -239,5 +239,26 @@
         "max_delay": 30.0,
         // Jitter factor (0.0-1.0) to randomize delay and avoid thundering herd
         "jitter": 0.5
+    },
+    // ===== Gene Panel Selection (GPS) Configuration =====
+    // Hyperparameters for the gene panel selection pipeline. Consumed by
+    // pantheon.toolsets.gene_panel_selection_config.GenePanelConfig.
+    "gene_panel": {
+        // --- Algorithm caps (keep LP / RF tractable) ---
+        // Upper bound on LP constraints fed to scGeneFit
+        "scgenefit_max_constraints": 1000,
+        // HVG pre-filter size before running SpaPROS
+        "spapros_n_hvg": 3000,
+        // Number of trees for the Random Forest ranker
+        "rf_n_estimators": 300,
+        // --- Workflow thresholds (consumed by the agent via the skill file) ---
+        // Max acceptable ARI degradation during panel completion (0.0-1.0)
+        "ari_drop_threshold": 0.05,
+        // Above this cell count, downsampling is required before selection
+        "downsample_max_cells": 500000,
+        // Above this gene count, gene subsetting is required before selection
+        "gene_count_threshold": 30000,
+        // Target cells per test split (soft cap, preserve diversity)
+        "split_cell_limit": 50000
     }
 }

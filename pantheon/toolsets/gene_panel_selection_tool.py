@@ -4,6 +4,7 @@ from typing import Optional
 from functools import wraps
 
 from pantheon.toolset import ToolSet, tool
+from pantheon.toolsets.gene_panel_selection_config import GenePanelConfig
 from pantheon.utils.log import logger
 
 
@@ -79,14 +80,17 @@ class GenePanelToolSet(ToolSet):
         name: str = "gene_panel_selection",
         default_adata_path: Optional[str] = None,
         default_workdir: str = ".",
+        config: Optional[GenePanelConfig] = None,
         **kwargs,
     ):
         super().__init__(name, **kwargs)
         self.default_adata_path = default_adata_path
         self.default_workdir = default_workdir
+        self.config = config if config is not None else GenePanelConfig.from_settings()
         logger.info(
             f"GenePanelToolSet initialized "
-            f"(name={name}, adata={default_adata_path}, workdir={default_workdir})"
+            f"(name={name}, adata={default_adata_path}, workdir={default_workdir}, "
+            f"config={self.config.to_dict()})"
         )
 
     # ------------------------------------------------------------------ #
@@ -110,7 +114,7 @@ class GenePanelToolSet(ToolSet):
         adata_path: Optional[str] = None,
         label_key: str = "",
         num_markers: int = 100,
-        n_hvg: int = 3000,
+        n_hvg: Optional[int] = None,
         return_scores: bool = False,
         workdir: Optional[str] = None,
     ) -> dict:
@@ -121,13 +125,16 @@ class GenePanelToolSet(ToolSet):
             adata_path (str): Path to .h5ad dataset. Falls back to default.
             label_key (str): Column in .obs for cell groups.
             num_markers (int): Number of markers to select.
-            n_hvg (int): HVG pre-filter size (must be < 3000).
+            n_hvg (int, optional): HVG pre-filter size. Defaults to
+                ``settings.gene_panel.spapros_n_hvg`` (3000).
             return_scores (bool): Include per-gene importance scores.
             workdir (str): Output directory. Falls back to default.
 
         Returns:
             dict with keys: used_dataset, top_n, saved_to, genes.
         """
+        if n_hvg is None:
+            n_hvg = self.config.spapros_n_hvg
         try:
             import scanpy as sc
             import pandas as pd
@@ -218,6 +225,7 @@ class GenePanelToolSet(ToolSet):
         n_top_genes: int = 1000,
         return_scores: bool = False,
         random_state: int = 42,
+        n_estimators: Optional[int] = None,
         workdir: Optional[str] = None,
     ) -> dict:
         """
@@ -232,11 +240,15 @@ class GenePanelToolSet(ToolSet):
             n_top_genes (int): How many top genes to save (default 1000).
             return_scores (bool): Return all genes with scores.
             random_state (int): Random seed.
+            n_estimators (int, optional): Number of trees. Defaults to
+                ``settings.gene_panel.rf_n_estimators`` (300).
             workdir (str): Output directory. Falls back to default.
 
         Returns:
             dict with keys: used_dataset, top_n, saved_to, genes.
         """
+        if n_estimators is None:
+            n_estimators = self.config.rf_n_estimators
         try:
             import scanpy as sc
             import numpy as np
@@ -268,7 +280,7 @@ class GenePanelToolSet(ToolSet):
             y = adata.obs[label_key].astype("category").cat.codes.values
 
             clf = RandomForestClassifier(
-                n_estimators=300, random_state=random_state, n_jobs=-1
+                n_estimators=n_estimators, random_state=random_state, n_jobs=-1
             )
             clf.fit(X, y)
 
@@ -307,7 +319,7 @@ class GenePanelToolSet(ToolSet):
         epsilon_param: float = 1.0,
         sampling_rate: float = 1.0,
         n_neighbors: int = 3,
-        max_constraints: int = 1000,
+        max_constraints: Optional[int] = None,
         redundancy: float = 0.01,
         return_scores: bool = False,
         workdir: Optional[str] = None,
@@ -327,7 +339,8 @@ class GenePanelToolSet(ToolSet):
             epsilon_param (float): LP epsilon scaling factor (default 1.0).
             sampling_rate (float): Fraction of cells to sample for pairwise methods.
             n_neighbors (int): Neighbours for pairwise constraint building.
-            max_constraints (int): Hard cap on constraint rows (keep <= 1000).
+            max_constraints (int, optional): Hard cap on constraint rows. Defaults
+                to ``settings.gene_panel.scgenefit_max_constraints`` (1000).
             redundancy (float): Redundancy param for center summarisation.
             return_scores (bool): Return all genes with LP weights.
             workdir (str): Output directory. Falls back to default.
@@ -335,6 +348,8 @@ class GenePanelToolSet(ToolSet):
         Returns:
             dict with keys: used_dataset, top_n, saved_to, genes.
         """
+        if max_constraints is None:
+            max_constraints = self.config.scgenefit_max_constraints
         try:
             import scanpy as sc
             import numpy as np
