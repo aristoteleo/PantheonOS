@@ -191,7 +191,6 @@ The final report must include **AT LEAST**:
 
 - UpSet plot showing intersections between pre-established algorithm outputs
 - Benchmarking section with:
-y
   - dataset splitting strategy
   - ARI/NMI/SI boxplots
   - UMAP comparisons

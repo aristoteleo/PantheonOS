@@ -93,18 +93,6 @@ class GenePanelToolSet(ToolSet):
     #  Helpers                                                             #
     # ------------------------------------------------------------------ #
 
-    @staticmethod
-    def _coerce(value, default, cast):
-        """Safe type conversion with fallback to *default*."""
-        if value is None:
-            return default
-        if isinstance(value, str) and value.strip().lower() in ("", "none", "null"):
-            return default
-        try:
-            return cast(value)
-        except (ValueError, TypeError):
-            return default
-
     def _resolve(self, adata_path, workdir):
         """Return (path, workdir) after applying defaults."""
         path = adata_path or self.default_adata_path
@@ -121,9 +109,9 @@ class GenePanelToolSet(ToolSet):
         self,
         adata_path: Optional[str] = None,
         label_key: str = "",
-        num_markers: str = "100",
-        n_hvg: str = "3000",
-        return_scores: str = "false",
+        num_markers: int = 100,
+        n_hvg: int = 3000,
+        return_scores: bool = False,
         workdir: Optional[str] = None,
     ) -> dict:
         """
@@ -132,9 +120,9 @@ class GenePanelToolSet(ToolSet):
         Args:
             adata_path (str): Path to .h5ad dataset. Falls back to default.
             label_key (str): Column in .obs for cell groups.
-            num_markers (str): Number of markers to select.
-            n_hvg (str): HVG pre-filter size (must be < 3000).
-            return_scores (str): "true" to include per-gene importance scores.
+            num_markers (int): Number of markers to select.
+            n_hvg (int): HVG pre-filter size (must be < 3000).
+            return_scores (bool): Include per-gene importance scores.
             workdir (str): Output directory. Falls back to default.
 
         Returns:
@@ -145,17 +133,22 @@ class GenePanelToolSet(ToolSet):
             import pandas as pd
             import numpy as np
             import spapros as sp
+        except ImportError as e:
+            return {
+                "error": (
+                    "SpaPROS requires scanpy, pandas, numpy, spapros. "
+                    "Install with: pip install scanpy spapros. "
+                    f"Details: {e}"
+                )
+            }
 
+        try:
             path, workdir = self._resolve(adata_path, workdir)
             if not path:
                 return {"error": "No dataset path provided."}
 
             out_dir = os.path.join(workdir, "gene_panels", "spapros")
             os.makedirs(out_dir, exist_ok=True)
-
-            num_markers = self._coerce(num_markers, 100, int)
-            n_hvg = self._coerce(n_hvg, 3000, int)
-            return_scores = str(return_scores).lower() in ("true", "yes", "1")
 
             adata = sc.read_h5ad(path)
 
@@ -222,9 +215,9 @@ class GenePanelToolSet(ToolSet):
         self,
         adata_path: Optional[str] = None,
         label_key: str = "",
-        n_top_genes: str = "1000",
-        return_scores: str = "false",
-        random_state: str = "42",
+        n_top_genes: int = 1000,
+        return_scores: bool = False,
+        random_state: int = 42,
         workdir: Optional[str] = None,
     ) -> dict:
         """
@@ -236,9 +229,9 @@ class GenePanelToolSet(ToolSet):
         Args:
             adata_path (str): Path to .h5ad dataset. Falls back to default.
             label_key (str): Column in .obs for cell labels.
-            n_top_genes (str): How many top genes to save (default 1000).
-            return_scores (str): "true" to return all genes with scores.
-            random_state (str): Random seed.
+            n_top_genes (int): How many top genes to save (default 1000).
+            return_scores (bool): Return all genes with scores.
+            random_state (int): Random seed.
             workdir (str): Output directory. Falls back to default.
 
         Returns:
@@ -249,17 +242,22 @@ class GenePanelToolSet(ToolSet):
             import numpy as np
             import pandas as pd
             from sklearn.ensemble import RandomForestClassifier
+        except ImportError as e:
+            return {
+                "error": (
+                    "Random Forest selection requires scanpy, numpy, pandas, scikit-learn. "
+                    "Install with: pip install scanpy scikit-learn. "
+                    f"Details: {e}"
+                )
+            }
 
+        try:
             path, workdir = self._resolve(adata_path, workdir)
             if not path:
                 return {"error": "No dataset path provided."}
 
             out_dir = os.path.join(workdir, "gene_panels", "random_forest")
             os.makedirs(out_dir, exist_ok=True)
-
-            n_top_genes = self._coerce(n_top_genes, 1000, int)
-            random_state = self._coerce(random_state, 42, int)
-            return_scores = str(return_scores).lower() in ("true", "1", "yes")
 
             adata = sc.read_h5ad(path)
 
@@ -304,14 +302,14 @@ class GenePanelToolSet(ToolSet):
         self,
         adata_path: Optional[str] = None,
         label_key: Optional[str] = None,
-        n_top_genes: str = "200",
+        n_top_genes: int = 200,
         method: str = "centers",
-        epsilon_param: str = "1.0",
-        sampling_rate: str = "1.0",
-        n_neighbors: str = "3",
-        max_constraints: str = "1000",
-        redundancy: str = "0.01",
-        return_scores: str = "false",
+        epsilon_param: float = 1.0,
+        sampling_rate: float = 1.0,
+        n_neighbors: int = 3,
+        max_constraints: int = 1000,
+        redundancy: float = 0.01,
+        return_scores: bool = False,
         workdir: Optional[str] = None,
     ) -> dict:
         """
@@ -324,26 +322,36 @@ class GenePanelToolSet(ToolSet):
         Args:
             adata_path (str): Path to .h5ad. Falls back to default.
             label_key (str): Column in .obs for cell labels.
-            n_top_genes (str): Number of markers to select (default 200).
+            n_top_genes (int): Number of markers to select (default 200).
             method (str): Constraint strategy: "centers" | "pairwise" | "pairwise_centers".
-            epsilon_param (str): LP epsilon scaling factor (default 1.0).
-            sampling_rate (str): Fraction of cells to sample for pairwise methods.
-            n_neighbors (str): Neighbours for pairwise constraint building.
-            max_constraints (str): Hard cap on constraint rows (keep <= 1000).
-            redundancy (str): Redundancy param for center summarisation.
-            return_scores (str): "true" to return all genes with LP weights.
+            epsilon_param (float): LP epsilon scaling factor (default 1.0).
+            sampling_rate (float): Fraction of cells to sample for pairwise methods.
+            n_neighbors (int): Neighbours for pairwise constraint building.
+            max_constraints (int): Hard cap on constraint rows (keep <= 1000).
+            redundancy (float): Redundancy param for center summarisation.
+            return_scores (bool): Return all genes with LP weights.
             workdir (str): Output directory. Falls back to default.
 
         Returns:
             dict with keys: used_dataset, top_n, saved_to, genes.
         """
         try:
-            import time
             import scanpy as sc
             import numpy as np
             import pandas as pd
             import scipy.sparse as sps
             import scGeneFit.functions as gf
+        except ImportError as e:
+            return {
+                "error": (
+                    "scGeneFit selection requires scanpy, numpy, pandas, scipy, scGeneFit. "
+                    "Install with: pip install scanpy scGeneFit. "
+                    f"Details: {e}"
+                )
+            }
+
+        try:
+            import time
 
             path, workdir = self._resolve(adata_path, workdir)
             if not path:
@@ -351,14 +359,6 @@ class GenePanelToolSet(ToolSet):
 
             out_dir = os.path.join(workdir, "gene_panels", "scgenefit")
             os.makedirs(out_dir, exist_ok=True)
-
-            n_top_genes = self._coerce(n_top_genes, 200, int)
-            epsilon_param = self._coerce(epsilon_param, 1.0, float)
-            sampling_rate = self._coerce(sampling_rate, 1.0, float)
-            n_neighbors = self._coerce(n_neighbors, 3, int)
-            max_constraints = self._coerce(max_constraints, 1000, int)
-            redundancy = self._coerce(redundancy, 0.01, float)
-            return_scores = str(return_scores).lower() in ("true", "1", "yes")
 
             logger.info(f"scGeneFit: loading {path}")
             adata = sc.read_h5ad(path)
