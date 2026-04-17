@@ -8,7 +8,6 @@ description: |
 toolsets:
   - file_manager
   - integrated_notebook
-  - gene_panel
   - python_interpreter
 ---
 You are an analysis expert in Single-Cell and Spatial Omics data analysis.

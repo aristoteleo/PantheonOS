@@ -325,48 +325,84 @@ Algorithmic Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS}`
 
 - Use true cell type as `label_key` whenever available
 - Implement HVG / DE via Scanpy on code
-- for more advaced methods **always Use** `gene_panel_selection_tool` toolset :
-```python
-from pantheon.toolsets.gene_panel_selection_tool import GenePanelToolSet
+- For the advanced methods, import the `pantheon.toolsets.gene_panel` library
+  inside the notebook (no dedicated ToolSet — the functions run in the
+  existing Python sandbox):
 
-selection_tool = GenePanelToolSet(
-    name="gene_panel_selection",
-    default_adata_path="adapath",
-    default_workdir="workdir",
+```python
+from pantheon.toolsets.gene_panel import (
+    select_scgenefit,
+    select_spapros,
+    select_random_forest,
 )
 
-# Advanced methods (tool calls)
-# - select_scgenefit   (ALWAYS: max_constraints <= SCGENEFIT_MAX_CONSTRAINTS)
-# - select_spapros     (ALWAYS: n_hvg < SPAPROS_N_HVG)
-# - select_random_forest
+# IMPORTANT: call each method ONCE with return_scores=True.
+# This writes a full ranked CSV (every gene + score). For the ARI vs K
+# sweep in Step 3, slice top-K from that CSV in pandas — do NOT re-run
+# the algorithm with different K values.
 #
-# Example calls (adjust args as needed):
-await selection_tool.select_scgenefit(label_key="cell_type", n_top_genes="200", max_constraints="1000")
-await selection_tool.select_spapros(label_key="cell_type", num_markers="200", n_hvg="2500")
-await selection_tool.select_random_forest(label_key="cell_type", n_top_genes="1000")
-  ```
+# Respect algorithm caps:
+#  - scGeneFit: max_constraints <= SCGENEFIT_MAX_CONSTRAINTS (1000)
+#  - SpaPROS:   n_hvg < SPAPROS_N_HVG (3000)
 
-- Always request **gene scores**
-- Save each method score table to disk (CSV)
+select_scgenefit(
+    adata_path=adata_path,
+    label_key="cell_type",
+    return_scores=True,
+    max_constraints=1000,
+    workdir=workdir,
+)
+select_spapros(
+    adata_path=adata_path,
+    label_key="cell_type",
+    num_markers=200,  # selector cutoff; full table is still saved
+    n_hvg=2500,
+    return_scores=True,
+    workdir=workdir,
+)
+select_random_forest(
+    adata_path=adata_path,
+    label_key="cell_type",
+    return_scores=True,
+    workdir=workdir,
+)
+```
+
+- Always request **gene scores** (`return_scores=True`)
+- Outputs land in `workdir/gene_panels/{spapros,random_forest,scgenefit}/`
+- Each method writes a **scores CSV** that is the single source of truth
+  for ranking — Step 3 consumes these files directly
 
 ---
 
-## 3) Optimal SEED panel Discovery 
+## 3) Optimal SEED panel Discovery
 
 For **each method independently (HVG, DE, Scgenefit, RF, SpapROS)**:
 
-Let N be the target final panel size requested by the leader 
+Let N be the target final panel size requested by the leader.
 
-1. Load the method-specific gene score CSV and rank genes (descending score).
-2. Build candidate sub-panels of sizes K ∈ {100, 200, …, N} by taking the top-K ranked genes.
+> [!CRITICAL]
+> The ARI vs K sweep is a **pandas slicing** operation, not a re-run of
+> the algorithm. Each method's scores CSV (from Step 2.1) already ranks
+> every gene. Call each algorithm **once**; slice top-K in memory.
+
+1. Load the method-specific gene score CSV and rank genes (descending score):
+   ```python
+   import pandas as pd
+   scores = pd.read_csv(scores_csv).sort_values("score", ascending=False)
+   ```
+2. Build candidate sub-panels of sizes K ∈ {100, 200, …, N} by taking the top-K:
+   ```python
+   panel_K = scores.head(K)["gene"].tolist()
+   ```
 3. For each method and each K:
-   - Subset the dataset to panel genes only: adata_K = adata[:, panel_genes]
-   - Recompute neighbors + Leiden on adata_K (same preprocessing policy across K)
-   - Compute ARI between Leiden clusters and true cell types (label_key).
+   - Subset the dataset to panel genes only: `adata_K = adata[:, panel_genes]`
+   - Recompute neighbors + Leiden on `adata_K` (same preprocessing policy across K)
+   - Compute ARI between Leiden clusters and true cell types (`label_key`).
 4. Plot ARI vs K for each method.
-5. Pick the **seed panel** = (method, K*) with the best ARI
+5. Pick the **seed panel** = (method, K*) with the best ARI.
 
-**Note**: **SEED STEP** is performed using the training `adata`. It is **IMPORTANT** you investigate ARI vs panel size for all methods (HVG, DE, Scgenefit, RF, SpapROS) when possible, to make sure you take the best one! 
+**Note**: **SEED STEP** is performed using the training `adata`. It is **IMPORTANT** you investigate ARI vs panel size for all methods (HVG, DE, Scgenefit, RF, SpapROS) when possible, to make sure you take the best one!
 
 ---
 

@@ -6,7 +6,7 @@ for the selection algorithms and the surrounding workflow (downsampling
 limits, ARI degradation threshold, etc.).
 
 Values are loaded from ``settings.json`` via :meth:`from_settings`, with
-sensible defaults baked in so the toolset is usable even when the user
+sensible defaults baked in so the library is usable even when the user
 has no project-level settings file.
 """
 
@@ -25,7 +25,7 @@ class GenePanelConfig:
     Defaults reflect a good trade-off between precision and tractable
     compute. Override per-project via ``settings.json`` under the
     ``gene_panel`` section, or per-call by passing explicit kwargs to
-    the selection tool methods.
+    the selection functions.
     """
 
     # --- Algorithm caps (keep LP / RF tractable) ---
@@ -63,7 +63,7 @@ class GenePanelConfig:
         """Load from Pantheon settings (``gene_panel`` section).
 
         Falls back to defaults if settings cannot be loaded — useful when
-        the toolset is imported outside an active Pantheon project.
+        the library is imported outside an active Pantheon project.
         """
         try:
             from pantheon.settings import get_settings
