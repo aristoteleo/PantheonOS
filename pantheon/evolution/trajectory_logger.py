@@ -81,6 +81,66 @@ class TrajectoryLogger:
             self._fh.flush()
             os.fsync(self._fh.fileno())
 
+    def log_failure(
+        self,
+        iteration: int,
+        parent: Program,
+        parent_score: float,
+        error: str,
+        mutation_time: float = 0.0,
+        llm_cost: float = 0.0,
+        phase: str = "",
+        analyzer_prompt: str = "",
+        analyzer_output: str = "",
+        analyzer_messages_raw: Optional[list] = None,
+        mutator_prompt: str = "",
+        mutator_response_raw: str = "",
+        mutator_messages_raw: Optional[list] = None,
+        task_id: Optional[str] = None,
+    ) -> None:
+        """Log an iteration that errored out before a child program existed.
+
+        Writes a record with the same schema as log_iteration but with child-
+        specific fields left empty and `error`/`phase` populated. Use this from
+        analyzer-timeout / analyzer-failed / mutation-timeout skip paths so
+        negative-reward training data is preserved.
+        """
+        record: Dict[str, Any] = {
+            "schema_version": self.SCHEMA_VERSION,
+            "timestamp": time.time(),
+            "task_id": task_id,
+            "iteration": iteration,
+            "parent_id": parent.id,
+            "child_id": None,
+            "generation": parent.generation + 1,
+            "analyzer_prompt": analyzer_prompt,
+            "analyzer_output": analyzer_output,
+            "analyzer_messages_raw": analyzer_messages_raw or [],
+            "mutator_prompt": mutator_prompt,
+            "mutator_response_raw": mutator_response_raw,
+            "mutator_messages_raw": mutator_messages_raw or [],
+            "diff": "",
+            "mutation_summary": "",
+            "mutation_category": "",
+            "is_algorithmic": None,
+            "metrics": {},
+            "parent_score": parent_score,
+            "child_score": parent_score,
+            "improvement": 0.0,
+            "accepted": False,
+            "error": error,
+            "phase": phase,
+            "mutation_time": mutation_time,
+            "evaluation_time": 0.0,
+            "llm_cost": llm_cost,
+        }
+
+        line = json.dumps(record, default=str, ensure_ascii=False)
+        with self._lock:
+            self._fh.write(line + "\n")
+            self._fh.flush()
+            os.fsync(self._fh.fileno())
+
     def close(self) -> None:
         with self._lock:
             if not self._fh.closed:

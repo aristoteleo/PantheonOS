@@ -14,6 +14,13 @@ rl_training/claude_session_notes.md
 rl_training/proposal_v8.tex
 rl_training/figures/
 
+# Local user projects (large outputs, personal runs)
+projects/
+
+# Screenshots pasted into the tree
+Capture*.png
+*.screenshot.png
+
 # ====================
 # Python
 # ====================

@@ -1047,6 +1047,16 @@ class EvolutionTeam:
                 analysis_time = time.time() - analysis_start
                 logger.warning(f"{log_prefix} Analyzer timeout after {analysis_time:.1f}s, skipping iteration")
                 await self._cleanup_python_interpreters()
+                if self._trajectory_logger is not None:
+                    try:
+                        self._trajectory_logger.log_failure(
+                            iteration=iteration, parent=parent, parent_score=parent_score,
+                            error="analyzer_timeout", phase="analyzer",
+                            mutation_time=analysis_time, llm_cost=iteration_cost,
+                            analyzer_prompt=analysis_prompt,
+                        )
+                    except Exception as log_err:
+                        logger.warning(f"{log_prefix} trajectory logging failed: {log_err}")
                 return IterationResult(
                     iteration=iteration,
                     parent_id=parent.id,
@@ -1063,6 +1073,16 @@ class EvolutionTeam:
             except Exception as e:
                 logger.warning(f"{log_prefix} Analyzer failed: {e}, skipping iteration")
                 await self._cleanup_python_interpreters()
+                if self._trajectory_logger is not None:
+                    try:
+                        self._trajectory_logger.log_failure(
+                            iteration=iteration, parent=parent, parent_score=parent_score,
+                            error=f"analyzer_failed: {e}", phase="analyzer",
+                            llm_cost=iteration_cost,
+                            analyzer_prompt=analysis_prompt,
+                        )
+                    except Exception as log_err:
+                        logger.warning(f"{log_prefix} trajectory logging failed: {log_err}")
                 return IterationResult(
                     iteration=iteration,
                     parent_id=parent.id,
@@ -1119,6 +1139,18 @@ class EvolutionTeam:
         except asyncio.TimeoutError:
             mutation_time = time.time() - mutation_start
             logger.warning(f"{log_prefix} Mutation timeout after {mutation_time:.1f}s")
+            if self._trajectory_logger is not None:
+                try:
+                    self._trajectory_logger.log_failure(
+                        iteration=iteration, parent=parent, parent_score=parent_score,
+                        error="mutation_timeout", phase="mutator",
+                        mutation_time=mutation_time, llm_cost=iteration_cost,
+                        analyzer_prompt=analysis_prompt, analyzer_output=analysis_text,
+                        analyzer_messages_raw=analysis_messages,
+                        mutator_prompt=prompt,
+                    )
+                except Exception as log_err:
+                    logger.warning(f"{log_prefix} trajectory logging failed: {log_err}")
             return IterationResult(
                 iteration=iteration,
                 parent_id=parent.id,
