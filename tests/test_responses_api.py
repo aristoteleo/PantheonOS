@@ -2,6 +2,7 @@
 
 import json
 import os
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -634,3 +635,145 @@ class TestAgentRunWithCodex:
         assert resp.content is not None
         # Should have received streaming chunks
         assert len(chunks_received) > 0
+
+
+# ============ Default-to-Responses-API routing + fallback ============
+
+
+class TestDefaultResponsesAPIRouting:
+    """Non-codex/non-pro OpenAI models now default to the Responses API, with
+    a runtime fallback to Chat Completions when the endpoint or model doesn't
+    implement /v1/responses. These tests pin that behaviour without hitting
+    a real network."""
+
+    def setup_method(self):
+        from pantheon.utils.llm_providers import reset_responses_api_cache
+
+        reset_responses_api_cache()
+
+    def teardown_method(self):
+        from pantheon.utils.llm_providers import reset_responses_api_cache
+
+        reset_responses_api_cache()
+
+    def test_should_use_responses_api_defaults_true_for_openai(self):
+        from pantheon.utils.llm_providers import should_use_responses_api
+
+        cfg = ProviderConfig(provider_type=ProviderType.OPENAI, model_name="gpt-4o")
+        assert should_use_responses_api(cfg) is True
+
+    def test_should_use_responses_api_false_for_native(self):
+        from pantheon.utils.llm_providers import should_use_responses_api
+
+        cfg = ProviderConfig(
+            provider_type=ProviderType.NATIVE, model_name="anthropic/claude-sonnet-4-6"
+        )
+        assert should_use_responses_api(cfg) is False
+
+    def test_should_use_responses_api_false_for_codex(self):
+        """codex/ models have a dedicated OAuth adapter path and must not be
+        sent through the default Responses API route."""
+        from pantheon.utils.llm_providers import should_use_responses_api
+
+        cfg = ProviderConfig(
+            provider_type=ProviderType.OPENAI, model_name="codex/gpt-5.4"
+        )
+        assert should_use_responses_api(cfg) is False
+
+    def test_cache_key_is_per_base_url_and_model(self):
+        """Marking one (base_url, model) pair unavailable must not leak into
+        other pairs — a custom proxy that lacks /v1/responses should not
+        disable the default OpenAI endpoint."""
+        from pantheon.utils.llm_providers import (
+            mark_responses_api_unavailable,
+            should_use_responses_api,
+        )
+
+        proxy_cfg = ProviderConfig(
+            provider_type=ProviderType.OPENAI,
+            model_name="gpt-4o",
+            base_url="https://proxy.example.com/v1",
+        )
+        default_cfg = ProviderConfig(
+            provider_type=ProviderType.OPENAI, model_name="gpt-4o"
+        )
+        other_model_cfg = ProviderConfig(
+            provider_type=ProviderType.OPENAI, model_name="gpt-5.4"
+        )
+
+        mark_responses_api_unavailable(proxy_cfg)
+
+        assert should_use_responses_api(proxy_cfg) is False
+        assert should_use_responses_api(default_cfg) is True
+        assert should_use_responses_api(other_model_cfg) is True
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_404_routes_to_chat_completions(self, monkeypatch):
+        """A 404 from acompletion_responses must mark the cache and retry via
+        acompletion (Chat Completions)."""
+        import openai as openai_mod
+
+        from pantheon.utils.llm_providers import (
+            call_llm_provider,
+            detect_provider,
+            should_use_responses_api,
+        )
+
+        async def fake_responses(**kwargs):
+            raise openai_mod.NotFoundError(
+                message="Not Found",
+                response=MagicMock(status_code=404, request=MagicMock()),
+                body=None,
+            )
+
+        async def fake_completion(**kwargs):
+            return {"role": "assistant", "content": "fallback worked"}
+
+        monkeypatch.setattr(
+            "pantheon.utils.llm.acompletion_responses", fake_responses
+        )
+        monkeypatch.setattr("pantheon.utils.llm.acompletion", fake_completion)
+        monkeypatch.setattr(
+            "pantheon.utils.llm_providers.extract_message_from_response",
+            lambda msg, prefix: msg,
+        )
+
+        config = detect_provider("openai/gpt-5.4", relaxed_schema=False)
+        assert should_use_responses_api(config) is True
+
+        result = await call_llm_provider(
+            config=config,
+            messages=[{"role": "user", "content": "hi"}],
+        )
+
+        assert result == {"role": "assistant", "content": "fallback worked"}
+        # After the 404 the cache should flip the routing off so subsequent
+        # calls skip the probe.
+        assert should_use_responses_api(config) is False
+
+    @pytest.mark.asyncio
+    async def test_404_on_responses_only_model_raises(self, monkeypatch):
+        """Responses-only models (-pro, codex) have no Chat Completions route,
+        so a 404 must propagate rather than silently fall back."""
+        import openai as openai_mod
+
+        from pantheon.utils.llm_providers import call_llm_provider, detect_provider
+
+        async def fake_responses(**kwargs):
+            raise openai_mod.NotFoundError(
+                message="Not Found",
+                response=MagicMock(status_code=404, request=MagicMock()),
+                body=None,
+            )
+
+        monkeypatch.setattr(
+            "pantheon.utils.llm.acompletion_responses", fake_responses
+        )
+
+        config = detect_provider("openai/gpt-5.4-pro", relaxed_schema=False)
+
+        with pytest.raises(openai_mod.NotFoundError):
+            await call_llm_provider(
+                config=config,
+                messages=[{"role": "user", "content": "hi"}],
+            )

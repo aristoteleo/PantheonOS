@@ -989,6 +989,13 @@ class FileManagerToolSet(FileManagerToolSetBase):
     async def observe_images(self, question: str, image_paths: list[str]) -> dict:
         """Observe images and answer a question about them.
 
+        When the active agent's provider supports native image content in tool
+        results (Anthropic, Gemini, OpenAI Responses API), the images are
+        returned directly so the main agent can see them and reason over
+        multiple turns. Otherwise, falls back to a vision sub-agent that
+        returns a text summary (OpenAI Chat Completions and compatible
+        providers that reject image_url in tool-role messages).
+
         Args:
             question: The question to answer.
             image_paths: The paths to the images to view."""
@@ -996,24 +1003,10 @@ class FileManagerToolSet(FileManagerToolSetBase):
         if context is None:
             return {"success": False, "error": "ExecutionContext not available"}
 
-        # Build messages with question
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": question,
-                    },
-                ],
-            }
-        ]
-
-        # Add images to the message
+        # Validate all paths up front.
+        resolved_paths: list[Path] = []
         for img_path in image_paths:
             ipath = self._resolve_path(img_path)
-
-            # Validate image path
             if not ipath.exists():
                 return {
                     "success": False,
@@ -1021,43 +1014,80 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 }
             if not ipath.is_file():
                 return {"success": False, "error": f"Path is not a file: {img_path}"}
+            resolved_paths.append(ipath)
 
-            # Convert image to base64 URI and add to message
+        # Check for blank images (applies to both paths).
+        blank_warnings = []
+        for orig, ipath in zip(image_paths, resolved_paths):
+            if is_image_blank(ipath):
+                blank_warnings.append(
+                    f"WARNING: Image '{orig}' appears to be BLANK (solid color "
+                    "or transparent). The image contains no visual information. "
+                    "Please check how this image was generated."
+                )
+
+        # Path A: native provider → return image blocks via content_blocks.
+        # The agent framework auto-merges structured data + blocks into a
+        # multimodal tool_result, so we keep normal fields (question,
+        # image_count, warnings) alongside the opt-in content_blocks.
+        from pantheon.agent import get_current_run_model
+        from pantheon.utils.vision_capability import supports_tool_result_image
+
+        active_model = get_current_run_model()
+        if supports_tool_result_image(active_model):
+            blocks: list[dict] = []
+            for ipath in resolved_paths:
+                base64_uri = path_to_image_url(str(ipath))
+                blocks.append(
+                    {"type": "image_url", "image_url": {"url": base64_uri}}
+                )
+            logger.info(
+                f"observe_images: native mode ({active_model}), "
+                f"returning {len(resolved_paths)} image(s) to main agent"
+            )
+            result: dict = {
+                "success": True,
+                "mode": "native",
+                "question": question,
+                "image_count": len(resolved_paths),
+                "content_blocks": blocks,
+            }
+            if blank_warnings:
+                result["warnings"] = blank_warnings
+            return result
+
+        # Path B: legacy sub-agent — provider cannot accept images in tool result.
+        logger.info(
+            f"observe_images: sub-agent mode ({active_model}), "
+            f"provider does not support tool-result images"
+        )
+        messages = [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": question}],
+            }
+        ]
+        for ipath in resolved_paths:
             base64_uri = path_to_image_url(str(ipath))
             messages[0]["content"].append(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": base64_uri},
-                }
+                {"type": "image_url", "image_url": {"url": base64_uri}}
             )
 
-        # Call LLM to analyze images
         try:
-            # Check for blank images FIRST
-            blank_warnings = []
-            for img_path in image_paths:
-                if is_image_blank(self._resolve_path(img_path)):
-                    blank_warnings.append(f"WARNING: Image '{img_path}' appears to be BLANK (solid color or transparent). The image contains no visual information. Please check how this image was generated.")
-
             response = await context.call_agent(messages=messages, use_memory=True)
-            
-            # Build result with cost passthrough
-            # call_agent always returns {"success": True, "response": ..., "_metadata": {...}}
+
             content = response.get("response", "")
-            
-            # Prepend blank warnings to the content so the Agent sees them immediately
             if blank_warnings:
                 warning_msg = "\n".join(blank_warnings)
                 content = f"SYSTEM DETECTED ISSUES:\n{warning_msg}\n\nLLM Observation:\n{content}"
 
             result = {
-                "success": True, 
+                "success": True,
                 "content": content,
             }
-            # Merge _metadata from nested agent call (contains current_cost)
             if "_metadata" in response:
                 result.setdefault("_metadata", {}).update(response["_metadata"])
-            
+
             return result
         except Exception as e:
             logger.opt(exception=True).error(

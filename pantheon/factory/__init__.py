@@ -16,7 +16,6 @@ async def create_agent(
     mcp_servers: list[str] | None = None,
     description: str | None = None,
     enable_mcp: bool = True,
-    think_tool: bool = False,
     **kwargs,
 ) -> Agent:
     """Create an agent from a template with all providers (toolsets and MCP servers).
@@ -28,17 +27,13 @@ async def create_agent(
         model: The model to use for the agent.
         icon: The icon to use for the agent.
         toolsets: List of toolset names to add to the agent.
-            "think" is a reserved name that enables the think tool.
         mcp_servers: List of MCP server names to add to the agent.
         description: Optional description of the agent's purpose and capabilities.
-        think_tool: Whether to enable the think tool (deprecated, use toolsets=["think"] instead).
     """
     toolsets = list(toolsets or [])
 
-    # Extract "think" from toolsets — it's a built-in tool, not a remote toolset
-    if "think" in toolsets:
-        think_tool = True
-        toolsets = [t for t in toolsets if t != "think"]
+    declared_toolsets = list(toolsets)
+    normal_toolsets = [t for t in toolsets if t != "think"]
 
     agent = Agent(
         name=name,
@@ -46,24 +41,26 @@ async def create_agent(
         model=model,
         icon=icon,
         description=description,
-        think_tool=think_tool,
     )
+    agent._declared_toolsets = declared_toolsets
     agent.not_loaded_toolsets = []
     toolsets_added = []
     mcp_server_added = []
     mcp_servers = list(mcp_servers or [])
     
     # ===== Parse toolsets to extract MCP specs =====
-    normal_toolsets = []
+    parsed_toolsets = []
     mcp_from_toolsets = []
-    
-    for spec in toolsets:
+
+    for spec in normal_toolsets:
         if spec == "mcp":
             mcp_from_toolsets.append("mcp")  # Explicit "mcp" request
         elif spec.startswith("mcp:"):
             mcp_from_toolsets.append(spec[4:])  # Extract: "mcp:context7" -> "context7"
         else:
-            normal_toolsets.append(spec)
+            parsed_toolsets.append(spec)
+
+    normal_toolsets = parsed_toolsets
     
     # Merge all MCP sources into one set
     all_mcp_servers = set(mcp_servers + mcp_from_toolsets)

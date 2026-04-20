@@ -581,7 +581,7 @@ class ReplUI:
             "[dim][bold purple]/model   [/bold purple][/dim] - Show/set model: /model | /model <name|tag>"
         )
         self.console.print(
-            "[dim][bold purple]/keys    [/bold purple][/dim] - Show/set API keys: /keys | /keys <n|name> <key>"
+            "[dim][bold purple]/keys    [/bold purple][/dim] - Show/set API keys: /keys | /keys <n|name> <key|base_url key>"
         )
         self.console.print()
 

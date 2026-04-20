@@ -409,7 +409,7 @@ class TemplateManager:
             payload = agent.to_creation_payload()
             agent_payloads[agent.id] = payload
 
-        # "think" is a built-in tool handled by Agent, not a remote toolset
+        # "think" is a plugin-managed local tool, not an endpoint toolset
         required_toolsets.discard("think")
         # "task" and "skills" are local-only toolsets, not managed by Endpoint
         required_toolsets.discard("task")

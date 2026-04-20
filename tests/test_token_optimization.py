@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from pantheon.agent import Agent, AgentRunContext, _RUN_CONTEXT
 from pantheon.internal.memory import Memory
+from pantheon.settings import Settings
 from pantheon.team.pantheon import (
     PantheonTeam,
     _get_cache_safe_child_fork_context_messages,
@@ -639,16 +640,13 @@ def test_create_delegation_no_on_demand_hint_without_summary(monkeypatch):
     assert "Task: Do something" in result
 
 
-def test_pantheon_team_use_summary_defaults_to_true():
-    """PantheonTeam defaults to use_summary=True for summary-first delegation."""
-    from unittest.mock import MagicMock
+def test_pantheon_team_delegation_defaults(tmp_path):
+    """Settings default to direct, non-fork delegation."""
+    settings = Settings(work_dir=tmp_path)
+    settings.user_home = tmp_path / ".missing-home"
+    delegation = settings.get_section("delegation")
 
-    agent = MagicMock()
-    agent.name = "test-agent"
-    agent.models = ["gpt-4"]
-
-    team = PantheonTeam(agents=[agent])
-    assert team.use_summary is True
+    assert delegation.get("fork_context", False) is False
 
 
 # ---------------------------------------------------------------------------
@@ -658,7 +656,6 @@ def test_pantheon_team_use_summary_defaults_to_true():
 def test_is_anthropic_model_detection():
     assert is_anthropic_model("claude-3-5-sonnet-20241022") is True
     assert is_anthropic_model("anthropic/claude-3-haiku") is True
-    assert is_anthropic_model("custom_anthropic/claude-3-opus") is True
     assert is_anthropic_model("gpt-4o") is False
     assert is_anthropic_model("gpt-4.1-mini") is False
     assert is_anthropic_model("openai/gpt-4") is False

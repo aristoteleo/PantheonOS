@@ -18,6 +18,43 @@ from .base import (
     RateLimitError,
     APIConnectionError,
 )
+from .image_blocks import has_image_content, split_text_and_images
+
+
+def _content_to_anthropic_tool_result(content: Any) -> Any:
+    """Translate a tool message's content into Anthropic tool_result content.
+
+    - Plain string → returned unchanged.
+    - Content list with image_url blocks → list of {type:"text"} + {type:"image"} blocks.
+    - Content list without images → joined text string.
+    """
+    if isinstance(content, str):
+        return content
+    if not has_image_content(content):
+        # No images — flatten list of text blocks into a single string for Anthropic.
+        text, _inline, _http = split_text_and_images(content)
+        return text or ""
+
+    text, inline_images, http_urls = split_text_and_images(content)
+    blocks: list[dict] = []
+    if text:
+        blocks.append({"type": "text", "text": text})
+    for mime, data in inline_images:
+        blocks.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": mime,
+                "data": data,
+            },
+        })
+    for url in http_urls:
+        # Anthropic Messages API supports URL sources.
+        blocks.append({
+            "type": "image",
+            "source": {"type": "url", "url": url},
+        })
+    return blocks if blocks else ""
 
 
 def _wrap_anthropic_error(e: Exception) -> Exception:
@@ -79,11 +116,14 @@ def _convert_messages_to_anthropic(messages: list[dict]) -> tuple[str | None, li
             continue
 
         if role == "tool":
-            # Accumulate tool results to attach to next user message
+            # Accumulate tool results to attach to next user message.
+            # Image content (via OpenAI-style image_url blocks) is translated
+            # into Anthropic image blocks so the agent can see the picture
+            # directly in tool_result.
             pending_tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": msg.get("tool_call_id", ""),
-                "content": content or "",
+                "content": _content_to_anthropic_tool_result(content or ""),
             })
             continue
 

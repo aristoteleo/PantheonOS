@@ -100,8 +100,13 @@
     // Priority: environment variable > env_file > settings.json
     "api_keys": {
         "OPENAI_API_KEY": null,
-        "OPENAI_API_BASE": null, // Custom OpenAI endpoint
+        "OPENAI_API_BASE": null, // Optional OpenAI Base URL
         "ANTHROPIC_API_KEY": null,
+        "ANTHROPIC_API_BASE": null, // Optional Anthropic Base URL
+        "GEMINI_API_KEY": null,
+        "GEMINI_API_BASE": null, // Optional Gemini Base URL
+        "LLM_API_BASE": null, // Optional global OpenAI-compatible fallback Base URL
+        "LLM_API_KEY": null, // Optional global OpenAI-compatible fallback API key
         "GOOGLE_API_KEY": null,
         "ZAI_API_KEY": null,
         "SCRAPER_API_KEY": null, // ScraperAPI key
@@ -124,6 +129,13 @@
     "models": {
         // Provider priority order (first available provider with API key is used)
         // "provider_priority": ["openai", "anthropic", "gemini", "zai", "deepseek"],
+        // Saved model names for UI selectors. These do not affect high/normal/low routing.
+        // Values should be bare model names because the provider is implied by the key.
+        // "saved_models": {
+        //     "openai": ["gpt-4.1", "kimi-k2"],
+        //     "anthropic": ["claude-sonnet-4-20250514"],
+        //     "gemini": ["gemini-2.5-pro"]
+        // },
         // Per-provider model configuration (optional - code has sensible defaults)
         // Quality levels map to model lists (fallback chains)
         // "provider_models": {
@@ -181,11 +193,23 @@
         // Wait this many messages before retrying after a compression failure
         "retry_after_messages": 10
     },
+    // ===== Think System Configuration =====
+    // Leader-only think tool/prompt injection via ThinkPlugin
+    "think_system": {
+        "enabled": true
+    },
     // ===== Task System Configuration =====
     // Modal workflow tools (task_boundary, notify_user) for structured agent tasks
     "task_system": {
         // Enable the task system (injects TaskToolSet into primary agent)
         "enabled": true
+    },
+    // ===== Delegation Configuration =====
+    "delegation": {
+        // If true, call_agent may fork the parent's optimized history into
+        // the child agent. Disabled by default so delegated children only
+        // receive the explicit instruction from the parent.
+        "fork_context": false
     },
     // ===== Long-Term Memory System Configuration =====
     // Cross-session persistent memory with LLM-based selection and dream consolidation

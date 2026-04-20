@@ -9,7 +9,6 @@ Responsibilities:
 - Vector retrieval (hybrid search + reranking)
 """
 
-import os
 import asyncio
 from pathlib import Path
 from typing import List, Dict, Any, TYPE_CHECKING
@@ -99,9 +98,9 @@ class VectorStoreBackend:
                 logger.info(f"Qdrant client initialized (local mode) at: {location}")
 
             # 2. Initialize embedding model
-            from pantheon.utils.llm_providers import get_llm_config, ProviderType
+            from pantheon.utils.llm_providers import get_openai_effective_config
 
-            api_base, api_key = get_llm_config(ProviderType.OPENAI)
+            api_base, api_key = get_openai_effective_config()
             embed_kwargs = {
                 "model": self.embedding_config["model"],
                 "api_key": api_key,

@@ -1745,7 +1745,30 @@ class IntegratedNotebookToolSet(ToolSet):
                             image_uris.append(f"data:{mime};base64,{img_b64}")
             if image_uris:
                 exec_result["base64_uri"] = image_uris
+                # Always hide the raw base64 URIs from the model in the JSON
+                # text summary (token budget); native-mode image visibility is
+                # handled via content_blocks below.
                 exec_result["hidden_to_model"] = ["base64_uri"]
+
+                # Opt into native multimodal tool_result when the active
+                # model supports images in tool messages. The agent framework
+                # will merge the rest of exec_result (cell_id, outputs,
+                # execution_count, memory_hint, ...) as a text summary with
+                # these image blocks automatically — no per-tool summariser
+                # needed.
+                try:
+                    from pantheon.agent import get_current_run_model
+                    from pantheon.utils.vision_capability import (
+                        supports_tool_result_image,
+                    )
+
+                    if supports_tool_result_image(get_current_run_model()):
+                        exec_result["content_blocks"] = [
+                            {"type": "image_url", "image_url": {"url": uri}}
+                            for uri in image_uris
+                        ]
+                except Exception as e:
+                    logger.debug(f"notebook native-image routing failed: {e}")
 
             return exec_result
 

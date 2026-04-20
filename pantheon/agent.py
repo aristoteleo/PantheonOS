@@ -8,7 +8,7 @@ import sys
 import time
 from abc import ABC, abstractmethod
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 from uuid import uuid4
 
@@ -34,11 +34,11 @@ from .utils.llm import (
     process_tool_result,
 )
 from .utils.llm_providers import (
+    ProviderType,
     call_llm_provider,
     create_enhanced_process_chunk,
     detect_provider,
-    get_api_key_for_provider,
-    get_base_url,
+    get_openai_effective_config,
 )
 from .utils.log import logger
 from .utils.misc import desc_to_openai_dict, run_func
@@ -206,6 +206,11 @@ class AgentRunContext:
     cache_safe_tool_definitions: list[dict] | None = None
     context_collapse_manager: Any | None = None
     current_model: str | None = None
+    # Maps a call_agent tool_call_id → the child's execution_context_id so the
+    # eventual tool_message can be stamped with it. Lets the UI link a
+    # call_agent response back to the exact sub-agent invocation, even when
+    # the parent launches multiple parallel calls to the same agent name.
+    sub_agent_exec_ids: dict[str, str] = field(default_factory=dict)
 
 
 _RUN_CONTEXT: ContextVar[AgentRunContext | None] = ContextVar(
@@ -543,11 +548,6 @@ def _apply_injections(message: dict, injections: list[dict]) -> None:
 
 
 
-def think(thought: str) -> str:
-    """Use this tool to think step-by-step before acting. It records your reasoning without taking any action or obtaining new information. Use it to analyze tool outputs, plan multi-step approaches, verify compliance with instructions, or reconsider your strategy."""
-    return "Thought recorded."
-
-
 class Agent:
     """
     The Agent class is the core component of Pantheon,
@@ -574,7 +574,6 @@ class Agent:
         relaxed_schema: Use relaxed (non-strict) tool schema mode. (default: False)
         max_tool_content_length: The maximum length of the tool content. (default: 100000)
         description: The description of the agent. (default: None)
-        think_tool: Whether to enable the think tool for structured reasoning. (default: False)
     """
 
     def __init__(
@@ -592,7 +591,6 @@ class Agent:
         relaxed_schema: bool = False,
         max_tool_content_length: int | None = None,
         description: str | None = None,
-        think_tool: bool = False,
     ):
         # Parse +think suffix before any processing
         thinking_level: str | None = None
@@ -633,9 +631,6 @@ class Agent:
         if tools:
             for func in tools:
                 self.tool(func)
-
-        if think_tool:
-            self.tool(think, key="think")
 
         self.response_format = response_format
         self.use_memory = use_memory
@@ -1456,6 +1451,16 @@ class Agent:
                 },
             }
 
+            # Stamp the child's execution_context_id if this was a call_agent
+            # invocation. The PantheonTeam.call_agent closure records the
+            # (tool_call_id → child_exec_id) mapping on run_context when it
+            # spawns the sub-agent.
+            _run_ctx = _RUN_CONTEXT.get()
+            if _run_ctx is not None and tool_call_id:
+                _child_exec_id = _run_ctx.sub_agent_exec_ids.pop(tool_call_id, None)
+                if _child_exec_id:
+                    tool_message["execution_context_id"] = _child_exec_id
+
             if isinstance(result, (Agent, RemoteAgent)):
                 tool_message.update(
                     {
@@ -1471,17 +1476,84 @@ class Agent:
                     # Merge instead of overwrite to preserve all metadata fields
                     tool_message["_metadata"].update(tool_metadata)
 
-                # Process and truncate tool result in one step
-                content = process_tool_result(
-                    result,
-                    max_length=self.max_tool_content_length,
-                    tool_name=func_name,
-                )
-                
-                tool_message.update({
-                    "raw_content": result,  # Now without _metadata
-                    "content": content,
-                })
+                # Native multimodal content opt-in (content_blocks):
+                # When a tool returns `result["content_blocks"]` as a list of
+                # OpenAI-style content blocks containing at least one image,
+                # the framework merges structured JSON data + the blocks into
+                # a single multimodal tool_result. This lets the adapter layer
+                # carry images natively to providers that support it.
+                #
+                # Design:
+                #   - Tool keeps its normal dict fields (cell_id, success, ...).
+                #   - Tool sets `content_blocks` ONLY when it wants native
+                #     images AND has verified provider capability.
+                #   - Framework strips `content_blocks` from the dict, turns
+                #     the remainder into a text summary via the usual
+                #     process_tool_result path (preserving hidden_to_model
+                #     filtering), and prepends that text to the blocks.
+                native_blocks = None
+                if isinstance(result, dict):
+                    maybe_blocks = result.get("content_blocks")
+                    if isinstance(maybe_blocks, list) and any(
+                        isinstance(b, dict) and b.get("type") == "image_url"
+                        for b in maybe_blocks
+                    ):
+                        native_blocks = maybe_blocks
+
+                if native_blocks is not None:
+                    # Peel content_blocks out so the JSON summary doesn't
+                    # also contain the image payload in text form.
+                    structured_result = {
+                        k: v for k, v in result.items() if k != "content_blocks"
+                    }
+                    text_summary = process_tool_result(
+                        structured_result,
+                        max_length=self.max_tool_content_length,
+                        tool_name=func_name,
+                    )
+                    merged_blocks: list[dict] = []
+                    if text_summary:
+                        merged_blocks.append({
+                            "type": "text",
+                            "text": (
+                                text_summary
+                                if isinstance(text_summary, str)
+                                else str(text_summary)
+                            ),
+                        })
+                    merged_blocks.extend(native_blocks)
+
+                    # Run the merged content through ImageStore so base64
+                    # data URIs are persisted to disk and replaced with
+                    # file:// references (same memory-efficiency trick used
+                    # for user input images).
+                    try:
+                        from .utils.vision import get_image_store
+
+                        image_store = get_image_store()
+                        chat_id = self.memory.id if self.memory else "default"
+                        tmp = {"content": merged_blocks}
+                        image_store.process_message_images(tmp, chat_id)
+                        merged_blocks = tmp["content"]
+                    except Exception as e:
+                        logger.debug(f"ImageStore processing failed: {e}")
+
+                    tool_message.update({
+                        "raw_content": result,
+                        "content": merged_blocks,
+                    })
+                else:
+                    # Process and truncate tool result in one step
+                    content = process_tool_result(
+                        result,
+                        max_length=self.max_tool_content_length,
+                        tool_name=func_name,
+                    )
+
+                    tool_message.update({
+                        "raw_content": result,  # Now without _metadata
+                        "content": content,
+                    })
 
 
             return tool_message
@@ -1594,29 +1666,15 @@ class Agent:
         # Step 2: Detect provider and get configuration
         provider_config = detect_provider(model, self.relaxed_schema)
 
-        # Step 3: Get base URL and API key from environment if available
-        # Skip if detect_provider already set them (e.g. OpenAI-compatible providers)
-        using_universal_base = False
-        if not provider_config.base_url:
-            base_url = get_base_url(provider_config.provider_type)
-            if base_url:
-                provider_config.base_url = base_url
-                # Check if base_url came from LLM_API_BASE (universal fallback)
-                from pantheon.settings import get_settings
-                provider_env = f"{provider_config.provider_type.value.upper()}_API_BASE"
-                if not get_settings().get_api_key(provider_env):
-                    using_universal_base = True
-        if not provider_config.api_key:
-            if using_universal_base:
-                # Universal proxy: prefer LLM_API_KEY over provider-specific key
-                from pantheon.settings import get_settings
-                api_key = get_settings().get_api_key("LLM_API_KEY")
-                if not api_key:
-                    api_key = get_api_key_for_provider(provider_config.provider_type)
-            else:
-                api_key = get_api_key_for_provider(provider_config.provider_type)
-            if api_key:
-                provider_config.api_key = api_key
+        # Step 3: Seed OpenAI-routed config from settings when available.
+        # Native provider-specific Base URL / API key resolution is finalized
+        # inside pantheon.utils.llm.acompletion() using the provider registry.
+        if provider_config.provider_type == ProviderType.OPENAI:
+            effective_base, effective_key = get_openai_effective_config()
+            if not provider_config.base_url and effective_base:
+                provider_config.base_url = effective_base
+            if not provider_config.api_key and effective_key:
+                provider_config.api_key = effective_key
 
         # Step 4: Get unified tools (base functions + provider tools)
         tools = None

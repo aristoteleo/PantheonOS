@@ -85,6 +85,7 @@ def _ensure_plugins_registered() -> None:
     This is idempotent — modules are only imported once by Python.
     """
     import pantheon.internal.task_system.plugin  # noqa: F401
+    import pantheon.internal.think_plugin  # noqa: F401
     import pantheon.internal.compression.plugin  # noqa: F401
     import pantheon.internal.memory_system.plugin  # noqa: F401
     import pantheon.internal.learning_system.plugin  # noqa: F401

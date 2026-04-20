@@ -532,6 +532,11 @@ def guard_empty_tool_results(messages: list[dict]) -> list[dict]:
 
     Mirrors CC's emptiness guard: some models emit a stop-sequence when
     they see an empty tool result.  Injecting ``[No output]`` prevents that.
+
+    Multimodal content: when ``content`` is a list of content blocks
+    (e.g. ``[{"type":"text",...}, {"type":"image_url",...}]`` produced by
+    the native-image tool_result path), treat it as non-empty so we don't
+    silently drop the image payload on the floor.
     """
     result: list[dict] = []
     for message in messages:
@@ -540,6 +545,13 @@ def guard_empty_tool_results(messages: list[dict]) -> list[dict]:
             continue
         content = message.get("content")
         if isinstance(content, str) and content.strip():
+            result.append(message)
+            continue
+        # Non-empty list of content blocks (text/image_url) is valid output.
+        if isinstance(content, list) and any(
+            isinstance(item, dict) and item.get("type") in ("text", "image_url")
+            for item in content
+        ):
             result.append(message)
             continue
         new_msg = dict(message)
@@ -2282,7 +2294,7 @@ def estimate_total_tokens_from_chars(messages: list[dict]) -> int:
 # Opt3: Prompt cache control markers
 # ---------------------------------------------------------------------------
 
-_ANTHROPIC_MODEL_PREFIXES = ("claude", "anthropic/", "custom_anthropic/")
+_ANTHROPIC_MODEL_PREFIXES = ("claude", "anthropic/")
 _QWEN_MODEL_PREFIXES = ("qwen", "zai/")
 
 

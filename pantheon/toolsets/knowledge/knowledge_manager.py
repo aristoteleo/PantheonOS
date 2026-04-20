@@ -83,12 +83,12 @@ class KnowledgeToolSet(ToolSet):
             metadata_config = self.knowledge_config.get("metadata", {})
             self._metadata_extractors = []
 
-            # Helper function to create LLM instance (supports custom API base + proxy)
+            # Helper function to create LLM instance using the effective OpenAI config.
             def _create_llm():
                 from llama_index.llms.openai import OpenAI
-                from pantheon.utils.llm_providers import get_llm_config, ProviderType
+                from pantheon.utils.llm_providers import get_openai_effective_config
 
-                api_base, api_key = get_llm_config(ProviderType.OPENAI)
+                api_base, api_key = get_openai_effective_config()
                 llm_kwargs = {
                     "model": "gpt-4o-mini",
                     "temperature": 0.1,

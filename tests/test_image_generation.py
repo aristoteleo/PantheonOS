@@ -68,7 +68,7 @@ class TestToolSetBasics:
         assert not image_toolset._is_multimodal_model("dall-e-3")
 
     @pytest.mark.asyncio
-    async def test_dalle_bypasses_proxy_and_uses_openai_provider(self, image_toolset, monkeypatch):
+    async def test_dalle_prefers_openai_provider_key_over_llm_fallback(self, image_toolset, monkeypatch):
         calls = {}
 
         class FakeAdapter:
@@ -81,9 +81,8 @@ class TestToolSetBasics:
                 )
 
         monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
-        monkeypatch.setenv("LLM_PROXY_ENABLED", "true")
-        monkeypatch.setenv("LLM_PROXY_URL", "https://proxy.example/v1")
-        monkeypatch.setenv("LLM_PROXY_KEY", "proxy-key")
+        monkeypatch.setenv("LLM_API_BASE", "https://proxy.example/v1")
+        monkeypatch.setenv("LLM_API_KEY", "proxy-key")
         monkeypatch.setattr(
             "pantheon.utils.adapters.get_adapter",
             lambda sdk: FakeAdapter(),
@@ -97,7 +96,152 @@ class TestToolSetBasics:
         assert result["success"] is True
         assert calls["model"] == "dall-e-3"
         assert calls["api_key"] == "test-openai-key"
-        assert calls["base_url"] == "https://api.openai.com/v1"
+        assert calls["base_url"] == "https://proxy.example/v1"
+
+    @pytest.mark.asyncio
+    async def test_dalle_uses_openai_provider_base_when_configured(self, image_toolset, monkeypatch):
+        calls = {}
+
+        class FakeAdapter:
+            async def aimage_generation(self, **kwargs):
+                calls.update(kwargs)
+                return SimpleNamespace(
+                    data=[SimpleNamespace(b64_json="ZmFrZQ==", url=None)],
+                    model="dall-e-3",
+                    usage=None,
+                )
+
+        monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+        monkeypatch.setenv("OPENAI_API_BASE", "https://openai-proxy.example/v1")
+        monkeypatch.delenv("LLM_API_BASE", raising=False)
+        monkeypatch.delenv("LLM_API_KEY", raising=False)
+        monkeypatch.setattr(
+            "pantheon.utils.adapters.get_adapter",
+            lambda sdk: FakeAdapter(),
+        )
+
+        result = await image_toolset.generate_image(
+            prompt="A yellow star on white background",
+            model="dall-e-3",
+        )
+
+        assert result["success"] is True
+        assert calls["model"] == "dall-e-3"
+        assert calls["api_key"] == "test-openai-key"
+        assert calls["base_url"] == "https://openai-proxy.example/v1"
+
+    @pytest.mark.asyncio
+    async def test_gemini_multimodal_uses_gemini_provider_base_when_configured(self, image_toolset, monkeypatch):
+        calls = {}
+
+        class FakeAdapter:
+            async def acompletion(self, **kwargs):
+                calls.update(kwargs)
+                return [
+                    {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {
+                                    "role": "assistant",
+                                    "content": "ok",
+                                    "images": [
+                                        {
+                                            "image_url": {
+                                                "url": "data:image/png;base64,ZmFrZQ=="
+                                            }
+                                        }
+                                    ],
+                                },
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "model": kwargs["model"],
+                    },
+                    {
+                        "usage": {
+                            "prompt_tokens": 1,
+                            "completion_tokens": 1,
+                            "total_tokens": 2,
+                        },
+                        "choices": [],
+                    },
+                ]
+
+        monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
+        monkeypatch.setenv("GEMINI_API_BASE", "https://gemini-proxy.example")
+        monkeypatch.delenv("LLM_API_BASE", raising=False)
+        monkeypatch.delenv("LLM_API_KEY", raising=False)
+        monkeypatch.setattr(
+            "pantheon.utils.adapters.get_adapter",
+            lambda sdk: FakeAdapter(),
+        )
+
+        result = await image_toolset.generate_image(
+            prompt="A simple red circle on white background",
+            model="gemini/gemini-2.5-flash-image",
+        )
+
+        assert result["success"] is True
+        assert calls["model"] == "gemini-2.5-flash-image"
+        assert calls["api_key"] == "gemini-key"
+        assert calls["base_url"] == "https://gemini-proxy.example"
+
+    @pytest.mark.asyncio
+    async def test_gemini_multimodal_uses_global_llm_base_as_fallback(self, image_toolset, monkeypatch):
+        calls = {}
+
+        class FakeAdapter:
+            async def acompletion(self, **kwargs):
+                calls.update(kwargs)
+                return [
+                    {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {
+                                    "role": "assistant",
+                                    "content": "ok",
+                                    "images": [
+                                        {
+                                            "image_url": {
+                                                "url": "data:image/png;base64,ZmFrZQ=="
+                                            }
+                                        }
+                                    ],
+                                },
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "model": kwargs["model"],
+                    },
+                    {
+                        "usage": {
+                            "prompt_tokens": 1,
+                            "completion_tokens": 1,
+                            "total_tokens": 2,
+                        },
+                        "choices": [],
+                    },
+                ]
+
+        monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
+        monkeypatch.setenv("LLM_API_BASE", "https://fallback.example/v1")
+        monkeypatch.delenv("GEMINI_API_BASE", raising=False)
+        monkeypatch.delenv("LLM_API_KEY", raising=False)
+        monkeypatch.setattr(
+            "pantheon.utils.adapters.get_adapter",
+            lambda sdk: FakeAdapter(),
+        )
+
+        result = await image_toolset.generate_image(
+            prompt="A simple red circle on white background",
+            model="gemini/gemini-2.5-flash-image",
+        )
+
+        assert result["success"] is True
+        assert calls["api_key"] == "gemini-key"
+        assert calls["base_url"] == "https://fallback.example/v1"
 
 
 # ============================================================================

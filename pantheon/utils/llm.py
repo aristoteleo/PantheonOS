@@ -231,13 +231,56 @@ def _convert_messages_to_responses_input(
                 })
 
         elif role == "tool":
+            # If tool content includes image_url blocks, emit a structured
+            # output array with input_text + input_image items. OpenAI's
+            # Responses API supports images in function_call_output.
+            output = _tool_output_for_responses(content)
             input_items.append({
                 "type": "function_call_output",
                 "call_id": msg.get("tool_call_id", ""),
-                "output": content or "",
+                "output": output,
             })
 
     return instructions, input_items
+
+
+def _tool_output_for_responses(content: Any) -> Any:
+    """Convert tool content to Responses API function_call_output format.
+
+    Returns either a plain string (no images) or a list of input_text /
+    input_image items (when images are present).
+    """
+    if isinstance(content, str):
+        return content or ""
+    if not isinstance(content, list):
+        return str(content or "")
+
+    from pantheon.utils.adapters.image_blocks import (
+        has_image_content,
+        split_text_and_images,
+    )
+
+    if not has_image_content(content):
+        text, _inline, _http = split_text_and_images(content)
+        return text or ""
+
+    text, inline_images, http_urls = split_text_and_images(content)
+    items: list[dict] = []
+    if text:
+        items.append({"type": "input_text", "text": text})
+    for mime, data in inline_images:
+        items.append({
+            "type": "input_image",
+            "detail": "auto",
+            "image_url": f"data:{mime};base64,{data}",
+        })
+    for url in http_urls:
+        items.append({
+            "type": "input_image",
+            "detail": "auto",
+            "image_url": url,
+        })
+    return items if items else ""
 
 
 def _convert_tools_for_responses(tools: list[dict] | None) -> list[dict] | None:
@@ -304,16 +347,14 @@ async def acompletion_responses(
     """
     from openai import AsyncOpenAI
     from .provider_registry import get_model_info, get_output_token_param
-    from .llm_providers import get_llm_proxy_config
+    from .llm_providers import get_openai_effective_config
 
     # ========== Build client ==========
-    _proxy_base, _proxy_key = get_llm_proxy_config()
-    if _proxy_base:
-        # Hub-deployed mode: route through LiteLLM proxy using virtual key.
-        # The proxy exposes /responses natively for OpenAI models.
-        client = AsyncOpenAI(base_url=_proxy_base, api_key=_proxy_key)
-    elif base_url:
-        client = AsyncOpenAI(base_url=base_url)
+    effective_base, effective_key = get_openai_effective_config()
+    if base_url:
+        client = AsyncOpenAI(base_url=base_url, api_key=effective_key or None)
+    elif effective_base:
+        client = AsyncOpenAI(base_url=effective_base, api_key=effective_key or None)
     else:
         client = AsyncOpenAI()
 
@@ -476,6 +517,7 @@ def stream_chunk_builder(chunks: list[dict]) -> Any:
 
     full_content = ""
     full_reasoning = ""
+    full_images: list = []
     tool_calls_map: dict[int, dict] = {}  # index → tool_call dict
     finish_reason = None
     usage = {}
@@ -508,6 +550,11 @@ def stream_chunk_builder(chunks: list[dict]) -> Any:
                 full_reasoning += delta["reasoning_content"]
             elif "reasoning" in delta and delta["reasoning"]:
                 full_reasoning += delta["reasoning"]
+
+            # Accumulate generated images (Gemini image models emit these via
+            # the gemini adapter; downstream image_gen reads message.images).
+            if "images" in delta and delta["images"]:
+                full_images.extend(delta["images"])
 
             # Accumulate role
             if "role" in delta and delta["role"]:
@@ -571,12 +618,15 @@ def stream_chunk_builder(chunks: list[dict]) -> Any:
         content=effective_content,
         tool_calls=final_tool_calls,
         reasoning_content=full_reasoning or None,
+        images=full_images or None,
     )
 
     def message_model_dump():
         d = {"role": message.role, "content": message.content, "tool_calls": message.tool_calls}
         if message.reasoning_content:
             d["reasoning_content"] = message.reasoning_content
+        if message.images:
+            d["images"] = message.images
         return d
     message.model_dump = message_model_dump
 
@@ -619,15 +669,13 @@ async def acompletion(
 
     Two modes of operation:
 
-    1. PROXY MODE (Hub-launched agents):
-       - LLM_API_BASE is set to the LiteLLM proxy URL
-       - Provider API keys are set to the user's virtual key
-       - All calls route through the OpenAI-compatible proxy
+    1. PROVIDER MODE:
+       - The requested provider has explicit credentials configured
+       - Calls use the provider's native or OpenAI-compatible adapter as usual
 
-    2. STANDALONE MODE (agents running independently):
-       - LLM_API_BASE not set
-       - Falls back to reading real API keys from environment variables
-       - Uses native SDK adapters (openai, anthropic, google-genai)
+    2. OPENAI-COMPATIBLE FALLBACK MODE:
+       - ``LLM_API_BASE`` + ``LLM_API_KEY`` are configured
+       - OpenAI models use that fallback endpoint instead of the official base URL
     """
     from .provider_registry import (
         find_provider_for_model,
@@ -637,7 +685,13 @@ async def acompletion(
         get_output_token_param,
     )
     from .adapters import get_adapter
-    from .llm_providers import get_llm_proxy_config
+    from .llm_providers import (
+        get_openai_effective_config,
+        get_openai_fallback_config,
+        get_provider_api_key,
+        get_provider_base_url,
+        resolve_provider_base_url,
+    )
 
     logger.debug(f"[ACOMPLETION] Starting LLM call | Model={model}")
 
@@ -663,22 +717,29 @@ async def acompletion(
             pass  # Fall through to provider default
 
     # ========== Mode Detection & Configuration ==========
-    _proxy_base, _proxy_key = get_llm_proxy_config()
+    openai_effective_base, openai_effective_key = get_openai_effective_config()
+    fallback_base, fallback_key = get_openai_fallback_config()
     oauth_client_kwargs = None
-    if _proxy_base:
-        # Proxy mode: LLM_API_BASE is set — all calls go through the
-        # OpenAI-compatible LiteLLM proxy.  Force OpenAI SDK for every
-        # provider (Anthropic, Gemini, etc.) so the proxy receives a
-        # standard /v1/chat/completions request with the full model string.
-        effective_base_url = _proxy_base
-        effective_api_key = _proxy_key
+    openai_specific_base = base_url or get_provider_base_url("openai")
+    openai_specific_key = api_key or get_provider_api_key(
+        provider_key,
+        provider_config.get("api_key_env"),
+    )
+
+    if fallback_base and provider_key == "openai" and not openai_specific_base and not openai_specific_key:
+        # Universal fallback is intentionally OpenAI-compatible only.
+        # Keep the model string intact so custom OpenAI-compatible backends
+        # can receive models outside the built-in catalog (for example openai/modelb).
+        effective_base_url = fallback_base
+        effective_api_key = fallback_key
         sdk_type = "openai"
-        effective_model = model  # pass full "provider/model" string to proxy
-        # Normalize provider-specific token param names to OpenAI-compatible.
-        # e.g. Gemini uses max_output_tokens, but the OpenAI SDK only accepts
-        # max_tokens / max_completion_tokens.
+        effective_model = model_name
         if "max_output_tokens" in model_params:
             model_params["max_tokens"] = model_params.pop("max_output_tokens")
+    elif provider_key == "openai":
+        effective_base_url = openai_specific_base or openai_effective_base or provider_config.get("base_url")
+        effective_api_key = openai_specific_key or openai_effective_key
+        effective_model = model_name
     elif sdk_type == "codex":
         # Codex OAuth: get access token from OAuth manager
         from .oauth import CodexOAuthManager
@@ -716,22 +777,24 @@ async def acompletion(
             ) from e
         effective_model = model_name
     elif provider_key == "gemini" or sdk_type == "google-genai":
-        effective_base_url = base_url or provider_config.get("base_url")
-        effective_api_key = api_key
-        if not effective_api_key:
-            import os
-            api_key_env = provider_config.get("api_key_env", "")
-            if api_key_env:
-                effective_api_key = os.environ.get(api_key_env, "")
+        effective_base_url = (
+            base_url
+            or resolve_provider_base_url(provider_key, provider_config.get("base_url"))
+        )
+        effective_api_key = api_key or get_provider_api_key(
+            provider_key,
+            provider_config.get("api_key_env"),
+        )
         effective_model = model_name
     else:
-        effective_base_url = base_url or provider_config.get("base_url")
-        effective_api_key = api_key
-        if not effective_api_key:
-            import os
-            api_key_env = provider_config.get("api_key_env", "")
-            if api_key_env:
-                effective_api_key = os.environ.get(api_key_env, "")
+        effective_base_url = (
+            base_url
+            or resolve_provider_base_url(provider_key, provider_config.get("base_url"))
+        )
+        effective_api_key = api_key or get_provider_api_key(
+            provider_key,
+            provider_config.get("api_key_env"),
+        )
         # Local providers (Ollama) don't need a real API key
         if not effective_api_key and provider_config.get("local"):
             effective_api_key = "ollama"
@@ -1115,7 +1178,7 @@ def process_messages_for_hook_func(messages: list[dict]) -> list[dict]:
 async def openai_embedding(
     texts: list[str], model: str = "text-embedding-3-large"
 ) -> list[list[float]]:
-    """Get embeddings (with proxy support).
+    """Get embeddings using the effective OpenAI-routed configuration.
 
     Args:
         texts: List of texts to embed
@@ -1125,16 +1188,16 @@ async def openai_embedding(
         List of embedding vectors
     """
     from .adapters import get_adapter
-    from .llm_providers import get_llm_proxy_config
+    from .llm_providers import get_openai_effective_config
 
-    _proxy_base, _proxy_key = get_llm_proxy_config()
+    api_base, api_key = get_openai_effective_config()
     adapter = get_adapter("openai")
 
     return await adapter.aembedding(
         model=model,
         input=texts,
-        base_url=_proxy_base or None,
-        api_key=_proxy_key or None,
+        base_url=api_base or None,
+        api_key=api_key or None,
     )
 
 

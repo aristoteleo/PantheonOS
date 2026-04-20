@@ -132,6 +132,42 @@ async def test_subagent_can_delegate_to_non_ancestor(monkeypatch):
     assert result == "review complete"
 
 
+@pytest.mark.asyncio
+async def test_call_agent_without_fork_passes_raw_instruction(monkeypatch):
+    coordinator = Agent(name="omicverse_leader", instructions="lead", model=TEST_MODEL)
+    expert = Agent(name="omicverse_expert", instructions="expert", model=TEST_MODEL)
+    reviewer = Agent(name="omicverse_reviewer", instructions="review", model=TEST_MODEL)
+    team = PantheonTeam(agents=[coordinator, expert, reviewer])
+    await team.async_setup()
+
+    captured = {}
+
+    async def fake_run(task_message, **kwargs):
+        captured["task_message"] = task_message
+        captured["context_variables"] = kwargs["context_variables"]
+        return SimpleNamespace(content="review complete")
+
+    monkeypatch.setattr(reviewer, "run", fake_run)
+
+    token = _RUN_CONTEXT.set(
+        AgentRunContext(
+            agent=expert,
+            memory=None,
+        )
+    )
+    try:
+        result = await expert.functions["call_agent"](
+            agent_name="omicverse_reviewer",
+            instruction="review this plan",
+        )
+    finally:
+        _RUN_CONTEXT.reset(token)
+
+    assert result == "review complete"
+    assert captured["task_message"] == "review this plan"
+    assert "_cache_safe_fork_context_messages" not in captured["context_variables"]
+
+
 # ============ Test 1: Transfer between team agents ============
 
 @pytest.mark.asyncio

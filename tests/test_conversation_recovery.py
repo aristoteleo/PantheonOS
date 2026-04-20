@@ -183,6 +183,26 @@ def test_session_storage_metadata_and_adopted_file_pointer():
     assert state["sessionFile"]["adopted"] is True
 
 
+def test_restoreSessionMetadata_preserves_auto_renamed_name():
+    """Regression: once a chat is auto-renamed (name_generated=True), a stale
+    customTitle must not clobber memory.name on the next turn. Sync should go
+    the other way — customTitle follows memory.name."""
+    memory = Memory("👋Simple Greeting")
+    memory.extra_data["name_generated"] = True
+    # Pre-seed stale session_storage like what would be on disk after msg 1
+    # completed before the customTitle-sync fix landed.
+    memory.extra_data["session_storage"] = {
+        "metadata": {"customTitle": "New Chat"},
+    }
+
+    # Simulate turn-2 loadConversationForResume returning the stale title.
+    restoreSessionMetadata({"customTitle": "New Chat"}, memory=memory)
+
+    assert memory.name == "👋Simple Greeting"
+    state = getSessionStorageState(memory)
+    assert state["metadata"]["customTitle"] == "👋Simple Greeting"
+
+
 async def test_processResumedConversation_restores_worktree_and_metadata(tmp_path):
     original_cwd = os.getcwd()
     original_dir = tmp_path / "orig"

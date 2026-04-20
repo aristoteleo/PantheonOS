@@ -238,3 +238,4 @@ examples/code_distillation/data/*.npz
 .uploaded_files/
 *.aux
 .claude/worktrees/
+.worktrees/

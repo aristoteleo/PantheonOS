@@ -14,97 +14,119 @@ Usage:
     models = selector.resolve_model("high,vision")  # Quality + capability combo
 """
 
-from dataclasses import dataclass
+import time
 from typing import TYPE_CHECKING
 
 from .log import logger
 
 
 def _load_custom_models_config() -> dict:
-    """Load user-defined custom models from .pantheon/custom_models.json."""
-    import json
-    try:
-        from pantheon.settings import get_settings
-        p = get_settings().pantheon_dir / "custom_models.json"
-        if p.exists():
-            data = json.loads(p.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                return data
-    except Exception:
-        pass
+    """Deprecated custom model config loader kept as a no-op for compatibility."""
     return {}
 
 if TYPE_CHECKING:
     from pantheon.settings import Settings
 
 
-# ============ Custom Endpoint Configuration ============
+# Deprecated custom endpoint registry kept empty so older imports remain safe.
+CUSTOM_ENDPOINT_ENVS: dict[str, object] = {}
 
-@dataclass
-class CustomEndpointConfig:
-    """Configuration for custom API endpoints (e.g., custom Anthropic/OpenAI proxies)."""
-    provider_key: str      # e.g., "custom_anthropic"
-    display_name: str      # e.g., "Custom Anthropic"
-    api_key_env: str       # e.g., "CUSTOM_ANTHROPIC_API_KEY"
-    api_base_env: str      # e.g., "CUSTOM_ANTHROPIC_API_BASE"
-    model_env: str         # e.g., "CUSTOM_ANTHROPIC_MODEL"
-
-
-# Custom endpoint environment variable configurations
-CUSTOM_ENDPOINT_ENVS: dict[str, CustomEndpointConfig] = {
-    "custom_anthropic": CustomEndpointConfig(
-        provider_key="custom_anthropic",
-        display_name="Custom Anthropic",
-        api_key_env="CUSTOM_ANTHROPIC_API_KEY",
-        api_base_env="CUSTOM_ANTHROPIC_API_BASE",
-        model_env="CUSTOM_ANTHROPIC_MODEL",
-    ),
-    "custom_openai": CustomEndpointConfig(
-        provider_key="custom_openai",
-        display_name="Custom OpenAI",
-        api_key_env="CUSTOM_OPENAI_API_KEY",
-        api_base_env="CUSTOM_OPENAI_API_BASE",
-        model_env="CUSTOM_OPENAI_MODEL",
-    ),
-}
+SAVED_MODEL_PROVIDERS = ("openai", "anthropic", "gemini")
 
 # Sentinel object for negative cache (better than empty string)
 _NOT_FOUND = object()
 
 # ============ Local Provider Detection ============
 
-_ollama_cache: dict | None = None
-_ollama_cache_time: float = 0
+_OLLAMA_BASE_URL = "http://localhost:11434"
+_OLLAMA_CACHE_TTL_SECONDS = 30
+_ollama_available = False
+_ollama_models: list[str] = []
+_ollama_last_checked = 0.0
 
 
-def _detect_ollama(base_url: str = "http://localhost:11434") -> bool:
-    """Check if Ollama is running locally."""
+def get_ollama_cached_state() -> tuple[bool, list[str]]:
+    return _ollama_available, list(_ollama_models)
+
+
+async def fetch_ollama_status(
+    base_url: str = _OLLAMA_BASE_URL,
+) -> tuple[bool, list[str]]:
     try:
         import httpx
-        resp = httpx.get(f"{base_url}/api/tags", timeout=2)
-        return resp.is_success
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{base_url}/api/tags", timeout=2.0)
+        if not resp.is_success:
+            return False, []
+        models = [m["name"] for m in resp.json().get("models", [])]
+        return True, models
     except Exception:
-        return False
+        return False, []
 
 
-def _list_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
-    """List available models from local Ollama instance (cached 30s)."""
-    import time
-    global _ollama_cache, _ollama_cache_time
-    if _ollama_cache is not None and time.time() - _ollama_cache_time < 30:
-        return _ollama_cache
+async def refresh_ollama_cache(
+    force: bool = False, base_url: str = _OLLAMA_BASE_URL
+) -> tuple[bool, list[str]]:
+    global _ollama_available, _ollama_models, _ollama_last_checked
 
-    try:
-        import httpx
-        resp = httpx.get(f"{base_url}/api/tags", timeout=5)
-        if resp.is_success:
-            models = [m["name"] for m in resp.json().get("models", [])]
-            _ollama_cache = models
-            _ollama_cache_time = time.time()
-            return models
-    except Exception:
-        pass
-    return []
+    now = time.time()
+    if (
+        not force
+        and _ollama_last_checked > 0
+        and now - _ollama_last_checked < _OLLAMA_CACHE_TTL_SECONDS
+    ):
+        return get_ollama_cached_state()
+
+    available, models = await fetch_ollama_status(base_url)
+    _ollama_available = available
+    _ollama_models = list(models)
+    _ollama_last_checked = time.time()
+    return get_ollama_cached_state()
+
+
+def reset_ollama_cache() -> None:
+    global _ollama_available, _ollama_models, _ollama_last_checked
+    _ollama_available = False
+    _ollama_models = []
+    _ollama_last_checked = 0.0
+
+
+def normalize_saved_models(raw: object) -> dict[str, list[str]]:
+    """Normalize ``models.saved_models`` into provider -> bare model names."""
+    normalized: dict[str, list[str]] = {provider: [] for provider in SAVED_MODEL_PROVIDERS}
+    if not isinstance(raw, dict):
+        return normalized
+
+    for provider in SAVED_MODEL_PROVIDERS:
+        seen: set[str] = set()
+        values = raw.get(provider, [])
+        if not isinstance(values, list):
+            continue
+        for item in values:
+            if not isinstance(item, str):
+                continue
+            model_name = item.strip()
+            if not model_name:
+                continue
+            prefix = f"{provider}/"
+            if model_name.startswith(prefix):
+                model_name = model_name[len(prefix):]
+            if model_name and model_name not in seen:
+                normalized[provider].append(model_name)
+                seen.add(model_name)
+
+    return normalized
+
+
+def get_saved_models(settings: "Settings") -> dict[str, list[str]]:
+    """Read normalized saved model names from settings."""
+    return normalize_saved_models(settings.get("models.saved_models", {}))
+
+
+def prefix_saved_models(provider: str, model_names: list[str]) -> list[str]:
+    """Return provider-prefixed model ids for saved model names."""
+    return [f"{provider}/{name}" for name in model_names if name]
 
 # ============ Default Configuration ============
 # Built-in defaults based on February 2026 flagship models
@@ -279,7 +301,7 @@ PROVIDER_API_KEYS = {
     "qwen": "DASHSCOPE_API_KEY",
     "codex": "",  # OAuth-based, no env var key
     "gemini-cli": "",  # OAuth-based, no env var key
-    "ollama": "",  # Local, no env var key — detected by _detect_ollama()
+    "ollama": "",  # Local, no env var key — exposed when cached Ollama status is available
 }
 
 # ============ Image Generation Model Defaults ============
@@ -321,26 +343,18 @@ class ModelSelector:
         if self._available_providers is not None:
             return self._available_providers
 
-        import os
+        from pantheon.settings import get_settings
+
+        settings = get_settings()
 
         self._available_providers = set()
 
         for provider, env_key in PROVIDER_API_KEYS.items():
-            api_key_value = os.environ.get(env_key, "")
+            if not env_key:
+                continue
+            api_key_value = settings.get_api_key(env_key) or ""
             if api_key_value:
                 self._available_providers.add(provider)
-
-        # Check custom endpoint keys (env var or settings.json)
-        from pantheon.settings import get_settings
-        settings = get_settings()
-        for provider_key, config in CUSTOM_ENDPOINT_ENVS.items():
-            if os.environ.get(config.api_key_env, "") or settings.get_api_key(config.api_key_env):
-                self._available_providers.add(provider_key)
-
-        # Check user-defined custom models from custom_models.json
-        custom_models = _load_custom_models_config()
-        if custom_models:
-            self._available_providers.add("custom")
 
         # Check OAuth providers (e.g., Codex, Gemini CLI)
         try:
@@ -352,23 +366,15 @@ class ModelSelector:
         except Exception:
             pass
 
-        # Check local Ollama
-        try:
-            from pantheon.utils.model_selector import _detect_ollama
-            if _detect_ollama():
-                self._available_providers.add("ollama")
-        except Exception:
-            pass
+        # Ollama is refreshed by async chatroom code; selector only reads cached state.
+        ollama_available, _ = get_ollama_cached_state()
+        if ollama_available:
+            self._available_providers.add("ollama")
 
-        # Universal proxy: LLM_API_KEY makes openai provider available
-        # (most third-party proxies are OpenAI-compatible)
-        # Note: LLM_API_BASE is deprecated, warn user to use custom endpoints instead
-        if not self._available_providers and os.environ.get("LLM_API_KEY", ""):
-            if os.environ.get("LLM_API_BASE", ""):
-                logger.warning(
-                    "LLM_API_BASE is deprecated. Consider using CUSTOM_OPENAI_API_BASE or "
-                    "CUSTOM_ANTHROPIC_API_BASE for better control over custom endpoints."
-                )
+        # Universal OpenAI-compatible fallback: expose OpenAI when fallback is configured.
+        llm_base = settings.get_api_key("LLM_API_BASE") or ""
+        llm_key = settings.get_api_key("LLM_API_KEY") or ""
+        if llm_base and llm_key:
             self._available_providers.add("openai")
 
         return self._available_providers
@@ -377,16 +383,13 @@ class ModelSelector:
         """Detect first available provider based on API keys.
 
         Priority:
-        1. Custom endpoints (if configured with model) - highest priority
-        2. User-configured priority list
-        3. Code default priority list
-        4. Any other available provider
+        1. User-configured priority list
+        2. Code default priority list
+        3. Any other available provider
 
         Returns:
             Provider name if found, None otherwise
         """
-        import os
-
         if self._detected_provider is not None:
             return self._detected_provider
 
@@ -396,30 +399,21 @@ class ModelSelector:
             logger.warning("No LLM providers detected from environment API keys")
             return None
 
-        # 1. Check custom endpoints first (highest priority if model is configured)
-        for provider_key, config in CUSTOM_ENDPOINT_ENVS.items():
-            if provider_key in available:
-                model = os.environ.get(config.model_env, "")
-                if model:
-                    self._detected_provider = provider_key
-                    logger.info(f"Selected custom endpoint '{provider_key}' with model '{model}'")
-                    return provider_key
-
-        # 2. Priority: user config > code defaults
+        # 1. Priority: user config > code defaults
         priority = self.settings.get(
             "models.provider_priority", DEFAULT_PROVIDER_PRIORITY
         )
 
-        # 3. Check priority list
+        # 2. Check priority list
         for provider in priority:
             if provider in available:
                 self._detected_provider = provider
                 logger.info(f"Selected provider '{provider}' from priority list")
                 return provider
 
-        # 4. Check any available provider not in priority list (excluding custom endpoints without model)
+        # 3. Check any available provider not in priority list
         for provider in available:
-            if provider not in priority and provider not in CUSTOM_ENDPOINT_ENVS:
+            if provider not in priority:
                 self._detected_provider = provider
                 logger.info(
                     f"Selected provider '{provider}' (not in priority list, "
@@ -440,28 +434,9 @@ class ModelSelector:
         Returns:
             Dict mapping quality levels to model lists
         """
-        # Custom endpoints: use the configured model from env var or settings
-        if provider in CUSTOM_ENDPOINT_ENVS:
-            import os
-            from pantheon.settings import get_settings
-            config = CUSTOM_ENDPOINT_ENVS[provider]
-            model = os.environ.get(config.model_env, "") or get_settings().get_api_key(config.model_env) or ""
-            if model:
-                prefixed = f"{provider}/{model}"
-                return {"high": [prefixed], "normal": [prefixed], "low": [prefixed]}
-            return {}
-
-        # User-defined custom models from custom_models.json
-        if provider == "custom":
-            custom_models = _load_custom_models_config()
-            if custom_models:
-                prefixed = [f"custom/{name}" for name in custom_models]
-                return {"high": prefixed, "normal": prefixed, "low": prefixed}
-            return {}
-
-        # Ollama: dynamically list local models
+        # Ollama models are maintained by a background refresh so this stays non-blocking.
         if provider == "ollama":
-            models = _list_ollama_models()
+            _available, models = get_ollama_cached_state()
             if models:
                 prefixed = [f"ollama/{m}" for m in models]
                 return {"high": prefixed, "normal": prefixed, "low": prefixed}
@@ -569,8 +544,7 @@ class ModelSelector:
         Supports:
         - Quality tags: "high", "normal", "low"
         - Capability tags: "vision", "reasoning", "tools", etc.
-        - Custom tag: "custom" - uses custom endpoint model if configured
-        - Combinations: "high,vision", "low,reasoning", "custom,vision"
+        - Combinations: "high,vision", "low,reasoning"
 
         Args:
             tag: Single tag or comma-separated tags (e.g., "normal", "high,vision")
@@ -578,19 +552,8 @@ class ModelSelector:
         Returns:
             List of models as fallback chain, can be passed directly to Agent(model=...)
         """
-        import os
-
         # Parse tags
         tags = [t.strip().lower() for t in tag.split(",")]
-
-        # Check if explicitly requesting custom model
-        # Custom endpoint models only activate when "custom" tag is used
-        if "custom" in tags:
-            for provider_key, config in CUSTOM_ENDPOINT_ENVS.items():
-                model = os.environ.get(config.model_env, "")
-                if model:
-                    logger.info(f"Using custom model: {provider_key}/{model}")
-                    return [f"{provider_key}/{model}"]
 
         provider = self._detected_provider or self.detect_available_provider()
         if not provider:
@@ -598,36 +561,6 @@ class ModelSelector:
                 f"No provider available, using fallback model: {ULTIMATE_FALLBACK}"
             )
             return [ULTIMATE_FALLBACK]
-
-        # Check if provider is a custom endpoint
-        # Note: Custom endpoints should ONLY be used when "custom" tag is explicitly requested
-        # (handled above at lines 445-450). Skip auto-selection for custom endpoint providers.
-        if provider in CUSTOM_ENDPOINT_ENVS:
-            # Find next available non-custom provider
-            available = self._get_available_providers()
-            priority = self.settings.get("models.provider_priority", DEFAULT_PROVIDER_PRIORITY)
-            fallback_found = False
-            for fallback_provider in priority:
-                if fallback_provider in available and fallback_provider not in CUSTOM_ENDPOINT_ENVS:
-                    provider = fallback_provider
-                    fallback_found = True
-                    logger.info(
-                        f"Custom endpoint detected as default provider. "
-                        f"Falling back to '{provider}' for non-custom request."
-                    )
-                    break
-
-            if not fallback_found:
-                # No other provider available, use custom endpoint as fallback
-                config = CUSTOM_ENDPOINT_ENVS[provider]
-                model = os.environ.get(config.model_env, "")
-                if model:
-                    logger.info(
-                        f"No standard provider available. Using custom endpoint as fallback: "
-                        f"{provider}/{model}"
-                    )
-                    return [f"{provider}/{model}"]
-                return [ULTIMATE_FALLBACK]
 
         # Get provider configuration
         provider_models = self._get_provider_models(provider)
@@ -832,6 +765,7 @@ class ModelSelector:
 
         # Collect models for each available provider
         models_by_provider: dict[str, list[str]] = {}
+        saved_models = get_saved_models(self.settings)
         for provider in available_providers:
             provider_config = self._get_provider_models(provider)
             # Merge all quality levels and deduplicate while preserving order
@@ -845,6 +779,10 @@ class ModelSelector:
                     if model not in seen:
                         all_models.append(model)
                         seen.add(model)
+            for model in prefix_saved_models(provider, saved_models.get(provider, [])):
+                if model not in seen:
+                    all_models.append(model)
+                    seen.add(model)
             models_by_provider[provider] = all_models
 
         # Collect supported tags
@@ -855,7 +793,10 @@ class ModelSelector:
         reasoning_models: list[str] = []
         for provider_models in models_by_provider.values():
             for model in provider_models:
-                info = get_model_info(model)
+                try:
+                    info = get_model_info(model)
+                except Exception:
+                    info = {}
                 if info.get("supports_reasoning"):
                     reasoning_models.append(model)
 
@@ -894,6 +835,7 @@ def reset_model_selector() -> None:
     """Reset the global ModelSelector instance (for testing)."""
     global _selector_instance
     _selector_instance = None
+    reset_ollama_cache()
 
 
 def get_default_model() -> list[str]:
@@ -909,6 +851,10 @@ __all__ = [
     "ModelSelector",
     "get_model_selector",
     "reset_model_selector",
+    "reset_ollama_cache",
+    "fetch_ollama_status",
+    "refresh_ollama_cache",
+    "get_ollama_cached_state",
     "get_default_model",
     "PROVIDER_API_KEYS",
     "CAPABILITY_MAP",
@@ -919,5 +865,8 @@ __all__ = [
     "ULTIMATE_FALLBACK",
     "FALLBACK_TAG",
     "CUSTOM_ENDPOINT_ENVS",
-    "CustomEndpointConfig",
+    "SAVED_MODEL_PROVIDERS",
+    "normalize_saved_models",
+    "get_saved_models",
+    "prefix_saved_models",
 ]

@@ -3,7 +3,7 @@ Unit tests for the ModelSelector module.
 """
 
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -15,9 +15,12 @@ from pantheon.utils.model_selector import (
     FALLBACK_TAG,
     QUALITY_TAGS,
     ModelSelector,
+    get_ollama_cached_state,
     get_default_model,
     get_model_selector,
+    refresh_ollama_cache,
     reset_model_selector,
+    normalize_saved_models,
 )
 
 
@@ -124,6 +127,18 @@ class TestProviderDetection:
         ):
             result = selector.detect_available_provider()
             assert result == "deepseek"
+
+    def test_ollama_uses_cached_snapshot_without_sync_probe(self, mock_settings):
+        """Provider enumeration should only read cached Ollama state."""
+        selector = ModelSelector(mock_settings)
+
+        with patch(
+            "pantheon.utils.model_selector.get_ollama_cached_state",
+            return_value=(True, ["llama3.2"]),
+        ):
+            providers = selector._get_available_providers()
+
+        assert "ollama" in providers
 
 
 class TestModelResolution:
@@ -233,6 +248,21 @@ class TestUserConfiguration:
 
         models = selector._get_provider_models("openai")
         assert models["high"] == ["openai/custom-model-1"]
+
+    def test_normalize_saved_models_strips_prefixes_and_dedupes(self):
+        normalized = normalize_saved_models(
+            {
+                "openai": ["openai/gpt-4.1", "gpt-4.1", "gpt-4.1-mini", ""],
+                "anthropic": ["anthropic/claude-sonnet-4-20250514"],
+                "gemini": ["gemini-2.5-pro", None],
+            }
+        )
+
+        assert normalized == {
+            "openai": ["gpt-4.1", "gpt-4.1-mini"],
+            "anthropic": ["claude-sonnet-4-20250514"],
+            "gemini": ["gemini-2.5-pro"],
+        }
 
 
 class TestGetDefaultModel:
@@ -352,6 +382,69 @@ class TestModelListingDisplayKeys:
 
         assert "gemini" in result["models_by_provider"]
         assert "gemini-cli" in result["models_by_provider"]
+
+    def test_list_available_models_re_evaluates_cached_ollama_state(
+        self, mock_settings
+    ):
+        selector = ModelSelector(mock_settings)
+
+        with patch.object(
+            selector,
+            "_get_available_providers",
+            side_effect=[{"openai"}, {"openai", "ollama"}],
+        ), patch.object(
+            selector,
+            "detect_available_provider",
+            side_effect=["openai", "openai"],
+        ):
+            first = selector.list_available_models()
+            selector._available_providers = None
+            second = selector.list_available_models()
+
+        assert "ollama" not in first["available_providers"]
+        assert "ollama" in second["available_providers"]
+
+    def test_list_available_models_merges_saved_models(self, mock_settings):
+        selector = ModelSelector(mock_settings)
+        mock_settings.get.side_effect = lambda key, default=None: (
+            {"openai": ["gpt-extra", "openai/gpt-curated"]} if key == "models.saved_models" else default
+        )
+
+        with (
+            patch.object(
+                selector,
+                "_get_available_providers",
+                return_value={"openai"},
+            ),
+            patch.object(
+                selector,
+                "detect_available_provider",
+                return_value="openai",
+            ),
+            patch("pantheon.utils.provider_registry.get_model_info", return_value={}),
+        ):
+            result = selector.list_available_models()
+
+        openai_models = result["models_by_provider"]["openai"]
+        assert "openai/gpt-extra" in openai_models
+        assert openai_models.count("openai/gpt-curated") == 1
+
+class TestOllamaRefresh:
+    @pytest.mark.asyncio
+    async def test_refresh_ollama_cache_updates_snapshot(self, mock_settings):
+        selector = ModelSelector(mock_settings)
+        assert selector is not None
+
+        with patch(
+            "pantheon.utils.model_selector.fetch_ollama_status",
+            new=AsyncMock(return_value=(True, ["llama3.2", "qwen2.5"])),
+        ):
+            result = await refresh_ollama_cache(force=True)
+
+        available, models = get_ollama_cached_state()
+        assert result == (True, ["llama3.2", "qwen2.5"])
+        assert available is True
+        assert models == ["llama3.2", "qwen2.5"]
 
 
 class TestAutoGeneration:

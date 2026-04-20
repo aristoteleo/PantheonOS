@@ -189,7 +189,7 @@ class ReplCompleter(Completer):
         ("/agent", "Switch to specific agent"),
         ("/team", "Switch team: /team list | /team <id>"),
         ("/model", "Show/set model: /model [name|tag]"),
-        ("/keys", "Show/set API keys: /keys [number|name] [key]"),
+        ("/keys", "Show/set API keys: /keys [number|name] [key|base_url key]"),
         # MCP server management
         ("/mcp", "MCP servers: /mcp [start|stop|add|remove]"),
         # Display modes

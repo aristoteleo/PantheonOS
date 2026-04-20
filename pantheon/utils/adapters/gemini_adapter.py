@@ -25,6 +25,7 @@ from .base import (
     RateLimitError,
     APIConnectionError,
 )
+from .image_blocks import has_image_content, split_text_and_images
 
 
 def _wrap_gemini_error(e: Exception) -> Exception:
@@ -58,12 +59,31 @@ def _api_version(model: str) -> str:
     return "v1beta"
 
 
-def _build_url(model: str, api_key: str, *, stream: bool = True) -> str:
+def _get_gemini_api_base(base_url: str | None = None) -> str:
+    """Resolve the Gemini API base URL from call args, settings, or default."""
+    if base_url:
+        return base_url.rstrip("/")
+
+    try:
+        from pantheon.settings import get_settings
+
+        configured = get_settings().get_api_key("GEMINI_API_BASE")
+        if configured:
+            return configured.rstrip("/")
+    except Exception:
+        pass
+
+    return _GEMINI_API_BASE
+
+
+def _build_url(
+    model: str, api_key: str, *, stream: bool = True, base_url: str | None = None
+) -> str:
     """Build the Gemini REST API URL."""
     bare = model.split("/")[-1] if "/" in model else model
     version = _api_version(model)
     endpoint = "streamGenerateContent" if stream else "generateContent"
-    url = f"{_GEMINI_API_BASE}/{version}/models/{bare}:{endpoint}?key={api_key}"
+    url = f"{_get_gemini_api_base(base_url)}/{version}/models/{bare}:{endpoint}?key={api_key}"
     if stream:
         url += "&alt=sse"
     return url
@@ -148,9 +168,33 @@ def _convert_messages_to_gemini(messages: list[dict]) -> tuple[str | None, list[
             continue
 
         if role == "tool":
-            # Tool results → function_response parts
+            # Tool results → function_response parts.
+            # When the tool returns images (OpenAI-style image_url blocks),
+            # emit a functionResponse carrying the text summary PLUS additional
+            # inline_data parts in the same user message so Gemini can see
+            # both the structured result and the pixels.
             tool_call_id = msg.get("tool_call_id", "")
             tool_name = msg.get("name", tool_call_id)
+
+            if has_image_content(content):
+                text, inline_images, http_urls = split_text_and_images(content)
+                parts: list[dict[str, Any]] = [
+                    {
+                        "functionResponse": {
+                            "name": tool_name,
+                            "response": {"result": text or "(see attached image)"},
+                        }
+                    }
+                ]
+                for mime, data in inline_images:
+                    parts.append({"inline_data": {"mime_type": mime, "data": data}})
+                for url in http_urls:
+                    # Gemini has no direct URL image type in functionResponse;
+                    # fall back to a text note so the model knows about the URL.
+                    parts.append({"text": f"[Referenced image URL: {url}]"})
+                contents.append({"role": "user", "parts": parts})
+                continue
+
             try:
                 result = json.loads(content) if isinstance(content, str) else content
             except (json.JSONDecodeError, TypeError):
@@ -311,7 +355,7 @@ class GeminiAdapter(BaseAdapter):
         if modalities:
             request_body.setdefault("generationConfig", {})["responseModalities"] = modalities
 
-        url = _build_url(model, key, stream=True)
+        url = _build_url(model, key, stream=True, base_url=base_url)
 
         try:
             stream_start_time = time.time()
@@ -346,13 +390,35 @@ class GeminiAdapter(BaseAdapter):
                         text = ""
                         thinking_text = ""
                         tool_calls_data = []
+                        inline_images: list[dict] = []
 
                         for candidate in data.get("candidates", []):
+                            # Log non-normal finish reasons (SAFETY, RECITATION,
+                            # IMAGE_SAFETY, OTHER) so empty responses from blocked
+                            # generation don't look like silent adapter failures.
+                            fr = candidate.get("finishReason")
+                            if fr and fr not in ("STOP", "MAX_TOKENS", None):
+                                logger.warning(
+                                    f"[gemini] candidate finishReason={fr!r} model={model} — "
+                                    f"response may be truncated or blocked"
+                                )
                             for part in candidate.get("content", {}).get("parts", []):
                                 if part.get("thought") and part.get("text"):
                                     thinking_text += part["text"]
                                 elif "text" in part and part["text"]:
                                     text += part["text"]
+                                elif "inlineData" in part or "inline_data" in part:
+                                    # Image (or other binary) output — common for
+                                    # image-generation models (gemini-*-image-*).
+                                    # Wrap as a data URI so downstream code sees
+                                    # the same shape as OpenAI-style image output.
+                                    inline = part.get("inlineData") or part.get("inline_data") or {}
+                                    mime = inline.get("mimeType") or inline.get("mime_type") or "image/png"
+                                    b64 = inline.get("data", "")
+                                    if b64:
+                                        inline_images.append({
+                                            "image_url": {"url": f"data:{mime};base64,{b64}"},
+                                        })
                                 elif "functionCall" in part:
                                     fc = part["functionCall"]
                                     tc_data = {
@@ -431,6 +497,18 @@ class GeminiAdapter(BaseAdapter):
                             }
                             collected_chunks.append(chunk_dict)
 
+                        if inline_images:
+                            collected_chunks.append({
+                                "choices": [{
+                                    "index": 0,
+                                    "delta": {
+                                        "role": "assistant",
+                                        "images": inline_images,
+                                    },
+                                    "finish_reason": None,
+                                }],
+                            })
+
                         # Extract usage if available
                         usage = data.get("usageMetadata", {})
                         if usage:
@@ -488,7 +566,8 @@ class GeminiAdapter(BaseAdapter):
             raise ValueError("GEMINI_API_KEY is required")
 
         bare = model.split("/")[-1] if "/" in model else model
-        url = f"{_GEMINI_API_BASE}/v1beta/models/{bare}:embedContent?key={key}"
+        base = _get_gemini_api_base(base_url)
+        url = f"{base}/v1beta/models/{bare}:embedContent?key={key}"
 
         results = []
         async with httpx.AsyncClient(timeout=30) as client:

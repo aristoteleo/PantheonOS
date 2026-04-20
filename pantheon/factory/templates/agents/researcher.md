@@ -136,4 +136,6 @@ delivering comprehensive and well-structured results across coding, research, an
 
 {{work_strategy}}
 
+{{visual_verification}}
+
 {{output_format}}

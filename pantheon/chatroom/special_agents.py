@@ -393,13 +393,21 @@ class ChatNameGenerator:
         """Generate a chat name only if the chat still has a default name.
 
         Rules:
+        - Never rename again once a rename has succeeded (name_generated=True)
         - Only rename if current name is a default placeholder (e.g. "New Chat")
         - Need at least 1 user message to generate a meaningful name
         - Never overwrite a name that was already set (by user or previous generation)
         """
-        # Already has a meaningful name — don't touch it
+        # If the chat already has a meaningful name, don't touch it. This also
+        # covers the hard guard against AI-generated names that happen to look
+        # default (e.g. starting with "Chat") — once memory.name is non-default
+        # we never rewrite it.
         if not self._is_default_name(memory.name):
             return memory.name
+
+        # If name_generated is set but memory.name is still a default, the
+        # rename never actually stuck (e.g. leftover from a prior bug where the
+        # name was clobbered back). Fall through and try again.
 
         agent_messages = memory.get_messages(None)
         user_msgs = [m for m in agent_messages if m.get("role") == "user"]
@@ -423,17 +431,27 @@ class ChatNameGenerator:
         return fallback
 
     def _is_default_name(self, name: str) -> bool:
-        """Check if a name is a default placeholder that should be replaced."""
+        """Check if a name is a default placeholder that should be replaced.
+
+        Only matches known placeholder variants — "New Chat", "New Chat (2)",
+        "新建聊天", etc. Does NOT match arbitrary names starting with "Chat ",
+        which was too greedy and caused AI-generated names like "Chat about
+        gene expression" to be re-renamed on the next turn.
+        """
         if not name:
             return True
         stripped = name.strip()
         if stripped in self.DEFAULT_NAMES:
             return True
-        # Match patterns like "New Chat", "New Chat (2)", "Chat 04-14 11:30"
-        if stripped.startswith("New Chat") or stripped.startswith("Chat "):
+        # Numbered placeholders only: "New Chat (2)", "New Chat in Project (3)"
+        if stripped.startswith("New Chat (") or stripped.startswith(
+            "New Chat in Project ("
+        ):
             return True
-        # Chinese defaults: "新建聊天", "新建聊天 (2)"
-        if stripped.startswith("新建聊天"):
+        # Chinese numbered placeholders: "新建聊天 (2)", "在项目中新建聊天 (3)"
+        if stripped.startswith("新建聊天 (") or stripped.startswith(
+            "在项目中新建聊天 ("
+        ):
             return True
         return False
 

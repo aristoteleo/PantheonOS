@@ -11,6 +11,7 @@ from pantheon.agent import (
     get_current_run_context,
 )
 from pantheon.internal.memory import Memory
+from pantheon.settings import get_settings
 from pantheon.utils.log import logger
 from pantheon.utils.misc import run_func
 from .base import Team
@@ -202,6 +203,46 @@ async def _get_cache_safe_child_fork_context_messages(
         if message.get("role") != "system"
     ]
     return fork_context_messages or None
+
+
+async def _resolve_child_delegation_delivery(
+    run_context,
+    target_agent: Agent | RemoteAgent,
+    child_context_variables: dict,
+    use_summary: bool,
+) -> tuple[dict, bool]:
+    """Choose how a delegated child receives parent context.
+
+    Returns the possibly-updated child context variables and whether
+    create_delegation_task_message() should use summary fallback.
+    """
+    delegation_settings = get_settings().get_section("delegation")
+    if not bool(delegation_settings.get("fork_context", False)):
+        return child_context_variables, False
+
+    fork_context_messages = await _get_cache_safe_child_fork_context_messages(
+        run_context,
+        target_agent,
+    )
+    if fork_context_messages:
+        updated_context_variables = dict(child_context_variables)
+        # Cache-compatible path: share parent prefix byte-for-byte.
+        updated_context_variables["_cache_safe_fork_context_messages"] = (
+            fork_context_messages
+        )
+        return updated_context_variables, False
+
+    if getattr(run_context, "memory", None):
+        structured_fork = _build_structured_fork_context(run_context)
+        if structured_fork:
+            updated_context_variables = dict(child_context_variables)
+            # Non-cache-sharing path: pass optimised structured history.
+            updated_context_variables["_cache_safe_fork_context_messages"] = (
+                structured_fork
+            )
+            return updated_context_variables, False
+
+    return child_context_variables, use_summary
 
 
 
@@ -565,6 +606,15 @@ class PantheonTeam(Team):
                     self.max_delegate_depth,
                 )
 
+                # Record tool_call_id → child execution_context_id on the parent's
+                # run_context so the tool_message built back in Agent._call_tools
+                # can be stamped with this sub-agent's execution_context_id.
+                # Without this, the UI cannot tell apart two parallel call_agent()
+                # invocations to the same agent name.
+                parent_tool_call_id = context_variables.get("tool_call_id") if context_variables else None
+                if parent_tool_call_id and run_context is not None:
+                    run_context.sub_agent_exec_ids[parent_tool_call_id] = execution_context_id
+
                 child_context_variables = dict(context_variables)
                 child_context_variables["_metadata"] = child_metadata
                 # P2: Set execution_context_id at top level for child agent
@@ -576,35 +626,14 @@ class PantheonTeam(Team):
                         child_context_variables,
                     )
                 )
-                # CC-style delegation: structured fork is PRIMARY path.
-                # Child receives parent's full optimized message history as
-                # structured messages (forkContextMessages), enabling prompt
-                # cache sharing.  Summary is only a FALLBACK when no
-                # structured context is available.
-                use_summary_fallback = False
-                fork_context_messages = await _get_cache_safe_child_fork_context_messages(
-                    run_context,
-                    target_agent,
-                )
-                if fork_context_messages:
-                    # Path 1: Cache-compatible — share parent prefix byte-for-byte
-                    child_context_variables["_cache_safe_fork_context_messages"] = (
-                        fork_context_messages
+                child_context_variables, use_summary_fallback = (
+                    await _resolve_child_delegation_delivery(
+                        run_context=run_context,
+                        target_agent=target_agent,
+                        child_context_variables=child_context_variables,
+                        use_summary=self.use_summary,
                     )
-                elif run_context.memory:
-                    # Path 2: Incompatible agents — pass optimized structured
-                    # messages (CC's forkContextMessages for non-cache-sharing)
-                    structured_fork = _build_structured_fork_context(run_context)
-                    if structured_fork:
-                        child_context_variables["_cache_safe_fork_context_messages"] = (
-                            structured_fork
-                        )
-                    else:
-                        # Path 3: No structured context available — fall back to
-                        # summary (only when use_summary=True)
-                        use_summary_fallback = self.use_summary
-                else:
-                    use_summary_fallback = self.use_summary
+                )
 
                 # Build task message — with or without summary
                 task_message = await create_delegation_task_message(
@@ -620,16 +649,26 @@ class PantheonTeam(Team):
                 parent_step_hook = run_context.process_step_message
                 parent_chunk_hook = run_context.process_chunk
 
+                # Stamp the parent's call_agent tool_call_id onto every child
+                # message so the UI can pair (tool_call_id → execution_context_id)
+                # as soon as the first streaming chunk arrives — not only after
+                # the tool response lands. Without this, two parallel call_agent
+                # invocations to the same agent name can't be told apart while
+                # the sub-agents are still running.
+                _parent_tool_call_id = parent_tool_call_id
+
                 async def wrapped_step(step_message: dict):
                     # P2: Set execution_context_id at message top level
                     if "execution_context_id" not in step_message:
                         step_message["execution_context_id"] = execution_context_id
-                    
+                    if _parent_tool_call_id and "parent_tool_call_id" not in step_message:
+                        step_message["parent_tool_call_id"] = _parent_tool_call_id
+
                     # P0 FIX + P2: Merge metadata using setdefault chaining
                     step_message.setdefault("_metadata", child_metadata).setdefault(
                         "chain_path", child_metadata["chain_path"]
                     )
-                    
+
                     if parent_step_hook is not None:
                         await run_func(parent_step_hook, step_message)
 
@@ -637,12 +676,14 @@ class PantheonTeam(Team):
                     # P2: Set execution_context_id at message top level
                     if "execution_context_id" not in chunk:
                         chunk["execution_context_id"] = execution_context_id
-                    
+                    if _parent_tool_call_id and "parent_tool_call_id" not in chunk:
+                        chunk["parent_tool_call_id"] = _parent_tool_call_id
+
                     # P0 FIX + P2: Merge metadata using setdefault chaining
                     chunk.setdefault("_metadata", child_metadata).setdefault(
                         "chain_path", child_metadata["chain_path"]
                     )
-                    
+
                     if parent_chunk_hook is not None:
                         await run_func(parent_chunk_hook, chunk)
 

@@ -2,7 +2,6 @@ import asyncio
 import copy
 import dataclasses
 import io
-import json as _json
 try:
     import psutil as _psutil
     _psutil_process = _psutil.Process()
@@ -34,30 +33,6 @@ if TYPE_CHECKING:
 
 
 DEFAULT_TOOLSETS = []
-
-
-def _custom_models_path() -> Path:
-    """Path to the custom models config file."""
-    from pantheon.settings import get_settings
-    return get_settings().pantheon_dir / "custom_models.json"
-
-
-def _load_custom_models() -> dict:
-    """Load user-defined custom models from custom_models.json."""
-    p = _custom_models_path()
-    if p.exists():
-        try:
-            return _json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {}
-
-
-def _save_custom_models(models: dict) -> None:
-    """Save user-defined custom models to custom_models.json."""
-    p = _custom_models_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(_json.dumps(models, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 class ChatRoom(ToolSet):
@@ -342,8 +317,14 @@ class ChatRoom(ToolSet):
                 task.cancel()
 
 
-    def _save_team_template_to_memory(self, memory, template_obj: dict) -> None:
-        """Save TeamConfig to memory for persistence (new format)."""
+    def _save_team_template_to_memory(
+        self,
+        memory,
+        template_obj: dict,
+        *,
+        persist: bool = False,
+    ) -> dict:
+        """Save TeamConfig to memory and optionally persist it immediately."""
         extra_data = getattr(memory, "extra_data", None)
         if extra_data is None:
             memory.extra_data = extra_data = {}
@@ -353,7 +334,30 @@ class ChatRoom(ToolSet):
         else:
             team_config = self.template_manager.dict_to_team_config(template_obj)
 
-        memory.set_metadata_in_memory("team_template", dataclasses.asdict(team_config))
+        template_dict = dataclasses.asdict(team_config)
+        if persist:
+            memory.set_metadata("team_template", template_dict)
+        else:
+            memory.set_metadata_in_memory("team_template", template_dict)
+        return template_dict
+
+    def _build_template_summary(self, template_obj: dict | None) -> dict | None:
+        """Build a lightweight template summary for chat listings."""
+        if not isinstance(template_obj, dict):
+            return None
+
+        agents = template_obj.get("agents")
+        agent_count = len(agents) if isinstance(agents, list) else None
+
+        return {
+            "id": template_obj.get("id"),
+            "name": template_obj.get("name"),
+            "icon": template_obj.get("icon"),
+            "category": template_obj.get("category"),
+            "version": template_obj.get("version"),
+            "source_path": template_obj.get("source_path"),
+            "agent_count": agent_count,
+        }
 
     async def get_team_for_chat(self, chat_id: str, save_to_memory: bool = True) -> PantheonTeam:
         """Get the team for a specific chat, creating from memory if needed."""
@@ -527,15 +531,10 @@ class ChatRoom(ToolSet):
             # Store full template in memory using consolidated method
             # Read-only: storing template, no need to fix
             memory = await run_func(self.memory_manager.get_memory, chat_id)
-            self._save_team_template_to_memory(memory, template_obj)
+            self._save_team_template_to_memory(memory, template_obj, persist=save_to_memory)
 
             memory.delete_metadata("active_agent")
             
-            if save_to_memory:
-                # Optionally: use save_one for immediate persistence of just this chat
-                # await run_func(self.memory_manager.save_one, chat_id)
-                pass
-
             # Clear cached team (force recreation next time)
             if chat_id in self.chat_teams:
                 del self.chat_teams[chat_id]
@@ -925,6 +924,10 @@ class ChatRoom(ToolSet):
         project_name: str | None = None,
         workspace_path: str | None = None,
         workspace_mode: str = "project",
+        template_id: str | None = None,
+        template_obj: dict | None = None,
+        chat_config: dict | None = None,
+        project_metadata: dict | None = None,
     ) -> dict:
         """Create a new chat.
 
@@ -933,9 +936,66 @@ class ChatRoom(ToolSet):
             project_name: Optional project name for grouping.
             workspace_path: Optional workspace directory path.
             workspace_mode: Workspace mode - "project" (shared, default) or "isolated" (per-chat).
+            template_id: Optional existing team template ID to bind at creation time.
+            template_obj: Optional full team template object to bind at creation time.
+            chat_config: Optional per-chat UI/runtime configuration blob.
+            project_metadata: Optional extra project metadata to persist with the chat.
         """
+        if template_id and template_obj:
+            return {
+                "success": False,
+                "message": "template_id and template_obj are mutually exclusive",
+            }
+
+        if project_metadata is not None and not isinstance(project_metadata, dict):
+            return {
+                "success": False,
+                "message": "project_metadata must be a dict when provided",
+            }
+
+        if chat_config is not None and not isinstance(chat_config, dict):
+            return {
+                "success": False,
+                "message": "chat_config must be a dict when provided",
+            }
+
+        initial_template_dict = None
+        if template_id:
+            initial_template = self.template_manager.get_template(template_id)
+            if not initial_template:
+                return {
+                    "success": False,
+                    "message": f"Team template '{template_id}' not found",
+                }
+            initial_template_dict = dataclasses.asdict(initial_template)
+        elif template_obj is not None:
+            validation = self.template_manager.validate_template_dict(template_obj)
+            if not validation.get("success"):
+                return {
+                    "success": False,
+                    "message": validation.get("message", "Template validation failed"),
+                    "validation_errors": validation.get("validation_errors", []),
+                }
+            initial_template_dict = copy.deepcopy(
+                validation.get("template") or template_obj
+            )
+
         memory = await run_func(self.memory_manager.new_memory, chat_name)
         memory.set_metadata("last_activity_date", datetime.now().isoformat())
+
+        project = copy.deepcopy(project_metadata) if project_metadata else {}
+        if project_name is not None:
+            project["name"] = project_name
+
+        if workspace_path is None and isinstance(project, dict):
+            project_workspace_path = project.get("workspace_path")
+            if isinstance(project_workspace_path, str) and project_workspace_path:
+                workspace_path = project_workspace_path
+
+        if workspace_mode == "project" and isinstance(project, dict):
+            project_workspace_mode = project.get("workspace_mode")
+            if isinstance(project_workspace_mode, str) and project_workspace_mode:
+                workspace_mode = project_workspace_mode
 
         if workspace_path:
             # Explicit path provided — always isolated
@@ -959,15 +1019,20 @@ class ChatRoom(ToolSet):
                 workspace_mode = "project"  # Fallback to project mode
 
         # Set project metadata
-        project = {}
-        if project_name:
-            project["name"] = project_name
         project["workspace_mode"] = workspace_mode
         if workspace_path:
             project["workspace_path"] = workspace_path
-            project["original_cwd"] = str(get_settings().workspace)
+            project.setdefault("original_cwd", str(get_settings().workspace))
         if project:
             memory.set_metadata("project", project)
+        if chat_config is not None:
+            memory.set_metadata("chat_config", copy.deepcopy(chat_config))
+        if initial_template_dict is not None:
+            initial_template_dict = self._save_team_template_to_memory(
+                memory,
+                initial_template_dict,
+                persist=True,
+            )
 
         return {
             "success": True,
@@ -976,6 +1041,9 @@ class ChatRoom(ToolSet):
             "chat_id": memory.id,
             "workspace_mode": workspace_mode,
             "workspace_path": workspace_path,
+            "project": copy.deepcopy(project),
+            "chat_config": copy.deepcopy(chat_config) if chat_config is not None else None,
+            "template": self._build_template_summary(initial_template_dict),
         }
 
     @tool
@@ -1058,6 +1126,18 @@ class ChatRoom(ToolSet):
                     if chat_project_name != project_name:
                         continue
 
+                workspace_mode = None
+                workspace_path = None
+                if isinstance(project, dict):
+                    workspace_mode = project.get(
+                        "workspace_mode",
+                        "isolated" if project.get("workspace_path") else "project",
+                    )
+                    workspace_path = project.get("workspace_path")
+
+                chat_config = memory.extra_data.get("chat_config", None)
+                team_template = memory.extra_data.get("team_template", None)
+
                 chats.append(
                     {
                         "id": id,
@@ -1067,6 +1147,12 @@ class ChatRoom(ToolSet):
                             "last_activity_date", None
                         ),
                         "project": project,
+                        "workspace_mode": workspace_mode,
+                        "workspace_path": workspace_path,
+                        "chat_config": copy.deepcopy(chat_config)
+                        if isinstance(chat_config, dict)
+                        else chat_config,
+                        "template": self._build_template_summary(team_template),
                         "memory_path": memory.file_path,
                     }
                 )
@@ -1390,9 +1476,17 @@ class ChatRoom(ToolSet):
             )
             if new_name and new_name != memory.name:
                 memory.name = new_name
+                # Sync customTitle to keep session_storage in step with memory.name,
+                # otherwise restoreSessionMetadata would clobber memory.name back
+                # on the next turn.
+                session_storage = memory.extra_data.get("session_storage")
+                if isinstance(session_storage, dict):
+                    metadata = session_storage.get("metadata")
+                    if isinstance(metadata, dict) and metadata.get("customTitle") != new_name:
+                        metadata["customTitle"] = new_name
+                        memory.mark_dirty()
                 # Save only this chat's memory
                 await run_func(self.memory_manager.save_one, memory.id)
-                logger.debug(f"Chat renamed in background to: {new_name}")
                 # Notify frontend via NATS
                 if self._nats_adapter is not None:
                     await self._nats_adapter.publish(
@@ -1400,7 +1494,7 @@ class ChatRoom(ToolSet):
                         {"type": "chat_renamed", "chat_id": memory.id, "name": new_name},
                     )
         except Exception as e:
-            logger.error(f"Background chat rename failed: {e}")
+            logger.error(f"Background chat rename failed: {e}", exc_info=True)
 
     def _setup_bg_auto_notify(self, chat_id: str, team):
         """Wire bg task completion to auto-trigger a new chat turn.
@@ -1661,16 +1755,17 @@ class ChatRoom(ToolSet):
             chat_id, process_chunk, process_step_message, wait=False
         )
 
-        # Generate chat name as soon as user message arrives (non-blocking).
-        # No need to wait for agent response — user message is enough context.
-        # Only fires if the chat still has a default name (e.g. "New Chat").
-        if self._enable_auto_chat_name:
-            task = asyncio.create_task(self._background_rename_chat(memory))
-            self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
-
         try:
             await thread.run()
+
+            # Kick off rename AFTER thread.run() so memory has the user
+            # message (added inside agent.run()) and the agent response.
+            # Running it earlier raced the user-message insertion and caused
+            # the first message to never trigger a rename.
+            if self._enable_auto_chat_name:
+                task = asyncio.create_task(self._background_rename_chat(memory))
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
 
             # Post-execution image detection: scan the designated image
             # output directory for any newly created images.
@@ -1752,7 +1847,7 @@ class ChatRoom(ToolSet):
         try:
             import base64
             from pantheon.utils.adapters import get_adapter
-            from pantheon.utils.llm_providers import get_llm_proxy_config
+            from pantheon.utils.llm_providers import get_openai_effective_config
 
             logger.info(f"[STT] Received bytes_data type={type(bytes_data).__name__}, "
                         f"len={len(bytes_data) if hasattr(bytes_data, '__len__') else 'N/A'}")
@@ -1785,14 +1880,14 @@ class ChatRoom(ToolSet):
             audio_file.name = "audio.webm"
 
             logger.info("[STT] Calling transcription adapter...")
-            _proxy_base, _proxy_key = get_llm_proxy_config()
+            api_base, api_key = get_openai_effective_config()
             adapter = get_adapter("openai")
             response = await asyncio.wait_for(
                 adapter.atranscription(
                     model=self.speech_to_text_model,
                     file=audio_file,
-                    base_url=_proxy_base or None,
-                    api_key=_proxy_key or None,
+                    base_url=api_base or None,
+                    api_key=api_key or None,
                 ),
                 timeout=30,
             )
@@ -2018,6 +2113,44 @@ class ChatRoom(ToolSet):
     # Model Management Methods
 
     @tool
+    async def saved_models(self, saved_models: dict[str, list[str]] | None = None) -> dict:
+        """Get or persist provider models used by the UI model selector."""
+        from pantheon.utils.model_selector import get_saved_models, normalize_saved_models
+
+        settings = get_settings()
+        if saved_models is None:
+            return {
+                "success": True,
+                "saved_models": get_saved_models(settings),
+            }
+
+        normalized = normalize_saved_models(saved_models)
+        settings.persist_project_value("models.saved_models", normalized)
+        settings.reload()
+
+        return {
+            "success": True,
+            "saved_models": normalized,
+            "message": "Saved models updated.",
+        }
+
+    @tool
+    async def discover_provider_models(
+        self,
+        provider: str,
+        api_key: str | None = None,
+        api_base: str | None = None,
+    ) -> dict:
+        """Discover provider models asynchronously without persisting them."""
+        from pantheon.utils.model_discovery import discover_provider_models_with_fallback
+
+        return await discover_provider_models_with_fallback(
+            provider=provider,
+            api_key=api_key,
+            api_base=api_base,
+        )
+
+    @tool
     async def list_available_models(self) -> dict:
         """List all available models based on configured API keys.
 
@@ -2037,10 +2170,10 @@ class ChatRoom(ToolSet):
             }
         """
         try:
-            from pantheon.utils.model_selector import get_model_selector
+            from pantheon.utils.model_selector import get_model_selector, refresh_ollama_cache
 
+            asyncio.create_task(refresh_ollama_cache())
             selector = get_model_selector()
-            # Clear provider cache so dynamic providers (Ollama, OAuth) are re-detected
             selector._available_providers = None
             selector._detected_provider = None
             return selector.list_available_models()
@@ -2364,27 +2497,6 @@ class ChatRoom(ToolSet):
             return {"success": False, "installs": {}, "error": str(e)}
 
     @tool
-    async def get_custom_models(self) -> dict:
-        """Get all user-defined custom models."""
-        models = _load_custom_models()
-        return {"success": True, "models": models}
-
-    @tool
-    async def save_custom_models(self, models: dict) -> dict:
-        """Save user-defined custom models.
-
-        Args:
-            models: Dict of model_name -> {api_base, api_key, provider_type}
-        """
-        try:
-            _save_custom_models(models)
-            # Reset model selector cache so new models appear
-            from pantheon.utils.model_selector import reset_model_selector
-            reset_model_selector()
-            return {"success": True, "message": "Custom models saved"}
-        except Exception as e:
-            return {"success": False, "message": str(e)}
-
     async def reload_settings(self) -> dict:
         """Reload configuration settings from .env file and settings.json.
 
@@ -2428,7 +2540,7 @@ class ChatRoom(ToolSet):
         and whether any key is configured at all.
         """
         import os
-        from pantheon.settings import get_settings
+        from pantheon.settings import LEGACY_API_KEY_ENV_MAP, get_settings
 
         settings = get_settings()
         key_names = [
@@ -2437,20 +2549,52 @@ class ChatRoom(ToolSet):
             "GEMINI_API_KEY",
             "DEEPSEEK_API_KEY",
         ]
+        base_url_names = [
+            "OPENAI_API_BASE",
+            "ANTHROPIC_API_BASE",
+            "GEMINI_API_BASE",
+        ]
+        fallback_names = [
+            "LLM_API_BASE",
+            "LLM_API_KEY",
+        ]
+
+        def _status(name: str) -> dict:
+            value = settings.get_api_key(name)
+            if not value:
+                return {"configured": False, "source": None, "masked": None}
+
+            legacy_key = LEGACY_API_KEY_ENV_MAP.get(name)
+            source = "settings"
+            if os.environ.get(name) or (legacy_key and os.environ.get(legacy_key)):
+                source = "env"
+
+            masked = value if "BASE" in name else (value[:6] + "***" if len(value) > 6 else "***")
+            return {"configured": True, "source": source, "masked": masked}
 
         keys = {}
         for key in key_names:
-            value = settings.get_api_key(key)
-            if value:
-                # Determine source
-                source = "env" if os.environ.get(key) else "settings"
-                masked = value[:6] + "***" if len(value) > 6 else "***"
-                keys[key] = {"configured": True, "source": source, "masked": masked}
-            else:
-                keys[key] = {"configured": False, "source": None, "masked": None}
+            keys[key] = _status(key)
+
+        base_urls = {}
+        for key in base_url_names:
+            base_urls[key] = _status(key)
+
+        fallback = {}
+        for key in fallback_names:
+            fallback[key] = _status(key)
 
         has_any_key = any(v["configured"] for v in keys.values())
-        return {"keys": keys, "has_any_key": has_any_key}
+        has_any_base = any(v["configured"] for v in base_urls.values())
+        has_fallback = all(v["configured"] for v in fallback.values())
+        return {
+            "keys": keys,
+            "base_urls": base_urls,
+            "fallback": fallback,
+            "has_any_key": has_any_key,
+            "has_any_base_url": has_any_base,
+            "has_fallback": has_fallback,
+        }
 
     # ============ OAuth Management ============
 
@@ -2638,9 +2782,9 @@ class ChatRoom(ToolSet):
             Dict with running status, model list, and URL.
         """
         try:
-            from pantheon.utils.model_selector import _detect_ollama, _list_ollama_models
-            running = _detect_ollama(url)
-            models = _list_ollama_models(url) if running else []
+            from pantheon.utils.model_selector import fetch_ollama_status
+
+            running, models = await fetch_ollama_status(url)
             return {"running": running, "models": models, "url": url}
-        except Exception as e:
+        except Exception:
             return {"running": False, "models": [], "url": url}

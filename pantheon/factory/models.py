@@ -26,11 +26,6 @@ class AgentConfig:
     tags: List[str] = field(default_factory=list)
     source_path: Optional[str] = None
 
-    @property
-    def think_tool(self) -> bool:
-        """Whether think tool is enabled (derived from 'think' in toolsets)."""
-        return "think" in (self.toolsets or [])
-
     def to_dict(self) -> dict:
         """Convert to dictionary"""
         return {

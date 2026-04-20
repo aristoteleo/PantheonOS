@@ -6,15 +6,17 @@ Supports text-only models (DALL-E, Imagen), multimodal models (Gemini Nano Banan
 and native image editing models (OpenAI gpt-image).
 """
 
-import os
-
 from pantheon.toolset import ToolSet, tool
+from pantheon.utils.llm_providers import (
+    get_openai_effective_config,
+    get_provider_api_key,
+    resolve_provider_base_url,
+)
 from pantheon.utils.vision import (
     ImageStore,
     get_image_store,
     expand_image_references_for_llm,
 )
-from pantheon.utils.llm_providers import get_llm_proxy_config
 from pantheon.utils.provider_registry import find_provider_for_model
 
 # Multimodal models that support image input + output via acompletion API
@@ -87,6 +89,20 @@ class ImageGenerationToolSet(ToolSet):
         if context:
             return context.get("client_id", "default")
         return "default"
+
+    def _resolve_model_connection(self, model: str) -> tuple[str | None, str | None]:
+        """Resolve effective base URL and API key for image generation entrypoints."""
+        provider_key, _model_name, provider_config = find_provider_for_model(model)
+        if provider_key == "openai":
+            base_url, api_key = get_openai_effective_config()
+            return base_url or provider_config.get("base_url"), api_key or None
+
+        provider_key_value = get_provider_api_key(
+            provider_key,
+            provider_config.get("api_key_env"),
+        )
+
+        return resolve_provider_base_url(provider_key, provider_config.get("base_url")), provider_key_value
 
     def _extract_cost_from_response(self, response) -> float:
         """Extract cost from API response.
@@ -172,14 +188,7 @@ class ImageGenerationToolSet(ToolSet):
         from pantheon.utils.adapters import get_adapter
 
         provider_key, model_name, provider_config = find_provider_for_model(model)
-        _proxy_base, _proxy_key = get_llm_proxy_config()
-        if _proxy_base:
-            base_url = _proxy_base
-            api_key = _proxy_key
-        else:
-            base_url = provider_config.get("base_url")
-            api_key_env = provider_config.get("api_key_env")
-            api_key = os.environ.get(api_key_env) if api_key_env else None
+        base_url, api_key = self._resolve_model_connection(model)
         adapter = get_adapter("openai")
         response = await adapter.aimage_generation(
             model=model_name if provider_key != "unknown" else model,
@@ -227,7 +236,7 @@ class ImageGenerationToolSet(ToolSet):
         """Multimodal image generation (Gemini Nano Banana series).
 
         Uses chat completion API with modalities parameter to generate images.
-        This approach works through the LLM Proxy and supports image generation.
+        This goes through the provider's configured endpoint and supports image generation.
 
         Supported models:
         - gemini-3-pro-image-preview (Nano Banana Pro, up to 4K)
@@ -251,17 +260,17 @@ class ImageGenerationToolSet(ToolSet):
         from pantheon.utils.adapters import get_adapter
         from pantheon.utils.provider_registry import find_provider_for_model
 
-        _proxy_base, _proxy_key = get_llm_proxy_config()
         provider_key, model_name, provider_config = find_provider_for_model(model)
-        sdk_type = "openai" if _proxy_base else provider_config.get("sdk", "openai")
+        base_url, api_key = self._resolve_model_connection(model)
+        sdk_type = "openai" if provider_key == "openai" and api_key and base_url else provider_config.get("sdk", "openai")
         adapter = get_adapter(sdk_type)
 
         collected_chunks = await adapter.acompletion(
-            model=model if _proxy_base else model_name,
+            model=model if sdk_type == "openai" else model_name,
             messages=messages,
             stream=True,
-            base_url=_proxy_base or provider_config.get("base_url"),
-            api_key=_proxy_key or None,
+            base_url=base_url,
+            api_key=api_key,
             modalities=["text", "image"],
         )
         from pantheon.utils.llm import stream_chunk_builder
@@ -321,14 +330,7 @@ class ImageGenerationToolSet(ToolSet):
         from pantheon.utils.adapters import get_adapter
 
         provider_key, model_name, provider_config = find_provider_for_model(model)
-        _proxy_base, _proxy_key = get_llm_proxy_config()
-        if _proxy_base:
-            base_url = _proxy_base
-            api_key = _proxy_key
-        else:
-            base_url = provider_config.get("base_url")
-            api_key_env = provider_config.get("api_key_env")
-            api_key = os.environ.get(api_key_env) if api_key_env else None
+        base_url, api_key = self._resolve_model_connection(model)
         adapter = get_adapter("openai")
         response = await adapter.aimage_edit(
             model=model_name if provider_key != "unknown" else model,

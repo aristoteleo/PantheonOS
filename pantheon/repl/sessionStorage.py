@@ -68,8 +68,16 @@ def restoreSessionMetadata(meta: dict[str, Any], memory: Any | None = None) -> N
         elif key in meta and meta[key] is None and key in metadata:
             metadata.pop(key, None)
 
-    if metadata.get("customTitle"):
-        memory.name = str(metadata["customTitle"])
+    # Once a chat has been auto-renamed (name_generated=True), memory.name is
+    # authoritative — don't let a stale customTitle regress it. Sync the other
+    # way: keep customTitle in step with memory.name. Otherwise (fresh chat /
+    # REPL-resume with user-customized title), customTitle drives memory.name.
+    current_title = metadata.get("customTitle")
+    if memory.extra_data.get("name_generated"):
+        if current_title != memory.name:
+            metadata["customTitle"] = memory.name
+    elif current_title:
+        memory.name = str(current_title)
 
     payload["metadata"] = metadata
     _save_payload(memory, payload)
