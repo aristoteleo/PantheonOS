@@ -4,6 +4,16 @@
 .notebook_contexts.json
 .factory_hashes.json
 
+# RL training: local-only references, personal notes, and generated artifacts
+rl_training/references/
+rl_training/trajectories/
+rl_training/data/
+rl_training/checkpoints/
+rl_training/notes.md
+rl_training/claude_session_notes.md
+rl_training/proposal_v8.tex
+rl_training/figures/
+
 # ====================
 # Python
 # ====================

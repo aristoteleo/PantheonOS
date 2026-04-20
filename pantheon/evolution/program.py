@@ -283,8 +283,11 @@ class Program:
     island_id: int = 0
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     mutator_prompt_used: str = ""  # Store the mutator prompt for reproducibility
+    mutator_response_raw: str = ""  # Full raw mutator response (preserves any reasoning around SEARCH/REPLACE blocks)
+    mutator_messages_raw: List[Dict[str, Any]] = field(default_factory=list)  # Full mutator message history: role/content/tool_calls/reasoning_content
     analysis_prompt_used: str = ""  # Store the analyzer prompt
     analysis_used: str = ""  # Store analyzer's analysis output
+    analyzer_messages_raw: List[Dict[str, Any]] = field(default_factory=list)  # Full analyzer message history incl. think-tool calls and reasoning_content
     order: Optional[int] = None  # Sequential number assigned when added to database
 
     # Mutation summary fields
@@ -417,8 +420,11 @@ class Program:
             "island_id": self.island_id,
             "created_at": self.created_at,
             "mutator_prompt_used": self.mutator_prompt_used,
+            "mutator_response_raw": self.mutator_response_raw,
+            "mutator_messages_raw": self.mutator_messages_raw,
             "analysis_prompt_used": self.analysis_prompt_used,
             "analysis_used": self.analysis_used,
+            "analyzer_messages_raw": self.analyzer_messages_raw,
             "order": self.order,
             "mutation_summary": self.mutation_summary,
             "mutation_category": self.mutation_category,
@@ -443,8 +449,11 @@ class Program:
             island_id=data.get("island_id", 0),
             created_at=data.get("created_at", datetime.now().isoformat()),
             mutator_prompt_used=data.get("mutator_prompt_used", data.get("prompt_used", "")),
+            mutator_response_raw=data.get("mutator_response_raw", ""),
+            mutator_messages_raw=data.get("mutator_messages_raw", []),
             analysis_prompt_used=data.get("analysis_prompt_used", ""),
             analysis_used=data.get("analysis_used", ""),
+            analyzer_messages_raw=data.get("analyzer_messages_raw", []),
             order=data.get("order"),
             mutation_summary=data.get("mutation_summary", ""),
             mutation_category=data.get("mutation_category", "other"),

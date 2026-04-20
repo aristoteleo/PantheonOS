@@ -237,6 +237,11 @@ class EvolutionTeam:
         self.evaluator_code: str = ""
         self._initialized = False
 
+        self._trajectory_logger = None
+        if self.config.sft_trajectory_path:
+            from .trajectory_logger import TrajectoryLogger
+            self._trajectory_logger = TrajectoryLogger(self.config.sft_trajectory_path)
+
     async def _ensure_mutator(self):
         """Ensure mutator agent is initialized."""
         if self._mutator is None:
@@ -978,6 +983,8 @@ class EvolutionTeam:
         # Build prompt (with or without analyzer)
         analysis_text = ""  # Store analyzer output for program record
         analysis_prompt = ""  # Store analyzer prompt for program record
+        analysis_messages: list = []  # Full analyzer message history (reasoning_content + tool_calls)
+        mutator_messages: list = []  # Full mutator message history
         analyzer_direction = ""  # Track exploration vs exploitation direction
         extracted_direction = None  # Direction info from summarizer
         iteration_cost = 0.0  # Track LLM cost for this iteration
@@ -1021,6 +1028,12 @@ class EvolutionTeam:
                     timeout=self.config.analyzer_timeout
                 )
                 analysis_text = analysis_response.content
+                analysis_messages = (
+                    list(analysis_response.details.messages)
+                    if getattr(analysis_response, "details", None) is not None
+                    and getattr(analysis_response.details, "messages", None) is not None
+                    else []
+                )
                 iteration_cost += extract_cost_from_response(analysis_response)
                 analysis_time = time.time() - analysis_start
                 logger.info(
@@ -1093,6 +1106,12 @@ class EvolutionTeam:
                 mutator.run(prompt, update_memory=False),
                 timeout=self.config.mutation_timeout
             )
+            mutator_messages = (
+                list(response.details.messages)
+                if getattr(response, "details", None) is not None
+                and getattr(response.details, "messages", None) is not None
+                else []
+            )
             mutation_cost = extract_cost_from_response(response)
             iteration_cost += mutation_cost
             mutation_time = time.time() - mutation_start
@@ -1141,8 +1160,11 @@ class EvolutionTeam:
             parent_id=parent.id,
             generation=parent.generation + 1,
             mutator_prompt_used=prompt if self.config.save_prompts else "",
+            mutator_response_raw=response.content if self.config.save_prompts else "",
+            mutator_messages_raw=mutator_messages if self.config.save_prompts else [],
             analysis_prompt_used=analysis_prompt if self.config.save_prompts else "",
             analysis_used=analysis_text if self.config.save_prompts else "",
+            analyzer_messages_raw=analysis_messages if self.config.save_prompts else [],
         )
 
         # Evaluate child
@@ -1218,6 +1240,23 @@ class EvolutionTeam:
         accepted_str = "(accepted)" if accepted else "(rejected)"
         cost_str = f"${iteration_cost:.4f}" if iteration_cost > 0 else ""
         logger.info(f"{log_prefix} Result: {result_str} ({improvement:+.4f}) {accepted_str} [{total_time:.1f}s] {cost_str}")
+
+        if self._trajectory_logger is not None:
+            try:
+                self._trajectory_logger.log_iteration(
+                    iteration=iteration,
+                    parent=parent,
+                    child=child,
+                    parent_score=parent_score,
+                    child_score=child_score,
+                    improvement=improvement,
+                    accepted=accepted,
+                    mutation_time=mutation_time,
+                    evaluation_time=eval_time,
+                    llm_cost=iteration_cost,
+                )
+            except Exception as log_err:
+                logger.warning(f"{log_prefix} trajectory logging failed: {log_err}")
 
         return IterationResult(
             iteration=iteration,

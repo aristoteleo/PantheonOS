@@ -99,6 +99,7 @@ class EvolutionConfig:
     workspace_path: Optional[str] = None  # Path for evaluation workspaces
     save_prompts: bool = True
     save_all_programs: bool = True  # Save all programs for debugging and analysis
+    sft_trajectory_path: Optional[str] = None  # If set, stream per-iteration JSONL records for SFT/RL
 
     # === Logging ===
     log_level: str = "INFO"
@@ -200,6 +201,7 @@ class EvolutionConfig:
             "workspace_path": self.workspace_path,
             "save_prompts": self.save_prompts,
             "save_all_programs": self.save_all_programs,
+            "sft_trajectory_path": self.sft_trajectory_path,
             "log_level": self.log_level,
             "log_iterations": self.log_iterations,
             "log_improvements": self.log_improvements,
@@ -259,6 +261,7 @@ class EvolutionConfig:
             "workspace_path",
             "save_prompts",
             "save_all_programs",
+            "sft_trajectory_path",
             "log_level",
             "log_iterations",
             "log_improvements",
