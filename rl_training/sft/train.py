@@ -61,6 +61,10 @@ def _parse_args() -> argparse.Namespace:
     ap.add_argument("--eval-split", type=float, default=0.1,
                     help="Fraction of data held out for eval (0 disables)")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--no-grad-checkpointing", action="store_true",
+                    help="Disable transformer-level gradient checkpointing. "
+                         "Required under FSDP (which uses its own activation "
+                         "checkpointing set in fsdp_config.yaml).")
     return ap.parse_args()
 
 
@@ -137,8 +141,9 @@ def main() -> None:
         per_device_train_batch_size=args.per_device_batch_size,
         per_device_eval_batch_size=args.per_device_batch_size,
         gradient_accumulation_steps=args.grad_accum_steps,
-        gradient_checkpointing=True,
-        gradient_checkpointing_kwargs={"use_reentrant": False},
+        gradient_checkpointing=not args.no_grad_checkpointing,
+        gradient_checkpointing_kwargs={"use_reentrant": False}
+            if not args.no_grad_checkpointing else {},
         learning_rate=args.lr,
         lr_scheduler_type="cosine",
         warmup_ratio=0.05,
@@ -156,6 +161,7 @@ def main() -> None:
         packing=False,
         completion_only_loss=True,
         assistant_only_loss=True,
+        use_liger_kernel=True,  # chunked fused CE → avoids 16k×vocab logits OOM
         dataset_kwargs={"skip_prepare_dataset": False},
     )
 
