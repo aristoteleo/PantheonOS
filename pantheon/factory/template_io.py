@@ -1193,7 +1193,13 @@ class FileBasedTemplateManager:
     def _list_templates(
         self, kind: str, resolve_refs: bool = True
     ) -> List[Union[AgentConfig, TeamConfig]]:
-        """List templates for a given kind with user override handling."""
+        """List templates for a given kind with user override handling.
+
+        Scans **recursively** so agents nested in subdirectories (e.g.
+        ``agents/single_cell/leader.md``) are returned alongside top-level
+        ones. ``source_path`` is set on every item so callers can rebuild
+        the subdirectory-preserving relative path.
+        """
         if kind == "agents":
             user_dir = self.agents_dir
             system_dir = self.system_templates_dir / "agents"
@@ -1206,15 +1212,17 @@ class FileBasedTemplateManager:
         items = []
         user_ids = set()
 
-        for path in user_dir.glob("*.md"):
+        for path in user_dir.rglob("*.md"):
+            if not path.is_file():
+                continue
             try:
                 if kind == "agents":
                     item = self._read_agent_from_path(path)
                 else:
                     item = self._read_team_from_path(path)
-                    item.source_path = str(path)  # Track original file path
                     if resolve_refs:
                         item = self._resolve_agent_references(item, path.parent)
+                item.source_path = str(path)
             except Exception as exc:
                 logger.error(f"Failed to parse {kind[:-1]} {path}: {exc}")
                 continue
@@ -1222,15 +1230,17 @@ class FileBasedTemplateManager:
             user_ids.add(item.id)
 
         if system_dir.exists():
-            for path in system_dir.glob("*.md"):
+            for path in system_dir.rglob("*.md"):
+                if not path.is_file():
+                    continue
                 try:
                     if kind == "agents":
                         item = self._read_agent_from_path(path)
                     else:
                         item = self._read_team_from_path(path)
-                        item.source_path = str(path)  # Track original file path
                         if resolve_refs:
                             item = self._resolve_agent_references(item, path.parent)
+                    item.source_path = str(path)
                 except Exception as exc:
                     logger.error(f"Failed to parse system {kind[:-1]} {path}: {exc}")
                     continue

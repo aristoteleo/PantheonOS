@@ -501,19 +501,35 @@ class TemplateManager:
             if file_type not in {"teams", "agents", "all"}:
                 return {"success": False, "error": f"Unknown file_type: {file_type}"}
 
-            def _get_filename(source_path: str, fallback_id: str) -> str:
-                """Extract filename from source_path, fallback to id if not available."""
-                if source_path:
-                    from pathlib import Path
-                    return Path(source_path).stem
-                return fallback_id
+            def _get_rel_path(source_path: str, fallback_id: str, kind: str) -> str:
+                """Return a ``<kind>/…/<filename>.md`` path that preserves any
+                subdirectory structure under ``<kind>/``. Falls back to the
+                flat ``<kind>/<id>.md`` shape when source_path is missing.
+
+                Agents can live in subdirs (e.g. ``agents/single_cell/leader.md``);
+                returning just the basename would hide nested files from the UI.
+                """
+                from pathlib import Path
+                if not source_path:
+                    return f"{kind}/{fallback_id}.md"
+                p = Path(source_path)
+                user_base = self.agents_dir if kind == "agents" else self.teams_dir
+                system_base = self.system_templates_dir / kind
+                for base in (user_base, system_base):
+                    try:
+                        rel = p.relative_to(base)
+                        return f"{kind}/{rel.as_posix()}"
+                    except ValueError:
+                        continue
+                # Source lives outside either known root — last resort: basename.
+                return f"{kind}/{p.name}"
 
             team_files = (
                 [
                     {
                         "id": tmpl.id,
                         "name": tmpl.name,
-                        "path": f"teams/{_get_filename(tmpl.source_path, tmpl.id)}.md",
+                        "path": _get_rel_path(tmpl.source_path, tmpl.id, "teams"),
                     }
                     for tmpl in self.file_manager.list_teams(resolve_refs=False)
                 ]
@@ -526,7 +542,7 @@ class TemplateManager:
                     {
                         "id": agent.id,
                         "name": agent.name,
-                        "path": f"agents/{_get_filename(agent.source_path, agent.id)}.md",
+                        "path": _get_rel_path(agent.source_path, agent.id, "agents"),
                     }
                     for agent in self.file_manager.list_agents()
                 ]

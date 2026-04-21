@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from .task import TaskToolSet
     from .knowledge import KnowledgeToolSet
     from .evolution import EvolutionToolSet, EvaluatorToolSet
-    from .skillbook import SkillbookToolSet
     from .scfm import SCFMToolSet
 
 _TOOLSET_MAPPING = {
@@ -41,7 +40,6 @@ _TOOLSET_MAPPING = {
     "KnowledgeToolSet": ".knowledge",
     "EvolutionToolSet": ".evolution",
     "EvaluatorToolSet": ".evolution",
-    "SkillbookToolSet": ".skillbook",
     "SCFMToolSet": ".scfm",
 }
 
