@@ -651,6 +651,9 @@ If memory becomes insufficient:
 - reduce compute via **stratified downsampling** (preserve all cell types) and/or split heavy operations into separate cells
 - document decisions explicitly (what was checked, what was changed, why)
 
+> [!IMPORTANT]
+> **Do NOT lighten the computation or reduce the data to dodge a kernel crash** — the point of the pipeline is to capture the full complexity of the dataset. If `manage_kernel` + splitting doesn't help, save the heavy code to a `.py` file and run it via `python_interpreter`, leaving a markdown cell in the notebook that points to the script path. This is a **last resort** — note it explicitly in `report_analysis.md` with a reason.
+
 ---
 
 # Visualization quality gate

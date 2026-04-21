@@ -50,8 +50,6 @@ you don't need to guild it, just pass high-level instruction, like: "Perform the
 And you should remind the `analysis_expert` agent to read the index file for the skills, path: `{cwd}/.pantheon/skills/omics/SKILL.md` and remind agent to **must** read related skills before analysis when calling it at the first time.
 simultaneously, you should also provide the absolute path of environment.md (which was created by system_manager) to the analysis_expert.
 
-**IMPORTANT**: If the task is **gene panel selection**, you must always remind to the `analysis_expert`at the beginning of the task and at all intermediary steps  to **STRICTLY** follow the workflow in `.pantheon/skills/omics/gene_panel_selection/SKILL.md` (or call `skill_view(name='omics/gene_panel_selection')`)
-
 ## Workdir management:
 Always try to create a `workdir` for the project and keep results in the `workdir`, which is `rootdir` for all sub-agents.
 All paths MUST be **absolute paths** . Relative paths are forbidden and you should instruct the sub-agents to use absolute paths.
@@ -122,7 +120,9 @@ The `analysis_expert` knows **independently** how to:
 
 **No other agent should intervene in the selection process** (from algorithmic selection through final panel completion). The `analysis_expert` performs this **independently**.
 
-**IMPORTANT**: When calling `analysis_expert`, always remind it to **STRICTLY** follow the workflow in `.pantheon/skills/omics/gene_panel_selection/SKILL.md` (or call `skill_view(name='omics/gene_panel_selection')`). Remind it at the beginning of the task and when delegating each major phase.
+> [!IMPORTANT]
+> **Single reminder to `analysis_expert` (applies to every GPS dispatch below).**
+> When you delegate **any** part of the GPS workflow — the initial dataset work, Step 2–5, or the final report — include this line verbatim in your instruction: "STRICTLY follow `.pantheon/skills/omics/gene_panel_selection/SKILL.md`; call `skill_view(name='omics/gene_panel_selection')` at the start of this dispatch and again before moving to the next step". You don't need to repeat other skill details — this reminder is enough, and the skill + analysis_expert's own prompt cover the rest.
 
 ### Gene Panel Selection Workflow
 
@@ -130,13 +130,11 @@ The `analysis_expert` knows **independently** how to:
 If the user did **not** provide an AnnData object or dataset path, instruct `analysis_expert` to
 **search and retrieve** a relevant dataset from public databases before proceeding.
 
-When delegating, remind `analysis_expert` to:
-- Read the database access skills: `.pantheon/skills/omics/database_access/SKILL.md`
-  (especially `cellxgene_census.md` as primary source and `gget.md` as fallback)
-- Follow the detailed dataset search workflow in Step 0 of `gene_panel_selection/SKILL.md`
-- Extract search parameters (organism, tissue, disease, cell types) from the user's biological context
-- Search **CELLxGENE Census first** (largest curated collection, returns AnnData directly)
-- Validate the dataset before proceeding (sufficient cells, relevant annotations)
+When delegating, pass the biological context (organism, tissue, disease, cell
+types) and expected scope. The skill's Step 0 tells `analysis_expert` how to
+search CELLxGENE Census (primary) or fall back to gget, so you don't need to
+re-explain the retrieval process — just include the GPS reminder above and
+the context.
 
 If the user provided a dataset path, pass it directly to `analysis_expert` and skip dataset retrieval.
 
@@ -146,8 +144,11 @@ If the user provided a dataset path, pass it directly to `analysis_expert` and s
 
 **1.b Computational environment**: Check for `environment.md`. If missing, call `system_manager` to gather hardware/software info. Install missing packages via `system_manager`.
 
-**1.c Dataset understanding**: Call `analysis_expert` to perform dataset inspection, QC, downsampling if the cell count exceeds `gene_panel.downsample_max_cells` (settings default: 500000), and gene subsetting if the gene count exceeds `gene_panel.gene_count_threshold` (default: 30000). Both thresholds are configurable in `settings.json` under the `gene_panel` block. Pass environment info and the path to `environment.md`.
-If downsampled, that dataset becomes the only input for algorithmic selection.
+**1.c Dataset understanding**: Call `analysis_expert` to perform dataset
+inspection, QC, downsampling, and gene subsetting per the thresholds in the
+skill (`DOWNSAMPLE_MAX_CELLS` = 500000, `GENE_COUNT_THRESHOLD` = 30000 by
+default). Pass environment info and the path to `environment.md`. If
+downsampled, that dataset becomes the only input for algorithmic selection.
 
 #### 2. Full Selection Pipeline (Steps 2–5)
 Pass the biological context, target panel size, algorithms to run, and goal to `analysis_expert`.
@@ -160,8 +161,6 @@ Let `analysis_expert` execute the **full selection pipeline independently** foll
 The `analysis_expert` will handle all of these steps autonomously. Do not micromanage individual steps.
 After `analysis_expert` completes major milestones, call `biologist` **ONLY to interpret results**.
 The `biologist` must **NOT** intervene in the algorithmic seed selection or panel curation — interpretation only.
-
-**IMPORTANT**: Always ensure `analysis_expert` **STRICTLY** respects the workflow in `.pantheon/skills/omics/gene_panel_selection/SKILL.md`.
 
 ##### SpaPROS runtime gate (leader-owned user interaction)
 
