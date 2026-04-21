@@ -20,7 +20,7 @@ gene panels in scRNA-seq and spatial transcriptomics (HVG/DE/RF/scGeneFit/SpaPRO
 with sub-panel discovery (ARI vs size), consensus scoring, biological completion
 (Completion Rule), and benchmarking on test splits.
 
-**Skill file**: [gene_panel_selection.md](./gene_panel_selection.md)
+**Skill folder**: [gene_panel_selection/](./gene_panel_selection/) (contains `SKILL.md` + `scripts/gene_panel_helpers.py`)
 
 **When to use**:
 - You need to design a gene panel 

@@ -662,20 +662,6 @@ class Settings:
             },
         }
 
-    def get_gene_panel_config(self) -> Dict[str, Any]:
-        """
-        Get gene panel selection (GPS) configuration.
-
-        Hyperparameters consumed by
-        :class:`pantheon.toolsets.gene_panel.config.GenePanelConfig`.
-        Unknown keys are preserved; consumers filter to known fields.
-
-        Returns:
-            Dict with GPS hyperparameters (algorithm caps and workflow thresholds).
-        """
-        self._ensure_loaded()
-        return dict(self._settings.get("gene_panel", {}))
-
     def get_mcp_config(self) -> Dict[str, Any]:
         """
         Get MCP server configuration.

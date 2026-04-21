@@ -64,21 +64,24 @@ If the dataset is large, perform **smart downsampling** while preserving **all c
 ---
 
 ## Gene Panel Selection Hyperparameters
-<!-- All defaults below live in `settings.json` under the `gene_panel` section and are loaded at runtime via `GenePanelConfig.from_settings()`. Do NOT hardcode these values — read them from `cfg` (the loaded config object) or adjust per-project in settings. -->
+<!-- Defaults live as module-level constants at the top of
+`scripts/gene_panel_helpers.py`. To override for a specific call, pass
+the value as a kwarg (e.g., `select_spapros(..., n_hvg=5000)`). No
+global config file to edit. -->
 
-| Variable (config field) | Default | Description |
-|-------------------------|---------|-------------|
-| `scgenefit_max_constraints` | 1000 | Max constraints for scGeneFit optimization |
-| `spapros_n_hvg` | 3000 | Max HVGs for SpaPROS input |
-| `rf_n_estimators` | 300 | Random Forest tree count |
-| `spapros_runtime_warning_minutes` | 5.0 | Leader prompts the user via `notify_user` if SpaPROS estimate exceeds this |
-| `spapros_runtime_skip_minutes` | 30.0 | Strong-warning threshold; user may choose to skip SpaPROS |
-| `ari_drop_threshold` | 0.05 | Max acceptable ARI degradation during panel completion |
-| `downsample_max_cells` | 500000 | Above this cell count, downsampling is required before selection |
-| `gene_count_threshold` | 30000 | Above this gene count, gene subsetting is required before selection |
-| `n_training_splits` | 1 | Number of training datasets to build during the train/test split |
-| `n_test_splits` | 5 | Minimum number of test splits to build (more is fine) |
-| `split_cell_limit` | 50000 | Target cells per test split (soft cap, preserve diversity) |
+| Constant (in `scripts/gene_panel_helpers.py`) | Default | Description |
+|---|---|---|
+| `SCGENEFIT_MAX_CONSTRAINTS` | 1000 | Max LP constraints for scGeneFit |
+| `SPAPROS_N_HVG` | 3000 | HVG pre-filter size for SpaPROS |
+| `RF_N_ESTIMATORS` | 300 | Random Forest tree count |
+| `SPAPROS_RUNTIME_WARNING_MINUTES` | 5.0 | Leader prompts the user via `notify_user` if SpaPROS estimate exceeds this |
+| `SPAPROS_RUNTIME_SKIP_MINUTES` | 30.0 | Strong-warning threshold; user may choose to skip SpaPROS |
+| `ARI_DROP_THRESHOLD` | 0.05 | Max acceptable ARI degradation during panel completion |
+| `DOWNSAMPLE_MAX_CELLS` | 500000 | Above this cell count, downsampling is required before selection |
+| `GENE_COUNT_THRESHOLD` | 30000 | Above this gene count, gene subsetting is required before selection |
+| `N_TRAINING_SPLITS` | 1 | Number of training datasets to build during the train/test split |
+| `N_TEST_SPLITS` | 5 | Minimum number of test splits to build (more is fine) |
+| `SPLIT_CELL_LIMIT` | 50000 | Target cells per test split (soft cap, preserve diversity) |
 
 ---
 
@@ -196,7 +199,7 @@ to the specific tissue/disease. Prefer datasets with >50k cells and existing cel
        )
    ```
 4. **Always filter `is_primary_data == True`** to avoid duplicate cells
-5. If the dataset is very large (above `cfg.downsample_max_cells`, default 500000), **downsample per category** rather than
+5. If the dataset is very large (above `DOWNSAMPLE_MAX_CELLS`, default 500000), **downsample per category** rather than
    dropping entire tissues/diseases. For example, sample up to N cells per
    (tissue, disease) combination to keep diversity while controlling size.
    Alternatively, use the streaming API (`ExperimentAxisQuery`) — see the skill file.
@@ -254,25 +257,26 @@ Checklist:
 
 ### 1.2 Downsampling (CRITICAL)
 
-First load the config: `cfg = GenePanelConfig.from_settings()`. Then:
+Thresholds come from the module-level constants in
+`scripts/gene_panel_helpers.py` (see the Hyperparameters table at the top).
 
 Rules:
-- If `adata.n_obs > cfg.downsample_max_cells` (default 500000): downsample to below that limit, **preserving all cell types**
-- If `adata.n_vars > cfg.gene_count_threshold` (default 30000): reduce to ≤ `cfg.gene_count_threshold` via QC/HVG for compute-heavy steps
-- Save downsampled `adata` to a new file in workdir via `file_manager`
+- If `adata.n_obs > DOWNSAMPLE_MAX_CELLS` (default 500000): downsample to below that limit, **preserving all cell types**.
+- If `adata.n_vars > GENE_COUNT_THRESHOLD` (default 30000): reduce to ≤ `GENE_COUNT_THRESHOLD` via QC/HVG for compute-heavy steps.
+- Save downsampled `adata` to a new file in workdir via `file_manager`.
 
 > [!IMPORTANT]
 > Prefer stratified downsampling by `label_key` if available; otherwise stratify by clustering labels.
-> Do NOT hardcode `500000` / `30000` — always read from `cfg` so per-project `settings.json` overrides take effect.
+> Use the constants imported from `gene_panel_helpers` (or the numeric defaults documented above) — don't re-hardcode them elsewhere.
 
 ---
 
 ### 1.3 Splitting
 If provided one dataset, split to preserve all cell type distribution across all datasets:
-- `cfg.n_training_splits` training dataset(s), diversified (default: 1)
-- at least `cfg.n_test_splits` test batches (default: 5)
-- constraint: each split should target `cfg.split_cell_limit` cells (default: 50000) to preserve diversity — treat this as a soft cap, go slightly under rather than well under
-- make splits as non-redundant as possible and represent **all cell types**
+- `N_TRAINING_SPLITS` training dataset(s), diversified (default: 1).
+- at least `N_TEST_SPLITS` test batches (default: 5).
+- constraint: each split should target `SPLIT_CELL_LIMIT` cells (default: 50000) to preserve diversity — treat this as a soft cap, go slightly under rather than well under.
+- make splits as non-redundant as possible and represent **all cell types**.
 
 ### 1.4 Disk Space Management (MANDATORY)
 
@@ -335,16 +339,57 @@ Recompute only if missing or invalid.
 ### 2.1 Pre-established methods
 Algorithmic Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS}`
 
-- Use true cell type as `label_key` whenever available
-- Implement HVG / DE via Scanpy on code
-- For the advanced methods, import the `pantheon.toolsets.gene_panel` library
-  inside the notebook (no dedicated ToolSet — the functions run in the
-  existing Python sandbox). Hyperparameters come from `settings.json` via
-  `GenePanelConfig`.
+- Use true cell type as `label_key` whenever available.
+- Implement **HVG / DE** via Scanpy directly (`sc.pp.highly_variable_genes`,
+  `sc.tl.rank_genes_groups`).
+- For **Random Forest / scGeneFit / SpaPROS** use the helper script shipped
+  with this skill: `scripts/gene_panel_helpers.py`. It is a plain Python
+  module (no registered toolset) with four functions:
+  `select_spapros`, `select_random_forest`, `select_scgenefit`,
+  `estimate_spapros_runtime`.
+
+#### Load the helper script
+
+Open the helper from this skill's directory (`.pantheon/skills/omics/gene_panel_selection/scripts/`).
+In a notebook cell:
+
+```python
+# Locate the helpers relative to this skill's install path.
+import sys
+from pathlib import Path
+
+# .pantheon/skills/omics/gene_panel_selection/scripts/
+skill_scripts = Path.cwd()
+for candidate in (
+    Path.home() / ".pantheon/skills/omics/gene_panel_selection/scripts",
+    Path.cwd() / ".pantheon/skills/omics/gene_panel_selection/scripts",
+):
+    if candidate.exists():
+        skill_scripts = candidate
+        break
+sys.path.insert(0, str(skill_scripts))
+
+from gene_panel_helpers import (
+    estimate_spapros_runtime,
+    select_spapros,
+    select_random_forest,
+    select_scgenefit,
+    # Hyperparameter defaults (override per call with kwargs if needed):
+    SCGENEFIT_MAX_CONSTRAINTS,
+    SPAPROS_N_HVG,
+    RF_N_ESTIMATORS,
+    SPAPROS_RUNTIME_WARNING_MINUTES,
+    SPAPROS_RUNTIME_SKIP_MINUTES,
+)
+```
+
+If the above lookup fails (non-default install), read the file via
+`skill_view(name='omics/gene_panel_selection', file_path='scripts/gene_panel_helpers.py')`
+to discover its location, then adjust the `sys.path` insertion accordingly.
 
 > [!CAUTION]
 > **SpaPROS runtime gate (MANDATORY).** SpaPROS can run for tens of minutes
-> to hours on large datasets. Run `estimate_spapros_runtime(...)` **first**
+> to hours on large datasets. Call `estimate_spapros_runtime(...)` **first**
 > and inspect the `severity` tier of the returned dict:
 >
 > - `"fast"` → run `select_spapros(...)` directly, no user confirmation needed.
@@ -357,23 +402,13 @@ Algorithmic Methods = `{HVG, DE, Random Forest, scGeneFit, SpaPROS}`
 >       methods only.
 
 ```python
-from pantheon.toolsets.gene_panel import (
-    GenePanelConfig,
-    estimate_spapros_runtime,
-    select_scgenefit,
-    select_spapros,
-    select_random_forest,
-)
-
-cfg = GenePanelConfig.from_settings()  # loads `gene_panel` section of settings.json
-
 # --- SpaPROS pre-check (cheap, metadata-only read of the .h5ad) ---
 estimate = estimate_spapros_runtime(
     adata_path=adata_path,
     num_markers=200,
-    n_hvg=cfg.spapros_n_hvg,
-    warning_minutes=cfg.spapros_runtime_warning_minutes,
-    skip_minutes=cfg.spapros_runtime_skip_minutes,
+    n_hvg=SPAPROS_N_HVG,
+    warning_minutes=SPAPROS_RUNTIME_WARNING_MINUTES,
+    skip_minutes=SPAPROS_RUNTIME_SKIP_MINUTES,
 )
 print(estimate)
 # If estimate["severity"] != "fast": return this dict verbatim to the
@@ -388,7 +423,7 @@ select_scgenefit(
     adata_path=adata_path,
     label_key="cell_type",
     return_scores=True,
-    max_constraints=cfg.scgenefit_max_constraints,
+    max_constraints=SCGENEFIT_MAX_CONSTRAINTS,
     workdir=workdir,
 )
 
@@ -398,7 +433,7 @@ select_spapros(
     adata_path=adata_path,
     label_key="cell_type",
     num_markers=200,  # selector cutoff; full table is still saved
-    n_hvg=cfg.spapros_n_hvg,
+    n_hvg=SPAPROS_N_HVG,
     return_scores=True,
     workdir=workdir,
 )
@@ -406,17 +441,19 @@ select_spapros(
 select_random_forest(
     adata_path=adata_path,
     label_key="cell_type",
-    n_estimators=cfg.rf_n_estimators,
+    n_estimators=RF_N_ESTIMATORS,
     return_scores=True,
     workdir=workdir,
 )
 ```
 
-- Always request **gene scores** (`return_scores=True`)
-- Outputs land in `workdir/gene_panels/{spapros,random_forest,scgenefit}/`
+- Always request **gene scores** (`return_scores=True`).
+- Outputs land in `workdir/gene_panels/{spapros,random_forest,scgenefit}/`.
 - Each method writes a **scores CSV** that is the single source of truth
-  for ranking — Step 3 consumes these files directly
-- Do **not** hardcode algorithm caps; read them from `cfg`
+  for ranking — Step 3 consumes these files directly.
+- To override any cap per call, pass the kwarg (`max_constraints=`,
+  `n_hvg=`, `n_estimators=`, etc.); don't edit the defaults in the helper
+  unless the new value should apply project-wide.
 
 ---
 

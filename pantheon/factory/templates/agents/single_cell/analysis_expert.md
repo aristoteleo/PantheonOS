@@ -287,7 +287,7 @@ When performing gene panel selection, you are the **sole executor** of the entir
 You must work **independently** using the detailed steps below. The leader provides only high-level context
 (dataset path, biological context, panel size, criteria). You execute ALL steps in order without skipping or abbreviating any.
 
-Before starting, read the full skill file: `.pantheon/skills/omics/gene_panel_selection.md` (or use `glob` with `pattern="**/omics/gene_panel_selection.md"`).
+Before starting, read the full skill: `.pantheon/skills/omics/gene_panel_selection/SKILL.md` (or use `skill_view(name='omics/gene_panel_selection')`).
 **Re-read it before each major step** to ensure strict compliance.
 
 ### Step 0: Dataset
@@ -318,17 +318,17 @@ Inspect file format, cell/gene counts, batches/conditions, `.obs`/`.var`/`.obsm`
 Identify `label_key` (true cell type recommended if present), batch/condition columns, and whether `adata.X` is raw counts or normalized.
 
 #### 1.2 Downsampling (CRITICAL)
-Load the config first: `cfg = GenePanelConfig.from_settings()`. Then:
-- If `adata.n_obs > cfg.downsample_max_cells` (default 500000): downsample preserving all cell types (stratified by `label_key`)
-- If `adata.n_vars > cfg.gene_count_threshold` (default 30000): reduce to ≤ `cfg.gene_count_threshold` via QC/HVG
-- Save downsampled adata via `file_manager`
-- This downsampled dataset becomes the **only input** for algorithmic selection methods
-- Keep full gene list available for biological lookup during curation
-- Do NOT hardcode `500000` / `30000` — read from `cfg` so per-project `settings.json` overrides work
+Thresholds are module-level constants in the skill's helper file. Read the constants table at the top of `gene_panel_selection/SKILL.md`, or import them once from the helper script (see Step 2 block below) and reference them by name:
+- If `adata.n_obs > DOWNSAMPLE_MAX_CELLS` (default 500000): downsample preserving all cell types (stratified by `label_key`).
+- If `adata.n_vars > GENE_COUNT_THRESHOLD` (default 30000): reduce to ≤ `GENE_COUNT_THRESHOLD` via QC/HVG.
+- Save downsampled adata via `file_manager`.
+- This downsampled dataset becomes the **only input** for algorithmic selection methods.
+- Keep full gene list available for biological lookup during curation.
+- To override on a specific project, pass the numeric value explicitly — don't re-hardcode elsewhere.
 
 #### 1.3 Splitting
-Split into: **`cfg.n_training_splits` training dataset(s)** (default 1, diversified) + **at least `cfg.n_test_splits` test batches** (default 5).
-Constraint: each split should target **`cfg.split_cell_limit` cells** (default 50000) to preserve diversity — go slightly under rather than well under. Preserve all cell type distribution. Maximize non-redundancy.
+Split into: **`N_TRAINING_SPLITS` training dataset(s)** (default 1, diversified) + **at least `N_TEST_SPLITS` test batches** (default 5).
+Constraint: each split should target **`SPLIT_CELL_LIMIT` cells** (default 50000) to preserve diversity — go slightly under rather than well under. Preserve all cell type distribution. Maximize non-redundancy.
 
 #### 1.4 Disk Space Management (MANDATORY)
 - **Process in memory** — chain downsampling → splitting → preprocessing in one session. Do not save intermediate h5ad files unless re-read later.
@@ -349,19 +349,29 @@ If needed: QC → normalize/log1p/scale → PCA → neighbors → UMAP → batch
 
 Run ALL of these methods (unless user requests specific ones): **HVG, DE, Random Forest, scGeneFit, SpaPROS**
 
-- Use true cell type as `label_key` whenever available
-- Implement HVG / DE via Scanpy in code
-- For advanced methods, import the `pantheon.toolsets.gene_panel` library
-  from inside a notebook cell (it is a plain Python library — **not** a
-  registered toolset). See Step 2.1 in `gene_panel_selection.md` for the
-  full import snippet and the SpaPROS runtime gate.
-  - `select_scgenefit` (**ALWAYS**: `max_constraints <= SCGENEFIT_MAX_CONSTRAINTS`)
-  - `select_spapros` (**ALWAYS**: `n_hvg < SPAPROS_N_HVG`, and gated by
-    `estimate_spapros_runtime` — see skill file)
-  - `select_random_forest`
-- **Always request gene scores** (`return_scores=True`) — call each method
-  ONCE and slice top-K in pandas for the Step 3 ARI sweep
-- **Save each method's score table to CSV** on disk
+- Use true cell type as `label_key` whenever available.
+- Implement HVG / DE via Scanpy directly.
+- For RF / scGeneFit / SpaPROS the skill ships helper functions at
+  `.pantheon/skills/omics/gene_panel_selection/scripts/gene_panel_helpers.py`.
+  Load them in a notebook cell:
+  ```python
+  import sys
+  from pathlib import Path
+  sys.path.insert(0, str(Path.home() / ".pantheon/skills/omics/gene_panel_selection/scripts"))
+  from gene_panel_helpers import (
+      estimate_spapros_runtime, select_spapros,
+      select_random_forest, select_scgenefit,
+      SCGENEFIT_MAX_CONSTRAINTS, SPAPROS_N_HVG, RF_N_ESTIMATORS,
+  )
+  ```
+  If `~/.pantheon/skills/...` doesn't exist, use
+  `skill_view(name='omics/gene_panel_selection', file_path='scripts/gene_panel_helpers.py')`
+  to discover the actual path then adjust `sys.path`.
+  - `select_scgenefit` — **ALWAYS** keep `max_constraints <= SCGENEFIT_MAX_CONSTRAINTS` (default 1000).
+  - `select_spapros` — **ALWAYS** gate with `estimate_spapros_runtime` first; see Step 2.1 in `gene_panel_selection/SKILL.md`.
+  - `select_random_forest`.
+- **Always request gene scores** (`return_scores=True`) — call each method ONCE and slice top-K in pandas for the Step 3 ARI sweep.
+- **Save each method's score table to CSV** on disk (the helpers do this).
 
 ---
 

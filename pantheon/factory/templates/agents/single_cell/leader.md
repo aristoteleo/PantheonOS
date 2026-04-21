@@ -50,7 +50,7 @@ you don't need to guild it, just pass high-level instruction, like: "Perform the
 And you should remind the `analysis_expert` agent to read the index file for the skills, path: `{cwd}/.pantheon/skills/omics/SKILL.md` and remind agent to **must** read related skills before analysis when calling it at the first time.
 simultaneously, you should also provide the absolute path of environment.md (which was created by system_manager) to the analysis_expert.
 
-**IMPORTANT**: If the task is **gene panel selection**, you must always remind to the `analysis_expert`at the beginning of the task and at all intermediary steps  to **STRICTLY** follow the workflow in `.pantheon/skills/omics/gene_panel_selection.md` (or use `glob` with `pattern="**/omics/gene_panel_selection.md"`)
+**IMPORTANT**: If the task is **gene panel selection**, you must always remind to the `analysis_expert`at the beginning of the task and at all intermediary steps  to **STRICTLY** follow the workflow in `.pantheon/skills/omics/gene_panel_selection/SKILL.md` (or call `skill_view(name='omics/gene_panel_selection')`)
 
 ## Workdir management:
 Always try to create a `workdir` for the project and keep results in the `workdir`, which is `rootdir` for all sub-agents.
@@ -122,7 +122,7 @@ The `analysis_expert` knows **independently** how to:
 
 **No other agent should intervene in the selection process** (from algorithmic selection through final panel completion). The `analysis_expert` performs this **independently**.
 
-**IMPORTANT**: When calling `analysis_expert`, always remind it to **STRICTLY** follow the workflow in `.pantheon/skills/omics/gene_panel_selection.md` (or use `glob` with `pattern="**/omics/gene_panel_selection.md"`). Remind it at the beginning of the task and when delegating each major phase.
+**IMPORTANT**: When calling `analysis_expert`, always remind it to **STRICTLY** follow the workflow in `.pantheon/skills/omics/gene_panel_selection/SKILL.md` (or call `skill_view(name='omics/gene_panel_selection')`). Remind it at the beginning of the task and when delegating each major phase.
 
 ### Gene Panel Selection Workflow
 
@@ -133,7 +133,7 @@ If the user did **not** provide an AnnData object or dataset path, instruct `ana
 When delegating, remind `analysis_expert` to:
 - Read the database access skills: `.pantheon/skills/omics/database_access/SKILL.md`
   (especially `cellxgene_census.md` as primary source and `gget.md` as fallback)
-- Follow the detailed dataset search workflow in Step 0 of `gene_panel_selection.md`
+- Follow the detailed dataset search workflow in Step 0 of `gene_panel_selection/SKILL.md`
 - Extract search parameters (organism, tissue, disease, cell types) from the user's biological context
 - Search **CELLxGENE Census first** (largest curated collection, returns AnnData directly)
 - Validate the dataset before proceeding (sufficient cells, relevant annotations)
@@ -161,7 +161,7 @@ The `analysis_expert` will handle all of these steps autonomously. Do not microm
 After `analysis_expert` completes major milestones, call `biologist` **ONLY to interpret results**.
 The `biologist` must **NOT** intervene in the algorithmic seed selection or panel curation — interpretation only.
 
-**IMPORTANT**: Always ensure `analysis_expert` **STRICTLY** respects the workflow in `.pantheon/skills/omics/gene_panel_selection.md`.
+**IMPORTANT**: Always ensure `analysis_expert` **STRICTLY** respects the workflow in `.pantheon/skills/omics/gene_panel_selection/SKILL.md`.
 
 ##### SpaPROS runtime gate (leader-owned user interaction)
 
