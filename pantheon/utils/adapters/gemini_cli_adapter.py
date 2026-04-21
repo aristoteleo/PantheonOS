@@ -148,12 +148,47 @@ def _clean_schema_for_gemini_cli(schema: Any) -> Any:
 
 
 def _messages_to_gemini_rest_contents(messages: List[Dict]) -> List[Dict[str, Any]]:
-    """Convert OpenAI-style messages to Gemini REST JSON contents."""
+    """Convert OpenAI-style messages to Gemini REST JSON contents.
+
+    Gemini requires that in a "function call turn", the number of
+    ``functionResponse`` parts in the user's reply equals the number of
+    ``functionCall`` parts in the preceding model message. OpenAI-style
+    histories put each tool response in its own ``role:"tool"`` message, so
+    two parallel tool calls produce two separate tool messages. We coalesce
+    runs of consecutive ``role:"tool"`` messages into a single Gemini
+    user content with N ``functionResponse`` parts to satisfy that
+    invariant — otherwise the API rejects with HTTP 400 ``Please ensure
+    that the number of function response parts is equal to the number of
+    function call parts of the function call turn.``
+    """
     contents: List[Dict[str, Any]] = []
+    pending_tool_parts: List[Dict[str, Any]] = []
+
+    def _flush_pending() -> None:
+        if pending_tool_parts:
+            contents.append({"role": "user", "parts": list(pending_tool_parts)})
+            pending_tool_parts.clear()
+
     for message in messages:
         role = str(message.get("role") or "user")
         if role == "system":
             continue
+
+        if role == "tool":
+            # Accumulate — emit as a single user content once the next
+            # non-tool message arrives (or at end of iteration).
+            pending_tool_parts.append({
+                "functionResponse": {
+                    "name": message.get("name", "unknown"),
+                    "response": _gemini_function_response_payload(message.get("content", "")),
+                }
+            })
+            continue
+
+        # About to emit a non-tool message — first close out any pending
+        # parallel tool responses.
+        _flush_pending()
+
         parts: List[Dict[str, Any]] = []
         content = message.get("content", "")
         if isinstance(content, str) and content:
@@ -194,19 +229,14 @@ def _messages_to_gemini_rest_contents(messages: List[Dict]) -> List[Dict[str, An
                         "args": arguments,
                     }
                 })
-        elif role == "tool":
-            parts = [{
-                "functionResponse": {
-                    "name": message.get("name", "unknown"),
-                    "response": _gemini_function_response_payload(message.get("content", "")),
-                }
-            }]
 
         if parts:
             contents.append({
                 "role": "model" if role == "assistant" else "user",
                 "parts": parts,
             })
+
+    _flush_pending()
     return contents
 
 
@@ -257,6 +287,7 @@ def _extract_gemini_text_and_tool_calls(payload: Dict[str, Any]):
     parts = list((content or {}).get("parts") or []) if isinstance(content, dict) else []
     text_parts: List[str] = []
     tool_calls: List[Dict[str, Any]] = []
+    tool_call_idx = 0
     for part in parts:
         if not isinstance(part, dict):
             continue
@@ -269,11 +300,18 @@ def _extract_gemini_text_and_tool_calls(payload: Dict[str, Any]):
             args = function_call.get("args")
             if not isinstance(args, dict):
                 args = {}
+            # ``index`` MUST be set — ``stream_chunk_builder`` uses it to
+            # distinguish concurrent tool calls. Without it, the builder
+            # defaults every entry to 0 and concatenates their
+            # ``function.arguments`` strings, producing invalid JSON like
+            # ``{a:1}{b:2}`` that then fails to parse at call time.
             tool_calls.append({
+                "index": tool_call_idx,
                 "id": _gemini_tool_call_id(name),
                 "type": "function",
                 "function": {"name": name, "arguments": json.dumps(args)},
             })
+            tool_call_idx += 1
 
     stop_reason = "tool_use" if tool_calls else "end_turn"
     finish_reason = str(candidate.get("finishReason") or "").upper()

@@ -16,10 +16,11 @@ import secrets
 import threading
 import time
 import webbrowser
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
@@ -64,6 +65,37 @@ GEMINI_CLI_AUTH = Path.home() / ".gemini" / "oauth_creds.json"
 
 _GOOGLE_CLIENT_ID_RE = re.compile(r"(\d+-[a-z0-9]+\.apps\.googleusercontent\.com)")
 _GOOGLE_CLIENT_SECRET_RE = re.compile(r"(GOCSPX-[A-Za-z0-9_-]+)")
+
+# The Gemini CLI source assigns its OAuth creds to literal variable names.
+# We prefer these anchored matches over the bare regexes above, because
+# recent bundles also contain CLOUD_SDK_CLIENT_ID (a non-OAuth client used
+# for google-cloud SDK telemetry); picking that one pairs it with the real
+# secret and the token exchange fails with "invalid_client".
+_OAUTH_ID_ASSIGN_RE = re.compile(
+    r"OAUTH_CLIENT_ID\s*[:=]\s*['\"](\d+-[a-z0-9]+\.apps\.googleusercontent\.com)['\"]"
+)
+_OAUTH_SECRET_ASSIGN_RE = re.compile(
+    r"OAUTH_CLIENT_SECRET\s*[:=]\s*['\"](GOCSPX-[A-Za-z0-9_-]+)['\"]"
+)
+
+
+def _extract_creds_from_text(text: str) -> tuple[str, str | None] | None:
+    """Prefer ``OAUTH_CLIENT_ID``/``OAUTH_CLIENT_SECRET`` assignments; fall
+    back to loose pattern matching only if those named constants are absent.
+    """
+    id_match = _OAUTH_ID_ASSIGN_RE.search(text)
+    secret_match = _OAUTH_SECRET_ASSIGN_RE.search(text)
+    if id_match and secret_match:
+        return id_match.group(1), secret_match.group(1)
+    if id_match:
+        loose_secret = _GOOGLE_CLIENT_SECRET_RE.search(text)
+        return id_match.group(1), loose_secret.group(1) if loose_secret else None
+    # No named OAUTH_CLIENT_ID — fall through to the loose, legacy match.
+    cid = _GOOGLE_CLIENT_ID_RE.search(text)
+    if not cid:
+        return None
+    sec = _GOOGLE_CLIENT_SECRET_RE.search(text)
+    return cid.group(1), sec.group(1) if sec else None
 
 
 class GeminiCliOAuthError(RuntimeError):
@@ -180,11 +212,51 @@ def _find_file(root: Path, filename: str, depth: int = 10) -> Path | None:
     return None
 
 
+def _scan_js_for_oauth_creds(root: Path, depth: int = 5) -> tuple[str, str | None] | None:
+    """Walk ``root`` and return the first ``(client_id, client_secret)`` found
+    in any ``.js`` file. Used as a fallback when the unminified ``oauth2.js``
+    isn't shipped (e.g. Homebrew bundles everything into ``bundle/chunk-*.js``).
+
+    Prefers files that contain the anchored ``OAUTH_CLIENT_ID`` assignment
+    (first pass) over files that only contain a loose ``apps.googleusercontent.com``
+    match (second pass) — the latter picks up unrelated constants like
+    ``CLOUD_SDK_CLIENT_ID`` which are not paired with the real OAuth secret.
+    """
+    if depth <= 0 or not root.is_dir():
+        return None
+    try:
+        entries = list(root.iterdir())
+    except Exception:
+        return None
+
+    # Pass 1: files in this directory that contain OAUTH_CLIENT_ID = "..."
+    for entry in entries:
+        if entry.is_file() and entry.suffix == ".js":
+            try:
+                text = entry.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                continue
+            if _OAUTH_ID_ASSIGN_RE.search(text):
+                match = _extract_creds_from_text(text)
+                if match is not None:
+                    return match
+
+    # Recurse into subdirectories, still preferring the anchored pattern.
+    for entry in entries:
+        if entry.is_dir() and not entry.name.startswith("."):
+            match = _scan_js_for_oauth_creds(entry, depth - 1)
+            if match is not None:
+                return match
+
+    return None
+
+
 def extract_gemini_cli_credentials() -> tuple[str, str | None] | None:
     gemini_path = _find_binary_on_path("gemini")
     if gemini_path is None:
         return None
 
+    # Fast path — npm-style install keeps unminified source at known paths.
     content = ""
     for root in _candidate_gemini_cli_dirs(gemini_path):
         search_paths = [
@@ -210,15 +282,22 @@ def extract_gemini_cli_credentials() -> tuple[str, str | None] | None:
             if content:
                 break
 
-    if not content:
-        return None
+    if content:
+        found = _extract_creds_from_text(content)
+        if found is not None:
+            return found
 
-    client_id_match = _GOOGLE_CLIENT_ID_RE.search(content)
-    client_secret_match = _GOOGLE_CLIENT_SECRET_RE.search(content)
-    if not client_id_match:
-        return None
-    secret = client_secret_match.group(1) if client_secret_match else None
-    return client_id_match.group(1), secret
+    # Fallback — Homebrew / esbuild-bundled installs split oauth logic into
+    # bundle/chunk-*.js. Scan every .js under the gemini-cli package dir for
+    # the first file that carries the OAUTH_CLIENT_ID assignment.
+    for root in _candidate_gemini_cli_dirs(gemini_path):
+        if not root.exists() or not root.is_dir():
+            continue
+        match = _scan_js_for_oauth_creds(root, depth=5)
+        if match is not None:
+            return match
+
+    return None
 
 
 def resolve_oauth_client_config() -> tuple[str, str | None]:
@@ -638,6 +717,75 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
         return
 
 
+# ============ In-flight Login Sessions ============
+# Mirrors the design in codex.py: the frontend holds only a session_id,
+# everything sensitive stays server-side.
+
+
+@dataclass
+class _GeminiLoginSession:
+    session_id: str
+    verifier: str
+    state: str
+    redirect_uri: str
+    auth_url: str
+    server: Optional[ThreadingHTTPServer]
+    server_thread: Optional[threading.Thread]
+    callback_event: threading.Event
+    created_at: float
+    expires_at: float
+    manager: "GeminiCliOAuthManager"
+    auth: Optional[dict[str, Any]] = None
+    finalized: bool = False
+    finalize_lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+_GEMINI_SESSIONS_LOCK = threading.Lock()
+_GEMINI_SESSIONS: dict[str, _GeminiLoginSession] = {}
+
+
+def _get_gemini_session(session_id: str) -> _GeminiLoginSession:
+    with _GEMINI_SESSIONS_LOCK:
+        sess = _GEMINI_SESSIONS.get(session_id)
+    if sess is None:
+        raise GeminiCliOAuthError(
+            f"OAuth session '{session_id[:8]}…' not found or expired"
+        )
+    return sess
+
+
+def _pop_gemini_session(session_id: str) -> Optional[_GeminiLoginSession]:
+    with _GEMINI_SESSIONS_LOCK:
+        return _GEMINI_SESSIONS.pop(session_id, None)
+
+
+def _teardown_gemini_session(sess: _GeminiLoginSession) -> None:
+    server = sess.server
+    thread = sess.server_thread
+    sess.server = None
+    sess.server_thread = None
+    if server is not None:
+        try:
+            server.shutdown()
+            server.server_close()
+        except Exception as e:
+            logger.debug(f"[Gemini CLI OAuth] Callback server teardown failed: {e}")
+    if thread is not None:
+        try:
+            thread.join(timeout=2)
+        except Exception:
+            pass
+
+
+def _purge_expired_gemini_sessions() -> None:
+    now = time.time()
+    with _GEMINI_SESSIONS_LOCK:
+        expired_ids = [sid for sid, s in _GEMINI_SESSIONS.items() if s.expires_at < now]
+        expired = [_GEMINI_SESSIONS.pop(sid) for sid in expired_ids]
+    for s in expired:
+        _teardown_gemini_session(s)
+
+
 class GeminiCliOAuthManager:
     """Manage Gemini CLI OAuth state."""
 
@@ -818,14 +966,15 @@ class GeminiCliOAuthManager:
             return self.refresh(record=normalized)
         return self.save(normalized)
 
-    def login(
-        self,
-        *,
-        open_browser: bool = True,
-        timeout_seconds: int = 300,
-    ) -> dict[str, Any]:
+    # ---- Login Flow (split for frontend-driven browser) ----
+
+    def start_login(self, *, session_ttl_seconds: int = 600) -> dict[str, Any]:
+        """Prepare an OAuth login session. See codex.start_login for rationale."""
+        _purge_expired_gemini_sessions()
+
         verifier, challenge = _pkce_pair()
         state = verifier
+        session_id = _b64url(secrets.token_bytes(12))
         client_id, _ = resolve_oauth_client_config()
         auth_url = (
             f"{GOOGLE_AUTH_URL}?"
@@ -845,39 +994,117 @@ class GeminiCliOAuthManager:
         )
 
         server = self._create_callback_server()
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            if open_browser:
-                try:
-                    webbrowser.open(auth_url)
-                except Exception:
-                    pass
-            if not server.event.wait(timeout_seconds):  # type: ignore[attr-defined]
-                raise GeminiCliOAuthError("Timed out waiting for Gemini CLI OAuth callback")
-            params = dict(getattr(server, "result", {}) or {})
-        finally:
-            server.shutdown()
-            server.server_close()
-            thread.join(timeout=2)
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
 
-        if str(params.get("state") or "").strip() != state:
-            raise GeminiCliOAuthError("Gemini CLI OAuth callback state mismatch")
-        if params.get("error"):
-            raise GeminiCliOAuthError(
-                f"Gemini CLI OAuth failed: {params.get('error_description') or params['error']}"
-            )
-        code = str(params.get("code") or "").strip()
-        if not code:
-            raise GeminiCliOAuthError("Gemini CLI OAuth callback did not include a code")
+        now = time.time()
+        sess = _GeminiLoginSession(
+            session_id=session_id,
+            verifier=verifier,
+            state=state,
+            redirect_uri=GOOGLE_REDIRECT_URI,
+            auth_url=auth_url,
+            server=server,
+            server_thread=server_thread,
+            callback_event=server.event,  # type: ignore[attr-defined]
+            created_at=now,
+            expires_at=now + session_ttl_seconds,
+            manager=self,
+        )
+        with _GEMINI_SESSIONS_LOCK:
+            _GEMINI_SESSIONS[session_id] = sess
 
-        tokens = exchange_code_for_tokens(code=code, code_verifier=verifier)
-        record = {
-            "provider": "gemini_cli",
-            "tokens": tokens,
-            "last_refresh": _utc_now(),
+        logger.info(
+            f"[Gemini CLI OAuth] Session {session_id[:8]}… started; "
+            f"callback redirect_uri={GOOGLE_REDIRECT_URI}"
+        )
+        return {
+            "session_id": session_id,
+            "auth_url": auth_url,
+            "redirect_uri": GOOGLE_REDIRECT_URI,
+            "expires_at": sess.expires_at,
         }
-        return self.save(record)
+
+    def wait_login(self, session_id: str, timeout_seconds: int = 300) -> dict[str, Any]:
+        sess = _get_gemini_session(session_id)
+        if sess.finalized:
+            return sess.auth  # type: ignore[return-value]
+        if not sess.callback_event.wait(timeout_seconds):
+            raise GeminiCliOAuthError("Timed out waiting for Gemini CLI OAuth callback")
+        params = dict(getattr(sess.server, "result", {}) or {})
+        return self._finalize_login(sess, params)
+
+    def complete_login_from_url(self, session_id: str, callback_url: str) -> dict[str, Any]:
+        sess = _get_gemini_session(session_id)
+        if sess.finalized:
+            return sess.auth  # type: ignore[return-value]
+        parsed = urlparse(callback_url)
+        params: dict[str, str] = {k: v[-1] for k, v in parse_qs(parsed.query).items() if v}
+        if not params:
+            raise GeminiCliOAuthError("Callback URL has no query parameters (no ?code=…)")
+        return self._finalize_login(sess, params)
+
+    def cancel_login(self, session_id: str) -> None:
+        sess = _pop_gemini_session(session_id)
+        if sess is not None:
+            _teardown_gemini_session(sess)
+
+    def login(
+        self,
+        *,
+        open_browser: bool = True,
+        timeout_seconds: int = 300,
+    ) -> dict[str, Any]:
+        """Start → open browser → wait, in one call. Kept for CLI use."""
+        started = self.start_login()
+        auth_url = started["auth_url"]
+        session_id = started["session_id"]
+        if open_browser:
+            try:
+                webbrowser.open(auth_url)
+            except Exception as e:
+                logger.warning(f"[Gemini CLI OAuth] Failed to open browser: {e}")
+        try:
+            return self.wait_login(session_id, timeout_seconds)
+        except Exception:
+            self.cancel_login(session_id)
+            raise
+
+    def _finalize_login(
+        self,
+        sess: "_GeminiLoginSession",
+        params: dict[str, str],
+    ) -> dict[str, Any]:
+        """Validate callback params, exchange for tokens, save. Idempotent."""
+        with sess.finalize_lock:
+            if sess.finalized and sess.auth is not None:
+                return sess.auth
+            try:
+                if str(params.get("state") or "").strip() != sess.state:
+                    raise GeminiCliOAuthError("Gemini CLI OAuth callback state mismatch")
+                if params.get("error"):
+                    raise GeminiCliOAuthError(
+                        f"Gemini CLI OAuth failed: "
+                        f"{params.get('error_description') or params['error']}"
+                    )
+                code = str(params.get("code") or "").strip()
+                if not code:
+                    raise GeminiCliOAuthError("Gemini CLI OAuth callback did not include a code")
+
+                tokens = exchange_code_for_tokens(code=code, code_verifier=sess.verifier)
+                record = {
+                    "provider": "gemini_cli",
+                    "tokens": tokens,
+                    "last_refresh": _utc_now(),
+                }
+                saved = self.save(record)
+                sess.auth = saved
+                sess.finalized = True
+                logger.info("[Gemini CLI OAuth] Login successful")
+                return saved
+            finally:
+                _pop_gemini_session(sess.session_id)
+                _teardown_gemini_session(sess)
 
     def refresh(self, record: dict[str, Any] | None = None) -> dict[str, Any]:
         auth = _normalize_auth_record(record or self.load())

@@ -16,6 +16,7 @@ import secrets
 import threading
 import time
 import webbrowser
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -182,6 +183,78 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         return  # Suppress HTTP server logs
 
 
+# ============ In-flight Login Sessions ============
+#
+# Sessions are held in-memory on the backend between `start_login()` and
+# `wait_login()` / `complete_login_from_url()`. The frontend holds only
+# the `session_id` — everything sensitive (PKCE verifier, callback server
+# handle) stays server-side.
+
+
+@dataclass
+class _LoginSession:
+    session_id: str
+    provider: str
+    verifier: str
+    state: str
+    redirect_uri: str
+    auth_url: str
+    server: Optional[ThreadingHTTPServer]
+    server_thread: Optional[threading.Thread]
+    callback_event: threading.Event
+    created_at: float
+    expires_at: float
+    manager: "CodexOAuthManager"
+    auth: Optional[dict[str, Any]] = None
+    finalized: bool = False
+    finalize_lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+_SESSIONS_LOCK = threading.Lock()
+_SESSIONS: dict[str, _LoginSession] = {}
+
+
+def _get_session(session_id: str) -> _LoginSession:
+    with _SESSIONS_LOCK:
+        sess = _SESSIONS.get(session_id)
+    if sess is None:
+        raise CodexOAuthError(f"OAuth session '{session_id[:8]}…' not found or expired")
+    return sess
+
+
+def _pop_session(session_id: str) -> Optional[_LoginSession]:
+    with _SESSIONS_LOCK:
+        return _SESSIONS.pop(session_id, None)
+
+
+def _teardown_session(sess: _LoginSession) -> None:
+    server = sess.server
+    thread = sess.server_thread
+    sess.server = None
+    sess.server_thread = None
+    if server is not None:
+        try:
+            server.shutdown()
+            server.server_close()
+        except Exception as e:
+            logger.debug(f"[Codex OAuth] Callback server teardown failed: {e}")
+    if thread is not None:
+        try:
+            thread.join(timeout=2)
+        except Exception:
+            pass
+
+
+def _purge_expired_sessions() -> None:
+    now = time.time()
+    with _SESSIONS_LOCK:
+        expired_ids = [sid for sid, s in _SESSIONS.items() if s.expires_at < now]
+        expired = [_SESSIONS.pop(sid) for sid in expired_ids]
+    for s in expired:
+        logger.debug(f"[Codex OAuth] Purging expired session {s.session_id[:8]}…")
+        _teardown_session(s)
+
+
 # ============ OAuth Manager ============
 
 
@@ -247,21 +320,27 @@ class CodexOAuthManager:
             return True
         return bool(refresh_token)
 
-    # ---- Login Flow ----
+    # ---- Login Flow (split for frontend-driven browser) ----
 
-    def login(
-        self,
-        *,
-        open_browser: bool = True,
-        timeout_seconds: int = 300,
-    ) -> dict[str, Any]:
-        """Start browser-based OAuth login flow.
+    def start_login(self, *, session_ttl_seconds: int = 600) -> dict[str, Any]:
+        """Prepare an OAuth login session — non-blocking.
 
-        Opens browser to OpenAI auth page. User logs in, callback
-        redirects to local server. Returns auth record with tokens.
+        Generates PKCE + state, starts the local callback server, and returns
+        ``{session_id, auth_url, redirect_uri, expires_at}``. The caller
+        (frontend) opens ``auth_url`` in the user's own browser, then calls
+        :meth:`wait_login` (backend-receives-callback path) or
+        :meth:`complete_login_from_url` (user-pastes-URL path).
+
+        Splitting ``login()`` lets the frontend drive ``window.open(auth_url)``
+        so the tab lands on the user's machine — the old ``webbrowser.open``
+        from the Python process only works when backend and user share a
+        desktop (local mode). For WSL / Docker / remote it doesn't.
         """
+        _purge_expired_sessions()
+
         verifier, challenge = _pkce_pair()
         state = _b64url(secrets.token_bytes(24))
+        session_id = _b64url(secrets.token_bytes(12))
 
         event = threading.Event()
         server = self._create_server(event)
@@ -284,51 +363,157 @@ class CodexOAuthManager:
             })
         )
 
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
 
-        try:
-            logger.info(f"[Codex OAuth] Opening browser for login...")
-            logger.info(f"[Codex OAuth] Auth URL: {auth_url}")
-            if open_browser:
-                webbrowser.open(auth_url)
+        now = time.time()
+        sess = _LoginSession(
+            session_id=session_id,
+            provider="codex",
+            verifier=verifier,
+            state=state,
+            redirect_uri=redirect_uri,
+            auth_url=auth_url,
+            server=server,
+            server_thread=server_thread,
+            callback_event=event,
+            created_at=now,
+            expires_at=now + session_ttl_seconds,
+            manager=self,
+        )
+        with _SESSIONS_LOCK:
+            _SESSIONS[session_id] = sess
 
-            if not event.wait(timeout_seconds):
-                raise CodexOAuthError("Timed out waiting for OAuth callback")
-
-            params = getattr(server, "result", {}) or {}
-        finally:
-            server.shutdown()
-            server.server_close()
-            thread.join(timeout=2)
-
-        # Validate callback
-        if params.get("state") != state:
-            raise CodexOAuthError("OAuth callback state mismatch")
-        if params.get("error"):
-            raise CodexOAuthError(f"OAuth failed: {params.get('error_description', params['error'])}")
-
-        code = str(params.get("code", "")).strip()
-        if not code:
-            raise CodexOAuthError("OAuth callback missing authorization code")
-
-        # Exchange code for tokens
-        tokens = _exchange_code(code, redirect_uri, verifier)
-        claims = _jwt_org_context(tokens["id_token"])
-
-        auth = {
-            "provider": "codex",
-            "tokens": {
-                **tokens,
-                "account_id": claims.get("chatgpt_account_id"),
-                "organization_id": claims.get("organization_id"),
-                "project_id": claims.get("project_id"),
-            },
-            "last_refresh": _utc_now(),
+        logger.info(
+            f"[Codex OAuth] Session {session_id[:8]}… started; "
+            f"callback redirect_uri={redirect_uri}"
+        )
+        return {
+            "session_id": session_id,
+            "auth_url": auth_url,
+            "redirect_uri": redirect_uri,
+            "expires_at": sess.expires_at,
         }
 
-        logger.info("[Codex OAuth] Login successful")
-        return self._save(auth)
+    def wait_login(
+        self,
+        session_id: str,
+        timeout_seconds: int = 300,
+    ) -> dict[str, Any]:
+        """Block until the local callback server sees a redirect, then finalize.
+
+        Times out without cleaning up the session — caller can still fall
+        back to :meth:`complete_login_from_url` afterwards (useful when the
+        user's browser can't reach our callback host, e.g. in remote mode).
+        """
+        sess = _get_session(session_id)
+        if sess.finalized:
+            return sess.auth  # type: ignore[return-value]
+        if not sess.callback_event.wait(timeout_seconds):
+            raise CodexOAuthError("Timed out waiting for OAuth callback")
+        # Callback handler wrote to sess.server.result; move into finalize path.
+        params = dict(getattr(sess.server, "result", {}) or {})
+        return self._finalize_login(sess, params)
+
+    def complete_login_from_url(
+        self,
+        session_id: str,
+        callback_url: str,
+    ) -> dict[str, Any]:
+        """Finalize by parsing a callback URL the user pasted manually.
+
+        Remote / WSL1 / Docker-without-port-mapping scenarios: the browser
+        redirect lands on an unreachable host, but the address bar still
+        holds ``...?code=...&state=...``. The frontend takes that string
+        and sends it here.
+        """
+        sess = _get_session(session_id)
+        if sess.finalized:
+            return sess.auth  # type: ignore[return-value]
+        parsed = urlparse(callback_url)
+        params: dict[str, str] = {k: v[-1] for k, v in parse_qs(parsed.query).items() if v}
+        if not params:
+            raise CodexOAuthError("Callback URL has no query parameters (no ?code=…)")
+        return self._finalize_login(sess, params)
+
+    def cancel_login(self, session_id: str) -> None:
+        """Abort an in-flight login session and release its callback server."""
+        sess = _pop_session(session_id)
+        if sess is not None:
+            _teardown_session(sess)
+
+    # ---- Back-compat wrapper for CLI & old single-shot callers ----
+
+    def login(
+        self,
+        *,
+        open_browser: bool = True,
+        timeout_seconds: int = 300,
+    ) -> dict[str, Any]:
+        """Start → open browser → wait, in one call. Kept for CLI use."""
+        started = self.start_login()
+        auth_url = started["auth_url"]
+        session_id = started["session_id"]
+        logger.info(f"[Codex OAuth] Auth URL: {auth_url}")
+        if open_browser:
+            try:
+                webbrowser.open(auth_url)
+                logger.info("[Codex OAuth] Opened browser for login")
+            except Exception as e:
+                logger.warning(f"[Codex OAuth] Failed to open browser automatically: {e}")
+        try:
+            return self.wait_login(session_id, timeout_seconds)
+        except Exception:
+            self.cancel_login(session_id)
+            raise
+
+    # ---- Finalize (shared between callback-server and paste-URL paths) ----
+
+    def _finalize_login(
+        self,
+        sess: "_LoginSession",
+        params: dict[str, str],
+    ) -> dict[str, Any]:
+        """Validate callback params, exchange for tokens, save. Idempotent.
+
+        Always drops the session (frees the callback server) on exit, even
+        on validation / exchange errors — caller starts a fresh session to
+        retry.
+        """
+        with sess.finalize_lock:
+            if sess.finalized and sess.auth is not None:
+                return sess.auth
+            try:
+                if params.get("state") != sess.state:
+                    raise CodexOAuthError("OAuth callback state mismatch")
+                if params.get("error"):
+                    raise CodexOAuthError(
+                        f"OAuth failed: {params.get('error_description', params['error'])}"
+                    )
+                code = str(params.get("code", "")).strip()
+                if not code:
+                    raise CodexOAuthError("OAuth callback missing authorization code")
+
+                tokens = _exchange_code(code, sess.redirect_uri, sess.verifier)
+                claims = _jwt_org_context(tokens["id_token"])
+                auth = {
+                    "provider": "codex",
+                    "tokens": {
+                        **tokens,
+                        "account_id": claims.get("chatgpt_account_id"),
+                        "organization_id": claims.get("organization_id"),
+                        "project_id": claims.get("project_id"),
+                    },
+                    "last_refresh": _utc_now(),
+                }
+                saved = self._save(auth)
+                sess.auth = saved
+                sess.finalized = True
+                logger.info("[Codex OAuth] Login successful")
+                return saved
+            finally:
+                _pop_session(sess.session_id)
+                _teardown_session(sess)
 
     # ---- Refresh ----
 

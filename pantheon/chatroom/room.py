@@ -2713,6 +2713,167 @@ class ChatRoom(ToolSet):
         return {"success": False, "error": f"Unsupported OAuth provider: {provider}"}
 
     @tool
+    async def oauth_start(self, provider: str = "codex") -> dict:
+        """Start a browser-based OAuth login that the frontend drives.
+
+        The backend prepares PKCE state + starts a local callback server but
+        does NOT call webbrowser.open — the frontend opens ``auth_url`` in
+        the user's own browser (via ``window.open``), so the tab lands on
+        the user's machine even when the backend is remote / headless /
+        running inside WSL.
+
+        Finish the flow with one of:
+          - ``oauth_wait(session_id)`` — the normal path, backend's callback
+            server catches the redirect (works when the user's browser can
+            reach the callback host: local, WSL2, docker-with-port-mapping).
+          - ``oauth_complete(session_id, callback_url)`` — the manual
+            paste fallback for remote / WSL1 / docker-without-port-mapping,
+            where the redirect can't reach the backend.
+
+        Args:
+            provider: OAuth provider name ('codex' or 'gemini')
+
+        Returns:
+            dict with success, session_id, auth_url, redirect_uri, expires_at.
+        """
+        try:
+            if provider == "codex":
+                from pantheon.utils.oauth import CodexOAuthManager
+
+                started = CodexOAuthManager().start_login()
+                return {"success": True, "provider": "codex", **started}
+            if provider == "gemini":
+                from pantheon.utils.oauth import GeminiCliOAuthManager
+
+                started = GeminiCliOAuthManager().start_login()
+                return {"success": True, "provider": "gemini", **started}
+            return {"success": False, "error": f"Unsupported OAuth provider: {provider}"}
+        except Exception as e:
+            logger.error(f"oauth_start({provider}) failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def oauth_wait(
+        self,
+        session_id: str,
+        provider: str = "codex",
+        timeout_seconds: int = 300,
+    ) -> dict:
+        """Block until the backend callback server receives the OAuth redirect.
+
+        Pairs with ``oauth_start``. Times out without destroying the session,
+        so the frontend can fall back to ``oauth_complete`` (paste URL).
+        """
+        try:
+            if provider == "codex":
+                from pantheon.utils.oauth import CodexOAuthError, CodexOAuthManager
+                from pantheon.utils.model_selector import reset_model_selector
+
+                mgr = CodexOAuthManager()
+                try:
+                    mgr.wait_login(session_id, timeout_seconds=timeout_seconds)
+                    reset_model_selector()
+                    return {
+                        "success": True,
+                        "provider": "codex",
+                        "account_id": mgr.get_account_id(),
+                    }
+                except CodexOAuthError as e:
+                    return {"success": False, "error": str(e), "timed_out": "Timed out" in str(e)}
+            if provider == "gemini":
+                from pantheon.utils.oauth import GeminiCliOAuthError, GeminiCliOAuthManager
+                from pantheon.utils.model_selector import reset_model_selector
+
+                mgr = GeminiCliOAuthManager()
+                try:
+                    mgr.wait_login(session_id, timeout_seconds=timeout_seconds)
+                    reset_model_selector()
+                    return {
+                        "success": True,
+                        "provider": "gemini",
+                        "email": mgr.get_email(),
+                        "project_id": mgr.get_project_id(),
+                        "runtime_ready": bool(mgr.get_project_id()),
+                    }
+                except GeminiCliOAuthError as e:
+                    return {"success": False, "error": str(e), "timed_out": "Timed out" in str(e)}
+            return {"success": False, "error": f"Unsupported OAuth provider: {provider}"}
+        except Exception as e:
+            logger.error(f"oauth_wait({provider}, {session_id[:8]}…) failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def oauth_complete(
+        self,
+        session_id: str,
+        callback_url: str,
+        provider: str = "codex",
+    ) -> dict:
+        """Finish an OAuth login from a pasted callback URL.
+
+        Use when the redirect failed to reach the backend (remote mode) —
+        the frontend asks the user to paste the full failed URL
+        (``http://localhost:…/auth/callback?code=…&state=…``) and sends it
+        here for exchange.
+        """
+        try:
+            if provider == "codex":
+                from pantheon.utils.oauth import CodexOAuthError, CodexOAuthManager
+                from pantheon.utils.model_selector import reset_model_selector
+
+                mgr = CodexOAuthManager()
+                try:
+                    mgr.complete_login_from_url(session_id, callback_url)
+                    reset_model_selector()
+                    return {
+                        "success": True,
+                        "provider": "codex",
+                        "account_id": mgr.get_account_id(),
+                    }
+                except CodexOAuthError as e:
+                    return {"success": False, "error": str(e)}
+            if provider == "gemini":
+                from pantheon.utils.oauth import GeminiCliOAuthError, GeminiCliOAuthManager
+                from pantheon.utils.model_selector import reset_model_selector
+
+                mgr = GeminiCliOAuthManager()
+                try:
+                    mgr.complete_login_from_url(session_id, callback_url)
+                    reset_model_selector()
+                    return {
+                        "success": True,
+                        "provider": "gemini",
+                        "email": mgr.get_email(),
+                        "project_id": mgr.get_project_id(),
+                        "runtime_ready": bool(mgr.get_project_id()),
+                    }
+                except GeminiCliOAuthError as e:
+                    return {"success": False, "error": str(e)}
+            return {"success": False, "error": f"Unsupported OAuth provider: {provider}"}
+        except Exception as e:
+            logger.error(f"oauth_complete({provider}, {session_id[:8]}…) failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def oauth_cancel(self, session_id: str, provider: str = "codex") -> dict:
+        """Cancel an in-flight OAuth login session (stop the callback server)."""
+        try:
+            if provider == "codex":
+                from pantheon.utils.oauth import CodexOAuthManager
+
+                CodexOAuthManager().cancel_login(session_id)
+            elif provider == "gemini":
+                from pantheon.utils.oauth import GeminiCliOAuthManager
+
+                GeminiCliOAuthManager().cancel_login(session_id)
+            else:
+                return {"success": False, "error": f"Unsupported OAuth provider: {provider}"}
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"oauth_cancel({provider}, {session_id[:8]}…) failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    @tool
     async def oauth_import(self, provider: str = "codex") -> dict:
         """Import OAuth tokens from native CLI tools.
 

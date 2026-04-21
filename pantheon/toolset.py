@@ -168,10 +168,14 @@ def tool(func: Callable | None = None, *, exclude: bool = False, **kwargs):
             context_variables = dict(payload.get("context_variables") or {})
         else:
             context_variables = dict(raw_context)
-        # backward compatibility: session_id is now an alias for client_id
-        session_id = func_kwargs.pop("session_id", None)
-        if session_id:
-            context_variables["client_id"] = session_id
+        # backward compatibility: session_id used to be an alias for client_id.
+        # Only rewrite it when the target function does NOT declare session_id
+        # as its own parameter — otherwise we'd steal the argument and Python
+        # would complain about a missing required positional.
+        if "session_id" not in params:
+            session_id = func_kwargs.pop("session_id", None)
+            if session_id:
+                context_variables["client_id"] = session_id
 
         # Ensure dict even if nothing provided/fallback empty
         if not context_variables:
