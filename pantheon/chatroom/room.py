@@ -1257,6 +1257,62 @@ class ChatRoom(ToolSet):
             }
 
     @tool
+    async def export_chat(
+        self, chat_id: str, output_path: str = "", compress: bool = True
+    ) -> dict:
+        """Export a chat and its referenced files into a portable bundle.
+
+        Args:
+            chat_id: The chat ID to export.
+            output_path: Destination directory. Defaults to .pantheon/exports/<chat_id>.
+            compress: If True, also create a .tar.gz archive.
+        """
+        try:
+            from .export import export_chat_bundle
+
+            if not output_path:
+                output_path = str(
+                    Path(self.memory_manager.path).parent / "exports" / chat_id
+                )
+            result = export_chat_bundle(
+                memory_dir=self.memory_manager.path,
+                chat_id=chat_id,
+                output_dir=output_path,
+                compress=compress,
+            )
+            return result
+        except Exception as e:
+            logger.error(f"Export failed: {e}")
+            return {"success": False, "message": str(e)}
+
+    @tool
+    async def import_chat(
+        self, bundle_path: str, target_workspace: str = ""
+    ) -> dict:
+        """Import a chat from an exported bundle.
+
+        Args:
+            bundle_path: Path to a bundle directory or .tar.gz file.
+            target_workspace: Workspace root for file placement. Defaults to current workspace.
+        """
+        try:
+            from .export import import_chat_bundle
+
+            if not target_workspace:
+                target_workspace = str(
+                    Path(self.memory_manager.path).parent.parent
+                )
+            result = import_chat_bundle(
+                memory_dir=self.memory_manager.path,
+                bundle_path=bundle_path,
+                target_root=target_workspace,
+            )
+            return result
+        except Exception as e:
+            logger.error(f"Import failed: {e}")
+            return {"success": False, "message": str(e)}
+
+    @tool
     async def set_chat_workspace_mode(
         self,
         chat_id: str,
