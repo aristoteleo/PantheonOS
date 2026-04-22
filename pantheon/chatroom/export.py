@@ -33,16 +33,39 @@ _ABS_PATH_RE = re.compile(
 )
 
 
-def _scan_file_paths(text: str) -> Set[str]:
-    """Return the set of absolute file paths referenced in *text* that
+_REL_PATH_RE = re.compile(
+    r'(?<=["\s,:\[({])'
+    r'(\.pantheon/(?:brain|tmp|latex|skills)/[^\s"\'\\,\]})]{3,})'
+)
+
+_WORKDIR_RE = re.compile(
+    r'(?<=["\s,:\[({])'
+    r'(workdir/[^\s"\'\\,\]})]{3,})'
+)
+
+
+def _scan_file_paths(text: str, workspace_root: str = "") -> Set[str]:
+    """Return the set of file paths referenced in *text* that
     actually exist on disk (files only, not dirs)."""
     paths: Set[str] = set()
+
+    # Absolute paths
     for m in _ABS_PATH_RE.finditer(text):
         raw = m.group(1)
-        # Strip trailing punctuation / markdown artifacts
         cleaned = raw.rstrip("'\"`,;:)]}*\\")
         if os.path.isfile(cleaned):
             paths.add(cleaned)
+
+    # Relative .pantheon/ paths
+    for regex in (_REL_PATH_RE, _WORKDIR_RE):
+        for m in regex.finditer(text):
+            raw = m.group(1)
+            cleaned = raw.rstrip("'\"`,;:)]}*\\")
+            if workspace_root:
+                full = os.path.join(workspace_root, cleaned)
+                if os.path.isfile(full):
+                    paths.add(full)
+
     return paths
 
 
@@ -97,8 +120,14 @@ def export_chat_bundle(
     meta_text = meta_path.read_text(encoding="utf-8") if meta_path.exists() else "{}"
     meta = json.loads(meta_text)
 
+    # ---- infer workspace root ----
+    workspace_root = str(memory_dir.parent.parent)  # .pantheon/memory -> .pantheon -> workspace
+
     # ---- scan for file references ----
-    all_paths = _scan_file_paths(jsonl_text) | _scan_file_paths(meta_text)
+    all_paths = (
+        _scan_file_paths(jsonl_text, workspace_root)
+        | _scan_file_paths(meta_text, workspace_root)
+    )
     logger.info(f"[export] Found {len(all_paths)} file references in chat {chat_id}")
 
     # ---- prepare output ----
@@ -158,9 +187,8 @@ def export_chat_bundle(
 
     # ---- optional compression ----
     if compress:
-        archive = str(output_dir) + ".tar.gz"
-        with tarfile.open(archive, "w:gz") as tar:
-            tar.add(str(output_dir), arcname=output_dir.name)
+        archive = str(output_dir) + ".zip"
+        shutil.make_archive(str(output_dir), "zip", str(output_dir.parent), output_dir.name)
         bundle_path = archive
 
     logger.info(
@@ -204,9 +232,19 @@ def import_chat_bundle(
     bundle_path = Path(bundle_path)
     target_root = Path(target_root)
 
-    # ---- handle tar.gz ----
+    # ---- handle compressed archives ----
     tmp_dir: Optional[str] = None
-    if bundle_path.suffix == ".gz" or str(bundle_path).endswith(".tar.gz"):
+    if bundle_path.suffix == ".zip":
+        import zipfile
+        tmp_dir = tempfile.mkdtemp(prefix="pantheon_import_")
+        with zipfile.ZipFile(str(bundle_path), "r") as zf:
+            zf.extractall(tmp_dir)
+        children = list(Path(tmp_dir).iterdir())
+        if len(children) == 1 and children[0].is_dir():
+            bundle_path = children[0]
+        else:
+            bundle_path = Path(tmp_dir)
+    elif bundle_path.suffix == ".gz" or str(bundle_path).endswith(".tar.gz"):
         tmp_dir = tempfile.mkdtemp(prefix="pantheon_import_")
         with tarfile.open(str(bundle_path), "r:gz") as tar:
             tar.extractall(tmp_dir)
@@ -256,14 +294,27 @@ def import_chat_bundle(
                 meta_text = meta_text.replace(bundle_rel, abs_str)
 
     # ---- write chat memory ----
-    new_id = str(uuid.uuid4())
     meta = json.loads(meta_text)
+    original_id = manifest.get("chat_id", meta.get("id", ""))
     original_name = meta.get("name", manifest.get("chat_name", "Imported Chat"))
-    meta["id"] = new_id
+
+    # If the original chat already exists locally, skip creating a duplicate.
+    if original_id and (memory_dir / f"{original_id}.jsonl").exists():
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        return {
+            "success": True,
+            "chat_id": original_id,
+            "chat_name": original_name,
+            "message": f"Chat '{original_name}' already exists — skipped (files updated)",
+        }
+
+    chat_id = original_id if original_id else str(uuid.uuid4())
+    meta["id"] = chat_id
 
     memory_dir.mkdir(parents=True, exist_ok=True)
-    (memory_dir / f"{new_id}.jsonl").write_text(jsonl_text, encoding="utf-8")
-    (memory_dir / f"{new_id}.meta.json").write_text(
+    (memory_dir / f"{chat_id}.jsonl").write_text(jsonl_text, encoding="utf-8")
+    (memory_dir / f"{chat_id}.meta.json").write_text(
         json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
@@ -271,10 +322,10 @@ def import_chat_bundle(
     if tmp_dir:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    logger.info(f"[import] Chat imported as {new_id} ({original_name}), {files_copied} files restored")
+    logger.info(f"[import] Chat imported as {chat_id} ({original_name}), {files_copied} files restored")
     return {
         "success": True,
-        "chat_id": new_id,
+        "chat_id": chat_id,
         "chat_name": original_name,
         "message": f"Imported '{original_name}' with {files_copied} files",
     }
