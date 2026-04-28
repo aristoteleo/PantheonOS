@@ -588,6 +588,9 @@ class ToolSetManager:
             if not db_path:
                 raise ValueError("db_path is required for vector_rag service")
             args["db_path"] = db_path
+        elif service_type == "rd_ontology":
+            if params.get("db_path"):
+                args["db_path"] = params.get("db_path")
         elif service_type == "workflow":
             workflow_path = params.get("workflow_path")
             if workflow_path:
@@ -775,4 +778,3 @@ class ToolSetManager:
 
 
 __all__ = ["ToolSetMode", "ToolSetManager"]
-

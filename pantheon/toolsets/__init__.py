@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from .database_api import DatabaseAPIQueryToolSet
     from .task import TaskToolSet
     from .knowledge import KnowledgeToolSet
+    from .rd_ontology import RdOntologyToolSet
     from .evolution import EvolutionToolSet, EvaluatorToolSet
     from .skillbook import SkillbookToolSet
     from .scfm import SCFMToolSet
@@ -39,6 +40,7 @@ _TOOLSET_MAPPING = {
     "DatabaseAPIQueryToolSet": ".database_api",
     "TaskToolSet": ".task",
     "KnowledgeToolSet": ".knowledge",
+    "RdOntologyToolSet": ".rd_ontology",
     "EvolutionToolSet": ".evolution",
     "EvaluatorToolSet": ".evolution",
     "SkillbookToolSet": ".skillbook",
