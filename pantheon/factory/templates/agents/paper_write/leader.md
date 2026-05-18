@@ -143,6 +143,47 @@ All artifacts (plan.md, outline, paper.md, HTML preview) must be in the auto-det
 - Reference list formatting
 - DELIVERY.md summary
 
+## Scenario detection (NEW)
+
+After detecting style, lang, and work intensity, check if the user input matches a specific scenario.
+
+**Available scenarios** (read from paper_writing skill):
+
+| Scenario | Trigger Keywords | Workflow File |
+|----------|------------------|---------------|
+| `paper_submission` | "投稿", "paper submission", "manuscript", "submit" | scenarios/paper_submission.md |
+| `revision_response` | "审稿返修", "reviewer comments", "revision", "rebuttal" | scenarios/revision_response.md |
+| `group_report` | "组会", "lab meeting", "progress report", "weekly report" | scenarios/group_report.md |
+| `conference_talk` | "会议演讲", "conference talk", "presentation", "oral" | scenarios/conference_talk.md |
+| `workshop_share` | "workshop", "tutorial", "教学", "hands-on", "training" | scenarios/workshop_share.md |
+| `grant_proposal` | "基金申请", "grant proposal", "funding application", "NIH", "NSF" | scenarios/grant_proposal.md |
+
+**Scenario detection process**:
+1. Check if user input contains any trigger keywords
+2. If a scenario matches:
+   - Record in `triage.md`: `scenario: <scenario_name>`
+   - Read the scenario workflow file from paper_writing skill
+   - Follow the workflow defined in that file (it may override or extend default Steps 2-10)
+3. If no scenario matches:
+   - Record in `triage.md`: `scenario: default`
+   - Continue with default workflow (Steps 2-10 below)
+
+**Example triage.md with scenario**:
+
+```markdown
+# Triage
+
+## Input type: C (topic only)
+## Style: academic
+## Template: latex_en
+## Lang: en
+## Scenario: paper_submission
+## Work intensity: High
+## Estimated time: 25 minutes
+```
+
+**Note**: Scenarios provide specialized workflows. For example, `paper_submission` includes peer review simulation; `revision_response` includes parsing reviewer comments and generating point-by-point responses. Always read the scenario file to understand the specific workflow.
+
 # Step 2: Environment audit
 
 Delegate to `researcher`: check and install only the tools needed for the current task's style and export formats. Write results to `{workdir}/environment.md`.
@@ -196,6 +237,41 @@ Read `{workdir}/draft/paper.md` with `think` + sampled section reads. Check:
 If issues → delegate fixes to writer with specific feedback.
 
 For **high intensity**: run a second researcher pass for targeted gap-fill, then have writer refine.
+
+## Peer review simulation (OPTIONAL, for paper_submission scenario)
+
+If the scenario is `paper_submission` and work intensity is `High`:
+
+1. **Read the reviewer rubric**: Read `writing/reviewer_rubric.md` from paper_writing skill to understand the NeurIPS-standard review criteria
+2. **Simulate 3 independent reviewers** with different perspectives:
+   - **Reviewer 1 (Methodology Expert)**: Focus on technical soundness, reproducibility, experimental rigor
+   - **Reviewer 2 (Novelty Expert)**: Focus on originality, contribution, significance to the field
+   - **Reviewer 3 (Clarity Expert)**: Focus on presentation quality, writing clarity, accessibility
+3. **For each reviewer, generate**:
+   - Summary (2-3 sentences)
+   - Strengths (3-5 bullet points)
+   - Weaknesses (3-5 bullet points)
+   - Questions (2-4 questions for authors)
+   - Scores (Originality, Quality, Clarity, Significance 1-10)
+   - Overall score (1-10)
+   - Decision (Accept / Borderline Accept / Borderline Reject / Reject)
+4. **Generate meta-review**:
+   - Consensus (what all reviewers agree on)
+   - Disagreements (where reviewers differ)
+   - Critical issues (what must be addressed)
+   - Recommendation (Accept / Borderline Accept / Borderline Reject / Reject)
+   - Required revisions (specific changes needed for acceptance)
+5. **Write the report** to `{workdir}/peer_review_report.md`
+
+**Quality gate**:
+- If Overall < 5 or Decision = Reject: Identify critical issues and delegate to writer to address major weaknesses
+- Re-run review after revisions (max 1 iteration)
+- If still < 5: Proceed but warn user about likely rejection in real peer review
+
+**When to skip**:
+- Scenario is not `paper_submission`
+- Work intensity is Low or Medium
+- User explicitly says "skip review" or "no peer review"
 
 # Step 8: Rendering
 
