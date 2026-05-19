@@ -1,0 +1,131 @@
+{
+  "contexts": {
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/dataset_understanding_qc.ipynb::37d64085-a194-48da-a02b-ba0cab9c3001": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/dataset_understanding_qc.ipynb",
+      "session_id": "37d64085-a194-48da-a02b-ba0cab9c3001",
+      "kernel_session_id": "35ebed2d-ffb7-4c9b-a4bb-138445f67574",
+      "created_at": "2025-11-25T18:00:21.451785",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/step1_qc_annotation.ipynb::37d64085-a194-48da-a02b-ba0cab9c3001": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/step1_qc_annotation.ipynb",
+      "session_id": "37d64085-a194-48da-a02b-ba0cab9c3001",
+      "kernel_session_id": "ef7b3195-a02d-4d99-89f1-4c3863357683",
+      "created_at": "2025-11-25T18:09:38.266890",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/dataset_understanding_qc.ipynb::f8cb4d1a-c78c-46cb-aa76-fbdf9e9af77c": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/dataset_understanding_qc.ipynb",
+      "session_id": "f8cb4d1a-c78c-46cb-aa76-fbdf9e9af77c",
+      "kernel_session_id": "6004a5fd-8f02-4222-9641-4887bf488239",
+      "created_at": "2025-11-25T18:31:22.092864",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/step2_gene_selection.ipynb::f8cb4d1a-c78c-46cb-aa76-fbdf9e9af77c": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/step2_gene_selection.ipynb",
+      "session_id": "f8cb4d1a-c78c-46cb-aa76-fbdf9e9af77c",
+      "kernel_session_id": "31054106-8bf5-400b-9154-68eaa117627c",
+      "created_at": "2025-11-25T18:38:01.035200",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/01_dataset_qc_annotation.ipynb::9e1ec3d9-74c2-4c57-a566-29e327e3c096": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/01_dataset_qc_annotation.ipynb",
+      "session_id": "9e1ec3d9-74c2-4c57-a566-29e327e3c096",
+      "kernel_session_id": "55526f00-deb8-41c2-9521-7109ace1089b",
+      "created_at": "2025-11-25T20:28:03.984220",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/scratch.ipynb::9e1ec3d9-74c2-4c57-a566-29e327e3c096": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/scratch.ipynb",
+      "session_id": "9e1ec3d9-74c2-4c57-a566-29e327e3c096",
+      "kernel_session_id": "cc18f33e-8cbb-4a4f-8615-fa020e08bee3",
+      "created_at": "2025-11-25T20:36:51.812314",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/01_qc.ipynb::9e1ec3d9-74c2-4c57-a566-29e327e3c096": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/01_qc.ipynb",
+      "session_id": "9e1ec3d9-74c2-4c57-a566-29e327e3c096",
+      "kernel_session_id": "006b0eeb-58b1-474e-82db-7929faa8475f",
+      "created_at": "2025-11-25T21:04:28.174416",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/01_qc_min.ipynb::9e1ec3d9-74c2-4c57-a566-29e327e3c096": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/01_qc_min.ipynb",
+      "session_id": "9e1ec3d9-74c2-4c57-a566-29e327e3c096",
+      "kernel_session_id": "a9e75f81-2d2a-49a3-9799-dad891983849",
+      "created_at": "2025-11-25T21:15:57.564424",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/02_selection.ipynb::9e1ec3d9-74c2-4c57-a566-29e327e3c096": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/02_selection.ipynb",
+      "session_id": "9e1ec3d9-74c2-4c57-a566-29e327e3c096",
+      "kernel_session_id": "6a7065dc-2038-4d1c-9542-479f9e01a9e7",
+      "created_at": "2025-11-25T21:18:39.226015",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/task1c_dataset_audit.ipynb::e7b1e8b6-f1a9-4ec5-85a4-87fc73202651": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/task1c_dataset_audit.ipynb",
+      "session_id": "e7b1e8b6-f1a9-4ec5-85a4-87fc73202651",
+      "kernel_session_id": "2608096b-0301-456b-b4fb-4342a20bbff4",
+      "created_at": "2025-11-25T22:05:20.820091",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/task2_gene_panel_selection.ipynb::e7b1e8b6-f1a9-4ec5-85a4-87fc73202651": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/task2_gene_panel_selection.ipynb",
+      "session_id": "e7b1e8b6-f1a9-4ec5-85a4-87fc73202651",
+      "kernel_session_id": "ce5877b4-e311-4e14-93a0-4d4409e8891f",
+      "created_at": "2025-11-25T22:29:30.170294",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/immune_oncology_panel_selection.ipynb::0981668d-a8c2-4288-bb8c-966e0189a814": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/immune_oncology_panel_selection.ipynb",
+      "session_id": "0981668d-a8c2-4288-bb8c-966e0189a814",
+      "kernel_session_id": "2648c2d3-9e49-4458-81a1-8bcb6d553239",
+      "created_at": "2025-11-26T01:20:03.238940",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/step1_qc_downsample.ipynb::b1d30a28-f4cb-4073-8955-76dfdc00ba4a": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/step1_qc_downsample.ipynb",
+      "session_id": "b1d30a28-f4cb-4073-8955-76dfdc00ba4a",
+      "kernel_session_id": "3ecc944c-8f1b-4a01-a99a-efddd07efd37",
+      "created_at": "2025-11-26T02:03:37.894912",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    },
+    "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/step1c_dataset_qc_annotation.ipynb::dfd1717e-d399-4337-9c4c-f6b48a3e35d6": {
+      "notebook_path": "/home/erwinpi/pantheon-agents/examples/gene_panel_selection/cases/gene_panel_selection_immune/workdir/selection_expert/step1c_dataset_qc_annotation.ipynb",
+      "session_id": "dfd1717e-d399-4337-9c4c-f6b48a3e35d6",
+      "kernel_session_id": "cd528f44-4cd4-4293-b599-5487f139e0a0",
+      "created_at": "2025-11-26T02:13:44.842845",
+      "notebook_title": "New Notebook",
+      "kernel_spec": "python3",
+      "notebook_is_new": false
+    }
+  },
+  "last_updated": "2025-11-26T02:13:44.843041"
+}
