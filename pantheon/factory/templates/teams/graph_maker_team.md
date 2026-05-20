@@ -69,15 +69,19 @@ Leader infers `export_formats` from message intent and writes it into `style_car
 
 Every task begins with a canonical `{workdir}/inputs/style_card.json` — the single source of truth for DPI, colors, fonts, figure dimensions, and export formats. Sub-agents MUST read and apply the style card; leader enforces consistency across figures.
 
-The `aesthetic_guide` field in `style_card.json` names a style file distributed via the **`figure_styling` skill** (`skills/figure_styling/styles/<aesthetic_guide>.md`). Sub-agents load that file on demand — it is NOT inlined into their system prompts. Built-in style files:
+The `aesthetic_guide` field in `style_card.json` names a style file distributed via the **`figure_styling` skill** (`skills/figure_styling/styles/<aesthetic_guide>.md`). Sub-agents load that file on demand — it is NOT inlined into their system prompts.
 
-| aesthetic_guide | Target | Figure class |
-|---|---|---|
-| `neurips_diagram` | NeurIPS / top ML venues | Methodology / framework / pipeline diagrams |
-| `neurips_plot` | NeurIPS / top ML venues | Statistical plots |
-| `custom` / `null` | — | Rely only on `style_card.json` + agent defaults |
+**Available style files:**
 
-Users can extend with additional files (e.g., `nature_figure.md`, `ieee_figure.md`) and reference them by id in `style_card.json`. Conflict priority: **user references > style_card.json > figure_styling/<aesthetic_guide> > agent defaults**.
+| aesthetic_guide | Target | Figure class | Key spec |
+|---|---|---|---|
+| `neurips_diagram` | NeurIPS / ICML / ICLR / CVPR | Methodology / framework diagrams | Soft pastel zones, rounded rects, inward ticks |
+| `neurips_plot` | NeurIPS / ICML / ICLR / CVPR | Statistical plots | Open spines, dashed grid, inward ticks, Paul Tol bright |
+| `nature_figure` | Nature / Cell / Science | All figure types | 7pt Arial, inward ticks all 4 sides, no grid, Paul Tol bright |
+| `ieee_figure` | IEEE journals / conferences | Statistical plots | CM serif, k/r/b/g + linestyle + marker, B&W compatible |
+| `custom` / `null` | — | — | Rely only on `style_card.json` + agent defaults |
+
+Conflict priority: **user references > style_card.json > figure_styling/<aesthetic_guide> > agent defaults**.
 
 ## Canvas Integration
 
@@ -365,7 +369,7 @@ Step 10  DELIVERY summary → User
     "primary": "#1a365d",
     "secondary": "#2c5282",
     "accent": "#c05621",
-    "categorical_palette": ["#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e"],
+    "categorical_palette": ["#4477AA", "#EE6677", "#228833", "#CCBB44", "#66CCEE", "#AA3377", "#BBBBBB"],
     "diverging_cmap": "RdBu_r",
     "sequential_cmap": "viridis"
   },

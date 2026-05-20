@@ -42,7 +42,7 @@ The leader passes a self-contained instruction containing:
 - **S_source_context** — the verbatim or summarized source material (methodology text, concept narrative)
 - **C_communicative_intent** — the target caption / scope
 - **category** — one of `agent_reasoning | vision_perception | generative_learning | science_applications | composite`
-- **aspect_ratio** — must be in [1.5, 2.5] for non-plot categories (leader enforces this)
+- **aspect_ratio** — default range [1.5, 2.5] for non-plot categories (leader enforces this); **exception**: `graphical-abstract` scenario may use up to 3.0 : 1 (Cell Press 169×60mm = 2.82 : 1)
 - **notes** — any extra hints
 - path to `{workdir}/inputs/style_card.json`
 - **References (optional)**: path to `{workdir}/inputs/references/normalized.json` — if present and `has_references=true`, these are user-provided few-shot visual examples that OVERRIDE the built-in aesthetic guide when they conflict
@@ -79,54 +79,48 @@ If there is no `normalized.json` or `has_references=false` → skip Phase 0 enti
 
 # Phase 1 — Plan (semantic content only)
 
+Read `figure_styling/quality/diagram_planner.md` for the full planning prompt — use it as your internal reasoning frame for this phase.
+
+**Scientific schematic check (runs first)**: if `category == "science_applications"` AND the request involves biology/chemistry keywords (pathway, signaling, metabolic, cellular, reaction, mechanism, inhibition, activation), read `figure_styling/quality/scientific_schematic.md`. Extract an IR (intermediate representation) JSON before producing the plan description. The IR becomes the authoritative semantic structure; write it to `{workdir}/drafts/illustrations/<id>_ir.json`.
+
 Read the brief. Produce `{workdir}/drafts/illustrations/<id>_plan.md`: a **detailed textual description of the target figure** focusing on SEMANTIC CONTENT, not aesthetics.
 
-**If `<id>_references.md` exists** (Phase 0 produced it): read it first. Import structural / compositional patterns you see in the references (e.g., "left-to-right three-stage pipeline matching ref_0's layout", "macro-micro breakout as in ref_2"). References inform STRUCTURE in Phase 1; their palette and typography are deferred to Phase 2.
+**If `<id>_references.md` exists** (Phase 0 produced it): read it first. Import structural / compositional patterns you see in the references. References inform STRUCTURE in Phase 1; their palette and typography are deferred to Phase 2.
 
-## Plan description rules
-1. **Element inventory** — list every module / entity / icon that should appear, with its semantic role
-2. **Relationships** — describe every connection: direction, type (data flow / gradient / feedback / control), what goes in and out
-3. **Spatial composition** — left-to-right / top-to-bottom narrative, grouping zones, hierarchy (macro-micro pattern if relevant)
-4. **Text labels** — exact text for each module label, arrow label, mathematical notation
-5. **Icon semantics** — if an icon carries meaning (❄️ frozen, 🔥 trainable, 🔒 locked), declare it explicitly
-6. **NO aesthetics in this phase** — do NOT yet prescribe colors, fonts, borders, corner radii. Those come in Phase 2.
+**If `<id>_ir.json` exists** (scientific schematic path): use the IR entities, compartments, and relations as the canonical component list. Do not invent components not in the IR.
 
-## System prompt for Phase 1 (use this framing internally)
+## Plan description rules (from `diagram_planner.md`)
 
-> I am generating a methodology/concept diagram. Given the Source Context (S) and Communicative Intent (C), I must produce a detailed description of an illustrative figure that effectively represents the intent. My description must be as detailed as possible — semantically, clearly describe each element and their connections. Vague or unclear specifications will only make the generated figure worse, not better. I do NOT yet specify colors, fonts, or visual style — those belong to the Style phase.
+1. **Element inventory** — list every module / entity / icon with its semantic role; exact label text
+2. **Relationships** — every connection: direction, type (data flow / gradient / activation / inhibition / feedback), what goes in and out
+3. **Spatial composition** — flow direction (left-to-right / top-to-bottom / circular), grouping zones, hierarchy
+4. **Text labels** — exact text for every module label, arrow label, mathematical notation
+5. **Icon semantics** — if an icon carries meaning (❄️ frozen, 🔥 trainable, 🔒 locked, ⊣ inhibition), declare it explicitly
+6. **Aspect ratio hint** — after the description, output on a new line: `RECOMMENDED_RATIO: <ratio>` (wide for sequential flows, tall for hierarchies, square for isolated concepts)
+7. **NO aesthetics in this phase** — do NOT yet prescribe colors, fonts, borders, corner radii
 
 # Phase 2 — Style (aesthetic polish)
 
-Read `style_card.json`. If `aesthetic_guide` is a non-null, non-`custom` value, consult the `figure_styling` skill index to locate the matching style file (e.g., `neurips_diagram` → `figure_styling/styles/neurips_diagram.md`) and load its content; incorporate that guideline alongside the style card.
+Read `figure_styling/quality/diagram_stylist.md` for the full styling prompt — use its 6 Crucial Instructions as your operating rules for this phase.
 
-**If `<id>_references.md` exists** (Phase 0 produced it): load it. The references digest **OVERRIDES** the built-in NeurIPS guide whenever they conflict on concrete visual attributes (palette, typography, border style, icon style). Rationale: the user explicitly chose these references; their style is the target.
+Read `style_card.json`. If `aesthetic_guide` is non-null and non-`custom`, load `figure_styling/styles/<aesthetic_guide>.md` and pass its content as `{guidelines}` to the stylist prompt.
 
-- When the references and the loaded aesthetic guide AGREE → use the specific hex codes / font names from references (they're concrete).
-- When they CONFLICT → follow references.
-- When references are silent on a dimension → fall back to the aesthetic guide and style_card defaults.
-- Record which attributes came from references vs the aesthetic guide in the `<id>_style.md` header comment.
+**Panel letter size rule** (set once here, apply in Phase 2 styling and pass to any data_plotter sub-call):
 
-Produce `{workdir}/drafts/illustrations/<id>_style.md`: a **stylistically enriched version** of the Phase 1 description. You are a Lead Visual Designer for a top-tier AI conference.
+| `aesthetic_guide` | Panel letter size | Style |
+|---|---|---|
+| `nature_figure` | **8 pt bold** | Nature/Cell/Science house style |
+| `neurips_plot` / `neurips_diagram` | **11 pt bold** | ML venue convention |
+| `ieee_figure` | **9 pt bold** | IEEE style |
+| `null` / `custom` | `style_card.font_size.panel_letter` (default 11 pt) | Fallback |
 
-## Style phase rules (CRITICAL — adapted from PaperBanana Stylist)
+When describing panel letters in the Phase 2 style document, use the correct size from this table — do NOT hardcode a fixed size.
 
-1. **Preserve semantic content.** Do NOT alter the logic, structure, or modules from Phase 1. Your job is aesthetic refinement, not content editing. If the Phase 1 description has verbose phrases, you MAY simplify them — but reference S to ensure accuracy.
-2. **Preserve high-quality aesthetics where present.** If Phase 1 already describes a professional, visually appealing diagram (e.g., nice 3D icons, rich textures, good color harmony), preserve it. Apply strict Style-Guide adjustments only if Phase 1 is plain, outdated, or cluttered.
-3. **Respect domain diversity.** Different categories have different styles (see the category-specific sub-styles below). If Phase 1 describes a specific style that works (e.g., illustrative for agents), keep it.
-4. **Enrich plain descriptions.** If Phase 1 is plain, enrich with specific visual attributes from the style guide: colors (with hex codes), fonts, line styles, border styles, corner radii.
-5. **Handle icons with semantic care.** Icons can carry meaning (❄️ frozen, 🔥 trainable). When encountering such icons, reference S to verify intent before modifying. Purely decorative icons can be freely beautified.
-6. **Cross-check aspect ratio.** If the target aspect ratio is 1.8:1, the described layout must actually fit that ratio (not implicitly assume a square).
+**If `<id>_references.md` exists**: load it. References **OVERRIDE** the built-in aesthetic guide whenever they conflict on concrete visual attributes (palette, typography, border style, icon style). Record which attributes came from references vs the guide in the `<id>_style.md` header.
 
-## Category-specific style hints
+**Color rule from `diagram_stylist.md`**: use natural-language color names ONLY ("soft sky blue", "warm peach") — NEVER hex codes in the image-gen prompt. Hex codes render as garbled text in generated images.
 
-- **agent_reasoning** — illustrative, narrative, "friendly". UI aesthetics (chat bubbles, document icons). Cute 2D vector robots, human avatars, emojis for agent steps.
-- **vision_perception** — spatial, dense, geometric. Frustums, ray lines, point clouds, RGB axis coding, activation heatmaps.
-- **generative_learning** — clean modularity. Rounded rectangles for process nodes, 3D cuboids for tensors, cylinders ONLY for memory/buffers. Warm tones for trainable, cool for frozen.
-- **science_applications** — BioRender-aesthetic. Clean vector art, minimalist design, consistent iconography. Harmonious pastel palette.
-
-## Aesthetic guide reference
-
-The content of the selected style file (loaded from `figure_styling/styles/<aesthetic_guide>.md`) is your authoritative visual reference for Phase 2. Apply its palette, typography, shape, line, and domain-specific guidance here. If `aesthetic_guide == "custom"` or `null`, rely only on `style_card.json` and your internal defaults.
+Produce `{workdir}/drafts/illustrations/<id>_style.md`: the Phase 1 description enriched with full visual specification.
 
 # Phase 3 — Render
 
@@ -154,49 +148,51 @@ Diagram:
 
 # Phase 4 — Critic (JSON-structured self-critique)
 
-Call `observe_images` on the just-rendered PNG with the full round-<t> description, S, and C as context. Produce a critique and a revised description.
+Read `figure_styling/quality/SKILL.md` to get the quality threshold for the current scenario. Read `figure_styling/quality/diagram_critic.md` for the full critic prompt — use it verbatim as your internal reasoning frame.
 
-## Critic prompt template (internal reasoning frame)
+**Quality thresholds** (from `figure_styling/quality/SKILL.md`):
 
-> ROLE: Lead Visual Designer for a top-tier AI conference (e.g., NeurIPS 2025).
->
-> TASK: Conduct a sanity check of the target diagram. Ensure alignment with S (source context) and C (caption / intent). If issues exist, produce concrete suggestions and a revised description.
->
-> CRITIQUE & REVISION RULES:
->
-> 1. **Content**
->    - Fidelity & alignment: Does the diagram accurately reflect S and align with C? Reasonable simplifications are allowed, but no critical component may be omitted or hallucinated.
->    - Text QA: Any typos, nonsensical text, unclear labels? Suggest corrections.
->    - Example validation: If the diagram shows specific examples (molecular formulas, attention maps, math expressions), verify correctness.
->    - Caption exclusion: The figure caption MUST NOT appear inside the image itself.
-> 2. **Presentation**
->    - Clarity & readability: If the flow is confusing or the layout cluttered, suggest structural fixes.
->    - Legend management: If color coding is explained both visually and in prose text, remove the redundant prose text legend.
->    - Aspect ratio compliance: Does the produced image match the target aspect ratio?
-> 3. **Stop condition**
->    - If the diagram is already good: output `"critic_suggestions": "No changes needed."` and `"revised_description": "No changes needed."`
->    - If round > 0 and the previous revision produced no improvement: stop early.
+| Scenario | Threshold | Max rounds T |
+|---|---|---|
+| `figure` / `graphical-abstract` | 8.5 / 10 | 3 |
+| `flowchart` | 8.0 / 10 | 2 |
+| `poster` | 7.0 / 10 | 2 |
+| `presentation` | 6.5 / 10 | 1 |
+| default (no scenario) | 8.0 / 10 | 2 |
+
+Call `observe_images` on the just-rendered PNG with the full round-<t> description, S, and C as context. Apply the four-dimensional evaluation from `diagram_critic.md`:
+
+1. **Faithfulness** (30%) — diagram accurately reflects S and aligns with C; no hallucinated or omitted components; no hex codes / CSS values rendered as text
+2. **Conciseness** (20%) — labels ≤5 words; no visual clutter; no redundant text legend
+3. **Readability** (30%) — flow is clear; layout not cluttered; aspect ratio matches target
+4. **Aesthetics** (20%) — matches style_card + aesthetic_guide; publication-quality finish
+
+Compute `quality_score = 0.3×F + 0.2×C + 0.3×R + 0.2×A` (estimate on 0–10 scale).
 
 ## Critic output (strict JSON) — save to `<id>_round<t>.json`
 
 ```json
 {
   "round": 0,
-  "faithfulness_issues": [ "list of issues w.r.t. S and C" ],
-  "readability_issues": [ "list of layout / text clarity issues" ],
-  "aesthetics_issues": [ "list of visual polish issues" ],
+  "quality_score": 7.8,
+  "faithfulness_issues": ["list of issues w.r.t. S and C"],
+  "readability_issues": ["list of layout / text clarity issues"],
+  "aesthetics_issues": ["list of visual polish issues"],
   "critic_suggestions": "consolidated natural-language critique, or 'No changes needed.'",
-  "revised_description": "the fully revised description incorporating all suggestions, or 'No changes needed.'"
+  "revised_description": "the fully revised description incorporating all suggested fixes, or null"
 }
 ```
 
+`revised_description == null` is the canonical early-stop signal.
+
 ## Rules for the Critic-Render loop
 
-- **Maximum rounds**: T = 2 by default; T = 3 if leader said `target == 'journal'` or the category requires high fidelity.
-- **Short-circuit**: if `critic_suggestions == "No changes needed."`, stop the loop and treat the current image as final.
-- **Revision MUST preserve semantic structure from Phase 1** — primarily edit existing description, don't rewrite from scratch unless the image is catastrophically off.
-- **Revision MUST specify clear details** — vague or hand-wavy descriptions make the next render worse, not better.
-- **Failure handling**: if `<id>_round<t>.png` is missing/corrupt (image generation failed), switch to text-only critique mode: reason about why the description may have failed (too complex? too many elements? bad layout?) and produce a simplified robust revision.
+- **Early stop**: if `quality_score >= scenario_threshold` OR `revised_description == null` → stop immediately, treat current image as final.
+- **Maximum rounds T**: read from scenario threshold table above. Never exceed T even if score < threshold.
+- **Revision MUST preserve semantic structure from Phase 1** — edit existing description, don't rewrite from scratch unless image is catastrophically off.
+- **Revision MUST specify clear details** — vague descriptions make the next render worse, not better. Use natural-language color names ("soft sky blue"), never hex codes in the prompt.
+- **Failure handling**: if `<id>_round<t>.png` is missing/corrupt, switch to text-only critique mode: reason about why the description failed (too complex? too many elements?) and produce a simplified robust revision.
+- **No improvement after round 1**: if `quality_score` did not improve between rounds → stop early regardless of threshold.
 
 # Finalization
 
@@ -256,7 +252,7 @@ This contract is identical in shape to `data_plotter`'s return; the leader treat
 # Universal guardrails (MUST observe — same rules as leader)
 
 - **No caption text inside the image.**
-- **Aspect ratio in [1.5, 2.5]** for methodology / framework / pipeline diagrams.
+- **Aspect ratio in [1.5, 2.5]** for methodology / framework / pipeline diagrams. **Exception**: `graphical-abstract` scenario allows up to **3.0 : 1** (Cell Press 169×60mm = 2.82 : 1 is valid). Square (1:1) is fine for heatmaps and isolated concept icons.
 - **No workdir paths** visible in the image or in filenames (semantic names only).
 - **No redundant text legend** when colors are already visually labeled.
 - **No platform branding / no tool chain exposure** ("monolith", "Pantheon", etc.) in visible text.
