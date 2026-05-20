@@ -2,33 +2,41 @@
 id: figure_styling_skills_index
 name: Figure Styling Skills Index
 description: |
-  Aesthetic guidelines for scientific figure production. Each style file
-  specifies palettes, typography, layout, and domain-specific sub-styles
-  for a given target venue (NeurIPS, Nature, IEEE, etc.) and figure class
-  (methodology diagram vs. statistical plot). Used by the Graph Maker
-  Team's `illustrator` and `data_plotter` agents.
+  Aesthetic guidelines and quality control prompts for scientific figure production.
+  Provides journal-specific styles (NeurIPS, Nature, IEEE), colorblind-safe palettes,
+  and critic prompts for the Graph Maker Team's illustrator and data_plotter agents.
 ---
 
 # Figure Styling Skills
 
-Resources for the Graph Maker Team's `illustrator` (diagram) and `data_plotter` (plot) agents. The leader writes `aesthetic_guide: <style_id>` into `style_card.json`; the producing agent then loads the matching style file listed below.
+Resources for the Graph Maker Team's `illustrator` (diagram) and `data_plotter` (plot) agents. The leader writes `aesthetic_guide: <style_id>` into `style_card.json`; the producing agent then loads the matching style file.
 
-## Available styles
+## Available Styles
 
 | Style ID | File | Target | Figure class |
 |---|---|---|---|
-| `neurips_diagram` | [styles/neurips_diagram.md](./styles/neurips_diagram.md) | NeurIPS / top ML venues | Methodology / framework / pipeline diagrams |
-| `neurips_plot` | [styles/neurips_plot.md](./styles/neurips_plot.md) | NeurIPS / top ML venues | Statistical plots (bar, line, scatter, heatmap, …) |
+| `neurips_diagram` | [styles/neurips_diagram.md](./styles/neurips_diagram.md) | NeurIPS / ICML / ICLR / CVPR | Methodology / framework diagrams |
+| `neurips_plot` | [styles/neurips_plot.md](./styles/neurips_plot.md) | NeurIPS / ICML / ICLR / CVPR | Statistical plots |
+| `nature_figure` | [styles/nature_figure.md](./styles/nature_figure.md) | Nature / Cell / Science | All figure types |
+| `ieee_figure` | [styles/ieee_figure.md](./styles/ieee_figure.md) | IEEE journals / conferences | Statistical plots |
 
-## How to use
+## Color Palettes
 
-1. Leader sets `aesthetic_guide: "<style_id>"` in `{workdir}/inputs/style_card.json`.
-2. Sub-agent (illustrator / data_plotter) consults this skill index, then reads the style file whose id matches `aesthetic_guide`.
-3. Agent applies the guidance alongside `style_card.json`. Priority chain for conflicts:
-   **user references > style_card.json > figure_styling/<style_id> > internal defaults**.
+[color_palettes.md](./styles/color_palettes.md) - Paul Tol colorblind-safe palettes (bright/vibrant/muted/light/high-vis/dark)
 
-If `aesthetic_guide` is `custom` or `null`, sub-agents do not load any file from this skill — they rely purely on `style_card.json` and their internal defaults.
+## Quality Control
 
-## Custom styles
+| Prompt | File | Used by | Purpose |
+|---|---|---|---|
+| `diagram_critic` | [quality/diagram_critic.md](./quality/diagram_critic.md) | illustrator Phase 4 | Multi-round critique with quality_score |
+| `plot_critic` | [quality/plot_critic.md](./quality/plot_critic.md) | data_plotter review | Statistical plot critique |
+| `figure_caption` | [quality/figure_caption.md](./quality/figure_caption.md) | leader Step 9 | Auto-generate publication captions |
+| `visual_quality_checklist` | [styles/visual_quality_checklist.md](./styles/visual_quality_checklist.md) | All agents | 6-tier quality standards (Rougier/Tufte) |
 
-Users can drop additional `.md` files into `styles/` (e.g. `nature_figure.md`, `ieee_figure.md`, `my_lab_style.md`) following the same section structure as the NeurIPS guides. Set `aesthetic_guide: "<new_style_id>"` in `style_card.json` to activate.
+## Usage
+
+1. Leader sets `aesthetic_guide: "<style_id>"` in `{workdir}/inputs/style_card.json`
+2. Sub-agent reads the corresponding style file from this skill
+3. Priority chain: **user references > style_card.json > figure_styling/<style_id> > agent defaults**
+
+If `aesthetic_guide` is `custom` or `null`, agents rely purely on `style_card.json` and internal defaults.
