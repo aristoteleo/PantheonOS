@@ -89,6 +89,12 @@ The prevailing aesthetic is defined by **precision, accessibility, and high cont
 ## 5. Recommended matplotlib rcParams Baseline
 
 ```python
+from cycler import cycler
+import matplotlib as mpl
+
+# Paul Tol bright — colorblind-safe default (from color_palettes.md)
+BRIGHT = ["#4477AA", "#EE6677", "#228833", "#CCBB44", "#66CCEE", "#AA3377", "#BBBBBB"]
+
 mpl.rcParams.update({
     "font.family": "sans-serif",
     "font.sans-serif": ["Helvetica", "Arial", "DejaVu Sans"],
@@ -101,12 +107,40 @@ mpl.rcParams.update({
     "axes.linewidth": 0.8,
     "lines.linewidth": 1.5,
     "lines.markersize": 5,
+
+    # Color cycle — Paul Tol bright
+    "axes.prop_cycle": cycler("color", BRIGHT),
+
+    # Grid — dashed, light, behind data
     "axes.grid": True,
     "grid.alpha": 0.3,
     "grid.linestyle": "--",
+    "grid.color": "#cccccc",
+
+    # Spines — open (top + right removed)
     "axes.spines.top": False,
     "axes.spines.right": False,
+
+    # Ticks — inward, minor ticks on bottom+left only
+    "xtick.direction": "in",
+    "xtick.major.size": 3,
+    "xtick.major.width": 0.5,
+    "xtick.minor.size": 1.5,
+    "xtick.minor.width": 0.5,
+    "xtick.minor.visible": True,
+    "ytick.direction": "in",
+    "ytick.major.size": 3,
+    "ytick.major.width": 0.5,
+    "ytick.minor.size": 1.5,
+    "ytick.minor.width": 0.5,
+    "ytick.minor.visible": True,
+
+    # Legend
+    "legend.frameon": False,
+
+    # Save
     "savefig.dpi": 600,
+    "savefig.bbox": "tight",
     "pdf.fonttype": 42,
     "ps.fonttype": 42,
     "svg.fonttype": "none",
