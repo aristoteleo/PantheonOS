@@ -44,4 +44,21 @@ previews or screenshots.
 | `data-source` | source file, usually `draft/paper.md` |
 | `data-format-role` | role such as `summary`, `claim`, `evidence`, `method`, `response` |
 
+## Validation (Pass Criteria)
+
+Run after every HTML generation:
+
+- Single HTML file opens without the host application's runtime.
+- CSS is embedded.
+- Main text is semantic HTML, not an image.
+- Major blocks have `contenteditable="true"`.
+- Major blocks include `data-block-id`, `data-section`, `data-source`, and
+  `data-format-role`.
+- Print CSS includes `@page` or `@media print`.
+- Figures and tables use semantic `figure`, `figcaption`, `table`, `caption`
+  where applicable.
+
+If any pass criterion fails, fix the renderer or the source Markdown rather
+than relaxing the contract.
+
 Sources: Anthropic pdf/SKILL.md, Kami design.md/CHEATSHEET.md, local design PDF.

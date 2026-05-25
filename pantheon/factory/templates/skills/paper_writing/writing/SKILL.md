@@ -60,9 +60,6 @@ Read the corresponding skill file before drafting each section.
 | Claim-Evidence Check | [claim_evidence_check.md](./claim_evidence_check.md) | Verify every major claim has supporting evidence; target ≥80% |
 | Reviewer Rubric (NeurIPS-style) | [reviewer_rubric.md](./reviewer_rubric.md) | 6-dimension peer-review simulation with worked example |
 
-For higher-level audit table format, see
-[../quality/reviewer_rubric.md](../quality/reviewer_rubric.md).
-
 ## Usage
 
 1. Before writing a section, read the corresponding section skill file.

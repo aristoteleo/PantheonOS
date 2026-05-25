@@ -515,6 +515,4 @@ When running a peer review simulation against a draft:
 6. **Write the result** to `{workdir}/peer_review_report.md`
 
 **Quality gate**: If Overall < 5 or Decision = Reject, identify critical issues
-and revise the draft before proceeding. Pair with
-[../quality/reviewer_rubric.md](../quality/reviewer_rubric.md) for the higher-level
-audit table format.
+and revise the draft before proceeding.

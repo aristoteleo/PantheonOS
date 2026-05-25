@@ -34,7 +34,7 @@ scenario; the workflow files are short contracts, not narratives.
 |---|---|---|---|
 | 0. Triage | a user request and any UI scenario labels | Read [workflow/triage.md](./workflow/triage.md). Choose `scenario_id`, `format_id`, `theme_id`, language, audience, outputs, constraints. | `{workdir}/triage.md` exists or is updated |
 | 1. Materials and evidence | triage is known | Read the chosen scenario file under `scenarios/`. Inventory materials, fetch/search papers only when needed, build the evidence registry. See [workflow/material_inventory.md](./workflow/material_inventory.md) and [evidence/SKILL.md](./evidence/SKILL.md). | `{workdir}/materials/inventory.md` and/or `claim_evidence_map.md` |
-| 2. Outline + claim boundary | evidence and materials are known | Read [workflow/paper_outline.md](./workflow/paper_outline.md). Add [workflow/figure_storyline.md](./workflow/figure_storyline.md) or [workflow/knowledge_lineage.md](./workflow/knowledge_lineage.md) when needed. | manuscript-view + evidence-view outline |
+| 2. Outline + claim boundary | evidence and materials are known | Read [workflow/paper_outline.md](./workflow/paper_outline.md). Add [workflow/figure_storyline.md](./workflow/figure_storyline.md) when figures are central, or read the Knowledge Lineage Audit in [scenarios/grant_proposal.md](./scenarios/grant_proposal.md) when the task asserts novelty. | manuscript-view + evidence-view outline |
 | 3. Section drafting | outline + evidence boundary exist | Read [writing/SKILL.md](./writing/SKILL.md). Draft Markdown only within evidence bounds. | `{workdir}/draft/paper.md` |
 | 4. Quality gates | draft exists | Read [quality/SKILL.md](./quality/SKILL.md). Run scenario-specific gates. | quality reports under `{workdir}/quality/` |
 | 5. Editable output | draft + quality notes exist | Read [formats/html_editable_contract.md](./formats/html_editable_contract.md). Apply the chosen rendering template + theme. | `{workdir}/report/<slug>_preview.html` and the final resume packet |
@@ -59,12 +59,12 @@ for the full router.
 
 | Layer | Index | Files |
 |---|---|---|
-| Workflow phases | [workflow/SKILL.md](./workflow/SKILL.md) | triage, material_inventory, literature_review, research_question, paper_outline, data_analysis_summary, figure_storyline, knowledge_lineage, reader_testing, revision_loop, finalize_packet |
+| Workflow phases | [workflow/SKILL.md](./workflow/SKILL.md) | triage, material_inventory, literature_review, research_question, paper_outline, data_analysis_summary, figure_storyline, reader_testing; finalize-packet protocol inlined in workflow/SKILL.md |
 | Section writing | [writing/SKILL.md](./writing/SKILL.md) | abstract, introduction, method, results, discussion, claim_evidence_check, reviewer_rubric, response_letter |
-| Evidence layer | [evidence/SKILL.md](./evidence/SKILL.md) | paper_search, paper_fetch, evidence_summary, evidence_registry, citation_grounding, rerank_and_attribution, context_answering, data_availability |
-| Quality gates | [quality/SKILL.md](./quality/SKILL.md) | claim_evidence_check (writing/), reviewer_rubric (×2), citation_check, reproducibility, reporting_guideline, manuscript_coverage, format_lint, html_editability, response_consistency, skill_structure |
+| Evidence layer | [evidence/SKILL.md](./evidence/SKILL.md) | paper_fetch (search + retrieve), evidence_registry, citation_grounding (with rerank + attribution), data_availability; evidence summary + context-bound answering rules inlined in evidence/SKILL.md |
+| Quality gates | [quality/SKILL.md](./quality/SKILL.md) | claim_evidence_check (writing/), reviewer_rubric (writing/), reproducibility_check, reporting_guideline_check, manuscript_coverage_check, format_lint; HTML editability validation lives in formats/html_editable_contract.md, response consistency check lives in scenarios/revision_response.md |
 | Output formats | [formats/html_editable_contract.md](./formats/html_editable_contract.md) | editable HTML contract (per-format section structure lives in each scenario file; cross-format index below) |
-| Themes | [themes/SKILL.md](./themes/SKILL.md) | kami_academic (`.md` contract + `.css` stylesheet) |
+| Themes | [themes/kami_academic.md](./themes/kami_academic.md) (contract) + [themes/kami_academic.css](./themes/kami_academic.css) (stylesheet) | warm parchment academic theme; only theme bundled today — add new themes as `<name>.md` + `<name>.css` pairs |
 
 ## Scenario Format Index
 
@@ -157,6 +157,19 @@ if the template emits HTML.
   [formats/html_editable_contract.md](./formats/html_editable_contract.md).
 - Keep each `SKILL.md` below 500 lines. Put long templates, guidelines, and
   examples in adjacent one-hop files.
+
+## Maintaining this skill
+
+When changing this skill family, audit the change against this checklist:
+
+- Root `description` includes real trigger terms users would actually say.
+- Root skill uses Routing + Sequential Pipeline — not narrative prose.
+- Workflow files specify entry criteria, actions, and exit criteria.
+- References from any file are at most one hop from `SKILL.md`.
+- Each `SKILL.md` stays below 500 lines.
+- Long templates and worked examples live in adjacent files, not in `SKILL.md`.
+- At least three pressure scenarios were considered: a typical happy path, a
+  scenario with missing evidence, and a scenario with reviewer pushback.
 
 ## Sources
 

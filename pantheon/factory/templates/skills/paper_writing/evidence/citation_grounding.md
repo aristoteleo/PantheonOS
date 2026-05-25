@@ -128,3 +128,23 @@ After completing the draft:
 7. Re-run the check: all claims now strong or partial
 8. Write quality_check_report.md with the grounding summary
 ```
+
+## Reranking and Sentence-Level Attribution
+
+When multiple candidate sources compete, when a draft answer lacks citations,
+or before a final citation check, rerank and attribute at the sentence level.
+
+Output table:
+
+| Draft sentence | Source ID | Passage locator | Attribution strength | Risk |
+|---|---|---|---|---|
+
+Rules:
+
+- Sentence-level scientific claims need source-level attribution.
+- If the best source only supports part of the sentence, split or narrow the
+  sentence to match what the source actually says.
+- Do not keep unattributed conclusion sentences in high-stakes drafts (papers,
+  grants, rebuttals).
+
+Source for inlined section: OpenScholar open_scholar.py, PaperQA tools.py.

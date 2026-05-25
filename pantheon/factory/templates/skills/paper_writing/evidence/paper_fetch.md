@@ -10,15 +10,35 @@ license: Apache 2.0
 
 # Paper Fetch
 
-Automatically retrieve academic papers from various sources using identifiers.
+Search candidate papers and retrieve full text from various sources using
+identifiers (DOI, arXiv ID, PMID, etc.).
 
 ## When to Use
 
 - Drafting and a paper needs to be cited but the full reference is missing
 - Building a literature review and multiple papers need to be fetched
+- The draft lacks literature, citations, or related-work positioning
 - Verifying that a citation exists and is accessible
 
-## Input
+## Search Phase (before fetch)
+
+When the draft lacks specific identifiers and needs candidate papers:
+
+Output table:
+
+| Candidate ID | Query | Title | Authors/year | Source | Why candidate | Next action |
+|---|---|---|---|---|---|---|
+
+Search rules:
+
+- A search result is a candidate, not evidence. Validate before citing.
+- Record query, source, and reason for inclusion.
+- Promising candidates flow into fetch + summarize + grounding (see
+  [SKILL.md](./SKILL.md) and [citation_grounding.md](./citation_grounding.md)).
+- Prefer primary sources for factual claims; balance recent and foundational
+  for related work.
+
+## Fetch Input
 
 One or more paper identifiers:
 - **DOI**: `10.1038/s41586-024-07487-w`

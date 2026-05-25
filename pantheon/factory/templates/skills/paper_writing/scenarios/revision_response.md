@@ -19,11 +19,11 @@ manuscript and needs to produce both a revised draft and a response letter.
 |---|---|
 | Trigger | "审稿返修", "reviewer comments", "revision", "rebuttal", "response letter" |
 | Inputs | reviewer comments (txt / PDF / JSON), the original `paper.md`, optional editor letter |
-| Read next | [../writing/response_letter.md](../writing/response_letter.md), [../workflow/revision_loop.md](../workflow/revision_loop.md), [../quality/response_consistency_check.md](../quality/response_consistency_check.md) |
+| Read next | [../writing/response_letter.md](../writing/response_letter.md), [../writing/claim_evidence_check.md](../writing/claim_evidence_check.md), [../quality/format_lint.md](../quality/format_lint.md) |
 | Outputs | `{workdir}/parsed_comments.json`, `{workdir}/revision_roadmap.md`, `{workdir}/draft/paper.md` (revised), `{workdir}/draft/response_letter.md`, `{workdir}/report/<slug>_response.html` |
 | Format | `revision_response` |
 | Theme | `kami_academic` |
-| Gates | `response_consistency_check`, `claim_evidence_check`, `format_lint`, `html_editability_check` |
+| Gates | `response_consistency_check` (below), `claim_evidence_check`, `format_lint`, `html_editability_check` |
 | Forbidden | dropping or merging reviewer comments; promising changes that are not reflected in the revised draft; fabricating new experiments to satisfy reviewers |
 
 ## Comment Parsing Schema
@@ -50,12 +50,31 @@ Changes Made: <pointer into revised paper.md, e.g. "§Methods 2.3, lines 145–1
 Status: addressed | partially addressed | declined-with-rationale
 ```
 
+## Revision Loop
+
+The full loop, after triage:
+
+1. **Preserve every comment verbatim** and assign IDs (R1-C1 form).
+2. **Classify route per comment**: `text`, `evidence`, `experiment`, `analysis`,
+   `format`, `claim_downgrade`, `decline_with_reason`, `needs_user_input`.
+3. **Build revision roadmap**: which comments to address in which order,
+   estimated effort, dependencies between comments.
+4. **Revise the draft** with trackable text deltas (commit-style diffs or
+   marked-up Markdown).
+5. **Write the response letter** using the unit format above.
+6. **Run the response consistency check** (below).
+
+Roadmap output table:
+
+| Comment ID | Reviewer text | Class | Required action | Manuscript change | Response status |
+|---|---|---|---|---|---|
+
 ## Default Path
 
 ```text
 parse_comments → classify_and_prioritize → revision_roadmap
   → revise paper.md (writing/) → response_letter (writing/response_letter.md)
-  → response_consistency_check → claim_evidence_check → format_lint
+  → response_consistency_check (below) → claim_evidence_check → format_lint
   → editable HTML → finalize_packet
 ```
 
@@ -66,9 +85,9 @@ parse_comments → classify_and_prioritize → revision_roadmap
   rationale and a citation or evidence reason.
 - **Changes Made must be locator-precise**. "Updated Methods" is not enough;
   point to a section, paragraph, line range, or commit-style diff anchor.
-- **Manuscript / response consistency**. Run
-  [../quality/response_consistency_check.md](../quality/response_consistency_check.md):
-  every "Changes Made" claim must correspond to a real edit in `paper.md`, and
+- **Manuscript / response consistency**. Run the Response Consistency Check
+  section below: every "Changes Made" claim must correspond to a real edit in
+  `paper.md`, and
   every substantive edit in `paper.md` should map back to a comment or be
   noted as an editor-driven improvement.
 - **No silent claim weakening**. If reviewer pressure forces a claim to be
@@ -85,6 +104,23 @@ parse_comments → classify_and_prioritize → revision_roadmap
   response letter precision and format lint.
 - **Editor-only letter**: if there is an editor letter without per-reviewer
   comments, structure responses by editor-issue id instead.
+
+## Response Consistency Check
+
+Run before delivering the rebuttal package. Output table:
+
+| Comment ID | Has response | Change claimed | Draft location | Status | Issue |
+|---|---|---|---|---|---|
+
+Rules:
+
+- Every reviewer or editor comment must appear.
+- Every response must state whether text changed.
+- Claimed changes must be present in the revised draft (verify the locator).
+- Declined changes must include a defensible reason — scientific, scope, data
+  availability, or out-of-scope.
+- Orphan comments (no response) and orphan edits (no comment justifying them)
+  are both flagged.
 
 ## Success Metrics
 
