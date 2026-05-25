@@ -15,8 +15,8 @@ Verify that each citation properly supports the claim it is used for.
 
 ## When to Use
 
-- Writer completing a draft and running self-check
-- Leader reviewing draft quality before rendering
+- Completing a draft and running self-check
+- Reviewing draft quality before rendering
 - Addressing reviewer comments about citation accuracy
 
 ## Input
@@ -94,15 +94,15 @@ Verify that each citation properly supports the claim it is used for.
 - **Problem**: Citing your own paper as evidence for a claim that paper also doesn't support
 - **Fix**: Find external validation or remove claim
 
-## Integration with Writer
+## Integration with Drafting
 
-After completing draft, writer should:
+After completing the draft:
 1. Read `evidence/citation_grounding.md`
 2. Extract major claims from Abstract and Introduction
 3. For each claim, check grounding strength
-4. Generate grounding report
-5. Fix weak/unsupported claims
-6. Re-run check until all claims are strong or partial
+4. Generate a grounding report
+5. Fix weak / unsupported claims
+6. Re-run the check until all claims are strong or partial
 
 ## Constraints
 
@@ -114,17 +114,17 @@ After completing draft, writer should:
 ## Example Workflow
 
 ```
-1. Writer completes draft/paper.md
-2. Writer reads evidence/citation_grounding.md
-3. Writer extracts claims:
+1. Complete draft/paper.md
+2. Read evidence/citation_grounding.md
+3. Extract claims:
    - "Our method achieves 95% accuracy"
    - "This is the first unsupervised approach"
    - "Results show significant improvement"
-4. Writer checks each claim against citations
-5. Writer generates grounding report
-6. Writer fixes weak claims:
+4. Check each claim against citations
+5. Generate a grounding report
+6. Fix weak claims:
    - Claim 2: Add "for protein structure prediction" to narrow scope
    - Claim 3: Add citation [23] that reports p < 0.001
-7. Writer re-runs check: all claims now strong or partial
-8. Writer writes quality_check_report.md with grounding summary
+7. Re-run the check: all claims now strong or partial
+8. Write quality_check_report.md with the grounding summary
 ```

@@ -156,15 +156,15 @@ Different journals have different requirements. Common variations:
 
 ## Integration
 
-Leader can run this check during Step 7 (draft review):
+Run this check during draft review:
 ```
 1. Read quality/format_lint.md
 2. Check manuscript structure
 3. Verify figure/table numbering
 4. Check reference formatting
 5. Verify word/page limits
-6. Generate format lint report
-7. If compliance < 90%: flag issues to writer
+6. Generate a format lint report
+7. If compliance < 90%: flag issues for revision
 ```
 
 ## Constraints

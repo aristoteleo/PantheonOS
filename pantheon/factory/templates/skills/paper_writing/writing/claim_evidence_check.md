@@ -201,13 +201,13 @@ Or weaken:
 
 ---
 
-## Self-Check Workflow for Writer
+## Self-Check Workflow
 
 1. **After completing draft**: Run this check
 2. **Generate report**: Use the format above
 3. **If < 80% alignment**: Revise claims
 4. **Re-check**: Iterate until passing
-5. **Submit to leader**: Include alignment report
+5. **Hand off**: Include the alignment report alongside the draft
 
 ---
 

@@ -1,41 +1,53 @@
 ---
-id: quality_skills_index
-name: Quality Skills Index
+id: paper_writing_quality
+name: Paper Writing Quality Gates
 description: |
-  Quality assurance skills for academic writing. Includes reporting guideline
-  compliance, reproducibility checks, format validation, and manuscript completeness.
+  Quality gate index for claim/evidence audit, reviewer simulation, reporting
+  guidelines, citation checks, editability, reproducibility, manuscript
+  coverage, response consistency, format lint, and skill-structure audit.
+tags: [paper_writing, quality, review]
 ---
 
-# Quality Skills
+# Quality Gates
 
-Tools for ensuring manuscript quality, completeness, and compliance with standards.
+Quality skills produce reports and risk flags. They are guardrails, not
+gatekeepers — flag issues and suggest fixes; do not silently rewrite a draft
+to hide problems.
 
-## Available Skills
+## Philosophy
 
-| Skill | File | Purpose | Source |
-|-------|------|---------|--------|
-| Reporting Guideline Check | [reporting_guideline_check.md](./reporting_guideline_check.md) | Verify CONSORT/STROBE/PRISMA compliance | scientific-writing guidelines |
-| Reproducibility Check | [reproducibility_check.md](./reproducibility_check.md) | Ensure methods are reproducible | nature-polishing |
-| Format Lint | [format_lint.md](./format_lint.md) | Check formatting (sections, numbering, references) |本地 PDF |
-| Manuscript Coverage Check | [manuscript_coverage_check.md](./manuscript_coverage_check.md) | Verify all required sections present | review guidelines |
+- Aim for **≥80% compliance**, not 100%.
+- Prioritize critical issues (missing data, unsupported claims, fabricated
+  citations) over cosmetic formatting.
+- Each gate produces an inspectable report; downstream consumers decide whether
+  to revise, downgrade, or accept the risk.
 
-## When to Use
+## Gates
 
-- **Writer**: After completing draft, before submitting to leader
-- **Leader**: During Step 7 (draft review) as quality gate
-- **Scenario-specific**: paper_submission scenario requires these checks
-
-## Quality Gate Philosophy
-
-Quality checks are **guardrails, not gatekeepers**:
-- Aim for ≥80% compliance, not 100%
-- Flag issues, suggest fixes, but don't block progress
-- Prioritize critical issues (missing data, unsupported claims) over minor formatting
+| Gate | File | Default trigger | Source |
+|---|---|---|---|
+| Claim / evidence audit | [../writing/claim_evidence_check.md](../writing/claim_evidence_check.md) | all high-stakes writing | Research-Paper-Writing-Skills |
+| Reviewer simulation (audit table) | [reviewer_rubric.md](./reviewer_rubric.md) | papers, grants, rebuttals | DeepScientist, K-Dense |
+| Reviewer simulation (NeurIPS-style) | [../writing/reviewer_rubric.md](../writing/reviewer_rubric.md) | pre-submission scoring | AI-Scientist |
+| Citation audit | [citation_check.md](./citation_check.md) | manuscripts with references | — |
+| Reproducibility audit | [reproducibility_check.md](./reproducibility_check.md) | methods, lab reports, workshops | nature-polishing |
+| Reporting guideline check | [reporting_guideline_check.md](./reporting_guideline_check.md) | clinical, observational, systematic review | EQUATOR Network |
+| Manuscript coverage check | [manuscript_coverage_check.md](./manuscript_coverage_check.md) | every full draft | review guidelines |
+| Format lint | [format_lint.md](./format_lint.md) | every final output | general best practices |
+| HTML editability check | [html_editability_check.md](./html_editability_check.md) | every HTML output | — |
+| Response consistency | [response_consistency_check.md](./response_consistency_check.md) | reviewer responses | — |
+| Skill structure audit | [skill_structure_check.md](./skill_structure_check.md) | when modifying this skill family | — |
 
 ## Integration
 
-These skills work together:
-1. **Format Lint**: Check structure (sections, numbering, references)
-2. **Manuscript Coverage**: Check completeness (all required sections present)
-3. **Reproducibility**: Check methods section (software, parameters, data)
-4. **Reporting Guideline**: Check domain-specific requirements (CONSORT for RCTs, etc.)
+Run gates in this order on a final draft:
+
+1. **Manuscript coverage** — all required sections present?
+2. **Format lint** — section structure, numbering, references consistent?
+3. **Claim / evidence audit** — every major claim supported?
+4. **Citation audit** — every citation valid and grounded?
+5. **Reproducibility** — methods section sufficient for replication?
+6. **Reporting guideline** — domain-specific compliance (CONSORT for RCTs, etc.)?
+7. **Reviewer simulation** — pre-submission peer review (only for high-stakes work)?
+8. **HTML editability** — output meets the editable-HTML contract?
+9. **Response consistency** — only when handling rebuttals.

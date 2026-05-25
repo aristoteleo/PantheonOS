@@ -503,15 +503,18 @@ The paper makes a solid contribution to an important problem with good experimen
 
 ---
 
-## Usage for Leader Agent
+## Usage (peer review simulation)
 
-When running peer review simulation:
+When running a peer review simulation against a draft:
 
 1. **Read this rubric** before generating reviews
 2. **Simulate 3 independent reviewers** with different perspectives
 3. **Use the scoring rubric** for consistency
 4. **Generate structured reviews** following the template
-5. **Create meta-review** synthesizing all reviews
-6. **Output to** `{workdir}/peer_review_report.md`
+5. **Create a meta-review** synthesizing all reviews
+6. **Write the result** to `{workdir}/peer_review_report.md`
 
-**Quality gate**: If Overall < 5 or Decision = Reject, identify critical issues and ask writer to revise.
+**Quality gate**: If Overall < 5 or Decision = Reject, identify critical issues
+and revise the draft before proceeding. Pair with
+[../quality/reviewer_rubric.md](../quality/reviewer_rubric.md) for the higher-level
+audit table format.

@@ -13,7 +13,7 @@ Formal academic paper style with LaTeX-like appearance for HTML preview.
 
 ## HTML Template
 
-Reporter reads paper.md, converts Markdown to HTML, then fills this template.
+Read paper.md, convert Markdown to HTML, then fill this template.
 Use `paper-` class prefix for all metadata elements.
 
 ```html
@@ -63,9 +63,9 @@ ${{CONTENT}}
 
 ### Notes
 
-- CSS auto-numbers sections (h2, h3, h4), figures, and tables — writer should NOT manually number them
+- CSS auto-numbers sections (h2, h3, h4), figures, and tables — do NOT add manual numbers in the source Markdown
 - Theorem environments use fenced divs: `<div class="theorem">...</div>`
-- Figure captions get auto-prefixed with "Figure N:" — writer should NOT include the prefix
+- Figure captions get auto-prefixed with "Figure N:" — do NOT include the prefix in the source Markdown
 - Major sections must follow [formats/html_editable_contract.md](./formats/html_editable_contract.md):
   `class="editable-block"`, `contenteditable="true"`, `data-block-id`,
   `data-section`, `data-source`, and `data-format-role`

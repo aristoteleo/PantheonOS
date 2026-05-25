@@ -1,140 +1,86 @@
 ---
-id: writing_skills_index
-name: "Writing Skills Index"
+id: paper_writing_section_drafting
+name: Evidence-Bound Section Drafting
 description: |
-  Section-specific writing best practices for scientific papers.
-  Based on Research-Paper-Writing-Skills and AI-Scientist.
+  Section-level writing skill for evidence-bound academic prose: IMRaD papers,
+  grants, reports, talks, and response letters. Indexes section-specific
+  templates (abstract, introduction, method, results, discussion) and
+  pre-submission quality protocols (claim-evidence, reviewer rubric, response
+  letter).
+tags: [paper_writing, writing, imrad]
 ---
 
-# Writing Skills Index
+# Evidence-Bound Section Drafting
 
-Best practices for writing each section of a scientific paper. Writer agent should read the relevant skill file before writing each section.
+Use only after triage, outline, and evidence boundaries exist (see
+[../workflow/SKILL.md](../workflow/SKILL.md) and
+[../evidence/SKILL.md](../evidence/SKILL.md)).
 
----
+## Drafting Rules
 
-## Available Skills
+- Write `draft/paper.md` as the content source of truth.
+- Keep each core claim within `claim_evidence_map.md`.
+- Use `missing` evidence to ask for material, downgrade, or remove claims.
+- Do not invent data, citations, mechanisms, reviewer changes, or availability
+  statements.
+- For major rewrites, shape from raw material to candidate openings to
+  paragraph-by-paragraph structure before polishing.
 
-### Abstract Writing
+## Section Roles (quick reference)
 
-Three proven abstract templates for different paper types.
+| Section | Role | Quality gate |
+|---|---|---|
+| Title | searchable, precise, not inflated | no vague clever title |
+| Abstract | problem, gap, method, key result, meaning | no result-free impact claim |
+| Introduction | known → gap → insufficiency → approach → contribution | gap and contribution align |
+| Related work | themed positioning | not chronological paper dump |
+| Methods | reproducible protocol | data/software/parameters/statistics clear |
+| Results | question → method → observation → quantitative result → interpretation | each result points to figure/table/data |
+| Discussion | finding, relation to literature, mechanism, limits, future | no new data |
+| Limitations | honest boundary and risk | no hidden fatal flaw |
+| Conclusion | contribution and boundary | not abstract repetition |
 
-**Skill file**: [abstract.md](./abstract.md)
+## Section-Specific Skills
 
-**When to use**:
-- Before writing the Abstract section
-- Choose template based on paper structure (single contribution vs. multiple contributions vs. insight-driven)
+Read the corresponding skill file before drafting each section.
 
-**Source**: [Research-Paper-Writing-Skills](https://github.com/Master-cai/Research-Paper-Writing-Skills) (MIT License)
+| Section | File | Focus |
+|---|---|---|
+| Abstract | [abstract.md](./abstract.md) | Three proven templates (Challenge→Contribution, Challenge→Insight→Contribution, Multiple Contributions); 150–250 words; no citations |
+| Introduction | [introduction.md](./introduction.md) | Logic Map: Task → Challenge → Solution → Advantage; backward writing |
+| Methods | [method.md](./method.md) | Reproducibility checklist: software versions, parameters, hardware, data/code statements |
+| Results | [results.md](./results.md) | Each subsection ≥1 figure/table reference; claim → evidence; present tense |
+| Discussion | [discussion.md](./discussion.md) | Four-part structure: Interpretation → Comparison → Limitations → Future |
+| Response Letter | [response_letter.md](./response_letter.md) | Reviewer-comment-to-response unit format |
 
----
+## Quality Protocols
 
-### Introduction Writing
+| Skill | File | Purpose |
+|---|---|---|
+| Claim-Evidence Check | [claim_evidence_check.md](./claim_evidence_check.md) | Verify every major claim has supporting evidence; target ≥80% |
+| Reviewer Rubric (NeurIPS-style) | [reviewer_rubric.md](./reviewer_rubric.md) | 6-dimension peer-review simulation with worked example |
 
-Logic map and backward reasoning approach for clear, compelling introductions.
+For higher-level audit table format, see
+[../quality/reviewer_rubric.md](../quality/reviewer_rubric.md).
 
-**Skill file**: [introduction.md](./introduction.md)
+## Usage
 
-**When to use**:
-- Before writing the Introduction section
-- Follow Task → Challenge → Solution → Advantage structure
-
-**Source**: [Research-Paper-Writing-Skills](https://github.com/Master-cai/Research-Paper-Writing-Skills) (MIT License)
-
----
-
-### Methods Writing
-
-Reproducibility checklist and essential details for methods sections.
-
-**Skill file**: [method.md](./method.md)
-
-**When to use**:
-- Before writing the Methods section
-- Ensure all reproducibility requirements are met
-
-**Source**: [Research-Paper-Writing-Skills](https://github.com/Master-cai/Research-Paper-Writing-Skills) (MIT License)
-
----
-
-### Results Writing
-
-Guidelines for presenting experimental results with proper evidence.
-
-**Skill file**: [results.md](./results.md)
-
-**When to use**:
-- Before writing the Results section
-- Ensure each subsection references at least one figure/table
-
-**Source**: [Research-Paper-Writing-Skills](https://github.com/Master-cai/Research-Paper-Writing-Skills) (MIT License)
-
----
-
-### Discussion Writing
-
-Structure for interpretation, comparison, limitations, and future work.
-
-**Skill file**: [discussion.md](./discussion.md)
-
-**When to use**:
-- Before writing the Discussion section
-- Follow Interpretation → Comparison → Limitations → Future structure
-
-**Source**: [Research-Paper-Writing-Skills](https://github.com/Master-cai/Research-Paper-Writing-Skills) (MIT License)
-
----
-
-### Claim-Evidence Alignment Check
-
-Protocol for verifying that every major claim has supporting evidence.
-
-**Skill file**: [claim_evidence_check.md](./claim_evidence_check.md)
-
-**When to use**:
-- After completing the draft (self-check)
-- Before submitting to leader for review
-- Target: ≥80% of claims must be supported
-
-**Source**: [Research-Paper-Writing-Skills](https://github.com/Master-cai/Research-Paper-Writing-Skills) (MIT License)
-
----
-
-### Reviewer Rubric
-
-NeurIPS-standard peer review scoring rubric for pre-submission quality check.
-
-**Skill file**: [reviewer_rubric.md](./reviewer_rubric.md)
-
-**When to use**:
-- Leader uses this for peer review simulation
-- Not for writer's direct use
-
-**Source**: [AI-Scientist](https://github.com/SakanaAI/AI-Scientist) (MIT License)
-
----
-
-## Usage Workflow
-
-### For Writer Agent
-
-1. **Before writing each section**: Read the corresponding skill file
-2. **Follow the structure**: Apply the templates and guidelines
-3. **After completing draft**: Run claim-evidence check
-4. **If alignment < 80%**: Revise and re-check
-
-### For Leader Agent
-
-1. **After writer completes draft**: Optionally call reviewer simulation
-2. **Use reviewer_rubric.md**: Guide the review process
-3. **If overall score < 5**: Identify issues and ask writer to revise
-
----
+1. Before writing a section, read the corresponding section skill file.
+2. Apply the templates and structural guidelines.
+3. After the full draft is complete, run [claim_evidence_check.md](./claim_evidence_check.md).
+4. If alignment < 80%, revise claims (add evidence, downgrade, or remove) and
+   re-run.
+5. For submissions, grants, or revision responses, optionally simulate peer
+   review using [reviewer_rubric.md](./reviewer_rubric.md).
 
 ## Quality Standards
 
-All writing skills aim to achieve:
-- **Clarity**: Clear, concise, unambiguous language
-- **Evidence**: Every claim backed by citation or data
-- **Structure**: Logical flow and organization
-- **Reproducibility**: Sufficient detail for replication
-- **Impact**: Clear contribution and significance
+- **Clarity**: clear, concise, unambiguous language
+- **Evidence**: every claim backed by citation, data, or figure
+- **Structure**: logical flow and organization
+- **Reproducibility**: sufficient detail for replication
+- **Impact**: clear contribution and boundary
+
+Sources: Research-Paper-Writing-Skills (Master-cai, MIT), AI-Scientist
+(SakanaAI, MIT), ResearAI writer.md, K-Dense scientific-writing/SKILL.md,
+mattpocock writing-shape/SKILL.md.

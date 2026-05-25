@@ -14,9 +14,9 @@ Automatically retrieve academic papers from various sources using identifiers.
 
 ## When to Use
 
-- Writer needs to cite a paper but doesn't have the full reference
-- Researcher building a literature review and needs to fetch multiple papers
-- Need to verify a citation exists and is accessible
+- Drafting and a paper needs to be cited but the full reference is missing
+- Building a literature review and multiple papers need to be fetched
+- Verifying that a citation exists and is accessible
 
 ## Input
 
@@ -102,10 +102,10 @@ One or more paper identifiers:
 
 ## Integration
 
-Writer can call this skill when:
-- Drafting and encounters a citation that needs full reference
+Call this skill when:
+- Drafting and a citation needs a full reference
 - Building references.bib and needs BibTeX entries
-- Verifying a claim and needs to read the cited paper
+- Verifying a claim and the cited paper needs to be read
 
 Example call:
 ```

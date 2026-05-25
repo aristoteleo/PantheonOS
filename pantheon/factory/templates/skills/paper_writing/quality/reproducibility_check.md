@@ -14,8 +14,8 @@ Ensure methods section provides sufficient detail for independent reproduction o
 
 ## When to Use
 
-- Writer completing methods section
-- Leader reviewing draft before submission
+- Completing the methods section
+- Reviewing a draft before submission
 - Addressing reviewer concerns about reproducibility
 
 ## Reproducibility Checklist
@@ -148,7 +148,7 @@ Every paper should include a data availability statement:
 
 ## Integration
 
-Writer should run this check after completing methods section:
+Run this check after completing the methods section:
 ```
 1. Read quality/reproducibility_check.md
 2. Check methods section against checklist

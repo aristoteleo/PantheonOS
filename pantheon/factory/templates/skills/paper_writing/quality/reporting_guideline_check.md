@@ -164,14 +164,14 @@ Sample size and adverse events can be added during revision if requested.
 
 ## Integration
 
-Leader can call this during Step 7 (draft review):
+Run this during draft review:
 ```
 If study type is RCT/observational/systematic review:
   Read quality/reporting_guideline_check.md
   Identify guideline (CONSORT/STROBE/PRISMA)
-  Check manuscript against checklist
-  Generate compliance report
-  If compliance < 80%: flag critical missing items to writer
+  Check manuscript against the checklist
+  Generate a compliance report
+  If compliance < 80%: flag critical missing items for revision
 ```
 
 ## Constraints

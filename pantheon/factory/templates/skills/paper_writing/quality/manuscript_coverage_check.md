@@ -14,8 +14,8 @@ Ensure manuscript has all required sections and each section is complete.
 
 ## When to Use
 
-- Writer completing first draft
-- Leader reviewing draft before rendering
+- Completing the first draft
+- Reviewing a draft before rendering
 - Before submission to catch missing sections
 
 ## Coverage Checklist
@@ -168,7 +168,7 @@ Expand Limitations discussion to meet journal standards.
 
 ## Integration
 
-Writer should run this check after completing first draft:
+Run this check after completing the first draft:
 ```
 1. Read quality/manuscript_coverage_check.md
 2. Check all required sections present

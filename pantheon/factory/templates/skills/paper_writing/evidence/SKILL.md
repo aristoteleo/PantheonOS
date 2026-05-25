@@ -1,35 +1,47 @@
 ---
-id: evidence_skills_index
-name: Evidence Skills Index
+id: paper_writing_evidence
+name: Paper Writing Evidence Layer
 description: |
-  Skills for gathering, validating, and grounding evidence in academic writing.
-  Helps ensure claims are properly supported by citations, data, and experiments.
+  Evidence layer for paper search, OA paper fetch, claim-evidence registry,
+  citation grounding, evidence summaries, reranking and attribution,
+  context-bound answers, and data/code availability statements.
+tags: [paper_writing, evidence, citations, rag]
 ---
 
 # Evidence Skills
 
-Tools for evidence collection, validation, and citation grounding.
+Evidence skills decide where facts come from. Manuscript claims may not be
+invented or grounded in model memory; they must trace back to a registered
+piece of evidence.
 
-## Available Skills
+## Skills
 
-| Skill | File | Purpose | Source |
-|-------|------|---------|--------|
-| Paper Fetch | [paper_fetch.md](./paper_fetch.md) | Fetch papers from DOI/arXiv/PMID automatically | Future-House/paper-qa |
-| Citation Grounding | [citation_grounding.md](./citation_grounding.md) | Verify citations support claims (strong/partial/weak) | nature-citation |
+| Need | File | Source |
+|---|---|---|
+| Search candidate papers | [paper_search.md](./paper_search.md) | — |
+| Fetch an open-access PDF by DOI / arXiv / PMID | [paper_fetch.md](./paper_fetch.md) | Future-House/paper-qa |
+| Register claims and supporting evidence | [evidence_registry.md](./evidence_registry.md) | — |
+| Ground citations to specific text segments (strong/partial/weak) | [citation_grounding.md](./citation_grounding.md) | nature-citation |
+| Summarize retrieved evidence | [evidence_summary.md](./evidence_summary.md) | — |
+| Rerank candidates and attribute sentences | [rerank_and_attribution.md](./rerank_and_attribution.md) | — |
+| Answer only from provided context | [context_answering.md](./context_answering.md) | — |
+| Write data and code availability statements | [data_availability.md](./data_availability.md) | — |
 
-## When to Use
+## Default Pipeline
 
-- **Writer**: When drafting and needs to fetch papers or verify citations
-- **Researcher**: When conducting literature review and building evidence base
-- **Leader**: During quality review to check citation grounding
+```text
+paper_search → paper_fetch → evidence_summary → evidence_registry
+   → draft (writing/) → citation_grounding → rerank_and_attribution
+```
 
-## How Evidence Skills Work
+For data/code availability, read [data_availability.md](./data_availability.md)
+during methods drafting and again at finalize.
 
-1. **Paper Fetch**: Given a DOI, arXiv ID, or PMID, automatically fetch paper metadata and PDF
-2. **Citation Grounding**: Given a claim and cited papers, assess whether citations actually support the claim
+## What This Layer Prevents
 
-These skills help prevent:
 - Unsupported claims
 - Misattributed citations
-- Missing evidence
+- Missing evidence trails
 - Overclaiming beyond what citations support
+- Sci-Hub or any access-control bypass — see allowed OA routes in
+  [paper_fetch.md](./paper_fetch.md)

@@ -13,7 +13,7 @@ Clean professional report style targeting Manus/AI4S report quality.
 
 ## HTML Template
 
-Reporter reads paper.md, converts Markdown to HTML, then fills this template.
+Read paper.md, convert Markdown to HTML, then fill this template.
 Replace `${{PLACEHOLDER}}` markers with actual content.
 
 ```html
