@@ -66,6 +66,9 @@ ${{CONTENT}}
 - CSS auto-numbers sections (h2, h3, h4), figures, and tables — writer should NOT manually number them
 - Theorem environments use fenced divs: `<div class="theorem">...</div>`
 - Figure captions get auto-prefixed with "Figure N:" — writer should NOT include the prefix
+- Major sections must follow [formats/html_editable_contract.md](./formats/html_editable_contract.md):
+  `class="editable-block"`, `contenteditable="true"`, `data-block-id`,
+  `data-section`, `data-source`, and `data-format-role`
 
 ## CSS
 
@@ -86,6 +89,12 @@ body {
 .paper-authors .author { margin-right: 12px; }
 .paper-affiliations { font-size: 10pt; color: #333; font-style: italic; }
 .paper-date { font-size: 10pt; color: #555; margin-top: 8px; }
+
+.editable-block:focus {
+    outline: 1.5pt solid #1B365D;
+    outline-offset: 4pt;
+    background: #faf9f5;
+}
 
 .abstract, section.abstract { margin: 24px 48px; font-size: 10pt; text-align: justify; }
 section.abstract > h2 { font-size: 11pt; font-weight: 700; text-align: center; border: none; padding: 0; margin: 0 0 6px 0; }
