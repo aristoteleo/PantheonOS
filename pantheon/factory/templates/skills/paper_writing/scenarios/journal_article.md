@@ -1,8 +1,8 @@
 ---
 id: journal_article_scenario
 name: Journal Article Scenario
-description: Journal article route for SCI, Nature-style, or target-journal manuscripts.
-tags: [paper_writing, journal, article]
+description: Journal article route for SCI, Nature-style, or target-journal manuscripts; covers data/code availability statements.
+tags: [paper_writing, journal, article, data_availability]
 ---
 
 # Journal Article Scenario
@@ -14,8 +14,8 @@ journal writing.
 |---|---|
 | Trigger | journal article, SCI, Nature, Cell, research article, short communication |
 | Inputs | target journal, article type, data/code availability, figures, SI needs |
-| Read next | `workflow/literature_review.md`, `workflow/figure_storyline.md`, `evidence/data_availability.md` |
-| Outputs | journal article draft, Data/Code Availability, figure/table captions, editable HTML |
+| Read next | [../workflow/SKILL.md](../workflow/SKILL.md) (literature review + figure storyline phases), [../evidence/SKILL.md](../evidence/SKILL.md) |
+| Outputs | journal article draft, Data/Code Availability statements (see below), figure/table captions, editable HTML |
 | Gates | data availability, citation check, reviewer rubric, reporting guideline if applicable |
 | Forbidden | inventing accession IDs, repository URLs, DOI, ethical approval, or SI files |
 
@@ -24,4 +24,27 @@ Title, Abstract, Keywords, Introduction, Results, Discussion, Methods, Data
 Availability, Code Availability, Acknowledgements, References, Supplementary
 Information note.
 
-Sources: nature-data/SKILL.md, nature-figure/SKILL.md, scientific-writing/SKILL.md.
+## Data and Code Availability
+
+Read this section during Methods drafting and again at finalize.
+
+### Output
+
+| Asset | Type | Repository/access | Identifier | Restrictions | Status |
+|---|---|---|---|---|---|
+
+### Rules
+
+- Do not invent repository links, accession IDs, DOIs, or licenses.
+- If data/code is unavailable, state why and what the reader can request.
+- Keep generated statement consistent with methods, ethics, and supplementary material sections.
+
+### Statement templates
+
+- **Public data**: "<Dataset> publicly available at <URL>. Preprocessed data and trained models at <repo>."
+- **Restricted data**: "Patient data cannot be shared due to privacy. Aggregated statistics and analysis code at <repo>."
+- **New data**: "All data generated in this study available at Zenodo (DOI: ...) under <license>."
+- **Open code**: "All code at <URL> under <license>. Installation in README."
+- **Proprietary code**: "Code available for research purposes upon reasonable request to corresponding author."
+
+Sources: nature-data/SKILL.md, nature-figure/SKILL.md, scientific-writing/SKILL.md, K-Dense citation-management.

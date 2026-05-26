@@ -14,7 +14,7 @@ course reports.
 |---|---|
 | Trigger | lab report, experiment report, 实验报告, 实验记录 |
 | Inputs | date, operator, samples, batch IDs, protocols, instruments, raw observations, data |
-| Read next | `workflow/material_inventory.md`, `workflow/data_analysis_summary.md`, `quality/reproducibility_check.md` |
+| Read next | [../workflow/SKILL.md](../workflow/SKILL.md) (Material Inventory + Data Analysis Summary sections), [../quality/SKILL.md](../quality/SKILL.md) (Reproducibility Check section) |
 | Outputs | lab-report HTML/PDF with raw observation, processed result, abnormal events |
 | Gates | reproducibility, raw observation/result separation, anomaly logging |
 | Forbidden | deleting abnormal observations or merging interpretation into raw results |

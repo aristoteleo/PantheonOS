@@ -34,7 +34,7 @@ Search rules:
 - A search result is a candidate, not evidence. Validate before citing.
 - Record query, source, and reason for inclusion.
 - Promising candidates flow into fetch + summarize + grounding (see
-  [SKILL.md](./SKILL.md) and [citation_grounding.md](./citation_grounding.md)).
+  [SKILL.md](./SKILL.md) and [../writing/claim_evidence_check.md](../writing/claim_evidence_check.md)).
 - Prefer primary sources for factual claims; balance recent and foundational
   for related work.
 

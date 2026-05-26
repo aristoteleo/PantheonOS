@@ -14,7 +14,7 @@ submissions.
 |---|---|
 | Trigger | conference paper, workshop paper, NeurIPS, ICML, ICLR, ACL, double column |
 | Inputs | venue template, page limit, method, baselines, experiments, ablations |
-| Read next | `workflow/paper_outline.md`, `workflow/figure_storyline.md`, `quality/reviewer_rubric.md` |
+| Read next | [../workflow/SKILL.md](../workflow/SKILL.md) (Paper Outline + Figure Storyline sections), [../writing/reviewer_rubric.md](../writing/reviewer_rubric.md) |
 | Outputs | conference-style `draft/paper.md`, HTML preview, optional LaTeX path |
 | Gates | page limit, baseline completeness, evaluation validity, citation support |
 | Forbidden | hiding missing baselines, overclaiming SOTA, decorative method figures |

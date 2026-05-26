@@ -2,9 +2,10 @@
 id: paper_writing_evidence
 name: Paper Writing Evidence Layer
 description: |
-  Evidence layer for paper fetch, claim-evidence registry, citation grounding
-  with reranking and attribution, evidence summaries, context-bound answers,
-  and data/code availability statements.
+  Evidence layer for paper search/fetch, claim-evidence registry, evidence
+  summaries, and context-bound answering. Citation grounding (strength
+  levels, sentence-level attribution) and data/code availability statements
+  live elsewhere — see the index below.
 tags: [paper_writing, evidence, citations, rag]
 ---
 
@@ -16,33 +17,47 @@ piece of evidence.
 
 ## Skills
 
-| Need | File | Source |
+| Need | Where | Source |
 |---|---|---|
 | Search and fetch open-access papers by DOI / arXiv / PMID | [paper_fetch.md](./paper_fetch.md) | Future-House/paper-qa |
-| Register claims and supporting evidence | [evidence_registry.md](./evidence_registry.md) | — |
-| Ground citations to specific text segments (strong/partial/weak); rerank candidates and attribute sentences | [citation_grounding.md](./citation_grounding.md) | nature-citation, OpenScholar |
-| Write data and code availability statements | [data_availability.md](./data_availability.md) | nature-data |
+| Register claims and supporting evidence | inlined below ("Evidence Registry") | DeepScientist |
+| Ground citations to specific text segments (strong/partial/weak), rerank candidates, attribute sentences | [../writing/claim_evidence_check.md](../writing/claim_evidence_check.md) ("Citation Grounding" section) | nature-citation, OpenScholar |
+| Write data and code availability statements | [../scenarios/journal_article.md](../scenarios/journal_article.md) ("Data and Code Availability" section) | nature-data |
 
 ## Default Pipeline
 
 ```text
 paper_fetch (search + retrieve) → evidence_summary → evidence_registry
-   → draft (writing/) → citation_grounding (with rerank + attribution)
+   → draft (writing/) → citation grounding (claim_evidence_check)
 ```
 
-For data/code availability, read [data_availability.md](./data_availability.md)
-during methods drafting and again at finalize.
+## Evidence Registry
+
+Use before and after drafting. The registry is the source of truth for what
+the paper may claim.
+
+### Output — `claim_evidence_map.md`
+
+| Claim ID | Claim | Evidence type | Source | Strength | Risk | Action |
+|---|---|---|---|---|---|---|
+| C1 | ... | citation/figure/table/data/user_material/missing | S001 | strong | low | keep |
+
+### Rules
+
+- Evidence types are only `citation`, `figure`, `table`, `experimental_data`, `statistical_result`, `user_material`, or `missing`.
+- Claims with `missing` evidence cannot appear as firm conclusions.
+- If support is partial, narrow the wording.
 
 ## Evidence Summary Protocol
 
 Use after retrieval and before writing from papers or notes.
 
-Output table:
+### Output table
 
 | Evidence ID | Source | Passage/page | Query answered | Summary | Score | Claim IDs |
 |---|---|---|---|---|---|---|
 
-Rules:
+### Rules
 
 - Preserve enough locator detail for later attribution.
 - Separate the source's statement from the agent's interpretation.
@@ -55,8 +70,7 @@ supports a claim:
 
 - Answer only from the provided context.
 - Cite context keys, evidence IDs, pages, or material IDs.
-- If the context is insufficient, write `I cannot answer from the provided context`
-  and list what is missing. Do not fall back to model memory.
+- If the context is insufficient, write `I cannot answer from the provided context` and list what is missing. Do not fall back to model memory.
 
 ## What This Layer Prevents
 
@@ -64,8 +78,8 @@ supports a claim:
 - Misattributed citations
 - Missing evidence trails
 - Overclaiming beyond what citations support
-- Sci-Hub or any access-control bypass — see allowed OA routes in
-  [paper_fetch.md](./paper_fetch.md)
+- Sci-Hub or any access-control bypass — see allowed OA routes in [paper_fetch.md](./paper_fetch.md)
 
-Sources for inlined sections: PaperQA prompts.py and tools.py, OpenScholar
-README.md and open_scholar.py.
+Sources for inlined sections: DeepScientist paper-outline/SKILL.md,
+paper-review.md, PaperQA prompts.py and tools.py, OpenScholar README.md and
+open_scholar.py.

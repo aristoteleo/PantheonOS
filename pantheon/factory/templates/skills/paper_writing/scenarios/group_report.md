@@ -18,7 +18,7 @@ report aimed at lab members, advisors, or collaborators rather than reviewers.
 |---|---|
 | Trigger | "组会", "组会汇报", "lab meeting", "progress report", "weekly report", "monthly update" |
 | Inputs | recent experimental results, figures, meeting notes, blockers, planned next steps |
-| Read next | [../workflow/material_inventory.md](../workflow/material_inventory.md), [../workflow/data_analysis_summary.md](../workflow/data_analysis_summary.md), [../workflow/figure_storyline.md](../workflow/figure_storyline.md), [../writing/SKILL.md](../writing/SKILL.md) |
+| Read next | [../workflow/SKILL.md](../workflow/SKILL.md) (Material Inventory + Data Analysis Summary + Figure Storyline sections), [../writing/SKILL.md](../writing/SKILL.md) |
 | Outputs | `{workdir}/materials/inventory.md`, `{workdir}/draft/paper.md`, `{workdir}/report/<slug>_preview.html` |
 | Format | `group_report` |
 | Theme | `kami_academic` |

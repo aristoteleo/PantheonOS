@@ -19,7 +19,7 @@ spoken conference talk (typically 10–20 minutes plus Q&A).
 |---|---|
 | Trigger | "会议演讲", "conference talk", "presentation", "oral", "演讲", "talk" |
 | Inputs | a paper draft or research summary, figures, target talk length, audience type, venue |
-| Read next | [../workflow/figure_storyline.md](../workflow/figure_storyline.md), [../workflow/reader_testing.md](../workflow/reader_testing.md), [../writing/SKILL.md](../writing/SKILL.md) |
+| Read next | [../workflow/SKILL.md](../workflow/SKILL.md) (Figure Storyline + Reader Testing sections), [../writing/SKILL.md](../writing/SKILL.md) |
 | Outputs | `{workdir}/core_message.md`, `{workdir}/storyline.md`, `{workdir}/draft/slide_outline.md`, `{workdir}/draft/speaker_notes.md`, `{workdir}/report/<slug>_talk.html` |
 | Format | `conference_talk` |
 | Theme | `kami_academic` (or a slide theme set by the venue) |

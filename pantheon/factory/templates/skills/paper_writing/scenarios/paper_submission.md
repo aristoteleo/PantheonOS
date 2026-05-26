@@ -20,7 +20,7 @@ a journal- or conference-specific structure. For locked targets see
 |---|---|
 | Trigger | "paper", "manuscript", "投稿", "论文写作", "write a paper", "submission" |
 | Inputs | research materials, partial draft, figures/tables, references, target venue if known |
-| Read next | [../workflow/material_inventory.md](../workflow/material_inventory.md), [../workflow/literature_review.md](../workflow/literature_review.md), [../workflow/paper_outline.md](../workflow/paper_outline.md), [../writing/SKILL.md](../writing/SKILL.md) |
+| Read next | [../workflow/SKILL.md](../workflow/SKILL.md) (Material Inventory + Literature Review + Paper Outline sections), [../writing/SKILL.md](../writing/SKILL.md) |
 | Outputs | `{workdir}/triage.md`, `{workdir}/draft/paper.md`, `{workdir}/report/<slug>_preview.html`, quality reports under `{workdir}/quality/` |
 | Format | `journal_article` or `conference_paper` (see the Scenario Format Index in the family root); HTML output must follow [../formats/html_editable_contract.md](../formats/html_editable_contract.md) |
 | Theme | `kami_academic` by default ([../themes/kami_academic.md](../themes/kami_academic.md)) |
@@ -40,8 +40,8 @@ a journal- or conference-specific structure. For locked targets see
 | Results | yes | each subsection ≥ 1 figure/table reference ([../writing/results.md](../writing/results.md)) |
 | Discussion | yes | Interpretation → Comparison → Limitations → Future ([../writing/discussion.md](../writing/discussion.md)) |
 | Conclusion | optional | not abstract repetition |
-| Data / Code Availability | yes for empirical work | see [../evidence/data_availability.md](../evidence/data_availability.md) |
-| References | yes | grounded via [../evidence/citation_grounding.md](../evidence/citation_grounding.md) |
+| Data / Code Availability | yes for empirical work | see [./journal_article.md](./journal_article.md) (Data and Code Availability section) |
+| References | yes | grounded via [../writing/claim_evidence_check.md](../writing/claim_evidence_check.md) (Citation Grounding section) |
 | Acknowledgements | optional | — |
 
 ## Default Path

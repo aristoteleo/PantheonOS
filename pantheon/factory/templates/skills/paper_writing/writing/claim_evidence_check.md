@@ -1,21 +1,29 @@
 ---
 id: claim_evidence_check
-name: "Claim-Evidence Alignment Check"
+name: "Claim-Evidence + Citation Grounding Check"
 description: |
-  Protocol for checking that every major claim in Abstract and Introduction
-  is supported by citations, experimental results, or figures.
-source: https://github.com/Master-cai/Research-Paper-Writing-Skills
+  Combined audit: every major claim in Abstract and Introduction must have
+  supporting evidence (citation, experimental result, or figure), and every
+  citation must actually support the claim it is used for. Includes
+  sentence-level reranking and attribution rules.
+source: https://github.com/Master-cai/Research-Paper-Writing-Skills + https://github.com/nature-citation
 license: MIT
-tags: [quality-check, claims, evidence, best-practices]
+tags: [quality-check, claims, evidence, citation, best-practices]
 ---
 
-# Claim-Evidence Alignment Check
+# Claim-Evidence + Citation Grounding Check
 
-Source: [Research-Paper-Writing-Skills](https://github.com/Master-cai/Research-Paper-Writing-Skills)
+Sources: [Research-Paper-Writing-Skills](https://github.com/Master-cai/Research-Paper-Writing-Skills),
+nature-citation grounding practices, OpenScholar / PaperQA attribution.
 
 ## Purpose
 
-Ensure every major claim has supporting evidence. Avoid "空口无凭" (empty claims without proof).
+Two-sided audit:
+
+1. **Claim side**: every major claim has supporting evidence (avoid "空口无凭" empty claims).
+2. **Citation side**: every citation actually supports the claim it is attached to (avoid misattribution and overclaiming).
+
+Run together — they share the same draft pass.
 
 ---
 
@@ -261,3 +269,73 @@ Or weaken:
 3. **Reference figures/tables explicitly**: "as shown in Figure 3"
 4. **Be specific**: Concrete claims are easier to support
 5. **Avoid superlatives**: "best", "first", "only" are hard to prove
+
+---
+
+## Citation Grounding (citation-side audit)
+
+The Step 1-5 protocol above checks the **claim side** ("does this claim have any supporting evidence?"). The Citation Grounding audit checks the **citation side** ("does this citation actually support the claim it is attached to?"). Run after Step 4, before final hand-off.
+
+### Grounding strength levels
+
+| Level | Definition | Example | Action |
+|-------|------------|---------|--------|
+| **Strong** | Citation directly supports claim with experimental evidence | "Method X achieves 95% accuracy [1]" where [1] reports 95% in Table 2 | Keep |
+| **Partial** | Citation supports claim but with caveats or limited scope | "Method X outperforms baselines [1]" where [1] only tested 3 baselines | Narrow wording ("outperforms three baselines") |
+| **Weak** | Citation tangentially related but doesn't directly support claim | "Method X is widely used [1]" where [1] mentions X once in passing | Add stronger evidence or remove claim |
+| **Unsupported** | Citation does not support claim at all (misattribution) | "Method X is the best [1]" where [1] doesn't compare methods | Remove or downgrade claim |
+
+### Process
+
+1. Extract major claims from Abstract / Introduction / Conclusion (don't audit every citation — focus on bold claims).
+2. Read the cited papers (abstract, results, discussion).
+3. Assess grounding strength for each (claim, citation) pair.
+4. Suggest concrete action: keep / narrow / add / remove.
+
+### Output (extends the claim-evidence report)
+
+```markdown
+## Citation Grounding Report
+
+### Claim 1: "Our method achieves 95% accuracy on benchmark X"
+- Citations: [12], [15]
+- Grounding: Strong
+- Evidence:
+  - [12] Table 2 reports 95.2% accuracy on benchmark X
+  - [15] Figure 3 shows consistent performance across datasets
+- Action: Keep as-is
+
+### Claim 2: "This is the first unsupervised approach"
+- Citations: [8], [9]
+- Grounding: Weak
+- Action: Narrow to "first unsupervised approach for domain X" or add survey citation
+```
+
+### Common citation issues
+
+- **Overclaiming**: "Our method is the best" but only compared 3 baselines → "outperforms three widely-used baselines".
+- **Misattribution**: citing a review for a specific experimental result → cite the original paper.
+- **Missing context**: "achieves 95% accuracy" without dataset → "95% on ImageNet [1]".
+- **Circular citation**: citing your own paper for a claim that paper also doesn't support → find external validation or remove.
+
+### Sentence-level reranking and attribution
+
+When multiple candidate sources compete, when a draft answer lacks citations, or before a final citation check, rerank and attribute at the sentence level.
+
+| Draft sentence | Source ID | Passage locator | Attribution strength | Risk |
+|---|---|---|---|---|
+
+Rules:
+
+- Sentence-level scientific claims need source-level attribution.
+- If the best source only supports part of the sentence, split or narrow the sentence to match what the source actually says.
+- Do not keep unattributed conclusion sentences in high-stakes drafts (papers, grants, rebuttals).
+
+### Constraints
+
+- Focus on major claims (Abstract, Introduction, Conclusion); don't verify every reference.
+- Partial grounding is acceptable if the claim is appropriately hedged.
+- Better to weaken a claim than to overclaim.
+
+Source for citation-grounding section: nature-citation, OpenScholar
+open_scholar.py, PaperQA tools.py.

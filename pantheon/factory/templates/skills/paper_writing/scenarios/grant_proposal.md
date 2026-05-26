@@ -22,7 +22,7 @@ deliver — not reporting completed work.
 |---|---|
 | Trigger | "基金申请", "grant proposal", "funding application", "NIH", "NSF", "ERC", "NSFC", "项目申请书" |
 | Inputs | research idea, preliminary data, prior publications, target program/RFA, deadline, budget cap, team CVs |
-| Read next | [../workflow/research_question.md](../workflow/research_question.md), [../workflow/literature_review.md](../workflow/literature_review.md), [../writing/SKILL.md](../writing/SKILL.md) (see Knowledge Lineage Audit below for novelty claims) |
+| Read next | [../workflow/SKILL.md](../workflow/SKILL.md) (Research Question + Literature Review sections), [../writing/SKILL.md](../writing/SKILL.md) (see Knowledge Lineage Audit below for novelty claims) |
 | Outputs | `{workdir}/research_question.md`, `{workdir}/specific_aims.md`, `{workdir}/draft/proposal.md`, `{workdir}/draft/budget_justification.md`, `{workdir}/report/<slug>_proposal.html` |
 | Format | `grant_application` |
 | Theme | `kami_academic` |
@@ -46,7 +46,7 @@ deliver — not reporting completed work.
 | Expected Outcomes | yes | scientific deliverables and broader impacts |
 | Team | yes | PI, co-PIs, key personnel, roles |
 | Budget | yes | cost categories with justification |
-| References | yes | grounded via [../evidence/citation_grounding.md](../evidence/citation_grounding.md) |
+| References | yes | grounded via [../writing/claim_evidence_check.md](../writing/claim_evidence_check.md) (Citation Grounding section) |
 
 Always overlay program-specific section names and limits (NIH "Specific Aims"
 page, NSF "Project Description"/"Broader Impacts", NSFC innovation/feasibility).

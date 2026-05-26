@@ -32,9 +32,9 @@ scenario; the workflow files are short contracts, not narratives.
 
 | Phase | Entry criteria | Actions | Exit criteria |
 |---|---|---|---|
-| 0. Triage | a user request and any UI scenario labels | Read [workflow/triage.md](./workflow/triage.md). Choose `scenario_id`, `format_id`, `theme_id`, language, audience, outputs, constraints. | `{workdir}/triage.md` exists or is updated |
-| 1. Materials and evidence | triage is known | Read the chosen scenario file under `scenarios/`. Inventory materials, fetch/search papers only when needed, build the evidence registry. See [workflow/material_inventory.md](./workflow/material_inventory.md) and [evidence/SKILL.md](./evidence/SKILL.md). | `{workdir}/materials/inventory.md` and/or `claim_evidence_map.md` |
-| 2. Outline + claim boundary | evidence and materials are known | Read [workflow/paper_outline.md](./workflow/paper_outline.md). Add [workflow/figure_storyline.md](./workflow/figure_storyline.md) when figures are central, or read the Knowledge Lineage Audit in [scenarios/grant_proposal.md](./scenarios/grant_proposal.md) when the task asserts novelty. | manuscript-view + evidence-view outline |
+| 0. Triage | a user request and any UI scenario labels | Read [workflow/SKILL.md](./workflow/SKILL.md) ("Triage" section). Choose `scenario_id`, `format_id`, `theme_id`, language, audience, outputs, constraints. | `{workdir}/triage.md` exists or is updated |
+| 1. Materials and evidence | triage is known | Read the chosen scenario file under `scenarios/`. Inventory materials, fetch/search papers only when needed, build the evidence registry. See [workflow/SKILL.md](./workflow/SKILL.md) ("Material Inventory" section) and [evidence/SKILL.md](./evidence/SKILL.md). | `{workdir}/materials/inventory.md` and/or `claim_evidence_map.md` |
+| 2. Outline + claim boundary | evidence and materials are known | Read [workflow/SKILL.md](./workflow/SKILL.md) ("Paper Outline" + "Figure Storyline" sections), or read the Knowledge Lineage Audit in [scenarios/grant_proposal.md](./scenarios/grant_proposal.md) when the task asserts novelty. | manuscript-view + evidence-view outline |
 | 3. Section drafting | outline + evidence boundary exist | Read [writing/SKILL.md](./writing/SKILL.md). Draft Markdown only within evidence bounds. | `{workdir}/draft/paper.md` |
 | 4. Quality gates | draft exists | Read [quality/SKILL.md](./quality/SKILL.md). Run scenario-specific gates. | quality reports under `{workdir}/quality/` |
 | 5. Editable output | draft + quality notes exist | Read [formats/html_editable_contract.md](./formats/html_editable_contract.md). Apply the chosen rendering template + theme. | `{workdir}/report/<slug>_preview.html` and the final resume packet |
@@ -59,10 +59,10 @@ for the full router.
 
 | Layer | Index | Files |
 |---|---|---|
-| Workflow phases | [workflow/SKILL.md](./workflow/SKILL.md) | triage, material_inventory, literature_review, research_question, paper_outline, data_analysis_summary, figure_storyline, reader_testing; finalize-packet protocol inlined in workflow/SKILL.md |
-| Section writing | [writing/SKILL.md](./writing/SKILL.md) | abstract, introduction, method, results, discussion, claim_evidence_check, reviewer_rubric, response_letter |
-| Evidence layer | [evidence/SKILL.md](./evidence/SKILL.md) | paper_fetch (search + retrieve), evidence_registry, citation_grounding (with rerank + attribution), data_availability; evidence summary + context-bound answering rules inlined in evidence/SKILL.md |
-| Quality gates | [quality/SKILL.md](./quality/SKILL.md) | claim_evidence_check (writing/), reviewer_rubric (writing/), reproducibility_check, reporting_guideline_check, manuscript_coverage_check, format_lint; HTML editability validation lives in formats/html_editable_contract.md, response consistency check lives in scenarios/revision_response.md |
+| Workflow phases | [workflow/SKILL.md](./workflow/SKILL.md) | All 9 phases inlined as one file: triage, material inventory, research question, literature review, paper outline, data analysis summary, figure storyline, reader testing, finalize packet |
+| Section writing | [writing/SKILL.md](./writing/SKILL.md) | abstract, introduction, method, results, discussion, claim_evidence_check (with citation grounding inlined), reviewer_rubric (+ reviewer_rubric_example), response_letter |
+| Evidence layer | [evidence/SKILL.md](./evidence/SKILL.md) | paper_fetch (search + retrieve); evidence registry, summary, and context-bound answering rules inlined in evidence/SKILL.md; citation grounding lives in writing/claim_evidence_check.md; data availability lives in scenarios/journal_article.md |
+| Quality gates | [quality/SKILL.md](./quality/SKILL.md) | manuscript coverage, format lint, reproducibility (all inlined in quality/SKILL.md); reporting_guideline_check (clinical); claim_evidence_check + reviewer_rubric live in writing/; HTML editability validation lives in formats/html_editable_contract.md; response consistency check lives in scenarios/revision_response.md |
 | Output formats | [formats/html_editable_contract.md](./formats/html_editable_contract.md) | editable HTML contract (per-format section structure lives in each scenario file; cross-format index below) |
 | Themes | [themes/kami_academic.md](./themes/kami_academic.md) (contract) + [themes/kami_academic.css](./themes/kami_academic.css) (stylesheet) | warm parchment academic theme; only theme bundled today — add new themes as `<name>.md` + `<name>.css` pairs |
 
@@ -147,8 +147,8 @@ if the template emits HTML.
 - Do not invent citations, DOIs, accession IDs, page numbers, data
   repositories, reviewer changes, or experimental results.
 - Do not let a search result become evidence until it is summarized,
-  attributed, and bound to a specific claim — see
-  [evidence/evidence_registry.md](./evidence/evidence_registry.md).
+  attributed, and bound to a specific claim — see the Evidence Registry
+  section in [evidence/SKILL.md](./evidence/SKILL.md).
 - Do not use Sci-Hub or any access-control bypass. Open PDF fetching may use
   only legal OA routes described in
   [evidence/paper_fetch.md](./evidence/paper_fetch.md).

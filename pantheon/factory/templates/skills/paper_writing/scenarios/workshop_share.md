@@ -20,7 +20,7 @@ talk — the goal is participant skill, not narrative impact.
 |---|---|
 | Trigger | "workshop", "tutorial", "教学", "hands-on", "training", "上手指南" |
 | Inputs | the method/tool to teach, target audience, duration, prerequisites, sample data or repo |
-| Read next | [../workflow/material_inventory.md](../workflow/material_inventory.md), [../workflow/reader_testing.md](../workflow/reader_testing.md), [../writing/SKILL.md](../writing/SKILL.md) |
+| Read next | [../workflow/SKILL.md](../workflow/SKILL.md) (Material Inventory + Reader Testing sections), [../writing/SKILL.md](../writing/SKILL.md) |
 | Outputs | `{workdir}/learning_objectives.md`, `{workdir}/draft/tutorial.md`, `{workdir}/draft/code_examples/`, `{workdir}/draft/troubleshooting.md`, `{workdir}/report/<slug>_workshop.html` |
 | Format | `workshop_share` |
 | Theme | `kami_academic` (or a theme matched to the platform) |
