@@ -282,20 +282,49 @@ class ChatRoom(ToolSet):
 
             try:
                 # Disk usage of the user's workspace mount (the only space
-                # users actually fill with their data). For the hosted
-                # Pantheon agent this is the Modal Volume mounted at
-                # /workspace; for local runs it's just the agent's cwd.
-                # Falls back to "/" if /workspace isn't a thing (e.g.
-                # bare local install without docker-entrypoint laying it
-                # down). Reported in MiB to match memory units.
+                # users actually fill with their data). Only report when
+                # the hosted /workspace mount exists — local runs don't
+                # have a quota to report against.
+                #
+                # psutil.disk_usage / statvfs on a Modal Volume returns the
+                # underlying host disk (hundreds of GiB, used=0), not the
+                # Volume itself, so we walk the tree ourselves and compare
+                # against a configured quota (default 10 GiB per user).
+                # Cached 30s so _ping stays cheap.
                 import os as _os
-                workspace_path = "/workspace" if _os.path.isdir("/workspace") else _os.getcwd()
-                du = _psutil.disk_usage(workspace_path)
-                metrics["disk_used_mb"] = round(du.used / 1024 / 1024, 1)
-                metrics["disk_total_mb"] = round(du.total / 1024 / 1024, 1)
-                metrics["disk_percent"] = round(du.percent, 1)
+                import time as _time
+                if _os.path.isdir("/workspace"):
+                    quota_mb = float(_os.environ.get("WORKSPACE_QUOTA_MB", 10 * 1024))
+                    now = _time.monotonic()
+                    cached = getattr(self, "_disk_used_cache", None)
+                    if cached is not None and now - cached[1] < 30.0:
+                        used_bytes = cached[0]
+                    else:
+                        used_bytes = 0
+                        stack = ["/workspace"]
+                        while stack:
+                            cur = stack.pop()
+                            try:
+                                with _os.scandir(cur) as it:
+                                    for entry in it:
+                                        try:
+                                            if entry.is_symlink():
+                                                continue
+                                            if entry.is_dir(follow_symlinks=False):
+                                                stack.append(entry.path)
+                                            else:
+                                                used_bytes += entry.stat(follow_symlinks=False).st_size
+                                        except OSError:
+                                            continue
+                            except OSError:
+                                continue
+                        self._disk_used_cache = (used_bytes, now)
+                    used_mb = used_bytes / 1024 / 1024
+                    metrics["disk_used_mb"] = round(used_mb, 1)
+                    metrics["disk_total_mb"] = round(quota_mb, 1)
+                    metrics["disk_percent"] = round(used_mb / quota_mb * 100, 1) if quota_mb > 0 else 0.0
             except Exception:
-                pass  # psutil disk_usage can raise on weird FS (9p, fuse) — omit silently
+                pass  # filesystem walk failed — omit silently
 
         return metrics
 
