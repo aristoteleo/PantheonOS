@@ -1401,6 +1401,26 @@ class ChatRoom(ToolSet):
             }
 
     @tool
+    async def touch_chat(self, chat_id: str):
+        """Bump ``last_activity_date`` to the current time without modifying
+        chat content.
+
+        Used by the UI so that re-entering the single empty New Chat moves
+        it to the top of the sidebar's by-activity sort, matching the
+        intuition that "the chat you just opened is the most recent one."
+        """
+        try:
+            memory = await run_func(self.memory_manager.get_memory, chat_id, True)
+            memory.set_metadata("last_activity_date", datetime.now().isoformat())
+            await run_func(self.memory_manager.save_one, chat_id)
+            return {"success": True, "message": "Chat activity refreshed"}
+        except KeyError:
+            return {"success": False, "message": f"Chat '{chat_id}' not found"}
+        except Exception as e:
+            logger.error(f"Error touching chat: {e}")
+            return {"success": False, "message": str(e)}
+
+    @tool
     async def export_chat(
         self, chat_id: str, output_path: str = "", compress: bool = True
     ) -> dict:
