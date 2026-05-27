@@ -146,7 +146,7 @@ def prefix_saved_models(provider: str, model_names: list[str]) -> list[str]:
     return [f"{provider}/{name}" for name in model_names if name]
 
 # ============ Default Configuration ============
-# Built-in defaults based on February 2026 flagship models
+# Built-in defaults based on May 2026 flagship models
 # Users can override in settings.json
 
 DEFAULT_PROVIDER_PRIORITY = ["openai", "anthropic", "gemini", "gemini-cli", "zai", "deepseek", "minimax", "moonshot", "qwen", "groq", "mistral", "together_ai", "openrouter", "codex", "ollama"]
@@ -178,17 +178,17 @@ DEFAULT_PROVIDER_MODELS = {
             "anthropic/claude-haiku-4-5",
         ],
     },
-    # Gemini: Gemini 3.1/3/2.5 series
+    # Gemini: Gemini 3.5/3.1/3/2.5 series
     # https://ai.google.dev/gemini-api/docs/models
     "gemini": {
         "high": ["gemini/gemini-3.1-pro-preview", "gemini/gemini-3-pro-preview", "gemini/gemini-2.5-pro"],
-        "normal": ["gemini/gemini-3-flash-preview", "gemini/gemini-2.5-flash"],
-        "low": ["gemini/gemini-3-flash-preview", "gemini/gemini-2.5-flash-lite"],
+        "normal": ["gemini/gemini-3.5-flash", "gemini/gemini-3-flash-preview", "gemini/gemini-2.5-flash"],
+        "low": ["gemini/gemini-3.5-flash", "gemini/gemini-3-flash-preview", "gemini/gemini-2.5-flash-lite"],
     },
     "gemini-cli": {
         "high": ["gemini-cli/gemini-3.1-pro-preview", "gemini-cli/gemini-3-pro-preview", "gemini-cli/gemini-2.5-pro"],
-        "normal": ["gemini-cli/gemini-3-flash-preview", "gemini-cli/gemini-2.5-flash"],
-        "low": ["gemini-cli/gemini-3-flash-preview", "gemini-cli/gemini-2.5-flash-lite"],
+        "normal": ["gemini-cli/gemini-3.5-flash", "gemini-cli/gemini-3-flash-preview", "gemini-cli/gemini-2.5-flash"],
+        "low": ["gemini-cli/gemini-3.5-flash", "gemini-cli/gemini-3-flash-preview", "gemini-cli/gemini-2.5-flash-lite"],
     },
     # Z.ai (Zhipu): GLM-4.6/4.5 series
     # https://open.bigmodel.cn/
@@ -205,38 +205,36 @@ DEFAULT_PROVIDER_MODELS = {
         "normal": ["deepseek/deepseek-v4-pro"],
         "low": ["deepseek/deepseek-v4-flash"],
     },
-    # MiniMax: M2.5/M2.1 series
+    # MiniMax: M2.7/M2.5 series
     # https://platform.minimaxi.com/
     "minimax": {
         "high": [
+            "minimax/MiniMax-M2.7",
+            "minimax/MiniMax-M2.7-highspeed",
             "minimax/MiniMax-M2.5-highspeed",
             "minimax/MiniMax-M2.5",
-            "minimax/MiniMax-M2.1-highspeed",
-            "minimax/MiniMax-M2.1",
         ],
         "normal": [
+            "minimax/MiniMax-M2.7-highspeed",
             "minimax/MiniMax-M2.5-highspeed",
             "minimax/MiniMax-M2.5",
-            "minimax/MiniMax-M2.1-highspeed",
-            "minimax/MiniMax-M2.1",
         ],
         "low": [
             "minimax/MiniMax-M2.5",
-            "minimax/MiniMax-M2.1",
         ],
     },
-    # Moonshot: Kimi K2.5/K2 series
+    # Moonshot: Kimi K2.6/K2.5 series
     # https://platform.moonshot.cn/
     "moonshot": {
-        "high": ["moonshot/kimi-k2.5", "moonshot/kimi-k2-0905-preview"],
-        "normal": ["moonshot/kimi-k2.5", "moonshot/kimi-k2-0905-preview"],
-        "low": ["moonshot/kimi-k2.5", "moonshot/kimi-k2-0905-preview"],
+        "high": ["moonshot/kimi-k2.6", "moonshot/kimi-k2.5"],
+        "normal": ["moonshot/kimi-k2.6", "moonshot/kimi-k2.5"],
+        "low": ["moonshot/kimi-k2.6", "moonshot/kimi-k2.5"],
     },
-    # Qwen (DashScope): Qwen3/QwQ series
+    # Qwen (DashScope): Qwen3.7/Qwen3 series
     # https://help.aliyun.com/zh/model-studio/
     "qwen": {
-        "high": ["qwen/qwen3-235b-a22b", "qwen/qwen-max", "qwen/qwq-plus"],
-        "normal": ["qwen/qwen3-32b", "qwen/qwen-plus"],
+        "high": ["qwen/qwen3.7-max", "qwen/qwen3-max", "qwen/qwen3-235b-a22b", "qwen/qwen-max", "qwen/qwq-plus"],
+        "normal": ["qwen/qwen-plus", "qwen/qwen3-32b"],
         "low": ["qwen/qwen3-30b-a3b", "qwen/qwen-turbo"],
     },
     # Groq: Ultra-fast inference
@@ -249,16 +247,16 @@ DEFAULT_PROVIDER_MODELS = {
     # Mistral AI
     # https://docs.mistral.ai/getting-started/models
     "mistral": {
-        "high": ["mistral/mistral-large-latest", "mistral/mistral-medium-latest"],
-        "normal": ["mistral/mistral-small-latest", "mistral/codestral-latest"],
-        "low": ["mistral/open-mistral-nemo"],
+        "high": ["mistral/mistral-medium-3-5", "mistral/mistral-large-2512", "mistral/mistral-large-latest"],
+        "normal": ["mistral/mistral-small-2603", "mistral/mistral-small-latest", "mistral/codestral-latest"],
+        "low": ["mistral/mistral-small-2603", "mistral/open-mistral-nemo"],
     },
     # Together AI: Open-source model hosting
     # https://docs.together.ai/docs/serverless-models
     "together_ai": {
-        "high": ["together_ai/Qwen/Qwen3.5-397B-A17B", "together_ai/deepseek-ai/DeepSeek-V3.1"],
-        "normal": ["together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo"],
-        "low": ["together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo"],
+        "high": ["together_ai/Qwen/Qwen3.7-Max", "together_ai/deepseek-ai/DeepSeek-V4-Pro", "together_ai/Qwen/Qwen3.5-397B-A17B"],
+        "normal": ["together_ai/moonshotai/Kimi-K2.6", "together_ai/zai-org/GLM-5.1", "together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo"],
+        "low": ["together_ai/MiniMaxAI/MiniMax-M2.7", "together_ai/openai/gpt-oss-20b", "together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo"],
     },
     # Codex: OpenAI via ChatGPT OAuth (free with ChatGPT Plus)
     "codex": {
@@ -269,9 +267,9 @@ DEFAULT_PROVIDER_MODELS = {
     # OpenRouter: Multi-provider aggregator
     # https://openrouter.ai/models
     "openrouter": {
-        "high": ["openrouter/anthropic/claude-sonnet-4-6"],
-        "normal": ["openrouter/google/gemini-2.5-flash", "openrouter/deepseek/deepseek-chat"],
-        "low": ["openrouter/meta-llama/llama-3.3-70b-instruct"],
+        "high": ["openrouter/qwen/qwen3.7-max", "openrouter/x-ai/grok-4.3", "openrouter/anthropic/claude-sonnet-4-6"],
+        "normal": ["openrouter/google/gemini-3.5-flash", "openrouter/mistralai/mistral-medium-3-5", "openrouter/google/gemini-2.5-flash"],
+        "low": ["openrouter/openai/gpt-oss-120b", "openrouter/meta-llama/llama-3.3-70b-instruct"],
     },
 }
 

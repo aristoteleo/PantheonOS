@@ -141,19 +141,74 @@
         // Quality levels map to model lists (fallback chains)
         // "provider_models": {
         //     "openai": {
-        //         "high": ["openai/gpt-5.4", "openai/gpt-5.2"],
-        //         "normal": ["openai/gpt-5.4", "openai/gpt-5.2-codex", "openai/gpt-5.2", "openai/gpt-5"],
-        //         "low": ["openai/gpt-5.4-mini", "openai/gpt-5.4-nano", "openai/gpt-5-mini", "openai/gpt-4.1-mini"]
+        //         "high": ["openai/gpt-5.5", "openai/gpt-5.4", "openai/gpt-5.2"],
+        //         "normal": ["openai/gpt-5.5", "openai/gpt-5.4", "openai/gpt-5.2-codex", "openai/gpt-5.2", "openai/gpt-5"],
+        //         "low": ["openai/gpt-5.4-mini", "openai/gpt-5.4-nano", "openai/gpt-5-mini", "openai/gpt-5-nano"]
         //     },
         //     "anthropic": {
-        //         "high": ["anthropic/claude-opus-4-6", "anthropic/claude-opus-4-5-20251101"],
-        //         "normal": ["anthropic/claude-sonnet-4-6", "anthropic/claude-sonnet-4-5-20250929"],
+        //         "high": ["anthropic/claude-opus-4-7", "anthropic/claude-opus-4-6", "anthropic/claude-opus-4-5-20251101"],
+        //         "normal": ["anthropic/claude-sonnet-4-6", "anthropic/claude-sonnet-4-5-20250929", "anthropic/claude-sonnet-4-20250514"],
         //         "low": ["anthropic/claude-haiku-4-5"]
         //     },
         //     "gemini": {
         //         "high": ["gemini/gemini-3.1-pro-preview", "gemini/gemini-3-pro-preview", "gemini/gemini-2.5-pro"],
-        //         "normal": ["gemini/gemini-3-flash-preview", "gemini/gemini-2.5-flash"],
-        //         "low": ["gemini/gemini-3-flash-preview", "gemini/gemini-2.5-flash-lite"]
+        //         "normal": ["gemini/gemini-3.5-flash", "gemini/gemini-3-flash-preview", "gemini/gemini-2.5-flash"],
+        //         "low": ["gemini/gemini-3.5-flash", "gemini/gemini-3-flash-preview", "gemini/gemini-2.5-flash-lite"]
+        //     },
+        //     "gemini-cli": {
+        //         "high": ["gemini-cli/gemini-3.1-pro-preview", "gemini-cli/gemini-3-pro-preview", "gemini-cli/gemini-2.5-pro"],
+        //         "normal": ["gemini-cli/gemini-3.5-flash", "gemini-cli/gemini-3-flash-preview", "gemini-cli/gemini-2.5-flash"],
+        //         "low": ["gemini-cli/gemini-3.5-flash", "gemini-cli/gemini-3-flash-preview", "gemini-cli/gemini-2.5-flash-lite"]
+        //     },
+        //     "zai": {
+        //         "high": ["zai/glm-5", "zai/glm-4.6", "zai/glm-4.5", "zai/glm-4.5v"],
+        //         "normal": ["zai/glm-5", "zai/glm-4.6", "zai/glm-4.5", "zai/glm-4.5v"],
+        //         "low": ["zai/glm-4.5-air", "zai/glm-4.5-flash"]
+        //     },
+        //     "deepseek": {
+        //         "high": ["deepseek/deepseek-v4-pro"],
+        //         "normal": ["deepseek/deepseek-v4-pro"],
+        //         "low": ["deepseek/deepseek-v4-flash"]
+        //     },
+        //     "minimax": {
+        //         "high": ["minimax/MiniMax-M2.7", "minimax/MiniMax-M2.7-highspeed", "minimax/MiniMax-M2.5-highspeed", "minimax/MiniMax-M2.5"],
+        //         "normal": ["minimax/MiniMax-M2.7-highspeed", "minimax/MiniMax-M2.5-highspeed", "minimax/MiniMax-M2.5"],
+        //         "low": ["minimax/MiniMax-M2.5"]
+        //     },
+        //     "moonshot": {
+        //         "high": ["moonshot/kimi-k2.6", "moonshot/kimi-k2.5"],
+        //         "normal": ["moonshot/kimi-k2.6", "moonshot/kimi-k2.5"],
+        //         "low": ["moonshot/kimi-k2.6", "moonshot/kimi-k2.5"]
+        //     },
+        //     "qwen": {
+        //         "high": ["qwen/qwen3.7-max", "qwen/qwen3-max", "qwen/qwen3-235b-a22b", "qwen/qwen-max", "qwen/qwq-plus"],
+        //         "normal": ["qwen/qwen-plus", "qwen/qwen3-32b"],
+        //         "low": ["qwen/qwen3-30b-a3b", "qwen/qwen-turbo"]
+        //     },
+        //     "groq": {
+        //         "high": ["groq/openai/gpt-oss-120b", "groq/llama-3.3-70b-versatile"],
+        //         "normal": ["groq/openai/gpt-oss-20b", "groq/qwen/qwen3-32b", "groq/meta-llama/llama-4-scout-17b-16e-instruct"],
+        //         "low": ["groq/llama-3.1-8b-instant"]
+        //     },
+        //     "mistral": {
+        //         "high": ["mistral/mistral-medium-3-5", "mistral/mistral-large-2512", "mistral/mistral-large-latest"],
+        //         "normal": ["mistral/mistral-small-2603", "mistral/mistral-small-latest", "mistral/codestral-latest"],
+        //         "low": ["mistral/mistral-small-2603", "mistral/open-mistral-nemo"]
+        //     },
+        //     "together_ai": {
+        //         "high": ["together_ai/Qwen/Qwen3.7-Max", "together_ai/deepseek-ai/DeepSeek-V4-Pro", "together_ai/Qwen/Qwen3.5-397B-A17B"],
+        //         "normal": ["together_ai/moonshotai/Kimi-K2.6", "together_ai/zai-org/GLM-5.1", "together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo"],
+        //         "low": ["together_ai/MiniMaxAI/MiniMax-M2.7", "together_ai/openai/gpt-oss-20b", "together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo"]
+        //     },
+        //     "codex": {
+        //         "high": ["codex/gpt-5.5", "codex/gpt-5.4", "codex/gpt-5.2-codex"],
+        //         "normal": ["codex/gpt-5.4-mini", "codex/gpt-5"],
+        //         "low": ["codex/gpt-5.4-mini", "codex/o4-mini"]
+        //     },
+        //     "openrouter": {
+        //         "high": ["openrouter/qwen/qwen3.7-max", "openrouter/x-ai/grok-4.3", "openrouter/anthropic/claude-sonnet-4-6"],
+        //         "normal": ["openrouter/google/gemini-3.5-flash", "openrouter/mistralai/mistral-medium-3-5", "openrouter/google/gemini-2.5-flash"],
+        //         "low": ["openrouter/openai/gpt-oss-120b", "openrouter/meta-llama/llama-3.3-70b-instruct"]
         //     }
         // }
     },
@@ -166,12 +221,13 @@
     // "image_gen_models": {
     //     "gemini": {
     //         "high": ["gemini/gemini-3-pro-image-preview"],
-    //         "normal": ["gemini/gemini-3-pro-image-preview"]
+    //         "normal": ["gemini/gemini-3.1-flash-image-preview"],
+    //         "low": ["gemini/gemini-2.5-flash-image"]
     //     },
     //     "openai": {
-    //         "high": ["gpt-image-2"],
-    //         "normal": ["gpt-image-2"],
-    //         "low": ["gpt-image-2"]
+    //         "high": ["gpt-image-2", "chatgpt-image-latest", "gpt-image-1.5"],
+    //         "normal": ["gpt-image-2", "chatgpt-image-latest", "gpt-image-1.5"],
+    //         "low": ["gpt-image-2", "gpt-image-1"]
     //     }
     // },
     // ===== Context Compression Configuration =====
