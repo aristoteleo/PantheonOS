@@ -1372,29 +1372,49 @@ class FileManagerToolSet(FileManagerToolSetBase):
         MAX_IMAGE_SIZE = 10 * 1024 * 1024
 
         try:
-            # Support both relative (to workspace) and absolute paths
+            # Support both relative (to workspace) and absolute paths.
             candidate = Path(image_path)
             if candidate.is_absolute():
                 i_path = candidate
             else:
                 i_path = self._resolve_path(image_path)
 
-            # Security: Check if path is within allowed directories
+            # Containment check.
+            #
+            # Compare both paths *after* resolving symlinks against the
+            # same root — _get_root() — so a workspace whose root happens
+            # to be reached through a symlink (Modal Volume mounts are
+            # often laid out this way) doesn't make every read look like
+            # an escape attempt. The previous implementation compared
+            # i_path.resolve() against self.path.resolve(), which is wrong
+            # in two ways: (a) self.path is the toolset's init cwd, not
+            # the active workdir, so a project workspace at a different
+            # root would always fail the prefix check; (b) when the
+            # active root traverses a symlink but self.path doesn't (or
+            # vice versa), the same file looks "in" via list_files (which
+            # never calls resolve()) and "out" here.
             try:
-                resolved_path = i_path.resolve()
-                allowed_path = self.path.resolve()
-                if not str(resolved_path).startswith(str(allowed_path)):
+                root_resolved = self._get_root().resolve()
+                # strict=False so a not-yet-existing path still resolves —
+                # we report the missing-file case explicitly below with a
+                # clearer error than "Invalid path".
+                resolved_path = i_path.resolve(strict=False)
+                try:
+                    resolved_path.relative_to(root_resolved)
+                except ValueError:
                     return {"success": False, "error": "Path outside allowed workspace"}
             except Exception:
                 return {"success": False, "error": "Invalid path"}
 
-            # Security: Reject symbolic links
-            if resolved_path.is_symlink():
-                return {"success": False, "error": "Symbolic links are not allowed"}
-
-            # Check file existence
+            # Check file existence.
+            #
+            # We intentionally do NOT pre-reject symlinks: a symlink to a
+            # file inside the workspace is benign (the containment check
+            # above already ruled out escape). Rejecting all symlinks
+            # surfaces as "Image does not exist" to the user when their
+            # tree clearly shows the file.
             if not resolved_path.exists():
-                return {"success": False, "error": "Image does not exist"}
+                return {"success": False, "error": f"Image does not exist: {image_path}"}
 
             # Check if it's a file (not directory)
             if not resolved_path.is_file():
