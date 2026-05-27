@@ -280,6 +280,23 @@ class ChatRoom(ToolSet):
             except Exception:
                 pass  # process may have exited or psutil failed — omit silently
 
+            try:
+                # Disk usage of the user's workspace mount (the only space
+                # users actually fill with their data). For the hosted
+                # Pantheon agent this is the Modal Volume mounted at
+                # /workspace; for local runs it's just the agent's cwd.
+                # Falls back to "/" if /workspace isn't a thing (e.g.
+                # bare local install without docker-entrypoint laying it
+                # down). Reported in MiB to match memory units.
+                import os as _os
+                workspace_path = "/workspace" if _os.path.isdir("/workspace") else _os.getcwd()
+                du = _psutil.disk_usage(workspace_path)
+                metrics["disk_used_mb"] = round(du.used / 1024 / 1024, 1)
+                metrics["disk_total_mb"] = round(du.total / 1024 / 1024, 1)
+                metrics["disk_percent"] = round(du.percent, 1)
+            except Exception:
+                pass  # psutil disk_usage can raise on weird FS (9p, fuse) — omit silently
+
         return metrics
 
     async def _ensure_plugins(self, endpoint_service: object = None) -> list:
