@@ -1323,12 +1323,27 @@ class ChatRoom(ToolSet):
             return {"success": False, "message": str(e)}
 
     @tool
-    async def get_chat_messages(self, chat_id: str, filter_out_images: bool = False):
-        """Get the messages of a chat.
+    async def get_chat_messages(
+        self,
+        chat_id: str,
+        filter_out_images: bool = False,
+        offset: int = 0,
+        limit: int | None = None,
+    ):
+        """Get messages of a chat, byte-budgeted page by page.
+
+        The full response of a long chat (lots of tool calls, embedded
+        images, long reasoning) easily blows past the NATS 1 MiB max
+        payload. Clients loop calls with ``offset`` advancing by the
+        returned ``next_offset`` until ``next_offset >= total``.
 
         Args:
             chat_id: The ID of the chat.
             filter_out_images: Whether to filter out the images.
+            offset: 0-based index of the first message to return.
+            limit: Hard cap on messages per page. ``None`` means the
+                method auto-stops when its byte budget is reached;
+                callers normally don't need to set this.
         """
         try:
             # Frontend query: skip auto-fix for better performance (5-10x faster)
@@ -1345,10 +1360,23 @@ class ChatRoom(ToolSet):
             if messages is None:
                 messages = []
 
-            # Always sanitize messages for transport (NATS payload limit)
             import json as _json
-            MAX_RAW_CONTENT_SIZE = 50000  # 50KB per raw_content
-            MAX_FIELD_LENGTH = 10000
+            # Per-message sanitization (NATS payload limit). Bounded
+            # raw_content (drop if > 50 KB), bounded stdout/stderr fields
+            # (10 KB), and bounded `content` + `reasoning_content` fields
+            # (200 KB) so no single message can dominate a page.
+            MAX_RAW_CONTENT_SIZE = 50_000
+            MAX_FIELD_LENGTH = 10_000
+            MAX_CONTENT_FIELD_SIZE = 200_000
+
+            def _truncate_str_field(msg: dict, key: str) -> None:
+                v = msg.get(key)
+                if isinstance(v, str) and len(v) > MAX_CONTENT_FIELD_SIZE:
+                    msg[key] = (
+                        v[:MAX_CONTENT_FIELD_SIZE]
+                        + f"\n\n[...truncated {len(v) - MAX_CONTENT_FIELD_SIZE} bytes]"
+                    )
+
             for message in messages:
                 if "raw_content" in message:
                     if isinstance(message["raw_content"], dict):
@@ -1357,23 +1385,69 @@ class ChatRoom(ToolSet):
                         for _k in ("stdout", "stderr"):
                             if _k in message["raw_content"]:
                                 message["raw_content"][_k] = message["raw_content"][_k][:MAX_FIELD_LENGTH]
-                    # Drop raw_content entirely if still too large
                     try:
                         rc_size = len(_json.dumps(message["raw_content"], ensure_ascii=False))
                         if rc_size > MAX_RAW_CONTENT_SIZE:
                             del message["raw_content"]
                     except (TypeError, ValueError):
                         pass
-            return {"success": True, "messages": messages}
+                _truncate_str_field(message, "content")
+                _truncate_str_field(message, "reasoning_content")
+
+            total = len(messages)
+            if offset < 0:
+                offset = 0
+            if offset >= total:
+                return {
+                    "success": True,
+                    "messages": [],
+                    "total": total,
+                    "next_offset": total,
+                }
+
+            # Byte-budgeted slice: target ~700 KB per page so a single
+            # NATS frame (1 MiB) reliably accommodates the JSON-RPC
+            # envelope on top.
+            PAGE_BYTE_BUDGET = 700_000
+            page: list = []
+            size = 0
+            for msg in messages[offset:]:
+                if limit is not None and len(page) >= limit:
+                    break
+                try:
+                    msg_size = len(_json.dumps(msg, ensure_ascii=False))
+                except (TypeError, ValueError):
+                    msg_size = MAX_CONTENT_FIELD_SIZE  # defensive estimate
+                # Always include at least one message per page so a single
+                # oversized message still makes forward progress.
+                if page and (size + msg_size) > PAGE_BYTE_BUDGET:
+                    break
+                page.append(msg)
+                size += msg_size
+
+            return {
+                "success": True,
+                "messages": page,
+                "total": total,
+                "next_offset": offset + len(page),
+            }
         except KeyError:
             return {
                 "success": False,
                 "message": f"Chat '{chat_id}' not found",
-                "messages": []  # Always include messages field
+                "messages": [],
+                "total": 0,
+                "next_offset": 0,
             }
         except Exception as e:
             logger.error(f"Error getting chat messages: {e}")
-            return {"success": False, "message": str(e), "messages": []}  # Always include messages field
+            return {
+                "success": False,
+                "message": str(e),
+                "messages": [],
+                "total": 0,
+                "next_offset": 0,
+            }
 
     @tool
     async def update_chat_name(self, chat_id: str, chat_name: str):
