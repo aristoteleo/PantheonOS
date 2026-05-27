@@ -238,4 +238,21 @@ examples/code_distillation/data/*.npz
 .uploaded_files/
 *.aux
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 .worktrees/
+pantheon-hub-db-backups/
+
+# local venvs for ad-hoc benchmarks / demos
+.venv-*/
+
+# matplotlib scratch output
+.matplotlib_figs/
+
+# live-view runtime outputs (regenerate per session)
+liveview_data/
+liveview_exports/
+liveview_outputs/
+
+# accidental .env backups (use ~/.pantheon/.env as canonical)
+*.env.bak
+.env.env.bak
