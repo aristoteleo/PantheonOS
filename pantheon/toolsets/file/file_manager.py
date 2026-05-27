@@ -1356,11 +1356,20 @@ class FileManagerToolSet(FileManagerToolSetBase):
             }
 
     @tool(exclude=True)
-    async def fetch_image_base64(self, image_path: str) -> dict:
+    async def fetch_image_base64(
+        self,
+        image_path: str,
+        max_size: int = 1568,
+    ) -> dict:
         """Fetch an image and return the base64 encoded image. for frontend display
 
         Args:
             image_path: Path to the image file (relative to workspace)
+            max_size: Longest-edge cap in pixels before encoding. The
+                frontend passes a small value (e.g. 400) for chat
+                thumbnails and a larger one (e.g. 1024) for the right
+                sidebar preview; click-to-zoom goes through the chunked
+                full-resolution path instead and bypasses this RPC.
 
         Returns:
             Dict with success status and either data_uri or error message
@@ -1455,7 +1464,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
                     data_uri = f"data:image/{mime_format};base64,{b64}"
                 else:
                     from pantheon.utils.vision import get_image_base64
-                    data_uri = get_image_base64(str(resolved_path))
+                    data_uri = get_image_base64(str(resolved_path), max_size=max_size)
             except PermissionError:
                 return {"success": False, "error": "Permission denied reading image"}
             except IOError as e:
