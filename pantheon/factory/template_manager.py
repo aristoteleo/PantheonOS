@@ -281,17 +281,19 @@ class TemplateManager:
     def _ensure_default_templates(self):
         """Sync factory defaults to ~/.pantheon/ (global), NOT project dir.
 
-        Respects the `default_template_auto_update` setting for agents/teams/prompts:
-        - True (default): overwrite existing files with latest factory versions.
-        - False: only copy files that don't exist yet (preserves user edits).
-        Skills are always copy-missing-only regardless of the setting.
+        Respects the `default_template_auto_update` setting for all categories
+        (agents/teams/prompts/skills):
+        - True (default): smart-overwrite using factory hash tracking — files
+          the user has modified are preserved; unmodified factory copies are
+          updated to the latest version.
+        - False: only copy files that don't exist yet (preserves all user edits).
 
         New projects start clean and inherit via 3-layer fallback:
         project → global (~/.pantheon/) → factory
         """
         overwrite = self.settings.default_template_auto_update
         if overwrite:
-            logger.info("default_template_auto_update=true: overwriting agents/teams/prompts with latest factory defaults")
+            logger.info("default_template_auto_update=true: smart-overwriting agents/teams/prompts/skills with latest factory defaults")
 
         # Target: global ~/.pantheon/ dirs
         global_agents = self.settings.global_agents_dir
@@ -303,6 +305,7 @@ class TemplateManager:
             ("agents", global_agents, "agent(s)"),
             ("teams", global_teams, "team(s)"),
             ("prompts", global_prompts, "prompt(s)"),
+            ("skills", global_skills, "skill(s)"),
         ]:
             try:
                 self._copy_missing_templates(
@@ -310,12 +313,6 @@ class TemplateManager:
                 )
             except Exception as e:
                 logger.error(f"Failed to copy default {label}: {e}")
-        try:
-            self._copy_missing_templates(
-                self.system_templates_dir / "skills", global_skills, "skill(s)", overwrite=False
-            )
-        except Exception as e:
-            logger.error(f"Failed to copy default skill(s): {e}")
 
     def force_sync_factory_templates(self):
         """Force-sync ALL factory templates (including skills) to global ~/.pantheon/.
