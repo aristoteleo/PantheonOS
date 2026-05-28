@@ -204,7 +204,11 @@ class ChatRoom(ToolSet):
             self._auto_created_endpoint = False
             
             logger.info("ChatRoom: starting auto-created Endpoint...")
-            asyncio.create_task(self._endpoint.run(remote=False))
+            # Run the Endpoint as its own RemoteWorker (own NATS conn) so
+            # file-transfer RPCs can land on it directly, off the
+            # ChatRoom NATS connection that's also carrying chat token
+            # streams. See _start_endpoint_embedded for the long version.
+            asyncio.create_task(self._endpoint.run(remote=True))
             # Wait for endpoint to be ready
             max_retries = 30
             for i in range(max_retries):

@@ -249,8 +249,22 @@ async def _start_endpoint_embedded(
         workspace_path=workspace_path,
         id_hash=endpoint_id_hash
     )
-    # Start endpoint in background with remote=False (only setup, no worker)
-    asyncio.create_task(endpoint.run(remote=False, log_level=log_level))
+    # Start endpoint in background as a full RemoteWorker — same process
+    # as ChatRoom, but with its own NATS connection subscribed to the
+    # endpoint's service subject.
+    #
+    # Why not remote=False (the historical default): with remote=False
+    # the Endpoint only sets up its toolsets and stays passive. Every
+    # file-transfer RPC has to come in through ChatRoom's
+    # proxy_toolset, which means chunk replies travel back on the
+    # ChatRoom NATS connection — the same TCP carrying chat tokens
+    # and other interactive responses. A multi-MiB PDF download
+    # head-of-line blocks every chat token queued behind it on that
+    # one TCP. Running Endpoint as a remote worker gives file traffic
+    # its own NATS connection (TCP-B) so the frontend's data channel
+    # can target Endpoint directly without touching the ChatRoom
+    # connection (TCP-A).
+    asyncio.create_task(endpoint.run(remote=True, log_level=log_level))
 
 
     # Wait for endpoint to be ready
