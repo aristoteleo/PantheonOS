@@ -16,6 +16,8 @@ agents:
   - scientific_illustrator
 ---
 
+{{pdf_output}}
+
 # OmicVerse Team
 
 A built-in team template for OmicVerse analysis projects where API lookup and

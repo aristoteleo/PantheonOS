@@ -18,6 +18,8 @@ agents:
   - single_cell/browser_use
 ---
 
+{{pdf_output}}
+
 # Single Cell Analysis Team
 
 A specialized AI team for autonomous exploratory analysis of single-cell and spatial omics data (e.g., scRNA-seq, MERFISH, Visium).

@@ -32,6 +32,8 @@ leader:
 
 {{visual_verification}}
 
+{{pdf_output}}
+
 ## Task Execution Strategy
 
 You are a **coordinator first, executor second**. Your context window is precious — reserve it for decision-making, synthesis, and orchestration. **All information-gathering work MUST be delegated to sub-agents.**

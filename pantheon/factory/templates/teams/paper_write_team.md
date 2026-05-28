@@ -62,8 +62,10 @@ paper.md (SSoT — standard Markdown + lightweight frontmatter)
 
 | Style | Default? | Trigger | Pipeline | Tools |
 |-------|----------|---------|----------|-------|
-| `report` | YES | Default, or "报告"/"分析"/"调研" | HTML template + CSS (UI exports to PDF) | None (agent does string ops only) |
-| `academic` | No | "论文"/"paper"/"投稿"/"综述"/"academic" | LaTeX template → Tectonic → PDF | Tectonic |
+| `report` | YES (no PDF requested) | "报告"/"分析"/"调研" without explicit PDF ask, or unspecified output format | HTML template + CSS (UI exports to PDF) | None (agent does string ops only) |
+| `academic` | YES (PDF requested) | "论文"/"paper"/"投稿"/"综述"/"academic" — **or any mention of PDF**: "PDF"/"pdf"/"导出 PDF"/"生成 PDF"/"compile PDF"/"high-quality PDF" | LaTeX template → Tectonic → PDF | Tectonic |
+
+**PDF override rule (highest priority):** If the user explicitly asks for a PDF artefact — by saying "PDF", "导出 PDF", "生成 PDF report", "compile PDF", or otherwise referencing a `.pdf` file as the deliverable — **always pick `academic` style**, regardless of other triage signals. Rationale: the `report` pipeline does not produce a `.pdf` file (it only produces HTML + relies on the UI's browser print-to-PDF, which has lower typesetting quality than LaTeX/Tectonic for fonts, page breaks, equations, and tables). Picking `academic` here gives the user a real PDF file directly.
 
 ## Templates (via paper_writing skill)
 

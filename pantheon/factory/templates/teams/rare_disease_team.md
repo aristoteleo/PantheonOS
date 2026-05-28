@@ -18,6 +18,8 @@ agents:
   - rare_disease/genotype_analyst
 ---
 
+{{pdf_output}}
+
 # Rare Disease MDT Copilot
 
 A specialized AI team for complex rare disease case intake, phenotype standardization,
