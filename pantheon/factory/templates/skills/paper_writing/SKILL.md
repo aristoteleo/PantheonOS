@@ -18,8 +18,14 @@ self-contained markdown file with the full HTML+CSS or LaTeX content.
 |----------|------|-------|----------|
 | `report_standard` | [report_standard.md](./report_standard.md) | Professional report (Manus-style), HTML+CSS | Default for all reports |
 | `report_academic` | [report_academic.md](./report_academic.md) | Formal academic paper, HTML+CSS | HTML preview for academic papers |
-| `latex_cn` | [latex_cn.md](./latex_cn.md) | Chinese academic paper, LaTeX | Chinese academic PDF via Tectonic |
-| `latex_en` | [latex_en.md](./latex_en.md) | English academic paper, LaTeX | English academic PDF via Tectonic |
+| `latex_cn` | [latex_cn.md](./latex_cn.md) | Chinese academic paper, LaTeX | Chinese academic PDF (XeTeX-family) |
+| `latex_en` | [latex_en.md](./latex_en.md) | English academic paper, LaTeX | English academic PDF (XeTeX-family) |
+
+## Compile playbook
+
+Engine probing, install fallback, and compile commands live in
+[COMPILE.md](./COMPILE.md). Read it before compiling a `.tex` — do not
+hard-code Tectonic; probe what's available first.
 
 ## How to Use
 
