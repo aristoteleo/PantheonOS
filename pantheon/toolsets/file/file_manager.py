@@ -246,6 +246,50 @@ class FileManagerToolSetBase(ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool(exclude=True)
+    async def reload_workspace_volume(self, volume_name: str | None = None) -> dict:
+        """Force a fresh snapshot of the Modal Volume mounted at /workspace.
+
+        Modal Volumes are not auto-synced across containers — writes made by
+        another container (e.g. the data-share copy worker) are invisible
+        here until we explicitly call ``Volume.reload()``. The frontend
+        invokes this after a share accept completes so the file panel can
+        immediately show the dropped files without the user having to
+        restart their sandbox.
+
+        Args:
+            volume_name: Optional explicit volume name. If omitted, derive
+                from env: ``MODAL_VOLUME_PREFIX`` + ``user-`` +
+                sanitized(``USER_ID``) + ``-workspace`` — same convention
+                pantheon-hub's PodNamingUtils.get_pvc_name uses.
+
+        Returns:
+            ``{"success": True, "volume_name": <name>}`` on success, or
+            ``{"success": False, "error": <reason>}`` if Modal SDK is
+            unavailable / no env / reload fails.
+        """
+        import os
+        try:
+            import modal  # type: ignore
+        except ImportError:
+            return {"success": False, "error": "modal package not available in this runtime"}
+
+        name = volume_name
+        if not name:
+            prefix = os.environ.get("MODAL_VOLUME_PREFIX", "")
+            user_id = os.environ.get("USER_ID") or os.environ.get("ID_HASH")
+            if not user_id:
+                return {"success": False, "error": "USER_ID/ID_HASH env not set; cannot derive volume name"}
+            safe = user_id.replace("_", "-").lower()
+            name = f"{prefix}user-{safe}-workspace"
+
+        try:
+            vol = modal.Volume.from_name(name)
+            vol.reload()
+            return {"success": True, "volume_name": name}
+        except Exception as e:
+            return {"success": False, "error": f"{type(e).__name__}: {e}", "volume_name": name}
+
+    @tool(exclude=True)
     async def list_files(
         self,
         sub_dir: str | None = None,
