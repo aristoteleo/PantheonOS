@@ -673,11 +673,22 @@ async def start_services(
             # preventing conflicts when multiple instances run concurrently
             id_hash = str(uuid.uuid4())
 
+        # Endpoint and ChatRoom must have DISTINCT id_hashes — generate_service_id
+        # is SHA256(id_hash) and ignores the service name, so reusing id_hash for
+        # both would land them on the same NATS subject. With Endpoint now running
+        # as its own NATS worker (remote=True, see _start_endpoint_embedded), two
+        # subscribers on the same subject means NATS queue-group load-balances
+        # incoming RPCs between them — every other create_chat / list_chats
+        # call would hit Endpoint, which doesn't have those methods, and fail.
+        # The "-endpoint" suffix is stable + deterministic so reconnects still
+        # land on the same service_id.
+        endpoint_id_hash = f"{id_hash}-endpoint"
+
         # Start endpoint based on mode
         if endpoint_mode == "embedded":
             # Embed mode: return Endpoint instance
             endpoint = await _start_endpoint_embedded(
-                endpoint_id_hash=id_hash,
+                endpoint_id_hash=endpoint_id_hash,
                 workspace_path=workspace_path,
                 log_level=log_level,
                 enable_notebook_streaming=True,  # Enable streaming for chatroom
@@ -686,7 +697,7 @@ async def start_services(
             # Process mode: return service_id
             log_dir = Path(memory_dir) / ".chatroom-logs"
             final_endpoint_service_id = await _start_endpoint_process(
-                endpoint_id_hash=id_hash,
+                endpoint_id_hash=endpoint_id_hash,
                 workspace_path=workspace_path,
                 log_dir=log_dir,
             )
