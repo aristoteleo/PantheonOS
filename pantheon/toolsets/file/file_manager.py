@@ -228,6 +228,24 @@ class FileManagerToolSetBase(ToolSet):
         return {"success": True, "cwd": str(self._get_root())}
 
     @tool(exclude=True)
+    async def get_home_dir(self) -> dict:
+        """Return the runtime user home directory.
+
+        The frontend uses this to locate the **global** template/skill
+        store at ``~/.pantheon/`` and resolve the project-vs-global
+        scope toggle in TemplateDashboard. We used to derive home from
+        ``get_cwd``'s prefix (only matched ``/Users/*`` and ``/home/*``),
+        which silently failed inside Modal sandboxes where cwd is
+        ``/__modal/volumes/...`` and Path.home() is ``/root``. Reporting
+        it directly is more reliable than regex-sniffing.
+        """
+        try:
+            from pathlib import Path as _Path
+            return {"success": True, "home": str(_Path.home())}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool(exclude=True)
     async def list_files(
         self,
         sub_dir: str | None = None,
