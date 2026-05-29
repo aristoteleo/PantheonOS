@@ -83,7 +83,7 @@ When converting Markdown to HTML, apply these wrappers for proper styling:
 - **References**: Add `references` to the last section ("参考文献" or "References")
 - **Images**: Convert `![caption](path)` to `<figure><img src="path"><figcaption>caption</figcaption></figure>`
 
-Follow [formats/html_editable_contract.md](./formats/html_editable_contract.md)
+Follow [Editable HTML Contract](./SKILL.md)
 for all paper-writing HTML outputs.
 
 ## CSS

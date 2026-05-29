@@ -14,7 +14,7 @@ tags: [paper_writing, writing, imrad]
 
 Use only after triage, outline, and evidence boundaries exist (see
 [../workflow/SKILL.md](../workflow/SKILL.md) and
-[../evidence/SKILL.md](../evidence/SKILL.md)).
+[../SKILL.md](../SKILL.md)).
 
 ## Drafting Rules
 

@@ -133,7 +133,7 @@ Use when claims need citation grounding, novelty needs positioning, or the user 
 - Group by theme, method, finding, or debate; do not merely list papers by year.
 - Classify support as `strong`, `partial`, `background`, or `conflicting`.
 - If a paper only matches the topic but not the exact claim, label it `background`, not `strong`.
-- For systematic reviews, trigger the reporting-guideline check (PRISMA) in [../quality/SKILL.md](../quality/SKILL.md).
+- For systematic reviews, trigger the reporting-guideline check (PRISMA) in [../SKILL.md](../SKILL.md).
 
 ---
 

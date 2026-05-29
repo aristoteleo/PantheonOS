@@ -66,7 +66,7 @@ ${{CONTENT}}
 - CSS auto-numbers sections (h2, h3, h4), figures, and tables — do NOT add manual numbers in the source Markdown
 - Theorem environments use fenced divs: `<div class="theorem">...</div>`
 - Figure captions get auto-prefixed with "Figure N:" — do NOT include the prefix in the source Markdown
-- Major sections must follow [formats/html_editable_contract.md](./formats/html_editable_contract.md):
+- Major sections must follow [Editable HTML Contract](./SKILL.md):
   `class="editable-block"`, `contenteditable="true"`, `data-block-id`,
   `data-section`, `data-source`, and `data-format-role`
 

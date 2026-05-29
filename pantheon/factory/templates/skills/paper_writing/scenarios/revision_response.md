@@ -19,7 +19,7 @@ manuscript and needs to produce both a revised draft and a response letter.
 |---|---|
 | Trigger | "审稿返修", "reviewer comments", "revision", "rebuttal", "response letter" |
 | Inputs | reviewer comments (txt / PDF / JSON), the original `paper.md`, optional editor letter |
-| Read next | [../writing/response_letter.md](../writing/response_letter.md), [../writing/claim_evidence_check.md](../writing/claim_evidence_check.md), [../quality/SKILL.md](../quality/SKILL.md) (Format Lint section) |
+| Read next | [../writing/response_letter.md](../writing/response_letter.md), [../writing/claim_evidence_check.md](../writing/claim_evidence_check.md), [../SKILL.md](../SKILL.md) (Format Lint section) |
 | Outputs | `{workdir}/parsed_comments.json`, `{workdir}/revision_roadmap.md`, `{workdir}/draft/paper.md` (revised), `{workdir}/draft/response_letter.md`, `{workdir}/report/<slug>_response.html` |
 | Format | `revision_response` |
 | Theme | `kami_academic` |

@@ -14,7 +14,7 @@ journal writing.
 |---|---|
 | Trigger | journal article, SCI, Nature, Cell, research article, short communication |
 | Inputs | target journal, article type, data/code availability, figures, SI needs |
-| Read next | [../workflow/SKILL.md](../workflow/SKILL.md) (literature review + figure storyline phases), [../evidence/SKILL.md](../evidence/SKILL.md) |
+| Read next | [../workflow/SKILL.md](../workflow/SKILL.md) (literature review + figure storyline phases), [../SKILL.md](../SKILL.md) |
 | Outputs | journal article draft, Data/Code Availability statements (see below), figure/table captions, editable HTML |
 | Gates | data availability, citation check, reviewer rubric, reporting guideline if applicable |
 | Forbidden | inventing accession IDs, repository URLs, DOI, ethical approval, or SI files |

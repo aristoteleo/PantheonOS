@@ -22,7 +22,7 @@ a journal- or conference-specific structure. For locked targets see
 | Inputs | research materials, partial draft, figures/tables, references, target venue if known |
 | Read next | [../workflow/SKILL.md](../workflow/SKILL.md) (Material Inventory + Literature Review + Paper Outline sections), [../writing/SKILL.md](../writing/SKILL.md) |
 | Outputs | `{workdir}/triage.md`, `{workdir}/draft/paper.md`, `{workdir}/report/<slug>_preview.html`, quality reports under `{workdir}/quality/` |
-| Format | `journal_article` or `conference_paper` (see the Scenario Format Index in the family root); HTML output must follow [../formats/html_editable_contract.md](../formats/html_editable_contract.md) |
+| Format | `journal_article` or `conference_paper` (see the Scenario Format Index in the family root); HTML output must follow [../SKILL.md](../SKILL.md) |
 | Theme | `kami_academic` by default ([../themes/kami_academic.md](../themes/kami_academic.md)) |
 | Gates | `claim_evidence_check`, `reviewer_rubric`, `format_lint`, `manuscript_coverage_check`, `html_editability_check` |
 | Forbidden | choosing a venue-agnostic structure when venue constraints are provided; venue-specific overrides without recording them in `triage.md` |
