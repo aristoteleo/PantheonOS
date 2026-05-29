@@ -1,43 +1,30 @@
 ---
-id: reporter
-name: reporter
-icon: 📝
-toolsets:
-  - file_manager
+id: rd_clinical_report_format
+name: Clinical Genetics Report Format
+description: |
+  Authoritative format contract for the rare disease final report: cover page,
+  4-level numbering, 9 sections, sign-off, machine-readable JSON, and the
+  standalone HTML clinical theme (embedded CSS + weasyprint PDF path).
+tags: [rare_disease, clinical_report, html_theme, format_contract]
 ---
 
-# rare_disease/reporter
+# Clinical Genetics Report Format Contract
 
-You are the final report writer for a rare disease case-support team. Your output
-is a **formal clinical genetics consult report** — not a chat message, not a memo.
-
-## Core Objective
-
-Produce a signed clinical genetics report with:
-- **cover page** — structured patient/detection metadata table,
-- **numbered sections** — language-adaptive four-level hierarchy:
-  Chinese: 一、(一)、1.、(1) | English: 1. / 1.1 / 1.1.1 / (a)
-- **candidate overview table** — scannable in 30 seconds,
-- **per-candidate interpretation blocks** — phenotype match tables + evidence tables,
-- **formal sign-off block** — role/signature/date table + legal disclaimer,
-- **page footer** on every page,
-- **machine-parseable JSON block** for automated evaluation,
-- **LaTeX → PDF** path when explicitly requested.
+The final deliverable is a **formal clinical genetics consult report** — not a
+chat message, not a memo. This file defines its exact structure and theme.
+Follow it precisely: do not flatten numbering, drop sections, or improvise CSS.
 
 ## Output Language
 
 - Produce the report in **the same language as the user's input**.
-- If the user writes in Chinese, the entire report body (section titles, table
-  headers, narrative text) must be in Chinese.
-- If the user writes in English, output in English.
+- Chinese input → entire body (section titles, table headers, narrative) in Chinese.
+- English input → output in English.
 - Disease names, gene symbols, HPO IDs, OMIM/ORPHA IDs always remain in their
-  original English form regardless of the output language.
+  original English form regardless of output language.
 
 ---
 
-## Output Format — Hard Contract
-
-### Numbering System
+## Numbering System
 
 Use this exact 4-level hierarchy. **Do not flatten or re-order.**
 
@@ -57,16 +44,12 @@ Chinese:
       (1){子条目标题}
 ```
 
-### Section Titles (translate to output language)
-
-Every section title below is given in English as the canonical reference.
-Translate each to the output language when producing the report.
+Section titles below are given in English as the canonical reference. Translate
+each to the output language when producing the report.
 
 ---
 
 ## Report Structure — Cover Page + 9 Sections
-
----
 
 ### Cover Page
 
@@ -89,8 +72,8 @@ Begin every report with a cover page containing:
 | Framework Version | PantheonOS rare_disease_team |
 
 3. **Analysis Pipeline**:
-   Phenotype Structuring → Evidence Retrieval → Audit → Report Generation
-   (phenotype_structurer → evidence_researcher → auditor → reporter)
+   Ontology Normalization → Evidence Retrieval → Audit → Report Generation
+   (researcher[ontology] → researcher[evidence] → auditor → leader[report])
 
 4. **Institution**: PantheonOS AI Analysis (non-clinical testing facility)
 
@@ -335,14 +318,14 @@ single-gene sequencing. Include sample requirements and expected turnaround.
 
 ---
 
+## Machine-Readable Output (required after Section 9)
+
 > **Field notes for the JSON block:**
 > - `blind_safe`: `true` when the report was generated from a de-identified or
 >   synthetic case (e.g., benchmark/evaluation runs). `false` for real patient cases.
 >   Used by `evaluate_rd_benchmark.py` to filter evaluation results.
 > - `clinical_urgency`: `routine` = standard workup timeline; `elevated` = expedite
 >   within days; `urgent` = same-day escalation warranted.
-
-## Machine-Readable Output (required after Section 9)
 
 ```json
 {
@@ -352,8 +335,8 @@ single-gene sequencing. Include sample requirements and expected turnaround.
     "template_version": "rare_disease_team v0.2.0",
     "model": "{model_name}",
     "workflow_status": "full_team_success",
-    "called_agents": ["phenotype_structurer", "evidence_researcher", "auditor", "reporter"],
-    "genotype_analyst_used": false,
+    "called_agents": ["researcher:ontology", "researcher:evidence", "auditor", "leader:report"],
+    "genotype_mode_used": false,
     "language": "{output language}",
     "page_count": N
   },
@@ -384,52 +367,195 @@ single-gene sequencing. Include sample requirements and expected turnaround.
 
 ---
 
-## PDF Generation Path (LaTeX)
+## HTML Output — Clinical Report Theme
 
-When PDF output is explicitly requested, generate a `.tex` file:
+Always produce a standalone `.html` file with embedded CSS as the primary
+deliverable. PDF is derived from this HTML via `weasyprint` only when requested.
 
-```latex
-\documentclass[a4paper,12pt]{article}
-\usepackage[hmargin=2.5cm,vmargin=2.5cm]{geometry}
-\usepackage{booktabs}
-\usepackage{longtable}
-\usepackage{array}
-\usepackage{xcolor}
-\usepackage{hyperref}
-\usepackage{fancyhdr}
-\usepackage{lastpage}
+Write the report as `report/RD-{YYYYMMDD}-{case_id}.html`.
 
-\pagestyle{fancy}
-\fancyhf{}
-\fancyhead[L]{RD-{YYYYMMDD}-{case_id}}
-\fancyhead[R]{Internal Reference}
-\fancyfoot[C]{Page \thepage{} / \pageref{LastPage}}
-\renewcommand{\headrulewidth}{0.4pt}
+### Embedded CSS (inline in `<style>`)
+
+Clean white canvas, teal-navy accents, sans-serif body for clinical readability.
+Dense tables, clear hierarchy, print-optimized A4 layout.
+
+```css
+:root {
+  --white: #ffffff;
+  --off-white: #f8fafb;
+  --brand: #0f4c75;
+  --brand-light: #e8f1f8;
+  --accent: #1b6b93;
+  --near-black: #1a2332;
+  --body-text: #2d3748;
+  --stone: #64748b;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --success: #166534;
+  --warning: #b45309;
+}
+
+body {
+  background: var(--white); color: var(--body-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", "Noto Sans CJK SC", "Helvetica Neue", Arial, sans-serif;
+  font-size: 10.5pt; line-height: 1.6;
+  max-width: 780px; margin: 0 auto; padding: 32px 24px;
+}
+
+.cover-page {
+  text-align: center; padding: 48px 0 32px;
+  border-bottom: 2px solid var(--brand); margin-bottom: 32px;
+}
+.cover-page h1 {
+  font-size: 18pt; font-weight: 700; color: var(--brand);
+  margin-bottom: 24px; letter-spacing: 0.5pt;
+}
+.report-id {
+  display: inline-block; background: var(--brand); color: var(--white);
+  font-size: 9pt; font-weight: 600; padding: 3px 10px;
+  border-radius: 3px; margin-bottom: 16px;
+}
+
+h1 {
+  font-size: 16pt; font-weight: 700; color: var(--brand);
+  margin: 32px 0 12px; padding-bottom: 6px;
+  border-bottom: 1.5px solid var(--border-strong);
+}
+h2 {
+  font-size: 13pt; font-weight: 600; color: var(--near-black);
+  margin: 24px 0 8px; padding-left: 10px;
+  border-left: 3px solid var(--brand);
+}
+h3 { font-size: 11.5pt; font-weight: 600; color: var(--accent); margin: 18px 0 6px; }
+h4 { font-size: 10.5pt; font-weight: 600; color: var(--stone); margin: 14px 0 4px; }
+
+p { margin: 0 0 10px; text-align: justify; hyphens: auto; }
+
+table {
+  width: 100%; border-collapse: collapse;
+  margin: 14px 0; font-size: 9.5pt; line-height: 1.45;
+}
+thead {
+  background: var(--brand-light);
+  border-top: 2px solid var(--brand);
+  border-bottom: 1px solid var(--border-strong);
+}
+th { font-weight: 600; color: var(--near-black); padding: 7px 10px; text-align: left; }
+td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+tbody tr:hover { background: var(--off-white); }
+
+.tag {
+  display: inline-block; font-size: 8.5pt; font-weight: 500;
+  padding: 2px 7px; border-radius: 3px; margin-right: 4px;
+}
+.tag-ad { background: #dbeafe; color: #1e40af; }
+.tag-ar { background: #dcfce7; color: #166534; }
+.tag-xl { background: #fef3c7; color: #92400e; }
+.tag-mito { background: #fce7f3; color: #9d174d; }
+
+.evidence-strong { color: var(--success); font-weight: 600; }
+.evidence-moderate { color: var(--accent); }
+.evidence-weak { color: var(--stone); font-style: italic; }
+.evidence-exploratory { color: var(--warning); font-style: italic; }
+
+.sign-off {
+  margin-top: 32px; padding: 16px;
+  background: var(--off-white); border: 1px solid var(--border); border-radius: 4px;
+}
+.disclaimer {
+  font-size: 9pt; color: var(--stone); line-height: 1.5;
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+}
+.disclaimer ol { padding-left: 18px; margin: 6px 0; }
+
+blockquote {
+  margin: 12px 0; padding: 10px 16px;
+  background: var(--brand-light); border-left: 3px solid var(--brand);
+  color: var(--near-black); font-size: 10pt;
+}
+
+code {
+  background: var(--off-white); border: 1px solid var(--border);
+  padding: 1px 5px; border-radius: 3px;
+  font-family: "SF Mono", "JetBrains Mono", Consolas, monospace; font-size: 0.88em;
+}
+pre {
+  background: var(--off-white); border: 1px solid var(--border);
+  padding: 14px; border-radius: 4px; overflow-x: auto; font-size: 9pt;
+}
+pre code { background: none; border: none; padding: 0; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.page-footer {
+  font-size: 8.5pt; color: var(--stone); text-align: center;
+  padding-top: 16px; margin-top: 40px; border-top: 1px solid var(--border);
+}
+
+@page { size: A4; margin: 22mm 20mm; }
+@media print {
+  body { max-width: none; margin: 0; padding: 20px 24px; font-size: 10pt;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .cover-page { page-break-after: always; }
+  h1, h2 { page-break-after: avoid; }
+  table, figure { page-break-inside: avoid; }
+}
 ```
 
-For Chinese output, replace `{article}` with `{ctexart}` to enable native CJK support.
+### HTML skeleton
 
-Compilation order:
-1. `tectonic report.tex` (preferred — no LaTeX distribution required)
-2. Fallback: `pdflatex -interaction=nonstopmode report.tex`
-3. Review with `observe_pdf_screenshots` to verify rendering and table pagination.
+```html
+<!DOCTYPE html>
+<html lang="{zh|en}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RD-{YYYYMMDD}-{case_id}</title>
+  <style>/* paste full CSS above */</style>
+</head>
+<body>
+  <div class="cover-page">
+    <span class="report-id">RD-{YYYYMMDD}-{case_id}</span>
+    <h1>{Report Title}</h1>
+    <table class="metadata-table"><!-- metadata rows --></table>
+  </div>
+  <!-- Section 1–9 as semantic HTML -->
+  <div class="sign-off"><!-- sign-off table + disclaimer --></div>
+  <pre><code><!-- JSON block --></code></pre>
+  <div class="page-footer">RD-{YYYYMMDD}-{case_id} · Generated {date}</div>
+</body>
+</html>
+```
 
-If PDF is not requested, output only the Markdown report (Cover + 9 sections +
-JSON block).
+Use the CSS classes to make the report scannable: inheritance badges
+(`.tag-ad`, `.tag-ar`, `.tag-xl`, `.tag-mito`) and evidence-strength spans
+(`.evidence-strong`, `.evidence-moderate`, `.evidence-weak`,
+`.evidence-exploratory`).
+
+### PDF generation (on demand only)
+
+When PDF is explicitly requested:
+
+```bash
+weasyprint report/RD-{YYYYMMDD}-{case_id}.html report/RD-{YYYYMMDD}-{case_id}.pdf
+```
+
+If `weasyprint` is unavailable, note the limitation in the report footer and
+deliver the HTML only. Do NOT fall back to LaTeX compilation.
 
 ---
 
 ## Style Guidance
 
-- **Language**: Report body follows the user's input language. Disease names,
-  gene symbols, HPO/OMIM IDs remain in English.
 - **Tone**: Clinical genetics consult — factual, measured, evidence-grounded.
 - **Tables over prose**: Every claim that can be tabulated should be tabulated.
-- **No fabricated references**: Only cite PMIDs/DOIs retrieved by evidence_researcher.
+- **No fabricated references**: Only cite PMIDs/DOIs retrieved by a researcher (evidence mode).
 - **No hedging in disease names**: Disease names are canonical. Uncertainty goes
   in analysis fields.
 
-## What You Must NOT Do
+## Hard Rules
 
 - Do not present a definitive diagnosis or treatment recommendation.
 - Do not hide, minimize, or bury uncertainty.
