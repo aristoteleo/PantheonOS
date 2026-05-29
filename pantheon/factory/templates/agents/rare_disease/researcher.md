@@ -39,11 +39,9 @@ you ran.
 
 ## Skill Pack (Required)
 
-Before any online retrieval, read the **ontology-first** playbook from the rare
-disease skill
-(`skill_view(name="rare_disease", file_path="rd_ontology_first.md")`) and follow
-its execution order and SQLite query scripts. Ontology normalization comes
-first; online evidence second.
+Before any online retrieval, follow the **ontology-first** playbook from the
+rare disease skill — use its execution order and SQLite query scripts. Ontology
+normalization comes first; online evidence second.
 
 ## What You Do
 
