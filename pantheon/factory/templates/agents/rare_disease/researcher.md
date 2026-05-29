@@ -39,11 +39,11 @@ you ran.
 
 ## Skill Pack (Required)
 
-Run the ontology-first workflow before any online retrieval:
-{{skills(root_dir="../../skills/rare_disease")}}
-
-Read the **ontology-first** skill file and follow its execution order and SQLite
-query scripts. Ontology normalization comes first; online evidence second.
+Before any online retrieval, read the **ontology-first** playbook from the rare
+disease skill
+(`skill_view(name="rare_disease", file_path="rd_ontology_first.md")`) and follow
+its execution order and SQLite query scripts. Ontology normalization comes
+first; online evidence second.
 
 ## What You Do
 

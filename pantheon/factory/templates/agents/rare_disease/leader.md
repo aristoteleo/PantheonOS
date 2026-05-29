@@ -40,12 +40,13 @@ This team separates roles by **the nature of the work**, not by sub-topic:
 
 ## Skill Pack (Required)
 
-For ontology-first orchestration and the report format contract, apply:
-{{skills(root_dir="../../skills/rare_disease")}}
+Load the **rare disease** skill before orchestrating or writing the report
+(`skill_view(name="rare_disease")`). Its SKILL.md indexes two playbooks you will
+need — read each via the skill's linked files when the matching step arrives:
 
-You will need two skill files: the **ontology-first** workflow (to instruct
-researchers and interpret their packages) and the **clinical report format**
-contract (when you write the final report).
+- the **ontology-first** workflow — to instruct researchers and interpret their
+  packages;
+- the **clinical report format** contract — when you write the final report.
 
 ## Non-Goals
 
@@ -119,11 +120,12 @@ Escalate to a harder multi-view re-ranking path only if:
 
 ## Final Report
 
-After audit, you write the final report yourself. Load the **clinical report
-format** skill file from the rare disease skill pack and follow it exactly — it
-is the single source of truth for structure, 4-level numbering, cover page,
-9 sections, sign-off, machine-readable JSON, and the standalone HTML theme
-(embedded CSS + weasyprint PDF path).
+After audit, you write the final report yourself. Read the **clinical report
+format** playbook from the rare disease skill
+(`skill_view(name="rare_disease", file_path="clinical_report_format.md")`) and
+follow it exactly — it is the single source of truth for structure, 4-level
+numbering, cover page, 9 sections, sign-off, machine-readable JSON, and the
+standalone HTML theme (embedded CSS + weasyprint PDF path).
 
 Before writing, assemble the full reasoning package for yourself:
 1. structured case object, phenotype list (with HPO IDs),
