@@ -12,29 +12,47 @@ tags: [paper_writing, manuscript, grant, rebuttal, citation, html, latex]
 
 # Paper Writing Skills
 
+## Mode
+
+Two modes control which files and gates are loaded. Set `mode` in `triage.md` during Phase 0.
+
+| Mode | Default for | Trigger words (override default) |
+|---|---|---|
+| `report` | all scenarios | *(default — no trigger needed)* |
+| `submission` | journal_article, conference_paper, paper_submission, grant_proposal, revision_response | 投稿、submit、journal、conference、SCI、Nature、Cell、NeurIPS、ICLR、grant、基金、申请书、rebuttal、revision、peer review、深度调研、systematic review、meta-analysis |
+
+If any submission trigger word appears in the user request, set `mode: submission` regardless of scenario. Otherwise default to `report`.
+
+| What changes in `submission` mode |
+|---|
+| Load [paper_fetch.md](./paper_fetch.md) during Phase 1 |
+| Load [writing/claim_evidence_check.md](./writing/claim_evidence_check.md) during Phase 4 |
+| Load [writing/reviewer_rubric.md](./writing/reviewer_rubric.md) during Phase 4 |
+| Load [reporting_guideline_check.md](./reporting_guideline_check.md) during Phase 4 (clinical/observational/systematic review only) |
+
 ## Routing + Sequential Pipeline
 
 | Phase | Entry criteria | Actions | Exit criteria |
 |---|---|---|---|
-| 0. Triage | a user request and any UI scenario labels | Read [workflow/SKILL.md](./workflow/SKILL.md) ("Triage" section). Choose `scenario_id`, `format_id`, `theme_id`, language, audience, outputs, constraints. | `{workdir}/triage.md` exists or is updated |
-| 1. Materials and evidence | triage is known | Read the chosen scenario file under `scenarios/`. Inventory materials, fetch/search papers only when needed, build the evidence registry (see Evidence Layer below). | `{workdir}/materials/inventory.md` and/or `claim_evidence_map.md` |
-| 2. Outline + claim boundary | evidence and materials are known | Read [workflow/SKILL.md](./workflow/SKILL.md) ("Paper Outline" + "Figure Storyline" sections), or the Knowledge Lineage Audit in [scenarios/grant_proposal.md](./scenarios/grant_proposal.md) when the task asserts novelty. | manuscript-view + evidence-view outline |
-| 3. Section drafting | outline + evidence boundary exist | Read [writing/SKILL.md](./writing/SKILL.md). Draft Markdown only within evidence bounds. | `{workdir}/draft/paper.md` |
-| 4. Quality gates | draft exists | Run gates from the Quality Gates section below. | quality reports under `{workdir}/quality/` |
-| 5. Editable output | draft + quality notes exist | Apply the chosen rendering template + theme per the Editable HTML Contract section below. | `{workdir}/report/<slug>_preview.html` and the final resume packet |
+| 0. Triage | a user request and any UI scenario labels | Read [workflow/SKILL.md](./workflow/SKILL.md) ("Triage" section). Choose `scenario_id`, `format_id`, `theme_id`, `mode`, language, audience, outputs, constraints. | `{workdir}/triage.md` exists or is updated |
+| 1. Materials and evidence | triage is known | Read the chosen scenario file under `scenarios/`. Inventory materials. `submission` only: fetch/search papers via [paper_fetch.md](./paper_fetch.md), build evidence registry (see Evidence Layer below). | `{workdir}/materials/inventory.md`; `submission`: also `claim_evidence_map.md` |
+| 2. Outline + claim boundary | materials are known | Read [workflow/SKILL.md](./workflow/SKILL.md) ("Paper Outline" + "Figure Storyline" sections). `submission` + novelty claim: also read Knowledge Lineage Audit in [scenarios/grant_proposal.md](./scenarios/grant_proposal.md). | outline |
+| 3. Section drafting | outline exists | Read [writing/SKILL.md](./writing/SKILL.md). Draft Markdown. | `{workdir}/draft/paper.md` |
+| 4. Quality gates | draft exists | Run gates per mode (see Quality Gates below). | quality reports under `{workdir}/quality/` |
+| 5. Editable output | draft + quality notes exist | Apply the chosen rendering template + theme per the Editable HTML Contract section below. | `{workdir}/report/<slug>_preview.html` |
 
 ## Scenario Routing
 
-| User intent | `scenario_id` | Required scenario file | Format / theme | Quality gates |
-|---|---|---|---|---|
-| manuscript, paper submission, write a paper | `paper_submission` | [scenarios/paper_submission.md](./scenarios/paper_submission.md) | `journal_article` or `conference_paper` | claim/evidence, reviewer rubric, format lint, manuscript coverage |
-| journal article, SCI, Nature-style paper | `journal_article` | [scenarios/journal_article.md](./scenarios/journal_article.md) | `journal_article` | data availability, citation grounding, reviewer rubric |
-| conference paper, workshop paper, double-column | `conference_paper` | [scenarios/conference_paper.md](./scenarios/conference_paper.md) | `conference_paper` | page limit, baseline / evaluation, reviewer rubric |
-| grant, proposal, funding application | `grant_proposal` | [scenarios/grant_proposal.md](./scenarios/grant_proposal.md) | `grant_application` | gap-aim-route feasibility, word limits, claim/evidence |
-| lab report, experiment report | `lab_report` | [scenarios/lab_report.md](./scenarios/lab_report.md) | `lab_report` | reproducibility, raw observation / interpretation separation |
-| group meeting, weekly report | `group_report` | [scenarios/group_report.md](./scenarios/group_report.md) | `group_report` | evidence summary, discussion questions |
-| conference talk, workshop sharing | `conference_talk` / `workshop_share` | [scenarios/conference_talk.md](./scenarios/conference_talk.md) / [scenarios/workshop_share.md](./scenarios/workshop_share.md) | `conference_talk` / `workshop_share` | storyline, speaker notes, reproducible steps |
-| reviewer comments, rebuttal, revision response | `revision_response` | [scenarios/revision_response.md](./scenarios/revision_response.md) | `revision_response` | every-comment response, manuscript / response consistency |
+| User intent | `scenario_id` | Required scenario file | Default mode |
+|---|---|---|---|
+| manuscript, paper submission, write a paper | `paper_submission` | [scenarios/paper_submission.md](./scenarios/paper_submission.md) | submission |
+| journal article, SCI, Nature-style paper | `journal_article` | [scenarios/journal_article.md](./scenarios/journal_article.md) | submission |
+| conference paper, workshop paper | `conference_paper` | [scenarios/conference_paper.md](./scenarios/conference_paper.md) | submission |
+| grant, proposal, funding application | `grant_proposal` | [scenarios/grant_proposal.md](./scenarios/grant_proposal.md) | submission |
+| lab report, experiment report | `lab_report` | [scenarios/lab_report.md](./scenarios/lab_report.md) | report |
+| group meeting, weekly report | `group_report` | [scenarios/group_report.md](./scenarios/group_report.md) | report |
+| conference talk, workshop sharing | `conference_talk` / `workshop_share` | [scenarios/conference_talk.md](./scenarios/conference_talk.md) / [scenarios/workshop_share.md](./scenarios/workshop_share.md) | report |
+| reviewer comments, rebuttal, revision response | `revision_response` | [scenarios/revision_response.md](./scenarios/revision_response.md) | submission |
 
 ## Family Index
 
@@ -133,18 +151,18 @@ Answer only from provided context. Cite context keys, evidence IDs, pages, or ma
 
 Gates produce reports and risk flags — guardrails, not gatekeepers. Flag issues and suggest fixes; do not silently rewrite a draft to hide problems. Aim for ≥80% compliance; prioritize critical issues (missing data, unsupported claims, fabricated citations) over cosmetic formatting.
 
-| Gate | Where | Default trigger |
-|---|---|---|
-| Claim / evidence + citation grounding | [writing/claim_evidence_check.md](./writing/claim_evidence_check.md) | every full draft with citations |
-| Reviewer simulation (NeurIPS-style) | [writing/reviewer_rubric.md](./writing/reviewer_rubric.md) | submissions, grants, rebuttals |
-| Reporting guideline check | [reporting_guideline_check.md](./reporting_guideline_check.md) | clinical, observational, systematic review |
-| Manuscript coverage | inlined below | every full draft |
-| Format lint | inlined below | every final output |
-| Reproducibility | inlined below | methods, lab reports, computational papers |
-| HTML editability | Editable HTML Contract below | every HTML output |
-| Response consistency | [scenarios/revision_response.md](./scenarios/revision_response.md) | reviewer responses |
+| Gate | Where | `report` | `submission` |
+|---|---|---|---|
+| Manuscript coverage | inlined below | ✅ | ✅ |
+| Format lint | inlined below | ✅ | ✅ |
+| Reproducibility | inlined below | ✅ | ✅ |
+| HTML editability | Editable HTML Contract below | ✅ | ✅ |
+| Claim / evidence + citation grounding | [writing/claim_evidence_check.md](./writing/claim_evidence_check.md) | ❌ | ✅ |
+| Reviewer simulation (NeurIPS-style) | [writing/reviewer_rubric.md](./writing/reviewer_rubric.md) | ❌ | ✅ |
+| Reporting guideline (CONSORT/STROBE/PRISMA) | [reporting_guideline_check.md](./reporting_guideline_check.md) | ❌ | ✅ clinical only |
+| Response consistency | [scenarios/revision_response.md](./scenarios/revision_response.md) | ❌ | ✅ revision_response only |
 
-**Run order**: manuscript coverage → format lint → claim/evidence → reproducibility → reporting guideline → reviewer simulation → HTML editability → response consistency.
+**Run order**: manuscript coverage → format lint → reproducibility → claim/evidence → reporting guideline → reviewer simulation → HTML editability → response consistency.
 
 ### Manuscript Coverage Check
 

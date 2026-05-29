@@ -46,6 +46,7 @@ Create or update `triage.md`:
 scenario_id: paper_submission
 format_id: journal_article
 theme_id: editable_article
+mode: report              # report (default) | submission — see Mode section in SKILL.md
 language: zh
 audience: reviewers
 source_materials:
@@ -62,9 +63,14 @@ constraints:
   page_size: A4
   word_limits: null
 quality_gates:
-  - claim_evidence_check
-  - reviewer_rubric
+  - manuscript_coverage
+  - format_lint
+  - reproducibility
   - html_editability_check
+  # submission mode only:
+  # - claim_evidence_check
+  # - reviewer_rubric
+  # - reporting_guideline_check  (clinical only)
 ```
 
 ### Checks
