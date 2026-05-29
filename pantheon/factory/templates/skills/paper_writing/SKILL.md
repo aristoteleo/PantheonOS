@@ -6,15 +6,11 @@ description: |
   drafting, journal and conference papers, grant proposals, lab reports,
   group-meeting reports, talks, workshop notes, reviewer rebuttals, academic
   HTML/PDF/LaTeX output with editable-block contracts, citation grounding,
-  evidence checking, and pre-submission quality gates. Agent-neutral: any
-  orchestrator or single agent can call into this skill family.
+  evidence checking, and pre-submission quality gates.
 tags: [paper_writing, manuscript, grant, rebuttal, citation, html, latex]
 ---
 
 # Paper Writing Skills
-
-Comprehensive skill family for paper-writing tasks. Agent-neutral: no
-orchestrator, sub-agent layout, or step numbering assumed.
 
 ## Routing + Sequential Pipeline
 
