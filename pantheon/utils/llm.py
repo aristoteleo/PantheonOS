@@ -819,6 +819,12 @@ async def acompletion(
             provider_key,
             provider_config.get("api_key_env"),
         )
+        if not effective_api_key:
+            _, fallback_key = get_openai_effective_config()
+            if fallback_key:
+                effective_api_key = fallback_key
+                if not effective_base_url:
+                    effective_base_url = openai_effective_base
         effective_model = model_name
     else:
         effective_base_url = (
@@ -829,6 +835,13 @@ async def acompletion(
             provider_key,
             provider_config.get("api_key_env"),
         )
+        # Fallback to LLM_API_KEY (proxy mode)
+        if not effective_api_key:
+            _, fallback_key = get_openai_effective_config()
+            if fallback_key:
+                effective_api_key = fallback_key
+                if not effective_base_url:
+                    effective_base_url = openai_effective_base
         # Local providers (Ollama) don't need a real API key
         if not effective_api_key and provider_config.get("local"):
             effective_api_key = "ollama"

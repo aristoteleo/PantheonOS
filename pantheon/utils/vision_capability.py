@@ -17,6 +17,25 @@ from __future__ import annotations
 
 from .llm_providers import ProviderType, detect_provider, should_use_responses_api
 
+# Provider prefixes that are OpenAI-compatible but only expose Chat Completions
+# (no /v1/responses). Their `tool` role messages cannot carry image_url, so
+# images embedded in tool results would be silently stripped before reaching
+# the model. We must NOT optimistically route through native mode for these —
+# `observe_images` should fall back to the sub-agent (text-summary) path.
+_KNOWN_CHAT_COMPLETIONS_ONLY = {
+    "deepseek",
+    "zai",
+    "minimax",
+    "moonshot",
+    "qwen",
+    "groq",
+    "mistral",
+    "together_ai",
+    "ollama",
+    # openrouter mostly proxies Chat Completions; mark conservatively.
+    "openrouter",
+}
+
 
 def supports_tool_result_image(model: str | None) -> bool:
     """Return True when the provider can accept image content in tool messages.
@@ -50,6 +69,11 @@ def supports_tool_result_image(model: str | None) -> bool:
     # endpoint which supports input_image in function_call_output.
     if prefix == "codex":
         return True
+    # OpenAI-compatible providers without /v1/responses can't carry images in
+    # tool results — short-circuit before the optimistic should_use_responses_api
+    # check below (which defaults to True for OPENAI provider type).
+    if prefix in _KNOWN_CHAT_COMPLETIONS_ONLY:
+        return False
     # Bare model names without provider prefix.
     if not prefix:
         if tail.startswith("claude") or tail.startswith("gemini"):

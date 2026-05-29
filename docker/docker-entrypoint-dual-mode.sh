@@ -229,6 +229,13 @@ else
     mkdir -p /workspace/.pantheon
     echo "✓ Ensured .pantheon directory exists"
 
+    # Clear stale project-level templates from pre-project-system images
+    if [ "${PANTHEON_RESET_TEMPLATES}" = "true" ]; then
+        echo "Clearing stale project-level templates..."
+        rm -rf /workspace/.pantheon/agents /workspace/.pantheon/teams /workspace/.pantheon/prompts /workspace/.pantheon/skills /workspace/.pantheon/.factory_hashes.json
+        echo "✓ Stale templates cleared"
+    fi
+
     # Create .env.example template if not exists
     if [ ! -f /workspace/.env.example ]; then
         cat > /workspace/.env.example << 'EOF'
@@ -297,13 +304,19 @@ EOF
     echo "Starting Pantheon ChatRoom"
     echo "========================================="
 
+    # Build sync-templates flag
+    SYNC_FLAG=""
+    if [ "${PANTHEON_RESET_TEMPLATES}" = "true" ]; then
+        SYNC_FLAG="--sync-templates"
+    fi
+
     # Execute the command with ID_HASH parameter
     if [ $# -eq 0 ]; then
         # No arguments provided, use default command with ID_HASH
-        exec python -m pantheon.chatroom --id_hash="${ID_HASH}"
+        exec python -m pantheon.chatroom --id_hash="${ID_HASH}" ${SYNC_FLAG}
     else
         # Arguments provided, pass them to pantheon.chatroom with ID_HASH
         # This ensures ID_HASH is always used for stable service_id generation
-        exec python -m pantheon.chatroom --id_hash="${ID_HASH}" "$@"
+        exec python -m pantheon.chatroom --id_hash="${ID_HASH}" ${SYNC_FLAG} "$@"
     fi
 fi

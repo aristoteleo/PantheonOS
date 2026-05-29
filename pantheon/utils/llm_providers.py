@@ -262,13 +262,19 @@ def get_provider_api_key(
     provider_key: str,
     api_key_env: str | None = None,
 ) -> Optional[str]:
-    """Get a provider-specific API key without applying global fallback."""
+    """Get a provider-specific API key without applying global fallback.
+
+    Returns None for detection-only sentinel values (proxy mode).
+    """
     from pantheon.settings import get_settings
 
     env_key = api_key_env or PROVIDER_API_KEY_ENV_MAP.get(provider_key)
     if not env_key:
         return None
-    return get_settings().get_api_key(env_key)
+    val = get_settings().get_api_key(env_key)
+    if val and val.startswith("proxy-mode"):
+        return None
+    return val
 
 
 def get_openai_fallback_config() -> tuple[str, str]:

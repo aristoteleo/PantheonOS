@@ -204,7 +204,11 @@ class ChatRoom(ToolSet):
             self._auto_created_endpoint = False
             
             logger.info("ChatRoom: starting auto-created Endpoint...")
-            asyncio.create_task(self._endpoint.run(remote=False))
+            # Run the Endpoint as its own RemoteWorker (own NATS conn) so
+            # file-transfer RPCs can land on it directly, off the
+            # ChatRoom NATS connection that's also carrying chat token
+            # streams. See _start_endpoint_embedded for the long version.
+            asyncio.create_task(self._endpoint.run(remote=True))
             # Wait for endpoint to be ready
             max_retries = 30
             for i in range(max_retries):
@@ -272,8 +276,59 @@ class ChatRoom(ToolSet):
                 total = _psutil.virtual_memory().total
                 metrics["mem_used_mb"] = round(rss / 1024 / 1024, 1)
                 metrics["mem_percent"] = round(rss / total * 100, 1) if total > 0 else 0.0
+                # Static allocation snapshot — what the runtime actually
+                # has, so the UI can show "12.3% of 8 vCPU · 1.2/12 GiB"
+                # without having to also know what Hub configured.
+                metrics["cpu_count"] = _psutil.cpu_count(logical=True)
+                metrics["mem_total_mb"] = round(total / 1024 / 1024, 1)
             except Exception:
                 pass  # process may have exited or psutil failed — omit silently
+
+            try:
+                # Disk usage of the user's workspace mount (the only space
+                # users actually fill with their data). Only report when
+                # the hosted /workspace mount exists — local runs don't
+                # have a quota to report against.
+                #
+                # psutil.disk_usage / statvfs on a Modal Volume returns the
+                # underlying host disk (hundreds of GiB, used=0), not the
+                # Volume itself, so we walk the tree ourselves and compare
+                # against a configured quota (default 10 GiB per user).
+                # Cached 30s so _ping stays cheap.
+                import os as _os
+                import time as _time
+                if _os.path.isdir("/workspace"):
+                    quota_mb = float(_os.environ.get("WORKSPACE_QUOTA_MB", 10 * 1024))
+                    now = _time.monotonic()
+                    cached = getattr(self, "_disk_used_cache", None)
+                    if cached is not None and now - cached[1] < 30.0:
+                        used_bytes = cached[0]
+                    else:
+                        used_bytes = 0
+                        stack = ["/workspace"]
+                        while stack:
+                            cur = stack.pop()
+                            try:
+                                with _os.scandir(cur) as it:
+                                    for entry in it:
+                                        try:
+                                            if entry.is_symlink():
+                                                continue
+                                            if entry.is_dir(follow_symlinks=False):
+                                                stack.append(entry.path)
+                                            else:
+                                                used_bytes += entry.stat(follow_symlinks=False).st_size
+                                        except OSError:
+                                            continue
+                            except OSError:
+                                continue
+                        self._disk_used_cache = (used_bytes, now)
+                    used_mb = used_bytes / 1024 / 1024
+                    metrics["disk_used_mb"] = round(used_mb, 1)
+                    metrics["disk_total_mb"] = round(quota_mb, 1)
+                    metrics["disk_percent"] = round(used_mb / quota_mb * 100, 1) if quota_mb > 0 else 0.0
+            except Exception:
+                pass  # filesystem walk failed — omit silently
 
         return metrics
 
@@ -1272,12 +1327,27 @@ class ChatRoom(ToolSet):
             return {"success": False, "message": str(e)}
 
     @tool
-    async def get_chat_messages(self, chat_id: str, filter_out_images: bool = False):
-        """Get the messages of a chat.
+    async def get_chat_messages(
+        self,
+        chat_id: str,
+        filter_out_images: bool = False,
+        offset: int = 0,
+        limit: int | None = None,
+    ):
+        """Get messages of a chat, byte-budgeted page by page.
+
+        The full response of a long chat (lots of tool calls, embedded
+        images, long reasoning) easily blows past the NATS 1 MiB max
+        payload. Clients loop calls with ``offset`` advancing by the
+        returned ``next_offset`` until ``next_offset >= total``.
 
         Args:
             chat_id: The ID of the chat.
             filter_out_images: Whether to filter out the images.
+            offset: 0-based index of the first message to return.
+            limit: Hard cap on messages per page. ``None`` means the
+                method auto-stops when its byte budget is reached;
+                callers normally don't need to set this.
         """
         try:
             # Frontend query: skip auto-fix for better performance (5-10x faster)
@@ -1294,10 +1364,23 @@ class ChatRoom(ToolSet):
             if messages is None:
                 messages = []
 
-            # Always sanitize messages for transport (NATS payload limit)
             import json as _json
-            MAX_RAW_CONTENT_SIZE = 50000  # 50KB per raw_content
-            MAX_FIELD_LENGTH = 10000
+            # Per-message sanitization (NATS payload limit). Bounded
+            # raw_content (drop if > 50 KB), bounded stdout/stderr fields
+            # (10 KB), and bounded `content` + `reasoning_content` fields
+            # (200 KB) so no single message can dominate a page.
+            MAX_RAW_CONTENT_SIZE = 50_000
+            MAX_FIELD_LENGTH = 10_000
+            MAX_CONTENT_FIELD_SIZE = 200_000
+
+            def _truncate_str_field(msg: dict, key: str) -> None:
+                v = msg.get(key)
+                if isinstance(v, str) and len(v) > MAX_CONTENT_FIELD_SIZE:
+                    msg[key] = (
+                        v[:MAX_CONTENT_FIELD_SIZE]
+                        + f"\n\n[...truncated {len(v) - MAX_CONTENT_FIELD_SIZE} bytes]"
+                    )
+
             for message in messages:
                 if "raw_content" in message:
                     if isinstance(message["raw_content"], dict):
@@ -1306,23 +1389,69 @@ class ChatRoom(ToolSet):
                         for _k in ("stdout", "stderr"):
                             if _k in message["raw_content"]:
                                 message["raw_content"][_k] = message["raw_content"][_k][:MAX_FIELD_LENGTH]
-                    # Drop raw_content entirely if still too large
                     try:
                         rc_size = len(_json.dumps(message["raw_content"], ensure_ascii=False))
                         if rc_size > MAX_RAW_CONTENT_SIZE:
                             del message["raw_content"]
                     except (TypeError, ValueError):
                         pass
-            return {"success": True, "messages": messages}
+                _truncate_str_field(message, "content")
+                _truncate_str_field(message, "reasoning_content")
+
+            total = len(messages)
+            if offset < 0:
+                offset = 0
+            if offset >= total:
+                return {
+                    "success": True,
+                    "messages": [],
+                    "total": total,
+                    "next_offset": total,
+                }
+
+            # Byte-budgeted slice: target ~700 KB per page so a single
+            # NATS frame (1 MiB) reliably accommodates the JSON-RPC
+            # envelope on top.
+            PAGE_BYTE_BUDGET = 700_000
+            page: list = []
+            size = 0
+            for msg in messages[offset:]:
+                if limit is not None and len(page) >= limit:
+                    break
+                try:
+                    msg_size = len(_json.dumps(msg, ensure_ascii=False))
+                except (TypeError, ValueError):
+                    msg_size = MAX_CONTENT_FIELD_SIZE  # defensive estimate
+                # Always include at least one message per page so a single
+                # oversized message still makes forward progress.
+                if page and (size + msg_size) > PAGE_BYTE_BUDGET:
+                    break
+                page.append(msg)
+                size += msg_size
+
+            return {
+                "success": True,
+                "messages": page,
+                "total": total,
+                "next_offset": offset + len(page),
+            }
         except KeyError:
             return {
                 "success": False,
                 "message": f"Chat '{chat_id}' not found",
-                "messages": []  # Always include messages field
+                "messages": [],
+                "total": 0,
+                "next_offset": 0,
             }
         except Exception as e:
             logger.error(f"Error getting chat messages: {e}")
-            return {"success": False, "message": str(e), "messages": []}  # Always include messages field
+            return {
+                "success": False,
+                "message": str(e),
+                "messages": [],
+                "total": 0,
+                "next_offset": 0,
+            }
 
     @tool
     async def update_chat_name(self, chat_id: str, chat_name: str):
@@ -1348,6 +1477,26 @@ class ChatRoom(ToolSet):
                 "success": False,
                 "message": str(e),
             }
+
+    @tool
+    async def touch_chat(self, chat_id: str):
+        """Bump ``last_activity_date`` to the current time without modifying
+        chat content.
+
+        Used by the UI so that re-entering the single empty New Chat moves
+        it to the top of the sidebar's by-activity sort, matching the
+        intuition that "the chat you just opened is the most recent one."
+        """
+        try:
+            memory = await run_func(self.memory_manager.get_memory, chat_id, True)
+            memory.set_metadata("last_activity_date", datetime.now().isoformat())
+            await run_func(self.memory_manager.save_one, chat_id)
+            return {"success": True, "message": "Chat activity refreshed"}
+        except KeyError:
+            return {"success": False, "message": f"Chat '{chat_id}' not found"}
+        except Exception as e:
+            logger.error(f"Error touching chat: {e}")
+            return {"success": False, "message": str(e)}
 
     @tool
     async def export_chat(
@@ -2180,6 +2329,13 @@ class ChatRoom(ToolSet):
 
         # Pre-snapshot: only scan the designated image output directory
         pre_image_snapshot = snapshot_images(image_output_path) if image_output_path else {}
+
+        # Expose the chat id to tools. `client_id` in the tool context is the
+        # UI connection id (stable across chats), not the chat id — toolsets
+        # that need the chat id (e.g. live_view, to publish on the chat's
+        # NATS stream) must read `chat_id` instead.
+        context_variables = context_variables or {}
+        context_variables["chat_id"] = chat_id
 
         thread = Thread(
             team_getter,  # Pass team getter

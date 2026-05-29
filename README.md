@@ -153,7 +153,74 @@ pantheon ui --auto-start-nats --auto-ui
 
 Please refer to our [Documents][docs] for detailed API usage, including creating agents, using toolsets, and building teams.
 
-## `5` [Contributing](#5-contributing)
+## `5` [Replayable Trajectories](#5-replayable-trajectories)
+
+Interactive replays of real multi-agent Pantheon sessions. Click any card to open the session step-by-step in the Pantheon UI — see every message, every file, every tool call.
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<a href="https://pantheon-ui.aristoteleo.com/#/replay?url=https%3A%2F%2Fhuggingface.co%2Fdatasets%2FNaNg%2FPantheon-Agent-Trajectory%2Fresolve%2Fmain%2Fmouse_embryo_e6_tangram_3d.zip"><img src="docs/source/_static/trajectories/mouse_embryo_e6_tangram_3d.jpg" height="220" alt="E6 Mouse Embryo Tangram + 3D Visualization"/></a>
+<br/>
+<b><a href="https://pantheon-ui.aristoteleo.com/#/replay?url=https%3A%2F%2Fhuggingface.co%2Fdatasets%2FNaNg%2FPantheon-Agent-Trajectory%2Fresolve%2Fmain%2Fmouse_embryo_e6_tangram_3d.zip">🐭 E6 Mouse Embryo Tangram + 3D Visualization</a></b>
+<br/>
+Run Tangram deconvolution on E6.0 mouse embryo binned spatial transcriptomics (51,711 spots across 6 embryos, 16,732 shared genes) using the TOME atlas reference subset to timepoints 5.5/6.25 and 5 cell types (Epi, ExE, EmVE, PE, ExVE).
+</td>
+<td width="50%" valign="top">
+<a href="https://pantheon-ui.aristoteleo.com/#/replay?url=https%3A%2F%2Fhuggingface.co%2Fdatasets%2FNaNg%2FPantheon-Agent-Trajectory%2Fresolve%2Fmain%2Fimmune_oncology_gene_panel_design.zip"><img src="docs/source/_static/trajectories/immune_oncology_gene_panel_design.jpg" height="220" alt="Immune Oncology Gene Panel Design"/></a>
+<br/>
+<b><a href="https://pantheon-ui.aristoteleo.com/#/replay?url=https%3A%2F%2Fhuggingface.co%2Fdatasets%2FNaNg%2FPantheon-Agent-Trajectory%2Fresolve%2Fmain%2Fimmune_oncology_gene_panel_design.zip">🧬 Immune Oncology Gene Panel Design</a></b>
+<br/>
+Design a 1000-plex human immune oncology gene profiling panel using multi-agent collaboration.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<a href="https://pantheon-ui.aristoteleo.com/#/replay?url=https%3A%2F%2Fhuggingface.co%2Fdatasets%2FNaNg%2FPantheon-Agent-Trajectory%2Fresolve%2Fmain%2Fhuman_heart_3d_disease_gene_pattern.zip"><img src="docs/source/_static/trajectories/human_heart_3d_disease_gene_pattern.jpg" height="220" alt="3D Human Fetal Heart Disease Gene Pattern"/></a>
+<br/>
+<b><a href="https://pantheon-ui.aristoteleo.com/#/replay?url=https%3A%2F%2Fhuggingface.co%2Fdatasets%2FNaNg%2FPantheon-Agent-Trajectory%2Fresolve%2Fmain%2Fhuman_heart_3d_disease_gene_pattern.zip">🫀 3D Human Fetal Heart Disease Gene Pattern</a></b>
+<br/>
+Map congenital heart disease genes onto a 3D PCW12 human fetal heart using MERFISH spatial transcriptomics and scRNA-seq.
+</td>
+<td width="50%" valign="top">
+<a href="https://pantheon-ui.aristoteleo.com/#/replay?url=https%3A%2F%2Fhuggingface.co%2Fdatasets%2FNaNg%2FPantheon-Agent-Trajectory%2Fresolve%2Fmain%2Fatac_spatial_mapping_moscot.zip"><img src="docs/source/_static/trajectories/atac_spatial_mapping_moscot.jpg" height="220" alt="ATAC Spatial Mapping via MOSCOT"/></a>
+<br/>
+<b><a href="https://pantheon-ui.aristoteleo.com/#/replay?url=https%3A%2F%2Fhuggingface.co%2Fdatasets%2FNaNg%2FPantheon-Agent-Trajectory%2Fresolve%2Fmain%2Fatac_spatial_mapping_moscot.zip">🗺️ ATAC Spatial Mapping via MOSCOT</a></b>
+<br/>
+Spatially map fetal heart snATAC-seq onto MERFISH 3D coordinates using MOSCOT optimal transport.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<a href="https://pantheon-ui.aristoteleo.com/#/replay?url=https%3A%2F%2Fhuggingface.co%2Fdatasets%2FNaNg%2FPantheon-Agent-Trajectory%2Fresolve%2Fmain%2Fspatial_ligand_receptor_disease.zip"><img src="docs/source/_static/trajectories/spatial_ligand_receptor_disease.jpg" height="220" alt="Spatial Ligand-Receptor Disease Analysis"/></a>
+<br/>
+<b><a href="https://pantheon-ui.aristoteleo.com/#/replay?url=https%3A%2F%2Fhuggingface.co%2Fdatasets%2FNaNg%2FPantheon-Agent-Trajectory%2Fresolve%2Fmain%2Fspatial_ligand_receptor_disease.zip">🧬 Spatial Ligand-Receptor Disease Analysis</a></b>
+<br/>
+Run spatial ligand-receptor (CCI) interaction analysis on MOSCOT-imputed disease gene data using the Spateo spatial_cci skill.
+</td>
+<td width="50%" valign="top">
+<a href="https://pantheon-ui.aristoteleo.com/#/replay?url=https%3A%2F%2Fhuggingface.co%2Fdatasets%2FNaNg%2FPantheon-Agent-Trajectory%2Fresolve%2Fmain%2Fheart_merfish_data_overview.zip"><img src="docs/source/_static/trajectories/heart_merfish_data_overview.jpg" height="220" alt="Heart MERFISH Data Overview"/></a>
+<br/>
+<b><a href="https://pantheon-ui.aristoteleo.com/#/replay?url=https%3A%2F%2Fhuggingface.co%2Fdatasets%2FNaNg%2FPantheon-Agent-Trajectory%2Fresolve%2Fmain%2Fheart_merfish_data_overview.zip">🫀 Heart MERFISH Data Overview</a></b>
+<br/>
+Exploratory data overview of fetal heart MERFISH spatial transcriptomics.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<a href="https://pantheon-ui.aristoteleo.com/#/replay?url=https%3A%2F%2Fhuggingface.co%2Fdatasets%2FNaNg%2FPantheon-Agent-Trajectory%2Fresolve%2Fmain%2Fmulti_channel_cell_segmentation.zip"><img src="docs/source/_static/trajectories/multi_channel_cell_segmentation.jpg" height="220" alt="Multi-Channel Cell Segmentation"/></a>
+<br/>
+<b><a href="https://pantheon-ui.aristoteleo.com/#/replay?url=https%3A%2F%2Fhuggingface.co%2Fdatasets%2FNaNg%2FPantheon-Agent-Trajectory%2Fresolve%2Fmain%2Fmulti_channel_cell_segmentation.zip">🧬 Multi-Channel Cell Segmentation</a></b>
+<br/>
+Compare cell segmentation tools on a 3-channel embryo image (membrane / DAPI / brightfield).
+</td>
+<td width="50%" valign="top">
+<sub><i>More trajectories coming soon — <a href="https://huggingface.co/datasets/NaNg/Pantheon-Agent-Trajectory">browse the full dataset on HuggingFace →</a></i></sub>
+</td>
+</tr>
+</table>
+
+## `6` [Contributing](#6-contributing)
 
 Contributions of all types are more than welcome! Whether it's publishing skills to the [Pantheon Store][store-link] or contributing code, feel free to check out our GitHub [Issues][github-issues-link] to dive in.
 

@@ -1,5 +1,7 @@
 import aiofiles
+import asyncio
 import base64
+import os
 import time
 import uuid
 from pathlib import Path
@@ -175,6 +177,16 @@ class FileTransferToolSet(FileManagerToolSetBase):
             await handle.flush()
             await handle.close()
 
+            # Close the low-level fd used by read_chunk_at, if any.
+            random_access_fd = info.get("random_access_fd")
+            if random_access_fd is not None:
+                try:
+                    os.close(random_access_fd)
+                except OSError as fd_err:
+                    logger.warning(
+                        f"Failed to close random-access fd for {info.get('path')}: {fd_err}"
+                    )
+
             # Calculate statistics
             total_time = time.time() - info["created_at"]
             total_size = info["size"]
@@ -249,12 +261,27 @@ class FileTransferToolSet(FileManagerToolSetBase):
             # Open file asynchronously for reading
             handle = await aiofiles.open(path, mode="rb")
             total_size = path.stat().st_size
+            # Also open a low-level fd for atomic positional reads
+            # (os.pread is the only POSIX read primitive that doesn't move
+            # the kernel cursor, which is what makes concurrent
+            # read_chunk_at calls on the same handle safe). Tolerate
+            # failure here — read_chunk still works via the aiofiles
+            # cursor; only the random-access fast path needs the fd.
+            random_access_fd = None
+            try:
+                random_access_fd = os.open(str(path), os.O_RDONLY)
+            except OSError as fd_err:
+                logger.warning(
+                    f"Could not open random-access fd for {path}: {fd_err}; "
+                    "read_chunk_at will be unavailable for this handle."
+                )
             self._handles[handle_id] = handle
             self._file_info[handle_id] = {
                 "path": path,
                 "size": total_size,
                 "bytes_read": 0,
                 "created_at": time.time(),
+                "random_access_fd": random_access_fd,
             }
             logger.debug(
                 f"Opened file for read: {path} (handle_id={handle_id}, size={total_size} bytes)"
@@ -262,6 +289,60 @@ class FileTransferToolSet(FileManagerToolSetBase):
             return {"success": True, "handle_id": handle_id, "total_size": total_size}
         except Exception as e:
             logger.error(f"Failed to open file for read: {path}, error: {e}")
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def read_chunk_at(self, handle_id: str, offset: int, size: int = 2 * 1024 * 1024):
+        """Atomic positional read — doesn't move the file cursor.
+
+        Use this when the client wants to fire multiple concurrent reads
+        on the same handle (e.g. to download a file in parallel slices).
+        Built on os.pread, which is a single atomic POSIX syscall so
+        overlapping calls don't step on each other.
+
+        Args:
+            handle_id: File handle ID from open_file_for_read.
+            offset: Byte offset from the start of the file.
+            size: Number of bytes to read. Default: 2 MiB.
+
+        Returns:
+            dict: {"success": True, "data": str (base64), "bytes_read": int,
+                   "offset": int, "eof": bool} on success.
+                  {"success": False, "error": str} on failure.
+                  ``eof`` is True when the chunk reaches or passes the file
+                  end (or returned an empty read).
+        """
+        if handle_id not in self._file_info:
+            return {"success": False, "error": "Handle not found"}
+
+        info = self._file_info[handle_id]
+        fd = info.get("random_access_fd")
+        if fd is None:
+            return {
+                "success": False,
+                "error": "Handle has no random-access fd (file opened with older worker)",
+            }
+
+        if offset < 0:
+            return {"success": False, "error": "offset must be >= 0"}
+        if size <= 0:
+            return {"success": False, "error": "size must be > 0"}
+
+        try:
+            data = await asyncio.to_thread(os.pread, fd, size, offset)
+            bytes_read = len(data)
+            total_size = info["size"]
+            return {
+                "success": True,
+                "data": base64.b64encode(data).decode("utf-8"),
+                "bytes_read": bytes_read,
+                "offset": offset,
+                "eof": bytes_read == 0 or (offset + bytes_read) >= total_size,
+            }
+        except Exception as e:
+            logger.error(
+                f"Failed read_chunk_at (handle_id={handle_id}, offset={offset}, size={size}): {e}"
+            )
             return {"success": False, "error": str(e)}
 
     @tool

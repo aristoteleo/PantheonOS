@@ -7,10 +7,15 @@ conversation, then appends it to the daily log file.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from pantheon.utils.log import logger
 
 from .prompts import FLUSH_SYSTEM, FLUSH_USER
 from .store import MemoryStore
+
+if TYPE_CHECKING:
+    from .runtime import MemoryRuntime
 
 
 class MemoryFlusher:
@@ -18,9 +23,18 @@ class MemoryFlusher:
 
     NOTHING_MARKER = "[nothing_to_save]"
 
-    def __init__(self, store: MemoryStore, model: str | None = None):
+    def __init__(
+        self,
+        store: MemoryStore,
+        model: str | None = None,
+        runtime: "MemoryRuntime | None" = None,
+    ):
         self.store = store
-        self.model = model or "low"
+        # Don't bake "low" in here — let runtime resolve it (active agent's
+        # model when configured = "auto"). Tier "low" is still respected if
+        # the user sets it explicitly.
+        self.model = model
+        self.runtime = runtime
 
     async def flush(self, messages: list[dict]) -> str | None:
         """Extract important info from messages, append to daily log.
@@ -69,8 +83,9 @@ class MemoryFlusher:
         """Call LLM for flush extraction."""
         from pantheon.utils.llm import acompletion
 
+        resolved_model = self.runtime.resolve_model(self.model) if self.runtime else (self.model or "low")
         response = await acompletion(
-            model=str(self.model),
+            model=str(resolved_model),
             messages=[
                 {"role": "system", "content": FLUSH_SYSTEM},
                 {"role": "user", "content": user_prompt},

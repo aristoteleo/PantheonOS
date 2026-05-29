@@ -1,0 +1,13 @@
+{
+  "molecules": [
+    {"smiles": "CCO",                                                "name": "Ethanol"},
+    {"smiles": "CN1C=NC2=C1C(=O)N(C(=O)N2C)C",                       "name": "Caffeine"},
+    {"smiles": "CC(=O)OC1=CC=CC=C1C(=O)O",                           "name": "Aspirin"},
+    {"smiles": "OC(=O)CC1=CNC2=CC=CC=C12",                           "name": "Indoleacetic acid"},
+    {"smiles": "C1=CC2=C(C=C1)C=CC=N2",                              "name": "Quinoline"},
+    {"smiles": "CC(C)CC1=CC=C(C=C1)C(C)C(=O)O",                      "name": "Ibuprofen"},
+    {"smiles": "OC1=CC=C(C=C1)C(=O)C=CC2=CC(=C(C=C2)O)OC",           "name": "Curcumin fragment"},
+    {"smiles": "NC1=CC=C(C=C1)S(=O)(=O)NC2=NC=CC=N2",                "name": "Sulfadiazine"}
+  ],
+  "draw_options": {"width": 280, "height": 200}
+}

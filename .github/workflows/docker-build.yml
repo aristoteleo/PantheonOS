@@ -86,8 +86,9 @@ jobs:
             type=raw,value=${{ steps.version.outputs.version }},enable={{is_default_branch}}
             # Tag with 'latest' for main branch
             type=raw,value=latest,enable={{is_default_branch}}
-            # Tag with commit SHA
-            type=sha,prefix={{branch}}-,format=short
+            # Tag with commit SHA (use static prefix to stay valid for
+            # tag pushes where {{branch}} would be empty -> invalid tag)
+            type=sha,prefix=sha-,format=short
           labels: |
             org.opencontainers.image.title=Pantheon Agents
             org.opencontainers.image.description=Pantheon AI Agents Docker Image with dual-mode support

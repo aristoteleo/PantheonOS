@@ -147,6 +147,11 @@ class MemorySystemPlugin(TeamPlugin):
         if not self.runtime.is_initialized:
             return None
 
+        # Stamp the active agent's model on the runtime so internal background
+        # agents (extractor, session-note, flush, dream, selector) default to
+        # the same provider/quota as the chat when configured = "auto".
+        self._set_active_model_from_team(team, context.get("memory"))
+
         query = _extract_query(user_input)
         if not query:
             return None
@@ -195,6 +200,10 @@ class MemorySystemPlugin(TeamPlugin):
         memory = result.get("memory")
         all_messages = memory._messages if memory and hasattr(memory, "_messages") else messages
 
+        # Refresh active model in case the active agent changed during the run
+        # (e.g., handoff to a sub-agent on a different provider).
+        self._set_active_model_from_team(team, memory)
+
         # Phase 2B: Auto-extract durable memories — non-blocking.
         # MemoryExtractor has _in_progress + _pending guards; safe to fire every turn.
         self._fire(self.runtime.maybe_extract_memories(session_id, all_messages))
@@ -211,6 +220,20 @@ class MemorySystemPlugin(TeamPlugin):
         task = asyncio.create_task(coro)
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
+
+    def _set_active_model_from_team(self, team: "PantheonTeam", memory: Any) -> None:
+        """Tell the runtime which model the chat is currently using.
+
+        Internal background agents (extractor, session-note, flush, dream,
+        selector) default to this when their `selection_model` config is
+        "auto" — keeps them on the same provider/quota as the chat.
+        """
+        try:
+            active = team.get_active_agent(memory) if memory is not None else None
+            if active and getattr(active, "models", None):
+                self.runtime.set_active_model(active.models[0])
+        except Exception as e:
+            logger.debug(f"Could not stamp active model on runtime: {e}")
 
     async def _update_session_note(
         self, session_id: str, all_messages: list, memory: Any

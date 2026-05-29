@@ -13,11 +13,15 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pantheon.utils.log import logger
 
 from .prompts import DREAM_CONSOLIDATION
 from .store import MemoryStore
+
+if TYPE_CHECKING:
+    from .runtime import MemoryRuntime
 
 
 @dataclass
@@ -176,9 +180,15 @@ class DreamConsolidator:
     (Claude Code zero-tool model).
     """
 
-    def __init__(self, store: MemoryStore, model: str | None = None):
+    def __init__(
+        self,
+        store: MemoryStore,
+        model: str | None = None,
+        runtime: "MemoryRuntime | None" = None,
+    ):
         self.store = store
-        self.model = model or "low"
+        self.model = model
+        self.runtime = runtime
 
     async def consolidate(self) -> DreamResult:
         """Execute dream consolidation with Agent-based multi-turn reasoning."""
@@ -196,10 +206,11 @@ class DreamConsolidator:
             max_index_lines=MemoryStore.MAX_INDEX_LINES,
         )
 
+        resolved_model = self.runtime.resolve_model(self.model) if self.runtime else (self.model or "low")
         agent = await create_background_agent(
             name="dream-consolidator",
             instructions=instructions,
-            model=str(self.model),
+            model=str(resolved_model),
             workspace_path=workspace,
         )
 

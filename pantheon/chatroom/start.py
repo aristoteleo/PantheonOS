@@ -249,8 +249,22 @@ async def _start_endpoint_embedded(
         workspace_path=workspace_path,
         id_hash=endpoint_id_hash
     )
-    # Start endpoint in background with remote=False (only setup, no worker)
-    asyncio.create_task(endpoint.run(remote=False, log_level=log_level))
+    # Start endpoint in background as a full RemoteWorker — same process
+    # as ChatRoom, but with its own NATS connection subscribed to the
+    # endpoint's service subject.
+    #
+    # Why not remote=False (the historical default): with remote=False
+    # the Endpoint only sets up its toolsets and stays passive. Every
+    # file-transfer RPC has to come in through ChatRoom's
+    # proxy_toolset, which means chunk replies travel back on the
+    # ChatRoom NATS connection — the same TCP carrying chat tokens
+    # and other interactive responses. A multi-MiB PDF download
+    # head-of-line blocks every chat token queued behind it on that
+    # one TCP. Running Endpoint as a remote worker gives file traffic
+    # its own NATS connection (TCP-B) so the frontend's data channel
+    # can target Endpoint directly without touching the ChatRoom
+    # connection (TCP-A).
+    asyncio.create_task(endpoint.run(remote=True, log_level=log_level))
 
 
     # Wait for endpoint to be ready
@@ -291,8 +305,9 @@ async def start_services(
     id_hash: str | None = None,
     endpoint_mode: str = "embedded",
     nats_servers: str = None,
-    auto_start_nats: bool = False,
-    auto_ui: str | bool | None = None,
+    auto_start_nats: bool = True,
+    auto_ui: str | bool | None = True,
+    sync_templates: bool = False,
 ):
     """Start the chatroom service.
 
@@ -310,10 +325,14 @@ async def start_services(
                      Multiple servers separated by pipe (|). Overrides NATS_SERVERS env var.
                      Example: "wss://pantheon.aristoteleo.com/nats"
         auto_start_nats: Automatically start local NATS server (only works with --endpoint-mode embedded).
-                        Default: False. When enabled, provides nats://localhost:4222 and ws://localhost:8080.
+                        Default: True (provides nats://localhost:4222 and ws://localhost:8080).
+                        Disable with --no-auto-start-nats when connecting to an external NATS.
         auto_ui: Automatically open browser with auto-connect config when endpoint is ready.
-                Default: False. Requires --auto-start-nats. Can specify custom URL or use default
-                Vercel deployment. Examples: --auto-ui or --auto-ui "http://localhost:5173"
+                Default: True (opens https://pantheon-ui.aristoteleo.com). Requires --auto-start-nats.
+                Pass a custom URL like --auto-ui "http://localhost:5173" to point at a local dev
+                frontend, or --no-auto-ui to suppress (e.g. headless / CI).
+        sync_templates: Force-sync all factory templates (agents, teams, prompts, skills)
+                       before starting. Useful after image upgrades.
 
     Note:
         API keys should be set via:
@@ -328,6 +347,15 @@ async def start_services(
     """
     # DIAGNOSTIC: Log startup parameters for debugging
     logger.debug(f"[DIAGNOSTIC] start_services() called with auto_start_nats={auto_start_nats}, auto_ui={auto_ui}")
+
+    if sync_templates:
+        from pantheon.utils import log
+        log.set_level(log_level or "INFO")
+        from pantheon.factory.template_manager import get_template_manager
+        logger.info("[sync-templates] Force-syncing factory templates...")
+        tm = get_template_manager()
+        total = tm.force_sync_factory_templates()
+        logger.info(f"[sync-templates] Synced {total} template(s) from factory")
 
     # Validate auto_ui parameter
     if auto_ui and not auto_start_nats:
@@ -510,11 +538,16 @@ async def start_services(
         )
 
         try:
-            # Check if NATS is already running — reuse it instead of starting a new one
+            # 1) Try project-managed NATS (started by us in a previous run)
             server_info = await nats_manager.detect_existing()
 
+            # 2) Otherwise probe for an external NATS on standard ports
+            if server_info is None:
+                server_info = await nats_manager.detect_external()
+
             if server_info:
-                logger.info(f"✓ Reusing existing NATS server")
+                origin = "external" if server_info.get("external") else "project-managed"
+                logger.info(f"✓ Reusing existing NATS server ({origin})")
                 logger.info(f"  TCP URL: {server_info['tcp_url']}")
                 logger.info(f"  WebSocket URL: {server_info['ws_url']}")
                 logger.info(f"  Monitoring: {server_info['http_url']}")
@@ -640,11 +673,22 @@ async def start_services(
             # preventing conflicts when multiple instances run concurrently
             id_hash = str(uuid.uuid4())
 
+        # Endpoint and ChatRoom must have DISTINCT id_hashes — generate_service_id
+        # is SHA256(id_hash) and ignores the service name, so reusing id_hash for
+        # both would land them on the same NATS subject. With Endpoint now running
+        # as its own NATS worker (remote=True, see _start_endpoint_embedded), two
+        # subscribers on the same subject means NATS queue-group load-balances
+        # incoming RPCs between them — every other create_chat / list_chats
+        # call would hit Endpoint, which doesn't have those methods, and fail.
+        # The "-endpoint" suffix is stable + deterministic so reconnects still
+        # land on the same service_id.
+        endpoint_id_hash = f"{id_hash}-endpoint"
+
         # Start endpoint based on mode
         if endpoint_mode == "embedded":
             # Embed mode: return Endpoint instance
             endpoint = await _start_endpoint_embedded(
-                endpoint_id_hash=id_hash,
+                endpoint_id_hash=endpoint_id_hash,
                 workspace_path=workspace_path,
                 log_level=log_level,
                 enable_notebook_streaming=True,  # Enable streaming for chatroom
@@ -653,7 +697,7 @@ async def start_services(
             # Process mode: return service_id
             log_dir = Path(memory_dir) / ".chatroom-logs"
             final_endpoint_service_id = await _start_endpoint_process(
-                endpoint_id_hash=id_hash,
+                endpoint_id_hash=endpoint_id_hash,
                 workspace_path=workspace_path,
                 log_dir=log_dir,
             )

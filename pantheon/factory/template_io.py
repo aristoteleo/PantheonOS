@@ -110,7 +110,26 @@ class PromptResolver:
 
             # Load prompt content and parameter definitions
             # Pass base_path for relative path resolution
-            content, param_defs = self._load_prompt(name, base_path)
+            try:
+                content, param_defs = self._load_prompt(name, base_path)
+            except ValueError:
+                # Unknown reference — treat as literal template placeholder
+                # (e.g. `{{TITLE}}` inside an HTML/LaTeX template body).
+                # Return the original matched text so it survives the substitution.
+                #
+                # Heuristic: UPPERCASE names look like template placeholders
+                # (silent). Lowercase names look like misspelled prompt refs
+                # (warn, since that's likely a bug).
+                if name.isupper() or name[:1].isupper():
+                    logger.debug(
+                        f"Unresolved {{{{{name}}}}} — kept as literal template placeholder"
+                    )
+                else:
+                    logger.warning(
+                        f"Unresolved prompt reference {{{{{name}}}}} — kept as literal. "
+                        f"Check for typos or missing prompt file."
+                    )
+                return match.group(0)
 
             # Determine the prompt file's directory for:
             # 1. Resolving default path parameters

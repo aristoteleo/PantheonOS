@@ -146,7 +146,7 @@ def prefix_saved_models(provider: str, model_names: list[str]) -> list[str]:
     return [f"{provider}/{name}" for name in model_names if name]
 
 # ============ Default Configuration ============
-# Built-in defaults based on February 2026 flagship models
+# Built-in defaults based on May 2026 flagship models
 # Users can override in settings.json
 
 DEFAULT_PROVIDER_PRIORITY = ["openai", "anthropic", "gemini", "gemini-cli", "zai", "deepseek", "minimax", "moonshot", "qwen", "groq", "mistral", "together_ai", "openrouter", "codex", "ollama"]
@@ -159,7 +159,7 @@ DEFAULT_PROVIDER_MODELS = {
     "openai": {
         "high": ["openai/gpt-5.5", "openai/gpt-5.4", "openai/gpt-5.2"],
         "normal": ["openai/gpt-5.5", "openai/gpt-5.4", "openai/gpt-5.2-codex", "openai/gpt-5.2", "openai/gpt-5"],
-        "low": ["openai/gpt-5.4-mini", "openai/gpt-5.4-nano", "openai/gpt-5-mini", "openai/gpt-4.1-mini"],
+        "low": ["openai/gpt-5.4-mini", "openai/gpt-5.4-nano", "openai/gpt-5-mini", "openai/gpt-5-nano"],
     },
     # Anthropic: Claude 4.6 series
     # https://docs.anthropic.com/en/docs/about-claude/models/overview
@@ -178,17 +178,17 @@ DEFAULT_PROVIDER_MODELS = {
             "anthropic/claude-haiku-4-5",
         ],
     },
-    # Gemini: Gemini 3.1/3/2.5 series
+    # Gemini: Gemini 3.5/3.1/3/2.5 series
     # https://ai.google.dev/gemini-api/docs/models
     "gemini": {
         "high": ["gemini/gemini-3.1-pro-preview", "gemini/gemini-3-pro-preview", "gemini/gemini-2.5-pro"],
-        "normal": ["gemini/gemini-3-flash-preview", "gemini/gemini-2.5-flash"],
-        "low": ["gemini/gemini-3-flash-preview", "gemini/gemini-2.5-flash-lite"],
+        "normal": ["gemini/gemini-3.5-flash", "gemini/gemini-3-flash-preview", "gemini/gemini-2.5-flash"],
+        "low": ["gemini/gemini-3.5-flash", "gemini/gemini-3-flash-preview", "gemini/gemini-2.5-flash-lite"],
     },
     "gemini-cli": {
         "high": ["gemini-cli/gemini-3.1-pro-preview", "gemini-cli/gemini-3-pro-preview", "gemini-cli/gemini-2.5-pro"],
-        "normal": ["gemini-cli/gemini-3-flash-preview", "gemini-cli/gemini-2.5-flash"],
-        "low": ["gemini-cli/gemini-3-flash-preview", "gemini-cli/gemini-2.5-flash-lite"],
+        "normal": ["gemini-cli/gemini-3.5-flash", "gemini-cli/gemini-3-flash-preview", "gemini-cli/gemini-2.5-flash"],
+        "low": ["gemini-cli/gemini-3.5-flash", "gemini-cli/gemini-3-flash-preview", "gemini-cli/gemini-2.5-flash-lite"],
     },
     # Z.ai (Zhipu): GLM-4.6/4.5 series
     # https://open.bigmodel.cn/
@@ -197,45 +197,44 @@ DEFAULT_PROVIDER_MODELS = {
         "normal": ["zai/glm-5", "zai/glm-4.6", "zai/glm-4.5", "zai/glm-4.5v"],
         "low": ["zai/glm-4.5-air", "zai/glm-4.5-flash"],
     },
-    # DeepSeek: V3/R1 series
+    # DeepSeek: V4 series (1M context, dual thinking/non-thinking modes)
     # https://api-docs.deepseek.com/
+    # Legacy `deepseek-chat` / `deepseek-reasoner` retire 2026-07-24.
     "deepseek": {
-        "high": ["deepseek/deepseek-chat", "deepseek/deepseek-reasoner"],
-        "normal": ["deepseek/deepseek-chat"],
-        "low": ["deepseek/deepseek-chat"],
+        "high": ["deepseek/deepseek-v4-pro"],
+        "normal": ["deepseek/deepseek-v4-pro"],
+        "low": ["deepseek/deepseek-v4-flash"],
     },
-    # MiniMax: M2.5/M2.1 series
+    # MiniMax: M2.7/M2.5 series
     # https://platform.minimaxi.com/
     "minimax": {
         "high": [
+            "minimax/MiniMax-M2.7",
+            "minimax/MiniMax-M2.7-highspeed",
             "minimax/MiniMax-M2.5-highspeed",
             "minimax/MiniMax-M2.5",
-            "minimax/MiniMax-M2.1-highspeed",
-            "minimax/MiniMax-M2.1",
         ],
         "normal": [
+            "minimax/MiniMax-M2.7-highspeed",
             "minimax/MiniMax-M2.5-highspeed",
             "minimax/MiniMax-M2.5",
-            "minimax/MiniMax-M2.1-highspeed",
-            "minimax/MiniMax-M2.1",
         ],
         "low": [
             "minimax/MiniMax-M2.5",
-            "minimax/MiniMax-M2.1",
         ],
     },
-    # Moonshot: Kimi K2.5/K2 series
+    # Moonshot: Kimi K2.6/K2.5 series
     # https://platform.moonshot.cn/
     "moonshot": {
-        "high": ["moonshot/kimi-k2.5", "moonshot/kimi-k2-0905-preview"],
-        "normal": ["moonshot/kimi-k2.5", "moonshot/kimi-k2-0905-preview"],
-        "low": ["moonshot/kimi-k2.5", "moonshot/kimi-k2-0905-preview"],
+        "high": ["moonshot/kimi-k2.6", "moonshot/kimi-k2.5"],
+        "normal": ["moonshot/kimi-k2.6", "moonshot/kimi-k2.5"],
+        "low": ["moonshot/kimi-k2.6", "moonshot/kimi-k2.5"],
     },
-    # Qwen (DashScope): Qwen3/QwQ series
+    # Qwen (DashScope): Qwen3.7/Qwen3 series
     # https://help.aliyun.com/zh/model-studio/
     "qwen": {
-        "high": ["qwen/qwen3-235b-a22b", "qwen/qwen-max", "qwen/qwq-plus"],
-        "normal": ["qwen/qwen3-32b", "qwen/qwen-plus"],
+        "high": ["qwen/qwen3.7-max", "qwen/qwen3-max", "qwen/qwen3-235b-a22b", "qwen/qwen-max", "qwen/qwq-plus"],
+        "normal": ["qwen/qwen-plus", "qwen/qwen3-32b"],
         "low": ["qwen/qwen3-30b-a3b", "qwen/qwen-turbo"],
     },
     # Groq: Ultra-fast inference
@@ -248,16 +247,16 @@ DEFAULT_PROVIDER_MODELS = {
     # Mistral AI
     # https://docs.mistral.ai/getting-started/models
     "mistral": {
-        "high": ["mistral/mistral-large-latest", "mistral/mistral-medium-latest"],
-        "normal": ["mistral/mistral-small-latest", "mistral/codestral-latest"],
-        "low": ["mistral/open-mistral-nemo"],
+        "high": ["mistral/mistral-medium-3-5", "mistral/mistral-large-2512", "mistral/mistral-large-latest"],
+        "normal": ["mistral/mistral-small-2603", "mistral/mistral-small-latest", "mistral/codestral-latest"],
+        "low": ["mistral/mistral-small-2603", "mistral/open-mistral-nemo"],
     },
     # Together AI: Open-source model hosting
     # https://docs.together.ai/docs/serverless-models
     "together_ai": {
-        "high": ["together_ai/Qwen/Qwen3.5-397B-A17B", "together_ai/deepseek-ai/DeepSeek-V3.1"],
-        "normal": ["together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo"],
-        "low": ["together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo"],
+        "high": ["together_ai/Qwen/Qwen3.7-Max", "together_ai/deepseek-ai/DeepSeek-V4-Pro", "together_ai/Qwen/Qwen3.5-397B-A17B"],
+        "normal": ["together_ai/moonshotai/Kimi-K2.6", "together_ai/zai-org/GLM-5.1", "together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo"],
+        "low": ["together_ai/MiniMaxAI/MiniMax-M2.7", "together_ai/openai/gpt-oss-20b", "together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo"],
     },
     # Codex: OpenAI via ChatGPT OAuth (free with ChatGPT Plus)
     "codex": {
@@ -268,9 +267,9 @@ DEFAULT_PROVIDER_MODELS = {
     # OpenRouter: Multi-provider aggregator
     # https://openrouter.ai/models
     "openrouter": {
-        "high": ["openrouter/anthropic/claude-sonnet-4-6"],
-        "normal": ["openrouter/google/gemini-2.5-flash", "openrouter/deepseek/deepseek-chat"],
-        "low": ["openrouter/meta-llama/llama-3.3-70b-instruct"],
+        "high": ["openrouter/qwen/qwen3.7-max", "openrouter/x-ai/grok-4.3", "openrouter/anthropic/claude-sonnet-4-6"],
+        "normal": ["openrouter/google/gemini-3.5-flash", "openrouter/mistralai/mistral-medium-3-5", "openrouter/google/gemini-2.5-flash"],
+        "low": ["openrouter/openai/gpt-oss-120b", "openrouter/meta-llama/llama-3.3-70b-instruct"],
     },
 }
 
@@ -678,6 +677,78 @@ class ModelSelector:
                     result.append(model)
 
         return result
+
+    def find_capable_models_across_providers(
+        self,
+        capability: str,
+        prefer_provider: str | None = None,
+        tier_order: list[str] | None = None,
+    ) -> list[str]:
+        """Find a fallback chain of capable models reachable with current credentials.
+
+        Unlike `resolve_model("vision")` which only searches the active provider
+        and silently falls back to non-capable models when that provider has
+        none, this walks the priority list and returns every model whose
+        catalog entry actually has the capability flag set.
+
+        Search order:
+        1. ``prefer_provider`` (if any of its models match).
+        2. The user's configured priority list (``models.provider_priority``)
+           or ``DEFAULT_PROVIDER_PRIORITY``.
+        3. Any other provider with credentials.
+
+        Within each provider, tiers are walked in ``tier_order`` (default:
+        normal → high → low) so a solid mid-tier model wins by default,
+        falling back to a stronger one and only then to the cheap tier.
+
+        Returns:
+            Ordered list of ``provider/model`` strings (deduplicated). Empty
+            list if no provider with valid credentials lists a capable model.
+            Callers should iterate and try each on failure (e.g. when a
+            provider returns 429 / auth errors and we need to fall through
+            to a different provider).
+        """
+        if capability not in CAPABILITY_MAP:
+            logger.warning(f"Unknown capability: {capability}")
+            return []
+
+        tier_order = tier_order or ["normal", "high", "low"]
+        available = self._get_available_providers()
+        if not available:
+            return []
+
+        priority = list(self.settings.get(
+            "models.provider_priority", DEFAULT_PROVIDER_PRIORITY
+        ))
+        # Stable order: prefer_provider first (if set), then priority list,
+        # then any other available provider not in priority.
+        ordered: list[str] = []
+        if prefer_provider and prefer_provider in available:
+            ordered.append(prefer_provider)
+        for p in priority:
+            if p in available and p not in ordered:
+                ordered.append(p)
+        for p in available:
+            if p not in ordered:
+                ordered.append(p)
+
+        chain: list[str] = []
+        seen: set[str] = set()
+        for provider in ordered:
+            provider_models = self._get_provider_models(provider)
+            if not provider_models:
+                continue
+            for tier in tier_order:
+                models = provider_models.get(tier, [])
+                if isinstance(models, str):
+                    models = [models]
+                for model in models:
+                    if model in seen:
+                        continue
+                    if self._check_model_capability(model, capability):
+                        chain.append(model)
+                        seen.add(model)
+        return chain
 
     def resolve_model_for_provider(self, tag: str, provider: str | None) -> list[str]:
         """Resolve tag(s) using a preferred provider when possible.

@@ -18,6 +18,8 @@ agents:
   - graph_maker/illustrator
 ---
 
+{{pdf_output}}
+
 # Graph Maker Team
 
 A specialized AI team for autonomous scientific figure production. Delivers figures as PNG (always) and optionally PDF + SVG for publication workflows. Covers data-driven plotting, BioRender-style conceptual illustrations, and composite multi-panel figures.

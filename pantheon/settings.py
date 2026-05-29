@@ -341,13 +341,29 @@ class Settings:
 
         return {
             "enable": compression.get("enable", False),  # Disabled by default
-            "compression_model": compression.get("compression_model"),  # None uses Agent's default
+            # None / "" / "auto" → use active agent's model at run time.
+            # Set to a specific model id (e.g. "openai/gpt-4o-mini") or a tier
+            # ("high"/"normal"/"low") to pin compression to a specific model
+            # regardless of which agent is currently chatting.
+            "compression_model": compression.get("compression_model"),
             "threshold": compression.get("threshold", 0.8),
             "preserve_recent_messages": compression.get("preserve_recent_messages", 5),
             "max_tool_arg_length": compression.get("max_tool_arg_length", 2000),
             "max_tool_output_length": compression.get("max_tool_output_length", 5000),
             "retry_after_messages": compression.get("retry_after_messages", 10),
         }
+
+    def get_vision_model(self) -> str:
+        """Get the configured model spec for image observation (observe_images).
+
+        Returns:
+            "auto"          → pick a vision-capable model across providers
+            "high"/"normal"/"low" → force a quality tier
+            a model id      → pin a specific model (auto chain as fallback)
+        """
+        self._ensure_loaded()
+        vision = self._settings.get("vision", {})
+        return vision.get("vision_model", "auto") or "auto"
 
     def get_detection_config(self) -> Dict[str, bool]:
         """

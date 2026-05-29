@@ -384,6 +384,108 @@ class NATSManager:
             logger.debug(f"[NATS] Error detecting existing instance: {e}")
             return None
 
+    async def detect_external(self) -> Optional[dict]:
+        """
+        Detect a NATS server that we did NOT start (e.g. brew-managed,
+        another pantheon project, manually launched).
+
+        Probes the standard NATS ports — TCP 4222, HTTP 8222 (varz), and a
+        couple of common WebSocket ports. Reuses only if all three are
+        reachable, since the frontend requires the WebSocket port.
+
+        Returns server_info dict (with reused=True) or None.
+        """
+        # Standard NATS defaults
+        TCP_DEFAULT = 4222
+        HTTP_DEFAULT = 8222
+        # Common WS ports — pantheon's nats-ws.conf uses 8080; some setups use 9222 or 4223.
+        WS_CANDIDATES = [8080, 9222, 4223]
+
+        # 1) HTTP healthz at the standard monitoring port
+        http_url = f"http://localhost:{HTTP_DEFAULT}/healthz"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    http_url, timeout=aiohttp.ClientTimeout(total=1.5)
+                ) as resp:
+                    if resp.status != 200:
+                        return None
+                # Pull /varz to confirm WS configuration if available.
+                ws_port = None
+                try:
+                    async with session.get(
+                        f"http://localhost:{HTTP_DEFAULT}/varz",
+                        timeout=aiohttp.ClientTimeout(total=1.5),
+                    ) as varz_resp:
+                        if varz_resp.status == 200:
+                            varz = await varz_resp.json()
+                            ws_cfg = varz.get("websocket", {}) or {}
+                            ws_port = ws_cfg.get("port")
+                except Exception:
+                    pass
+        except Exception:
+            return None
+
+        # 2) Confirm TCP port is reachable
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection("localhost", TCP_DEFAULT),
+                timeout=1.5,
+            )
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            return None
+
+        # 3) Find a working WS port — varz hint first, then candidates
+        ws_port_to_try = []
+        if ws_port:
+            ws_port_to_try.append(ws_port)
+        ws_port_to_try.extend([p for p in WS_CANDIDATES if p != ws_port])
+
+        chosen_ws = None
+        for p in ws_port_to_try:
+            try:
+                r2, w2 = await asyncio.wait_for(
+                    asyncio.open_connection("localhost", p),
+                    timeout=1.0,
+                )
+                w2.close()
+                await w2.wait_closed()
+                chosen_ws = p
+                break
+            except Exception:
+                continue
+
+        if chosen_ws is None:
+            logger.debug(
+                "[NATS] External NATS detected at TCP:%d but no reachable "
+                "WebSocket port. Frontend needs WS — falling back to launching our own.",
+                TCP_DEFAULT,
+            )
+            return None
+
+        logger.info(
+            f"[NATS] Detected external NATS server (TCP:{TCP_DEFAULT} WS:{chosen_ws} HTTP:{HTTP_DEFAULT})"
+        )
+        # Update self ports so downstream code uses the discovered ones
+        self.tcp_port = TCP_DEFAULT
+        self.ws_port = chosen_ws
+        self.http_port = HTTP_DEFAULT
+        return {
+            "tcp_port": TCP_DEFAULT,
+            "ws_port": chosen_ws,
+            "http_port": HTTP_DEFAULT,
+            "tcp_url": f"nats://localhost:{TCP_DEFAULT}",
+            "ws_url": f"ws://127.0.0.1:{chosen_ws}",
+            "http_url": f"http://localhost:{HTTP_DEFAULT}",
+            "config_file": None,
+            "log_file": None,
+            "pid": None,
+            "reused": True,
+            "external": True,
+        }
+
     async def start(self) -> dict:
         """
         Start local NATS server subprocess.

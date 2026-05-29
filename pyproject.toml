@@ -74,6 +74,10 @@ dependencies = [
     "cryptography>=42.0.0",
     "websocket-client>=1.8",
     "qrcode",
+    # Modal SDK — used by file_manager.reload_workspace_volume to force a
+    # fresh Volume snapshot after a data-share copy completes, so the new
+    # files become visible without restarting the sandbox.
+    "modal>=1.3",
 ]
 dynamic = ["version"]
 

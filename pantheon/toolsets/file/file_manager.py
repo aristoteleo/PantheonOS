@@ -213,8 +213,11 @@ class FileManagerToolSetBase(ToolSet):
         return Path(workdir) if workdir else self.path
 
     def _resolve_path(self, file_path: str) -> Path:
-        """Resolve a file path: absolute paths pass through, relative paths
-        resolve against the effective workspace root (workdir or self.path)."""
+        """Resolve a file path: absolute paths pass through, paths starting
+        with ~ expand to the user's home, relative paths resolve against the
+        effective workspace root (workdir or self.path)."""
+        if file_path.startswith("~"):
+            return Path(file_path).expanduser()
         if os.path.isabs(file_path):
             return Path(file_path)
         return self._get_root() / file_path
@@ -223,6 +226,68 @@ class FileManagerToolSetBase(ToolSet):
     async def get_cwd(self) -> dict:
         """Get current working directory."""
         return {"success": True, "cwd": str(self._get_root())}
+
+    @tool(exclude=True)
+    async def get_home_dir(self) -> dict:
+        """Return the runtime user home directory.
+
+        The frontend uses this to locate the **global** template/skill
+        store at ``~/.pantheon/`` and resolve the project-vs-global
+        scope toggle in TemplateDashboard. We used to derive home from
+        ``get_cwd``'s prefix (only matched ``/Users/*`` and ``/home/*``),
+        which silently failed inside Modal sandboxes where cwd is
+        ``/__modal/volumes/...`` and Path.home() is ``/root``. Reporting
+        it directly is more reliable than regex-sniffing.
+        """
+        try:
+            from pathlib import Path as _Path
+            return {"success": True, "home": str(_Path.home())}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool(exclude=True)
+    async def reload_workspace_volume(self, volume_name: str | None = None) -> dict:
+        """Force a fresh snapshot of the Modal Volume mounted at /workspace.
+
+        Modal Volumes are not auto-synced across containers — writes made by
+        another container (e.g. the data-share copy worker) are invisible
+        here until we explicitly call ``Volume.reload()``. The frontend
+        invokes this after a share accept completes so the file panel can
+        immediately show the dropped files without the user having to
+        restart their sandbox.
+
+        Args:
+            volume_name: Optional explicit volume name. If omitted, derive
+                from env: ``MODAL_VOLUME_PREFIX`` + ``user-`` +
+                sanitized(``USER_ID``) + ``-workspace`` — same convention
+                pantheon-hub's PodNamingUtils.get_pvc_name uses.
+
+        Returns:
+            ``{"success": True, "volume_name": <name>}`` on success, or
+            ``{"success": False, "error": <reason>}`` if Modal SDK is
+            unavailable / no env / reload fails.
+        """
+        import os
+        try:
+            import modal  # type: ignore
+        except ImportError:
+            return {"success": False, "error": "modal package not available in this runtime"}
+
+        name = volume_name
+        if not name:
+            prefix = os.environ.get("MODAL_VOLUME_PREFIX", "")
+            user_id = os.environ.get("USER_ID") or os.environ.get("ID_HASH")
+            if not user_id:
+                return {"success": False, "error": "USER_ID/ID_HASH env not set; cannot derive volume name"}
+            safe = user_id.replace("_", "-").lower()
+            name = f"{prefix}user-{safe}-workspace"
+
+        try:
+            vol = modal.Volume.from_name(name)
+            vol.reload()
+            return {"success": True, "volume_name": name}
+        except Exception as e:
+            return {"success": False, "error": f"{type(e).__name__}: {e}", "volume_name": name}
 
     @tool(exclude=True)
     async def list_files(
@@ -442,24 +507,17 @@ class FileManagerToolSetBase(ToolSet):
 
 
 def path_to_image_url(path: str) -> str:
-    """Convert an image file to a base64 PNG data URL.
-    
-    Reads file bytes into memory first to avoid PIL lazy loading issues
-    (e.g., 'PngImageFile' object has no attribute '_im').
-    All images are converted to PNG format for consistency.
+    """Convert an image file to a downscaled base64 data URL.
+
+    Delegates to vision.get_image_base64, which resizes the image so its
+    longest edge is at most MAX_IMAGE_DIMENSION (1568px) and picks a
+    size-aware encoding. Downscaling here keeps payloads small for both the
+    LLM and the frontend — a full 2481x3508 PNG decodes to ~33 MB of RGBA,
+    and many of those crash the browser renderer.
     """
-    from PIL import Image
-    
-    # Read file bytes into memory first to avoid lazy loading issues
-    with open(path, "rb") as f:
-        file_bytes = f.read()
-    
-    # Open from memory buffer - this forces complete loading
-    with Image.open(io.BytesIO(file_bytes)) as img:
-        with io.BytesIO() as buffer:
-            img.save(buffer, format="PNG")
-            buffer.seek(0)
-            return f"data:image/png;base64,{base64.b64encode(buffer.getvalue()).decode()}"
+    from pantheon.utils.vision import get_image_base64
+
+    return get_image_base64(path)
 
 
 def is_image_blank(image_path: str | Path) -> bool:
@@ -1056,11 +1114,82 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 result["warnings"] = blank_warnings
             return result
 
-        # Path B: legacy sub-agent — provider cannot accept images in tool result.
-        logger.info(
-            f"observe_images: sub-agent mode ({active_model}), "
-            f"provider does not support tool-result images"
-        )
+        # Path B: sub-agent mode — provider cannot accept images in tool result.
+        # Build the sub-agent fallback chain, honouring the `vision.vision_model`
+        # setting:
+        #   "auto"        → active model (if vision-capable) then a cross-provider
+        #                   chain, "normal" quality tier preferred.
+        #   "high/normal/low" → same, but force that quality tier first.
+        #   a model id    → pin that model first, auto chain as fallback.
+        # Iterate the chain at call time so a 429 / auth failure on one
+        # provider falls through to the next instead of returning empty.
+        from pantheon.utils.provider_registry import get_model_info
+        from pantheon.utils.model_selector import get_model_selector
+        from pantheon.settings import get_settings
+
+        try:
+            info = get_model_info(active_model) if active_model else {}
+            active_supports_vision = bool(info.get("supports_vision"))
+        except Exception:
+            active_supports_vision = False
+
+        vision_cfg = get_settings().get_vision_model()
+        _QUALITY_TIERS = {"high", "normal", "low"}
+        selector = get_model_selector()
+
+        pinned_model: str | None = None
+        try:
+            if vision_cfg in _QUALITY_TIERS:
+                # Force the configured tier first, then the rest as fallback.
+                tier_order = [vision_cfg] + [
+                    t for t in ("normal", "high", "low") if t != vision_cfg
+                ]
+                cross_chain = selector.find_capable_models_across_providers(
+                    "vision", tier_order=tier_order
+                )
+            elif vision_cfg and vision_cfg != "auto":
+                # Specific model id — pin it, keep the auto chain as fallback.
+                pinned_model = vision_cfg
+                cross_chain = selector.find_capable_models_across_providers("vision")
+            else:
+                cross_chain = selector.find_capable_models_across_providers("vision")
+        except Exception as e:
+            logger.warning(f"observe_images: vision fallback search failed: {e}")
+            cross_chain = []
+
+        # Compose the candidate chain. None means "let sub-agent inherit
+        # the active model" — semantically equivalent to active_model here
+        # but keeps the existing inheritance machinery intact.
+        candidates: list[str | None] = []
+        if pinned_model:
+            candidates.append(pinned_model)
+        if active_supports_vision:
+            candidates.append(None)
+        # Append cross-provider vision models, skipping ones that duplicate
+        # the active model (tried as inherited) or the pinned model.
+        for m in cross_chain:
+            if m == active_model or m == pinned_model:
+                continue
+            candidates.append(m)
+
+        if not candidates:
+            logger.warning(
+                f"observe_images: active model {active_model!r} is not "
+                "vision-capable and no other vision-capable provider has "
+                "credentials configured."
+            )
+            return {
+                "success": False,
+                "error": (
+                    f"The active model '{active_model}' does not support "
+                    "image input, and no other vision-capable provider is "
+                    "configured. Add an API key for a vision-capable "
+                    "provider (Anthropic / OpenAI / Gemini / Z.ai / "
+                    "Moonshot / Qwen / Groq / Mistral / OpenRouter) or "
+                    "switch the active agent to a vision-capable model."
+                ),
+            }
+
         messages = [
             {
                 "role": "user",
@@ -1073,27 +1202,61 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 {"type": "image_url", "image_url": {"url": base64_uri}}
             )
 
-        try:
-            response = await context.call_agent(messages=messages, use_memory=True)
+        last_error: str | None = None
+        for sub_agent_model in candidates:
+            label = sub_agent_model or f"inherit:{active_model}"
+            logger.info(f"observe_images: sub-agent attempt with {label}")
+            try:
+                response = await context.call_agent(
+                    messages=messages,
+                    model=sub_agent_model,
+                    use_memory=True,
+                )
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"observe_images: sub-agent {label} raised: {e}")
+                continue
+
+            if not response.get("success"):
+                last_error = response.get("error") or "sub-agent returned no response"
+                logger.warning(
+                    f"observe_images: sub-agent {label} failed: {last_error}"
+                )
+                continue
 
             content = response.get("response", "")
+            if not content.strip():
+                last_error = (
+                    f"sub-agent {label} returned empty content "
+                    "(model likely cannot interpret the image)"
+                )
+                logger.warning(f"observe_images: {last_error}")
+                continue
+
             if blank_warnings:
                 warning_msg = "\n".join(blank_warnings)
                 content = f"SYSTEM DETECTED ISSUES:\n{warning_msg}\n\nLLM Observation:\n{content}"
 
-            result = {
+            result: dict = {
                 "success": True,
                 "content": content,
+                "model_used": sub_agent_model or active_model,
             }
             if "_metadata" in response:
                 result.setdefault("_metadata", {}).update(response["_metadata"])
-
             return result
-        except Exception as e:
-            logger.opt(exception=True).error(
-                "Error calling agent for image observation: {}", e
-            )
-            return {"success": False, "error": str(e)}
+
+        # Every candidate failed.
+        logger.error(
+            f"observe_images: all sub-agent candidates failed; last error: {last_error}"
+        )
+        return {
+            "success": False,
+            "error": (
+                f"Image observation failed across all configured vision-capable "
+                f"providers. Last error: {last_error}"
+            ),
+        }
 
     @tool(exclude=True)
     async def observe_pdf_screenshots(
@@ -1255,11 +1418,20 @@ class FileManagerToolSet(FileManagerToolSetBase):
             }
 
     @tool(exclude=True)
-    async def fetch_image_base64(self, image_path: str) -> dict:
+    async def fetch_image_base64(
+        self,
+        image_path: str,
+        max_size: int = 1568,
+    ) -> dict:
         """Fetch an image and return the base64 encoded image. for frontend display
 
         Args:
             image_path: Path to the image file (relative to workspace)
+            max_size: Longest-edge cap in pixels before encoding. The
+                frontend passes a small value (e.g. 400) for chat
+                thumbnails and a larger one (e.g. 1024) for the right
+                sidebar preview; click-to-zoom goes through the chunked
+                full-resolution path instead and bypasses this RPC.
 
         Returns:
             Dict with success status and either data_uri or error message
@@ -1271,29 +1443,49 @@ class FileManagerToolSet(FileManagerToolSetBase):
         MAX_IMAGE_SIZE = 10 * 1024 * 1024
 
         try:
-            # Support both relative (to workspace) and absolute paths
+            # Support both relative (to workspace) and absolute paths.
             candidate = Path(image_path)
             if candidate.is_absolute():
                 i_path = candidate
             else:
                 i_path = self._resolve_path(image_path)
 
-            # Security: Check if path is within allowed directories
+            # Containment check.
+            #
+            # Compare both paths *after* resolving symlinks against the
+            # same root — _get_root() — so a workspace whose root happens
+            # to be reached through a symlink (Modal Volume mounts are
+            # often laid out this way) doesn't make every read look like
+            # an escape attempt. The previous implementation compared
+            # i_path.resolve() against self.path.resolve(), which is wrong
+            # in two ways: (a) self.path is the toolset's init cwd, not
+            # the active workdir, so a project workspace at a different
+            # root would always fail the prefix check; (b) when the
+            # active root traverses a symlink but self.path doesn't (or
+            # vice versa), the same file looks "in" via list_files (which
+            # never calls resolve()) and "out" here.
             try:
-                resolved_path = i_path.resolve()
-                allowed_path = self.path.resolve()
-                if not str(resolved_path).startswith(str(allowed_path)):
+                root_resolved = self._get_root().resolve()
+                # strict=False so a not-yet-existing path still resolves —
+                # we report the missing-file case explicitly below with a
+                # clearer error than "Invalid path".
+                resolved_path = i_path.resolve(strict=False)
+                try:
+                    resolved_path.relative_to(root_resolved)
+                except ValueError:
                     return {"success": False, "error": "Path outside allowed workspace"}
             except Exception:
                 return {"success": False, "error": "Invalid path"}
 
-            # Security: Reject symbolic links
-            if resolved_path.is_symlink():
-                return {"success": False, "error": "Symbolic links are not allowed"}
-
-            # Check file existence
+            # Check file existence.
+            #
+            # We intentionally do NOT pre-reject symlinks: a symlink to a
+            # file inside the workspace is benign (the containment check
+            # above already ruled out escape). Rejecting all symlinks
+            # surfaces as "Image does not exist" to the user when their
+            # tree clearly shows the file.
             if not resolved_path.exists():
-                return {"success": False, "error": "Image does not exist"}
+                return {"success": False, "error": f"Image does not exist: {image_path}"}
 
             # Check if it's a file (not directory)
             if not resolved_path.is_file():
@@ -1320,21 +1512,28 @@ class FileManagerToolSet(FileManagerToolSetBase):
             except OSError as e:
                 return {"success": False, "error": f"Cannot access file: {str(e)}"}
 
-            # Encode image to base64
+            # Encode image to base64. Raster formats are downscaled (longest
+            # edge <= MAX_IMAGE_DIMENSION) before encoding: a full-size
+            # microscopy/figure PNG (e.g. 2481x3508) decodes to ~33 MB of
+            # RGBA in the browser, and a chat full of them exhausts the
+            # renderer's memory and crashes the tab. SVG (vector) and GIF
+            # (to preserve animation) are sent through unchanged.
             try:
-                with open(resolved_path, "rb") as f:
-                    b64 = base64.b64encode(f.read()).decode("utf-8")
+                if format in (".svg", ".gif"):
+                    with open(resolved_path, "rb") as f:
+                        b64 = base64.b64encode(f.read()).decode("utf-8")
+                    mime_format = "svg+xml" if format == ".svg" else "gif"
+                    data_uri = f"data:image/{mime_format};base64,{b64}"
+                else:
+                    from pantheon.utils.vision import get_image_base64
+                    data_uri = get_image_base64(str(resolved_path), max_size=max_size)
             except PermissionError:
                 return {"success": False, "error": "Permission denied reading image"}
             except IOError as e:
                 return {"success": False, "error": f"IO error reading image: {str(e)}"}
+            except Exception as e:
+                return {"success": False, "error": f"Failed to encode image: {str(e)}"}
 
-            # Map format to MIME type
-            mime_format = format.lstrip(".")
-            if mime_format == "jpg":
-                mime_format = "jpeg"
-
-            data_uri = f"data:image/{mime_format};base64,{b64}"
             return {
                 "success": True,
                 "image_path": image_path,

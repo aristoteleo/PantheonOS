@@ -9,10 +9,15 @@ Inspired by Claude Code's extractMemories system.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from pantheon.utils.log import logger
 
 from .prompts import EXTRACT_MEMORIES_SYSTEM, EXTRACT_MEMORIES_USER
 from .store import MemoryStore
+
+if TYPE_CHECKING:
+    from .runtime import MemoryRuntime
 
 
 class MemoryExtractor:
@@ -31,9 +36,15 @@ class MemoryExtractor:
     MAX_TURNS = 5  # Budget for extraction LLM (aligned with Claude Code)
     MAX_RETRIES = 3  # Max consecutive failures before skipping a segment
 
-    def __init__(self, store: MemoryStore, model: str):
+    def __init__(
+        self,
+        store: MemoryStore,
+        model: str,
+        runtime: "MemoryRuntime | None" = None,
+    ):
         self.store = store
         self.model = model
+        self.runtime = runtime
         self._in_progress: dict[str, bool] = {}
         self._pending: dict[str, bool] = {}       # new messages arrived while in-flight
         self._last_cursor: dict[str, int] = {}
@@ -132,10 +143,11 @@ class MemoryExtractor:
         # Workspace is the .pantheon/ parent directory
         workspace = self.store.durable_dir.parent.parent
 
+        resolved_model = self.runtime.resolve_model(self.model) if self.runtime else self.model
         agent = await create_background_agent(
             name="memory-extractor",
             instructions=EXTRACT_MEMORIES_SYSTEM,
-            model=str(self.model),
+            model=str(resolved_model),
             workspace_path=workspace,
         )
 

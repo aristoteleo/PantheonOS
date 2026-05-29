@@ -75,6 +75,7 @@ The connection URL will automatically use port 9000 instead of 8080.
 |----------|-------------|---------|
 | `PANTHEON_MODE` | Set to `standalone` for local use | `hub` |
 | `NATS_EXTERNAL_PORT` | External port for NATS WebSocket | `8080` |
+| `PANTHEON_RESET_TEMPLATES` | Hub mode only. Set to `true` to clear stale project-level templates in `/workspace/.pantheon/` and force-sync factory defaults (agents/teams/prompts/skills) to `~/.pantheon/` on startup. Useful after image upgrades when the persistent volume contains outdated templates. Unset after one successful start. | - |
 | `OPENAI_API_KEY` | OpenAI API key | - |
 | `ANTHROPIC_API_KEY` | Anthropic API key | - |
 | `GEMINI_API_KEY` | Google Gemini API key | - |

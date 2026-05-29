@@ -142,6 +142,7 @@ class ContextCompressor:
         messages: list[dict],
         compression_dir: str | None = None,
         force: bool = False,
+        model_override: str | None = None,
     ) -> CompressionResult:
         """Execute compression.
 
@@ -149,6 +150,10 @@ class ContextCompressor:
             messages: Full message history
             compression_dir: Directory to save original message details
             force: Force compression even if result is larger
+            model_override: If provided, use this model for the compression
+                LLM call instead of the constructor-time `self.model`.
+                Lets the caller route compression to the active agent's
+                model when no explicit `compression_model` is configured.
 
         Returns:
             CompressionResult with status and compression message
@@ -227,7 +232,7 @@ class ContextCompressor:
             compression_agent = Agent(
                 name="_compressor",
                 instructions=COMPRESSION_SYSTEM_PROMPT,
-                model=self.model,
+                model=model_override or self.model,
             )
 
             response = await compression_agent.run(

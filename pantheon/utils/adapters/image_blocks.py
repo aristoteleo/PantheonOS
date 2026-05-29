@@ -19,9 +19,52 @@ from typing import Any
 
 _DATA_URI_RE = re.compile(r"^data:image/([a-zA-Z0-9.+-]+);base64,(.*)$", re.DOTALL)
 
+# Anthropic rejects single images > 5 MB base64. Most providers also charge
+# heavily for large images. Re-encode anything above this threshold through
+# PIL with the same max-dimension policy as `get_image_base64`.
+_DATA_URI_MAX_BASE64_BYTES = 4 * 1024 * 1024  # leave headroom under 5 MB
+
+
+def _shrink_oversize_image(mime: str, b64_data: str) -> tuple[str, str]:
+    """If `b64_data` is over the size threshold, decode → resize → re-encode.
+
+    Falls back to the original data on any error (best-effort: prefer sending
+    the original over crashing the request).
+    """
+    if len(b64_data) <= _DATA_URI_MAX_BASE64_BYTES:
+        return mime, b64_data
+    try:
+        from ..vision import MAX_IMAGE_DIMENSION
+        from PIL import Image  # type: ignore
+
+        raw = base64.b64decode(b64_data)
+        with Image.open(io.BytesIO(raw)) as img:
+            if max(img.size) > MAX_IMAGE_DIMENSION:
+                img.thumbnail(
+                    (MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION),
+                    Image.LANCZOS,
+                )
+            buf = io.BytesIO()
+            if img.mode in ("RGBA", "LA", "P"):
+                img.save(buf, format="PNG", optimize=True)
+                out_mime = "image/png"
+            else:
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+                img.save(buf, format="JPEG", quality=85, optimize=True)
+                out_mime = "image/jpeg"
+            new_b64 = base64.b64encode(buf.getvalue()).decode()
+        return out_mime, new_b64
+    except Exception:
+        return mime, b64_data
+
 
 def _parse_data_uri(url: str) -> tuple[str, str] | None:
-    """Parse a data:image URI → (mime, base64_data). Returns None on failure."""
+    """Parse a data:image URI → (mime, base64_data). Returns None on failure.
+
+    Oversized images are transparently resized so we don't blow past provider
+    per-image byte limits (e.g. Anthropic's 5 MB cap).
+    """
     m = _DATA_URI_RE.match(url)
     if not m:
         return None
@@ -29,7 +72,8 @@ def _parse_data_uri(url: str) -> tuple[str, str] | None:
     # Normalise: "jpg" → "jpeg" (MIME spec)
     if mime_ext == "jpg":
         mime_ext = "jpeg"
-    return f"image/{mime_ext}", m.group(2)
+    mime = f"image/{mime_ext}"
+    return _shrink_oversize_image(mime, m.group(2))
 
 
 def _file_to_data_uri(url: str) -> tuple[str, str] | None:

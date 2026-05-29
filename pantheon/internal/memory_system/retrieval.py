@@ -11,6 +11,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pantheon.utils.log import logger
 
@@ -18,6 +19,9 @@ from .freshness import annotate_with_freshness, memory_age_text
 from .prompts import LLM_SELECTION_SYSTEM, LLM_SELECTION_USER
 from .store import MemoryStore
 from .types import MemoryEntry, MemoryHeader
+
+if TYPE_CHECKING:
+    from .runtime import MemoryRuntime
 
 
 @dataclass
@@ -48,13 +52,18 @@ class MemoryRetriever:
         max_memories: int = 5,
         max_chats: int = 3,
         session_notes_limit: int = 10,
+        runtime: "MemoryRuntime | None" = None,
     ):
         self.store = store
         self.model = model
+        self.runtime = runtime
         self.runtime_dir = runtime_dir
         self.max_memories = max_memories
         self.max_chats = max_chats
         self.session_notes_limit = session_notes_limit
+
+    def _resolved_model(self) -> str:
+        return self.runtime.resolve_model(self.model) if self.runtime else self.model
 
     async def find_relevant(
         self,
@@ -225,7 +234,7 @@ class MemoryRetriever:
 
         try:
             response = await acompletion(
-                model=str(self.model),
+                model=str(self._resolved_model()),
                 messages=[
                     {"role": "system", "content": system_msg},
                     {"role": "user", "content": user_msg},
@@ -255,7 +264,7 @@ class MemoryRetriever:
 
         try:
             response = await acompletion(
-                model=str(self.model),
+                model=str(self._resolved_model()),
                 messages=[
                     {"role": "system", "content": system_msg},
                     {"role": "user", "content": user_msg},

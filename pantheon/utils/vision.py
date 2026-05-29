@@ -132,18 +132,48 @@ def get_image_base64(file_path: str, max_size: int = MAX_IMAGE_DIMENSION) -> str
         if max(img.size) > max_size:
             img.thumbnail((max_size, max_size), Image.LANCZOS)
 
-        # Encode to buffer
+        # Encode to buffer. Anthropic rejects images whose base64 payload
+        # exceeds 5 MB; PNG of a 1568² RGBA image easily clears that even
+        # after thumbnailing. Fall back to a flattened RGB JPEG (with white
+        # background composite) when the lossless PNG comes out too large.
+        BASE64_LIMIT = 4 * 1024 * 1024  # leave headroom under 5 MB
+        # Approximate: base64 length ≈ raw_bytes * 4/3
+        RAW_LIMIT = (BASE64_LIMIT // 4) * 3
+
         buffer = io.BytesIO()
 
+        used_jpeg_fallback = False
         if img.mode in ("RGBA", "LA", "P"):
-            # Preserve transparency with PNG
+            # Preserve transparency with PNG when feasible.
             img.save(buffer, format="PNG", optimize=True)
             mime = "png"
+            if buffer.tell() > RAW_LIMIT:
+                # PNG too big — composite onto white and re-encode as JPEG.
+                buffer = io.BytesIO()
+                if img.mode == "P":
+                    img = img.convert("RGBA")
+                if img.mode in ("RGBA", "LA"):
+                    bg = Image.new("RGB", img.size, (255, 255, 255))
+                    alpha = img.getchannel("A") if img.mode == "RGBA" else img.split()[-1]
+                    bg.paste(img.convert("RGB"), mask=alpha)
+                    img = bg
+                else:
+                    img = img.convert("RGB")
+                img.save(buffer, format="JPEG", quality=85, optimize=True)
+                mime = "jpeg"
+                used_jpeg_fallback = True
         else:
             # Use JPEG for RGB (smaller file size)
             if img.mode != "RGB":
                 img = img.convert("RGB")
             img.save(buffer, format="JPEG", quality=85, optimize=True)
+            mime = "jpeg"
+
+        # If JPEG is still too big (e.g. very high-detail photo), step quality
+        # down once. Aggressive quality drops here are rare in practice.
+        if buffer.tell() > RAW_LIMIT and (mime == "jpeg" or used_jpeg_fallback):
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=70, optimize=True)
             mime = "jpeg"
 
         return f"data:image/{mime};base64,{base64.b64encode(buffer.getvalue()).decode()}"

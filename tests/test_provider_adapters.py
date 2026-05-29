@@ -91,7 +91,8 @@ class TestProviderRegistry:
 
     def test_models_by_provider_qwen(self):
         models = models_by_provider("qwen")
-        assert len(models) == 9
+        assert len(models) == 13
+        assert "qwen/qwen3.7-max" in models
 
     def test_output_token_param_catalog(self):
         assert get_output_token_param("openai/gpt-5.4") == "max_completion_tokens"

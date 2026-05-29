@@ -14,11 +14,14 @@ import asyncio
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from pantheon.utils.log import logger
 
 from .prompts import SESSION_MEMORY_UPDATE_PROMPT, SESSION_MEMORY_TEMPLATE
+
+if TYPE_CHECKING:
+    from .runtime import MemoryRuntime
 
 
 @dataclass
@@ -62,10 +65,17 @@ class SessionNoteExtractor:
     MAX_TOTAL_TOKENS = 12_000
     EXTRACTION_TIMEOUT = 15.0
 
-    def __init__(self, runtime_dir: Path, model: str, config: dict | None = None):
+    def __init__(
+        self,
+        runtime_dir: Path,
+        model: str,
+        config: dict | None = None,
+        runtime: "MemoryRuntime | None" = None,
+    ):
         self.notes_dir = runtime_dir / "session-notes"
         self.notes_dir.mkdir(parents=True, exist_ok=True)
         self.model = model
+        self.runtime = runtime
         self._states: dict[str, _SessionState] = {}
         cfg = config or {}
         self.INIT_TOKEN_THRESHOLD = cfg.get("session_note_init_tokens", 10_000)
@@ -254,8 +264,9 @@ class SessionNoteExtractor:
             new_messages=formatted,
         )
 
+        resolved_model = self.runtime.resolve_model(self.model) if self.runtime else self.model
         response = await acompletion(
-            model=str(self.model),
+            model=str(resolved_model),
             messages=[{"role": "user", "content": prompt}],
             model_params={"temperature": 0.0, "max_tokens": self.MAX_TOTAL_TOKENS},
         )

@@ -45,15 +45,40 @@ class CompressionPlugin(TeamPlugin):
     def __init__(self, config: Dict[str, Any]):
         """
         Initialize compression plugin.
-        
+
         Args:
             config: Compression configuration dict (from settings.get_compression_config())
-                   Should include 'compression_model' field
+                   `compression_model` is optional. Empty / None / "auto" means
+                   "use the active agent's model at compression time" — keeps
+                   the compressor on the same provider/quota as the chat,
+                   which is the expected behavior for most users. Power users
+                   can pin a specific model (e.g. "openai/gpt-4o-mini") for
+                   cost or context-window reasons.
         """
         self.config = config
-        self.model = config.get("compression_model", "normal")  # Get model from config
+        # Normalize empty / "auto" to None so we know to resolve dynamically.
+        configured = config.get("compression_model")
+        if isinstance(configured, str) and configured.strip().lower() in ("", "auto"):
+            configured = None
+        self.model = configured  # None means "auto = active agent's model"
         self.compressor: "ContextCompressor | None" = None
         self._enabled = config.get("enable", False)
+
+    def _resolve_model(self, team: "PantheonTeam", memory: "Memory") -> str:
+        """Pick the model that will run the compression LLM call.
+
+        Priority:
+        1. Explicit `compression_model` config — power-user override.
+        2. Active agent's first model — keeps compressor on the same
+           provider/quota as the chat (default for most users).
+        3. Tier "normal" — last-resort fallback when no agent has a model.
+        """
+        if self.model:
+            return self.model
+        active = team.get_active_agent(memory)
+        if active and getattr(active, "models", None):
+            return active.models[0]
+        return "normal"
     
     async def on_team_created(self, team: "PantheonTeam") -> None:
         """
@@ -74,16 +99,17 @@ class CompressionPlugin(TeamPlugin):
             retry_after_messages=self.config.get("retry_after_messages", 10),
         )
         
-        # Use configured model (do NOT override with team's model)
-        # Compression has its own model configuration
-        
-        # Always create compressor (for force_compress support)
-        self.compressor = ContextCompressor(compression_config, self.model)
-        
+        # Always create compressor (for force_compress support).
+        # The model passed here is the *fallback* — at run time we override it
+        # with the active agent's model unless the user pinned a specific
+        # `compression_model` (see `_resolve_model`).
+        self.compressor = ContextCompressor(compression_config, self.model or "normal")
+
+        model_label = self.model or "auto (active agent)"
         if self._enabled:
-            logger.info(f"Compression plugin initialized with auto-compression (model={self.model}, threshold={compression_config.threshold})")
+            logger.info(f"Compression plugin initialized with auto-compression (model={model_label}, threshold={compression_config.threshold})")
         else:
-            logger.info(f"Compression plugin initialized (model={self.model}, auto-compression disabled, manual compression available)")
+            logger.info(f"Compression plugin initialized (model={model_label}, auto-compression disabled, manual compression available)")
     
     async def on_run_start(self, team: "PantheonTeam", user_input: str, context: dict) -> None:
         """
@@ -141,10 +167,17 @@ class CompressionPlugin(TeamPlugin):
             if sm_result is not None:
                 return sm_result
 
+        # Resolve which model to actually run compression with — defaults to
+        # the active agent's model so we stay on the same provider/quota.
+        resolved_model = self._resolve_model(team, memory)
+        if resolved_model != self.compressor.model:
+            logger.info(f"Compressor using model: {resolved_model}")
+
         result = await self.compressor.compress(
             messages=memory._messages,
             compression_dir=compression_dir,
             force=force,
+            model_override=resolved_model,
         )
         
         if result.compression_message:

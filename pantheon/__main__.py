@@ -118,6 +118,19 @@ def update_templates():
     console.print(f"\n[green]Updated {len(selected)} template(s).[/green]")
 
 
+def sync_templates():
+    """Force-sync all factory templates (agents, teams, prompts, skills) to ~/.pantheon/.
+
+    Non-interactive. Clears hash tracking and overwrites all factory-origin files.
+    Useful after image upgrades to ensure latest templates are in use.
+    """
+    from pantheon.factory.template_manager import get_template_manager
+
+    tm = get_template_manager()
+    total = tm.force_sync_factory_templates()
+    print(f"Synced {total} template(s) from factory.")
+
+
 def main():
     # Skip auto-setup if user explicitly requested "pantheon setup"
     if len(sys.argv) < 2 or sys.argv[1] != "setup":
@@ -143,6 +156,7 @@ def main():
             "ui": ui,
             "setup": setup,
             "update-templates": update_templates,
+            "sync-templates": sync_templates,
             "store": StoreCLI,
         },
         name="pantheon",

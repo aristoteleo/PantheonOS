@@ -37,6 +37,35 @@ class MemoryRuntime:
         self.memory_extractor: MemoryExtractor | None = None
         self._shown_memories: dict[str, set[str]] = {}  # session_id → shown set
         self._initialized = False
+        # Active agent's model — set by MemoryPlugin on every run so internal
+        # background agents (memory-extractor, session-note, flush, dream,
+        # selector) can default to the same provider as the chat. Avoids
+        # cross-provider quota surprises when `selection_model` is "auto".
+        self._active_model: str | None = None
+
+    def set_active_model(self, model: str | None) -> None:
+        """Record the model of the currently-active chat agent.
+
+        Used by `resolve_model` to fill in "auto" / None defaults so internal
+        memory tasks share the chat's provider quota.
+        """
+        if model and model != self._active_model:
+            logger.debug(f"MemoryRuntime active model: {model}")
+        self._active_model = model
+
+    def resolve_model(self, configured: str | None) -> str:
+        """Resolve a configured model spec to the actual model id to use.
+
+        - None / "" / "auto" → active agent's model (fallback "normal").
+        - "high" / "normal" / "low" → tier name, returned as-is (model_selector
+          handles tier resolution downstream).
+        - Any other string → treated as a specific model id, returned as-is.
+        """
+        if configured is None or (
+            isinstance(configured, str) and configured.strip().lower() in ("", "auto")
+        ):
+            return self._active_model or "normal"
+        return configured
 
     def initialize(self, pantheon_dir: Path, runtime_dir: Path) -> None:
         """Initialize all components, bound to a .pantheon/ directory.
@@ -56,27 +85,28 @@ class MemoryRuntime:
             max_memories=self.config.get("selection_max_memories", 5),
             max_chats=self.config.get("selection_max_chats", 3),
             session_notes_limit=self.config.get("session_notes_retrieval_limit", 10),
+            runtime=self,
         )
 
         if self.config.get("flush_enabled"):
             self.flusher = MemoryFlusher(
-                self.store, model=self.config["flush_model"]
+                self.store, model=self.config["flush_model"], runtime=self
             )
 
         if self.config.get("dream_enabled"):
             self.dream_gate = DreamGate(self.store, self.config)
             self.consolidator = DreamConsolidator(
-                self.store, model=self.config["dream_model"]
+                self.store, model=self.config["dream_model"], runtime=self
             )
 
         self.session_log = SessionLogManager(runtime_dir / "session-logs")
 
         # Phase 2A: Session Note Extractor (for compact shortcut)
         model = self.config["selection_model"]
-        self.session_note = SessionNoteExtractor(runtime_dir, model, self.config)
+        self.session_note = SessionNoteExtractor(runtime_dir, model, self.config, runtime=self)
 
         # Phase 2B: Extract Memories (per-turn auto extraction)
-        self.memory_extractor = MemoryExtractor(self.store, model)
+        self.memory_extractor = MemoryExtractor(self.store, model, runtime=self)
 
         self._initialized = True
 

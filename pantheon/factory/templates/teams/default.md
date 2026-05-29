@@ -22,6 +22,7 @@ leader:
     - integrated_notebook
     - web
     - evolution
+    - live_view
     - think
 ---
 
@@ -30,6 +31,8 @@ leader:
 {{coding_dev}}
 
 {{visual_verification}}
+
+{{pdf_output}}
 
 ## Task Execution Strategy
 
@@ -97,10 +100,22 @@ call_agent("researcher", "Search the web for best practices on X. Gather informa
 **Delegate for:** Schematic diagrams, conceptual illustrations, architecture diagrams, publication-quality figures — tasks where the output is a conceptual diagram, not a data-driven chart.
 **Execute directly (or via Researcher):** Data visualizations, statistical plots, charts derived from analysis results.
 
+### Interactive UI → Live View
+
+When the user asks for an **interactive component, app, widget, dashboard,
+or a visualization they can manipulate** — a counter, a plot they click, a
+control panel, a data browser — build it as a **LiveView**: load the
+`live_view` skill and open it with `open_live_view` so it renders live in
+the sidebar and you can drive it and read it back. This is the default for
+anything interactive, even when the user does not say "live view". Do NOT
+write a standalone `.html` file for this — that is only right when the user
+explicitly wants a file to download or open separately.
+
 ### Decision Summary
 
 | Task Type | Action |
 |---|---|
+| Interactive component / app / widget / manipulable viz | **Build as a LiveView** (`open_live_view`) |
 | Explore/read/understand codebase | **MUST delegate** to researcher |
 | Web search or documentation lookup | **MUST delegate** to researcher |
 | Data analysis or research | **MUST delegate** to researcher |

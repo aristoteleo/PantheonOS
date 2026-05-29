@@ -1,15 +1,16 @@
 ---
 category: scientific_writing
 description: |
-  AI team for autonomous scientific paper writing.
-  Markdown-first architecture: writer produces paper.md (SSoT), reporter renders
-  HTML preview (pandoc + CSS themes) and exports PDF/LaTeX/DOCX on demand.
-  Supports both generic and bio/bioinformatics paper modes.
+  AI team for autonomous report and academic paper writing.
+  Markdown-first architecture: writer produces paper.md (SSoT) in standard Markdown,
+  reporter renders HTML preview and (for academic style) compiles PDF via Tectonic.
+  - Report style (default): HTML template + CSS. UI handles HTML → PDF export.
+  - Academic style: LaTeX template + Tectonic → PDF. HTML preview also generated.
 icon: 📝
 id: paper_write_team
 name: Paper Write Team
 type: team
-version: 2.0.0
+version: 3.1.0
 agents:
   - paper_write/leader
   - researcher
@@ -19,54 +20,65 @@ agents:
 
 # Paper Write Team
 
-A Markdown-first AI team for autonomous scientific paper writing. The writer produces a single `paper.md` (pandoc academic Markdown) as the source of truth. The reporter converts it to HTML preview (with CSS themes) for UI rendering/editing, and exports to PDF, LaTeX, DOCX, or standalone HTML on demand.
+A Markdown-first AI team for autonomous report and academic paper writing. The writer produces a single `paper.md` (standard Markdown) as the source of truth. The reporter converts it to HTML preview and, for academic style, compiles a Tectonic PDF. For report style, the UI exports the HTML to PDF on demand.
 
 ## Architecture
 
 ```
-draft/paper.md (SSoT — writer produces)
-       │
-       ├── Frontend Mode A: Markdown editor ←→ paper.md
-       │
-       ├── Frontend Mode B: Paper format view ←── preview.html (reporter generates)
-       │
-       └── Export (reporter, on demand):
-             ├── PDF quick (HTML → weasyprint)
-             ├── PDF submission (Markdown → LaTeX → pdflatex)
-             ├── LaTeX source (pandoc)
-             ├── DOCX (pandoc)
-             └── HTML standalone (monolith)
+paper.md (SSoT — standard Markdown + lightweight frontmatter)
+    │
+    ├── Report style (DEFAULT)
+    │   ├── Reporter reads HTML template + CSS from skill
+    │   ├── Reporter converts MD → HTML, fills template → preview.html
+    │   ├── UI exports HTML → PDF (on user request)
+    │   └── pandoc → DOCX (optional)
+    │
+    └── Academic style (user explicitly requests)
+        ├── Reporter reads LaTeX template from skill
+        ├── Reporter converts MD → LaTeX, fills template → .tex
+        ├── Tectonic → PDF
+        ├── Reporter also generates HTML preview (academic template)
+        └── pandoc → DOCX (optional)
 ```
 
 ## Team Structure
 
 | Agent | Role | Key Capabilities |
 |-------|------|------------------|
-| **leader** | Orchestrator | Input triage, mode/theme/export config, writer/reporter scheduling, user feedback routing |
+| **leader** | Orchestrator | Input triage, style/template config, writer/reporter scheduling, user feedback routing |
 | **researcher** | Generalist support | Literature review, bibtex generation, data EDA, environment audit, package installation |
-| **writer** | Scientific author | Produces `paper.md` in pandoc academic Markdown; calls researcher for evidence gaps |
-| **reporter** | Conversion engine | pandoc pipeline: Markdown → HTML preview (CSS themes) → PDF/LaTeX/DOCX exports |
+| **writer** | Document author | Produces `paper.md` in standard Markdown; calls researcher for evidence gaps |
+| **reporter** | Conversion engine | Report: MD → HTML. Academic: MD → LaTeX → Tectonic → PDF + HTML preview |
 
 ## Deliverables
 
-- `report/<slug>_preview.html` — always generated; UI renders this for preview/editing
-- `report/<slug>.pdf` — on demand (quick via weasyprint, or submission via LaTeX)
-- `report/<slug>.tex` + `.bib` — on demand (for journal submission)
-- `report/<slug>.docx` — on demand (for collaborators)
-- `report/<slug>_standalone.html` — on demand (offline sharing)
+- `report/<slug>_preview.html` — always generated; UI renders for preview/editing and PDF export
+- `report/<slug>.pdf` — academic style only (via Tectonic); report style PDF is exported by the UI from the HTML
+- `report/<slug>.tex` — academic style only (LaTeX source)
+- `report/<slug>.docx` — on demand (via pandoc)
+- `report/DELIVERY.md` — final delivery summary
 
-## Supported Modes
+## Styles
 
-- **`bio`** — bioinformatics / biomedical / clinical; IMRaD with Results before Methods; PubMed-preferred citations
-- **`generic`** — CS / ML / engineering / physics / chemistry / social science; adaptable structure
+| Style | Default? | Trigger | Pipeline | Tools |
+|-------|----------|---------|----------|-------|
+| `report` | YES (no PDF requested) | "报告"/"分析"/"调研" without explicit PDF ask, or unspecified output format | HTML template + CSS (UI exports to PDF) | None (agent does string ops only) |
+| `academic` | YES (PDF requested) | "论文"/"paper"/"投稿"/"综述"/"academic" — **or any mention of PDF**: "PDF"/"pdf"/"导出 PDF"/"生成 PDF"/"compile PDF"/"high-quality PDF" | LaTeX template → Tectonic → PDF | Tectonic |
 
-## CSS Themes
+**PDF override rule (highest priority):** If the user explicitly asks for a PDF artefact — by saying "PDF", "导出 PDF", "生成 PDF report", "compile PDF", or otherwise referencing a `.pdf` file as the deliverable — **always pick `academic` style**, regardless of other triage signals. Rationale: the `report` pipeline does not produce a `.pdf` file (it only produces HTML + relies on the UI's browser print-to-PDF, which has lower typesetting quality than LaTeX/Tectonic for fonts, page breaks, equations, and tables). Picking `academic` here gives the user a real PDF file directly.
 
-| Theme | Look |
-|---|---|
-| `academic_minimal` | White background, navy headings, sans-serif, clean modern |
-| `academic_latex` | Mimics LaTeX article class: Computer Modern fonts, paragraph indent, booktabs tables |
-| `custom` | User-provided CSS file |
+## Templates (via paper_writing skill)
+
+Each template is a self-contained markdown file with HTML+CSS or LaTeX in code blocks.
+
+```
+.pantheon/skills/paper_writing/
+├── SKILL.md                       # Skill index (reporter reads this first)
+├── report_standard.md             # Report: HTML template + CSS (Manus-style)
+├── report_academic.md             # Academic: HTML template + CSS (LaTeX-like)
+├── latex_cn.md                    # Chinese academic LaTeX template
+└── latex_en.md                    # English academic LaTeX template
+```
 
 ## Supported Input Shapes
 
@@ -89,29 +101,30 @@ draft/paper.md (SSoT — writer produces)
 
 ```
 {workdir}/
-├── triage.md                            # input classification + mode + output config
-├── environment.md                       # tool audit
-├── materials/                           # user-provided inputs
+├── triage.md                        # input classification + style + output config
+├── environment.md                   # tool audit
+├── materials/                       # user-provided inputs
 │   ├── data/
 │   ├── figures/
 │   ├── drafts/
 │   ├── references_seed.bib
 │   └── inventory.md
-├── research/                            # researcher output
+├── research/                        # researcher output
 │   ├── literature_review.md
 │   ├── references.bib
 │   └── gap_analysis.md
-├── draft/                               # SSoT layer (writer output)
+├── references/                      # canonical reference registry (agentic_general)
+│   ├── references.json              # aggregated
+│   └── refs_researcher.json         # per-agent entries
+├── draft/                           # writer output (SSoT layer)
 │   ├── outline.md
-│   ├── paper.md                         # THE source of truth
-│   └── references.bib                   # merged bibtex
-└── report/                              # preview + exports (reporter output)
-    ├── <slug>_preview.html              # always generated
-    ├── <slug>.pdf                       # on demand
-    ├── <slug>.tex                       # on demand
-    ├── <slug>.bib                       # on demand
-    ├── <slug>.docx                      # on demand
-    ├── <slug>_standalone.html           # on demand
+│   ├── paper.md                     # THE source of truth
+│   └── references.bib              # merged bibtex (academic style)
+└── report/                          # reporter output (preview + exports)
+    ├── <slug>_preview.html          # always generated
+    ├── <slug>.pdf                   # always generated
+    ├── <slug>.tex                   # academic style only
+    ├── <slug>.docx                  # on demand
     └── DELIVERY.md
 ```
 
@@ -124,8 +137,8 @@ User Message
 ┌──────────────────────────────────────────────────────────┐
 │ Step 1  TRIAGE (leader)                                  │
 │   input_type ∈ {A, B, C, D}                              │
-│   mode ∈ {bio, generic}                                  │
-│   output_config: html_theme, export_formats, pdf_mode    │
+│   style ∈ {report, academic}  (default: report)          │
+│   output_config: template, lang, exports                  │
 │   work_intensity ∈ {low, medium, high}                   │
 │   → triage.md                                            │
 └──────────────────────────────────────────────────────────┘
@@ -133,9 +146,9 @@ User Message
      ▼
 ┌──────────────────────────────────────────────────────────┐
 │ Step 2  ENVIRONMENT AUDIT (researcher)                   │
-│   Check: pandoc, pandoc-crossref, weasyprint,            │
-│          pdflatex/tectonic, monolith (per export_formats) │
-│   Copy CSS theme → themes/active_theme.css               │
+│   Report style: none (agent-only)                        │
+│   Academic style: Tectonic                               │
+│   Optional: pandoc (DOCX only)                           │
 │   → environment.md                                       │
 └──────────────────────────────────────────────────────────┘
      │
@@ -150,64 +163,45 @@ User Message
 ┌──────────────────────────────────────────────────────────┐
 │ Step 4  LITERATURE REVIEW (researcher)                   │
 │   Condition: input type B, C, or D                       │
-│   → research/literature_review.md                        │
-│   → research/references.bib                              │
-│   → research/gap_analysis.md                             │
+│   → research/literature_review.md + references.bib       │
 └──────────────────────────────────────────────────────────┘
      │
      ▼
 ┌──────────────────────────────────────────────────────────┐
-│ Step 5  OUTLINE (writer)                                 │
-│   → draft/outline.md                                     │
+│ Step 5  OUTLINE (writer) → draft/outline.md              │
 │   Leader reviews and approves                            │
 └──────────────────────────────────────────────────────────┘
      │
      ▼
 ┌──────────────────────────────────────────────────────────┐
-│ Step 6  DRAFTING (writer)                                │
-│   Produces single Markdown file with pandoc extensions   │
-│   → draft/paper.md  (SSoT)                               │
-│   → draft/references.bib  (merged)                       │
+│ Step 6  DRAFTING (writer) → draft/paper.md (SSoT)        │
 │   Writer may call researcher for evidence gaps           │
 └──────────────────────────────────────────────────────────┘
      │
      ▼
 ┌──────────────────────────────────────────────────────────┐
 │ Step 7  DRAFT REVIEW (leader)                            │
-│   Read paper.md with think + sampled sections            │
 │   If issues → writer fixes → re-check                    │
 └──────────────────────────────────────────────────────────┘
      │
      ▼
 ┌──────────────────────────────────────────────────────────┐
-│ Step 8  HTML PREVIEW (reporter)                          │
-│   pandoc paper.md + CSS theme → preview.html             │
-│   → report/<slug>_preview.html                           │
+│ Step 8  RENDERING (reporter)                             │
+│   Report: MD → HTML template + CSS → preview.html        │
+│           (UI exports HTML to PDF)                       │
+│   Academic: MD → LaTeX template → Tectonic → PDF         │
+│             + HTML preview                               │
 └──────────────────────────────────────────────────────────┘
      │
      ▼
 ┌──────────────────────────────────────────────────────────┐
 │ Step 9  USER REVIEW                                      │
-│   User sees preview in UI (Mode A: Markdown / Mode B:    │
-│   rendered paper view)                                   │
-│                                                          │
-│   Feedback via message → writer edits paper.md → Step 8  │
-│   Direct edit of paper.md → reporter regenerates → Step 8│
-│   User approves → Step 10                                │
+│   Feedback → writer edits → re-render                    │
+│   Approve → Step 10                                      │
 └──────────────────────────────────────────────────────────┘
      │
      ▼
-┌──────────────────────────────────────────────────────────┐
-│ Step 10  EXPORT (reporter, per output_config)            │
-│   PDF quick: weasyprint preview.html → .pdf              │
-│   PDF submission: pandoc → LaTeX → pdflatex → .pdf       │
-│   LaTeX: pandoc → .tex + .bib                            │
-│   DOCX: pandoc → .docx                                   │
-│   Standalone HTML: monolith → _standalone.html           │
-└──────────────────────────────────────────────────────────┘
-     │
-     ▼
-Step 11  DELIVERY → report/DELIVERY.md → User
+Step 10  DELIVERY → report/DELIVERY.md → User
 ```
 
 ## Agent Call Relationships
@@ -225,158 +219,81 @@ Step 11  DELIVERY → report/DELIVERY.md → User
               │researcher│ │writer│ │ reporter │    │
               └──────────┘ └──────┘ └──────────┘    │
                    ▲          │          │           │
-                   │          │          │           │
                    └──────────┘          │           │
-                   (writer → researcher  │           │
-                    for evidence gaps)   │           │
-                                         │           │
-                              (reporter → researcher │
-                               for tool install)     │
+                   (evidence gaps)       │           │
+                              (tool install)         │
 ```
-
-```mermaid
-graph TD
-    User([User]) --> Leader[leader]
-    Leader -->|research, EDA, bibtex| Researcher[researcher]
-    Leader -->|draft paper.md| Writer[writer]
-    Leader -->|render + export| Reporter[reporter]
-    Writer -->|evidence gaps, citations| Researcher
-    Reporter -->|install tools| Researcher
-    style Leader fill:#4A90E2,stroke:#2E5C8A,color:#fff
-    style Researcher fill:#7ED321,stroke:#5FA319,color:#fff
-    style Writer fill:#F5A623,stroke:#C77E1B,color:#fff
-    style Reporter fill:#BD10E0,stroke:#8B0CA6,color:#fff
-    style User fill:#333,stroke:#000,color:#fff
-```
-
-## Call Relationship Summary
 
 | Caller | Can Call | Purpose |
 |--------|----------|---------|
 | **leader** | `researcher`, `writer`, `reporter` | Orchestrate end-to-end |
 | **writer** | `researcher` | Fill evidence gaps, generate citations |
-| **reporter** | `researcher` | Install missing tools (pandoc, weasyprint, etc.) |
+| **reporter** | `researcher` | Install missing tools |
 | **researcher** | _(none)_ | Leaf node — provides services |
-
----
-
-## Agent Responsibility Matrix
-
-```
-┌───────────────────────────────────────────────────────────┐
-│  Leader (paper_write/leader.md)                           │
-│  ─────────────────────────────                            │
-│  • Input triage (A/B/C/D input shapes)                    │
-│  • Mode detection (bio vs generic)                        │
-│  • Output config (html_theme / export_formats / pdf_mode) │
-│  • Work intensity judgment (low / medium / high)          │
-│  • Schedule researcher / writer / reporter                │
-│  • Route user feedback                                    │
-└───────────────────────────────────────────────────────────┘
-
-┌───────────────────────────────────────────────────────────┐
-│  Researcher (root-level researcher.md, shared)            │
-│  ─────────────────────────────                            │
-│  • Environment audit (pandoc, weasyprint, pdflatex, etc.) │
-│  • Material classification and organization               │
-│  • Literature search + bibtex generation                  │
-│  • Fill evidence/citation gaps on writer's request        │
-│  • Install missing tools on reporter's request            │
-└───────────────────────────────────────────────────────────┘
-
-┌───────────────────────────────────────────────────────────┐
-│  Writer (paper_write/writer.md)                           │
-│  ─────────────────────────────                            │
-│  • Produces ONE file: draft/paper.md                      │
-│  • Uses pandoc academic Markdown extensions:              │
-│      [@cite] / @fig:id / $$math$$ / ::: {.theorem}        │
-│  • IMRaD structure (bio / generic variants)               │
-│  • Writing order: Methods → Results → Intro → Disc → Abs  │
-│  • Calls researcher for evidence gaps                     │
-│  • Never writes LaTeX, HTML, or CSS                       │
-└───────────────────────────────────────────────────────────┘
-
-┌───────────────────────────────────────────────────────────┐
-│  Reporter (paper_write/reporter.md)                       │
-│  ─────────────────────────────                            │
-│  • pandoc pipeline operator                               │
-│  • Reads paper_writing skill for CSS theme content        │
-│  • Workflow A: generate HTML preview (always)             │
-│  • Workflow B: PDF quick (HTML → weasyprint)              │
-│  • Workflow C: PDF submission (MD → LaTeX → pdflatex)     │
-│  • Workflow D: LaTeX source export                        │
-│  • Workflow E: DOCX export                                │
-│  • Workflow F: standalone HTML (monolith)                 │
-│  • Workflow G: regenerate after paper.md change           │
-│  • Never authors paper content, only converts             │
-└───────────────────────────────────────────────────────────┘
-```
-
----
 
 ## paper.md Contract (writer's output specification)
 
-Every `paper.md` MUST follow this structure:
+Every `paper.md` uses standard Markdown with a lightweight frontmatter:
 
-```markdown
+```yaml
 ---
-title: "Paper Title"
+title: "Document Title"
 authors:
   - name: Author Name
     affiliation: Institution
-date: 2026-04-22
-mode: bio                        # bio | generic
-bibliography: references.bib
-link-citations: true
+date: 2026-04-29
+lang: zh
 ---
-
-## Abstract
-Text with citation [@key]. 150–250 words.
-
-## Introduction
-@smith2024 demonstrated that ... Multiple studies agree
-[@a2020; @b2021]. As shown in @fig:overview ...
-
-![Overview of pipeline](figures/overview.png){#fig:overview}
-
-## Methods
-Software X version 1.2 was used ...
-
-## Results
-
-### Subsection
-Table @tbl:stats shows ...
-
-| Col A | Col B |
-|------:|------:|
-|   100 |  0.05 |
-
-: Caption {#tbl:stats}
-
-$$
-S = \frac{\log_2(\text{FC})}{-\log_{10}(p)}
-$$ {#eq:score}
-
-::: {.theorem}
-Formal statement here.
-:::
-
-## Discussion
-...
 ```
 
-**Pandoc extensions used:**
+**Report style** — numbered citations `[1]`, `[2]` with reference list at end:
 
-- YAML frontmatter (metadata)
-- `[@key]` / `@key` (citeproc citations)
-- `@fig:id` / `@tbl:id` / `@eq:id` (pandoc-crossref cross-references)
-- `$...$` / `$$...$$` (MathJax math)
-- `::: {.theorem}` (fenced divs for theorem/lemma/proof environments)
-- `[^1]` (footnotes)
-- Pipe tables with `: caption {#id}` below
-- Figures with `![caption](path){#fig:id}`
+```markdown
+## 摘要
 
----
+本报告旨在分析... 150-300 words.
+
+## 1. 引言
+
+AI4S 利用 AI 的强大数据处理能力 [1]。多项研究支持这一观点 [2, 3]。
+
+![Figure 1: Overview of the pipeline](figures/overview.png)
+
+## 2. 主要发现
+
+**Table 1: Key metrics**
+
+| Metric | Value |
+|--------|------:|
+| Accuracy | 95.2% |
+
+## 参考文献
+
+1. Author A. "Title." Journal, 2024.
+2. Author B. "Title." Conference, 2023.
+```
+
+**Academic style** — `[@key]` citations with references.bib:
+
+```markdown
+## Abstract
+
+This paper presents... [@smith2024].
+
+## Introduction
+
+@jones2023 demonstrated that...
+```
+
+## Key Design Principles
+
+1. **Markdown is SSoT.** `paper.md` is the only authoritative document. All other formats are derived.
+2. **Report style is default.** Most use cases are reports, not academic papers.
+3. **Standard Markdown only.** No pandoc-specific extensions. Writer writes plain Markdown.
+4. **Two rendering pipelines.** Report: HTML only (UI exports PDF). Academic: LaTeX+Tectonic → PDF.
+5. **Templates via skills.** HTML templates, CSS themes, and LaTeX templates live in the paper_writing skill.
+6. **Strict responsibility layering.** Writer writes, reporter converts, researcher investigates, leader coordinates.
+7. **UI decoupled.** Agents only read/write `paper.md`; how the user edits it is the UI's concern.
 
 ## Artifact Matrix
 
@@ -387,159 +304,23 @@ Formal statement here.
 | `materials/inventory.md` | 3 | researcher | If A/B/D | Material index |
 | `research/literature_review.md` | 4 | researcher | If B/C/D | Literature synthesis |
 | `research/references.bib` | 4 | researcher | If B/C/D | Auto bibtex |
-| `references/refs_researcher.json` | 4 / 6 | researcher | If B/C/D or evidence-gap fill | Per-agent canonical reference entries |
-| `references.json` | 4 / 6 | leader | If references used | Aggregated canonical reference registry |
-| `research/gap_analysis.md` | 4 | researcher | If B/C/D | Paper contribution |
+| `references/refs_researcher.json` | 4 | researcher | If B/C/D | Canonical structured references |
+| `references.json` | 4 | leader | If references used | Aggregated reference registry |
 | `draft/outline.md` | 5 | writer | Always | Structure skeleton |
 | **`draft/paper.md`** | 6 | writer | **Always (SSoT)** | **Single source of truth** |
-| `draft/references.bib` | 6 | writer | Always | Merged bibtex |
-| **`report/<slug>_preview.html`** | 8 | reporter | **Always** | **UI preview/editing** |
-| `report/<slug>.pdf` | 10 | reporter | On demand | Daily share (quick) or submission |
-| `report/<slug>.tex` | 10 | reporter | On demand | Journal LaTeX source |
-| `report/<slug>.bib` | 10 | reporter | Alongside .tex | LaTeX references |
-| `report/<slug>.docx` | 10 | reporter | On demand | Collaborator Word editing |
-| `report/<slug>_standalone.html` | 10 | reporter | On demand | Offline sharing |
-| `report/DELIVERY.md` | 11 | leader | Always | Final delivery summary |
-
-> **Note**: workdir contains NO `themes/` directory. CSS themes live in
-> `.pantheon/skills/paper_writing/themes/` and are read by reporter via the
-> skills mechanism. Reporter decides how to apply them (embed in HTML or
-> pass via pandoc `--css`).
->
-> **Reference note**: `references.json` and `references/refs_*.json` are the canonical structured reference artifacts for agent/UI tracking. `.bib` files remain required for pandoc/LaTeX export and citation rendering, but they do not replace the canonical JSON registry.
-
----
-
-## Two PDF Paths
-
-```
-                                 ┌─── Daily share / internal review ──── pdf_mode: quick
-                                 │     HTML → weasyprint → PDF
-paper.md ─── reporter ───────────┤     (preserves HTML layout fidelity)
-                                 │
-                                 └─── Journal submission ──────────────── pdf_mode: submission
-                                       Markdown → LaTeX → pdflatex → PDF
-                                       (LaTeX-grade typographic precision)
-```
-
-Leader infers `pdf_mode` from user's natural language:
-
-- "initial draft" / "quick look" → `quick`
-- "submission" / "journal" / specific journal name → `submission`
-
----
-
-## Frontend UI Boundary
-
-Agent system and UI are decoupled. The agent system's contract:
-
-- Produces `draft/paper.md` (SSoT)
-- Produces `report/<slug>_preview.html` (for UI rendering)
-- Accepts external modifications to `paper.md`, regenerates preview
-
-**The UI layer evolves independently across three tiers:**
-
-```
-┌─────────────────────────────────────────────────────────┐
-│              Agent System (invariant)                    │
-│                                                          │
-│  writer → paper.md (SSoT)                                │
-│  reporter → preview.html (pandoc from paper.md)          │
-│  reporter → exports (PDF/LaTeX/DOCX, from paper.md)      │
-│                                                          │
-│  Contract: paper.md changes → reporter regenerates all   │
-└─────────────────────────────────────────────────────────┘
-          ↕  paper.md file read/write
-┌─────────────────────────────────────────────────────────┐
-│              UI Layer (evolves independently)            │
-│                                                          │
-│  Tier 1: Message feedback → leader → writer edits .md    │
-│  Tier 2: Markdown editor ↔ paper.md direct read/write    │
-│  Tier 3: WYSIWYG editor (Milkdown/Tiptap) ↔ paper.md     │
-└─────────────────────────────────────────────────────────┘
-```
-
-**Agents do not care how the user edits `paper.md`.** They only care
-about its current content. This lets the UI evolve without breaking
-the agent system.
-
----
-
-## External Dependency: paper_writing Skill
-
-CSS themes are stored as a standard Pantheon skill, synced automatically
-to `.pantheon/skills/paper_writing/`:
-
-```
-.pantheon/skills/paper_writing/
-├── SKILL.md                         # Theme index + usage guide
-└── themes/
-    ├── academic_minimal.css         # White bg, navy headings, sans-serif
-    └── academic_latex.css           # Mimics LaTeX article class
-```
-
-Users can add their own `.css` files here; set `html_theme: custom` in
-the output config to use them. Reporter locates and reads these files
-via the skills mechanism (no hardcoded paths in prompts).
-
----
-
-## Full Call Graph (Mermaid)
-
-```mermaid
-graph TD
-    User([User])
-    UI[Frontend UI]
-
-    User -->|message| Leader[leader]
-    User <-->|edit paper.md / view HTML| UI
-    UI <-->|read/write| PaperMD[(paper.md SSoT)]
-    UI <--|render preview| PreviewHTML[(preview.html)]
-
-    Leader -->|EDA, bibtex, env| Researcher[researcher]
-    Leader -->|draft| Writer[writer]
-    Leader -->|render & export| Reporter[reporter]
-
-    Writer -->|produces| PaperMD
-    Writer -->|evidence gaps| Researcher
-
-    Reporter -->|reads| PaperMD
-    Reporter -->|reads skill| PaperWritingSkill[(paper_writing skill)]
-    Reporter -->|produces| PreviewHTML
-    Reporter -->|on-demand| Exports[(PDF/LaTeX/DOCX/standalone)]
-    Reporter -->|install tools| Researcher
-
-    style Leader fill:#4A90E2,stroke:#2E5C8A,color:#fff
-    style Researcher fill:#7ED321,stroke:#5FA319,color:#fff
-    style Writer fill:#F5A623,stroke:#C77E1B,color:#fff
-    style Reporter fill:#BD10E0,stroke:#8B0CA6,color:#fff
-    style PaperMD fill:#FFE082,stroke:#FF8F00,color:#333
-    style PreviewHTML fill:#B2DFDB,stroke:#00695C,color:#333
-    style Exports fill:#E1BEE7,stroke:#6A1B9A,color:#333
-    style PaperWritingSkill fill:#D1C4E9,stroke:#512DA8,color:#333
-```
-
----
-
-## Key Design Principles
-
-1. **Markdown is SSoT.** `paper.md` is the only authoritative document. All other formats are derived.
-2. **Strict responsibility layering.** writer writes, reporter converts, researcher investigates, leader coordinates — no crossing boundaries.
-3. **Idempotent regeneration.** `paper.md` changes → re-run pandoc → done. No manual sync needed.
-4. **Exports are on demand.** Only generate what the user asked for; never waste compute.
-5. **Two PDF paths.** Quick (HTML → weasyprint) for daily use; submission (LaTeX → pdflatex) for journals.
-6. **CSS themes control appearance.** Same `paper.md` + different CSS = different look (academic_minimal, academic_latex, or custom).
-7. **Skills mechanism for themes.** No new directory convention; CSS lives in `.pantheon/skills/paper_writing/` like any other skill.
-8. **UI decoupled.** Agents only read/write `paper.md`; how the user edits it is the UI's concern.
+| `draft/references.bib` | 6 | writer | Academic only | Merged bibtex |
+| **`report/<slug>_preview.html`** | 8 | reporter | **Always** | **HTML preview** |
+| **`report/<slug>.pdf`** | 8 | reporter | **Always** | **PDF export** |
+| `report/<slug>.tex` | 8 | reporter | Academic only | LaTeX source |
+| `report/<slug>.docx` | 8 | reporter | On demand | Word document |
+| `report/DELIVERY.md` | 10 | leader | Always | Final delivery summary |
 
 ## Priority Chain
 
 ```
-User's explicit instructions (mode, topic, materials, outline)
-  > triage.md decisions (input type, mode, intensity, output_config)
+User's explicit instructions (style, topic, materials, outline)
+  > triage.md decisions (style, input type, intensity, output_config)
     > researcher outputs (literature, bibtex, inventory)
       > writer output (paper.md)
-        > reporter rendering (CSS theme, pandoc options)
+        > reporter rendering (template, CSS/LaTeX, HTML/Tectonic)
 ```
-
-**User intent > triage decisions > research evidence > draft content > rendering defaults.**
