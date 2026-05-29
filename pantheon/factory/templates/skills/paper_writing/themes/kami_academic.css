@@ -1,0 +1,199 @@
+---
+id: kami_academic_theme
+name: Kami Academic Theme
+description: |
+  Academic paper theme inspired by tw93/Kami design system.
+  Warm parchment color palette with ink blue accents, serif typography,
+  and print-optimized layout.
+source: https://github.com/tw93/Kami
+license: MIT
+---
+
+# Kami Academic Theme
+
+Professional academic paper styling with warm, readable color palette and print-ready CSS.
+
+## Color Palette
+
+- **Canvas**: #f5f4ed (parchment, warm background)
+- **Accent**: #1B365D (ink blue, primary emphasis)
+- **Neutrals**: warm-toned grays (not cool blue-gray)
+- **Text**: near-black #141413
+
+## Typography
+
+- **Chinese**: 优先宋体/明体或 serif fallback
+- **English**: Charter/Georgia
+- **Headings**: serif weight 500
+- **Body**: weight 400
+- **Line height**:
+  - Headings: 1.1-1.3
+  - Body: 1.5-1.55
+  - Dense info: 1.4-1.45
+
+## Layout
+
+- **Page**: A4, 20mm margins
+- **Print**: @page rules, break-inside avoid
+- **Tables**: border-collapse, row/column spacing
+- **Shadows**: ring or whisper shadow (not harsh drop-shadow)
+
+## CSS
+
+```css
+:root {
+  --parchment: #f5f4ed;
+  --ivory: #faf9f5;
+  --brand: #1B365D;
+  --near-black: #141413;
+  --stone: #6b6a64;
+  --border: #e8e6dc;
+}
+
+body {
+  background: var(--parchment);
+  color: var(--near-black);
+  font-family: "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", Georgia, serif;
+  line-height: 1.55;
+  letter-spacing: 0.1pt;
+}
+
+.editable-block:focus {
+  outline: 1.5pt solid var(--brand);
+  outline-offset: 4pt;
+  background: var(--ivory);
+}
+
+@page {
+  size: A4;
+  margin: 20mm 22mm;
+}
+
+@media print {
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  section, figure, table {
+    break-inside: avoid;
+  }
+}
+
+.section-title {
+  font-family: var(--serif);
+  font-size: 14pt;
+  font-weight: 500;
+  color: var(--near-black);
+  margin: 24pt 0 10pt 0;
+  border-left: 2.5pt solid var(--brand);
+  padding-left: 8pt;
+}
+
+h1 {
+  font-size: 18pt;
+  font-weight: 500;
+  margin-bottom: 12pt;
+}
+
+h2 {
+  font-size: 16pt;
+  font-weight: 500;
+  margin: 20pt 0 10pt 0;
+}
+
+h3 {
+  font-size: 14pt;
+  font-weight: 500;
+  margin: 16pt 0 8pt 0;
+}
+
+p {
+  margin: 0 0 12pt 0;
+}
+
+table {
+  border-collapse: collapse;
+  margin: 16pt 0;
+  width: 100%;
+}
+
+th, td {
+  border: 1pt solid var(--border);
+  padding: 8pt 12pt;
+  text-align: left;
+}
+
+th {
+  background: var(--ivory);
+  font-weight: 500;
+}
+
+figure {
+  margin: 16pt 0;
+  text-align: center;
+}
+
+figcaption {
+  margin-top: 8pt;
+  font-size: 10pt;
+  color: var(--stone);
+}
+
+code {
+  background: var(--ivory);
+  padding: 2pt 4pt;
+  border-radius: 2pt;
+  font-family: "SF Mono", "Consolas", monospace;
+  font-size: 0.9em;
+}
+
+pre {
+  background: var(--ivory);
+  padding: 12pt;
+  border-radius: 4pt;
+  overflow-x: auto;
+  line-height: 1.4;
+}
+
+blockquote {
+  border-left: 3pt solid var(--brand);
+  padding-left: 16pt;
+  margin: 16pt 0;
+  color: var(--stone);
+  font-style: italic;
+}
+
+a {
+  color: var(--brand);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Print-specific */
+@media print {
+  .section-title {
+    page-break-after: avoid;
+  }
+
+  h1, h2, h3 {
+    page-break-after: avoid;
+  }
+
+  figure, table {
+    page-break-inside: avoid;
+  }
+}
+```
+
+## Usage
+
+This theme is designed for:
+- Academic papers (journal articles, conference papers)
+- Formal reports requiring print-ready output
+- Documents where readability and professionalism are paramount
+
+Apply by setting `theme_id: kami_academic` in triage.md.

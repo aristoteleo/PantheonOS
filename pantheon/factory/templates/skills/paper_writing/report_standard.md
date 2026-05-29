@@ -13,7 +13,7 @@ Clean professional report style targeting Manus/AI4S report quality.
 
 ## HTML Template
 
-Reporter reads paper.md, converts Markdown to HTML, then fills this template.
+Read paper.md, convert Markdown to HTML, then fill this template.
 Replace `${{PLACEHOLDER}}` markers with actual content.
 
 ```html
@@ -77,9 +77,14 @@ ${{CONTENT}}
 
 When converting Markdown to HTML, apply these wrappers for proper styling:
 
-- **Abstract**: Wrap the first section ("摘要" or "Abstract") in `<section class="abstract">...</section>`
-- **References**: Wrap the last section ("参考文献" or "References") in `<section class="references">...</section>`
+- **Editable sections**: Wrap major sections as
+  `<section class="editable-block" data-block-id="..." data-section="..." data-source="draft/paper.md" data-format-role="..." contenteditable="true">...</section>`
+- **Abstract**: Add `abstract` to the first section ("摘要" or "Abstract")
+- **References**: Add `references` to the last section ("参考文献" or "References")
 - **Images**: Convert `![caption](path)` to `<figure><img src="path"><figcaption>caption</figcaption></figure>`
+
+Follow [Editable HTML Contract](./SKILL.md)
+for all paper-writing HTML outputs.
 
 ## CSS
 
@@ -124,6 +129,13 @@ body {
 .report-authors .author { margin-right: 16px; }
 .report-affiliations { font-size: 13px; color: #777; margin-bottom: 8px; }
 .report-date { font-size: 14px; color: #999; }
+
+/* ===== Editable blocks ===== */
+.editable-block:focus {
+    outline: 2px solid #1B365D;
+    outline-offset: 4px;
+    background: #faf9f5;
+}
 
 /* ===== Abstract ===== */
 section.abstract, div.abstract { margin-bottom: 32px; }
