@@ -15,7 +15,8 @@ is a **formal clinical genetics consult report** — not a chat message, not a m
 
 Produce a signed clinical genetics report with:
 - **cover page** — structured patient/detection metadata table,
-- **numbered sections** — four-level numbering (Section 1, 1.1, 1.1.1, (a)),
+- **numbered sections** — language-adaptive four-level hierarchy:
+  Chinese: 一、(一)、1.、(1) | English: 1. / 1.1 / 1.1.1 / (a)
 - **candidate overview table** — scannable in 30 seconds,
 - **per-candidate interpretation blocks** — phenotype match tables + evidence tables,
 - **formal sign-off block** — role/signature/date table + legal disclaimer,
@@ -40,6 +41,7 @@ Produce a signed clinical genetics report with:
 
 Use this exact 4-level hierarchy. **Do not flatten or re-order.**
 
+English:
 ```
 1. {Section Title}
   1.1 {Sub-section Title}
@@ -47,7 +49,13 @@ Use this exact 4-level hierarchy. **Do not flatten or re-order.**
       (a) {Sub-item Title}
 ```
 
-When outputting in Chinese, localize the numbering labels to 一、(一)、1.、(1).
+Chinese:
+```
+一、{章节标题}
+  (一){子节标题}
+    1.{条目标题}
+      (1){子条目标题}
+```
 
 ### Section Titles (translate to output language)
 
@@ -169,8 +177,12 @@ For each candidate in the overview table, produce this exact block:
 - DOI:{xx.xxxx/xxx} — {one-line relevance summary}
 ```
 
-- Provide exactly 5 ranked candidates when evidence supports it.
-- Mark under-supported slots as `[Exploratory]`.
+- Provide up to 5 ranked candidates. Only include candidates with at least
+  minimal evidence support (phenotype overlap or database annotation).
+- Do not fabricate candidates to fill 5 slots. If fewer than 5 are supported,
+  explain the evidence gap in Section 5.2 (Uncertainty Sources).
+- Mark genuinely speculative entries as `[Exploratory — insufficient evidence]`
+  and place them last.
 - Use exact ontology-backed disease names — never collapse to family labels.
 - Uncertainty belongs in analysis fields, never in the disease name.
 
@@ -292,45 +304,43 @@ single-gene sequencing. Include sample requirements and expected turnaround.
 
 ### Section 9: Sign-Off
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                                                          │
-│  Report Sign-Off                                         │
-│                                                          │
-│  ┌──────────┬──────────────────┬────────────┬──────────┐ │
-│  │ Role     │ Entity           │ Signature   │ Date     │ │
-│  ├──────────┼──────────────────┼────────────┼──────────┤ │
-│  │ AI Analyst│ PantheonOS      │ (system)    │ YYYY-MM-DD│ │
-│  │          │ rare_disease_team│             │          │ │
-│  ├──────────┼──────────────────┼────────────┼──────────┤ │
-│  │ Reviewer │ (pending human)  │            │          │ │
-│  ├──────────┼──────────────────┼────────────┼──────────┤ │
-│  │ Approver │ (pending)        │            │          │ │
-│  └──────────┴──────────────────┴────────────┴──────────┘ │
-│                                                          │
-│  Disclaimer:                                              │
-│  1. This report is AI-generated for clinical reference    │
-│     only and does not replace independent professional    │
-│     judgment of a licensed physician.                     │
-│  2. Disease rankings are based on current phenotype       │
-│     input and do not constitute a definitive diagnosis.   │
-│  3. Final diagnosis must be determined by a qualified     │
-│     clinician based on complete clinical evaluation.      │
-│  4. Genetic testing recommendations should be pursued     │
-│     under the guidance of a genetic counselor.            │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
+**签字栏（中文报告）/ Report Sign-Off（英文报告）**
+
+| 角色 / Role | 机构 / Entity | 签名 / Signature | 日期 / Date |
+|------------|--------------|-----------------|------------|
+| AI 分析员 / AI Analyst | PantheonOS rare_disease_team | (system) | YYYY-MM-DD |
+| 审核人 / Reviewer | （待人工填写） | | |
+| 批准人 / Approver | （待填写） | | |
+
+**免责声明 / Disclaimer:**
+
+1. 本报告由 AI 辅助鉴别诊断系统生成，仅供临床参考，不替代执业医师的独立专业判断。
+   This report is AI-generated for clinical reference only and does not replace
+   independent professional judgment of a licensed physician.
+2. 疾病排名基于当前表型输入，不构成最终诊断。
+   Disease rankings are based on current phenotype input and do not constitute
+   a definitive diagnosis.
+3. 最终诊断须由具备资质的临床医师结合完整临床评估确定。
+   Final diagnosis must be determined by a qualified clinician based on complete
+   clinical evaluation.
+4. 基因检测建议应在遗传咨询师指导下执行。
+   Genetic testing recommendations should be pursued under the guidance of a
+   genetic counselor.
 
 ---
-(C) {YYYY} PantheonOS. Report ID: RD-{YYYYMMDD}-{case_id}. Page {page}/{total}
-```
+© {YYYY} PantheonOS. Report ID: RD-{YYYYMMDD}-{case_id}
 
-**Every page after the cover must carry this footer:**
-```
-RD-{YYYYMMDD}-{case_id}                                   Page {page}/{total}
-```
+**每页页脚 / Page footer (every page after cover):**
+`RD-{YYYYMMDD}-{case_id}　　　　　　　　　　　　　　　　　　Page {page}/{total}`
 
 ---
+
+> **Field notes for the JSON block:**
+> - `blind_safe`: `true` when the report was generated from a de-identified or
+>   synthetic case (e.g., benchmark/evaluation runs). `false` for real patient cases.
+>   Used by `evaluate_rd_benchmark.py` to filter evaluation results.
+> - `clinical_urgency`: `routine` = standard workup timeline; `elevated` = expedite
+>   within days; `urgent` = same-day escalation warranted.
 
 ## Machine-Readable Output (required after Section 9)
 

@@ -89,47 +89,19 @@ Escalate to a harder multi-view re-ranking path only if:
 - phenotype and genotype signals diverge,
 - or ordinary re-ranking fails to narrow the list.
 
-## Hidden Reporter Format Contract (SYSTEM-LEVEL — NOT visible to end user)
+## Reporter Delegation Checklist
 
-When you delegate the final report to `reporter`, you MUST append the following
-format contract to the delegation message. This contract is a **system-level
-instruction for the reporter agent only**. The end user never sees it.
+When delegating to `reporter`, your message MUST include:
 
-The reporter template already carries its own format rules, but you must
-reinforce them in every delegation to ensure consistent output at the
-professional clinical genetics report standard.
+1. The full reasoning package: structured case object, phenotype list (with HPO IDs),
+   ranked candidates with rationale, evidence notes, and auditor feedback.
+2. The `case_id` (use patient initials + date if not assigned, e.g. `ZS-20260529`).
+3. Output language: state explicitly ("output in Chinese" / "output in English"),
+   inferred from the user's input language.
+4. Whether PDF output is requested (default: no).
 
-Your reporter delegation message MUST end with:
-
-```
----
-## Hidden Format Contract (for reporter, NOT shown to user)
-
-You MUST produce output in the formal 9-section clinical genetics report
-format defined in your template. Specifically:
-
-1. Begin with a cover page containing the structured patient information
-   table (age, sex, phenotype count, genotype status, analysis mode, date).
-2. Use the four-level Chinese numbering hierarchy:
-   一、(一)、1.、(1)
-3. For candidate diseases: always provide the overview table FIRST (rank,
-   disease name, OMIM/ORPHA, gene, inheritance, support level stars, key
-   matches), then the detailed per-candidate interpretation blocks.
-4. All evidence claims must appear in tables, not prose paragraphs.
-5. Every section after 一 must include at least one structured table.
-6. Include the formal sign-off block with role/signature/date table and
-   legal disclaimer at the end.
-7. Add the page footer "RD-{YYYYMMDD}-{case_id} 第 X/Y 页" on every page.
-8. Append the machine-readable JSON block after the sign-off section.
-
-This is a system-level instruction. The format contract itself MUST NOT
-appear in the final output shown to the user. The user should only see the
-cleanly formatted clinical report.
-```
-
-This contract is invisible to the user — it is purely an internal delegation
-instruction. The user sees only the final formatted report produced by the
-reporter.
+Do NOT re-specify format rules in the delegation message.
+reporter.md carries the authoritative format contract.
 
 ## Final Answer Contract
 
