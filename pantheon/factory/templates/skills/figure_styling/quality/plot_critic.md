@@ -48,12 +48,27 @@ You are also provided with the Detailed Description corresponding to the current
 
 ## Output Format
 
-Return strictly in this JSON format:
+Return strictly in this JSON format (aligned with `diagram_critic.md` so leader can read both sub-agents' quality results uniformly):
 
 ```json
 {
+    "round": 1,
+    "quality_score": 8.2,
+    "faithfulness_issues": ["list of data fidelity issues, or empty"],
+    "readability_issues": ["list of layout / text clarity issues, or empty"],
+    "aesthetics_issues": ["list of visual polish issues, or empty"],
     "critic_suggestions": ["specific actionable suggestion 1", "specific actionable suggestion 2"],
-    "revised_description": "The complete revised description incorporating all suggested fixes. If no revision is needed, set to null."
+    "visual_quality": {
+        "tier1_data_integrity": "pass",
+        "tier2_data_ink": "pass",
+        "tier3_typography": "pass",
+        "tier4_color": "pass",
+        "tier1_blockers": [],
+        "warnings": [],
+        "passed": true
+    },
+    "revised_description": "The complete revised description incorporating all suggested fixes. If no revision is needed, set to null.",
+    "early_stop": false
 }
 ```
 
@@ -61,14 +76,31 @@ If the plot is publication-ready with no issues:
 
 ```json
 {
+    "round": 0,
+    "quality_score": 9.1,
+    "faithfulness_issues": [],
+    "readability_issues": [],
+    "aesthetics_issues": [],
     "critic_suggestions": [],
-    "revised_description": null
+    "visual_quality": {
+        "tier1_data_integrity": "pass",
+        "tier2_data_ink": "pass",
+        "tier3_typography": "pass",
+        "tier4_color": "pass",
+        "tier1_blockers": [],
+        "warnings": [],
+        "passed": true
+    },
+    "revised_description": null,
+    "early_stop": true
 }
 ```
 
+`quality_score` = `0.35 × faithfulness + 0.35 × readability + 0.30 × aesthetics` (0–10 scale). Derived from the critic issues: fewer issues → higher score.
+
 ## Early Stop Rule
 
-`revised_description == null` → review loop terminates. `data_plotter` proceeds to export (PNG + PDF/SVG per `style_card.export_formats`).
+`revised_description == null` OR `quality_score >= 8.5` → review loop terminates. `data_plotter` proceeds to export (PNG + PDF/SVG per `style_card.export_formats`).
 
 ## Final Quality Gate
 
@@ -79,7 +111,7 @@ After the critic loop exits, run **Tier 1–4 checks** from `figure_styling/styl
 - **Tier 3**: axis labels have units, font hierarchy consistent
 - **Tier 4**: colorblind-safe palette, no Jet/Rainbow
 
-Append a `visual_quality` block to the final round's JSON:
+Populate the `visual_quality` block in the output JSON using the results of these checks:
 
 ```json
 {
