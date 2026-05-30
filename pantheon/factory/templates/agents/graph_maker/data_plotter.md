@@ -386,7 +386,7 @@ For each finalized figure, verify:
 - [ ] No caption text embedded in the image
 - [ ] Critic loop ran at least 1 round and terminated with a valid stop_reason
 - [ ] `<name>_trace.json` exists and is valid JSON
-- [ ] Figure caption appended to `{workdir}/outputs/figure_legends.md` with a unique anchor
+- [ ] Figure caption appended to `{workdir}/.canvas/figure_legends.md` with a unique anchor
 
 Report back to leader with:
 - List of produced files with absolute paths

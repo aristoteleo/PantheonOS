@@ -62,8 +62,8 @@ Create an absolute-path workdir and keep everything inside. Use this layout:
       Fig1_main.{png,pdf,svg}
       Fig2_pathway.{png,pdf,svg}
       ...
-    figure_legends.md         # caption + legend for each figure
-    figure_manifest.json      # machine-readable index
+    figure_legends.md         # caption + legend for each figure (.canvas/figure_legends.md)
+    figure_manifest.json      # machine-readable index (.canvas/figure_manifest.json)
 ```
 
 Always pass absolute paths to sub-agents.
@@ -577,7 +577,7 @@ Sub-agents are unaware of canvas.json. They neither read nor write it. You are t
          "aesthetic_guide": "neurips_plot",
          "references_used": ["ref_0", "ref_3"],
          "critic_rounds": 2,
-         "caption_file": "{workdir}/outputs/figure_legends.md#fig1"
+         "caption_file": "{workdir}/.canvas/figure_legends.md#fig1_main"
        }
      ]
    }
