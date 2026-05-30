@@ -57,13 +57,13 @@ Create an absolute-path workdir and keep everything inside. Use this layout:
     notebooks/                # data_plotter's intermediate notebooks
     illustrations/            # illustrator's raw PNG outputs + plan/style/critic traces
     panels/                   # single-panel intermediates before composition
-  outputs/
-    figures/                  # final deliverables
+  .canvas/
+    assets/                   # final figure deliverables
       Fig1_main.{png,pdf,svg}
       Fig2_pathway.{png,pdf,svg}
       ...
-    figure_legends.md         # caption + legend for each figure (.canvas/figure_legends.md)
-    figure_manifest.json      # machine-readable index (.canvas/figure_manifest.json)
+    figure_legends.md         # caption + legend for each figure
+    figure_manifest.json      # machine-readable index
 ```
 
 Always pass absolute paths to sub-agents.
