@@ -148,15 +148,16 @@ Leader infers execution depth from message language — no explicit mode flag.
 2. **Reference detection**: Scan user message for reference figures/URLs/documents; if found, `researcher` normalizes them.
 3. **Style card**: Author `inputs/style_card.json` with DPI, fonts, colors, figure sizes, and `export_formats`.
 4. **Canvas state** (if canvas.json exists): read relevant frame/node slice based on CANVAS_CONTEXT.
-5. **Environment audit** (optional, only if tools missing): `researcher` checks matplotlib/seaborn/plotly/svgutils/Pillow/inkscape.
-6. **Figure production** (parallelized across independent figures):
+5. **Figure production** (parallelized across independent figures):
    - Data panels → `data_plotter` with style card injection
    - Conceptual panels → `illustrator` → if publication, `researcher` vectorizes PNG to SVG/PDF
-7. **Composition** (composite intent): `data_plotter` composes via svgutils; exports per `export_formats`.
-8. **Verification**: leader runs `observe_images` on each PNG; re-delegates on failure.
-9. **agent_output.json**: leader writes canvas node declarations for all produced figures with positions, origins, and intents.
-10. **Manifest + legends**: write `.canvas/figure_manifest.json` and `.canvas/figure_legends.md`.
-11. **Delivery**: concise summary of figure paths returned to user.
+6. **Composition** (composite intent): `data_plotter` composes via svgutils; exports per `export_formats`.
+7. **Verification**: leader runs `observe_images` on each PNG; re-delegates on failure.
+8. **agent_output.json**: leader writes canvas node declarations for all produced figures with positions, origins, and intents.
+9. **Manifest + legends**: write `.canvas/figure_manifest.json` and `.canvas/figure_legends.md`.
+10. **Delivery**: concise summary of figure paths returned to user.
+
+> **Environment check**: not a separate step. `data_plotter` handles missing packages on first `ImportError` in its notebook; `illustrator` verifies `generate_image` availability on first use. No default `researcher` call for tooling.
 
 ## Agent Call Relationships
 

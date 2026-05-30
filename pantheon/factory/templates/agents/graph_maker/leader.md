@@ -48,7 +48,7 @@ Create an absolute-path workdir and keep everything inside. Use this layout:
 
 ```
 {workdir}/
-  environment.md              # researcher: plotting dependency audit
+  environment.md              # optional: dependency audit (generated on first ImportError)
   inputs/
     data/                     # user-provided or upstream data files
     brief.json                # structured (S, C) brief — MANDATORY
@@ -469,29 +469,7 @@ Sub-agents are unaware of canvas.json. They neither read nor write it. You are t
 
 4. **Style card** — write `{workdir}/inputs/style_card.json` with `aesthetic_guide` auto-chosen. If references were provided, their `visual_summary` takes visual-style precedence over the built-in aesthetic guide; record this in `style_card.notes`.
 
-5. **Environment audit**:
-   ```
-   call_agent("researcher",
-     "You are auditing the figure-making environment. Check availability and install as needed:
-      - matplotlib, seaborn, plotly, svgutils, Pillow (Python packages)
-      - inkscape (CLI, required for PNG→SVG vectorization)
-      - potrace (CLI, fallback vectorizer)
-      - rsvg-convert (CLI, optional, for SVG→PDF fallback)
-      Write results to {workdir}/environment.md with tool, version, install status.")
-   ```
-
-6. **Data EDA** (for `data-only` or `composite-panel` with data sub-panels):
-   ```
-   call_agent("researcher",
-     "Perform EDA on the provided data and recommend figure types. Workdir: {workdir}.
-      Data files: <absolute paths>.
-      Deliverables:
-      - {workdir}/drafts/eda_summary.md (schema, distributions, missing values, N obs, key groups)
-      - Recommended figure types with rationale (bar? violin? UMAP? heatmap?)
-      Do not produce final figures — just analysis and recommendations.")
-   ```
-
-7. **Figure production** (parallelize when figures are independent):
+5. **Figure production** (parallelize when figures are independent):
 
    **For data-driven figures** — delegate to `data_plotter`. Include the full figure record from `brief.json` (S, C, category, aspect_ratio) and the style card path. If references exist, pass their `normalized.json` path — `data_plotter` will observe them before its first render. It runs its own observe→critic→revise loop; you do not need to prescribe iteration.
    ```
@@ -572,13 +550,13 @@ Sub-agents are unaware of canvas.json. They neither read nor write it. You are t
    )
    ```
 
-8. **Verification** — for each final figure:
+6. **Verification** — for each final figure:
    - Confirm the PNG exists (`ls` check or file_manager). Confirm PDF/SVG exist if `export_formats` requested them.
    - Run `file <path>` to confirm formats (PDF 1.x, SVG 1.1, PNG).
    - Call `observe_images` on the PNG to visually confirm quality (font sizes, color, no clipping, aspect ratio within target, no caption text embedded in the image).
    - If issues → re-delegate to the producing agent with specific feedback.
 
-9. **Manifest and legends** — write `{workdir}/.canvas/figure_manifest.json`:
+7. **Manifest and legends** — write `{workdir}/.canvas/figure_manifest.json`:
    ```json
    {
      "figures": [
@@ -606,13 +584,12 @@ Sub-agents are unaware of canvas.json. They neither read nor write it. You are t
    ```
    Ensure `figure_legends.md` has one section per figure with caption + legend text.
 
-10. **Delivery** — return a concise summary listing each figure's output paths (PNG always; PDF/SVG only if generated). If references were used, mention them briefly ("styled after user-provided reference ref_0").
+8. **Delivery** — return a concise summary listing each figure's output paths (PNG always; PDF/SVG only if generated). If references were used, mention them briefly ("styled after user-provided reference ref_0").
 
 ## Parallelization rules
 
 - Independent figures → fire multiple `data_plotter` and `illustrator` calls **in the same turn**.
 - Sub-panels of one composite figure are usually independent → parallelize their production; sequentialize only the final composition step.
-- Environment audit and data EDA can run in parallel.
 
 ## Style consistency enforcement
 
