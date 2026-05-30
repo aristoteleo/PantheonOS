@@ -246,6 +246,33 @@ class ChatRoom(ToolSet):
         if hasattr(self, 'worker') and self.worker and hasattr(self.worker, 'set_activity_callback'):
             self.worker.set_activity_callback(self._get_activity_status)
 
+    @staticmethod
+    def _walk_workspace_bytes(root: str) -> int:
+        """Sum file sizes under `root`. Runs in a daemon thread (NOT the event
+        loop) because on Modal FUSE volumes this is thousands of slow stat()
+        round-trips. os.scandir/stat release the GIL during the syscall, so
+        the event loop keeps serving NATS RPCs while this runs."""
+        import os
+        used = 0
+        stack = [root]
+        while stack:
+            cur = stack.pop()
+            try:
+                with os.scandir(cur) as it:
+                    for entry in it:
+                        try:
+                            if entry.is_symlink():
+                                continue
+                            if entry.is_dir(follow_symlinks=False):
+                                stack.append(entry.path)
+                            else:
+                                used += entry.stat(follow_symlinks=False).st_size
+                        except OSError:
+                            continue
+            except OSError:
+                continue
+        return used
+
     def _get_activity_status(self) -> dict:
         """Return current activity status for _ping responses.
 
@@ -297,36 +324,39 @@ class ChatRoom(ToolSet):
                 # Cached 30s so _ping stays cheap.
                 import os as _os
                 import time as _time
+                import threading as _threading
                 if _os.path.isdir("/workspace"):
                     quota_mb = float(_os.environ.get("WORKSPACE_QUOTA_MB", 10 * 1024))
                     now = _time.monotonic()
                     cached = getattr(self, "_disk_used_cache", None)
-                    if cached is not None and now - cached[1] < 30.0:
-                        used_bytes = cached[0]
-                    else:
-                        used_bytes = 0
-                        stack = ["/workspace"]
-                        while stack:
-                            cur = stack.pop()
+                    # CRITICAL: never walk the tree inline. This method runs
+                    # synchronously on the event-loop thread (NATSRemoteWorker
+                    # ._ping). On big volumes the walk is thousands of FUSE
+                    # stat() round-trips taking 10-15s, which would freeze
+                    # EVERY NATS RPC in this process — chat AND the Endpoint's
+                    # read_chunk_at — stalling file downloads. So refresh the
+                    # cache in a detached daemon thread and only ever READ the
+                    # cached value here. A single-flight flag prevents pile-up.
+                    if (cached is None or now - cached[1] > 300.0) and not getattr(self, "_disk_walk_running", False):
+                        self._disk_walk_running = True
+
+                        def _refresh_disk_used():
                             try:
-                                with _os.scandir(cur) as it:
-                                    for entry in it:
-                                        try:
-                                            if entry.is_symlink():
-                                                continue
-                                            if entry.is_dir(follow_symlinks=False):
-                                                stack.append(entry.path)
-                                            else:
-                                                used_bytes += entry.stat(follow_symlinks=False).st_size
-                                        except OSError:
-                                            continue
-                            except OSError:
-                                continue
-                        self._disk_used_cache = (used_bytes, now)
-                    used_mb = used_bytes / 1024 / 1024
-                    metrics["disk_used_mb"] = round(used_mb, 1)
-                    metrics["disk_total_mb"] = round(quota_mb, 1)
-                    metrics["disk_percent"] = round(used_mb / quota_mb * 100, 1) if quota_mb > 0 else 0.0
+                                used = self._walk_workspace_bytes("/workspace")
+                                self._disk_used_cache = (used, _time.monotonic())
+                            except Exception:
+                                pass
+                            finally:
+                                self._disk_walk_running = False
+
+                        _threading.Thread(
+                            target=_refresh_disk_used, name="disk-usage-walk", daemon=True
+                        ).start()
+                    if cached is not None:
+                        used_mb = cached[0] / 1024 / 1024
+                        metrics["disk_used_mb"] = round(used_mb, 1)
+                        metrics["disk_total_mb"] = round(quota_mb, 1)
+                        metrics["disk_percent"] = round(used_mb / quota_mb * 100, 1) if quota_mb > 0 else 0.0
             except Exception:
                 pass  # filesystem walk failed — omit silently
 
