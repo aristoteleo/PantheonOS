@@ -78,7 +78,7 @@ Given the data context, the communicative intent, the visual description, and th
 | `presentation` | 1 sentence | Slide caption is spoken, not read |
 | `flowchart` | 2 sentences | Describe what process and what output |
 
-## Leader Step 9 Usage
+## Usage
 
 For each figure after production and verification, determine figure type from `source_agent` field in the brief:
 
