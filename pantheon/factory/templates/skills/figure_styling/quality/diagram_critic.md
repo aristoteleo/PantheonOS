@@ -81,7 +81,7 @@ If the image is publication-ready with no issues:
 }
 ```
 
-`quality_score` = `0.3 × faithfulness + 0.2 × conciseness + 0.3 × readability + 0.2 × aesthetics` (0–10 scale).
+`quality_score` = `0.35 × faithfulness + 0.35 × readability + 0.30 × aesthetics` (0–10 scale). All three dimensions correspond to the output fields above; fewer issues → higher score.
 
 `visual_quality.blockers` lists any Tier 1 failures from `figure_styling/styles/visual_quality_checklist.md` — these prevent delivery.
 

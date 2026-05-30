@@ -30,7 +30,7 @@ Resources for the Graph Maker Team's `illustrator` (diagram) and `data_plotter` 
 |---|---|---|---|
 | `diagram_critic` | [quality/diagram_critic.md](./quality/diagram_critic.md) | illustrator Phase 4 | Multi-round critique with quality_score |
 | `plot_critic` | [quality/plot_critic.md](./quality/plot_critic.md) | data_plotter review | Statistical plot critique |
-| `figure_caption` | [quality/figure_caption.md](./quality/figure_caption.md) | leader Step 9 | Auto-generate publication captions |
+| `figure_caption` | [quality/figure_caption.md](./quality/figure_caption.md) | final delivery | Auto-generate publication captions |
 | `visual_quality_checklist` | [styles/visual_quality_checklist.md](./styles/visual_quality_checklist.md) | All agents | 6-tier quality standards (Rougier/Tufte) |
 
 ## Usage
@@ -40,3 +40,22 @@ Resources for the Graph Maker Team's `illustrator` (diagram) and `data_plotter` 
 3. Priority chain: **user references > style_card.json > figure_styling/<style_id> > agent defaults**
 
 If `aesthetic_guide` is `custom` or `null`, agents rely purely on `style_card.json` and internal defaults.
+
+## When to Load
+
+Agents read files from this skill **on demand** — never preload all files. Use this decision table:
+
+| Trigger | Read | Skip if |
+|---------|------|---------|
+| `aesthetic_guide = nature_figure` | `styles/nature_figure.md` | — |
+| `aesthetic_guide = ieee_figure` | `styles/ieee_figure.md` | — |
+| `aesthetic_guide = neurips_plot` | `styles/neurips_plot.md` | — |
+| `aesthetic_guide = neurips_diagram` | `styles/neurips_diagram.md` | — |
+| colorblind-safe palette required | `styles/color_palettes.md` | — |
+| statistical plot + publication depth | `quality/plot_critic.md` | quick / draft / sketch tasks |
+| methodology diagram + publication depth | `quality/diagram_critic.md` | quick / draft / sketch tasks |
+| caption required (final delivery) | `quality/figure_caption.md` | quick / draft / sketch tasks |
+| any figure type + publication depth | `styles/visual_quality_checklist.md` | quick / draft / sketch tasks |
+| quick / draft / sketch / "show me" depth | **skip all quality/** prompts | use `style_card.json` + one style file only |
+
+**Rule of thumb**: quick tasks read ≤2 files (style_card style file + optionally color_palettes). Publication tasks additionally read the relevant critic + visual_quality_checklist.
