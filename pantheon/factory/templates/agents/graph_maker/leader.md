@@ -278,12 +278,24 @@ Before any drawing happens, generate `{workdir}/inputs/style_card.json`. It is t
 ```
 
 **`aesthetic_guide` selection rule** (sub-agents load the matching file from the `figure_styling` skill — `skills/figure_styling/styles/<aesthetic_guide>.md`):
-- `neurips_diagram` — for `category ∈ {agent_reasoning, vision_perception, generative_learning, science_applications}` targeting a top ML/CS venue. Illustrator loads the NeurIPS methodology-diagram guideline.
-- `neurips_plot` — for `category == statistical_plot` targeting a top ML/CS venue. data_plotter loads the NeurIPS plot guideline.
-- `custom` — user or leader provides full specs directly in `style_card.json`; sub-agents do NOT load any file from the skill.
-- `null` — sub-agents fall back to their internal defaults plus the style_card values.
 
-Additional style files (e.g., `nature_figure`, `ieee_figure`, user-defined) can be dropped into `skills/figure_styling/styles/` and referenced by id here.
+**Journal-driven routing** (scan user message and `journal_class` first):
+| Trigger signal | `journal_class` | `aesthetic_guide` | Applies to |
+|---|---|---|---|
+| Nature / Cell / Science / bioRxiv / life-science | `nature` / `cell` / `science` | `nature_figure` | all figure types |
+| IEEE / ACM / engineering + data plot | `ieee` / `acm` | `ieee_figure` | statistical plots |
+| IEEE / ACM + method diagram | `ieee` / `acm` | `neurips_diagram` | methodology diagrams |
+| NeurIPS / ICML / CVPR + data plot | `neurips` | `neurips_plot` | statistical plots |
+| NeurIPS / ICML / CVPR + method diagram | `neurips` | `neurips_diagram` | methodology / framework diagrams |
+
+**Fallback** (no journal keyword detected):
+- `category == statistical_plot` → default `neurips_plot`
+- all other categories → default `neurips_diagram`
+
+- `custom` — full specs in `style_card.json`; sub-agents do NOT load any style file.
+- `null` — sub-agents fall back to internal defaults plus `style_card.json` values.
+
+Style files live in `skills/figure_styling/styles/` and are loaded on demand by the producing agent — do NOT inline style details here.
 
 Infer sensible defaults from `target`:
 - **journals**: strict (sans-serif, 300–600 DPI, single/double-column inches)
@@ -475,26 +487,28 @@ Sub-agents are unaware of canvas.json. They neither read nor write it. You are t
    ```
    call_agent("data_plotter",
      "Produce figure <id> (<name>). Workdir: {workdir}.
+      Execution depth: <quick|draft|publication> — controls critic loop and quality loading.
       Brief (from {workdir}/inputs/brief.json, figure <id>):
         S_source_context: <copy verbatim>
         C_communicative_intent: <copy verbatim>
         category: <copy>
         aspect_ratio: <copy>
         notes: <copy>
+      Aesthetic guide: <nature_figure|ieee_figure|neurips_plot|custom|null> — load from figure_styling skill.
       Data: <absolute paths>.
       Style card: {workdir}/inputs/style_card.json (READ THIS FIRST — includes export_formats field).
       References (OPTIONAL, may be absent): {workdir}/inputs/references/normalized.json
         → if present, read entries marked status=='ok' and selected (if 'selected' key exists, prefer those).
         → observe_images on each reference's source_path BEFORE your first render.
         → absorb layout, color palette, typography, marker/line style into your plotting code.
-        → references take precedence over neurips_plot defaults where they conflict.
+        → references take precedence over the aesthetic_guide defaults where they conflict.
       Layout: <single axes | 2x2 grid | Fig1a+1b+1c panel>.
       Deliverables: generate the formats listed in style_card.export_formats.
       - PNG is always required: {workdir}/.canvas/assets/<name>.png (dpi from style_card)
       - PDF only if export_formats includes 'pdf': {workdir}/.canvas/assets/<name>.pdf
       - SVG only if export_formats includes 'svg': {workdir}/.canvas/assets/<name>.svg
       - Append a caption to {workdir}/.canvas/figure_legends.md.
-      Run your internal critic loop up to T=2 rounds (T=3 if target=='journal')."
+      Quality: <if quick → skip plot_critic.md, single self-check | if draft → T≤1 | if publication → read plot_critic.md, T≤3>."
    )
    ```
 
@@ -502,12 +516,14 @@ Sub-agents are unaware of canvas.json. They neither read nor write it. You are t
    ```
    call_agent("illustrator",
      "Produce a methodology/concept diagram. Workdir: {workdir}.
+      Execution depth: <quick|draft|publication> — controls critic loop and quality loading.
       Brief (from {workdir}/inputs/brief.json, figure <id>):
         S_source_context: <copy verbatim>
         C_communicative_intent: <copy verbatim>
         category: <copy>
         aspect_ratio: <copy; must be in [1.5, 2.5] for non-plot categories>
         notes: <copy>
+      Aesthetic guide: <neurips_diagram|nature_figure|ieee_figure|custom|null> — load from figure_styling skill.
       Style card: {workdir}/inputs/style_card.json (aesthetic_guide is authoritative unless references override).
       References (OPTIONAL, may be absent): {workdir}/inputs/references/normalized.json
         → if present, treat as few-shot visual examples.
@@ -518,6 +534,7 @@ Sub-agents are unaware of canvas.json. They neither read nor write it. You are t
       - {workdir}/drafts/illustrations/<id>_style.md    (Phase 2 output)
       - {workdir}/drafts/illustrations/<id>_final.png   (Phase 3+4 final)
       - {workdir}/drafts/illustrations/<id>_trace.json  (critic rounds log)
+      Quality: <if quick → skip diagram_critic.md, T≤1 | if draft → skip unless requested | if publication → read diagram_critic.md, T≤3>.
       Then notify the leader so vectorization can follow."
    )
    ```
@@ -556,7 +573,9 @@ Sub-agents are unaware of canvas.json. They neither read nor write it. You are t
    - Call `observe_images` on the PNG to visually confirm quality (font sizes, color, no clipping, aspect ratio within target, no caption text embedded in the image).
    - If issues → re-delegate to the producing agent with specific feedback.
 
-7. **Manifest and legends** — write `{workdir}/.canvas/figure_manifest.json`:
+7. **Manifest and legends** — for final / publication tasks, generate captions using `quality/figure_caption.md` from the `figure_styling` skill (diagram rules for illustrator output, plot rules for data_plotter output). Quick/draft tasks: write a one-line caption without loading the skill. All captions live in `{workdir}/.canvas/figure_legends.md` — never embedded inside images.
+
+   Write `{workdir}/.canvas/figure_manifest.json`:
    ```json
    {
      "figures": [

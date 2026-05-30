@@ -192,7 +192,10 @@ Call `observe_images` on the just-rendered PNG with the full round-<t> descripti
 
 ## Rules for the Critic-Render loop
 
-- **Maximum rounds**: T = 2 by default; T = 3 if leader said `target == 'journal'` or the category requires high fidelity.
+- **Maximum rounds** (set by leader's `execution_depth`):
+  - `quick`: **T = 0** — single render, skip Phase 4 critic entirely. Do not load `quality/diagram_critic.md`.
+  - `draft` (default): **T = 1** — round 0 critic only. Skip `quality/diagram_critic.md` unless explicitly requested.
+  - `publication`: **T = 3** — full multi-round critic. Read `quality/diagram_critic.md` from `figure_styling` skill. Write `quality_score` and `visual_quality` into trace.
 - **Short-circuit**: if `critic_suggestions == "No changes needed."`, stop the loop and treat the current image as final.
 - **Revision MUST preserve semantic structure from Phase 1** — primarily edit existing description, don't rewrite from scratch unless the image is catastrophically off.
 - **Revision MUST specify clear details** — vague or hand-wavy descriptions make the next render worse, not better.

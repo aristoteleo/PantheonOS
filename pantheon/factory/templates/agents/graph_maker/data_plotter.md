@@ -93,13 +93,21 @@ rc_update = {
 }
 
 # Merge aesthetic-guide defaults when requested
-if style.get("aesthetic_guide") == "neurips_plot":
+# Full style details are in figure_styling/styles/<aesthetic_guide>.md — these are quick rcParams hints:
+guide = style.get("aesthetic_guide")
+if guide == "neurips_plot":
     rc_update.setdefault("font.sans-serif", ["Helvetica", "Arial", "DejaVu Sans"])
-    rc_update["axes.grid"] = True
-    rc_update["grid.alpha"] = 0.3
-    rc_update["grid.linestyle"] = "--"
     rc_update["axes.spines.top"] = False
     rc_update["axes.spines.right"] = False
+elif guide == "nature_figure":
+    rc_update.setdefault("font.sans-serif", ["Arial", "Helvetica", "DejaVu Sans"])
+    rc_update["font.size"] = 7
+    rc_update["ytick.direction"] = "in"
+    rc_update["axes.grid"] = False
+elif guide == "ieee_figure":
+    rc_update.setdefault("font.family", "serif")
+    rc_update.setdefault("font.serif", ["cmr10", "DejaVu Serif"])
+    rc_update["font.size"] = 8
 
 mpl.rcParams.update(rc_update)
 
@@ -160,9 +168,17 @@ If the leader's instruction mentions `{workdir}/inputs/references/normalized.jso
 
 If no `normalized.json` or `has_references=false` → skip entirely, use style_card + neurips_plot defaults only.
 
-# Internal observe → critic → revise loop (CRITICAL)
+# Internal observe → critic → revise loop (EXECUTION-DEPTH AWARE)
 
-After the first render, you MUST run a structured critic loop. This is adapted from the PaperBanana Critic agent and is how you achieve publication-quality output rather than "first draft" quality. Skipping this loop is the #1 source of bad figures.
+After the first render, run a structured critic loop. The depth is set by the leader's `execution_depth` field in your delegation payload:
+
+| depth | Behavior | T_max |
+|---|---|---|
+| **quick** | Use `style_card` + one style file. Skip `quality/plot_critic.md`. One lightweight self-check. | 0 |
+| **draft** (default) | Use `style_card` + one style file. Skip heavy quality prompt unless explicitly requested. | 1 |
+| **publication** | Read `quality/plot_critic.md` from `figure_styling` skill. Full critic loop with `quality_score` and `visual_quality` in trace. | 3 |
+
+This is adapted from the PaperBanana Critic agent — publication-quality output requires the critic loop, but quick/draft tasks skip it to save compute.
 
 ## Loop structure
 
@@ -179,9 +195,7 @@ For each round t in 1..T_max:
 Final accepted round → run savefig for formats in style_card.export_formats → write to .canvas/assets/
 ```
 
-**T_max**:
-- Default: **T = 2** rounds (round 0 + up to 1 revision)
-- If leader's instruction contains `target=="journal"` or explicitly requests `T=3`: **T = 3**
+**T_max** (set by `execution_depth` from leader, see table above)
 
 ## Round artifacts
 

@@ -107,13 +107,19 @@ When there is no canvas UI, CANVAS_CONTEXT is absent and canvas.json may not exi
 
 ## Execution Depth
 
-Leader infers execution depth from message language — no explicit mode flag.
+Leader infers execution depth from message language — no explicit mode flag. Sub-agents receive `execution_depth` in their delegation payload and adapt quality loading accordingly.
 
-| Signal | Behavior |
+| Depth | Reads heavy quality skills? | Critic rounds | Output |
+|---|---|---|---|
+| **quick** | No — skip `plot_critic.md` / `diagram_critic.md` / `figure_caption.md` | T=0 (single shot) | PNG |
+| **draft** | No unless explicitly requested | T≤1 | PNG |
+| **publication** | Yes — load `plot_critic.md` or `diagram_critic.md` per figure type; load `figure_caption.md` for legends | T≤3 | PNG + optional PDF/SVG |
+
+| Signal | Inferred depth |
 |---|---|
-| quick / sketch / try / draft / show me | Single-shot sub-agent call, skip multi-round critic, return immediately |
-| publication / paper / journal / final / polished | Full Plan→Style→Render→Critic loop (2–3 rounds), AskUserQuestion at key decision points, cross-frame visual consistency check |
-| Unclear | Lightweight; offer thorough version at end if output looks insufficient |
+| quick / sketch / try / draft / show me | quick |
+| (no signal, unclear) | draft |
+| publication / paper / journal / final / polished | publication |
 
 ## Workdir Layout
 
