@@ -69,15 +69,17 @@ Leader infers `export_formats` from message intent and writes it into `style_car
 
 Every task begins with a canonical `{workdir}/inputs/style_card.json` — the single source of truth for DPI, colors, fonts, figure dimensions, and export formats. Sub-agents MUST read and apply the style card; leader enforces consistency across figures.
 
-The `aesthetic_guide` field in `style_card.json` names a style file distributed via the **`figure_styling` skill** (`skills/figure_styling/styles/<aesthetic_guide>.md`). Sub-agents load that file on demand — it is NOT inlined into their system prompts. Built-in style files:
+The `aesthetic_guide` field in `style_card.json` names a style file distributed via the **`figure_styling` skill** (`skills/figure_styling/styles/<aesthetic_guide>.md`). Sub-agents load that file on demand — it is NOT inlined into their system prompts.
 
 | aesthetic_guide | Target | Figure class |
 |---|---|---|
-| `neurips_diagram` | NeurIPS / top ML venues | Methodology / framework / pipeline diagrams |
-| `neurips_plot` | NeurIPS / top ML venues | Statistical plots |
+| `neurips_diagram` | NeurIPS / ICML / ICLR / CVPR | Methodology / framework diagrams |
+| `neurips_plot` | NeurIPS / ICML / ICLR / CVPR | Statistical plots |
+| `nature_figure` | Nature / Cell / Science / life-science | Publication-grade scientific figures |
+| `ieee_figure` | IEEE / ACM / engineering | Engineering / systems publication figures |
 | `custom` / `null` | — | Rely only on `style_card.json` + agent defaults |
 
-Users can extend with additional files (e.g., `nature_figure.md`, `ieee_figure.md`) and reference them by id in `style_card.json`. Conflict priority: **user references > style_card.json > figure_styling/<aesthetic_guide> > agent defaults**.
+Conflict priority: **user references > style_card.json > figure_styling/<aesthetic_guide> > agent defaults**.
 
 ## Canvas Integration
 
