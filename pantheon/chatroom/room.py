@@ -288,11 +288,36 @@ class ChatRoom(ToolSet):
                         1 for t in agent._bg_manager.list_tasks()
                         if t.status == "running"
                     )
-        has_active_tasks = active_threads > 0 or bg_task_count > 0
+
+        # An in-progress file transfer (open read/write handle on the
+        # Endpoint) must count as active, or the hub's idle cleanup would
+        # reap the sandbox MID-DOWNLOAD. A download is raw Endpoint RPC
+        # traffic (open_file_for_read → read_chunk_at → close_file), not an
+        # agent thread/bg_task, so without this a slow multi-GB transfer in
+        # a backgrounded tab hits the 10-min tab-closed threshold and the
+        # pod is released out from under it. Only count handles opened in
+        # the last hour so a leaked handle (browser killed before
+        # close_file) can't pin the pod alive forever.
+        transfer_handles = 0
+        try:
+            import time as _t2
+            ep = getattr(self, "_endpoint", None)
+            finfo = getattr(ep, "_file_info", None) if ep is not None else None
+            if finfo:
+                _now = _t2.time()
+                transfer_handles = sum(
+                    1 for info in finfo.values()
+                    if _now - info.get("created_at", 0) < 3600
+                )
+        except Exception:
+            pass
+
+        has_active_tasks = active_threads > 0 or bg_task_count > 0 or transfer_handles > 0
 
         metrics: dict = {
             "active_threads": active_threads,
             "bg_tasks": bg_task_count,
+            "transfer_handles": transfer_handles,
             "has_active_tasks": has_active_tasks,
         }
 
