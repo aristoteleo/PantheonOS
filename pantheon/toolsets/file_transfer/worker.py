@@ -2,6 +2,7 @@ import aiofiles
 import asyncio
 import base64
 import os
+import struct
 import time
 import uuid
 from pathlib import Path
@@ -344,6 +345,170 @@ class FileTransferToolSet(FileManagerToolSetBase):
                 f"Failed read_chunk_at (handle_id={handle_id}, offset={offset}, size={size}): {e}"
             )
             return {"success": False, "error": str(e)}
+
+    @tool
+    async def stream_read(
+        self,
+        file_path: str,
+        reply_to: str,
+        ack_subject: str,
+        offset: int = 0,
+        chunk_size: int = 64 * 1024,
+        window: int = 192,
+    ):
+        """Stream a file by PUSHING binary chunks to the caller's inbox.
+
+        Unlike read_chunk_at (one request → one reply), this opens the file and
+        spawns a background task that publishes a sequence of small binary
+        chunks straight to ``reply_to``, flushing each. That removes the
+        per-chunk caller↔agent round-trip (the throughput limiter in the
+        request/reply path) while keeping every wire message small and
+        one-in-flight — the only pattern that doesn't jam the
+        Modal→DO-LB→nginx→NATS egress (≥128 KiB or concurrency → ~6 MiB freeze;
+        see fileManager.ts streamFileToDisk for the measurements).
+
+        Wire format per chunk message (RAW binary — no base64/JSON, so no 33%
+        bloat):
+            bytes[0:4] = big-endian uint32 sequence number (0-based)
+            bytes[4]   = flags: bit0 = EOF (no payload), bit1 = ERROR
+            bytes[5:]  = raw file bytes (absent for EOF / ERROR markers)
+
+        Flow control: the caller publishes an ack (big-endian uint32 = highest
+        contiguous seq received) to ``ack_subject`` every ~1 MiB. The streamer
+        blocks if it gets ``window`` chunks ahead of the last ack, bounding
+        unacked data to window*chunk_size (<< NATS max_pending 256 MiB). Ack
+        value 0xFFFFFFFF cancels. No ack for 15 s while blocked → abort
+        (self-cleaning; no orphan tasks).
+
+        Returns immediately with {"success": True, "total_size": int}; bytes
+        flow over ``reply_to`` independently.
+        """
+        if ".." in file_path:
+            return {"success": False, "error": "File path cannot contain '..'"}
+        path = self._get_root() / file_path
+        if not path.exists():
+            return {"success": False, "error": "File does not exist"}
+        if not path.is_file():
+            return {"success": False, "error": "Not a regular file"}
+
+        # Clamp so every wire message stays small (≤ ~64 KiB) and the window
+        # can't pin an unreasonable amount of unacked data.
+        chunk_size = max(4096, min(int(chunk_size), 64 * 1024))
+        window = max(8, min(int(window), 1024))
+
+        try:
+            total_size = path.stat().st_size
+            fd = os.open(str(path), os.O_RDONLY)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+        nc = self.worker.nc if getattr(self, "worker", None) else None
+        if nc is None:
+            os.close(fd)
+            return {"success": False, "error": "No NATS connection available for streaming"}
+
+        # Register a handle in _file_info so the chatroom's idle-reaper sees an
+        # active transfer (has_active_tasks counts recent _file_info entries) and
+        # won't tear the sandbox down mid-download. _stream_push removes it.
+        handle_id = str(uuid.uuid4())
+        self._file_info[handle_id] = {
+            "path": path,
+            "size": total_size,
+            "bytes_read": 0,
+            "created_at": time.time(),
+            "random_access_fd": fd,
+            "streaming": True,
+        }
+
+        asyncio.create_task(
+            self._stream_push(
+                nc, fd, handle_id, total_size, reply_to, ack_subject,
+                max(0, int(offset)), chunk_size, window, str(path),
+            )
+        )
+        return {"success": True, "total_size": total_size}
+
+    async def _stream_push(self, nc, fd, handle_id, total_size, reply_to, ack_subject,
+                           offset, chunk_size, window, path_str):
+        """Background pusher for stream_read. Owns ``fd`` + the ack sub + the
+        ``_file_info`` handle; always cleans up all three. Publishes raw binary
+        chunks to ``reply_to`` with windowed flow control driven by acks on
+        ``ack_subject``."""
+        CANCEL = 0xFFFFFFFF
+        ACK_TIMEOUT = 15.0
+        state = {"acked": -1, "cancel": False}
+        ev = asyncio.Event()
+
+        async def on_ack(msg):
+            try:
+                if len(msg.data) >= 4:
+                    s = struct.unpack(">I", msg.data[:4])[0]
+                    if s == CANCEL:
+                        state["cancel"] = True
+                    elif s > state["acked"]:
+                        state["acked"] = s
+            except Exception:
+                pass
+            ev.set()
+
+        sub = await nc.subscribe(ack_subject, cb=on_ack)
+        seq = 0
+        pos = offset
+        sent_bytes = 0
+        try:
+            while pos < total_size:
+                if state["cancel"]:
+                    logger.info(f"[stream_read] client cancelled: {path_str}")
+                    return
+                # Windowed flow control: never get > window chunks ahead of ack.
+                while (seq - state["acked"] - 1) >= window and not state["cancel"]:
+                    ev.clear()
+                    try:
+                        await asyncio.wait_for(ev.wait(), ACK_TIMEOUT)
+                    except asyncio.TimeoutError:
+                        logger.warning(f"[stream_read] ack timeout, aborting: {path_str}")
+                        return
+                if state["cancel"]:
+                    return
+                n = min(chunk_size, total_size - pos)
+                data = await asyncio.to_thread(os.pread, fd, n, pos)
+                if not data:
+                    break
+                # RAW binary message: 5-byte header + payload. One flush per
+                # chunk keeps ≤1 small message in flight (jam-free egress).
+                await nc.publish(reply_to, struct.pack(">IB", seq, 0) + data)
+                await nc.flush()
+                pos += len(data)
+                sent_bytes += len(data)
+                seq += 1
+                # Keep the idle-reaper's transfer_handles window fresh on long
+                # downloads (it only counts handles < 3600s old).
+                if seq % 256 == 0:
+                    info = self._file_info.get(handle_id)
+                    if info is not None:
+                        info["created_at"] = time.time()
+                        info["bytes_read"] = sent_bytes
+            if not state["cancel"]:
+                await nc.publish(reply_to, struct.pack(">IB", seq, 1))  # EOF
+                await nc.flush()
+                logger.debug(f"[stream_read] done {path_str}: {sent_bytes} bytes in {seq} chunks")
+        except Exception as e:
+            logger.error(f"[stream_read] error streaming {path_str}: {e}")
+            try:
+                await nc.publish(reply_to, struct.pack(">IB", seq, 2))  # ERROR
+                await nc.flush()
+            except Exception:
+                pass
+        finally:
+            try:
+                await sub.unsubscribe()
+            except Exception:
+                pass
+            self._file_info.pop(handle_id, None)
+            try:
+                os.close(fd)
+            except Exception:
+                pass
 
     @tool
     async def read_chunk(self, handle_id: str, size: int = 512 * 1024):
