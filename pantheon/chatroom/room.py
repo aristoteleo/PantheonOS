@@ -1381,6 +1381,96 @@ class ChatRoom(ToolSet):
             logger.error(f"Error listing chats: {e}")
             return {"success": False, "message": str(e)}
 
+    async def _get_sanitized_messages(self, chat_id: str, filter_out_images: bool = False) -> list:
+        """Load + sanitize a chat's FULL message history (shared by
+        get_chat_messages and stream_chat_messages).
+
+        Bounds per-message field sizes so the JSON stays reasonable: drops
+        raw_content > 50 KB, caps stdout/stderr to 10 KB, caps content +
+        reasoning_content to 200 KB.
+        """
+        import json as _json
+        memory = await run_func(self.memory_manager.get_memory, chat_id)
+        # Sync _current_chat_id to keep backend state aligned with UI.
+        self._current_chat_id = chat_id
+        messages = await run_func(memory.get_messages, _ALL_CONTEXTS, False)
+        if messages is None:
+            messages = []
+
+        MAX_RAW_CONTENT_SIZE = 50_000
+        MAX_FIELD_LENGTH = 10_000
+        MAX_CONTENT_FIELD_SIZE = 200_000
+
+        def _truncate_str_field(msg: dict, key: str) -> None:
+            v = msg.get(key)
+            if isinstance(v, str) and len(v) > MAX_CONTENT_FIELD_SIZE:
+                msg[key] = (
+                    v[:MAX_CONTENT_FIELD_SIZE]
+                    + f"\n\n[...truncated {len(v) - MAX_CONTENT_FIELD_SIZE} bytes]"
+                )
+
+        for message in messages:
+            if "raw_content" in message:
+                if isinstance(message["raw_content"], dict):
+                    if filter_out_images and "base64_uri" in message["raw_content"]:
+                        del message["raw_content"]["base64_uri"]
+                    for _k in ("stdout", "stderr"):
+                        if _k in message["raw_content"]:
+                            message["raw_content"][_k] = message["raw_content"][_k][:MAX_FIELD_LENGTH]
+                try:
+                    rc_size = len(_json.dumps(message["raw_content"], ensure_ascii=False))
+                    if rc_size > MAX_RAW_CONTENT_SIZE:
+                        del message["raw_content"]
+                except (TypeError, ValueError):
+                    pass
+            _truncate_str_field(message, "content")
+            _truncate_str_field(message, "reasoning_content")
+        return messages
+
+    @tool
+    async def stream_chat_messages(
+        self,
+        chat_id: str,
+        reply_to: str,
+        ack_subject: str,
+        filter_out_images: bool = False,
+        chunk_size: int = 64 * 1024,
+        window: int = 192,
+    ):
+        """Stream a chat's full history to the caller's inbox as binary chunks.
+
+        Faster counterpart of get_chat_messages: instead of the client looping
+        byte-budgeted ~700 KB pages over the slow request/reply path
+        (~0.7 MB/s, and 700 KB messages sit in the NATS jam zone), serialize
+        the whole sanitized history once and PUSH it in 64 KiB chunks
+        (~3.5 MB/s, jam-free). Same wire format as file_transfer stream_read.
+
+        Returns {"success": True, "total_size": int} immediately; the JSON
+        ({"messages": [...], "total": N}) flows over reply_to.
+        """
+        try:
+            messages = await self._get_sanitized_messages(chat_id, filter_out_images)
+        except KeyError:
+            return {"success": False, "error": f"Chat '{chat_id}' not found"}
+        except Exception as e:
+            logger.error(f"[stream_chat_messages] error loading {chat_id}: {e}")
+            return {"success": False, "error": str(e)}
+
+        import json as _json
+        payload = _json.dumps(
+            {"messages": messages, "total": len(messages)}, ensure_ascii=False
+        ).encode("utf-8")
+
+        nc = self.worker.nc if getattr(self, "worker", None) else None
+        if nc is None:
+            return {"success": False, "error": "No NATS connection available for streaming"}
+
+        from pantheon.utils.stream_push import push_bytes_stream
+        asyncio.create_task(
+            push_bytes_stream(nc, payload, reply_to, ack_subject, int(chunk_size), int(window))
+        )
+        return {"success": True, "total_size": len(payload)}
+
     @tool
     async def get_chat_messages(
         self,
@@ -1405,54 +1495,8 @@ class ChatRoom(ToolSet):
                 callers normally don't need to set this.
         """
         try:
-            # Frontend query: skip auto-fix for better performance (5-10x faster)
-            # Messages will be fixed automatically when agent execution starts
-            memory = await run_func(self.memory_manager.get_memory, chat_id)
-
-            # Sync _current_chat_id to keep backend state aligned with UI
-            self._current_chat_id = chat_id
-
-            # Get full raw history for UI
-            messages = await run_func(memory.get_messages, _ALL_CONTEXTS, False)
-
-            # Defensive check: ensure messages is a list
-            if messages is None:
-                messages = []
-
             import json as _json
-            # Per-message sanitization (NATS payload limit). Bounded
-            # raw_content (drop if > 50 KB), bounded stdout/stderr fields
-            # (10 KB), and bounded `content` + `reasoning_content` fields
-            # (200 KB) so no single message can dominate a page.
-            MAX_RAW_CONTENT_SIZE = 50_000
-            MAX_FIELD_LENGTH = 10_000
-            MAX_CONTENT_FIELD_SIZE = 200_000
-
-            def _truncate_str_field(msg: dict, key: str) -> None:
-                v = msg.get(key)
-                if isinstance(v, str) and len(v) > MAX_CONTENT_FIELD_SIZE:
-                    msg[key] = (
-                        v[:MAX_CONTENT_FIELD_SIZE]
-                        + f"\n\n[...truncated {len(v) - MAX_CONTENT_FIELD_SIZE} bytes]"
-                    )
-
-            for message in messages:
-                if "raw_content" in message:
-                    if isinstance(message["raw_content"], dict):
-                        if filter_out_images and "base64_uri" in message["raw_content"]:
-                            del message["raw_content"]["base64_uri"]
-                        for _k in ("stdout", "stderr"):
-                            if _k in message["raw_content"]:
-                                message["raw_content"][_k] = message["raw_content"][_k][:MAX_FIELD_LENGTH]
-                    try:
-                        rc_size = len(_json.dumps(message["raw_content"], ensure_ascii=False))
-                        if rc_size > MAX_RAW_CONTENT_SIZE:
-                            del message["raw_content"]
-                    except (TypeError, ValueError):
-                        pass
-                _truncate_str_field(message, "content")
-                _truncate_str_field(message, "reasoning_content")
-
+            messages = await self._get_sanitized_messages(chat_id, filter_out_images)
             total = len(messages)
             if offset < 0:
                 offset = 0
