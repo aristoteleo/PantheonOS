@@ -180,16 +180,21 @@ class PythonInterpreterToolSet(ToolSet):
              p_id = interpreter_id
         else:
             context_dict = dict(self.get_context() or {})
-            client_id = context_dict.get("client_id")
-            if client_id is None:
-                client_id = "default"
-                # Debug level - not a real problem, just informational
-                logger.debug("No client id provided, using default client id.")
-            p_id = self.clientid_to_interpreterid.get(client_id)
+            # Key the interpreter PER CHAT. `client_id` is the UI connection id
+            # (stable across chats), so keying by it made two simultaneous
+            # chats share one Python process — and therefore one variable
+            # namespace. `chat_id` isolates per conversation; fall back to
+            # client_id then "default" only when chat_id is absent.
+            session_key = (
+                context_dict.get("chat_id")
+                or context_dict.get("client_id")
+                or "default"
+            )
+            p_id = self.clientid_to_interpreterid.get(session_key)
             if (p_id is None) or (p_id not in self.interpreters):
                 create_resp = await self.new_interpreter()
                 p_id = create_resp["interpreter_id"]
-                self.clientid_to_interpreterid[client_id] = p_id
+                self.clientid_to_interpreterid[session_key] = p_id
 
         await self._inject_runtime_context(p_id)
 

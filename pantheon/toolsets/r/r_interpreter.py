@@ -63,16 +63,20 @@ class RInterpreterToolSet(ToolSet):
 
         if context_variables is None:
             context_variables = {}
-        client_id = context_variables.get("client_id")
-        if client_id is None:
-            client_id = "default"
-            logger.warning("No client_id provided, using default")
-        p_id = self.clientid_to_interpreterid.get(client_id)
+        # Key the R session PER CHAT (chat_id), not by client_id (the UI
+        # connection id, shared across a user's chats) — otherwise two chats
+        # share one R global environment.
+        session_key = (
+            context_variables.get("chat_id")
+            or context_variables.get("client_id")
+            or "default"
+        )
+        p_id = self.clientid_to_interpreterid.get(session_key)
         if (p_id is None) or (p_id not in self.interpreters):
             res = await self.new_interpreter()
             p_id = res["interpreter_id"]
             initial_output = res["initial_output"]
-            self.clientid_to_interpreterid[client_id] = p_id
+            self.clientid_to_interpreterid[session_key] = p_id
 
         # Reset figure path and run the actual code
         try:

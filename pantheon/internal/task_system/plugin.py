@@ -22,10 +22,12 @@ if TYPE_CHECKING:
 TASK_BRAIN_DIR_BLOCK = """
 
 <task_brain_dir>
-Artifact directory: {brain_dir}/{{client_id}}
+Artifact directory: {brain_dir}/{{client_id}}/{{chat_id}}
   - Base path: {brain_dir}
-  - {{client_id}} is the current user's client ID (provided per-request in context)
-  - Example: {brain_dir}/default/task.md
+  - {{client_id}} is the current user's client ID and {{chat_id}} is the current
+    conversation's ID (both provided per-request in context). The {{chat_id}}
+    segment keeps each conversation's task.md isolated from other chats.
+  - Example: {brain_dir}/default/default/task.md
 </task_brain_dir>"""
 
 

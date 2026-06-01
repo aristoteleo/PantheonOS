@@ -49,24 +49,31 @@ class TaskToolSet(ToolSet):
             logger.warning(f"[TaskToolSet] Failed to load state: {e}")
 
     def _get_brain_dir(self, context: dict) -> str:
-        """Get brain_dir path from context.
+        """Get the PER-CONVERSATION brain_dir from context.
+
+        Isolated by chat_id. `client_id` is the UI connection id (stable across
+        a user's chats), so keying task state/artifacts only by it made two
+        simultaneous chats share one task_state.json + task.md and clobber each
+        other. We nest by client_id (groups a user's chats) then chat_id
+        (isolates the conversation).
 
         Priority:
         1. Use workdir if present in context (test user scenario)
         2. Fall back to settings.brain_dir (original scenario)
         """
         client_id = context.get("client_id", "default")
+        chat_id = context.get("chat_id") or "default"
 
         # Priority 1: Use workdir from context if available (test user scenario)
         workdir = context.get("workdir")
         if workdir:
-            brain_path = Path(workdir) / ".pantheon" / "brain" / client_id
+            brain_path = Path(workdir) / ".pantheon" / "brain" / client_id / chat_id
             logger.debug(f"[TaskToolSet] Using workdir brain_dir: {brain_path}")
             return str(brain_path)
 
         # Priority 2: Fall back to settings (original scenario, backward compatible)
         from pantheon.settings import get_settings
-        brain_path = get_settings().brain_dir / client_id
+        brain_path = get_settings().brain_dir / client_id / chat_id
         logger.debug(f"[TaskToolSet] Using settings brain_dir: {brain_path}")
         return str(brain_path)
 

@@ -391,28 +391,32 @@ PANTHEON_ENV_EOF
                 timeout=timeout,
             )
         else:
-            # Auto Mode (Client ID based)
+            # Auto Mode — key the shell session PER CHAT.
             context_dict = dict(self.get_context() or {})
-            client_id = context_dict.get("client_id")
-            if client_id is None:
-                client_id = "default"
-                # Debug level - not a real problem, just informational
-                logger.debug("No client id provided, using default client id.")
+            # `client_id` is the UI connection id (stable across a user's
+            # chats); keying by it made two chats share one shell — same cwd,
+            # env vars and background processes. `chat_id` isolates per
+            # conversation; fall back to client_id then "default".
+            session_key = (
+                context_dict.get("chat_id")
+                or context_dict.get("client_id")
+                or "default"
+            )
 
             initial_output = ""
-            # Resolve shell_id from client_id mapping
-            _mapped_shell_id = self.clientid_to_shellid.get(client_id)
+            # Resolve shell_id from the per-chat session key
+            _mapped_shell_id = self.clientid_to_shellid.get(session_key)
 
             # Check if we need to create a new shell
             if (_mapped_shell_id is None) or (_mapped_shell_id not in self.shells):
                 res = await self.new_shell()
                 _mapped_shell_id = res["shell_id"]
                 initial_output = res["initial_output"]
-                self.clientid_to_shellid[client_id] = _mapped_shell_id
+                self.clientid_to_shellid[session_key] = _mapped_shell_id
 
             # Check if shell is still alive before running command
             if not self._is_shell_alive(_mapped_shell_id):
-                _mapped_shell_id = await self._restart_shell(client_id)
+                _mapped_shell_id = await self._restart_shell(session_key)
                 initial_output = ""  # New shell will have its own initial output
 
             # If mapped shell is busy, get an available shell

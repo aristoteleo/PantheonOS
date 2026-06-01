@@ -229,10 +229,12 @@ class ImageGenerationToolSet(ToolSet):
         return dict(model_args), None
 
     def _get_chat_id(self) -> str:
-        """Get chat_id from context."""
+        """Get chat_id from context (per-conversation isolation)."""
         context = self.get_context()
         if context:
-            return context.get("client_id", "default")
+            # Prefer chat_id; client_id is the UI connection id (shared across
+            # a user's chats) and only a fallback.
+            return context.get("chat_id") or context.get("client_id") or "default"
         return "default"
 
     def _resolve_model_connection(self, model: str) -> tuple[str | None, str | None]:
