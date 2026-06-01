@@ -51,29 +51,27 @@ class TaskToolSet(ToolSet):
     def _get_brain_dir(self, context: dict) -> str:
         """Get the PER-CONVERSATION brain_dir from context.
 
-        Isolated by chat_id. `client_id` is the UI connection id (stable across
-        a user's chats), so keying task state/artifacts only by it made two
-        simultaneous chats share one task_state.json + task.md and clobber each
-        other. We nest by client_id (groups a user's chats) then chat_id
-        (isolates the conversation).
+        Keyed by chat_id ONLY — chat_id is globally unique, so it alone isolates
+        each conversation's task_state.json + artifacts. (Previously also nested
+        under client_id, the UI-connection id; that was redundant and made the
+        path non-deterministic for readers that don't know the client_id.)
 
         Priority:
-        1. Use workdir if present in context (test user scenario)
-        2. Fall back to settings.brain_dir (original scenario)
+        1. Use workdir if present in context (isolated-project scenario)
+        2. Fall back to settings.brain_dir
         """
-        client_id = context.get("client_id", "default")
         chat_id = context.get("chat_id") or "default"
 
-        # Priority 1: Use workdir from context if available (test user scenario)
+        # Priority 1: Use workdir from context if available (isolated project)
         workdir = context.get("workdir")
         if workdir:
-            brain_path = Path(workdir) / ".pantheon" / "brain" / client_id / chat_id
+            brain_path = Path(workdir) / ".pantheon" / "brain" / chat_id
             logger.debug(f"[TaskToolSet] Using workdir brain_dir: {brain_path}")
             return str(brain_path)
 
-        # Priority 2: Fall back to settings (original scenario, backward compatible)
+        # Priority 2: Fall back to settings
         from pantheon.settings import get_settings
-        brain_path = get_settings().brain_dir / client_id / chat_id
+        brain_path = get_settings().brain_dir / chat_id
         logger.debug(f"[TaskToolSet] Using settings brain_dir: {brain_path}")
         return str(brain_path)
 
@@ -340,6 +338,109 @@ class TaskToolSet(ToolSet):
             "has_questions": has_questions,
             "questions": questions,
         }
+
+    def _resolve_output_path(self, path: str, context: dict):
+        """Resolve an output path: check existence + normalize for storage.
+
+        Relative paths resolve against the agent's effective workdir (the same
+        root file_manager writes to), else cwd. Returns
+        (abs_path, exists, is_dir, store_path) where store_path is normalized to
+        a WORKSPACE-RELATIVE path when the file is under the root — so the UI
+        renders a clean tree (`segmentation_outputs/`) instead of the full
+        absolute path. Paths outside the root keep their original form.
+        """
+        import os
+
+        root = context.get("workdir") or os.getcwd()
+        p = os.path.expanduser(path)
+        abs_path = p if os.path.isabs(p) else os.path.join(root, p)
+        exists = os.path.exists(abs_path)
+        is_dir = os.path.isdir(abs_path) if exists else False
+
+        store_path = path
+        try:
+            rel = os.path.relpath(abs_path, root)
+            if not rel.startswith(".."):  # under the workspace root
+                store_path = rel
+        except ValueError:
+            pass  # different drive (Windows) — keep original
+        return abs_path, exists, is_dir, store_path
+
+    @tool
+    async def register_output(
+        self,
+        path: str,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        kind: Optional[str] = None,
+    ) -> dict:
+        """Register a user-facing deliverable so the user can find and browse it
+        in the Output panel. Call this whenever you produce something the user
+        should see.
+
+        IMPORTANT: This is the ONLY way outputs become visible in the Output
+        panel. In particular, files produced by RUNNING CODE (e.g. a plot saved
+        by a script, a generated CSV) are NOT tracked anywhere else — you must
+        register them here. Files you create with write_file should also be
+        registered if they are deliverables (not scratch/intermediate files).
+
+        Prefer organizing related deliverables into a folder and registering the
+        FOLDER (its live contents are shown as a browsable tree) — then you don't
+        have to register every file individually. You can also register single
+        important files with a title/description.
+
+        The output is automatically attributed to the task you are currently in
+        (your most recent task_boundary), so the user sees which task produced
+        what.
+
+        Args:
+            path: Path to the output file or directory (relative to your
+                workspace, or absolute). MUST already exist — create/produce it
+                first.
+            title: Short human-readable title, e.g. "Hi-C contact matrix report".
+            description: One-line description of what it is.
+            kind: Category for grouping/display: 'report' | 'figure' | 'data' |
+                'table' | 'dir' | 'other'. Defaults to 'dir' for directories,
+                else 'other'.
+        """
+        context = self.get_context() or {}
+        _abs, exists, is_dir, store_path = self._resolve_output_path(path, context)
+        if not exists:
+            return {
+                "success": False,
+                "error": f"Path does not exist: {path}. Create/produce it before registering.",
+            }
+
+        # Lazy-load so we accumulate onto any previously persisted outputs.
+        brain_dir = self._get_brain_dir(context)
+        self._load(brain_dir)
+        self.state.on_register_output(
+            path=store_path, title=title, description=description, kind=kind, is_dir=is_dir
+        )
+        self._save(brain_dir)
+        return {"success": True, "path": store_path, "is_dir": is_dir}
+
+    @tool
+    async def list_outputs(self) -> dict:
+        """List the registered output artifacts for the current conversation.
+
+        Returns every output registered via register_output, each tagged with
+        the task that produced it. Reads the persisted task state directly so it
+        is reliable regardless of which agent instance handles the call and for
+        conversations loaded from history.
+        """
+        context = self.get_context() or {}
+        brain_dir = self._get_brain_dir(context)
+        path = Path(brain_dir) / self.STATE_FILE
+        if not path.exists():
+            return {"success": True, "outputs": []}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            outputs = (data.get("state") or {}).get("outputs", [])
+            return {"success": True, "outputs": outputs}
+        except Exception as e:
+            logger.warning(f"[TaskToolSet] Failed to read outputs: {e}")
+            return {"success": False, "error": str(e), "outputs": []}
 
     def get_ephemeral_prompt(self, context_variables: dict) -> dict:
         """Generate EU message for agent loop to inject before LLM call.

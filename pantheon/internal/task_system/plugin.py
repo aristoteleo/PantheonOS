@@ -22,13 +22,33 @@ if TYPE_CHECKING:
 TASK_BRAIN_DIR_BLOCK = """
 
 <task_brain_dir>
-Artifact directory: {brain_dir}/{{client_id}}/{{chat_id}}
+Artifact directory: {brain_dir}/{{chat_id}}
   - Base path: {brain_dir}
-  - {{client_id}} is the current user's client ID and {{chat_id}} is the current
-    conversation's ID (both provided per-request in context). The {{chat_id}}
-    segment keeps each conversation's task.md isolated from other chats.
-  - Example: {brain_dir}/default/default/task.md
+  - {{chat_id}} is the current conversation's ID (provided per-request in
+    context). It keeps each conversation's task.md isolated from other chats.
+  - Example: {brain_dir}/default/task.md
 </task_brain_dir>"""
+
+
+OUTPUT_REGISTRATION_BLOCK = """
+
+<output_registration>
+When you produce a user-facing DELIVERABLE — a report, a figure, a data
+file/table, or an output folder — register it with the `register_output` tool
+so the user can find and browse it in the Output panel.
+
+  - This is the ONLY way deliverables show up for the user. In particular,
+    files produced by RUNNING CODE (e.g. a plot a script saved, a generated
+    CSV) are tracked NOWHERE else — you MUST register them.
+  - Prefer organizing related deliverables into a folder and registering the
+    FOLDER (its contents are shown as a live browsable tree) — you needn't
+    register every file individually. Register single important files too,
+    with a title + description.
+  - Register the moment a deliverable is ready; when wrapping up a task
+    (REVIEW), make sure every deliverable has been registered.
+  - Do NOT register scratch/intermediate files or the task.md/plan.md
+    artifacts — only things the user actually wants.
+</output_registration>"""
 
 
 class TaskSystemPlugin(TeamPlugin):
@@ -85,8 +105,8 @@ class TaskSystemPlugin(TeamPlugin):
 
         primary = team.team_agents[0]
         if hasattr(primary, "instructions") and primary.instructions:
-            primary.instructions += tag
-            logger.debug(f"TaskSystemPlugin: injected task_brain_dir into '{primary.name}'")
+            primary.instructions += tag + OUTPUT_REGISTRATION_BLOCK
+            logger.debug(f"TaskSystemPlugin: injected task_brain_dir + output_registration into '{primary.name}'")
 
 
 def _create_task_plugin(config: dict, settings: Any) -> TaskSystemPlugin:

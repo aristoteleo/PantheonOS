@@ -1,5 +1,6 @@
 """Task state management for Modal Workflow System."""
 import os
+import time
 from dataclasses import dataclass, field, asdict, fields
 from typing import Optional
 
@@ -147,6 +148,14 @@ class ConversationState:
     # Structure: {"plan": ["research_plan.md"], "summary": [], ...}
     artifacts_modified_in_task: dict[str, list[str]] = field(default_factory=dict)
 
+    # Registered user-facing OUTPUTS (deliverables the agent explicitly reports
+    # via register_output). CUMULATIVE across the whole conversation — never
+    # reset on task boundary. Each entry is tagged with the task that produced
+    # it, so the UI can group/attribute outputs by task. A file OR a directory
+    # (is_dir → the UI lists its live contents as a tree).
+    # Entry: {path, title, description, kind, is_dir, task_name, mode, step, ts}
+    outputs: list[dict] = field(default_factory=list)
+
     # Task tracking
     active_task: Optional[TaskInfo] = None
     task_boundary_reason: str = "a task boundary has never been set yet in this conversation"
@@ -218,6 +227,36 @@ class ConversationState:
         self.tools_since_think = 0  # 新增：重置 think 计数
         self.task_boundary_reason = "there has been a notify_user action since the last task boundary"
         
+    def on_register_output(
+        self,
+        path: str,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        kind: Optional[str] = None,
+        is_dir: bool = False,
+    ):
+        """Register a user-facing output, tagged with the current active task.
+
+        Deduped by path (a re-register updates the existing entry). The task
+        attribution comes from active_task at call time — i.e. whatever task the
+        agent is in when it reports the deliverable.
+        """
+        task = self.active_task
+        entry = {
+            "path": path,
+            "title": title,
+            "description": description,
+            "kind": kind or ("dir" if is_dir else "other"),
+            "is_dir": is_dir,
+            "task_name": task.name if task else None,
+            "mode": task.mode if task else None,
+            "step": self.current_step,
+            "ts": time.time(),
+        }
+        # Dedupe by path: drop any prior entry for the same path, keep the newest.
+        self.outputs = [o for o in self.outputs if o.get("path") != path]
+        self.outputs.append(entry)
+
     def on_artifact_created(self, path: str):
         """Track artifact creation."""
         if path not in self.created_artifacts:
