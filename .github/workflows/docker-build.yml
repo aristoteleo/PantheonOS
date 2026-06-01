@@ -100,8 +100,11 @@ jobs:
         with:
           context: ${{ env.BUILD_CONTEXT }}
           file: ${{ env.DOCKERFILE_PATH }}
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' && (github.event.inputs.push_to_dockerhub != 'false') }}
+          # amd64 only — Modal (us-west) and the DO clusters are all amd64;
+          # arm64 was being emulated under QEMU and roughly doubled build time.
+          # Re-add linux/arm64 here if the agent image ever needs to run on
+          # Apple Silicon directly.
+          platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

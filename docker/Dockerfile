@@ -200,6 +200,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     # Paper writing and graph maker dependencies
     pandoc \
+    # qpdf: linearize (web-optimize) compiled PDFs so the viewer can render
+    # the first page before the whole file streams in
+    qpdf \
     librsvg2-bin \
     libgdk-pixbuf-2.0-0 \
     shared-mime-info \

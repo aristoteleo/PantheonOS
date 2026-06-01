@@ -2029,6 +2029,9 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 self._latex_output_dir.mkdir(parents=True, exist_ok=True)
                 output_path = self._latex_output_dir / pdf_name
                 shutil.copy2(str(pdf_src), str(output_path))
+                # Web-optimize (linearize) so the frontend can render the first
+                # page before the whole PDF has streamed in. Best-effort.
+                await self._linearize_pdf(output_path)
                 # Clean up build artifacts in source directory
                 for ext in ('.aux', '.log', '.out', '.toc', '.fls', '.fdb_latexmk', '.synctex.gz'):
                     artifact = source_path.with_suffix(ext)
@@ -2054,6 +2057,37 @@ class FileManagerToolSet(FileManagerToolSetBase):
                     "error": "Compilation failed. See log for details.",
                     "log": combined,
                 }
+
+    async def _linearize_pdf(self, pdf_path: Path) -> None:
+        """Best-effort linearize (web-optimize) a PDF in place.
+
+        A linearized PDF puts the cross-reference + first-page data at the
+        FRONT, so a progressive viewer (PDF.js range transport) can render the
+        first page before the whole file arrives. No-op when qpdf is absent or
+        the conversion fails — the original PDF is left untouched.
+        """
+        import shutil as _sh
+        if _sh.which("qpdf") is None:
+            return
+        tmp = pdf_path.with_suffix(".linearized.pdf")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "qpdf", "--linearize", str(pdf_path), str(tmp),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(proc.wait(), timeout=30)
+            # qpdf returns 0 (clean) or 3 (warnings, output still written).
+            if proc.returncode in (0, 3) and tmp.exists() and tmp.stat().st_size > 0:
+                tmp.replace(pdf_path)
+            else:
+                tmp.unlink(missing_ok=True)
+        except Exception as e:
+            logger.warning(f"[compile_latex] linearize skipped: {e}")
+            try:
+                tmp.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 __all__ = ["FileManagerToolSet"]
