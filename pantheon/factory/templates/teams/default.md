@@ -13,6 +13,7 @@ agents:
 leader:
   id: leader
   name: Leader
+  model: high
   icon: 🧭
   toolsets:
     - file_manager
