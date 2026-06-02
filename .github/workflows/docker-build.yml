@@ -105,6 +105,11 @@ jobs:
           # Re-add linux/arm64 here if the agent image ever needs to run on
           # Apple Silicon directly.
           platforms: linux/amd64
+          # NOTE: build-push-action defaults push=false. This line was
+          # accidentally removed together with the arm64 platform in 86204cd,
+          # silently turning the job into build-only — Docker Hub stopped
+          # receiving new images while CI still reported success. Keep it.
+          push: ${{ github.event_name != 'pull_request' && (github.event.inputs.push_to_dockerhub != 'false') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
