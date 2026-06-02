@@ -149,7 +149,7 @@ def prefix_saved_models(provider: str, model_names: list[str]) -> list[str]:
 # Built-in defaults based on May 2026 flagship models
 # Users can override in settings.json
 
-DEFAULT_PROVIDER_PRIORITY = ["openai", "anthropic", "gemini", "gemini-cli", "zai", "deepseek", "minimax", "moonshot", "qwen", "groq", "mistral", "together_ai", "openrouter", "codex", "ollama"]
+DEFAULT_PROVIDER_PRIORITY = ["anthropic", "openai", "gemini", "gemini-cli", "zai", "deepseek", "minimax", "moonshot", "qwen", "groq", "mistral", "together_ai", "openrouter", "codex", "ollama"]
 
 # Quality levels map to MODEL LISTS (not single models) for fallback chains
 # Models within each level are ordered by preference
@@ -165,11 +165,13 @@ DEFAULT_PROVIDER_MODELS = {
     # https://docs.anthropic.com/en/docs/about-claude/models/overview
     "anthropic": {
         "high": [
+            "anthropic/claude-opus-4-8",
             "anthropic/claude-opus-4-7",
             "anthropic/claude-opus-4-6",
             "anthropic/claude-opus-4-5-20251101",
         ],
         "normal": [
+            "anthropic/claude-opus-4-8",
             "anthropic/claude-sonnet-4-6",
             "anthropic/claude-sonnet-4-5-20250929",
             "anthropic/claude-sonnet-4-20250514",

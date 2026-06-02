@@ -388,6 +388,28 @@ def _extract_cost_and_usage(complete_resp: Any) -> tuple[float, dict]:
                 f"Using estimated cost: ${cost:.6f} ({input_tokens} in, {output_tokens} out)"
             )
 
+    # Cache observability — surface prompt-cache reuse so the hit rate is
+    # measurable from logs (grep "[cache]"). cache_read = input tokens served
+    # from the provider's prompt cache (cheap + skips re-prefill, the latency
+    # win); cache_write = tokens written into the cache this call; the rest were
+    # freshly prefilled. Works for Anthropic (top-level cache_*_input_tokens)
+    # and OpenAI/normalized (prompt_tokens_details.cached_tokens).
+    try:
+        pt = usage_dict.get("prompt_tokens", 0) or 0
+        ptd = usage_dict.get("prompt_tokens_details") or {}
+        if hasattr(ptd, "model_dump"):
+            ptd = ptd.model_dump()
+        ptd = ptd if isinstance(ptd, dict) else {}
+        cache_read = usage_dict.get("cache_read_input_tokens") or ptd.get("cached_tokens") or 0
+        cache_write = usage_dict.get("cache_creation_input_tokens") or ptd.get("cache_creation_tokens") or 0
+        if pt:
+            logger.info(
+                f"[cache] prompt_tokens={pt} cache_read={cache_read} "
+                f"cache_write={cache_write} hit={100.0 * cache_read / pt:.0f}%"
+            )
+    except Exception:
+        pass
+
     return cost, usage_dict
 
 
