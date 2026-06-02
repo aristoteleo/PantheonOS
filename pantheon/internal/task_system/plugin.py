@@ -40,6 +40,10 @@ so the user can find and browse it in the Output panel.
   - This is the ONLY way deliverables show up for the user. In particular,
     files produced by RUNNING CODE (e.g. a plot a script saved, a generated
     CSV) are tracked NOWHERE else — you MUST register them.
+  - Deliverables produced by SUB-AGENTS you delegated to are reported back to
+    you in their `## Files Produced` list — treat them exactly like your own
+    output and register the real deliverables among them. Sub-agents do not
+    register anything themselves; you are the single point of registration.
   - Prefer organizing related deliverables into a folder and registering the
     FOLDER (its contents are shown as a live browsable tree) — you needn't
     register every file individually. Register single important files too,
@@ -49,6 +53,22 @@ so the user can find and browse it in the Output panel.
   - Do NOT register scratch/intermediate files or the task.md/plan.md
     artifacts — only things the user actually wants.
 </output_registration>"""
+
+
+SUBAGENT_FILE_REPORT_BLOCK = """
+
+<file_reporting>
+You are a sub-agent working on a delegated task. When you finish, END your
+final report with a `## Files Produced` section listing EVERY file you created
+or modified — one line per file as `path — what it is` (result files, figures,
+data, generated reports, reference docs). The leader relies on this list to
+surface your deliverables to the user.
+
+Do NOT call `register_output` yourself — registering deliverables is the
+leader's responsibility, a single consistent point of registration. Your job
+is to report your files completely and accurately, with correct paths. If you
+produced no files, say so explicitly.
+</file_reporting>"""
 
 
 class TaskSystemPlugin(TeamPlugin):
@@ -88,11 +108,12 @@ class TaskSystemPlugin(TeamPlugin):
         return [(task_toolset, [primary.name])]
 
     async def on_team_created(self, team: "PantheonTeam") -> None:
-        """Inject <task_brain_dir> into the primary agent's instructions.
+        """Inject task-system instructions into the team's agents.
 
-        Replaces the {task_brain_dir} placeholder in agentic_general.md with
-        the real path. Only the primary (leader) agent writes artifacts, so
-        only its instructions need the concrete path.
+        Primary (leader): the concrete <task_brain_dir> path + the
+        <output_registration> block — it is the single point of register_output.
+        Sub-agents: the <file_reporting> block, so they report the files they
+        produce back to the leader instead of registering anything themselves.
         """
         from pantheon.settings import get_settings
 
@@ -107,6 +128,14 @@ class TaskSystemPlugin(TeamPlugin):
         if hasattr(primary, "instructions") and primary.instructions:
             primary.instructions += tag + OUTPUT_REGISTRATION_BLOCK
             logger.debug(f"TaskSystemPlugin: injected task_brain_dir + output_registration into '{primary.name}'")
+
+        # Sub-agents never register outputs themselves — the leader is the single
+        # point of registration (consistency). But each sub-agent MUST report the
+        # files it produced so the leader can register the deliverables among them.
+        for sub in team.team_agents[1:]:
+            if hasattr(sub, "instructions") and sub.instructions:
+                sub.instructions += SUBAGENT_FILE_REPORT_BLOCK
+                logger.debug(f"TaskSystemPlugin: injected file_reporting into sub-agent '{sub.name}'")
 
 
 def _create_task_plugin(config: dict, settings: Any) -> TaskSystemPlugin:
