@@ -87,6 +87,21 @@ please view these files soon to remind yourself of its contents
 # New: Excessive tools without task boundary reminder (matches Antigravity's emphatic style)
 EXCESSIVE_TOOLS_WITHOUT_TASK_REMINDER = """You have called {count} tools in a row without calling the task_boundary tool. This is extremely unexpected. Since you are doing so much work without active engagement with the user, for the next response or tool call you do please concurrently set the task boundary in parallel before continuing any further."""
 
+# Register-output reminder — fires while actively producing work with nothing
+# registered yet. register_output is an easy tool to forget, and forgetting it
+# leaves the user's Output panel empty even though deliverables exist on disk.
+REGISTER_OUTPUT_REMINDER = """\
+<register_output_reminder>
+You have registered 0 outputs so far. If you have produced — or are about to
+produce — any user-facing DELIVERABLE (a report, a figure, a data file/table,
+or an output folder), you MUST call `register_output` for it. This is the ONLY
+way deliverables appear in the user's Output panel; files written by running
+code are tracked NOWHERE else. Register each deliverable as soon as it exists,
+and before you finish the task make sure every deliverable has been registered.
+(Sub-agents never register — if one reported files in a "Files Produced" list,
+register the real deliverables among them yourself.)
+</register_output_reminder>"""
+
 # Think Tool Reminder
 THINK_TOOL_REMINDER = """\
 <think_tool_reminder>
@@ -187,6 +202,17 @@ def generate_ephemeral_message(state: ConversationState, brain_dir: str) -> str:
         all_modified = state.get_all_modified_artifacts()
         if all_modified:
             parts.append(ARTIFACTS_MODIFIED_REMINDER.format(count=len(all_modified)))
+
+    # 4b. Register-output reminder — fire while actively producing work (not
+    # planning) when nothing has been registered yet. Self-limiting: stops once
+    # the first deliverable is registered, so it nudges exactly until the agent
+    # remembers, then goes quiet.
+    if (
+        state.active_task
+        and not state.active_task.is_plan_phase
+        and not getattr(state, "outputs", None)
+    ):
+        parts.append(REGISTER_OUTPUT_REMINDER)
 
     # 5. Pending review reminder (after notify_user, not in task)
     if state.pending_review_paths and not state.active_task:
