@@ -49,9 +49,9 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-${CACHE_VERSION} \
     echo "Installing base dependencies (cache: ${CACHE_VERSION}, venv: ${VENV_PATH})" && \
     uv sync --no-dev --extra r --no-install-project --python /usr/local/bin/python
 
-# ── Layer 2: single-cell analysis extras (MOVED TO AFTER FINAL UV SYNC) ────
-# NOTE: Single-cell packages installation moved to Layer 3.5 (after uv sync)
-# to prevent them from being removed by 'uv sync' which cleans packages not in lock file
+# ── Single-cell / paper extras are installed in Layers 2.5–2.7 below — after
+# the base uv sync, BEFORE the code COPY — so code-only changes don't re-run
+# them and sync's cleanup can't strip them. See the note there.
 
 # Packages removed to reduce image size (install on-demand via system_manager):
 # Python packages (~6GB+ saved):
@@ -79,23 +79,13 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-${CACHE_VERSION} \
 # - Spatial transcriptomics: Basic features via scanpy (70-80% coverage)
 # - Less common features installed on-demand (adds 2-10 minutes per package)
 
-# ── Layer 3: application code ────────────────────────────────────────────────
-# Copy source code AFTER all dependencies are installed.
-# Code-only changes never invalidate the expensive dependency layers above.
-COPY . /app/
+# ── Layers 2.5–2.7: runtime extras, installed BEFORE the application code ────
+# These slow installs sit after the base `uv sync` and BEFORE the code COPY
+# (Layer 3, below), so a code-only change never re-runs them. There is no
+# `uv sync` after them, so sync's cleanup (which drops packages absent from the
+# lock file) can't strip them.
 
-# Sync again to pick up any lock-file changes introduced by the source COPY.
-# --no-install-project: do NOT install the pantheon package into /venv.
-# The project is found at runtime via PYTHONPATH=/app, so installing it into
-# the venv is unnecessary and would risk copying source files into /venv,
-# making Layer A (venv) change on every code commit.
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-${CACHE_VERSION} \
-    uv sync --no-dev --extra r --no-install-project --python /usr/local/bin/python
-
-# ── Layer 3.5: single-cell analysis extras ──────────────────────────────────
-# IMPORTANT: Install AFTER uv sync to prevent removal by sync's cleanup process.
-# uv sync removes packages not in lock file, so single-cell packages must be
-# installed after the final sync to persist in the image.
+# ── Layer 2.5: single-cell analysis extras ──────────────────────────────────
 #
 # ============================================
 # Single Cell Analysis Dependencies (Optimized - 12 packages)
@@ -152,6 +142,14 @@ RUN echo "Installing pip in venv for compatibility..." && \
     uv pip install --python ${VENV_PATH}/bin/python --no-cache pip && \
     ${VENV_PATH}/bin/pip --version && \
     echo "✓ pip installed successfully"
+
+# ── Layer 3: application code ────────────────────────────────────────────────
+# Copy source LAST — after every dependency/extra install above — so a
+# code-only change invalidates ONLY this COPY and the compile below, never the
+# expensive package layers. The project is found at runtime via PYTHONPATH=/app,
+# so it is intentionally NOT installed into the venv (keeps the venv layer
+# content-stable across code commits).
+COPY . /app/
 
 # Pre-compile project source files to .pyc bytecode.
 # Only compile /app/pantheon (source), NOT the venv, so the venv directory stays
