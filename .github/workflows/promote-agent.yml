@@ -1,0 +1,61 @@
+name: Promote Agent Image to :prod
+
+# Manually promote a soaked agent image to the :prod tag that production pins.
+#
+# Why: prod (Modal app pantheon-agents) and staging (pantheon-agents-staging)
+# both pull nanguage/pantheon-agents. If both tracked :latest, prod would pick
+# up every untested main build on any hub restart. So prod pins :prod, staging
+# tracks :latest, and :prod only moves when you run this workflow on purpose.
+#
+# This does NOT rebuild — it retags an existing image (multi-arch aware) via
+# `docker buildx imagetools create`, so it's near-instant and bit-identical.
+#
+# Usage (from the PantheonOS repo):
+#   gh workflow run promote-agent.yml                      # promote current :latest
+#   gh workflow run promote-agent.yml -f source=sha-abc123 # promote a specific build
+#   gh workflow run promote-agent.yml -f source=sha256:... # promote by digest (most precise)
+#
+# After promoting, prod picks it up on the next prod hub restart:
+#   REGISTRY_IMAGE=nanguage/pantheon-agents:prod MODAL_APP_NAME=pantheon-agents \
+#     python scripts/prewarm_modal_image.py
+#   kubectl --context do-sfo3-pantheon-sfo rollout restart deploy/pantheon-hub -n pantheon
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: 'Source to promote: a tag (latest, sha-abc1234) or a digest (sha256:...)'
+        required: false
+        default: 'latest'
+
+env:
+  DOCKER_IMAGE: nanguage/pantheon-agents
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Retag source -> :prod (no rebuild)
+        run: |
+          set -euo pipefail
+          SRC_INPUT="${{ github.event.inputs.source }}"
+          case "$SRC_INPUT" in
+            sha256:*) SRC="${DOCKER_IMAGE}@${SRC_INPUT}" ;;   # digest form
+            *)        SRC="${DOCKER_IMAGE}:${SRC_INPUT}" ;;   # tag form
+          esac
+          echo "Promoting  $SRC"
+          echo "       ->  ${DOCKER_IMAGE}:prod"
+          docker buildx imagetools create -t "${DOCKER_IMAGE}:prod" "$SRC"
+
+      - name: Show resolved :prod
+        run: |
+          echo "## Promoted to \`:prod\`" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          docker buildx imagetools inspect "${DOCKER_IMAGE}:prod" | head -30 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
