@@ -447,10 +447,12 @@ class LiveViewToolSet(ToolSet):
     async def live_view_screenshot(self, view_id: str) -> dict:
         """Capture what an open LiveView currently looks like, as an image.
 
-        Renders the component to an image file and returns its path; view it
-        with observe_images to actually SEE whether the component rendered.
-        Use this to verify a view after opening or driving it — `status:
-        ready` alone does not mean it looks right.
+        Renders the component (an html2canvas DOM snapshot) and hands it back
+        as an INLINE image you can SEE directly in this tool result — no
+        separate observe_images call needed. Use it to verify a view after
+        opening or driving it (`status: ready` alone does not mean it looks
+        right). On providers without inline-image support the image is only
+        saved to `path`; view that with observe_images.
 
         IMPORTANT — the snapshot is an html2canvas DOM render. It captures
         HTML and SVG faithfully, but does NOT capture WebGL or <canvas>
@@ -463,8 +465,9 @@ class LiveViewToolSet(ToolSet):
             view_id: id returned by open_live_view.
 
         Returns:
-            dict with success, path (the saved image — pass it to
-            observe_images), and note (the WebGL caveat).
+            dict with success, the screenshot shown inline (on vision-capable
+            models), path (the saved image, for observe_images on other
+            providers), and note (the WebGL caveat).
         """
         try:
             session = self._require(view_id)
@@ -505,16 +508,39 @@ class LiveViewToolSet(ToolSet):
         except Exception as e:  # noqa: BLE001
             return {"success": False, "error": f"failed to save snapshot: {e}"}
 
-        return {
+        result: dict = {
             "success": True,
             "path": str(path),
             "note": (
                 "html2canvas DOM render. WebGL/<canvas> content (Vitessce, "
                 "deck.gl, canvas plots) is NOT captured and shows blank — "
                 "for those trust live_view_get_state + diagnostics, not this "
-                "image. View the file with observe_images."
+                "image."
             ),
         }
+
+        # If the running model can receive images in tool results (Anthropic,
+        # Gemini, OpenAI Responses), hand the screenshot back INLINE so the
+        # agent SEES it in THIS result — no separate observe_images round trip
+        # (which has been brittle: a wrong/relative path → "Path is not a
+        # file"). The file is still saved above as a fallback. The framework
+        # (agent.py) strips content_blocks, builds a text summary from the
+        # rest, and persists the data URI via ImageStore.
+        try:
+            from pantheon.agent import get_current_run_model
+            from pantheon.utils.vision_capability import supports_tool_result_image
+
+            if supports_tool_result_image(get_current_run_model()):
+                result["content_blocks"] = [
+                    {"type": "image_url", "image_url": {"url": str(data_url)}}
+                ]
+                result["note"] += " The screenshot is shown inline above."
+            else:
+                result["note"] += " View the saved file with observe_images."
+        except Exception:  # noqa: BLE001
+            result["note"] += " View the saved file with observe_images."
+
+        return result
 
     @tool
     async def serve_local_data(self, path: str) -> dict:
