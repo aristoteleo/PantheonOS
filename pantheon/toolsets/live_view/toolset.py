@@ -512,10 +512,13 @@ class LiveViewToolSet(ToolSet):
             "success": True,
             "path": str(path),
             "note": (
-                "html2canvas DOM render. WebGL/<canvas> content (Vitessce, "
-                "deck.gl, canvas plots) is NOT captured and shows blank — "
-                "for those trust live_view_get_state + diagnostics, not this "
-                "image."
+                "Screenshot of the live view. The dominant WebGL/canvas surface "
+                "(e.g. the spatial-transcriptomics deck.gl 3D viewer) IS captured "
+                "— LOOK at this image to verify what's shown (gene colouring = a "
+                "smooth viridis gradient; cluster/cell-type = many discrete "
+                "colours). A FEW surfaces (the Vitessce viewer, a GLB mesh) can "
+                "still come out blank; only if THIS image is blank, fall back to "
+                "live_view_get_state + diagnostics."
             ),
         }
 
