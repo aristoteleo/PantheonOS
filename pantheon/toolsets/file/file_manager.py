@@ -623,9 +623,11 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 resource_paths=["/workspace/project/images/logo.png"]
             )
         """
+        if isinstance(resource_paths, str):  # a lone path string would iterate char-by-char
+            resource_paths = [resource_paths]
         import mimetypes
         from pathlib import Path
-        
+
         results = []
         loaded_count = 0
         failed_count = 0
@@ -1057,6 +1059,11 @@ class FileManagerToolSet(FileManagerToolSetBase):
         Args:
             question: The question to answer.
             image_paths: The paths to the images to view."""
+        # Agents frequently pass a single path as a bare string. Iterating a str
+        # walks it CHARACTER by character, so the first "path" becomes "/" →
+        # "Path is not a file: /". Coerce a lone string to a one-element list.
+        if isinstance(image_paths, str):
+            image_paths = [image_paths]
         context = self.get_context()
         if context is None:
             return {"success": False, "error": "ExecutionContext not available"}
@@ -1717,6 +1724,8 @@ class FileManagerToolSet(FileManagerToolSetBase):
             # Complex search with multiple filters
             pattern="**/*.{py,js}", excludes=["node_modules/*", ".venv/*"], type_filter="file", max_depth=3
         """
+        if isinstance(excludes, str):  # a lone pattern string would iterate char-by-char
+            excludes = [excludes]
         # Run in thread pool to avoid blocking event loop
         result = await asyncio.to_thread(
             glob_search,
@@ -1921,6 +1930,8 @@ class FileManagerToolSet(FileManagerToolSetBase):
         if not hasattr(self, "_image_gen"):
             self._image_gen = ImageGenerationToolSet()
 
+        if isinstance(reference_images, str):  # a lone path string would iterate char-by-char
+            reference_images = [reference_images]
         # Resolve relative paths to absolute paths
         abs_refs = None
         if reference_images:

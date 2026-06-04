@@ -1180,6 +1180,8 @@ class IntegratedNotebookToolSet(ToolSet):
               jq '.cells[] | select(.id=="abc123")' notebook.ipynb  # Get cell by id
               jq '.cells[] | select(.cell_type=="code") | .source' notebook.ipynb
         """
+        if isinstance(cell_ids, str):  # a lone id string would become a set of chars
+            cell_ids = [cell_ids]
         session_id = self.get_session_id()
 
         read_result = await self.notebook_contents.read_notebook(notebook_path)
@@ -2002,6 +2004,8 @@ class IntegratedNotebookToolSet(ToolSet):
             # Get kernel variables
             notebook_read("analysis.ipynb", action="kernel_variables")
         """
+        if isinstance(cell_ids, str):  # a lone id string would become a set of chars
+            cell_ids = [cell_ids]
         if action == "read_cells":
             if not notebook_path:
                 return {"success": False, "error": "notebook_path is required for read_cells"}

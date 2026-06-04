@@ -54,6 +54,8 @@ class WebToolSet(ToolSet):
         Returns:
             List of contents of the pages.
         """
+        if isinstance(urls, str):  # a lone URL string would iterate char-by-char
+            urls = [urls]
         from crawl4ai import AsyncWebCrawler
 
         async with AsyncWebCrawler(verbose=False) as crawler:

@@ -317,6 +317,8 @@ class TaskToolSet(ToolSet):
                                 "error": f"Question {i+1} option {j+1} missing required fields (label, description, value)",
                             }
 
+        if isinstance(paths_to_review, str):  # a lone path string would iterate char-by-char
+            paths_to_review = [paths_to_review]
         self.state.on_notify_user(paths_to_review)
 
         # Persist state using context from toolset

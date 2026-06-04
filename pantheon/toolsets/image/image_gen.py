@@ -333,6 +333,8 @@ class ImageGenerationToolSet(ToolSet):
             - images: List of file paths to generated images
             - error: Error message if failed
         """
+        if isinstance(reference_images, str):  # a lone path string would iterate char-by-char
+            reference_images = [reference_images]
         model, error = self._resolve_requested_image_model(model)
         if error:
             return error

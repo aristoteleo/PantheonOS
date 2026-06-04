@@ -996,6 +996,8 @@ class SCFMToolSet(ToolSet):
         Returns:
             QA metrics, visualization paths, and warnings
         """
+        if isinstance(color_by, str):  # a lone column string would iterate char-by-char
+            color_by = [color_by]
         try:
             import scanpy as sc
             adata = sc.read_h5ad(adata_path)

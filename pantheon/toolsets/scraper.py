@@ -78,6 +78,8 @@ class ScraperToolSet(ToolSet):
         Returns:
             List of contents from the web pages.
         """
+        if isinstance(urls, str):  # a lone URL string would iterate char-by-char
+            urls = [urls]
         from pantheon.settings import get_settings
         api_key = get_settings().get_api_key("SCRAPER_API_KEY")
         if not api_key:
