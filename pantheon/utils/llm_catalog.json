@@ -257,6 +257,22 @@
       "openai_compatible": false,
       "chat_output_token_param": "max_tokens",
       "models": {
+        "claude-opus-4-8": {
+          "max_input_tokens": 1000000,
+          "max_output_tokens": 128000,
+          "input_cost_per_million": 5.0,
+          "output_cost_per_million": 25.0,
+          "supports_vision": true,
+          "supports_function_calling": true,
+          "supports_response_schema": true,
+          "supports_reasoning": true,
+          "supports_audio_input": false,
+          "supports_audio_output": false,
+          "supports_web_search": false,
+          "supports_pdf_input": true,
+          "supports_computer_use": true,
+          "supports_assistant_prefill": true
+        },
         "claude-opus-4-7": {
           "max_input_tokens": 1000000,
           "max_output_tokens": 128000,
