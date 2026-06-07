@@ -84,7 +84,7 @@ def _wrap_anthropic_error(e: Exception) -> Exception:
 # ============ Message Format Conversion ============
 
 
-def _convert_messages_to_anthropic(messages: list[dict]) -> tuple[str | None, list[dict]]:
+def _convert_messages_to_anthropic(messages: list[dict]) -> tuple[str | list | None, list[dict]]:
     """Convert OpenAI-format messages to Anthropic format.
 
     Key differences:
@@ -106,7 +106,15 @@ def _convert_messages_to_anthropic(messages: list[dict]) -> tuple[str | None, li
         if role == "system":
             # First system message becomes the system parameter
             if system_prompt is None:
-                system_prompt = content if isinstance(content, str) else str(content)
+                # Anthropic's `system` accepts a STRING or a LIST of text blocks.
+                # Preserve a block list as-is so the cache_control ephemeral
+                # marker on its last block survives — str(content) dropped the
+                # marker (→ 0% prompt cache) and turned the prompt into a Python
+                # repr blob. A plain string still passes through unchanged.
+                if isinstance(content, (str, list)):
+                    system_prompt = content
+                else:
+                    system_prompt = str(content)
             else:
                 # Additional system messages become user messages
                 converted.append({
