@@ -1740,13 +1740,25 @@ class Agent:
         # Step 8: Call LLM provider (unified interface)
         # logger.info(f"Raw messages: {messages}")
 
+        # T4 cold-start instrumentation: stamp the first streamed chunk so the
+        # production TTAF can be split into setup vs LLM time-to-first-token vs
+        # generation. Wrap the chunk processor to grab the first chunk's time.
+        _llm_start = time.time()
+        _ttft_holder: dict = {}
+        _ttft_probe = enhanced_process_chunk
+        if enhanced_process_chunk is not None:
+            async def _ttft_probe(chunk, _orig=enhanced_process_chunk):  # type: ignore[misc]
+                if "t" not in _ttft_holder:
+                    _ttft_holder["t"] = time.time()
+                return await _orig(chunk)
+
         async with tracker.measure("llm_api"):
             message = await call_llm_provider(
                 config=provider_config,
                 messages=messages,
                 tools=tools,
                 response_format=response_format,
-                process_chunk=enhanced_process_chunk,
+                process_chunk=_ttft_probe,
                 model_params=model_params,
             )
 
@@ -1812,6 +1824,22 @@ class Agent:
             timing_log += "\n⚠️  Warning: Context usage ≥90%"
         
         logger.info(timing_log)
+
+        # T4: WARNING-level one-liner so the cold-start TTAF decomposition reaches
+        # modal logs (which surface WARNING+). setup = everything before the LLM
+        # request was dispatched (message build + tool assembly); ttft = request →
+        # first token (prefill + reasoning); gen = first token → done. Temporary
+        # investigation instrumentation — grep `[TTAF]`.
+        _fmt = lambda v: f"{v:.2f}s" if v is not None else "n/a"
+        _setup_s = _llm_start - request_start_time
+        _ttft_t = _ttft_holder.get("t")
+        _ttft_s = (_ttft_t - _llm_start) if _ttft_t else None
+        _gen_s = (end_timestamp - _ttft_t) if _ttft_t else None
+        logger.warning(
+            f"[TTAF] agent={self.name} model={model} tokens={total_tokens} "
+            f"tools={len(tools or [])} | setup={_setup_s:.2f}s ttft={_fmt(_ttft_s)} "
+            f"gen={_fmt(_gen_s)} llm_total={timings['llm_api']:.2f}s total={total_time:.2f}s"
+        )
 
         return message
 
