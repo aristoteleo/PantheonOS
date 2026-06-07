@@ -132,7 +132,22 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
             provider_type = ProviderType.NATIVE
             model_name = model  # Keep full model string for native adapter
     else:
-        provider_type = ProviderType.OPENAI
+        # Bare model name (no "provider/" prefix). Default to OPENAI (proxy /
+        # chat-completions path), EXCEPT Anthropic models: they MUST use the
+        # native adapter. The OpenAI Responses/Chat path strips Anthropic
+        # cache_control ephemeral markers (the Responses API even 500s on them),
+        # so a bare "claude-*" was silently downgraded to 0% prompt cache and
+        # routed through a different connection than the boot warmup. Resolve the
+        # bare name against the catalog and honour an anthropic sdk. (The proxy
+        # serves Anthropic natively — verified by the boot warmup hitting the
+        # anthropic adapter through the same proxy base_url.)
+        from pantheon.utils.provider_registry import find_provider_for_model
+
+        _pk, _, _pcfg = find_provider_for_model(model)
+        if _pk == "anthropic" and _pcfg.get("sdk") == "anthropic":
+            provider_type = ProviderType.NATIVE
+        else:
+            provider_type = ProviderType.OPENAI
         model_name = model
 
     # Override with NATIVE if relaxed_schema is forced
