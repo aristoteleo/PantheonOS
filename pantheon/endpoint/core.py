@@ -137,6 +137,13 @@ class Endpoint(FileTransferToolSet):
 
         Unified startup sequence for MCP servers and builtin services.
         """
+        # ===== Phase 0: Warm the LLM path FIRST, off the critical path =====
+        # Fire before everything else (esp. the blocking services-ready wait in
+        # Phase 2) so the warmup has maximum lead time to absorb the ~10-13s cold
+        # model-route before the user's first message. Runs concurrently; never
+        # blocks boot. See _warmup_llm_connection for why model + retries matter.
+        asyncio.create_task(self._warmup_llm_connection())
+
         # ===== Phase 1: Load MCP Config, pre-set URI, start gateway off critical path =====
         logger.info("Phase 1: Loading MCP config and starting gateway...")
         mcp_config = get_settings().get_mcp_config()
@@ -197,27 +204,27 @@ class Endpoint(FileTransferToolSet):
         logger.info("Phase 3: MCP servers initialized with async health monitoring")
 
         # Phase 4 (mount endpoint tools) now runs in _start_gateway_background() above.
-
-        # ===== Phase 5: Warm the LLM path off the critical path (cold-start fix) =====
-        # A fresh sandbox's FIRST outbound LLM call pays ~10-11s for the cold
-        # network path (Modal egress + ingress + TCP/TLS) to the LiteLLM proxy —
-        # this dominates the user's first-message latency (see the cold-start
-        # TTAF analysis; the model/proxy/cache themselves are ~2.5s). Fire one
-        # tiny throwaway completion now so the connection pool is warm before the
-        # user's first real message. Best-effort: it must never block or break
-        # boot, and even a rejected request still warms the per-host connection.
-        asyncio.create_task(self._warmup_llm_connection())
+        # Phase 0 (LLM warmup) fired at the very top of run_setup, above.
 
     async def _warmup_llm_connection(self):
-        """Best-effort warm of the sandbox→LLM-proxy network path at boot.
+        """Best-effort warm of the sandbox→LLM-proxy path at boot.
 
-        Fires one minimal completion so the cold first-call connection (the
-        ~11s that dominates cold-start TTAF) is established before the user's
-        first real message. Never raises — boot must not depend on it. The model
-        is taken from ``LLM_WARMUP_MODEL`` (the Hub can set this to the app's
-        leader model to also warm that route + the prompt cache), else the
-        cheapest tier; even if the request is rejected upstream, reaching the
-        proxy already warms the per-host TCP/TLS + Modal egress.
+        A fresh sandbox's first real message pays ~10-13s of cold path: Modal
+        egress + proxy ingress + TCP/TLS, PLUS the LiteLLM proxy spinning up the
+        *target model's* deployment. This absorbs that here, before the user's
+        first message. Two things are load-bearing:
+
+          * Model = ``LLM_WARMUP_MODEL`` (the Hub sets this to the app's leader
+            model, e.g. opus for VE). Warming a cheaper/different model does NOT
+            warm the leader's per-model deployment — that was why a successful
+            haiku warmup still left opus's first call cold at ~8-12s.
+          * RETRY. The fresh-sandbox first outbound connection frequently fails
+            with APIConnectionError (egress/ingress not ready yet) — that IS the
+            cold path. The old ``num_retries=0`` gave up on the first failure and
+            warmed nothing; we retry across the cold-egress window until an
+            attempt connects and absorbs the cold model-route setup.
+
+        Never raises — boot must not depend on it.
         """
         import time as _time
 
@@ -235,25 +242,42 @@ class Endpoint(FileTransferToolSet):
             from pantheon.utils.llm import acompletion
 
             t0 = _time.time()
-            # The warmup IS the cold first call (it absorbs the ~10-13s cold path
-            # so the user's real first message doesn't). Cap it so a genuine hang
-            # can't leak a forever-pending task.
-            await asyncio.wait_for(
-                acompletion(
-                    messages=[{"role": "user", "content": "ping"}],
-                    model=model,
-                    model_params={"max_tokens": 1},
-                    num_retries=0,
-                ),
-                timeout=120,
-            )
+            last_err = None
+            # First 1-2 attempts often hit APIConnectionError before egress/ingress
+            # are ready; a later attempt connects and absorbs the ~10-13s cold
+            # model-route. Each attempt does num_retries=0 (we own the retry loop)
+            # with a per-attempt cap so a genuine hang can't pin the task.
+            for attempt in range(1, 9):
+                try:
+                    await asyncio.wait_for(
+                        acompletion(
+                            messages=[{"role": "user", "content": "ping"}],
+                            model=model,
+                            model_params={"max_tokens": 1},
+                            num_retries=0,
+                        ),
+                        timeout=40,
+                    )
+                    logger.warning(
+                        f"[WARMUP] LLM path warmed via {model} in "
+                        f"{_time.time() - t0:.2f}s (attempt {attempt})"
+                    )
+                    return
+                except Exception as e:
+                    last_err = e
+                    logger.info(
+                        f"[WARMUP] attempt {attempt} not warm yet "
+                        f"({type(e).__name__}); retrying"
+                    )
+                    await asyncio.sleep(2)
             logger.warning(
-                f"[WARMUP] LLM path warmed via {model} in {_time.time() - t0:.2f}s"
+                f"[WARMUP] gave up after {_time.time() - t0:.2f}s / 8 attempts; "
+                f"last error: {type(last_err).__name__}: {str(last_err)[:120]}"
             )
         except Exception as e:
-            # A rejected/errored request still warms the connection — log and move on.
+            # Never let warmup break boot.
             logger.warning(
-                f"[WARMUP] LLM warmup non-fatal error (path still warmed): "
+                f"[WARMUP] LLM warmup non-fatal error: "
                 f"{type(e).__name__}: {str(e)[:120]}"
             )
 
