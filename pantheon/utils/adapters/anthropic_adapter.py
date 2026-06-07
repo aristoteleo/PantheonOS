@@ -341,10 +341,28 @@ class AnthropicAdapter(BaseAdapter):
                     event_type = event.type
 
                     if event_type == "message_start":
-                        # Extract initial usage
+                        # Extract initial usage. Anthropic splits input into three
+                        # NON-overlapping buckets: input_tokens (freshly prefilled),
+                        # cache_creation_input_tokens (written to the prompt cache
+                        # this call) and cache_read_input_tokens (served from cache).
+                        # prompt_tokens must be their SUM to match the OpenAI path
+                        # (where prompt_tokens already includes the cached portion) —
+                        # otherwise cost and the [cache] hit-rate are computed against
+                        # just the handful of fresh tokens (e.g. prompt_tokens=2 for a
+                        # fully-cached 57k prompt). The two cache_* fields flow through
+                        # stream_chunk_builder into usage so _extract_cost_and_usage
+                        # can surface prompt-cache reuse.
                         msg = getattr(event, "message", None)
                         if msg and hasattr(msg, "usage"):
-                            usage_info["prompt_tokens"] = getattr(msg.usage, "input_tokens", 0)
+                            u = msg.usage
+                            fresh = getattr(u, "input_tokens", 0) or 0
+                            cache_write = getattr(u, "cache_creation_input_tokens", 0) or 0
+                            cache_read = getattr(u, "cache_read_input_tokens", 0) or 0
+                            usage_info["prompt_tokens"] = fresh + cache_write + cache_read
+                            if cache_write:
+                                usage_info["cache_creation_input_tokens"] = cache_write
+                            if cache_read:
+                                usage_info["cache_read_input_tokens"] = cache_read
 
                     elif event_type == "content_block_start":
                         block = event.content_block
