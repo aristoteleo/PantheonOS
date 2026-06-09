@@ -2340,6 +2340,27 @@ def _ensure_block_content(message: dict) -> list[dict]:
     return []
 
 
+def _is_ephemeral_message(msg: dict) -> bool:
+    """True if *msg* is a regenerated-every-call ephemeral injection (task-state
+    reminders / background-task notifications) rather than real conversation.
+
+    These carry an ``<EPHEMERAL_MESSAGE>`` marker and are appended fresh on every
+    LLM call (never persisted). A conversation cache breakpoint must NOT land on
+    them: the tail changes each call, so the next call cannot reuse the cached
+    prefix and the stable history is re-written (1.25x) instead of read (0.1x)
+    — measured ~31% extra cost + higher TTFT. Anchor on the last REAL message.
+    """
+    content = msg.get("content")
+    if isinstance(content, str):
+        return "<EPHEMERAL_MESSAGE>" in content
+    if isinstance(content, list):
+        return any(
+            isinstance(b, dict) and "<EPHEMERAL_MESSAGE>" in (b.get("text") or "")
+            for b in content
+        )
+    return False
+
+
 def inject_cache_control_markers(
     messages: list[dict],
     *,
@@ -2385,6 +2406,8 @@ def inject_cache_control_markers(
         role = msg.get("role")
         if role not in ("user", "assistant"):
             continue
+        if _is_ephemeral_message(msg):
+            continue  # skip regenerated ephemeral tail; anchor on the last real msg
         hits += 1
         if hits < hits_needed:
             continue
