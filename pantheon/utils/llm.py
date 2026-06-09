@@ -678,11 +678,19 @@ def stream_chunk_builder(chunks: list[dict]) -> Any:
         finish_reason=finish_reason,
     )
 
-    # Build usage
+    # Build usage. Carry through the prompt-cache fields the adapters set on the
+    # usage chunk (Anthropic: cache_creation_input_tokens / cache_read_input_tokens;
+    # OpenAI/normalized: prompt_tokens_details.cached_tokens). Rebuilding usage_ns
+    # with only the 3 standard fields dropped them, so _extract_cost_and_usage's
+    # [cache] hit-rate always logged 0% even though caching was working (the cached
+    # tokens already showed up inside prompt_tokens).
     usage_ns = SimpleNamespace(
         prompt_tokens=usage.get("prompt_tokens", 0),
         completion_tokens=usage.get("completion_tokens", 0),
         total_tokens=usage.get("total_tokens", 0),
+        cache_creation_input_tokens=usage.get("cache_creation_input_tokens", 0),
+        cache_read_input_tokens=usage.get("cache_read_input_tokens", 0),
+        prompt_tokens_details=usage.get("prompt_tokens_details"),
     )
 
     # Build response
