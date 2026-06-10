@@ -19,7 +19,7 @@ Frontend-only tools (not for agents):
 import json
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Literal, Optional
 
@@ -1688,6 +1688,25 @@ class IntegratedNotebookToolSet(ToolSet):
                 "notebook_path": notebook_path,
                 "operated_by": self._get_operator_context(),
             }
+
+            # Mark the cell as executing in the FILE before the (blocking) kernel
+            # run, so the frontend's notebook poll can show a "running" state for
+            # agent-driven cells. The IOPub busy stream fires too early for the
+            # frontend to catch it (the frontend subscribes per-session at panel
+            # mount, but the kernel session is created lazily right before
+            # execution). A pollable busy marker — a busy timestamp with no
+            # matching idle yet — is robust to that timing.
+            try:
+                await self.notebook_contents.update_cell_outputs(
+                    path=notebook_path,
+                    cell_id=cell_id,
+                    outputs=[],
+                    execution_timing={
+                        "iopub.status.busy": datetime.now(timezone.utc).isoformat()
+                    },
+                )
+            except Exception as mark_err:
+                logger.debug(f"begin-execution marker write failed: {mark_err}")
 
             # Execute with metadata
             exec_result = await self.kernel_toolset.execute_request(

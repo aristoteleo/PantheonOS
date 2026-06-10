@@ -12,6 +12,7 @@ Supporting file operations (references/, scripts/, etc.) use file_manager direct
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from pantheon.toolset import ToolSet, tool
@@ -110,6 +111,24 @@ class SkillToolSet(ToolSet):
                     "success": False,
                     "error": f"Skill '{name}' not found. Use skill_list() to see available skills.",
                 })
+            # A SKILL.md path points at a (possibly nested) skill's MAIN file —
+            # itself a skill, not a supporting file. Resolve it to that skill so
+            # e.g. skill_view(name="omics", file_path="database_access/SKILL.md")
+            # works, instead of erroring on load_file()'s reserved-name guard.
+            fp_parts = Path(file_path).parts
+            if fp_parts and fp_parts[-1] == "SKILL.md":
+                nested = "/".join(fp_parts[:-1])
+                target = f"{entry.path}/{nested}" if nested else entry.path
+                target_entry = store.load_skill(target)
+                if target_entry:
+                    return self._skill_view_result(target_entry)
+                return self._json({
+                    "success": False,
+                    "error": (
+                        f"'{file_path}' is a skill's main file, not a supporting file. "
+                        f"View that skill directly: skill_view(name='{target}') (no file_path)."
+                    ),
+                })
             try:
                 content = store.load_file(entry.path, file_path)
                 if content is None:
@@ -137,6 +156,11 @@ class SkillToolSet(ToolSet):
                 "error": f"Skill '{name}' not found. Use skill_list() to see available skills.",
             })
 
+        return self._skill_view_result(entry)
+
+    def _skill_view_result(self, entry) -> str:
+        """Build the full-skill JSON result. Shared by the no-file_path branch
+        and the SKILL.md redirect (a SKILL.md path is itself a skill)."""
         result: dict[str, Any] = {
             "success": True,
             "path": entry.path,
