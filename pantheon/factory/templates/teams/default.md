@@ -13,7 +13,7 @@ agents:
 leader:
   id: leader
   name: Leader
-  model: high
+  model: normal
   icon: 🧭
   toolsets:
     - file_manager
