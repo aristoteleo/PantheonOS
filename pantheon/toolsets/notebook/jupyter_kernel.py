@@ -360,19 +360,32 @@ class JupyterKernelToolSet(ToolSet):
         self, kernel_spec: str = "python3", kernel_session_id: str = None
     ) -> dict:
         """Create new kernel session"""
+        import json
         try:
             if kernel_session_id is None:
                 kernel_session_id = str(uuid.uuid4())
 
-            # Try to create kernel manager with the specified kernel, fallback to default
-            try:
-                km = AsyncKernelManager(kernel_name=kernel_spec)
-            except Exception as e:
-                logger.warning(
-                    f"Kernel '{kernel_spec}' not available, using default: {e}"
-                )
-                # Use default kernel (no kernel_name specified)
-                km = AsyncKernelManager()
+            # Validate the requested kernel exists and capture its interpreter.
+            # NEVER silently fall back to a different kernel — running on the
+            # wrong Python turns a config error into confusing downstream import
+            # failures (the agent can't tell why packages it installed are
+            # "missing"). Fail loudly instead.
+            ctx = self._kernel_env_context()
+            available = ctx["available_kernelspecs"]
+            if kernel_spec not in available:
+                return {
+                    "success": False,
+                    "error": (
+                        f"Kernel '{kernel_spec}' is not registered — not falling back "
+                        f"to a different kernel (that would silently run the wrong "
+                        f"Python). Register it first with "
+                        f"setup_kernel(python_path='<absolute python>'), or use one of "
+                        f"the available kernels.\n\n"
+                        f"Kernel environment:\n{json.dumps(ctx, indent=2)}"
+                    ),
+                }
+            kernel_python = available.get(kernel_spec, "")
+            km = AsyncKernelManager(kernel_name=kernel_spec)
 
             # Start kernel in specified working directory with Pantheon context
             env = self._build_kernel_env()
@@ -446,6 +459,12 @@ class JupyterKernelToolSet(ToolSet):
                 "success": True,
                 "session_id": kernel_session_id,
                 "kernel_spec": kernel_spec,
+                # Surface the interpreter the kernel runs so the agent can
+                # confirm it matches the env where it installed packages. A
+                # relative path (kernelspec_needs_fix) resolves unpredictably
+                # and may run the wrong Python — re-register with an absolute path.
+                "kernel_python": kernel_python,
+                "kernelspec_needs_fix": bool(kernel_python) and not os.path.isabs(kernel_python),
                 "status": session_info.status.value,
                 "created_at": session_info.created_at,
                 "streaming_enabled": bool(self._iopub_handlers),
