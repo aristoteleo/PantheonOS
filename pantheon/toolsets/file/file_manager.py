@@ -1477,9 +1477,29 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 # we report the missing-file case explicitly below with a
                 # clearer error than "Invalid path".
                 resolved_path = i_path.resolve(strict=False)
+
+                # Check if path is within workspace root OR within the
+                # pantheon images store directory. Generated images are saved
+                # to <pantheon_dir>/images/<chat_id>/ which is outside the
+                # project workspace, so we must allow reads from there too.
+                in_workspace = False
                 try:
                     resolved_path.relative_to(root_resolved)
+                    in_workspace = True
                 except ValueError:
+                    pass
+
+                if not in_workspace:
+                    # Allow reads from the pantheon ImageStore directory
+                    try:
+                        from pantheon.settings import get_settings
+                        images_root = get_settings().pantheon_dir / "images"
+                        resolved_path.relative_to(images_root.resolve())
+                        in_workspace = True
+                    except (ValueError, Exception):
+                        pass
+
+                if not in_workspace:
                     return {"success": False, "error": "Path outside allowed workspace"}
             except Exception:
                 return {"success": False, "error": "Invalid path"}
