@@ -92,8 +92,13 @@ class NATSStreamAdapter:
             await self.publish(chat_id, "chunk", {"type": "chunk", "chunk": chunk})
 
         async def step_hook(step_message: dict):
-            # Filter out user messages to avoid duplication on frontend
-            if step_message.get("role") == "user":
+            # Filter out user messages to avoid duplication on frontend — EXCEPT
+            # steer-drained messages (message queue feature), whose echo the
+            # frontend needs to clear the "Queued" badge. Dedup-by-id on the
+            # frontend prevents any duplicate display.
+            if step_message.get("role") == "user" and not step_message.get(
+                "_steer_drained"
+            ):
                 return
             # A step message arriving means any tool streaming is done
             _tool_call_state.clear()

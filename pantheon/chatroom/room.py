@@ -35,6 +35,32 @@ if TYPE_CHECKING:
 
 DEFAULT_TOOLSETS = []
 
+# Marker for internal auto-chat notifications (background-task completion, etc.)
+# that must NOT be treated as user steer messages by the message queue.
+_BG_NOTIFICATION_MARKER = "<bg_task_notification>"
+
+
+def _is_internal_notification(message: list[dict]) -> bool:
+    """True if a chat() message is an internal auto-chat notification rather
+    than a real user message (so the message queue can skip enqueuing it)."""
+    if not isinstance(message, list):
+        return False
+    for m in message:
+        if not isinstance(m, dict):
+            continue
+        content = m.get("content")
+        if isinstance(content, str) and _BG_NOTIFICATION_MARKER in content:
+            return True
+        if isinstance(content, list):
+            for block in content:
+                if (
+                    isinstance(block, dict)
+                    and isinstance(block.get("text"), str)
+                    and _BG_NOTIFICATION_MARKER in block["text"]
+                ):
+                    return True
+    return False
+
 
 class ChatRoom(ToolSet):
     """
@@ -2261,6 +2287,62 @@ class ChatRoom(ToolSet):
                     agent._bg_manager.on_complete = _on_bg_complete_with_notify
 
     @tool
+    async def get_pending_messages(self, chat_id: str) -> dict:
+        """Return user messages currently queued for a running chat.
+
+        These are messages the user sent while the agent was busy (message
+        queue feature) that have not yet been drained by the agent loop. Used
+        by the frontend to re-render the pending queue after a page refresh.
+
+        Args:
+            chat_id: The ID of the chat.
+        """
+        thread = self.threads.get(chat_id, None)
+        if thread is None or not hasattr(thread, "steer_queue"):
+            return {"success": True, "messages": []}
+        # Peek without draining — the agent loop is the only consumer. Filter
+        # out any internal notifications defensively (should not be enqueued).
+        pending = [
+            m for m in thread.steer_queue.peek()
+            if not _is_internal_notification([m])
+        ]
+        return {"success": True, "messages": pending}
+
+    @tool
+    async def remove_pending_message(self, chat_id: str, message_id: str) -> dict:
+        """Remove a queued (not-yet-processed) user message from the chat queue.
+
+        Used by the frontend to "recall" a message the user sent while the agent
+        was busy, before the agent drains it.
+
+        Args:
+            chat_id: The ID of the chat.
+            message_id: The ID of the queued message to remove.
+        """
+        thread = self.threads.get(chat_id, None)
+        if thread is None or not hasattr(thread, "steer_queue"):
+            return {"success": False, "removed": False, "reason": "no_active_run"}
+        removed = thread.steer_queue.remove(message_id)
+        return {"success": True, "removed": removed}
+
+    @tool
+    async def edit_pending_message(
+        self, chat_id: str, message_id: str, text: str
+    ) -> dict:
+        """Edit the text of a queued (not-yet-processed) user message in place.
+
+        Args:
+            chat_id: The ID of the chat.
+            message_id: The ID of the queued message to edit.
+            text: The new text content.
+        """
+        thread = self.threads.get(chat_id, None)
+        if thread is None or not hasattr(thread, "steer_queue"):
+            return {"success": False, "updated": False, "reason": "no_active_run"}
+        updated = thread.steer_queue.update(message_id, text)
+        return {"success": True, "updated": updated}
+
+    @tool
     async def list_background_tasks(self, chat_id: str) -> dict:
         """List all background tasks across all agents for a chat.
 
@@ -2383,7 +2465,21 @@ class ChatRoom(ToolSet):
         logger.info(f"Received message: {chat_id}|{message}")
 
         if chat_id in self.threads:
-            return {"success": False, "message": "Chat is already running"}
+            # Internal auto-chat notifications (e.g. background-task completion)
+            # are already handled by the ephemeral drain_notifications path in
+            # Agent._run_stream while the agent is busy. Don't enqueue them as
+            # user steer messages — that double-handles them and pollutes the
+            # pending-queue UI. Reject like before so the ephemeral path wins.
+            if _is_internal_notification(message):
+                return {"success": False, "message": "Chat is already running"}
+            # Agent is busy: instead of rejecting a real user message, queue it
+            # so the running agent loop can pick it up mid-run (message queue).
+            running_thread = self.threads[chat_id]
+            running_thread.inject_user_messages(message)
+            logger.info(
+                f"Chat {chat_id} busy; queued {len(message)} steer message(s)"
+            )
+            return {"success": True, "queued": True}
         try:
             # CRITICAL: Agent execution - MUST fix messages for LLM API
             memory = await run_func(self.memory_manager.get_memory, chat_id, True)
@@ -2445,6 +2541,14 @@ class ChatRoom(ToolSet):
 
         self.threads[chat_id] = thread
 
+        # Wire the steer queue so the running agent loop can pull in user
+        # messages that arrive mid-run (message queue feature). Attach to every
+        # team agent, mirroring _setup_bg_auto_notify, so whichever agent is
+        # active after a transfer drains the same queue.
+        for agent in team.agents.values():
+            if hasattr(agent, "_steer_queue"):
+                agent._steer_queue = thread.steer_queue
+
         # Add NATS streaming hooks if enabled
         if self._nats_adapter is not None:
             chunk_hook, step_hook = self._nats_adapter.create_hooks(chat_id)
@@ -2457,6 +2561,30 @@ class ChatRoom(ToolSet):
 
         try:
             await thread.run()
+
+            # Flush messages that arrived in the race window between the agent
+            # loop's final drain and the thread being deregistered. Schedule a
+            # fresh chat() (mirrors _auto_chat); it runs after this chat()
+            # returns, by which point the thread is removed from self.threads.
+            # If the user STOPPED the run, discard the queue instead of flushing
+            # — Stop should halt everything, not continue with queued messages.
+            leftover = thread.steer_queue.drain()
+            if leftover and thread._stop_flag:
+                logger.info(
+                    f"Chat {chat_id} stopped; discarding {len(leftover)} queued message(s)"
+                )
+                leftover = []
+            if leftover:
+                async def _flush_steer(_msgs=leftover):
+                    try:
+                        await self.chat(chat_id=chat_id, message=_msgs)
+                    except Exception as e:
+                        logger.warning(f"Steer flush chat failed: {e}")
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(_flush_steer())
+                except RuntimeError:
+                    pass
 
             # Kick off rename AFTER thread.run() so memory has the user
             # message (added inside agent.run()) and the agent response.

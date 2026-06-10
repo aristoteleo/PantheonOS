@@ -293,6 +293,10 @@ _CTX_VARS_NAME = "context_variables"
 _SKIP_PARAMS = [_CTX_VARS_NAME]
 _CLIENT_ID_NAME = "client_id"
 
+# Min seconds a foreground tool must have been running before a queued user
+# (steer) message will move it to the background so the agent can respond.
+_STEER_BG_MIN_SECONDS = 5.0
+
 
 class AgentService:
     def __init__(self, agent: "Agent", **kwargs):
@@ -663,6 +667,12 @@ class Agent:
         self._bg_manager = BackgroundTaskManager()
         self._tool_output_buffers: dict[str, list[str]] = {}
         self._register_bg_tools()
+
+        # Optional steer queue (message queue feature): when set by the chatroom
+        # to a SteerQueue, the run loop drains user messages that arrive mid-run
+        # so the user can steer the agent without waiting for it to finish.
+        # None for agents not running under a chatroom (REPL/SDK) — no-op.
+        self._steer_queue = None
 
         # Callable hooks registered by plugins via get_toolsets() (set during PantheonTeam.async_setup)
         # Each hook is a plain async callable — agent has no knowledge of plugins.
@@ -1387,7 +1397,21 @@ class Agent:
 
                         logger.debug("Check stop when tool calling")
                         elapsed = time.time() - start_time
-                        if allow_timeout and timeout is not None and elapsed >= timeout:
+                        # Steer-triggered adoption: if the user queued a message
+                        # while this tool has been running a while, move the tool
+                        # to the background so the agent can respond now instead
+                        # of staying blocked until the tool returns.
+                        steer_pending = (
+                            self._steer_queue is not None
+                            and len(self._steer_queue) > 0
+                        )
+                        timed_out = (
+                            timeout is not None and elapsed >= timeout
+                        )
+                        steer_background = (
+                            steer_pending and elapsed >= _STEER_BG_MIN_SECONDS
+                        )
+                        if allow_timeout and (timed_out or steer_background):
                             # Adopt into background instead of cancelling.
                             # Merge _report_output items INTO _stdout_buffer so
                             # post-adoption prints keep accumulating in the same list.
@@ -1401,11 +1425,20 @@ class Agent:
                                 output_buffer=_stdout_buffer,  # same list object
                             )
                             adopted_to_bg = True
-                            result = (
-                                f"Tool '{func_name}' exceeded timeout ({timeout}s) and was moved to "
-                                f"background execution. task_id='{bg_task.task_id}'. "
-                                f"Use background_task(action='status', task_id='{bg_task.task_id}') to check progress and results."
-                            )
+                            if steer_background and not timed_out:
+                                result = (
+                                    f"Tool '{func_name}' was moved to background execution so you "
+                                    f"can respond to a new user message that just arrived. "
+                                    f"task_id='{bg_task.task_id}'. Use "
+                                    f"background_task(action='status', task_id='{bg_task.task_id}') "
+                                    f"to check its progress/results later."
+                                )
+                            else:
+                                result = (
+                                    f"Tool '{func_name}' exceeded timeout ({timeout}s) and was moved to "
+                                    f"background execution. task_id='{bg_task.task_id}'. "
+                                    f"Use background_task(action='status', task_id='{bg_task.task_id}') to check progress and results."
+                                )
                             break
                         if check_stop is not None and check_stop(elapsed):
                             call_task.cancel()
@@ -2019,7 +2052,69 @@ class Agent:
             if check_stop is not None and check_stop(chunk):
                 raise StopRunning()
 
+        async def _drain_steer_messages() -> int:
+            """Pull in user messages queued mid-run (message queue feature).
+
+            Each message is persisted to memory and streamed to the frontend
+            via process_step_message (identical path to the initial user input
+            in run()), then appended to the live LLM history. Returns the count
+            drained so the caller can decide to keep looping instead of ending.
+            """
+            steer = self._steer_queue
+            if steer is None or len(steer) == 0:
+                return 0
+            pending = steer.drain()
+            if not pending:
+                return 0
+            for raw in pending:
+                msg = copy.deepcopy(raw)
+                if (
+                    execution_context_id is not None
+                    and "execution_context_id" not in msg
+                ):
+                    msg["execution_context_id"] = execution_context_id
+                # Tag so the NATS step hook publishes this user message (it
+                # normally drops role=user to avoid echoing input). The frontend
+                # needs this echo to clear the "Queued" badge and signal pickup;
+                # dedup-by-id prevents any duplicate display.
+                msg["_steer_drained"] = True
+                # Persist + stream (memory add + attachment detect + frontend).
+                if process_step_message:
+                    await run_func(process_step_message, msg)
+                # Build the LLM-facing copy: prefer assembled _llm_content and
+                # expand any file:// image references to base64. Wrap text in a
+                # prominent steering directive so the agent treats it as a
+                # mid-task course correction instead of quietly appending it.
+                # (LLM-facing only — the persisted/displayed message stays the
+                # plain user text, so resume sees a normal message.)
+                llm_msg = dict(msg)
+                base = llm_msg.get("_llm_content", llm_msg.get("content"))
+                if isinstance(base, str):
+                    llm_msg["content"] = (
+                        "<STEERING_MESSAGE>\n"
+                        "The user sent the following message while you are still "
+                        "working. Treat it as a course correction: pause, "
+                        "reconsider your current plan in light of it, and adjust "
+                        "your next actions accordingly. Briefly acknowledge it "
+                        "before continuing.\n\n"
+                        f"{base}\n"
+                        "</STEERING_MESSAGE>"
+                    )
+                else:
+                    llm_msg["content"] = base
+                llm_msg.pop("_llm_content", None)
+                history.extend(expand_image_references_for_llm([llm_msg]))
+            logger.info(
+                "[steer] drained {} queued user message(s) into agent={} run",
+                len(pending),
+                self.name,
+            )
+            return len(pending)
+
         while len(history) - init_len < max_turns:
+            # Pull in any user messages queued mid-run before this turn (steering)
+            await _drain_steer_messages()
+
             # Build history for LLM with ephemeral messages from hooks (not persisted)
             history_for_llm = list(history)
             for hook in self._ephemeral_hooks:
@@ -2086,6 +2181,10 @@ class Agent:
             # Continue only if: has reasoning but NO content (waiting for model to output conclusion)
             if not message.get("tool_calls"):
                 if not has_reasoning or has_content:
+                    # A user may have sent a message during this final turn;
+                    # pick it up and keep responding instead of ending the run.
+                    if await _drain_steer_messages() > 0:
+                        continue
                     break
 
             tool_messages = await self._handle_tool_calls(

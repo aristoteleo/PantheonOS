@@ -8,6 +8,55 @@ from pantheon.utils.misc import run_func
 from pantheon.utils.log import logger
 
 
+class SteerQueue:
+    """A queue of user messages that arrive while the agent is busy.
+
+    The agent loop (`Agent._run_stream`) drains this at turn boundaries so the
+    user can steer / send new requests mid-run without waiting for the agent to
+    finish. Single-event-loop usage only, so no locking is needed.
+    """
+
+    def __init__(self):
+        self._messages: list[dict] = []
+
+    def put(self, messages: list[dict]):
+        """Enqueue one or more user messages."""
+        if isinstance(messages, list):
+            self._messages.extend(messages)
+        else:
+            self._messages.append(messages)
+
+    def drain(self) -> list[dict]:
+        """Atomically take and clear all pending messages."""
+        msgs = self._messages
+        self._messages = []
+        return msgs
+
+    def peek(self) -> list[dict]:
+        """Return a shallow copy of pending messages without clearing them."""
+        return list(self._messages)
+
+    def remove(self, message_id: str) -> bool:
+        """Remove a pending message by id. Returns True if it was found."""
+        before = len(self._messages)
+        self._messages = [m for m in self._messages if m.get("id") != message_id]
+        return len(self._messages) < before
+
+    def update(self, message_id: str, text: str) -> bool:
+        """Replace the text of a pending message by id (used for inline edit of
+        a queued message). Returns True if it was found."""
+        found = False
+        for m in self._messages:
+            if m.get("id") == message_id:
+                m["content"] = text
+                m["_llm_content"] = text
+                found = True
+        return found
+
+    def __len__(self) -> int:
+        return len(self._messages)
+
+
 class Thread:
     """A thread is a single chat in a chatroom.
 
@@ -39,7 +88,15 @@ class Thread:
         self.run_hook_timeout = run_hook_timeout
         self.hook_retry_times = hook_retry_times
         self._stop_flag = False
+        # Queue for user messages that arrive while this thread is running.
+        # The agent loop drains it at turn boundaries (message queue feature);
+        # leftovers after the run are flushed by room.chat().
+        self.steer_queue = SteerQueue()
         # Suggestions now handled in room.py
+
+    def inject_user_messages(self, message: list[dict]):
+        """Queue user message(s) to be picked up mid-run by the agent loop."""
+        self.steer_queue.put(message)
 
     def add_chunk_hook(self, hook: Callable):
         """Add a chunk hook to the thread.
