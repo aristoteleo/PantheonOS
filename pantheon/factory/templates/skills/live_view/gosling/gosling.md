@@ -91,6 +91,53 @@ https://gosling-lang.org/docs/ for the full grammar.
   }})
   ```
 
+## Hi-C / contact matrices
+
+Gosling renders Hi-C contact matrices with the **`matrix` data type** — but the
+data must be a **HiGlass-tiled cooler tileset** (a `tileset_info` URL from a
+HiGlass server). A raw JSON / numpy contact matrix **cannot** be loaded. Two
+traps make this fail (both observed in practice):
+
+- ❌ a hand-rolled matrix track — `mark:"rect"`, fields `position1`/`position2`,
+  `color.field:"count"`, or a split `data:{url, value}` → runtime crash
+  (`Cannot read properties of undefined (reading 'includes')`). Use the **exact**
+  spec below.
+- ❌ giving up and rendering the matrix as a full-resolution Plotly / matplotlib
+  heatmap → **not scalable**, the UI lags badly. Don't.
+
+**Correct matrix track** — `mark:"bar"`, fields `xs`/`xe`/`ys`/`ye`,
+`color.field:"value"`, a **single** tileset `url`:
+
+```jsonc
+{"spec": {"title": "Hi-C Matrix", "tracks": [{
+  "data": {"url": "https://server.gosling-lang.org/api/v1/tileset_info/?d=leung2015-hg38",
+           "type": "matrix"},
+  "mark": "bar",
+  "x":  {"field": "xs", "type": "genomic", "axis": "top"},
+  "xe": {"field": "xe", "type": "genomic"},
+  "y":  {"field": "ys", "type": "genomic", "axis": "left"},
+  "ye": {"field": "ye", "type": "genomic"},
+  "color": {"field": "value", "type": "quantitative", "range": "warm", "legend": true},
+  "width": 600, "height": 600
+}]}}
+```
+
+Any public HiGlass matrix tileset works as the `url` — e.g. higlass.io's
+`https://higlass.io/api/v1/tileset_info/?d=<tileset-uid>`.
+
+**Local Hi-C data** (your own `.cool` / contact matrix): Gosling needs a tiled
+tileset, so make one and serve it — do **not** plot a dense matrix:
+
+```bash
+cooler zoomify matrix.cool        # -> matrix.mcool (multi-resolution, required)
+```
+
+Then serve `matrix.mcool` from a local HiGlass server (`higlass-server`, or the
+`higlass` Python package which embeds one) and point the track's `data.url` at
+that server's local `tileset_info` URL. If a HiGlass server is genuinely out of
+scope, a **coarse downsampled** matrix (≤ ~500 bins) as a static heatmap is OK
+for a quick look — but never a full-resolution one.
+
 ## Driving
 
 The spec **is** the interface — change it with `live_view_set_state(view_id,
