@@ -58,6 +58,16 @@ async def _cors_middleware(request: web.Request, handler):
     resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
     resp.headers["Access-Control-Allow-Headers"] = "*"
+    # Never let the browser cache anything this server returns. Two reasons:
+    #  1. Viewer modules (adapter.js) are edited during development — an ES module
+    #     pinned in the document's module map by a stale URL renders/snapshots
+    #     wrong even after the file on disk changes.
+    #  2. A spatial dataset (Visium/Xenium) fires hundreds of concurrent small
+    #     Zarr-chunk fetches; Chrome tries to write each cacheable response to its
+    #     disk cache and, under that load, throws net::ERR_CACHE_WRITE_FAILURE,
+    #     which aborts the fetch and breaks Vitessce. no-store = nothing to cache,
+    #     nothing to fail. (Range requests still work; this only disables caching.)
+    resp.headers["Cache-Control"] = "no-store, must-revalidate"
     return resp
 
 
