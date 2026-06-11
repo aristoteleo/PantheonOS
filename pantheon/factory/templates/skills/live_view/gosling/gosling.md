@@ -105,24 +105,70 @@ traps make this fail (both observed in practice):
 - ❌ giving up and rendering the matrix as a full-resolution Plotly / matplotlib
   heatmap → **not scalable**, the UI lags badly. Don't.
 
-**Correct matrix track** — `mark:"bar"`, fields `xs`/`xe`/`ys`/`ye`,
-`color.field:"value"`, a **single** tileset `url`:
+**Default = a genome browser: matrix + gene track.** Don't open a bare matrix.
+Build a **two-track linked view** — the contact **matrix** on top, a **gene
+annotation track** below — sharing one `linkingId` so they pan/zoom together.
+The viewer wraps this in a genome-browser shell with a **gene / locus search
+bar** (the user types `TP53` or `chr9:5,450,000-5,470,000` and the view jumps
+there), so always bring the gene track along.
+
+Matrix track: `mark:"bar"`, fields `xs`/`xe`/`ys`/`ye`, `color.field:"value"`, a
+**single** tileset `url`. Put the **same `linkingId` on the matrix `x` AND `y`**
+and on the gene track `x` — that keeps the matrix square when you navigate:
 
 ```jsonc
-{"spec": {"title": "Hi-C Matrix", "tracks": [{
-  "data": {"url": "https://server.gosling-lang.org/api/v1/tileset_info/?d=leung2015-hg38",
-           "type": "matrix"},
-  "mark": "bar",
-  "x":  {"field": "xs", "type": "genomic", "axis": "top"},
-  "xe": {"field": "xe", "type": "genomic"},
-  "y":  {"field": "ys", "type": "genomic", "axis": "left"},
-  "ye": {"field": "ye", "type": "genomic"},
-  "color": {"field": "value", "type": "quantitative", "range": "warm", "legend": true},
-  "width": 600, "height": 600
-}]}}
+{"spec": {
+  "title": "GM12878 Hi-C — Genome Browser",
+  "assembly": "hg38",
+  "spacing": 0,
+  "views": [
+    {"tracks": [{
+      "data": {"url": "https://higlass.io/api/v1/tileset_info/?d=e5QaKN16SdWyIWKAidq2Kw", "type": "matrix"},
+      "mark": "bar",
+      "x":  {"field": "xs", "type": "genomic", "axis": "top",  "linkingId": "hic"},
+      "xe": {"field": "xe", "type": "genomic"},
+      "y":  {"field": "ys", "type": "genomic", "axis": "left", "linkingId": "hic"},
+      "ye": {"field": "ye", "type": "genomic"},
+      "color": {"field": "value", "type": "quantitative", "range": "viridis", "legend": true},
+      "width": 600, "height": 600
+    }]},
+    {"tracks": [{
+      "data": {"url": "https://server.gosling-lang.org/api/v1/tileset_info/?d=gene-annotation", "type": "beddb",
+               "genomicFields": [{"index": 1, "name": "start"}, {"index": 2, "name": "end"}],
+               "valueFields": [{"index": 5, "name": "strand", "type": "nominal"}, {"index": 3, "name": "name", "type": "nominal"}],
+               "exonIntervalFields": [{"index": 12, "name": "start"}, {"index": 13, "name": "end"}]},
+      "mark": "rect",
+      "x":  {"field": "start", "type": "genomic", "linkingId": "hic"},
+      "xe": {"field": "end", "type": "genomic"},
+      "row":   {"field": "strand", "type": "nominal", "domain": ["+", "-"]},
+      "color": {"field": "strand", "type": "nominal", "domain": ["+", "-"], "range": ["#4C9BE8", "#F28C8C"]},
+      "size": {"value": 8},
+      "width": 600, "height": 70
+    }]}
+  ]
+}}
 ```
 
-Any public HiGlass matrix tileset works as the `url` — e.g. higlass.io's
+- **Colormap → `"viridis"`** (or omit `range`). HiGlass honours almost no other
+  matrix colormap name — **colour arrays and most names are silently ignored and
+  fall back to viridis**; the only other one it honours is `"warm"`, a poor
+  magenta ramp. So use `"viridis"`; do **not** pass a `["white", …]` array
+  (ignored) or `"warm"` (magenta). The viewer drops a rainbow/`"warm"` range
+  back to viridis for you.
+- **Gene annotation** = the Gosling server's `?d=gene-annotation` (**hg38**).
+  Match the tileset's assembly to the matrix; for hg19/mm10 etc. point at a
+  gene-annotation beddb for that assembly on a HiGlass server.
+- **Search bar is automatic** — the viewer adds gene autocomplete + `zoomToGene`
+  and `chrN:start-end` locus jumps; nothing to author. You can still set an
+  initial `domain` on the genomic channels to open at a locus.
+- **Layout is automatic** — the viewer fits every track to the same panel width
+  (matrix square), and for a matrix+track genome browser it drops the matrix's
+  left axis and zeroes inter-view spacing so the matrix and the gene track line
+  up on one shared x-axis. It re-fits on resize, so nothing is clipped in a
+  narrow side panel. `width`/`height`/`spacing` and the matrix's left axis are
+  just hints — the viewer overrides them for a clean, aligned layout.
+
+Any public HiGlass matrix tileset works as the matrix `url` — e.g. higlass.io's
 `https://higlass.io/api/v1/tileset_info/?d=<tileset-uid>`.
 
 **Local Hi-C data** (your own `.cool` / contact matrix): Gosling needs a tiled
@@ -165,6 +211,10 @@ live_view_set_state(view_id, {"spec": <updated spec>})
 `live_view_get_state` is the primary check — `status: ready`, empty
 `diagnostics`. Diagnostics usually mean a bad spec (unknown field), an
 unreachable data URL, or a HiGlass tile that 404'd.
-`live_view_screenshot` works on a best-effort basis (the canvas's WebGL
-drawing buffer may be blank, in which case the host's html2canvas captures
-the DOM).
+
+`live_view_screenshot` **works for Gosling** and returns the actual rendered
+figure: the adapter captures the view through Gosling's own export canvas
+(`api.getCanvas`), so you get the real image, **not a black rectangle**. (A
+naive read of the live HiGlass/PixiJS WebGL canvas would come back blank —
+that is handled for you.) So screenshot + `observe_images` is a real check:
+confirm the matrix / tracks actually drew before reporting done.
