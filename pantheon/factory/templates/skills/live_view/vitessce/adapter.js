@@ -27,6 +27,9 @@ export function setup(lv, root) {
   let applyingRemote = false
 
   let errorCheckTimer = null
+  // The uid is what tells Vitessce "this is a new config" (→ re-initialise &
+  // re-fetch). We bump it only on a real state change, NEVER on a resize.
+  let currentUid = null
 
   // Vitessce reports an invalid config NOT by throwing or logging — it just
   // renders a <Warning> ("Config validation failed on second pass." etc.).
@@ -39,11 +42,14 @@ export function setup(lv, root) {
     }
   }
 
-  function renderVitessce(config) {
+  function renderVitessce(config, bumpUid) {
     if (!config) return
     if (!reactRoot) reactRoot = createRoot(root)
-    // Fresh uid so Vitessce detects the change after a patch.
-    const cfg = { ...config, uid: `lv-${Date.now()}` }
+    // Fresh uid only on a real config change (patch/set) so Vitessce detects it.
+    // A resize REUSES the uid — a new uid would make Vitessce re-initialise and
+    // re-fetch all data, which is the "reloads on window resize" bug.
+    if (bumpUid || !currentUid) currentUid = `lv-${Date.now()}`
+    const cfg = { ...config, uid: currentUid }
     reactRoot.render(
       React.createElement(Vitessce, {
         config: cfg,
@@ -67,7 +73,7 @@ export function setup(lv, root) {
     if (info && info.reason === 'emit') return
     applyingRemote = true
     try {
-      renderVitessce(config)
+      renderVitessce(config, true)   // real state change → new uid
     } finally {
       // release after the render settles (Vitessce's onConfigChange for
       // our write fires on the next tick)
@@ -75,8 +81,12 @@ export function setup(lv, root) {
     }
   })
 
+  // Re-render on resize so Vitessce re-lays-out for the new height — debounced,
+  // and with the SAME uid so it does NOT re-fetch data.
+  let resizeTimer = null
   window.addEventListener('resize', () => {
-    if (lv.state) renderVitessce(lv.state)
+    clearTimeout(resizeTimer)
+    resizeTimer = setTimeout(() => { if (lv.state) renderVitessce(lv.state, false) }, 200)
   })
 
   // app-host calls lv.ready() once setup() resolves.

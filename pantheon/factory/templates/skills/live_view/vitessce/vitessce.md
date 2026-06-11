@@ -162,15 +162,117 @@ changes the **user** made by interacting with the view directly, and its
 
 ## Visualizing the user's own data
 
-Vitessce needs the data as Zarr served over HTTP+CORS:
+Vitessce needs the data as Zarr / OME-TIFF served over HTTP+CORS:
 
-1. Convert with `python_interpreter`: AnnData `adata.write_zarr(path)`;
-   images → OME-Zarr (`bioformats2raw` / `ome-zarr-py`).
+1. Convert with `python_interpreter`:
+   - **AnnData → Zarr**: `adata.write_zarr(path)` — anndata writes **Zarr v2**
+     (`.zgroup`/`.zarray`), which is what Vitessce reads.
+   - **Images → OME-TIFF**, NOT OME-Zarr (see "Tissue / brightfield images"
+     below). ⚠️ With **`zarr` 3.x** installed, `ome-zarr-py`'s `write_image`
+     emits **Zarr v3** (a lone `zarr.json`, no `.zgroup`) which Viv/Vitessce
+     **cannot read** — the image silently never loads. OME-TIFF sidesteps this.
 2. Serve it with CORS so the browser can fetch it, and get a base URL.
    *(If a `serve_local_data` / data-server tool is available, use it; it
    turns a workspace path into a fetchable URL. Until then, only remote /
    public datasets work.)*
 3. Build the config with the `vitessce` package, `base_url` = the served URL.
+
+## 10x Visium (and other spot/H&E spatial) — do it THIS way
+
+A Visium run is `filtered_feature_bc_matrix.h5` + `spatial/` (a hires H&E PNG +
+`scalefactors_json.json` + `tissue_positions*.csv`). The spots/UMAP/clusters are
+easy; the **tissue image is where this goes wrong** — two traps, both fatal and
+both silent (the view loads but the image panel stays blank):
+
+- ❌ converting the H&E PNG with `ome-zarr-py` → **Zarr v3**, unreadable (above).
+- ❌ writing it as **interleaved RGB** OME-TIFF (`photometric="rgb"`, shape
+  `(Y,X,3)`) → Viv reads channels as planes and dies with **`No image at index
+  1`**. Use **3 planar channels** (`minisblack`, `(3,Y,X)`) — the exact recipe in
+  the **viv** skill ("Whole-slide / RGB brightfield").
+
+**Recipe** (`python_interpreter`):
+
+```python
+import scanpy as sc, numpy as np, tifffile, json
+from PIL import Image; Image.MAX_IMAGE_PIXELS = None
+
+adata = sc.read_visium("data/V1_..._Section_1")      # X, obsm['spatial'] (FULL-res px), uns['spatial']
+adata.var_names_make_unique()
+sc.pp.normalize_total(adata, target_sum=1e4); sc.pp.log1p(adata)
+sc.pp.pca(adata); sc.pp.neighbors(adata); sc.tl.umap(adata); sc.tl.leiden(adata)
+
+# Spots are in FULL-res pixel coords but we serve the *hires* image → scale them
+# to hires pixels so spots land on the tissue. (skip this and spots float off-image.)
+sf = json.load(open("data/V1_..._Section_1/spatial/scalefactors_json.json"))
+adata.obsm["spatial"] = adata.obsm["spatial"] * sf["tissue_hires_scalef"]
+adata.write_zarr("out/visium.zarr")                  # Zarr v2 ✓
+
+# Tissue image → 3-planar-channel OME-TIFF (NOT rgb-interleaved, NOT ome-zarr)
+rgb = np.array(Image.open("data/V1_..._Section_1/spatial/tissue_hires_image.png").convert("RGB"))
+levels = [rgb]; h, w = rgb.shape[:2]
+while min(h, w) > 512:
+    h, w = h // 2, w // 2
+    levels.append(np.array(Image.fromarray(rgb).resize((w, h), Image.LANCZOS)))
+planar = [np.moveaxis(l, -1, 0) for l in levels]      # each (3, Y, X) = C,Y,X
+with tifffile.TiffWriter("out/tissue.ome.tif", ome=True, bigtiff=True) as tif:
+    opts = dict(photometric="minisblack", tile=(512, 512), compression="jpeg")
+    tif.write(planar[0], subifds=len(planar) - 1,
+              metadata={"axes": "CYX", "Channel": {"Name": ["R", "G", "B"]}}, **opts)
+    for lvl in planar[1:]:
+        tif.write(lvl, subfiletype=1, **opts)
+```
+
+Then build the config (the image is 3 channels → colour them R/G/B so the H&E
+reads as natural colour):
+
+```python
+from vitessce import VitessceConfig, AnnDataWrapper, ImageOmeTiffWrapper
+vc = VitessceConfig(schema_version="1.0.17", name="Visium")
+ds = (vc.add_dataset("visium")
+  .add_object(AnnDataWrapper(adata_url=f"{base}/visium.zarr",
+      obs_embedding_paths=["obsm/X_umap"], obs_embedding_names=["UMAP"],
+      obs_spots_path="obsm/spatial",          # ← obs_SPOTS, NOT obs_locations (see below)
+      obs_set_paths=["obs/leiden"], obs_set_names=["Cluster"],
+      obs_feature_matrix_path="X"))
+  .add_object(ImageOmeTiffWrapper(img_url=f"{base}/tissue.ome.tif")))
+sp = vc.add_view("spatialBeta", dataset=ds); lc = vc.add_view("layerControllerBeta", dataset=ds)
+umap = vc.add_view("scatterplot", dataset=ds, mapping="UMAP")
+sets = vc.add_view("obsSets", dataset=ds); genes = vc.add_view("featureList", dataset=ds)
+vc.layout((sp | umap) / (lc | sets | genes))
+# vc.to_dict(base_url=base) → the `state` for open_live_view (view_type="vitessce")
+```
+
+**Open the view with the image AND spots in this ONE initial config.**
+`initStrategy:"auto"` wires both the image layer and the spot layer at open time.
+Adding the image to an *already-open* view with `live_view_update` loads the file
+but does **not** create its layer (auto-init runs once, at open) — so the H&E
+stays hidden and only the spots show. If the user later asks for the H&E, re-open
+the full config (image + `obsSpots`) rather than patching it in. Likewise a
+gene-colour change is fine as a patch (`obsColorEncoding:"geneSelection"` +
+`featureSelection:["ERBB2"]` + `featureValueColormap:"plasma"`), but don't let
+that patch drop the image/spot layers — keep them in the merged config.
+
+### Spots don't render on the image — use `obsSpots`, NOT `obsLocations`
+
+The #1 Visium failure (image + UMAP + clusters all load, "3,798 spots" reported,
+but the tissue is **bare**): the spots were declared as **`obsLocations`**.
+Vitessce's spatial **spot layer reads `obsSpots`** — given only `obsLocations` it
+never even fetches `obsm/spatial`, so the spot layer is created but stays empty.
+Declare the positions as a **spot** type:
+
+- `vitessce` package: `AnnDataWrapper(..., obs_spots_path="obsm/spatial")`
+- raw config file `options`: `"obsSpots": {"path": "obsm/spatial"}`  ← **not** obsLocations
+
+With `obsSpots` + `initStrategy: "auto"`, Vitessce auto-builds the spot layer at a
+sensible radius and colours it by cluster (`obsColorEncoding: "cellSetSelection"`)
+— no manual `spatialSpotRadius` or metaCoordination needed. **Verified end-to-end:**
+`obsLocations` → `obsm/spatial` never fetched, blank; `obsSpots` → fetched, a full
+cluster-coloured spot mosaic over the H&E.
+
+Still bare after switching to `obsSpots`? Then the spot coords weren't scaled to
+the hires image (re-check `× tissue_hires_scalef`), or the image itself is the
+broken format (above). The **spots + UMAP + clusters are a valid viz on their
+own** — ship that if the H&E underlay keeps fighting you.
 
 ## Advanced: images, segmentations, and multi-modal views
 
