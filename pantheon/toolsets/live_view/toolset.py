@@ -618,6 +618,24 @@ class LiveViewToolSet(ToolSet):
     # ── UI-facing methods (not exposed to the LLM) ────────────────────────
 
     @tool(exclude=True)
+    async def set_data_endpoint(self, tunnel_base: str) -> dict:
+        """Hub → backend: deliver the public HTTPS base for this sandbox's
+        LiveView data port (a Modal encrypted-tunnel URL).
+
+        In server mode the data server binds 0.0.0.0:<fixed port> and the hub
+        exposes it via a tunnel whose URL is only known *after* the sandbox is
+        created. The hub calls this once (after readiness) so url_for can mint
+        browser-reachable URLs instead of 127.0.0.1. The path token travels
+        separately as an env var injected at sandbox creation. See
+        docs/2026-06-10-live-view-server-mode.md (pantheon-hub)."""
+        if not tunnel_base:
+            return {"success": False, "error": "tunnel_base required"}
+        server = await self._ensure_data_server()
+        server.set_tunnel_base(tunnel_base)
+        logger.info("live_view: data endpoint set to {}", tunnel_base)
+        return {"success": True}
+
+    @tool(exclude=True)
     async def report_view_state(
         self,
         view_id: str,

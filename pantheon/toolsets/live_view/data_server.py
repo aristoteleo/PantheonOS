@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
+import os
 import socket
 import threading
 from pathlib import Path
@@ -69,8 +71,19 @@ class LiveViewDataServer:
     def __init__(self):
         self._thread: threading.Thread | None = None
         self._roots: dict[str, Path] = {}  # prefix -> root dir
-        self._base_url: str | None = None
+        self._base_url: str | None = None  # local bind URL (also the "started" sentinel)
         self._lock = threading.Lock()
+        # ── Server mode ──────────────────────────────────────────────────────
+        # In a hub/server deployment the agent runs in a Modal sandbox and the
+        # browser cannot reach 127.0.0.1. The hub exposes a fixed port via a
+        # Modal encrypted tunnel and injects a path token; we bind 0.0.0.0:<port>
+        # and gate requests under /d/<token>/. `url_for` then emits the public
+        # tunnel URL (set post-create via set_tunnel_base) instead of 127.0.0.1.
+        # See docs/2026-06-10-live-view-server-mode.md (pantheon-hub).
+        self._token: str | None = os.environ.get("LIVE_VIEW_DATA_TOKEN") or None
+        self._fixed_port: int = int(os.environ.get("LIVE_VIEW_DATA_PORT", "0") or 0)
+        self._server_mode: bool = bool(self._token)
+        self._tunnel_base: str | None = None  # public https base, delivered by the hub
 
     async def ensure_started(self, roots: list[Path]) -> str:
         """Start the server (once) serving `roots`; return its base URL.
@@ -104,17 +117,28 @@ class LiveViewDataServer:
                         if prefix in mounts:
                             continue
                         mounts[prefix] = root
-                        app.router.add_static(
-                            f"/{prefix}/", str(root),
-                            show_index=False, follow_symlinks=False,
-                        )
+                        # Local mode mounts each root as a static route; server
+                        # mode serves everything through one token-gated handler
+                        # (registered once, below).
+                        if not self._server_mode:
+                            app.router.add_static(
+                                f"/{prefix}/", str(root),
+                                show_index=False, follow_symlinks=False,
+                            )
+                    self._roots = mounts
+                    if self._server_mode:
+                        # /d/<token>/<prefix>/<rel> — constant-time token check,
+                        # then FileResponse (Range-aware) from the mounted root.
+                        app.router.add_get("/d/{token}/{tail:.*}", self._serve_token_gated)
                     runner = web.AppRunner(app)
                     loop.run_until_complete(runner.setup())
-                    port = _free_port()
-                    site = web.TCPSite(runner, "127.0.0.1", port)
+                    if self._server_mode:
+                        host, port = "0.0.0.0", (self._fixed_port or _free_port())
+                    else:
+                        host, port = "127.0.0.1", _free_port()
+                    site = web.TCPSite(runner, host, port)
                     loop.run_until_complete(site.start())
-                    self._roots = mounts
-                    self._base_url = f"http://127.0.0.1:{port}"
+                    self._base_url = f"http://{host}:{port}"
                 except BaseException as e:  # noqa: BLE001
                     err["e"] = e
                 finally:
@@ -135,8 +159,41 @@ class LiveViewDataServer:
                 self._base_url, len(self._roots),
             )
 
+    async def _serve_token_gated(self, request: web.Request) -> web.StreamResponse:
+        """Serve /d/<token>/<prefix>/<rel> in server mode.
+
+        The token rides in the URL *path* (not a query param) so viewer
+        sub-requests — e.g. zarr fetching ``base + "/0.0.0"`` — keep carrying it.
+        Constant-time compared against the env token; FileResponse handles Range.
+        """
+        token = request.match_info.get("token", "")
+        if not self._token or not hmac.compare_digest(token, self._token):
+            return web.Response(status=403, text="forbidden")
+        tail = request.match_info.get("tail", "")
+        prefix, _, rel = tail.partition("/")
+        root = self._roots.get(prefix)
+        if root is None:
+            return web.Response(status=404, text="unknown prefix")
+        target = (root / rel).resolve()
+        try:
+            target.relative_to(root)  # path-traversal guard
+        except ValueError:
+            return web.Response(status=403, text="forbidden")
+        if not target.is_file():
+            return web.Response(status=404, text="not found")
+        return web.FileResponse(target)
+
+    def set_tunnel_base(self, tunnel_base: str) -> None:
+        """Record the public HTTPS base the hub exposed for this sandbox's port
+        (e.g. ``https://ta-….w.modal.host``). Until set, server-mode url_for has
+        no browser-reachable base to emit."""
+        self._tunnel_base = (tunnel_base or "").rstrip("/") or None
+
     @property
     def base_url(self) -> str | None:
+        # Public base in server mode (what a browser uses); local bind otherwise.
+        if self._server_mode:
+            return self._tunnel_base
         return self._base_url
 
     @property
@@ -144,7 +201,12 @@ class LiveViewDataServer:
         return list(self._roots.values())
 
     def url_for(self, abs_path: Path) -> str | None:
-        """Map an absolute path under any served root to its URL."""
+        """Map an absolute path under any served root to its browser URL.
+
+        Local mode: ``http://127.0.0.1:<port>/<prefix>/<rel>``.
+        Server mode: ``<tunnel_base>/d/<token>/<prefix>/<rel>`` (tunnel_base must
+        have been delivered by the hub via set_tunnel_base).
+        """
         if self._base_url is None:
             return None
         target = Path(abs_path).resolve()
@@ -153,5 +215,14 @@ class LiveViewDataServer:
                 rel = target.relative_to(root)
             except ValueError:
                 continue
-            return f"{self._base_url}/{prefix}/{rel.as_posix()}"
+            rel_url = f"{prefix}/{rel.as_posix()}"
+            if self._server_mode:
+                if not self._tunnel_base:
+                    logger.warning(
+                        "live_view: server mode but no tunnel base delivered yet; "
+                        "cannot emit a browser-reachable URL for {}", target,
+                    )
+                    return None
+                return f"{self._tunnel_base}/d/{self._token}/{rel_url}"
+            return f"{self._base_url}/{rel_url}"
         return None
