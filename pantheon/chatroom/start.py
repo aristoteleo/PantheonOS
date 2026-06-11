@@ -220,6 +220,8 @@ async def _start_endpoint_embedded(
     workspace_path: str,
     log_level: str = "INFO",
     enable_notebook_streaming: bool = False,
+    wait_for_setup: bool = True,
+    start_after: asyncio.Event | None = None,
 ) -> "Endpoint":
     """
     Start Endpoint in embedded mode (same event loop).
@@ -229,6 +231,11 @@ async def _start_endpoint_embedded(
         workspace_path: Endpoint workspace directory
         log_level: Log level for endpoint
         enable_notebook_streaming: Enable NATS streaming for notebook (default: False)
+        wait_for_setup: Wait for Endpoint setup/NATS registration before returning.
+            Set to False when ChatRoom should register first and Endpoint can finish
+            booting in the background.
+        start_after: Optional gate for deferred background startup. When provided,
+            Endpoint.run waits for this event before starting setup.
 
     Returns:
         Endpoint instance (not service_id)
@@ -264,8 +271,32 @@ async def _start_endpoint_embedded(
     # its own NATS connection (TCP-B) so the frontend's data channel
     # can target Endpoint directly without touching the ChatRoom
     # connection (TCP-A).
-    asyncio.create_task(endpoint.run(remote=True, log_level=log_level))
+    async def _run_endpoint_background():
+        if start_after is not None:
+            logger.info("Endpoint background boot waiting for ChatRoom NATS readiness")
+            await start_after.wait()
+        return await endpoint.run(remote=True, log_level=log_level)
 
+    endpoint_task = asyncio.create_task(_run_endpoint_background())
+
+    def _on_endpoint_done(task: asyncio.Task):
+        if task.cancelled():
+            return
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            return
+        if exc:
+            logger.error(f"[STARTUP] Embedded Endpoint.run() failed: {exc}")
+
+    endpoint_task.add_done_callback(_on_endpoint_done)
+
+    if not wait_for_setup:
+        logger.info(
+            "Endpoint boot continues in background (embedded mode, "
+            f"service_id={generate_service_id(endpoint_id_hash)})"
+        )
+        return endpoint
 
     # Wait for endpoint to be ready
     logger.info("Waiting for Endpoint to be ready (embedded mode)")
@@ -665,6 +696,7 @@ async def start_services(
     # ===== Step 1: Start or connect Endpoint =====
     endpoint = None
     final_endpoint_service_id = endpoint_service_id
+    endpoint_start_gate = None
 
     if final_endpoint_service_id is None:
         # Generate id_hash if not provided
@@ -686,12 +718,15 @@ async def start_services(
 
         # Start endpoint based on mode
         if endpoint_mode == "embedded":
+            endpoint_start_gate = asyncio.Event()
             # Embed mode: return Endpoint instance
             endpoint = await _start_endpoint_embedded(
                 endpoint_id_hash=endpoint_id_hash,
                 workspace_path=workspace_path,
                 log_level=log_level,
                 enable_notebook_streaming=True,  # Enable streaming for chatroom
+                wait_for_setup=False,
+                start_after=endpoint_start_gate,
             )
         elif endpoint_mode == "process":
             # Process mode: return service_id
@@ -757,6 +792,36 @@ async def start_services(
 
     run_task = asyncio.create_task(chat_room.run(log_level=log_level, remote=True))
     run_task.add_done_callback(_on_run_error)
+
+    async def _release_endpoint_after_chatroom_ready():
+        if endpoint_start_gate is None:
+            return
+        ready_wait_task = asyncio.create_task(chat_room._worker_ready.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {ready_wait_task, run_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if ready_wait_task in done and chat_room._worker_ready.is_set():
+                logger.info("[STARTUP] ChatRoom NATS ready; starting embedded Endpoint background boot.")
+            else:
+                logger.info("[STARTUP] ChatRoom run ended before readiness; releasing embedded Endpoint boot gate.")
+        except Exception as exc:
+            logger.warning(f"[STARTUP] Could not wait for ChatRoom readiness before Endpoint boot: {exc}")
+        finally:
+            if not ready_wait_task.done():
+                ready_wait_task.cancel()
+            endpoint_start_gate.set()
+
+    endpoint_release_task = None
+    if endpoint_start_gate is not None:
+        endpoint_release_task = asyncio.create_task(_release_endpoint_after_chatroom_ready())
+
+        def _release_endpoint_if_chatroom_exits(task: asyncio.Task):
+            if not endpoint_start_gate.is_set():
+                endpoint_start_gate.set()
+
+        run_task.add_done_callback(_release_endpoint_if_chatroom_exits)
 
     # ===== Step 3.5: Wait for worker to subscribe, then open browser / emit PANTHEON_READY =====
     if auto_start_nats and server_info is not None:

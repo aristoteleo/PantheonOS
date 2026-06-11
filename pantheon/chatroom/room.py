@@ -24,7 +24,7 @@ from pantheon.settings import get_settings
 from pantheon.team import PantheonTeam
 from pantheon.toolset import ToolSet, tool
 from pantheon.utils.log import logger
-from pantheon.utils.misc import run_func
+from pantheon.utils.misc import generate_service_id, run_func
 from .projects import ProjectManager
 from .special_agents import get_suggestion_generator
 from .thread import Thread
@@ -199,6 +199,33 @@ class ChatRoom(ToolSet):
                 )
             return self._endpoint_service
 
+    def _embedded_endpoint_ready(self) -> bool:
+        if not self._endpoint_embed or self._endpoint is None:
+            return True
+        return bool(getattr(self._endpoint, "_setup_completed", False))
+
+    def _embedded_endpoint_status(self) -> str:
+        return "ready" if self._embedded_endpoint_ready() else "starting"
+
+    def _endpoint_service_id_hint(self, endpoint=None) -> str:
+        endpoint = endpoint if endpoint is not None else self._endpoint
+        service_id = getattr(endpoint, "service_id", None)
+        if service_id:
+            return service_id
+        id_hash = getattr(endpoint, "id_hash", None)
+        if id_hash:
+            return generate_service_id(id_hash)
+        return self.endpoint_service_id or "unknown"
+
+    def _endpoint_not_ready_response(self) -> dict:
+        return {
+            "success": False,
+            "error": "endpoint_not_ready",
+            "code": "endpoint_not_ready",
+            "status": self._embedded_endpoint_status(),
+            "ready": False,
+        }
+
     async def _call_endpoint_method(self, endpoint_method_name: str, **kwargs):
         from pantheon.utils.misc import call_endpoint_method
 
@@ -251,7 +278,7 @@ class ChatRoom(ToolSet):
         if self._endpoint is not None:
             if self._endpoint_embed:
                 logger.info(
-                    f"ChatRoom: endpoint_mode=embed, endpoint_id={self._endpoint.service_id}"
+                    f"ChatRoom: endpoint_mode=embed, endpoint_id={self._endpoint_service_id_hint()}"
                 )
             else:
                 logger.info(
@@ -763,14 +790,15 @@ class ChatRoom(ToolSet):
             if self._endpoint_embed:
                 # Embed mode: directly access endpoint properties
                 endpoint = await self._get_endpoint_service()
+                ready = self._embedded_endpoint_ready()
                 return {
                     "success": True,
                     "service_name": endpoint.service_name
                     if hasattr(endpoint, "service_name")
                     else "endpoint",
-                    "service_id": endpoint.service_id
-                    if hasattr(endpoint, "service_id")
-                    else "unknown",
+                    "service_id": self._endpoint_service_id_hint(endpoint),
+                    "ready": ready,
+                    "status": "ready" if ready else "starting",
                 }
             else:
                 # Process mode: fetch through RPC
@@ -785,6 +813,8 @@ class ChatRoom(ToolSet):
                         "service_id": info.service_id
                         if info
                         else self.endpoint_service_id,
+                        "ready": True,
+                        "status": "ready",
                     }
                 except Exception:
                     # Fallback if fetch_service_info not available
@@ -792,6 +822,8 @@ class ChatRoom(ToolSet):
                         "success": True,
                         "service_name": "endpoint",
                         "service_id": self.endpoint_service_id,
+                        "ready": True,
+                        "status": "ready",
                     }
         except Exception as e:
             logger.error(f"Error getting endpoint service info: {e}")
@@ -935,6 +967,9 @@ class ChatRoom(ToolSet):
             - error: Error message if operation failed.
         """
         try:
+            if self._endpoint_embed and not self._embedded_endpoint_ready():
+                return self._endpoint_not_ready_response()
+
             result = await self._call_endpoint_method(
                 endpoint_method_name="manage_service",
                 action="list",
@@ -971,6 +1006,9 @@ class ChatRoom(ToolSet):
             logger.debug(
                 f"chatroom proxy_toolset: method_name={method_name}, toolset_name={toolset_name}, args={args}"
             )
+
+            if self._endpoint_embed and not self._embedded_endpoint_ready():
+                return self._endpoint_not_ready_response()
 
             # Inject workdir from project metadata if session is in isolated mode
             session_id = (args or {}).get("session_id") or getattr(self, '_current_chat_id', None)
