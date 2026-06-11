@@ -90,6 +90,68 @@ Then serve and open `output.ome.tif`. (`bioformats2raw` → OME-Zarr is the
 heavier-duty alternative for whole-slide / pyramidal data.) Already-OME
 inputs and OME-Zarr stores need no conversion.
 
+## Whole-slide / RGB brightfield images (H&E `.svs`, `.ndpi`)
+
+A brightfield WSI is an **RGB** image, **not** fluorescence. Treat it as
+**3 channels — R, G, B — that blend back to the natural color.** Two traps
+here both make the view render **black**, so follow this recipe exactly
+instead of improvising:
+
+- ❌ coloring the R/G/B planes with fluorescence colors / auto-contrast →
+  black or wrong color. Use **pure R, G, B at `contrastLimits:[0,255]`**.
+- ❌ a hand-rolled pyramid written with `subfiletype=1` but **without**
+  reserving `subifds=` on the base → Viv error **`No image at index 1`**.
+  For a demo, **skip the pyramid** — one downsampled level is plenty.
+
+**One-shot recipe** (openslide + tifffile). Use a downsampled level so the
+file is manageable and no pyramid is needed; convert RGB → 3 CYX planes:
+
+```python
+import openslide, tifffile, numpy as np
+slide = openslide.OpenSlide("slide.svs")
+lvl = 1 if slide.level_count > 1 else 0           # downsampled → fits in memory & needs no pyramid
+img = np.array(slide.read_region((0, 0), lvl, slide.level_dimensions[lvl]).convert("RGB"))
+mpp = float(slide.properties.get("openslide.mpp-x", 0) or 0) * slide.level_downsamples[lvl]
+slide.close()
+tifffile.imwrite(
+    "slide.ome.tif",
+    np.moveaxis(img, -1, 0),                       # (3, Y, X) — R, G, B planes
+    photometric="minisblack", tile=(512, 512), compression="jpeg",
+    metadata={"axes": "CYX", "Channel": {"Name": ["Red", "Green", "Blue"]},
+              "PhysicalSizeX": mpp or 1, "PhysicalSizeXUnit": "µm",
+              "PhysicalSizeY": mpp or 1, "PhysicalSizeYUnit": "µm"},
+)
+```
+
+Then open with the **R/G/B channels at full contrast** — this shows the H&E
+color on the first try (do not rely on auto-contrast for brightfield):
+
+```python
+serve_local_data("slide.ome.tif")        # -> served url
+open_live_view("viv", "H&E WSI", state={
+    "url": <served url>, "type": "ome-tiff", "overview": True,
+    "channels": [
+        {"selection": {"c": 0, "t": 0, "z": 0}, "color": [255, 0, 0], "contrastLimits": [0, 255], "visible": True},
+        {"selection": {"c": 1, "t": 0, "z": 0}, "color": [0, 255, 0], "contrastLimits": [0, 255], "visible": True},
+        {"selection": {"c": 2, "t": 0, "z": 0}, "color": [0, 0, 255], "contrastLimits": [0, 255], "visible": True},
+    ]})
+```
+
+**Need full resolution (true pyramid)?** Reserve sub-IFDs on the base, then
+write each downsampled level as a sub-IFD — NOT as separate top-level images:
+
+```python
+levels = [np.moveaxis(np.array(slide.read_region((0,0), i, slide.level_dimensions[i]).convert("RGB")), -1, 0)
+          for i in range(slide.level_count)]      # each (3, Y, X)
+with tifffile.TiffWriter("slide.ome.tif", ome=True, bigtiff=True) as tif:
+    opts = dict(photometric="minisblack", tile=(512, 512), compression="jpeg")
+    tif.write(levels[0], subifds=len(levels) - 1, metadata={"axes": "CYX"}, **opts)  # base reserves sub-IFDs
+    for lvl in levels[1:]:
+        tif.write(lvl, subfiletype=1, **opts)      # each level as a sub-IFD of the base
+```
+
+(Or the canonical converter: `bioformats2raw slide.svs out.zarr && raw2ometiff out.zarr slide.ome.tif`.)
+
 ## Cloud vs local images
 
 - **Cloud** — pass a public `url` directly (OME-TIFF needs HTTP range
