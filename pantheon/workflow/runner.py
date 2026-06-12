@@ -197,14 +197,27 @@ class InProcessRunner(NodeRunner):
                     node_id=node_id, status="failed", error=last_err
                 )
 
-            # Success — persist and return.
-            self._write_context(context_path, content, node_call.schema)
+            # Success — persist and return. A persistence failure here is NOT
+            # an agent failure: the run succeeded, we just couldn't record it.
+            # Surface it with a distinguishable error so the journal/API layer
+            # can tell "agent failed" from "we failed to record a success".
+            try:
+                self._write_context(context_path, content, node_call.schema)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("node %s persist failed", node_id)
+                return NodeResult(
+                    node_id=node_id,
+                    status="failed",
+                    error=f"persist failed: {_summarize(exc)}",
+                )
             return NodeResult(
                 node_id=node_id,
                 status="completed",
                 result=content,
                 result_ref=result_ref,
-                token_cost=0,  # best-effort: ResponseDetails carries no usage.
+                # TODO: token_cost is a best-effort stub — ResponseDetails
+                # carries no usage field yet; wire real usage when available.
+                token_cost=0,
             )
 
         # Exhausted retries (schema node only reaches here on repeated None).
@@ -252,19 +265,25 @@ class InProcessRunner(NodeRunner):
     def _write_context(path, content: Any, schema: dict | None) -> None:
         """Serialize the node result to its context file as JSON.
 
-        Schema nodes write the structured object directly; text nodes wrap the
-        text as ``{"result": <text>}`` for a consistent JSON shape on disk.
-        Falls back to ``{"result": <repr>}`` if the content is not
-        JSON-serializable.
+        Writes a SELF-DESCRIBING envelope so a reader of ``result_ref`` can
+        interpret the file without out-of-band knowledge of the node's schema::
+
+            {"kind": "schema" | "text", "result": <object-or-text>}
+
+        ``kind="schema"`` carries the validated structured object; ``kind="text"``
+        carries the raw text content. Falls back to a ``text`` envelope with the
+        ``repr`` of the content if it is not JSON-serializable.
         """
-        if schema is not None:
-            payload = content
-        else:
-            payload = {"result": content}
+        kind = "schema" if schema is not None else "text"
+        payload = {"kind": kind, "result": content}
         try:
             text = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
         except TypeError:
-            text = json.dumps({"result": str(content)}, ensure_ascii=False, indent=2)
+            text = json.dumps(
+                {"kind": "text", "result": str(content)},
+                ensure_ascii=False,
+                indent=2,
+            )
         path.write_text(text, encoding="utf-8")
 
 

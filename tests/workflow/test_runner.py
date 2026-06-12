@@ -152,7 +152,8 @@ async def test_result_written_to_context_file(ctx, storage):
     assert res.status == "completed"
     path = storage.node_context_path(WF_ID, 3)
     assert path.exists()
-    assert json.loads(path.read_text()) == {"k": "v"}
+    # Self-describing envelope: schema node carries the structured object.
+    assert json.loads(path.read_text()) == {"kind": "schema", "result": {"k": "v"}}
     assert res.result_ref == "context/n3.json"
     assert res.result == {"k": "v"}
 
@@ -166,7 +167,25 @@ async def test_text_result_serialization(ctx, storage):
 
     assert res.status == "completed"
     path = storage.node_context_path(WF_ID, 5)
-    assert json.loads(path.read_text()) == {"result": "plain text"}
+    # Self-describing envelope: text node carries raw text under kind="text".
+    assert json.loads(path.read_text()) == {"kind": "text", "result": "plain text"}
+
+
+@pytest.mark.asyncio
+async def test_persist_failure_distinguishable_from_agent_failure(ctx, storage, monkeypatch):
+    # A successful agent run whose result cannot be persisted must NOT look
+    # like an agent failure — the error is tagged "persist failed:".
+    FakeAgent.script = [("content", "ok")]
+    nc = NodeCall(node_id=7, instruction="x")
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(InProcessRunner, "_write_context", staticmethod(boom))
+    res = await _runner().run(nc, ctx)
+
+    assert res.status == "failed"
+    assert res.error is not None and res.error.startswith("persist failed:")
 
 
 # --------------------------------------------------------------------------- #
