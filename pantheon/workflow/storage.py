@@ -20,12 +20,20 @@ Node artifact / memory filenames use ONLY the engine ``node_id`` — never
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict
 from pathlib import Path
 
 from .models import WorkflowMeta, WorkflowState
 
 WORKFLOWS_SUBDIR = ".pantheon/workflows"
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` atomically via a same-dir temp + os.replace."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)  # atomic on the same filesystem
 
 
 def safe_node_path(workflow_dir: Path, *parts: str) -> Path:
@@ -99,8 +107,9 @@ class WorkflowStorage:
 
     def write_meta(self, meta: WorkflowMeta) -> None:
         self.ensure_workflow(meta.workflow_id)
-        self.meta_path(meta.workflow_id).write_text(
-            json.dumps(asdict(meta), indent=2, sort_keys=True), encoding="utf-8"
+        _atomic_write_text(
+            self.meta_path(meta.workflow_id),
+            json.dumps(asdict(meta), indent=2, sort_keys=True),
         )
 
     def read_meta(self, workflow_id: str) -> WorkflowMeta:
@@ -114,8 +123,9 @@ class WorkflowStorage:
 
     def write_state(self, state: WorkflowState) -> None:
         self.ensure_workflow(state.workflow_id)
-        self.state_path(state.workflow_id).write_text(
-            json.dumps(asdict(state), indent=2, sort_keys=True), encoding="utf-8"
+        _atomic_write_text(
+            self.state_path(state.workflow_id),
+            json.dumps(asdict(state), indent=2, sort_keys=True),
         )
 
     def read_state(self, workflow_id: str) -> WorkflowState:

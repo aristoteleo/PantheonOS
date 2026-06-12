@@ -157,3 +157,24 @@ def test_scan_workflows(tmp_path):
     metas = scan_workflows(tmp_path)
     ids = sorted(m.workflow_id for m in metas)
     assert ids == ["wf1", "wf2"]
+
+
+# --- Test 6: NodeCall.inputs tuple normalization ---
+
+def test_nodecall_inputs_normalized_to_tuple():
+    call = NodeCall(node_id=1, instruction="x", inputs=["a", "b"])
+    assert call.inputs == ("a", "b")
+    assert isinstance(call.inputs, tuple)
+
+
+# --- Test 7: node path helpers derive only from node_id (label poison) ---
+
+def test_node_paths_ignore_label(tmp_path):
+    storage = WorkflowStorage(tmp_path)
+    wf_dir = storage.ensure_workflow("wf1")
+    # A malicious label must never influence the path; paths use node_id only.
+    ctx = storage.node_context_path("wf1", 5)
+    mem = storage.node_memory_path("wf1", 5)
+    assert ctx == (wf_dir / "context" / "n5.json").resolve()
+    assert mem == (wf_dir / "nodes" / "n5.jsonl").resolve()
+

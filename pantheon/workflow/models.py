@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -52,6 +53,10 @@ class NodeCall:
     model: str | None = None
     timeout: float | None = None
 
+    def __post_init__(self) -> None:
+        # Normalize inputs to a tuple so JSON round-trips (list) compare equal.
+        self.inputs = tuple(self.inputs)
+
 
 @dataclass
 class NodeResult:
@@ -82,7 +87,7 @@ def compute_node_key(
     template: str,
     schema: dict | None,
     model: str | None,
-    input_hashes,
+    input_hashes: Sequence[str],
 ) -> str:
     """Deterministically hash the cache-relevant identity of a node.
 
