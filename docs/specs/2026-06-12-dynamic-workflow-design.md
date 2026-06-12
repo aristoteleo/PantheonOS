@@ -75,7 +75,7 @@
 | **Multica** | 看板模式 + 多运行时（22+ CLI 守护进程注册/心跳/路由）。验证了痛点：任务粒度太细、任务内黑箱 |
 | **Open Design** | ① 统一适配器的多运行时切换（`RuntimeAgentDef` + 三阶段检测 + `buildArgs`）② **文件系统作为单一事实来源**的上下文管理（agent cwd = 项目目录，输出即持久化，SQLite 只存元数据） |
 | **Pantheon 现状** | 单进程全 asyncio；`call_agent` 子 agent 机制成熟（同步 await + 流式冒泡 + 防环 + fork_context）；`BackgroundTaskManager`、NATS streaming、LiveView 全部可复用。**缺失：DAG 编排层、外部 CLI 运行时**（现有"多运行时"只是多 LLM HTTP adapter） |
-| **LangGraph** | 不集成。哲学不匹配（状态机+函数节点 vs 文件上下文+agent节点），依赖重；自研编排核心 < 500 行。借鉴其声明式 API 风格与 checkpointing 思路 |
+| **LangGraph** | 不集成。哲学不匹配（状态机+函数节点 vs 文件上下文+agent节点），依赖重；自研编排核心 ~1000 行（见 §4.1）。借鉴其 checkpointing 思路（对应 journal/resume） |
 
 ## 3. 核心设计决策
 
@@ -174,7 +174,7 @@ class CLIRunner(NodeRunner):         # 预留：spawn claude/codex CLI 子进程
 ├─ state.json          # 执行状态元数据
 └─ context/            # 节点输出文件 = 下游节点输入
     ├─ inputs.json     # workflow_create 的 args 落盘
-    └─ {seq}_{label}.json  # 节点结果（journal result_ref 指向此处）
+    └─ n{node_id}.json # 节点结果（journal result_ref 指向此处；文件名只用 node_id）
 ```
 
 - 节点输出落文件 → Engine 把**文件路径**（而非内容）传给下游节点 → leader 与节点的 LLM 上下文都不膨胀。
@@ -246,7 +246,7 @@ workflow_status(workflow_id=None) -> dict
     # 传 id：trace 摘要（phase 分组节点+状态）+ 错误摘要 + 产物路径
     # 原则：返回摘要不返回全量，节点输出内容永不直接进 Leader 上下文
 
-workflow_get_output(workflow_id, node_label=None, summary_only=True) -> dict
+workflow_get_output(workflow_id, node_id=None, summary_only=True) -> dict
     # 缺省取 workflow 最终返回值；summary_only 返回路径+首 N 行摘要
 
 workflow_edit(workflow_id, script) -> dict
@@ -254,11 +254,13 @@ workflow_edit(workflow_id, script) -> dict
     # 校验 → 暂停 → resume（journal 前缀缓存）
     # 返回 {resumed_from, cached_nodes, will_rerun} —— Leader 据此告知用户"保留了多少工作"
 
-workflow_control(workflow_id, action, node_label=None) -> dict
-    # action: pause | resume | cancel | skip_node | retry_node
+workflow_control(workflow_id, action, node_id=None) -> dict
+    # action: pause | resume | cancel | skip_node | retry_node（node_id 寻址，非 label）
 ```
 
 刻意不提供：单节点启停（破坏调度语义）、节点日志读取（属 UI 按需查看，不属 Leader 上下文）。
+
+**归属校验（修 Codex Finding 2）**：5 个工具都从 ExecutionContext 解析出当前 chat_id，并在 engine 侧校验目标 workflow 的 `meta.chat_id` 与之匹配后才放行——workflow 存于共享 project 目录、仅靠 workflow_id 寻址会导致跨 chat 越权读取/控制。同一约束适用于 Phase 2 的 UI 端点（见决策 12 与耦合契约第 8 项）。
 
 ### 决策 9：节点 agent 的 system prompt 三层拼装
 
@@ -284,32 +286,36 @@ async def node(
     template: str = "generic",  # 模板名（参与哈希）
     schema: dict | None = None, # 输出 JSON Schema，验证失败让节点重试（参与哈希）
     inputs: list[str] = (),     # 显式声明依赖的 context/ 文件（内容哈希参与失效判断）
-    label: str = "",            # UI 显示名 + skip/retry 寻址键（不参与哈希）
+    label: str = "",            # 纯显示文本（不参与哈希、不寻址、不进文件名）
     phase: str = "",            # 进度分组（不参与哈希）
     model: str | None = None,   # 模型覆盖（参与哈希）
     timeout: float | None = None,
 ) -> Any:                       # schema 时返回验证后 dict；否则返回文本
 ```
 
+**节点寻址：稳定 node_id（不是 label）**。引擎在节点发起时分配 `node_id`（= 该 workflow 内单调递增的 seq，确定且唯一——脚本确定性保证调用顺序确定）。`node_id` 是 journal 条目、事件、`skip_node`/`retry_node`/UI 控制的**唯一寻址键**；`label` 仅作 UI 显示，可重复、可为空，绝不用于寻址或文件名（修 Codex Finding 3/4 同根问题：label 此前同时承担显示/文件名/寻址三职，拆分后只保留显示）。
+
 Journal 规则：
-- 条目 = `{seq, key: sha256(instruction+template+schema+model+inputs内容哈希), label, status, result_ref, ...}`
-- 命中 = **前缀位置一致 + key 一致**（最长未变化前缀语义，Claude Code 同款）；第一个 miss 之后全部失效真跑。
+- 条目 = `{node_id, key: sha256(instruction+template+schema+model+inputs内容哈希), label, status, result_ref, ...}`（node_id 寻址，key 判缓存命中）
+- 命中 = **node_id 位置一致 + key 一致**（最长未变化前缀语义，Claude Code 同款）；第一个 miss 之后全部失效真跑。
 - **`inputs` 内容哈希的意义**：用户/上游改了中间产物文件 → 声明依赖它的下游节点自动失效——文件上下文模式独有的正确性保障。
-- `retry_node(label)` = 失效该条 + resume；`skip_node(label)` = 改写为 `{status: skipped, result: null}` + resume，脚本侧返回 None（Engine 注入的脚本编写指南写明 `filter(None, results)` 习惯用法）。
-- **并发 seq**：在发起时分配（脚本确定性 ⇒ asyncio task 创建顺序确定），完成时回填结果。
+- `retry_node(node_id)` = 失效该条 + resume；`skip_node(node_id)` = 改写为 `{status: skipped, result: null}` + resume，脚本侧返回 None（Engine 注入的脚本编写指南写明 `filter(None, results)` 习惯用法）。
+- **node_id 分配**：在发起时分配（脚本确定性 ⇒ asyncio task 创建顺序确定），完成时回填结果。
 
 ### 决策 11：节点执行接口（node → Agent 实例化）
 
 每节点**新建** Agent 实例 + 独立 Memory（调研确认：同一 Agent 实例并行 run 不安全；Agent 构造轻量）。内核即 `call_agent` 的逻辑（new child memory + await run + execution_context_id 归属），区别仅是"从模板现场构造"替代"从 team 找已注册 agent"：
 
 ```python
-agent = Agent(name=f"wf-{wf_id}-{label}",
+agent = Agent(name=f"wf-{wf_id}-n{node_id}",          # node_id 唯一，label 不入名
               instructions=compose(template, ctx, node_call),  # 三层拼装
               model=..., toolsets=template.toolsets)
-memory = Memory(name=..., file_path=ctx.workflow_dir/"nodes"/f"{seq}_{label}.jsonl")
+memory = Memory(name=..., file_path=ctx.workflow_dir/"nodes"/f"n{node_id}.jsonl")
 response = await agent.run(..., context_variables={"workdir": ctx.chat_workdir,
                                                    "execution_context_id": ecid})
 ```
+
+**文件名只用引擎生成的 `node_id`**（修 Codex Finding 3）：脚本可控的 `label` 在动态 fan-out 时可能含 `/`、`..` 等路径字符，绝不拼入文件名或路径组件；label 仅作 journal/事件里的显示字段。所有 workflow 目录内的写入路径，实现时必须断言解析后仍在 workflow 目录下（path confinement）。
 
 **与 call_agent 的关键差异：节点消息不回流 Leader memory**（call_agent 回流是因为子 agent 输出属于对话；节点输出是数据，落 context/ 文件。回流会重新制造 Leader 上下文膨胀）。只有 NATS 事件去 UI、关键事件摘要去 Leader。
 
@@ -328,11 +334,12 @@ response = await agent.run(..., context_variables={"workdir": ctx.chat_workdir,
 
 ```
 workflow.created   {workflow_id, goal, phases}   # phases 来自脚本 meta 字面量（§6 补充决策 2）
-workflow.node_started / node_finished / phase_changed / log / status / resumed
+workflow.node_started / node_finished                # 带 node_id（寻址）+ label（显示）
+workflow.phase_changed / log / status / resumed
 ```
 
 - 前端 workflowStore 与 liveViewStore 同构（applyEvent 模式）。
-- **断线/刷新恢复**：重连拉 `workflow/<id>/state`（journal+state.json 重建完整 trace）再续订增量——继承 LiveView"状态在服务端"原则。
+- **断线/刷新恢复**：重连拉 `workflow/<id>/state`（journal+state.json 重建完整 trace）再续订增量——继承 LiveView"状态在服务端"原则。该端点同样需校验 chat 归属（见耦合契约第 8 项）。
 - **节点内部过程 Phase 1 不透传**（大 fan-out 的全量 chunk 流会冲垮前端）：画布节点只显示运行状态+完成摘要，点击节点按需拉取执行轨迹（nodes/ 下的 JSONL）；按需流式订阅（复用 execution_context_id 冒泡）列为可选增强。
 - 节点 agent 自身的可视化需求（如生信图表）走 LiveView **工具**，与 workflow UI 正交共存。
 
@@ -383,7 +390,7 @@ Leader 工具注入：WorkflowTeamPlugin.get_toolsets(leader) → [WorkflowToolS
 
 **(a) Leader memory — 不动，零新机制。** 走普通 chat memory（JSONL 持久化）。Leader 的"workflow 记忆"= 工具调用历史（create/status 的调用与返回摘要）+ 关键事件唤醒消息，已足够；细节永远从文件按需查。
 
-**(b) 节点 memory — child memory 模式 + 落盘。** 与 call_agent 唯一差异是给 `file_path`（指向 `{workflow_dir}/nodes/{seq}_{label}.jsonl`），执行轨迹落盘：支撑节点详情按需查看、retry 携带上次失败轨迹、全程审计。
+**(b) 节点 memory — child memory 模式 + 落盘。** 与 call_agent 唯一差异是给 `file_path`（指向 `{workflow_dir}/nodes/n{node_id}.jsonl`，文件名只用 node_id），执行轨迹落盘：支撑节点详情按需查看、retry 携带上次失败轨迹、全程审计。
 
 **(c) Workflow 目录挂载点**：
 
@@ -395,7 +402,7 @@ project chat  → {project_dir}/.pantheon/workflows/{workflow_id}/
 ├─ workflow.py / journal.jsonl / state.json
 ├─ meta.json          # chat_id, goal, created_at, status
 ├─ context/           # 节点产物（输入输出文件）
-└─ nodes/             # 节点 memory JSONL（执行轨迹）
+└─ nodes/             # 节点 memory JSONL（执行轨迹，文件名 n{node_id}.jsonl）
 ```
 
 文件系统是 source of truth（meta.json 存 chat_id，扫目录即得 project 全部 workflow）；chat 侧仅在 `memory.extra_data` 加 `workflow_ids` 轻量缓存。
@@ -418,7 +425,7 @@ project chat  → {project_dir}/.pantheon/workflows/{workflow_id}/
 借鉴 Claude Code `resumeFromRunId` 语义：
 - 每次 `node()` 调用按**调用序 + 参数哈希**记录到 journal（`journal.jsonl`）。
 - **resume**：重跑脚本，`node()` 命中"未变化前缀"直接返回缓存结果（瞬时），第一个 miss 之后真实执行。
-- **skip 节点** = 向 journal 注入空结果再 resume；**retry 节点** = 失效该条 journal 再 resume。
+- **skip 节点**（按 node_id）= 向 journal 注入空结果再 resume；**retry 节点**（按 node_id）= 失效该条 journal 再 resume。寻址用引擎生成的稳定 node_id，绝不用可重复的 label（修 Codex Finding 4：label 重复/为空会误伤其他节点，而 skip 注入 null + resume 是数据损坏路径）。
 - **确定性约束**（resume 的前提）：脚本禁用 `time.time()`/`random`/裸 `datetime.now()`（受限 globals 不提供，违者 NameError）；时间戳等从 `args` 传入。
 
 ## 4. 架构总览
@@ -437,7 +444,16 @@ project chat  → {project_dir}/.pantheon/workflows/{workflow_id}/
 └─────────────────────────────────────────────────┘
 ```
 
-**沙箱选型**：Python 进程内受限 exec（复用 python toolset 的 `exec` 模式）+ `asyncio.Task` 包裹（取消/超时/异常）。受限 globals 只注入编排 API 与安全 builtins。威胁模型是**事故防护而非攻击防护**——脚本由 Leader（自有 LLM）编写，Claude Code 同样是 LLM 写 JS 在本进程执行。
+**沙箱选型**：Python 进程内受限 exec（复用 python toolset 的 `exec` 模式）+ `asyncio.Task` 包裹（取消/超时/异常）。
+
+**威胁模型与边界（回应 Codex Finding 1）**：脚本作者是 Leader（自有对齐 LLM），不是用户直接写代码——与 Claude Code 同款（LLM 写脚本在本进程执行）。因此 Phase 1 维持进程内执行（推翻它会否定整个 Phase 1 的轻量性与基础设施复用）。但"作者可信"不等于"无需边界"——prompt injection 可能诱导 Leader 生成越界脚本，故进程内执行**必须**配齐以下硬边界，否则不得上线：
+- **受限 globals**：只注入编排 API（node/parallel/pipeline/phase/log）与安全 builtins 白名单；不提供 `open`/`__import__`/`eval`/`exec`/`time`/`random`/`datetime`/`os`/`sys`。
+- **无直接 IO**：脚本不能直接读写文件/网络；所有文件访问只经引擎的 context API，且路径被约束在 workflow 目录内（path confinement，配合决策 11 的 node_id 文件名）。
+- **资源上限**：单 workflow 的最大节点数、总超时、并发上限（信号量）、可选 token 上限；超限即终止并标记 failed。
+- **auto_start 的边界**：默认 True 仅适用于无副作用风险的脚本；spec §6 补充决策 1 的失败唤醒 + 决策 8 的 Leader 自判"复杂/高风险传 False" 共同构成确认机制。
+- **测试**：sandbox 任务必须含越界/恶意脚本用例（路径穿越、禁用名、资源耗尽）。
+
+**明确不在 Phase 1 防御范围**（残余风险，已知接受）：精心构造的 CPython 沙箱逃逸（`().__class__...` 一类）。需要抵御此类的节点 → 用 Phase 3 RemoteRunner（进程隔离）或 Phase 4 CLIRunner（子进程）承载。Phase 1 的边界目标是"防事故 + 防越界 IO + 防资源耗尽"，不是"防 CPython 逃逸"。
 
 **编排 API（最小集）**（`node()` 完整签名与哈希规则见决策 10）：
 
@@ -518,7 +534,7 @@ Leader 理解意图 ──▶ workflow_create({goal, script, args})
 | 5 | `memory.extra_data` 键 | workflow→memory | 仅新增 `workflow_ids`、`task` 两个键 |
 | 6 | 文件系统 | workflow 自有 | 仅写 `{base}/.pantheon/workflows/`；base 解析复用现有 workdir 规则 |
 | 7 | 前端（Phase 2） | ui→stream | 订阅 `workflow.*`；新增独立 workflowStore + 组件，不改 liveViewStore |
-| 8 | UI 查询/控制端点（Phase 2） | ui→workflow | 在 chatroom 现有 RPC/service 注册通道上**一处注册** workflow 查询与控制端点（state/node_trace/control），实现在 workflow 模块内 |
+| 8 | UI 查询/控制端点（Phase 2） | ui→workflow | 在 chatroom 现有 RPC/service 注册通道上**一处注册** workflow 查询与控制端点（state/node_trace/control），实现在 workflow 模块内；**每个端点必须经当前 session 解析 chat_id 并校验目标 workflow 的 `meta.chat_id` 归属后才放行**（Codex Finding 2） |
 
 `pantheon/workflow/` 模块内部不 import chatroom（plugin.py 仅 import TeamPlugin 接口类型）；可脱离 chatroom 由 SDK/测试直接驱动。
 
@@ -527,5 +543,7 @@ Leader 理解意图 ──▶ workflow_create({goal, script, args})
 - **Journal/resume 正确性**：确定性约束（禁时间/随机）靠受限 globals 强制；失效语义需仔细设计 → 以 Claude Code `resumeFromRunId` 为规格参考。
 - **Leader 生成合法脚本的可靠性**：工具调用层做语法/AST/确定性校验，不合法返回原因让模型重试；写代码是 Claude 最强能力，风险低于自研 DSL。
 - **单进程稳定性**（Phase 1）：节点崩溃可能影响全局 → NodeRunner 内 try/except 全包 + 后续用 RemoteRunner 隔离关键节点。
-- **沙箱逃逸**：威胁模型为事故防护（脚本由自有 Leader 生成）；受限 globals + 不提供 fs/网络直访，残余风险接受。
+- **沙箱逃逸**：进程内 exec 不防 CPython 逃逸（明确接受，见 §4.1）；防线是受限 globals + 无 IO 直访 + 资源上限 + path confinement。需强隔离的节点走 Phase 3/4 的进程/子进程 runner。实现必须含越界/恶意脚本测试。
+- **跨 chat 越权**（Codex Finding 2）：workflow 存共享 project 目录、仅 workflow_id 寻址会越权。所有工具与 UI 端点强制经 session 解析 chat_id 并校验 `meta.chat_id`；Phase 2 加跨 chat 拒绝测试。
+- **label 路径注入 / 误寻址**（Codex Finding 3/4）：label 退为纯显示，文件名与 skip/retry/控制一律用引擎生成的 node_id；写入路径断言在 workflow 目录内。
 - **trace 图信息密度**：大 fan-out（如 50 个并行节点）的画布渲染需要折叠/聚合策略 → UI 阶段设计。

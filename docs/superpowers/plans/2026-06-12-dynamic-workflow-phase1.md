@@ -44,10 +44,10 @@ tests/workflow/       # 每模块一个测试文件，命名 test_<module>.py
 **Files:** Create `pantheon/workflow/models.py`、`pantheon/workflow/storage.py`、`tests/workflow/test_storage.py`
 
 要点（决策 4/15）：
-- models：`WorkflowMeta`（chat_id/goal/created_at/status）、`WorkflowState`（运行状态、progress）、`NodeCall`（node() 的全参数 + seq + key 哈希）、`NodeResult`、`JournalEntry`。哈希规则按决策 10（instruction+template+schema+model+inputs 内容哈希；label/phase 不参与）。
-- storage：给定 base_dir（isolated workspace 或 project 目录）解析/创建 `{base}/.pantheon/workflows/{workflow_id}/` 布局（workflow.py、meta.json、state.json、journal.jsonl、context/、nodes/）；提供扫描目录列出 workflow 的函数。
+- models：`WorkflowMeta`（chat_id/goal/created_at/status）、`WorkflowState`（运行状态、progress）、`NodeCall`（node() 全参数 + 引擎分配的 `node_id` + key 哈希）、`NodeResult`、`JournalEntry`（含 node_id）。哈希规则按决策 10（instruction+template+schema+model+inputs 内容哈希；label/phase/node_id 不参与哈希）。`node_id` 是寻址键，label 纯显示。
+- storage：给定 base_dir（isolated workspace 或 project 目录）解析/创建 `{base}/.pantheon/workflows/{workflow_id}/` 布局（workflow.py、meta.json、state.json、journal.jsonl、context/、nodes/）；节点产物/memory 文件名只用 `n{node_id}`（绝不含 label）；提供 `safe_node_path()` 断言解析后路径仍在 workflow 目录内（path confinement，Codex Finding 3）；提供扫描目录列出 workflow 的函数。
 
-- [ ] Step 1: 写失败测试：目录创建与布局、meta/state 读写往返、NodeCall key 哈希稳定性（同参同哈希、inputs 文件内容变化则哈希变化）、扫描列表
+- [ ] Step 1: 写失败测试：目录创建与布局、meta/state 读写往返、NodeCall key 哈希稳定性（同参同哈希、inputs 文件内容变化则哈希变化、label 变化不改哈希）、`safe_node_path` 拒绝含 `/`/`..` 的输入并把产物锁在 workflow 目录内、扫描列表
 - [ ] Step 2: 运行确认失败（模块不存在）
 - [ ] Step 3: 实现 models + storage 使测试通过
 - [ ] Step 4: `uv run pytest tests/workflow/test_storage.py -v` 全绿
@@ -58,10 +58,10 @@ tests/workflow/       # 每模块一个测试文件，命名 test_<module>.py
 **Files:** Create `pantheon/workflow/journal.py`、`tests/workflow/test_journal.py`
 
 要点（决策 10/17）：
-- append-only JSONL；加载后支持：按 (seq位置, key) 前缀匹配查缓存、第一个 miss 后整体失效、按 label 失效单条（retry）、按 label 改写为 skipped/null（skip）。
-- 并发 seq：发起时分配、完成时回填结果（同 spec"并发 seq"条目）。
+- append-only JSONL；加载后支持：按 (node_id 位置, key) 前缀匹配查缓存、第一个 miss 后整体失效、按 `node_id` 失效单条（retry）、按 `node_id` 改写为 skipped/null（skip）。**寻址一律用 node_id，绝不用 label**（Codex Finding 4：label 可重复/为空会误伤其他节点）。
+- node_id：发起时分配（单调递增 seq）、完成时回填结果。
 
-- [ ] Step 1: 失败测试：前缀命中/参数变化即 miss 且后续全失效/retry 失效语义/skip 注入后读出 None/崩溃后从文件恢复
+- [ ] Step 1: 失败测试：前缀命中/参数变化即 miss 且后续全失效/retry 按 node_id 失效语义/skip 注入后读出 None/重复 label 不影响按 node_id 的精确寻址/崩溃后从文件恢复
 - [ ] Step 2: 确认失败
 - [ ] Step 3: 实现
 - [ ] Step 4: 测试通过
@@ -73,11 +73,12 @@ tests/workflow/       # 每模块一个测试文件，命名 test_<module>.py
 
 要点（决策 1/17，参照 `pantheon/toolsets/python/python_interpreter.py` 的 exec 模式）：
 - async 执行入口：接收脚本文本 + 注入的 API dict + args → 在受限 globals 下编译执行（脚本顶层为 async 函数体或 module 模式，实现时选定一种并在脚本编写指南中固定）。
-- 受限 globals：安全 builtins 白名单；不提供 `open`/`__import__`/`time`/`random`/`datetime`（确定性约束，违者 NameError）。
+- 受限 globals：安全 builtins 白名单；不提供 `open`/`__import__`/`eval`/`exec`/`os`/`sys`/`time`/`random`/`datetime`（确定性 + 无 IO 直访，违者 NameError）。脚本所有文件访问只经注入的 context API（路径 confinement 在 storage 层保证）。
 - 语法/确定性校验函数（AST 检查禁用名），供 toolset 在 create/edit 时调用；错误返回行号信息。
 - 整体包裹 asyncio.Task：支持取消、超时、异常捕获并结构化返回。
+- 资源上限（决策 §4.1）：max_nodes、总超时、并发信号量——由 engine 传入沙箱执行，超限终止。
 
-- [ ] Step 1: 失败测试：正常脚本执行并返回值/禁用名触发 NameError/语法错误返回行号/取消传播/await 注入的 API 可用
+- [ ] Step 1: 失败测试：正常脚本执行并返回值/禁用名（open/import/os/eval）触发 NameError/语法错误返回行号/取消传播/await 注入的 API 可用/恶意脚本（尝试 import os、读文件、无限循环）被禁用名或资源上限阻断
 - [ ] Step 2: 确认失败
 - [ ] Step 3: 实现
 - [ ] Step 4: 测试通过
@@ -103,10 +104,10 @@ tests/workflow/       # 每模块一个测试文件，命名 test_<module>.py
 
 要点（决策 3/11）：
 - `NodeRunner` ABC（`run(node_call, ctx) -> NodeResult`）。
-- `InProcessRunner`：每节点新建 Agent（参照 `team/pantheon.py` call_agent 内核：新 Memory + `use_memory=False` + await run）；节点 Memory 带 file_path 落 `nodes/{seq}_{label}.jsonl`（决策 15b）；context_variables 注入 workdir 与 execution_context_id；**不挂父级 step/chunk hook**（节点消息不回流 Leader，决策 11）；schema 输出验证失败时带错误反馈重试节点（重试次数常量，默认 1 次，语义见 spec §6 补充决策 1）。
+- `InProcessRunner`：每节点新建 Agent（参照 `team/pantheon.py` call_agent 内核：新 Memory + `use_memory=False` + await run）；节点 Memory 带 file_path 落 `nodes/n{node_id}.jsonl`（决策 11/15b，文件名只用 node_id，不拼 label）；agent name 用 `wf-{wf_id}-n{node_id}`；context_variables 注入 workdir 与 execution_context_id；**不挂父级 step/chunk hook**（节点消息不回流 Leader，决策 11）；schema 输出验证失败时带错误反馈重试节点（重试次数常量，默认 1 次，语义见 spec §6 补充决策 1）。
 - 测试用 fake/stub Agent（不真调 LLM；参照 tests/ 现有 mock 模式，先读 `tests/conftest.py`）。
 
-- [ ] Step 1: 失败测试：runner 构造 Agent 参数正确（instructions 含协议层、model/toolsets 来自模板）/memory 落盘到 nodes/ 目录/schema 验证失败触发重试后成功/超时返回失败 NodeResult
+- [ ] Step 1: 失败测试：runner 构造 Agent 参数正确（instructions 含协议层、model/toolsets 来自模板）/memory 落盘到 nodes/n{node_id}.jsonl（含 `/`、`..` 的 label 不影响文件名安全）/schema 验证失败触发重试后成功/超时返回失败 NodeResult
 - [ ] Step 2: 确认失败
 - [ ] Step 3: 实现
 - [ ] Step 4: 测试通过
@@ -151,7 +152,8 @@ tests/workflow/       # 每模块一个测试文件，命名 test_<module>.py
 - `create(chat_id, goal, script, args, base_dir, auto_start)`：校验（调 sandbox 校验函数）→ 建目录写 meta/script → 可选启动；返回 workflow_id + phases（AST 提取脚本开头的 meta 字面量；非字面量则校验失败——spec §6 补充决策 2）。
 - 执行：组装 API → 沙箱跑脚本 → 完成/失败更新 state + 发 status 事件 + 触发**关键事件回调**（由 room 接线到 SteerQueue，engine 只暴露 callback 注册，决策 14）。
 - `resume(workflow_id, new_script=None)`：替换脚本（可选）→ 重跑（journal 前缀缓存生效）→ 返回 cached/will_rerun 统计。
-- `control(workflow_id, action, node_label)`：pause（取消 Task，state 标记）/resume/cancel/skip_node/retry_node（journal 操作 + resume）。
+- `control(workflow_id, action, node_id)`：pause（取消 Task，state 标记）/resume/cancel/skip_node/retry_node（按 node_id 的 journal 操作 + resume）。
+- 所有 create/status/get_output/edit/control 入口校验 `meta.chat_id`（Codex Finding 2），并传入资源上限（max_nodes/超时/并发）给沙箱。
 - 重启恢复：扫描目录把未完成 workflow 标记 interrupted（不自动重跑）。
 
 - [ ] Step 1: 失败测试（脚本用纯 stub node）：create 校验失败返回错误行号/正常执行落盘全套文件/resume 缓存统计正确/skip+retry 行为/cancel 后 state 正确/interrupted 恢复标记/关键事件回调被触发
@@ -165,10 +167,11 @@ tests/workflow/       # 每模块一个测试文件，命名 test_<module>.py
 **Files:** Create `pantheon/workflow/toolset.py`、`tests/workflow/test_toolset.py`
 
 要点（决策 8，ToolSet 模式参照 `pantheon/toolset.py` 与 live_view toolset）：
-- 5 工具按决策 8 签名：`workflow_create/status/get_output/edit/control`；全部委托 engine；chat_id 从 ExecutionContext/context_variables 取（参照 live_view 的 chat_id 解析）。
+- 5 工具按决策 8 签名：`workflow_create/status/get_output/edit/control`（control/get_output 用 `node_id` 寻址，非 label）；全部委托 engine；chat_id 从 ExecutionContext/context_variables 取（参照 live_view 的 chat_id 解析）。
+- **归属校验（Codex Finding 2）**：每个工具在 engine 侧校验目标 workflow 的 `meta.chat_id == 当前 chat_id`，不匹配即拒绝。
 - 返回值守则：摘要不返回全量；get_output 默认 summary_only（路径 + 首 N 行）。
 
-- [ ] Step 1: 失败测试：5 工具注册可见/create 透传并返回 phases/status 双模式（带/不带 id）/get_output 摘要截断/control 各 action 路由正确
+- [ ] Step 1: 失败测试：5 工具注册可见/create 透传并返回 phases/status 双模式（带/不带 id）/get_output 摘要截断/control 各 action 按 node_id 路由正确/跨 chat 访问他人 workflow 被拒绝（meta.chat_id 不匹配）
 - [ ] Step 2: 确认失败
 - [ ] Step 3: 实现
 - [ ] Step 4: 测试通过
