@@ -123,7 +123,7 @@ Claude Code 的 API 表面至今只有 `agent/parallel/pipeline/phase/log/budget
 
 ```
 Leader（少量工具）               Workflow Engine（自治运行）
-├─ 创建 workflow 定义            ├─ DAG 依赖解析与自动调度
+├─ 创建 workflow 定义            ├─ 编排脚本沙箱执行与自动调度
 ├─ 按需查询概况                  ├─ 节点并发执行（asyncio.gather）
 └─ 干预（用户要求/出错时）        ├─ 基于文件的上下文传递（节点输入输出）
                                 ├─ 错误检测/重试，失败才通知 Leader
@@ -173,8 +173,8 @@ class CLIRunner(NodeRunner):         # 预留：spawn claude/codex CLI 子进程
 ├─ journal.jsonl       # node() 调用记录（resume 前缀缓存依据）
 ├─ state.json          # 执行状态元数据
 └─ context/            # 节点输出文件 = 下游节点输入
-    ├─ inputs.json
-    └─ <node_label>_<output_key>.{json,md,...}
+    ├─ inputs.json     # workflow_create 的 args 落盘
+    └─ {seq}_{label}.json  # 节点结果（journal result_ref 指向此处）
 ```
 
 - 节点输出落文件 → Engine 把**文件路径**（而非内容）传给下游节点 → leader 与节点的 LLM 上下文都不膨胀。
@@ -223,15 +223,15 @@ Project "认证系统"
 - **默认嵌入式**：单 workflow 内嵌 chat 中（300-400px），**渲染执行 trace 图**（phases 骨架 + 实时生长的节点，含动态 fan-out），自动展开时机：创建时、状态变化、失败；完成后折叠为概览卡片。
 - **侧边栏辅助**：多 workflow 时右侧列表 + 进度概览。
 - **全屏按需**：复杂 workflow 点击展开独立视图。
-- **Agent-to-UI 直接复用 Pantheon LiveView 模式**：Engine 发 `workflow.*` NATS 事件（`workflow.init` / `node_update` / `node_added` / `data_push` / `error` ...）→ 前端 workflowStore.applyEvent → 响应式渲染。**不引入新的 A2UI 框架**——LiveView 就是 A2UI 的成熟实现。
+- **Agent-to-UI 直接复用 Pantheon LiveView 模式**：Engine 发 `workflow.*` NATS 事件（协议清单见决策 12）→ 前端 workflowStore.applyEvent → 响应式渲染。**不引入新的 A2UI 框架**——LiveView 就是 A2UI 的成熟实现。
 - 干预交互双通道：节点失败自动展开高亮，UI 提供 重试/跳过/修改/停止 按钮；用户也可纯对话表达（"跳过性能测试"→ Leader 调干预工具）。
 
 ### 决策 7：不集成 LangGraph
 
 - 状态管理模型不匹配：LangGraph 状态在内存/DB、节点是函数；本设计是文件上下文、节点是 agent（LLM+工具+流式）。
 - 依赖负担：强制引入 LangChain 生态。
-- 自研编排核心很薄（DAG 调度 + 文件传递 + 错误处理 < 500 行），90% 基础设施已存在。
-- 借鉴其声明式 API 风格、checkpointing、conditional edges 思路。
+- 自研编排核心很薄（~1000 行，见 §4.1 工程量评估），80% 基础设施已存在。
+- 借鉴其 checkpointing 思路（对应本设计的 journal/resume）。
 
 ### 决策 8：Leader 工具集（5 个工具）
 
@@ -327,7 +327,7 @@ response = await agent.run(..., context_variables={"workdir": ctx.chat_workdir,
 事件协议（挂现有 chat NATS stream，与 `live_view.*` 平级）：
 
 ```
-workflow.created   {workflow_id, goal, phases, skeleton}   # skeleton = AST 预提取调用点
+workflow.created   {workflow_id, goal, phases}   # phases 来自脚本 meta 字面量（§6 补充决策 2）
 workflow.node_started / node_finished / phase_changed / log / status / resumed
 ```
 
@@ -344,12 +344,16 @@ workflow.node_started / node_finished / phase_changed / log / status / resumed
 - ✓ **独立 `pantheon/workflow/` 模块**：
 
 ```
-pantheon/workflow/
-├─ engine.py      # WorkflowEngine：沙箱执行、journal、调度
+pantheon/workflow/        # 核心组成（完整文件布局见 phase1 实施计划）
+├─ engine.py      # WorkflowEngine：session 管理、执行/resume/control
+├─ sandbox.py     # 受限 exec 沙箱
 ├─ api.py         # node/parallel/pipeline/phase/log
+├─ journal.py     # 前缀缓存
 ├─ runner.py      # NodeRunner / InProcessRunner
-├─ templates.py   # 模板注册表
-└─ events.py      # workflow.* 事件定义
+├─ templates.py   # 模板注册表 + prompt 三层拼装
+├─ events.py      # workflow.* 事件定义
+├─ toolset.py     # Leader 5 工具
+└─ plugin.py      # WorkflowTeamPlugin
 
 room.py 三处轻量接线：
 ├─ self.workflow_engine = WorkflowEngine(...)   # room 级单例
@@ -488,9 +492,9 @@ Leader 理解意图 ──▶ workflow_create({goal, script, args})
 
 | 阶段 | 内容 |
 |---|---|
-| **Phase 1**（核心闭环） | Workflow Script Engine（沙箱 + 编排 API + journal/resume + InProcessRunner + 文件上下文）；Leader 5 工具（TeamPlugin 注入）；`workflow.*` NATS 事件协议；前端嵌入式 trace 画布 + workflow store；节点 memory 落盘 |
-| **Phase 2** | Task-as-Chat 信息架构落地（任务分组视图替代 chat 列表）、多 workflow 侧边栏、错误干预 UI、临时模板注册、`workflow_status(scope="project")` 跨任务可见、`templates.from_agent` 复用 team 资产 |
-| **Phase 3** | RemoteRunner（NATS 分布式节点）、`workflow()` 子流程嵌套、workflow 模板库/复用 |
+| **Phase 1**（后端核心闭环，纯 pantheon-agents） | Workflow Script Engine（沙箱 + 编排 API + journal/resume + InProcessRunner + 文件上下文）；Leader 5 工具（TeamPlugin 注入）；`workflow.*` NATS 事件协议；节点 memory 落盘 |
+| **Phase 2**（前端 + Task-as-Chat） | 前端嵌入式 trace 画布 + workflowStore、Task-as-Chat 任务分组视图、节点详情与错误干预 UI、多 workflow 侧边栏、模板扩充（analyzer/coder/researcher） |
+| **Phase 3** | RemoteRunner（NATS 分布式节点）、`workflow()` 子流程嵌套、模板库/复用（含临时模板注册、`templates.from_agent`、`workflow_status(scope="project")`）、budget API |
 | **Phase 4** | CLIRunner（claude/codex 外部运行时，含 open-design 式运行时检测/适配）、节点强隔离（worktree/容器） |
 
 ## 6. 补充决策（原待讨论项，已冻结）
