@@ -160,3 +160,23 @@ def test_load_classmethod(tmp_path):
     path = _record_chain(tmp_path, ["k0"])
     j = Journal.load(path)
     assert j.lookup(0, "k0") is not None
+
+
+# --- Test 9: invalidate -> record re-run path (retry flow) ---
+
+def test_invalidate_then_record_rerun(tmp_path):
+    path = _record_chain(tmp_path, ["k0", "k1", "k2"])
+    j = Journal(path)
+    j.invalidate(1)  # truncates entries 1, 2
+    assert [e.node_id for e in j.entries] == [0]
+
+    # resume re-runs and appends a fresh entry at the now-vacant node_id 1;
+    # the record invariant (node_id == len(entries)) must accept it.
+    j.record(_entry(1, "k1_new", result_ref="context/n1.json"))
+    assert len(j.entries) == 2
+    assert j.entries[1].key == "k1_new"
+
+    # fresh reload reproduces the re-run state exactly
+    reloaded = Journal(path)
+    assert [e.node_id for e in reloaded.entries] == [0, 1]
+    assert reloaded.entries[1].key == "k1_new"

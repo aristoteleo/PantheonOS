@@ -105,6 +105,10 @@ class Journal:
     def lookup(self, node_id: int, key: str) -> JournalEntry | None:
         """Return the cached entry at ``node_id`` iff it is a valid prefix hit.
 
+        PRECONDITION: callers MUST invoke this in ascending ``node_id`` order
+        (the engine guarantees this); the first-miss cascade correctness
+        depends on it.
+
         Calls arrive in ``node_id`` order. A hit requires that no earlier
         position missed, that a prior entry exists at this position, and that
         either the entry is ``skipped`` (always a hit) or its stored key equals
