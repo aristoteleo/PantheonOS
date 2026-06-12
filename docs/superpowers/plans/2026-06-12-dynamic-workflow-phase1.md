@@ -88,7 +88,7 @@ tests/workflow/       # 每模块一个测试文件，命名 test_<module>.py
 **Files:** Create `pantheon/workflow/templates.py`、`tests/workflow/test_templates.py`
 
 要点（决策 9）：
-- `WorkflowTemplate`（name/base_prompt/toolsets/model）+ 注册表；内置 `generic` 模板（仅基本工具使用规范，Phase 1 初始模板集只有 generic，扩展留待讨论项 4）。
+- `WorkflowTemplate`（name/base_prompt/toolsets/model）+ 注册表；内置 `generic` 模板（仅基本工具使用规范，Phase 1 初始模板集只有 generic，Phase 2 扩展见 spec §6 补充决策 4）。
 - 三层拼装函数：template base + Engine 协议层（工作目录、输入文件位置、输出契约、"回复是数据"约束——文案集中常量化）+ Leader instruction 作为 user message 单独返回（不进 system prompt）。
 
 - [ ] Step 1: 失败测试：generic 注册存在/拼装结果包含协议层关键句/未知模板报错/instruction 不混入 system prompt
@@ -103,7 +103,7 @@ tests/workflow/       # 每模块一个测试文件，命名 test_<module>.py
 
 要点（决策 3/11）：
 - `NodeRunner` ABC（`run(node_call, ctx) -> NodeResult`）。
-- `InProcessRunner`：每节点新建 Agent（参照 `team/pantheon.py` call_agent 内核：新 Memory + `use_memory=False` + await run）；节点 Memory 带 file_path 落 `nodes/{seq}_{label}.jsonl`（决策 15b）；context_variables 注入 workdir 与 execution_context_id；**不挂父级 step/chunk hook**（节点消息不回流 Leader，决策 11）；schema 输出验证失败时带错误反馈重试节点（重试次数常量，默认 1 次，详细策略属 §6 待讨论项 1 的范围——先实现最简版）。
+- `InProcessRunner`：每节点新建 Agent（参照 `team/pantheon.py` call_agent 内核：新 Memory + `use_memory=False` + await run）；节点 Memory 带 file_path 落 `nodes/{seq}_{label}.jsonl`（决策 15b）；context_variables 注入 workdir 与 execution_context_id；**不挂父级 step/chunk hook**（节点消息不回流 Leader，决策 11）；schema 输出验证失败时带错误反馈重试节点（重试次数常量，默认 1 次，语义见 spec §6 补充决策 1）。
 - 测试用 fake/stub Agent（不真调 LLM；参照 tests/ 现有 mock 模式，先读 `tests/conftest.py`）。
 
 - [ ] Step 1: 失败测试：runner 构造 Agent 参数正确（instructions 含协议层、model/toolsets 来自模板）/memory 落盘到 nodes/ 目录/schema 验证失败触发重试后成功/超时返回失败 NodeResult
@@ -148,7 +148,7 @@ tests/workflow/       # 每模块一个测试文件，命名 test_<module>.py
 
 要点（决策 2/14/16）：
 - session 管理：`sessions[chat_id] -> list[WorkflowSession]`；每 session 持 asyncio.Task + 状态。
-- `create(chat_id, goal, script, args, base_dir, auto_start)`：校验（调 sandbox 校验函数）→ 建目录写 meta/script → 可选启动；返回 workflow_id + phases（AST 提取 meta.phases 或 phase() 调用字面量，提不出则空列表——执行前预览深度取 spec §6 项 2 的最简实现）。
+- `create(chat_id, goal, script, args, base_dir, auto_start)`：校验（调 sandbox 校验函数）→ 建目录写 meta/script → 可选启动；返回 workflow_id + phases（AST 提取脚本开头的 meta 字面量；非字面量则校验失败——spec §6 补充决策 2）。
 - 执行：组装 API → 沙箱跑脚本 → 完成/失败更新 state + 发 status 事件 + 触发**关键事件回调**（由 room 接线到 SteerQueue，engine 只暴露 callback 注册，决策 14）。
 - `resume(workflow_id, new_script=None)`：替换脚本（可选）→ 重跑（journal 前缀缓存生效）→ 返回 cached/will_rerun 统计。
 - `control(workflow_id, action, node_label)`：pause（取消 Task，state 标记）/resume/cancel/skip_node/retry_node（journal 操作 + resume）。

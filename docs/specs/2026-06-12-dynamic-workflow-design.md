@@ -493,13 +493,29 @@ Leader 理解意图 ──▶ workflow_create({goal, script, args})
 | **Phase 3** | RemoteRunner（NATS 分布式节点）、`workflow()` 子流程嵌套、workflow 模板库/复用 |
 | **Phase 4** | CLIRunner（claude/codex 外部运行时，含 open-design 式运行时检测/适配）、节点强隔离（worktree/容器） |
 
-## 6. 待讨论细节（设计未冻结部分）
+## 6. 补充决策（原待讨论项，已冻结）
 
-1. 错误处理策略细节（节点默认重试次数、fallback 模板、parallel 内 part-failure 语义——`return_exceptions=True` 后脚本侧如何表达"容忍部分失败"）。
-2. 执行前预览的实现深度（仅 phases 骨架，还是加 AST 静态调用点提取的预估图）。
-3. Task-as-Chat 的 `goal`/`task_status` 字段细节与任务终态判定规则（何时算"完成"——最后一个 workflow 完成？Leader 显式标记？）。
-4. 模板注册表的初始模板集（generic 之外首批提供哪些）。
-5. `node()` 的 budget 控制（是否引入 Claude Code 式 token budget API）。
+1. **错误处理语义**：节点内部失败（LLM/工具异常、schema 验证失败）→ runner 内重试 1 次（schema 失败时附错误反馈），仍失败则 `node()` 抛 `NodeError`。脚本层自由处理：`parallel(return_exceptions=True)` 收集异常、或 try/except、或不处理。未捕获异常 → workflow 标记 failed + 关键事件唤醒 Leader（带失败节点 label 与原因摘要）。Leader 决定 retry_node / 改脚本 / cancel。
+2. **执行前预览**：脚本必须以 `meta = {"goal": ..., "phases": [...]}` 字面量开头（Claude Code 同款约定），engine 用 AST 提取（非字面量则校验失败）。Phase 1 预览 = phases 骨架，不做调用点预估图。
+3. **任务终态**：`task_status` 自动聚合（任一 workflow 运行中→运行中；任一待决策→待决策；全部完成→已完成）；归档（archived）由用户在 UI 显式操作，不自动。字段存 `memory.extra_data["task"] = {goal, archived}`，status 实时推导不落盘。
+4. **初始模板集**：Phase 1 仅 `generic`；Phase 2 增 `analyzer`（file+shell 只读倾向）、`coder`（file+shell）、`researcher`（web+file）三个。
+5. **Budget**：Phase 1 不提供 budget API；journal 已记 token_cost，`workflow_status` 返回累计值。Claude Code 式 `budget` 对象留 Phase 3。
+
+## 6.1 耦合契约（与现有系统的全部接触面，封闭清单）
+
+任何实现不得在此清单之外新增对现有代码的修改或依赖：
+
+| # | 接触面 | 方向 | 内容 |
+|---|---|---|---|
+| 1 | `room.py` 接线（仅三处） | room→workflow | 构造 engine 单例；team plugins 加入 WorkflowTeamPlugin；关键事件回调注入 SteerQueue |
+| 2 | `TeamPlugin` 接口 | workflow→team | `get_toolsets()` 向 leader 注入 WorkflowToolSet（只读使用现有接口） |
+| 3 | `Agent` / `Memory` 公共 API | workflow→core | 节点执行只用 `Agent(...)` 构造 + `run()`；`Memory(file_path=...)` |
+| 4 | NATS 事件命名空间 | workflow→stream | 仅发布 `workflow.*`（复用 `NATSStreamAdapter.publish`，不改 stream 代码） |
+| 5 | `memory.extra_data` 键 | workflow→memory | 仅新增 `workflow_ids`、`task` 两个键 |
+| 6 | 文件系统 | workflow 自有 | 仅写 `{base}/.pantheon/workflows/`；base 解析复用现有 workdir 规则 |
+| 7 | 前端（Phase 2） | ui→stream | 订阅 `workflow.*`；新增独立 workflowStore + 组件，不改 liveViewStore |
+
+`pantheon/workflow/` 模块内部不 import chatroom（plugin.py 仅 import TeamPlugin 接口类型）；可脱离 chatroom 由 SDK/测试直接驱动。
 
 ## 7. 关键风险
 
