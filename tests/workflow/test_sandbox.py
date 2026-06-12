@@ -71,6 +71,29 @@ async def test_control_flow_and_comprehensions():
     assert res.result == [1, 3, 5]
 
 
+async def test_multiline_string_literal_not_corrupted():
+    # Regression: textual indentation would prepend 4 spaces to the
+    # continuation line inside the triple-quoted literal. AST wrapping must
+    # preserve the string content byte-for-byte.
+    src = 'x = """alpha\nbeta"""\nreturn x'
+    res = await run_script(src, make_api(), args=None)
+    assert res.ok is True
+    assert res.result == "alpha\nbeta"
+
+
+async def test_no_return_yields_none():
+    res = await run_script("y = sum(range(3))", make_api(), args=None)
+    assert res.ok is True
+    assert res.result is None
+
+
+def test_validate_rejects_empty_and_comment_only():
+    for src in ["# just a comment", "   \n  # c\n", "pass", '"""only a docstring"""']:
+        res = validate_script(src)
+        assert res.ok is False
+        assert res.error is not None
+
+
 # --------------------------------------------------------------------------
 # 2. args available
 # --------------------------------------------------------------------------

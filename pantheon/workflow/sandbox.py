@@ -57,7 +57,6 @@ from __future__ import annotations
 
 import ast
 import asyncio
-import textwrap
 import traceback
 from dataclasses import dataclass
 from typing import Any
@@ -184,6 +183,27 @@ def _is_dunder(name: str) -> bool:
     return len(name) > 4 and name.startswith("__") and name.endswith("__")
 
 
+def _effective_body(tree: ast.Module) -> list[ast.stmt]:
+    """Statements that actually do something (excludes docstrings / bare pass).
+
+    Used to detect empty / comment-only / pass-only scripts, which would
+    otherwise produce a coroutine with no body.
+    """
+    body: list[ast.stmt] = []
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Pass):
+            continue
+        # A leading bare-string statement is a docstring, not real work.
+        if (
+            isinstance(stmt, ast.Expr)
+            and isinstance(stmt.value, ast.Constant)
+            and isinstance(stmt.value.value, str)
+        ):
+            continue
+        body.append(stmt)
+    return body
+
+
 class _Visitor(ast.NodeVisitor):
     """Walks the AST and records the first violation found."""
 
@@ -238,6 +258,11 @@ def validate_script(source: str) -> ValidationResult:
     if visitor.error is not None:
         return ValidationResult(ok=False, error=visitor.error, line=visitor.line)
 
+    # An empty / comment-only / pass-only script produces a coroutine with no
+    # body. Reject it here with a clear message rather than later at compile.
+    if not _effective_body(tree):
+        return ValidationResult(ok=False, error="script body is empty", line=None)
+
     return ValidationResult(ok=True, error=None, line=None)
 
 
@@ -249,10 +274,30 @@ _WRAPPER_NAME = "__workflow_main__"
 
 
 def _compile_wrapper(source: str) -> Any:
-    """Wrap user source as the body of an async coroutine and compile it."""
-    indented = textwrap.indent(source, "    ")
-    wrapped = f"async def {_WRAPPER_NAME}():\n{indented}\n"
-    return compile(wrapped, filename="<workflow-script>", mode="exec")
+    """Wrap user source as the body of an async coroutine and compile it.
+
+    Uses AST-based wrapping (NOT textual indentation): the raw source is
+    parsed, and its statements become the body of a synthesized
+    ``async def __workflow_main__()``. This is immune to whitespace/string
+    corruption — textual indentation would prepend spaces to continuation
+    lines inside multiline string literals. A top-level ``return`` is legal
+    inside the synthesized function body; a script with no return yields None.
+    """
+    tree = ast.parse(source)
+    func = ast.AsyncFunctionDef(
+        name=_WRAPPER_NAME,
+        args=ast.arguments(
+            posonlyargs=[], args=[], vararg=None, kwonlyargs=[],
+            kw_defaults=[], kwarg=None, defaults=[],
+        ),
+        body=tree.body,
+        decorator_list=[],
+        returns=None,
+        type_comment=None,
+    )
+    module = ast.Module(body=[func], type_ignores=[])
+    ast.fix_missing_locations(module)
+    return compile(module, filename="<workflow-script>", mode="exec")
 
 
 async def run_script(
@@ -334,6 +379,9 @@ async def _drain_cancelled(task: "asyncio.Future") -> None:
     try:
         await task
     except (asyncio.CancelledError, Exception):
+        # BOTH clauses are required: since Python 3.8 CancelledError derives
+        # from BaseException (NOT Exception), so `except Exception` alone would
+        # let the expected cancellation propagate. Do not simplify this.
         pass
 
 
