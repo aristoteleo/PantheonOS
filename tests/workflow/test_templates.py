@@ -11,7 +11,7 @@ system prompt, and the engine protocol layer is always present in it.
 
 import pytest
 
-from pantheon.workflow.models import NodeCall
+from pantheon.workflow import templates as templates_mod
 from pantheon.workflow.templates import (
     ENGINE_PROTOCOL,
     WorkflowTemplate,
@@ -20,6 +20,23 @@ from pantheon.workflow.templates import (
     list_templates,
     register_template,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_registry():
+    """Snapshot and restore the module registry around every test.
+
+    ``register_template`` mutates the module-level dict in place, so a plain
+    monkeypatch of a copy would not undo it. Snapshot the contents, then
+    restore them in teardown so per-test mutations cannot leak and make other
+    tests order-dependent.
+    """
+    snapshot = dict(templates_mod._REGISTRY)
+    try:
+        yield
+    finally:
+        templates_mod._REGISTRY.clear()
+        templates_mod._REGISTRY.update(snapshot)
 
 
 # --- Test 1: generic is registered and retrievable ---
@@ -45,9 +62,7 @@ def test_unknown_template_raises():
 # --- Test 3: system prompt contains protocol sentences + template base ---
 def test_compose_includes_protocol_and_base():
     t = get_template("generic")
-    system_prompt, _user = compose_node_prompt(
-        t, NodeCall(node_id=1, instruction="do a thing")
-    )
+    system_prompt, _user = compose_node_prompt(t, "do a thing")
     # Template base layer present.
     assert t.base_prompt in system_prompt
     # Engine protocol layer present (whole block).
@@ -61,50 +76,48 @@ def test_compose_includes_protocol_and_base():
 def test_instruction_not_in_system_prompt():
     t = get_template("generic")
     instruction = "REVIEW_THE_AUTH_MODULE_XYZ"
-    system_prompt, user_message = compose_node_prompt(
-        t, NodeCall(node_id=2, instruction=instruction)
-    )
+    system_prompt, user_message = compose_node_prompt(t, instruction)
     assert instruction in user_message
     assert instruction not in system_prompt
+
+
+# --- output_path is an explicit parameter, supplied by the runner ---
+def test_output_path_appears_in_system_prompt():
+    t = get_template("generic")
+    system_prompt, user_message = compose_node_prompt(
+        t,
+        "REVIEW_THE_AUTH_MODULE_XYZ",
+        output_path="context/n7.json",
+    )
+    assert "context/n7.json" in system_prompt
+    # instruction still isolated from system prompt.
+    assert "REVIEW_THE_AUTH_MODULE_XYZ" in user_message
+    assert "REVIEW_THE_AUTH_MODULE_XYZ" not in system_prompt
 
 
 # --- Test 5: schema-required node communicates JSON-output requirement ---
 def test_schema_requirement_reflected():
     t = get_template("generic")
     schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
-    system_prompt, _user = compose_node_prompt(
-        t,
-        NodeCall(node_id=3, instruction="emit json", schema=schema),
-    )
+    system_prompt, _user = compose_node_prompt(t, "emit json", schema=schema)
     # Stable keyword guaranteed by ENGINE_PROTOCOL / deterministic append.
     assert "JSON" in system_prompt
     assert "schema" in system_prompt.lower()
 
 
 def test_no_schema_omits_schema_directive():
-    # When no schema is required, the appended schema directive is absent,
-    # but the constant protocol layer (which mentions schema conditionally)
-    # is still fully present.
+    # When no schema is required, the constant protocol layer (which mentions
+    # schema conditionally) is still fully present.
     t = get_template("generic")
-    system_prompt, _user = compose_node_prompt(
-        t, NodeCall(node_id=4, instruction="free text")
-    )
+    system_prompt, _user = compose_node_prompt(t, "free text")
     assert ENGINE_PROTOCOL in system_prompt
 
 
-# --- Composition accepts explicit kwargs too ---
-def test_compose_accepts_kwargs():
+# --- instruction is a required positional: omitting it is a TypeError ---
+def test_instruction_required():
     t = get_template("generic")
-    system_prompt, user_message = compose_node_prompt(
-        t,
-        instruction="KWARG_INSTRUCTION_ABC",
-        schema={"type": "object"},
-        output_path="context/n5.json",
-    )
-    assert "KWARG_INSTRUCTION_ABC" in user_message
-    assert "KWARG_INSTRUCTION_ABC" not in system_prompt
-    assert "context/n5.json" in system_prompt
-    assert "JSON" in system_prompt
+    with pytest.raises(TypeError):
+        compose_node_prompt(t)  # type: ignore[call-arg]
 
 
 # --- register/get round-trip ---

@@ -105,31 +105,12 @@ register_template(_GENERIC)
 # --------------------------------------------------------------------------- #
 # Layer (3) split-out: composition
 # --------------------------------------------------------------------------- #
-@dataclass
-class _NodeFields:
-    instruction: str
-    schema: Any | None = None
-    output_path: str | None = None
-
-
-def _extract_fields(node_call_or_fields: Any, kwargs: dict) -> _NodeFields:
-    """Accept either a ``NodeCall``-like object or explicit kwargs."""
-    if node_call_or_fields is not None:
-        instruction = getattr(node_call_or_fields, "instruction")
-        schema = getattr(node_call_or_fields, "schema", None)
-        output_path = getattr(node_call_or_fields, "output_path", None)
-        return _NodeFields(instruction=instruction, schema=schema, output_path=output_path)
-    return _NodeFields(
-        instruction=kwargs["instruction"],
-        schema=kwargs.get("schema"),
-        output_path=kwargs.get("output_path"),
-    )
-
-
 def compose_node_prompt(
     template: WorkflowTemplate,
-    node_call_or_fields: Any = None,
-    **kwargs: Any,
+    instruction: str,
+    *,
+    schema: Any | None = None,
+    output_path: str | None = None,
 ) -> tuple[str, str]:
     """Compose a node agent's ``(system_prompt, user_message)``.
 
@@ -140,20 +121,18 @@ def compose_node_prompt(
     ``user_message`` = the node's Leader ``instruction`` (layer 3), returned
     separately. The instruction is NEVER concatenated into the system prompt.
 
-    Pass either a ``NodeCall`` (or any object exposing ``instruction`` /
-    ``schema`` / ``output_path``) as the second positional argument, or supply
-    ``instruction=...`` (and optionally ``schema=...``, ``output_path=...``)
-    as keyword arguments.
+    ``instruction`` is required. ``output_path`` is computed and supplied by the
+    runner (it derives from ``node_id``; it is not a field on ``NodeCall``).
+    ``schema``, when provided, makes the JSON-output requirement explicit in the
+    system contract.
     """
-    fields = _extract_fields(node_call_or_fields, kwargs)
-
     parts: list[str] = [template.base_prompt, ENGINE_PROTOCOL]
 
     # Deterministic per-node system-contract specifics (NOT the instruction).
     specifics: list[str] = []
-    if fields.output_path:
-        specifics.append(f"Output path for this node: {fields.output_path}")
-    if fields.schema is not None:
+    if output_path:
+        specifics.append(f"Output path for this node: {output_path}")
+    if schema is not None:
         specifics.append(
             "This node REQUIRES structured output: your final reply MUST be "
             "valid JSON conforming to the provided schema and nothing else."
@@ -162,5 +141,4 @@ def compose_node_prompt(
         parts.append("## This node\n" + "\n".join(specifics))
 
     system_prompt = "\n\n".join(parts)
-    user_message = fields.instruction
-    return system_prompt, user_message
+    return system_prompt, instruction
