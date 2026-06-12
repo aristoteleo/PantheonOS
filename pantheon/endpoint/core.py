@@ -231,8 +231,8 @@ class Endpoint(FileTransferToolSet):
 
         async def _start_post_ready_background():
             await _wait_for_worker_ready_before_background_startup()
-            await _start_gateway_background()
             asyncio.create_task(self._warmup_llm_connection())
+            await _start_gateway_background()
 
         # ===== Phase 2: Start Builtin ToolSet Services =====
         phase2_t0 = time.perf_counter()

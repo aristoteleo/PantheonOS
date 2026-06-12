@@ -7,11 +7,12 @@ behind a single port. All tools are exposed with prefixes (e.g., context7_resolv
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, Optional
 
-from pantheon.utils.log import logger
+from pantheon.utils.log import log_startup_profile, logger
 
 if TYPE_CHECKING:
     from fastmcp import Client, FastMCP
@@ -55,6 +56,7 @@ class UnifiedMCPGateway:
     def _ensure_unified_mcp(self) -> "FastMCP":
         """Lazily create the unified FastMCP instance with filtering middleware."""
         if self._unified_mcp is None:
+            ensure_t0 = time.perf_counter()
             from fastmcp import FastMCP
             from fastmcp.server.middleware import Middleware, MiddlewareContext
 
@@ -75,6 +77,10 @@ class UnifiedMCPGateway:
 
             self._unified_mcp = FastMCP("Pantheon Unified Gateway")
             self._unified_mcp.add_middleware(HideInternalToolsMiddleware())
+            log_startup_profile(
+                "MCP gateway FastMCP object initialized in "
+                f"{time.perf_counter() - ensure_t0:.3f}s"
+            )
         return self._unified_mcp
 
     async def start_gateway(self) -> None:
@@ -86,9 +92,16 @@ class UnifiedMCPGateway:
             logger.debug("Gateway already running")
             return
 
+        start_t0 = time.perf_counter()
+
         # Try configured port first, fallback to find available if in use
         from pantheon.utils.misc import find_free_port
+        port_t0 = time.perf_counter()
         actual_port = find_free_port(self.port, self.host)
+        log_startup_profile(
+            "MCP gateway port check finished in "
+            f"{time.perf_counter() - port_t0:.3f}s (port={actual_port})"
+        )
         if actual_port != self.port:
             logger.info(
                 f"Port {self.port} in use, using port {actual_port} instead"
@@ -96,7 +109,12 @@ class UnifiedMCPGateway:
             self.port = actual_port
 
         # Use FastMCP's native HTTP server (supports SSE properly)
+        ensure_t0 = time.perf_counter()
         mcp = self._ensure_unified_mcp()
+        log_startup_profile(
+            "MCP gateway ensure_unified_mcp returned in "
+            f"{time.perf_counter() - ensure_t0:.3f}s"
+        )
 
         async def run_server():
             await mcp.run_http_async(
@@ -107,10 +125,21 @@ class UnifiedMCPGateway:
                 log_level="warning",
             )
 
+        task_t0 = time.perf_counter()
         self._server_task = asyncio.create_task(run_server())
+        log_startup_profile(
+            "MCP gateway server task scheduled in "
+            f"{time.perf_counter() - task_t0:.3f}s"
+        )
 
         # Wait for server to be ready (with health check)
+        ready_t0 = time.perf_counter()
         await self._wait_until_ready()
+        log_startup_profile(
+            "MCP gateway readiness wait finished in "
+            f"{time.perf_counter() - ready_t0:.3f}s; total="
+            f"{time.perf_counter() - start_t0:.3f}s"
+        )
 
     async def _wait_until_ready(
         self, timeout: float = 30.0, interval: float = 0.05
@@ -119,7 +148,9 @@ class UnifiedMCPGateway:
         import time
 
         start_time = time.time()
+        attempts = 0
         while time.time() - start_time < timeout:
+            attempts += 1
             # Check if server task crashed
             if self._server_task and self._server_task.done():
                 exc = self._server_task.exception()
@@ -135,6 +166,10 @@ class UnifiedMCPGateway:
                 await writer.wait_closed()
                 logger.info(
                     f"Unified MCP Gateway started at http://{self.host}:{self.port}/mcp"
+                )
+                log_startup_profile(
+                    "MCP gateway readiness probe connected after "
+                    f"{attempts} attempt(s) in {time.time() - start_time:.3f}s"
                 )
                 return
             except (ConnectionRefusedError, asyncio.TimeoutError, OSError):

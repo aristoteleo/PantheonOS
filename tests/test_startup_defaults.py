@@ -57,6 +57,7 @@ def test_startup_profile_log_helper_respects_disabled_env(monkeypatch):
 @pytest.mark.asyncio
 async def test_endpoint_background_startup_waits_until_worker_ready(monkeypatch):
     events: list[str] = []
+    gateway_can_finish = asyncio.Event()
 
     class FakeSettings:
         def get_mcp_config(self):
@@ -65,6 +66,8 @@ async def test_endpoint_background_startup_waits_until_worker_ready(monkeypatch)
     class FakeGateway:
         async def start_gateway(self):
             events.append("gateway_started")
+            await gateway_can_finish.wait()
+            events.append("gateway_finished")
 
     class FakeMCPManager:
         def __init__(self):
@@ -117,6 +120,12 @@ async def test_endpoint_background_startup_waits_until_worker_ready(monkeypatch)
     await asyncio.sleep(0)
     await asyncio.sleep(0)
 
+    assert "gateway_started" in events
     assert "warmup_started" in events
+
+    gateway_can_finish.set()
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
     assert "gateway_started" in events
     assert "endpoint_mcp_mounted" in events
