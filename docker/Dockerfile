@@ -124,15 +124,15 @@ RUN echo "Installing single-cell packages (venv: ${VENV_PATH})" && \
     echo "Verifying single-cell packages installation..." && \
     ${VENV_PATH}/bin/python -c "import anndata, scanpy, scrublet, leidenalg; print('✓ Single-cell packages verified successfully')"
 
-# ── Layer 3.6: paper writing and graph maker extras ─────────────────────────
+# ── Layer 3.6: paper writing and figure rendering extras ────────────────────
 # Install AFTER uv sync so these lightweight runtime extras are not removed by
 # sync cleanup. System-side CLI dependencies live in the production stage.
-RUN echo "Installing paper/graph maker packages (venv: ${VENV_PATH})" && \
+RUN echo "Installing paper/figure rendering packages (venv: ${VENV_PATH})" && \
     uv pip install --python ${VENV_PATH}/bin/python --no-cache \
     weasyprint \
     svgutils && \
-    echo "Verifying paper/graph maker packages installation..." && \
-    ${VENV_PATH}/bin/python -c "import weasyprint, svgutils; print('Paper/graph maker packages verified successfully')"
+    echo "Verifying paper/figure rendering packages installation..." && \
+    ${VENV_PATH}/bin/python -c "import weasyprint, svgutils; print('Paper/figure rendering packages verified successfully')"
 
 # ── Layer 3.7: Install pip in venv ──────────────────────────────────────────
 # uv creates venvs without pip by design (recommends using 'uv pip' instead).
@@ -196,7 +196,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxshmfence1 \
     # Fonts for better rendering (removed emoji fonts to save ~20MB)
     fonts-liberation \
-    # Paper writing and graph maker dependencies
+    # Paper writing and scientific figure dependencies
     pandoc \
     # qpdf: linearize (web-optimize) compiled PDFs so the viewer can render
     # the first page before the whole file streams in

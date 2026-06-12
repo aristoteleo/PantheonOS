@@ -1202,13 +1202,16 @@ class FileBasedTemplateManager:
 
     def _resolve_template_path(self, kind: str, template_id: str) -> Optional[Path]:
         """Resolve template path: project > global > factory."""
+        from pantheon.settings import get_settings
+        settings = get_settings()
+
         if kind == "agents":
             project_path = self.agents_dir / f"{template_id}.md"
-            global_path = self.settings.global_agents_dir / f"{template_id}.md"
+            global_path = settings.global_agents_dir / f"{template_id}.md"
             system_dir = self.system_templates_dir / "agents"
         elif kind == "teams":
             project_path = self.teams_dir / f"{template_id}.md"
-            global_path = self.settings.global_teams_dir / f"{template_id}.md"
+            global_path = settings.global_teams_dir / f"{template_id}.md"
             system_dir = self.system_templates_dir / "teams"
         else:
             raise ValueError(f"Unknown template kind: {kind}")
@@ -1232,13 +1235,16 @@ class FileBasedTemplateManager:
         ones. ``source_path`` is set on every item so callers can rebuild
         the subdirectory-preserving relative path.
         """
+        from pantheon.settings import get_settings
+        settings = get_settings()
+
         if kind == "agents":
             project_dir = self.agents_dir
-            global_dir = self.settings.global_agents_dir
+            global_dir = settings.global_agents_dir
             system_dir = self.system_templates_dir / "agents"
         elif kind == "teams":
             project_dir = self.teams_dir
-            global_dir = self.settings.global_teams_dir
+            global_dir = settings.global_teams_dir
             system_dir = self.system_templates_dir / "teams"
         else:
             raise ValueError(f"Unknown template kind: {kind}")
