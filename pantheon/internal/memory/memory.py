@@ -703,6 +703,76 @@ class MemoryManager:
 
         return list(memory_ids)
 
+    def list_memory_metadata(self) -> list[dict]:
+        """
+        List memory metadata without loading message histories.
+
+        JSONL memories store metadata separately in ``*.meta.json`` files, so
+        chat-list views can read names/project/running fields without parsing
+        the potentially large ``*.jsonl`` transcript. Legacy JSON memories are
+        still supported as a fallback, but those files necessarily contain both
+        metadata and messages in one document.
+        """
+        if not self.path.exists():
+            return []
+
+        metadata: list[dict] = []
+        loaded_ids = set()
+
+        for memory in self.memory_store.values():
+            metadata.append(
+                {
+                    "id": memory.id,
+                    "name": memory.name,
+                    "extra_data": memory.extra_data.copy(),
+                    "memory_path": memory.file_path,
+                }
+            )
+            loaded_ids.add(memory.id)
+
+        jsonl_backend = JSONLBackend(self.path)
+        for meta_file in self.path.glob("*.meta.json"):
+            memory_id = meta_file.stem.replace(".meta", "")
+            if memory_id in loaded_ids:
+                continue
+            try:
+                loaded_id, name, extra_data = jsonl_backend.load_metadata(memory_id)
+            except Exception as e:
+                logger.error(f"Failed to load memory metadata from {meta_file}: {e}")
+                continue
+            metadata.append(
+                {
+                    "id": loaded_id,
+                    "name": name,
+                    "extra_data": extra_data,
+                    "memory_path": self.path / f"{loaded_id}.jsonl",
+                }
+            )
+            loaded_ids.add(loaded_id)
+
+        json_backend = JSONBackend(self.path)
+        for json_file in self.path.glob("*.json"):
+            if json_file.name.endswith(".meta.json"):
+                continue
+            memory_id = json_file.stem
+            if memory_id in loaded_ids:
+                continue
+            try:
+                loaded_id, name, extra_data = json_backend.load_metadata(memory_id)
+            except Exception as e:
+                logger.error(f"Failed to load memory metadata from {json_file}: {e}")
+                raise
+            metadata.append(
+                {
+                    "id": loaded_id,
+                    "name": name,
+                    "extra_data": extra_data,
+                    "memory_path": json_file,
+                }
+            )
+
+        return metadata
+
     def load_all(self):
         """
         Load all memories from disk into memory_store.

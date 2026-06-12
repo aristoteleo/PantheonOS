@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from pantheon.chatroom.room import ChatRoom
-from pantheon.internal.memory import MemoryManager
+from pantheon.internal.memory import JSONLBackend, MemoryManager
 
 
 @pytest.mark.asyncio
@@ -34,5 +34,44 @@ async def test_list_chats_skips_corrupted_metadata():
 
         assert result["success"] is True
         assert [chat["id"] for chat in result["chats"]] == [valid.id]
+    finally:
+        shutil.rmtree(temp_dir)
+
+
+@pytest.mark.asyncio
+async def test_list_chats_uses_metadata_without_loading_jsonl_messages(monkeypatch):
+    temp_dir = tempfile.mkdtemp()
+    try:
+        memory_dir = Path(temp_dir)
+        manager = MemoryManager(memory_dir, use_jsonl=True)
+
+        chat = manager.new_memory("Metadata Chat")
+        chat.extra_data["last_activity_date"] = "2026-06-12T10:00:00"
+        chat.extra_data["project"] = {
+            "name": "proj-a",
+            "workspace_mode": "isolated",
+            "workspace_path": "/workspace/proj-a",
+        }
+        chat.add_messages([{"role": "user", "content": "history should not be read"}])
+        manager.save_one(chat.id)
+
+        chatroom = ChatRoom.__new__(ChatRoom)
+        chatroom.memory_manager = MemoryManager(memory_dir, use_jsonl=True)
+
+        def fail_load_messages(self, memory_id):
+            raise AssertionError(f"load_messages should not be called for {memory_id}")
+
+        monkeypatch.setattr(JSONLBackend, "load_messages", fail_load_messages)
+
+        result = await ChatRoom.list_chats(chatroom, project_name="proj-a")
+
+        assert result["success"] is True
+        assert len(result["chats"]) == 1
+        summary = result["chats"][0]
+        assert summary["id"] == chat.id
+        assert summary["name"] == "Metadata Chat"
+        assert summary["workspace_mode"] == "isolated"
+        assert summary["workspace_path"] == "/workspace/proj-a"
+        assert chat.id not in chatroom.memory_manager.memory_store
     finally:
         shutil.rmtree(temp_dir)

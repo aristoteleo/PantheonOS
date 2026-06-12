@@ -1423,19 +1423,17 @@ class ChatRoom(ToolSet):
             - chats: A list of dictionaries, each containing the info of a chat.
         """
         try:
-            ids = await run_func(self.memory_manager.list_memories)
+            metadata_items = await run_func(self.memory_manager.list_memory_metadata)
             chats = []
             skipped_chats = []
-            for id in ids:
-                # Read-only: listing chats, no need to fix.
-                # Skip corrupted entries so one broken metadata file doesn't hide all chats.
-                try:
-                    memory = await run_func(self.memory_manager.get_memory, id)
-                except KeyError as e:
-                    logger.warning(f"Skipping unreadable chat {id}: {e}")
-                    skipped_chats.append({"id": id, "message": str(e)})
+            for item in metadata_items:
+                id = item["id"]
+                extra_data = item.get("extra_data", {})
+                if not isinstance(extra_data, dict):
+                    logger.warning(f"Skipping chat with invalid metadata {id}: extra_data is not a dict")
+                    skipped_chats.append({"id": id, "message": "extra_data is not a dict"})
                     continue
-                project = memory.extra_data.get("project", None)
+                project = extra_data.get("project", None)
 
                 # Filter by project_name if specified
                 if project_name is not None:
@@ -1452,15 +1450,15 @@ class ChatRoom(ToolSet):
                     )
                     workspace_path = project.get("workspace_path")
 
-                chat_config = memory.extra_data.get("chat_config", None)
-                team_template = memory.extra_data.get("team_template", None)
+                chat_config = extra_data.get("chat_config", None)
+                team_template = extra_data.get("team_template", None)
 
                 chats.append(
                     {
                         "id": id,
-                        "name": memory.name,
-                        "running": memory.extra_data.get("running", False),
-                        "last_activity_date": memory.extra_data.get(
+                        "name": item["name"],
+                        "running": extra_data.get("running", False),
+                        "last_activity_date": extra_data.get(
                             "last_activity_date", None
                         ),
                         "project": project,
@@ -1470,7 +1468,7 @@ class ChatRoom(ToolSet):
                         if isinstance(chat_config, dict)
                         else chat_config,
                         "template": self._build_template_summary(team_template),
-                        "memory_path": memory.file_path,
+                        "memory_path": str(item.get("memory_path")) if item.get("memory_path") else None,
                     }
                 )
 

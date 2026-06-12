@@ -595,6 +595,28 @@ class TestMemoryManagerBasics:
         assert mem1.id in memory_ids
         assert mem2.id in memory_ids
 
+    def test_list_memory_metadata_reads_jsonl_metadata_without_loading_messages(self, temp_dir, monkeypatch):
+        manager = MemoryManager(temp_dir, use_jsonl=True)
+        memory = manager.new_memory("Metadata Only Chat")
+        memory.extra_data["last_activity_date"] = "2026-06-12T10:00:00"
+        memory.add_messages([{"role": "user", "content": "large history should stay cold"}])
+        manager.save_one(memory.id)
+
+        def fail_load_messages(self, memory_id):
+            raise AssertionError(f"load_messages should not be called for {memory_id}")
+
+        monkeypatch.setattr(JSONLBackend, "load_messages", fail_load_messages)
+
+        fresh_manager = MemoryManager(temp_dir, use_jsonl=True)
+
+        metadata = fresh_manager.list_memory_metadata()
+
+        assert [item["id"] for item in metadata] == [memory.id]
+        assert metadata[0]["name"] == "Metadata Only Chat"
+        assert metadata[0]["extra_data"]["last_activity_date"] == "2026-06-12T10:00:00"
+        assert str(metadata[0]["memory_path"]).endswith(f"{memory.id}.jsonl")
+        assert memory.id not in fresh_manager.memory_store
+
 
 class TestMemoryManagerLoad:
     """Test MemoryManager load functionality with mixed formats."""
