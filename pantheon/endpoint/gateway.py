@@ -51,6 +51,7 @@ class UnifiedMCPGateway:
         self._mounted_servers: Dict[str, MountedServerInfo] = {}
 
         self._lock = asyncio.Lock()
+        self._mcp_init_lock = asyncio.Lock()
         self._server_task: Optional[asyncio.Task] = None
 
     def _ensure_unified_mcp(self) -> "FastMCP":
@@ -83,6 +84,18 @@ class UnifiedMCPGateway:
             )
         return self._unified_mcp
 
+    async def _ensure_unified_mcp_async(self) -> "FastMCP":
+        """Create the unified FastMCP instance without blocking the event loop."""
+        if self._unified_mcp is not None:
+            return self._unified_mcp
+
+        async with self._mcp_init_lock:
+            if self._unified_mcp is None:
+                await asyncio.to_thread(self._ensure_unified_mcp)
+
+            assert self._unified_mcp is not None
+            return self._unified_mcp
+
     async def start_gateway(self) -> None:
         """Start the HTTP gateway server using FastMCP native HTTP.
 
@@ -110,7 +123,7 @@ class UnifiedMCPGateway:
 
         # Use FastMCP's native HTTP server (supports SSE properly)
         ensure_t0 = time.perf_counter()
-        mcp = self._ensure_unified_mcp()
+        mcp = await self._ensure_unified_mcp_async()
         log_startup_profile(
             "MCP gateway ensure_unified_mcp returned in "
             f"{time.perf_counter() - ensure_t0:.3f}s"

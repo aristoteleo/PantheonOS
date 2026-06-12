@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from pantheon.endpoint.core import Endpoint
+from pantheon.endpoint.gateway import UnifiedMCPGateway
 from pantheon.factory.template_io import FileBasedTemplateManager
 from pantheon.settings import load_jsonc
 from pantheon.utils import log as pantheon_log
@@ -135,3 +136,38 @@ async def test_endpoint_background_startup_waits_until_worker_ready(monkeypatch)
 
     assert "gateway_started" in events
     assert "endpoint_mcp_mounted" in events
+
+
+@pytest.mark.asyncio
+async def test_mcp_gateway_initialization_does_not_block_event_loop(monkeypatch):
+    events: list[str] = []
+
+    class FakeMCP:
+        async def run_http_async(self, **_kwargs):
+            await asyncio.Event().wait()
+
+    gateway = UnifiedMCPGateway()
+
+    def slow_ensure_unified_mcp():
+        import time
+
+        time.sleep(0.05)
+        events.append("mcp_initialized")
+        gateway._unified_mcp = FakeMCP()
+        return gateway._unified_mcp
+
+    async def wait_until_ready():
+        events.append("gateway_ready")
+
+    async def other_task():
+        events.append("other_task_started")
+
+    monkeypatch.setattr(gateway, "_ensure_unified_mcp", slow_ensure_unified_mcp)
+    monkeypatch.setattr(gateway, "_wait_until_ready", wait_until_ready)
+
+    task = asyncio.create_task(other_task())
+    await gateway.start_gateway()
+    await task
+    await gateway.stop_gateway()
+
+    assert events.index("other_task_started") < events.index("mcp_initialized")
