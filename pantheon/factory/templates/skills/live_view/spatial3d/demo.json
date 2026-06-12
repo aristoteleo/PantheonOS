@@ -1,0 +1,8 @@
+{
+  "title": "Spatial cells (3D)",
+  "mode": "3d",
+  "colorBy": "cluster",
+  "colormap": "viridis",
+  "pointSize": 1,
+  "opacity": 1
+}
