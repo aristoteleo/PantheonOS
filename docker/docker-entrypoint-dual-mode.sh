@@ -204,7 +204,6 @@ else
     echo "  ID_HASH: ${ID_HASH}"
     echo "  PANTHEON_REMOTE_BACKEND: ${PANTHEON_REMOTE_BACKEND}"
     echo "  NATS_SERVERS: ${NATS_SERVERS}"
-    echo "  QDRANT_LOCATION: ${QDRANT_LOCATION}"
     echo "  WORKSPACE: $(pwd)"
     echo ""
 

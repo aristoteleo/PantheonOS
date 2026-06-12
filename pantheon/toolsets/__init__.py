@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from .package import PackageToolSet
     from .database_api import DatabaseAPIQueryToolSet
     from .task import TaskToolSet
-    from .knowledge import KnowledgeToolSet
     from .evolution import EvolutionToolSet, EvaluatorToolSet
     from .scfm import SCFMToolSet
     from .live_view import LiveViewToolSet
@@ -38,7 +37,6 @@ _TOOLSET_MAPPING = {
     "PackageToolSet": ".package",
     "DatabaseAPIQueryToolSet": ".database_api",
     "TaskToolSet": ".task",
-    "KnowledgeToolSet": ".knowledge",
     "EvolutionToolSet": ".evolution",
     "EvaluatorToolSet": ".evolution",
     "SCFMToolSet": ".scfm",

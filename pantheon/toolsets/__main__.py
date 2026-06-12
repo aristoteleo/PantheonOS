@@ -10,6 +10,14 @@ HERE = Path(__file__).parent
 console = Console()
 
 
+def _toolset_class_name(module_name: str) -> str:
+    acronyms = {"api": "API", "rag": "RAG", "scfm": "SCFM"}
+    return "".join(
+        acronyms.get(word.lower(), word.capitalize())
+        for word in module_name.split("_")
+    ) + "ToolSet"
+
+
 def get_toolset_modules():
     return [
         f.stem for f in HERE.glob("*")
@@ -25,7 +33,10 @@ def extract_exported_classes(content: str):
         if isinstance(node, ast.Assign):
             if isinstance(node.targets[0], ast.Name) and node.targets[0].id == "__all__":
                 classes.extend(node.value.elts)
-    return [c.s for c in classes]
+    return [
+        c.value if isinstance(c, ast.Constant) else c.s
+        for c in classes
+    ]
 
 
 def import_toolset_class(module_name: str):
@@ -35,12 +46,18 @@ def import_toolset_class(module_name: str):
     else:
         content = (HERE / f"{module_name}.py").read_text(encoding="utf-8")
     classes = extract_exported_classes(content)
-    if len(classes) == 1:
-        class_name = classes[0]
+    toolset_classes = [class_name for class_name in classes if class_name.endswith("ToolSet")]
+    if len(toolset_classes) == 1:
+        class_name = toolset_classes[0]
+    elif _toolset_class_name(module_name) in toolset_classes:
+        class_name = _toolset_class_name(module_name)
+    else:
+        raise ImportError(
+            f"Module {module_name} has incorrect number of ToolSet classes: {toolset_classes}"
+        )
+    if class_name:
         mod = importlib.import_module(f"pantheon.toolsets.{module_name}")
         return getattr(mod, class_name)
-    else:
-        raise ImportError(f"Module {module_name} has incorrect number of classes: {classes}")
 
 
 def list_toolsets():
