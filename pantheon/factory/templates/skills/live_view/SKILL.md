@@ -5,7 +5,9 @@ description: |
   Skills for opening and driving agent-controllable visualization
   components in the Pantheon UI sidebar — interactive viewers the agent
   can open, control, and read back. Viewers: Vitessce (spatial / single-
-  cell omics), Viv (bioimage / microscopy), plus agent-generated apps.
+  cell omics), Viv (bioimage / microscopy), volume3d (3D image volumes —
+  MIP/ISO), spatial3d (3D spatial transcriptomics), Mol*, IGV, Gosling,
+  Cytoscape, MSA, RDKit, phylotree, plus agent-generated apps.
 tags: [live-view, visualization, vitessce, viv, bioimage, spatial, single-cell, interactive]
 ---
 
@@ -59,6 +61,38 @@ CODEX, whole-slide images. Channel colors, contrast, pan/zoom, overview.
 - Cloud-hosted or local bioimages (served via `serve_local_data`)
 - **Overlaying a cell segmentation / showing cell boundaries** on an image
   (boundaries as an extra channel — the preferred way to *view* a mask)
+
+### volume3d — 3D volumetric image (MIP / iso-surface)
+
+Open a GPU volume renderer for a **3D scalar image** — OPT / light-sheet /
+micro-CT / MRI scans, confocal z-stacks, segmentation probability maps.
+Ray-casts as a maximum-intensity projection (MIP) or an iso-surface (ISO);
+rotate, switch mode, tune the threshold. The input is a 3D TIFF / NIfTI /
+array — the skill converts it to an OME-NGFF Zarr pyramid.
+
+**Skill file**: [volume3d/volume3d.md](./volume3d/volume3d.md)
+
+**When to use**:
+- A dense 3D *image volume* the user wants to see in 3D (a flat 2D image → Viv)
+- OPT / light-sheet / micro-CT / MRI / confocal z-stack; a 3D mask or density field
+- "render / rotate this 3D scan", "show the iso-surface", "MIP of this stack"
+
+### spatial3d — 3D spatial transcriptomics (cell point cloud)
+
+Open a 3D point-cloud viewer for **single-cell spatial data** — every cell a
+point at its (x, y, z), coloured by a categorical obs column (cell type /
+cluster) or by a gene's expression, in 3D / 2D / UMAP. Scales to ~1M+ cells.
+The input is an AnnData (`.h5ad`) with 3D `obsm['spatial']` — the skill
+converts it to a spatial Zarr.
+
+**Skill file**: [spatial3d/spatial3d.md](./spatial3d/spatial3d.md)
+
+**When to use**:
+- **3D** spatial transcriptomics (Stereo-seq / MERFISH / Slide-seq / 3D
+  reconstructions), or any AnnData with 3D `obsm['spatial']`
+- The cells live in a 3D volume and the 3D arrangement matters (vs. Vitessce,
+  which is 2D scatterplots) — colour cells by type or by gene
+- "show the cells in 3D", "colour the embryo by <gene>", "where is <cell type>"
 
 ### Mol* — 3D molecular structures
 
