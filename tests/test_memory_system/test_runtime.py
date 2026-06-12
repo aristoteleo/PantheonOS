@@ -29,6 +29,24 @@ class TestInitialization:
         assert (tmp_runtime_dir / "session-logs").exists()
 
 
+class TestResolveModel:
+    def test_lazy_auto_uses_active_model(self):
+        from pantheon.internal.memory_system.config import LazyModel
+
+        rt = MemoryRuntime({})
+        rt.set_active_model("zai/glm-5")
+
+        assert rt.resolve_model(LazyModel("auto")) == "zai/glm-5"
+
+    def test_lazy_quality_tag_stays_lazy(self):
+        from pantheon.internal.memory_system.config import LazyModel
+
+        rt = MemoryRuntime({})
+        lazy = LazyModel("low")
+
+        assert rt.resolve_model(lazy) is lazy
+
+
 class TestLoadBootstrap:
     def test_empty(self, runtime):
         assert runtime.load_bootstrap_memory() == ""

@@ -19,6 +19,12 @@ def test_factory_defaults_only_autostart_file_manager():
     assert settings["services"]["builtin"] == ["file_manager"]
 
 
+def test_factory_default_memory_selection_model_is_low():
+    settings = load_jsonc(TEMPLATES_DIR / "settings.json")
+
+    assert settings["memory_system"]["selection_model"] == "low"
+
+
 def test_default_team_keeps_package_for_lazy_dynamic_start():
     parser = FileBasedTemplateManager(Path("/tmp")).parser
     team = parser.parse_team((TEMPLATES_DIR / "teams" / "default.md").read_text())

@@ -61,8 +61,9 @@ class MemoryRuntime:
           handles tier resolution downstream).
         - Any other string → treated as a specific model id, returned as-is.
         """
-        if configured is None or (
-            isinstance(configured, str) and configured.strip().lower() in ("", "auto")
+        raw = getattr(configured, "_tag", configured)
+        if raw is None or (
+            isinstance(raw, str) and raw.strip().lower() in ("", "auto")
         ):
             return self._active_model or "normal"
         return configured

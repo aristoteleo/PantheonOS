@@ -279,12 +279,12 @@
         // Enable the long-term memory system
         "enabled": true,
         // LLM model for memory selection (reads frontmatter, judges relevance).
-        // "auto" (default) follows the active agent's model so internal memory
+        // Default "low" uses the selected provider's low-cost model tier.
+        // Set to "auto" to follow the active agent's model so internal memory
         // tasks (extractor / session-note / flush / dream / selector) stay on
-        // the same provider/quota as your chat. To pin to a specific model
-        // regardless of the active agent, use a tier ("high"/"normal"/"low")
-        // or a specific model id (e.g. "openai/gpt-4o-mini").
-        "selection_model": "auto",
+        // the same provider/quota as your chat. You can also pin to "high",
+        // "normal", or a specific model id (e.g. "openai/gpt-4o-mini").
+        "selection_model": "low",
         // Retrieval limits for memories and recent chats
         "selection_max_memories": 15, // Max memories to select per query
         "selection_max_chats": 5, // Max recent chats to select per query
