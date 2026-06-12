@@ -518,6 +518,7 @@ Leader 理解意图 ──▶ workflow_create({goal, script, args})
 | 5 | `memory.extra_data` 键 | workflow→memory | 仅新增 `workflow_ids`、`task` 两个键 |
 | 6 | 文件系统 | workflow 自有 | 仅写 `{base}/.pantheon/workflows/`；base 解析复用现有 workdir 规则 |
 | 7 | 前端（Phase 2） | ui→stream | 订阅 `workflow.*`；新增独立 workflowStore + 组件，不改 liveViewStore |
+| 8 | UI 查询/控制端点（Phase 2） | ui→workflow | 在 chatroom 现有 RPC/service 注册通道上**一处注册** workflow 查询与控制端点（state/node_trace/control），实现在 workflow 模块内 |
 
 `pantheon/workflow/` 模块内部不 import chatroom（plugin.py 仅 import TeamPlugin 接口类型）；可脱离 chatroom 由 SDK/测试直接驱动。
 
