@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 import uuid
 from pathlib import Path
 from typing import TypedDict
@@ -10,7 +11,7 @@ from executor.engine import Engine, LocalJob
 from pantheon.settings import get_settings
 from pantheon.toolset import tool
 from pantheon.toolsets.file_transfer import FileTransferToolSet
-from pantheon.utils.log import logger
+from pantheon.utils.log import log_startup_profile, logger
 from .mcp import MCPManager
 from .toolsets import ToolSetManager
 from .mcp import MCPServerConfig
@@ -137,17 +138,19 @@ class Endpoint(FileTransferToolSet):
 
         Unified startup sequence for MCP servers and builtin services.
         """
-        # ===== Phase 0: Warm the LLM path FIRST, off the critical path =====
-        # Fire before everything else (esp. the blocking services-ready wait in
-        # Phase 2) so the warmup has maximum lead time to absorb the ~10-13s cold
-        # model-route before the user's first message. Runs concurrently; never
-        # blocks boot. See _warmup_llm_connection for why model + retries matter.
-        asyncio.create_task(self._warmup_llm_connection())
+        startup_t0 = time.perf_counter()
 
         # ===== Phase 1: Load MCP Config, pre-set URI, start gateway off critical path =====
+        phase1_t0 = time.perf_counter()
         logger.info("Phase 1: Loading MCP config and starting gateway...")
         mcp_config = get_settings().get_mcp_config()
         result = await self.mcp_manager.load_config(mcp_config)
+        log_startup_profile(
+            "Endpoint phase1 MCP config loaded in "
+            f"{time.perf_counter() - phase1_t0:.3f}s "
+            f"(servers={len(mcp_config.get('servers', {}))}, "
+            f"auto_start={mcp_config.get('auto_start', [])})"
+        )
         if result.get("errors"):
             logger.warning(f"MCP configuration loading had errors: {result['errors']}")
 
@@ -162,13 +165,43 @@ class Endpoint(FileTransferToolSet):
         # so there is no practical race condition.
         auto_start_mcp = mcp_config.get("auto_start", [])
 
+        async def _wait_for_worker_ready_before_background_startup():
+            if getattr(self, "worker", None) is None:
+                log_startup_profile(
+                    "Endpoint post-ready background startup not waiting for NATS worker "
+                    "(no remote worker)"
+                )
+                return
+
+            wait_t0 = time.perf_counter()
+            log_startup_profile(
+                "Endpoint post-ready background startup waiting for NATS worker readiness"
+            )
+            await self._worker_ready.wait()
+            log_startup_profile(
+                "Endpoint post-ready background startup "
+                f"released after worker ready in {time.perf_counter() - wait_t0:.3f}s"
+            )
+
         async def _start_gateway_background():
+            gateway_t0 = time.perf_counter()
             try:
+                log_startup_profile("Endpoint MCP gateway background begin")
+                gateway_start_t0 = time.perf_counter()
                 await self.mcp_manager._gateway.start_gateway()
+                log_startup_profile(
+                    "Endpoint MCP gateway start_gateway finished in "
+                    f"{time.perf_counter() - gateway_start_t0:.3f}s"
+                )
                 logger.info(f"MCP Gateway started at {unified_uri}")
                 if auto_start_mcp:
                     logger.info(f"Auto-starting MCP servers: {auto_start_mcp}")
+                    mcp_services_t0 = time.perf_counter()
                     result = await self.mcp_manager.start_services(auto_start_mcp)
+                    log_startup_profile(
+                        "Endpoint MCP auto-start services finished in "
+                        f"{time.perf_counter() - mcp_services_t0:.3f}s: {result}"
+                    )
                     if not result.get("success"):
                         logger.warning(
                             f"Some MCP servers failed to start: {result.get('errors', [])}"
@@ -179,32 +212,69 @@ class Endpoint(FileTransferToolSet):
                         )
                 else:
                     logger.info("No MCP servers configured for auto-start")
+                endpoint_mcp_t0 = time.perf_counter()
                 await self._start_endpoint_mcp_server()
+                log_startup_profile(
+                    "Endpoint MCP endpoint server mounted in "
+                    f"{time.perf_counter() - endpoint_mcp_t0:.3f}s"
+                )
+                log_startup_profile(
+                    "Endpoint MCP gateway background finished in "
+                    f"{time.perf_counter() - gateway_t0:.3f}s"
+                )
             except Exception as e:
                 logger.error(f"MCP gateway background startup failed: {e}")
+                log_startup_profile(
+                    "Endpoint MCP gateway background failed after "
+                    f"{time.perf_counter() - gateway_t0:.3f}s"
+                )
 
-        asyncio.create_task(_start_gateway_background())
+        async def _start_post_ready_background():
+            await _wait_for_worker_ready_before_background_startup()
+            await _start_gateway_background()
+            asyncio.create_task(self._warmup_llm_connection())
 
         # ===== Phase 2: Start Builtin ToolSet Services =====
-        logger.info("Phase 2: Starting builtin ToolSet services...")
+        phase2_t0 = time.perf_counter()
         builtin_services = self.config.get("builtin_services", [])
+        log_startup_profile(
+            "Endpoint phase2 starting builtin ToolSet services: "
+            f"{builtin_services}"
+        )
         result = await self.toolset_manager.start_services(
             builtin_services, local_retries=10, remote_retries=10
         )
-        logger.info(f"Builtin services startup result: {result}")
+        log_startup_profile(
+            "Endpoint phase2 builtin ToolSet services finished in "
+            f"{time.perf_counter() - phase2_t0:.3f}s: {result}"
+        )
 
+        ready_t0 = time.perf_counter()
+        ready_checks = 0
         while True:
+            ready_checks += 1
             ready = await self.services_ready()
             if ready:
-                logger.info("All services are ready!")
+                log_startup_profile(
+                    "Endpoint services_ready passed in "
+                    f"{time.perf_counter() - ready_t0:.3f}s "
+                    f"after {ready_checks} check(s)"
+                )
                 break
             await asyncio.sleep(1)
 
         # ===== Phase 3: Health checks are now handled asynchronously =====
         logger.info("Phase 3: MCP servers initialized with async health monitoring")
+        log_startup_profile(
+            "Endpoint run_setup blocking phases completed in "
+            f"{time.perf_counter() - startup_t0:.3f}s"
+        )
 
-        # Phase 4 (mount endpoint tools) now runs in _start_gateway_background() above.
-        # Phase 0 (LLM warmup) fired at the very top of run_setup, above.
+        # Post-ready background work waits until the Endpoint's NATS worker has
+        # subscribed, so optional warmup/gateway startup cannot delay service
+        # registration on the critical path.
+        asyncio.create_task(_start_post_ready_background())
+        log_startup_profile("Endpoint post-ready background task scheduled")
 
     async def _warmup_llm_connection(self):
         """Best-effort warm of the sandbox→LLM-proxy path at boot.
@@ -230,6 +300,9 @@ class Endpoint(FileTransferToolSet):
 
         try:
             model = os.environ.get("LLM_WARMUP_MODEL")
+            if model and model.strip().lower() in {"0", "false", "off", "none", "disabled"}:
+                logger.info("[WARMUP] LLM warmup disabled by LLM_WARMUP_MODEL")
+                return
             if not model:
                 from pantheon.utils.model_selector import get_model_selector
 

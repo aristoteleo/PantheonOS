@@ -14,7 +14,7 @@ from types import ModuleType
 from typing import Any, Callable, Dict, Iterable
 
 from pantheon.toolset import ToolSet
-from pantheon.utils.log import logger
+from pantheon.utils.log import log_startup_profile, logger
 
 
 def _normalize_tool_name(name: str) -> str:
@@ -727,6 +727,10 @@ class PackageManager:
     # ------------------------------------------------------------------
 
     def _load_system_toolsets(self) -> None:
+        load_t0 = time.perf_counter()
+        loaded = 0
+        skipped = 0
+        slow_threshold_s = 0.05
         try:
             import pantheon.toolsets as builtin_toolsets
         except Exception:  # pragma: no cover - import failure surfaced
@@ -735,15 +739,41 @@ class PackageManager:
 
         exports = getattr(builtin_toolsets, "__all__", [])
         for export in exports:
+            export_t0 = time.perf_counter()
+            getattr_s = 0.0
+            register_s = 0.0
             try:
+                getattr_t0 = time.perf_counter()
                 cls = getattr(builtin_toolsets, export, None)
+                getattr_s = time.perf_counter() - getattr_t0
             except Exception as e:
                 # Skip toolsets that fail to import (e.g., missing optional dependencies)
                 logger.debug(f"Skipping system toolset '{export}': {e}")
+                skipped += 1
                 continue
             if not inspect.isclass(cls) or not issubclass(cls, ToolSet):
+                skipped += 1
                 continue
+            register_t0 = time.perf_counter()
             self._register_system_toolset(export, cls)
+            register_s = time.perf_counter() - register_t0
+            loaded += 1
+            total_s = time.perf_counter() - export_t0
+            log_message = (
+                "PackageManager system toolset loaded: "
+                f"export={export}, total={total_s:.3f}s, "
+                f"import={getattr_s:.3f}s, register={register_s:.3f}s"
+            )
+            if total_s >= slow_threshold_s:
+                log_startup_profile(log_message)
+            else:
+                logger.debug(log_message)
+
+        log_startup_profile(
+            "PackageManager loaded system toolsets in "
+            f"{time.perf_counter() - load_t0:.3f}s "
+            f"(loaded={loaded}, skipped={skipped}, exports={len(exports)})"
+        )
 
     def _register_system_toolset(
         self,

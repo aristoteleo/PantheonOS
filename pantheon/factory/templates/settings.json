@@ -43,17 +43,20 @@
     "services": {
         "builtin": [
             // === Tier 1: Core Services (recommended for all deployments) ===
-            "file_manager", // File operations (read, write, list, delete, etc.)
-            "package", // Read-only access to available packages
+            "file_manager" // File operations (read, write, list, delete, etc.)
+            // Other toolsets are lazy-started on first use. In particular, package
+            // discovery imports many system toolsets, so keeping it off the boot
+            // path avoids paying notebook/SCFM/RAG import cost during Endpoint ready.
+            // "package", // Read-only access to available packages
             // === Tier 2: Common Development Tools ===
-            "web", // Web search (using DDGS)
-            "python_interpreter", // Python code execution
-            "shell", // Shell command execution (use with caution)
+            // "web", // Web search (using DDGS)
+            // "python_interpreter", // Python code execution
+            // "shell", // Shell command execution (use with caution)
             // "knowledge", // Knowledge base/RAG
             // === Tier 3: Advanced Tools (enable as needed) ===
-            "integrated_notebook", // Integrated Notebook (with file operations)
-            "evolution",
-            "live_view" // Agent-controllable in-page UI components (Vitessce, etc.)
+            // "integrated_notebook", // Integrated Notebook (with file operations)
+            // "evolution",
+            // "live_view" // Agent-controllable in-page UI components (Vitessce, etc.)
             // === More Available Services (commented, enable as needed) ===
             // "file_editor",     // Advanced file editing (Claude Code style)
             // "jupyter_kernel",  // Standard Jupyter Kernel

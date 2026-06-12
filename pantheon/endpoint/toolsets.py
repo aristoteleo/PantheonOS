@@ -9,6 +9,7 @@ This module handles all ToolSet-related lifecycle management:
 
 import asyncio
 import os
+import time
 import uuid
 from enum import Enum
 from pathlib import Path
@@ -20,7 +21,7 @@ from executor.engine.job.extend import SubprocessJob
 
 
 from pantheon.toolset import ToolSet, tool
-from pantheon.utils.log import logger
+from pantheon.utils.log import log_startup_profile, logger
 from pantheon.internal.package_runtime.context import export_context, load_context
 
 
@@ -255,7 +256,12 @@ class ToolSetManager:
         Returns:
             Dict with success status, started count, and errors
         """
+        start_t0 = time.perf_counter()
         try:
+            log_startup_profile(
+                "ToolSetManager.start_services requested: "
+                f"{required_services}"
+            )
             # Filter out already running services
             services_to_start = []
             already_running = []
@@ -267,6 +273,11 @@ class ToolSetManager:
                     services_to_start.append(service_name)
 
             if not services_to_start:
+                log_startup_profile(
+                    "ToolSetManager.start_services no-op in "
+                    f"{time.perf_counter() - start_t0:.3f}s "
+                    f"(already_running={already_running})"
+                )
                 return {
                     "success": True,
                     "message": f"All {len(required_services)} services already running",
@@ -283,6 +294,13 @@ class ToolSetManager:
                 services_to_start,
                 local_retries=local_retries,
                 remote_retries=remote_retries,
+            )
+            log_startup_profile(
+                "ToolSetManager.start_services completed in "
+                f"{time.perf_counter() - start_t0:.3f}s "
+                f"(requested={required_services}, started={services_to_start}, "
+                f"already_running={already_running}, successful={total_successful}, "
+                f"failed={total_failed})"
             )
 
             return {
@@ -414,16 +432,34 @@ class ToolSetManager:
         self, service_config, mode: str, retries: int = 3
     ) -> bool:
         """Unified toolset startup for both local and remote modes."""
+        total_t0 = time.perf_counter()
+        service_type = str(service_config)
+        service_name = str(service_config)
         try:
+            parse_t0 = time.perf_counter()
             service_type, params = self._parse_service_config(service_config)
             service_name = params.get("name", service_type)
+            parse_s = time.perf_counter() - parse_t0
+            prepare_t0 = time.perf_counter()
             toolset_args = self._prepare_toolset_args(service_type, params)
+            prepare_s = time.perf_counter() - prepare_t0
+            log_startup_profile(
+                "ToolSet startup begin: "
+                f"name={service_name}, type={service_type}, mode={mode}, "
+                f"parse={parse_s:.3f}s, prepare={prepare_s:.3f}s"
+            )
 
             if mode == "local":
                 # LOCAL MODE: Instantiate and register locally
+                lookup_t0 = time.perf_counter()
                 toolset_class = self._get_toolset_class(service_type)
+                lookup_s = time.perf_counter() - lookup_t0
+                construct_t0 = time.perf_counter()
                 toolset_instance = toolset_class(**toolset_args)
+                construct_s = time.perf_counter() - construct_t0
+                setup_t0 = time.perf_counter()
                 await toolset_instance.run_setup()
+                setup_s = time.perf_counter() - setup_t0
 
                 service_id = f"local_{service_name}_{uuid.uuid4().hex[:8]}"
                 self.local_toolsets[service_id] = toolset_instance
@@ -435,10 +471,18 @@ class ToolSetManager:
                 }
 
                 logger.info(f"Started local toolset: {service_name} (id: {service_id})")
+                log_startup_profile(
+                    "ToolSet startup complete: "
+                    f"name={service_name}, mode=local, total="
+                    f"{time.perf_counter() - total_t0:.3f}s, "
+                    f"class_lookup={lookup_s:.3f}s, construct={construct_s:.3f}s, "
+                    f"run_setup={setup_s:.3f}s"
+                )
                 return True
 
             else:
                 # REMOTE MODE: Generate cmd and launch subprocess
+                remote_t0 = time.perf_counter()
                 cmd = self._generate_cmd_from_args(service_type, toolset_args, params)
 
                 log_file = self.log_dir / f"{service_type}.log"
@@ -463,6 +507,13 @@ class ToolSetManager:
                         f"Service {service_type} started but detection failed"
                     )
 
+                log_startup_profile(
+                    "ToolSet startup complete: "
+                    f"name={service_name}, mode=remote, total="
+                    f"{time.perf_counter() - total_t0:.3f}s, "
+                    f"remote_submit_detect={time.perf_counter() - remote_t0:.3f}s, "
+                    f"success={success}"
+                )
                 return success
 
         except Exception as e:
@@ -472,6 +523,11 @@ class ToolSetManager:
             import traceback
 
             logger.error(traceback.format_exc())
+            log_startup_profile(
+                "ToolSet startup failed: "
+                f"name={service_name}, type={service_type}, mode={mode}, total="
+                f"{time.perf_counter() - total_t0:.3f}s"
+            )
             return False
 
     def _generate_potential_service_ids(self, expected_service: str) -> list[str]:
@@ -685,11 +741,13 @@ class ToolSetManager:
         if not services:
             return 0, 0
 
+        batch_t0 = time.perf_counter()
         logger.debug(f"Starting {len(services)} toolsets")
 
         local_services = []
         remote_services = []
 
+        classify_t0 = time.perf_counter()
         for service in services:
             service_name = (
                 service
@@ -702,9 +760,15 @@ class ToolSetManager:
                 local_services.append(service)
             else:
                 remote_services.append(service)
+        log_startup_profile(
+            "ToolSet batch classified in "
+            f"{time.perf_counter() - classify_t0:.3f}s "
+            f"(local={local_services}, remote={remote_services})"
+        )
 
         tasks = []
 
+        task_create_t0 = time.perf_counter()
         for service in local_services:
             task = asyncio.create_task(
                 self._start_toolset_unified(service, "local", local_retries)
@@ -716,8 +780,17 @@ class ToolSetManager:
                 self._start_toolset_unified(service, "remote", remote_retries)
             )
             tasks.append(task)
+        log_startup_profile(
+            "ToolSet batch scheduled "
+            f"{len(tasks)} task(s) in {time.perf_counter() - task_create_t0:.3f}s"
+        )
 
+        gather_t0 = time.perf_counter()
         results = await asyncio.gather(*tasks, return_exceptions=True)
+        log_startup_profile(
+            "ToolSet batch gather returned in "
+            f"{time.perf_counter() - gather_t0:.3f}s"
+        )
 
         successful = sum(1 for result in results if result is True)
         failed = len(results) - successful
@@ -725,6 +798,12 @@ class ToolSetManager:
         logger.info(
             f"Toolset startup complete: {successful} successful, {failed} failed "
             f"({len(local_services)} local, {len(remote_services)} remote)"
+        )
+        log_startup_profile(
+            "ToolSet batch startup finished in "
+            f"{time.perf_counter() - batch_t0:.3f}s "
+            f"(services={services}, local={local_services}, remote={remote_services}, "
+            f"successful={successful}, failed={failed})"
         )
 
         if failed > 0:
@@ -775,4 +854,3 @@ class ToolSetManager:
 
 
 __all__ = ["ToolSetMode", "ToolSetManager"]
-

@@ -1,3 +1,4 @@
+import os
 import sys
 import warnings
 from contextlib import contextmanager
@@ -52,6 +53,21 @@ def _context_aware_filter(record):
 
 
 logger = loguru_logger
+
+
+def startup_profile_enabled() -> bool:
+    """Return whether detailed startup profile logs should be emitted."""
+    value = os.environ.get("PANTHEON_STARTUP_PROFILE")
+    if value is None:
+        return True
+    return value.strip().lower() not in {"0", "false", "off", "no", "disabled"}
+
+
+def log_startup_profile(message: str) -> None:
+    """Emit a startup profile log when PANTHEON_STARTUP_PROFILE is enabled."""
+    if startup_profile_enabled():
+        logger.info(f"[STARTUP_PROFILE] {message}")
+
 
 # Track if logging has been explicitly disabled
 _logging_disabled = False

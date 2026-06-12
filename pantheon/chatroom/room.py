@@ -2,6 +2,7 @@ import asyncio
 import copy
 import dataclasses
 import io
+import time
 try:
     import psutil as _psutil
     _psutil_process = _psutil.Process()
@@ -23,7 +24,7 @@ from pantheon.internal.memory import MemoryManager, _ALL_CONTEXTS
 from pantheon.settings import get_settings
 from pantheon.team import PantheonTeam
 from pantheon.toolset import ToolSet, tool
-from pantheon.utils.log import logger
+from pantheon.utils.log import log_startup_profile, logger
 from pantheon.utils.misc import generate_service_id, run_func
 from .projects import ProjectManager
 from .special_agents import get_suggestion_generator
@@ -672,22 +673,48 @@ class ChatRoom(ToolSet):
         self, team_config: TeamConfig, chat_id: str = None
     ) -> PantheonTeam:
         """Create a team from TeamConfig object."""
+        team_t0 = time.perf_counter()
         template_name = team_config.name or "unknown"
 
         logger.info(f"🏗️ Creating team from template '{template_name}'")
 
         # Connect to endpoint service
+        endpoint_t0 = time.perf_counter()
         endpoint_service = await self._get_endpoint_service()
+        log_startup_profile(
+            "ChatRoom team endpoint resolved in "
+            f"{time.perf_counter() - endpoint_t0:.3f}s "
+            f"(template={template_name}, chat_id={chat_id})"
+        )
 
+        prepare_t0 = time.perf_counter()
         (
             agent_configs,
             required_toolsets,
             required_mcp_servers,
         ) = self.template_manager.prepare_team(team_config)
+        log_startup_profile(
+            "ChatRoom team prepare_team finished in "
+            f"{time.perf_counter() - prepare_t0:.3f}s "
+            f"(template={template_name}, agents={len(agent_configs)}, "
+            f"toolsets={list(required_toolsets)}, mcp_servers={list(required_mcp_servers)})"
+        )
 
         # ===== STEP 2: Compute and ensure all required services =====
+        ensure_mcp_t0 = time.perf_counter()
         await self._ensure_services("mcp", list(required_mcp_servers))
+        log_startup_profile(
+            "ChatRoom team ensure MCP finished in "
+            f"{time.perf_counter() - ensure_mcp_t0:.3f}s "
+            f"(template={template_name}, mcp_servers={list(required_mcp_servers)})"
+        )
+        ensure_toolset_t0 = time.perf_counter()
         await self._ensure_services("toolset", list(required_toolsets))
+        log_startup_profile(
+            "ChatRoom team ensure ToolSets finished in "
+            f"{time.perf_counter() - ensure_toolset_t0:.3f}s "
+            f"(template={template_name}, toolsets={list(required_toolsets)})"
+        )
 
         logger.debug(
             f"Ensured services: {len(required_mcp_servers)} MCP servers, "
@@ -695,18 +722,36 @@ class ChatRoom(ToolSet):
         )
 
         # ===== STEP 3: Create agents =====
+        create_agents_t0 = time.perf_counter()
         all_agents = await create_agents_from_template(endpoint_service, agent_configs)
+        log_startup_profile(
+            "ChatRoom team create_agents finished in "
+            f"{time.perf_counter() - create_agents_t0:.3f}s "
+            f"(template={template_name}, agents={len(all_agents)})"
+        )
         logger.info(f"Created {len(all_agents)} agents")
 
         # ===== STEP 4: Ensure plugins are ready (and init learning team) =====
+        plugins_t0 = time.perf_counter()
         plugins = await self._ensure_plugins(endpoint_service=endpoint_service)
+        log_startup_profile(
+            "ChatRoom team ensure plugins finished in "
+            f"{time.perf_counter() - plugins_t0:.3f}s "
+            f"(template={template_name}, plugins={len(plugins)})"
+        )
         
         # ===== STEP 5: Create and setup team with plugins =====
         team = PantheonTeam(
             agents=all_agents,
             plugins=plugins,
         )
+        setup_t0 = time.perf_counter()
         await team.async_setup()
+        log_startup_profile(
+            "ChatRoom team async_setup finished in "
+            f"{time.perf_counter() - setup_t0:.3f}s "
+            f"(template={template_name})"
+        )
 
         # Store source path for template persistence
         team._source_path = team_config.source_path
@@ -715,6 +760,11 @@ class ChatRoom(ToolSet):
         features = f"{num_agents} agents" if num_agents > 1 else "single agent"
 
         logger.info(f"✅ Team '{template_name}' created (Features: {features})")
+        log_startup_profile(
+            "ChatRoom team created in "
+            f"{time.perf_counter() - team_t0:.3f}s "
+            f"(template={template_name}, chat_id={chat_id}, features={features})"
+        )
         return team
 
     @tool
