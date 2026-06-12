@@ -113,4 +113,4 @@ mpl.rcParams.update({
 })
 ```
 
-This baseline can be overridden by the project-specific `style_card.json`.
+This baseline can be overridden by project-specific style configuration.

@@ -88,3 +88,120 @@ def test_single_cell_team_includes_fm_router(tmp_path):
     assert team is not None
     agent_ids = [a.id for a in team.agents]
     assert "fm_router" in agent_ids
+
+
+def test_graph_maker_team_and_dedicated_agents_are_not_factory_defaults(tmp_path):
+    manager = _make_manager(tmp_path)
+
+    factory_templates = manager.system_templates_dir
+    assert not (factory_templates / "teams" / "graph_maker_team.md").exists()
+    assert not (factory_templates / "agents" / "graph_maker").exists()
+    figure_styling = factory_templates / "skills" / "figure_styling"
+    figure_styling_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted(figure_styling.rglob("*.md"))
+    )
+    for legacy_coupling in [
+        "Graph Maker",
+        "graph_maker",
+        "data_plotter",
+        "illustrator",
+        "leader",
+        "multi-agent",
+        "workdir",
+        "style_card",
+    ]:
+        assert legacy_coupling not in figure_styling_text
+
+    listing = manager.list_template_files("all")
+    assert listing["success"] is True
+    paths = {
+        entry["path"]
+        for entry in listing["files"]
+        if entry["source_path"].startswith(str(tmp_path))
+    }
+    assert "teams/graph_maker_team.md" not in paths
+    assert not any(path.startswith("agents/graph_maker/") for path in paths)
+
+
+def test_removed_factory_templates_clean_unmodified_global_copies(
+    tmp_path, monkeypatch
+):
+    fake_home = tmp_path / "home"
+    project = tmp_path / "project"
+    global_teams = fake_home / ".pantheon" / "teams"
+    global_agents = fake_home / ".pantheon" / "agents" / "graph_maker"
+    global_teams.mkdir(parents=True)
+    global_agents.mkdir(parents=True)
+    old_team = (
+        "---\n"
+        "category: scientific_visualization\n"
+        "id: graph_maker_team\n"
+        "name: Graph Maker Team\n"
+        "type: team\n"
+        "agents: []\n"
+        "---\n"
+        "\n"
+        "# Graph Maker Team\n"
+    )
+    (global_teams / "graph_maker_team.md").write_text(old_team, encoding="utf-8")
+    (global_agents / "leader.md").write_text(
+        "---\nid: leader\nname: leader\n---\n", encoding="utf-8"
+    )
+
+    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+    monkeypatch.setattr(
+        TemplateManager,
+        "REMOVED_FACTORY_TEMPLATE_HASHES",
+        {
+            **TemplateManager.REMOVED_FACTORY_TEMPLATE_HASHES,
+            "team(s)/graph_maker_team.md": TemplateManager._content_hash(old_team),
+            "agent(s)/graph_maker/leader.md": TemplateManager._content_hash(
+                "---\nid: leader\nname: leader\n---\n"
+            ),
+        },
+    )
+    manager = _make_manager(project)
+
+    assert not (global_teams / "graph_maker_team.md").exists()
+    assert not (global_agents / "leader.md").exists()
+    assert manager.get_template("graph_maker_team") is None
+
+
+def test_removed_factory_templates_preserve_modified_global_copies(
+    tmp_path, monkeypatch
+):
+    old_team = (
+        "---\n"
+        "category: scientific_visualization\n"
+        "id: graph_maker_team\n"
+        "name: Graph Maker Team\n"
+        "type: team\n"
+        "agents: []\n"
+        "---\n"
+        "\n"
+        "# Graph Maker Team\n"
+    )
+    modified_team = old_team + "User custom instructions.\n"
+    fake_home = tmp_path / "home"
+    project = tmp_path / "project"
+    global_teams = fake_home / ".pantheon" / "teams"
+    global_teams.mkdir(parents=True)
+    (global_teams / "graph_maker_team.md").write_text(
+        modified_team, encoding="utf-8"
+    )
+    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+    monkeypatch.setattr(
+        TemplateManager,
+        "REMOVED_FACTORY_TEMPLATE_HASHES",
+        {
+            **TemplateManager.REMOVED_FACTORY_TEMPLATE_HASHES,
+            "team(s)/graph_maker_team.md": TemplateManager._content_hash(old_team),
+        },
+    )
+    manager = _make_manager(project)
+
+    assert (global_teams / "graph_maker_team.md").read_text(
+        encoding="utf-8"
+    ) == modified_team
+    assert manager.get_template("graph_maker_team") is not None

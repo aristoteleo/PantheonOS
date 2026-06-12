@@ -20,6 +20,13 @@ from .models import AgentConfig, TeamConfig
 class TemplateManager:
     """Template manager for discovery, loading, file operations, and bootstrap"""
 
+    REMOVED_FACTORY_TEMPLATE_HASHES = {
+        "agent(s)/graph_maker/data_plotter.md": "3469af090295e057ac0ec8749fa09cd9",
+        "agent(s)/graph_maker/illustrator.md": "28305f93ef394c2ce2b4fa57c939c53a",
+        "agent(s)/graph_maker/leader.md": "82b1d91455a2c4e8b0013af01dd6456a",
+        "team(s)/graph_maker_team.md": "eed8df361fb5477875a2a72a26be71e5",
+    }
+
     def __init__(self, work_dir: Optional[Path] = None):
         """
         Initialize template manager.
@@ -129,6 +136,59 @@ class TemplateManager:
         import hashlib
         return hashlib.md5(path.read_bytes()).hexdigest()
 
+    @staticmethod
+    def _content_hash(content: str) -> str:
+        """Compute MD5 hash of UTF-8 text content."""
+        import hashlib
+        return hashlib.md5(content.encode("utf-8")).hexdigest()
+
+    def _remove_deleted_factory_templates(
+        self, src_dir: Path, dest_dir: Path, label: str, factory_hashes: dict
+    ) -> int:
+        """Remove global copies for factory templates that no longer exist.
+
+        Only removes files that still match the last synced factory hash. If a
+        user edited the global copy, it is preserved.
+        """
+        if not dest_dir.exists():
+            return 0
+
+        removed = 0
+        prefix = f"{label}/"
+        removed_candidates = {
+            **{
+                key: value
+                for key, value in factory_hashes.items()
+                if key.startswith(prefix)
+            },
+            **{
+                key: value
+                for key, value in self.REMOVED_FACTORY_TEMPLATE_HASHES.items()
+                if key.startswith(prefix)
+            },
+        }
+        for hash_key, stored_hash in removed_candidates.items():
+            if not hash_key.startswith(prefix):
+                continue
+
+            rel_path = Path(hash_key[len(prefix):])
+            src_file = src_dir / rel_path
+            dest_file = dest_dir / rel_path
+
+            if src_file.exists() or not dest_file.exists():
+                continue
+
+            if self._file_hash(dest_file) != stored_hash:
+                continue
+
+            dest_file.unlink()
+            removed += 1
+            factory_hashes.pop(hash_key, None)
+
+        if removed:
+            logger.info(f"Removed {removed} deleted factory {label} from global templates")
+        return removed
+
     def _copy_missing_templates(self, src_dir: Path, dest_dir: Path, label: str, overwrite: bool = False):
         """Copy templates from src to dest.
 
@@ -146,6 +206,12 @@ class TemplateManager:
 
         factory_hashes = self._load_factory_hashes() if overwrite else {}
         hashes_changed = False
+
+        if overwrite:
+            removed = self._remove_deleted_factory_templates(
+                src_dir, dest_dir, label, factory_hashes
+            )
+            hashes_changed = hashes_changed or removed > 0
 
         copied_files = []
         updated_files = []
