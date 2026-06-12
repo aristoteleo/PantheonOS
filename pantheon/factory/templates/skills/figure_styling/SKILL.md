@@ -4,8 +4,7 @@ name: Figure Styling Skills Index
 description: |
   Aesthetic guidelines and output-type recipes for scientific figure production.
   Supports lightweight default-agent use through SKILL.md + one outputType recipe,
-  with optional venue-specific style guides when requested. Also serves as the
-  Graph Maker Team's style index when the full harness is in use.
+  with optional venue-specific style guides when requested.
 ---
 
 # Figure Styling
@@ -88,20 +87,6 @@ Examples (not defaults):
 
 These are domain instantiation examples, not default assumptions.
 
----
-
-## Legacy compatibility
-
-Existing Graph Maker Team workflows may continue to use `styles/` as venue-specific style guides via `aesthetic_guide` in `style_card.json`.
-
-Default-agent use does not require:
-- Graph Maker Team
-- `leader`, `data_plotter`, or `illustrator` agents
-- `canvas` or `workdir`
-- `style_card.json`
-
-The outputType recipes are self-contained.
-
 ## Custom styles
 
-Additional `.md` style files may be added to `styles/` following the existing file structure. Set `aesthetic_guide: "<style_id>"` in `style_card.json` to activate for Graph Maker Team use.
+Additional `.md` style files may be added to `styles/` following the existing file structure. Use the matching `style_id` when requesting a venue or aesthetic style.

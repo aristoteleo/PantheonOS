@@ -168,9 +168,9 @@ This is the SciencePlots `science.mplstyle` default cycle — used by most of it
 
 ---
 
-## Application in `style_card.json`
+## Application
 
-Set `colors.categorical_palette` to the desired palette array:
+Set the active style configuration's categorical palette to the desired array:
 
 ```json
 {
@@ -182,7 +182,7 @@ Set `colors.categorical_palette` to the desired palette array:
 }
 ```
 
-`data_plotter` reads `style_card.colors.categorical_palette` and uses it as the `axes.prop_cycle`.
+Plotting code should read the configured categorical palette and use it as the `axes.prop_cycle`.
 
 ## Combining Palettes with Style Files
 
@@ -196,10 +196,10 @@ plt.style.use(["bright"])           # color overlay
 plt.style.use(["science", "bright"])
 ```
 
-In our system:
-- `style_card.aesthetic_guide` → loads the base style file (neurips_plot / nature_figure / ieee_figure)
-- `style_card.colors.categorical_palette` → provides the color overlay
-- Sub-agents apply both independently
+Recommended composition:
+- Base style file (neurips_plot / nature_figure / ieee_figure) sets typography, axes, ticks, and export defaults
+- Categorical palette provides the color overlay
+- Plotting code applies both independently
 
 ## Sequential & Diverging (not cycler-based)
 

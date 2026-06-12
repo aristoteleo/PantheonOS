@@ -4,7 +4,7 @@ name: Coding & Web Development
 description: |
   Web application development guidelines and design aesthetics.
   Only needed by teams that build web apps (e.g., default team).
-  Not needed by paper_write, graph_maker, or single_cell teams.
+  Not needed by paper_write or single_cell teams.
 ---
 
 ## Web Application Development
