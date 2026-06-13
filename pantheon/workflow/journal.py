@@ -1,4 +1,4 @@
-"""Append-only journal with prefix-cache resume semantics (Task 2).
+"""Order-independent journal with prefix-cache resume semantics (Task 2).
 
 The journal records every ``node()`` call of a deterministic workflow script,
 one JSON object per line in ``journal.jsonl``. It powers cheap ``resume`` via a
@@ -8,29 +8,39 @@ Addressing is ALWAYS by ``node_id`` (an engine-assigned monotonically
 increasing int, position in the journal), NEVER by ``label`` (label is
 display-only; it may repeat or be empty -- Codex Finding 4).
 
-Resume rule (mirrors Claude Code ``resumeFromRunId``)
+Order-independence (concurrency correctness)
+---------------------------------------------
+Under ``parallel``/``pipeline`` nodes COMPLETE in runner-completion order, not
+``node_id`` order. The journal therefore tolerates **out-of-order record** and
+**out-of-order lookup**, keyed by integer ``node_id``:
+
+* Storage is a ``dict[int, JournalEntry]`` keyed by node_id (NOT a list whose
+  index == node_id). On disk it remains append-only JSONL; each line carries its
+  node_id, so ``_read`` places parsed entries into the dict by node_id (later
+  lines overwrite earlier — this supports skip/invalidate rewrites and re-run
+  appends at a vacated id).
+* :meth:`record` upserts by ``entry.node_id`` — no strict-append check. Records
+  may arrive in any order.
+* :meth:`lookup` is order-independent. A position HITS iff a prior-run entry
+  exists at that node_id AND (its status is ``skipped`` OR its key equals the
+  recomputed key) AND ``node_id < self._first_miss`` (the running prefix
+  boundary). ``_first_miss`` is a running MINIMUM updated on every miss.
+
+Residual honesty (why this is safe under concurrency)
 -----------------------------------------------------
-During resume the script re-executes and issues ``node()`` calls in the same
-order, so the Nth call is assigned ``node_id == N`` and corresponds to position
-N in the prior journal. For each call the engine asks :meth:`Journal.lookup`
-whether a cached result is valid:
-
-* A position is a **hit** iff a prior entry exists at that ``node_id`` AND its
-  stored ``key`` equals the recomputed key (skipped entries hit regardless of
-  key) AND *every earlier position was also a hit*.
-* The **first miss invalidates everything after it**: once any position misses
-  (key changed, or no prior entry), that position and all later positions
-  re-run -- even if a later position's stored key would coincidentally match.
-
-This is implemented with a single "cache valid up to position P" boundary:
-``lookup`` is consultable only for positions strictly before the first miss.
-Because calls arrive in ``node_id`` order, the boundary is simply the
-``node_id`` of the first lookup that failed to match.
+Because lookups can arrive out of order, a higher-id node may be looked up and
+HIT before a lower-id node's miss is observed (the running-min boundary has not
+dropped to the lower id yet). This is SAFE because real data dependencies are
+captured by the content-hashed ``inputs`` folded into each node's ``key``: a
+node that actually depends on a changed upstream node has a changed input hash
+→ key mismatch → miss, regardless of the ``_first_miss`` boundary. The
+``_first_miss`` cascade is a best-effort conservatism layer for the sequential
+backbone; correctness rests on the content keys.
 
 Mutation operations (followed by a resume in the engine layer):
 
-* :meth:`invalidate` -- for ``retry_node``: truncate the entry at ``node_id``
-  and everything after it, so the next resume re-runs from there.
+* :meth:`invalidate` -- for ``retry_node``: drop the entry at ``node_id`` AND
+  every entry with id >= node_id, so the next resume re-runs from there.
 * :meth:`skip` -- for ``skip_node``: rewrite the entry at ``node_id`` in place
   as ``status="skipped", result_ref=None``. The position stays a valid cached
   "do nothing" hit; it does NOT cascade.
@@ -67,15 +77,19 @@ class Journal:
     """In-memory + on-disk journal bound to a single ``journal.jsonl`` path.
 
     Construction loads any prior entries (crash/restart recovery). Entries are
-    held in ``node_id`` order; index == ``node_id``.
+    held in a ``dict[int, JournalEntry]`` keyed by ``node_id`` so that record
+    and lookup are order-independent.
     """
 
     def __init__(self, path: str | os.PathLike[str]) -> None:
         self.path = Path(path)
-        self.entries: list[JournalEntry] = self._read()
-        # Position of the first lookup miss seen this run; once set, every
-        # later lookup also misses (the prefix-cascade boundary).
+        self.entries: dict[int, JournalEntry] = self._read()
+        # Lowest node_id at which a lookup miss was seen this run; once set,
+        # every lookup at id >= this also misses (the prefix-cascade boundary).
+        # Maintained as a running MINIMUM (misses can arrive out of order).
         self._first_miss: int = _BOUNDARY_UNSET
+        # node_ids recorded THIS run — a within-run duplicate record is a bug.
+        self._recorded_this_run: set[int] = set()
 
     @classmethod
     def load(cls, path: str | os.PathLike[str]) -> "Journal":
@@ -84,46 +98,59 @@ class Journal:
 
     # --- persistence ---
 
-    def _read(self) -> list[JournalEntry]:
+    def _read(self) -> dict[int, JournalEntry]:
         if not self.path.exists():
-            return []
-        entries: list[JournalEntry] = []
+            return {}
+        entries: dict[int, JournalEntry] = {}
         for line in self.path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line:
                 continue
-            entries.append(JournalEntry(**json.loads(line)))
+            entry = JournalEntry(**json.loads(line))
+            # Later lines overwrite earlier ones at the same node_id, so
+            # in-place rewrites (skip) and re-run appends resolve correctly.
+            entries[entry.node_id] = entry
         return entries
 
     def _rewrite(self) -> None:
-        """Atomically rewrite the whole file from ``self.entries``."""
+        """Atomically rewrite the whole file from ``self.entries``.
+
+        Values are serialized sorted by node_id so the on-disk JSONL stays in
+        ascending node_id order (stable, human-readable).
+        """
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write_text(self.path, _serialize(self.entries))
+        ordered = [self.entries[k] for k in sorted(self.entries)]
+        _atomic_write_text(self.path, _serialize(ordered))
 
     # --- prefix-cache lookup ---
 
     def lookup(self, node_id: int, key: str) -> JournalEntry | None:
         """Return the cached entry at ``node_id`` iff it is a valid prefix hit.
 
-        PRECONDITION: callers MUST invoke this in ascending ``node_id`` order
-        (the engine guarantees this); the first-miss cascade correctness
-        depends on it.
+        ORDER-INDEPENDENT: callers may invoke this in ANY ``node_id`` order
+        (under ``parallel``/``pipeline`` completion order is not source order).
 
-        Calls arrive in ``node_id`` order. A hit requires that no earlier
-        position missed, that a prior entry exists at this position, and that
-        either the entry is ``skipped`` (always a hit) or its stored key equals
-        ``key``. On any miss we record the boundary so all later lookups miss.
+        A position HITS iff:
+
+        * a prior-run entry exists at ``node_id``, AND
+        * that entry is ``skipped`` (always a hit) OR its stored key equals the
+          recomputed ``key``, AND
+        * ``node_id`` is strictly below the running first-miss boundary.
+
+        On any miss (no entry, or key mismatch) the running-minimum
+        ``_first_miss`` boundary is lowered to ``node_id``. See the module
+        docstring for why out-of-order lookups remain safe (content keys).
         """
-        # Already past the first miss -> cascade: everything after misses.
+        # Past the running first-miss boundary -> cascade miss.
         if self._first_miss != _BOUNDARY_UNSET and node_id >= self._first_miss:
             return None
 
+        entry = self.entries.get(node_id)
+
         # No prior entry recorded at this position -> miss.
-        if node_id < 0 or node_id >= len(self.entries):
+        if entry is None:
             self._mark_miss(node_id)
             return None
-
-        entry = self.entries[node_id]
 
         # A skipped entry is a cached "do nothing" hit regardless of key.
         if entry.status == "skipped":
@@ -142,29 +169,37 @@ class Journal:
     # --- mutation ---
 
     def record(self, entry: JournalEntry) -> None:
-        """Append a freshly-executed (or skipped) entry and persist it.
+        """Upsert a freshly-executed (or skipped) entry and persist it.
 
-        Entries must be recorded in ``node_id`` order (index == node_id).
+        Records may arrive in ANY ``node_id`` order (concurrent completion) —
+        the entry is upserted into the dict by ``entry.node_id`` and appended
+        as a JSONL line carrying that node_id (append-only fast path; ``_read``
+        resolves duplicates by last-line-wins).
+
+        A within-run duplicate record of the same node_id is a bug (two nodes
+        would share an addressing id) and raises.
         """
-        if entry.node_id != len(self.entries):
+        if entry.node_id in self._recorded_this_run:
             raise ValueError(
-                f"out-of-order record: expected node_id "
-                f"{len(self.entries)}, got {entry.node_id}"
+                f"duplicate record this run for node_id {entry.node_id}"
             )
-        self.entries.append(entry)
+        self._recorded_this_run.add(entry.node_id)
+        self.entries[entry.node_id] = entry
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(asdict(entry), sort_keys=True) + "\n")
 
     def invalidate(self, node_id: int) -> None:
-        """Drop the entry at ``node_id`` and every entry after it (retry).
+        """Drop the entry at ``node_id`` and every entry with id >= it (retry).
 
-        Truncates in memory and on disk so a reload is consistent: the next
+        Rewrites in memory and on disk so a reload is consistent: the next
         resume treats ``node_id`` (and beyond) as a miss and re-runs them.
         """
-        if node_id < 0 or node_id >= len(self.entries):
+        doomed = [k for k in self.entries if k >= node_id]
+        if not doomed:
             return
-        del self.entries[node_id:]
+        for k in doomed:
+            del self.entries[k]
         self._rewrite()
         self._mark_miss(node_id)
 
@@ -175,9 +210,9 @@ class Journal:
         cached hit yielding ``status="skipped", result_ref=None``. Does not
         cascade.
         """
-        if node_id < 0 or node_id >= len(self.entries):
+        old = self.entries.get(node_id)
+        if old is None:
             raise ValueError(f"no entry at node_id {node_id} to skip")
-        old = self.entries[node_id]
         self.entries[node_id] = JournalEntry(
             node_id=old.node_id,
             key=old.key,
