@@ -93,6 +93,14 @@ _reserved_node_id: contextvars.ContextVar[int | None] = contextvars.ContextVar(
     "_reserved_node_id", default=None
 )
 
+#: ``True`` while executing inside a pipeline stage that was given a reserved id.
+#: Lets ``_allocate_node_id`` distinguish "no reservation (sequential/parallel)"
+#: from "reservation already consumed by an earlier node() in THIS stage" — the
+#: Phase-1 >1-node-per-stage footgun — so the counter.next() fallback can warn.
+_in_reserved_stage: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_in_reserved_stage", default=False
+)
+
 
 class NodeError(Exception):
     """Raised when a node finishes with ``status == "failed"``.
@@ -187,11 +195,23 @@ def make_api(
         resets the var so a second ``node()`` in the same stage falls back to
         the counter — Phase-1: one node per stage). Otherwise pulls the next id
         from the monotonic counter (sequential + parallel).
+
+        If a node() runs inside a reserved pipeline stage whose reserved id was
+        already consumed (i.e. this is the 2nd+ node() in that stage), the
+        counter.next() id is NOT position-deterministic across resume — a known
+        Phase-1 limitation. We emit a warning so the footgun is observable.
         """
         reserved = _reserved_node_id.get()
         if reserved is not None:
             _reserved_node_id.set(None)
             return reserved
+        if _in_reserved_stage.get():
+            logger.warning(
+                "pipeline stage called node() more than once; only the first "
+                "consumes the reserved id. Extra node()s fall back to the "
+                "counter and are NOT position-deterministic across resume "
+                "(Phase-1 limitation: one node() per pipeline stage)."
+            )
         return counter.next()
 
     # --- node -------------------------------------------------------------- #
@@ -359,11 +379,15 @@ def make_api(
                     # context is a copy (see below), so this cannot leak across
                     # concurrently-interleaved chains.
                     _reserved_node_id.set(reserved)
+                    _in_reserved_stage.set(True)
                     prev = await _call_stage(stage, prev, item, idx)
                     # Defensive: if the stage didn't call node() (zero nodes),
                     # clear the stale reservation so it can't bleed into the
-                    # next stage of THIS chain.
+                    # next stage of THIS chain. Also leave the reserved-stage
+                    # flag so a later sequential node() outside the pipeline is
+                    # not misreported (the flag is task-local to this chain).
                     _reserved_node_id.set(None)
+                    _in_reserved_stage.set(False)
                 return prev
 
             return _chain
@@ -372,7 +396,8 @@ def make_api(
         # context at creation time (PEP 567), so the ``_reserved_node_id`` var
         # each chain sets inside itself lives in that task's private context
         # copy and is invisible to sibling chains — even when they interleave on
-        # the event loop. (Verified: see test_pipeline_stress_many_chains_*.)
+        # the event loop. The pipeline determinism tests exercise this with
+        # gate-scrambled completion orders and an interleaving stress test.
         tasks = [
             asyncio.ensure_future(_chain_thunk(item, idx)())
             for idx, item in enumerate(items)

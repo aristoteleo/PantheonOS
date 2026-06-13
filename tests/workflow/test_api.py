@@ -535,6 +535,58 @@ async def test_pipeline_stress_many_chains_no_id_theft(setup):
     assert len(set(label_to_id.values())) == n_items * n_stages
 
 
+@pytest.mark.asyncio
+async def test_pipeline_multi_node_stage_warns_on_fallback(setup, caplog):
+    """A stage calling node() TWICE: first consumes the reserved id, the second
+    falls back to counter.next() and MUST emit the documented Phase-1 warning.
+    Also asserts a single-node stage does NOT warn.
+    """
+    import logging
+
+    tmp_path, storage, journal, ctx, publisher = setup
+    api = make_api(journal, FakeRunner(), publisher, CHAT_ID, ctx)
+
+    async def two_node_stage(prev, item, idx):
+        a = await api["node"](f"{item}-a", label=f"{item}-a")  # reserved id
+        b = await api["node"](f"{item}-b", label=f"{item}-b")  # fallback -> warn
+        return (a, b)
+
+    with caplog.at_level(logging.WARNING, logger="pantheon.workflow.api"):
+        await api["pipeline"](["X"], two_node_stage)
+
+    warnings = [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "node() more than once" in r.getMessage()
+    ]
+    assert len(warnings) == 1, warnings
+    # both nodes still recorded (with distinct ids: reserved 0, fallback 1)
+    assert _ids(journal) == [0, 1]
+    assert {journal.entries[i].label for i in journal.entries} == {"X-a", "X-b"}
+
+
+@pytest.mark.asyncio
+async def test_pipeline_single_node_stage_does_not_warn(setup, caplog):
+    """The common one-node-per-stage case must NOT emit the fallback warning."""
+    import logging
+
+    tmp_path, storage, journal, ctx, publisher = setup
+    api = make_api(journal, FakeRunner(), publisher, CHAT_ID, ctx)
+
+    async def stage1(prev, item, idx):
+        return await api["node"](f"{item}-s1", label=f"{item}-s1")
+
+    async def stage2(prev, item, idx):
+        return await api["node"](f"{item}-s2", label=f"{item}-s2")
+
+    with caplog.at_level(logging.WARNING, logger="pantheon.workflow.api"):
+        await api["pipeline"](["X", "Y"], stage1, stage2)
+
+    assert not [
+        r for r in caplog.records if "node() more than once" in r.getMessage()
+    ]
+
+
 # --- NEW: resume across a pipeline ----------------------------------------- #
 
 
