@@ -15,6 +15,7 @@ Pure stdlib. Phase 1 ships exactly one built-in template: ``generic``.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -111,6 +112,7 @@ def compose_node_prompt(
     *,
     schema: Any | None = None,
     output_path: str | None = None,
+    inputs: list[tuple[str, Any]] | None = None,
 ) -> tuple[str, str]:
     """Compose a node agent's ``(system_prompt, user_message)``.
 
@@ -119,12 +121,16 @@ def compose_node_prompt(
     path, JSON-schema requirement) that belong in the system contract.
 
     ``user_message`` = the node's Leader ``instruction`` (layer 3), returned
-    separately. The instruction is NEVER concatenated into the system prompt.
+    separately, optionally preceded by an ``## Inputs`` block carrying the
+    inlined contents of the node's declared input files. The instruction is
+    NEVER concatenated into the system prompt.
 
     ``instruction`` is required. ``output_path`` is computed and supplied by the
     runner (it derives from ``node_id``; it is not a field on ``NodeCall``).
     ``schema``, when provided, makes the JSON-output requirement explicit in the
-    system contract.
+    system contract. ``inputs`` is an ordered ``(name, value)`` list the runner
+    loads from the declared input files; Phase-1 nodes are tool-less, so their
+    inputs are delivered inline here rather than read from disk by the agent.
     """
     parts: list[str] = [template.base_prompt, ENGINE_PROTOCOL]
 
@@ -133,12 +139,42 @@ def compose_node_prompt(
     if output_path:
         specifics.append(f"Output path for this node: {output_path}")
     if schema is not None:
+        # The engine does NOT use the model's native structured-output mode;
+        # the node must emit conforming JSON as its final reply, which the
+        # engine then parses and validates. Embed the concrete schema so the
+        # agent knows the exact shape to produce.
+        try:
+            schema_json = json.dumps(schema, indent=2, sort_keys=True)
+        except (TypeError, ValueError):
+            schema_json = str(schema)
         specifics.append(
-            "This node REQUIRES structured output: your final reply MUST be "
-            "valid JSON conforming to the provided schema and nothing else."
+            "This node REQUIRES structured output. Your FINAL reply MUST be a "
+            "single JSON value that validates against this JSON Schema, and "
+            "MUST contain nothing else — no prose, no markdown code fences, no "
+            "commentary:\n\n"
+            f"{schema_json}"
         )
     if specifics:
-        parts.append("## This node\n" + "\n".join(specifics))
+        parts.append("## This node\n" + "\n\n".join(specifics))
 
     system_prompt = "\n\n".join(parts)
-    return system_prompt, instruction
+
+    # Layer 3 (user message): inlined inputs (if any) precede the instruction so
+    # the node sees its upstream data without needing a file-reading tool.
+    if inputs:
+        blocks: list[str] = [
+            "## Inputs\n"
+            "The following input data was produced by upstream steps. Use it to "
+            "complete your task; do not try to read these files from disk."
+        ]
+        for name, value in inputs:
+            try:
+                rendered = json.dumps(value, ensure_ascii=False, indent=2, default=str)
+            except (TypeError, ValueError):
+                rendered = str(value)
+            blocks.append(f"### {name}\n{rendered}")
+        user_message = "\n\n".join(blocks) + "\n\n---\n\n" + instruction
+    else:
+        user_message = instruction
+
+    return system_prompt, user_message

@@ -120,6 +120,29 @@ def test_instruction_required():
         compose_node_prompt(t)  # type: ignore[call-arg]
 
 
+# --- inputs are inlined into the USER message (Phase-1 tool-less delivery) ---
+def test_inputs_inlined_into_user_message():
+    t = get_template("generic")
+    system_prompt, user = compose_node_prompt(
+        t,
+        "Summarize the input.",
+        inputs=[("n0.json", {"facts": ["a", "b"]}), ("n1.json", "plain text")],
+    )
+    # Inputs go in the user message, NOT the system contract.
+    assert "## Inputs" in user
+    assert "n0.json" in user and "n1.json" in user
+    assert '"facts"' in user and "plain text" in user
+    # The instruction still follows the inputs block.
+    assert user.rstrip().endswith("Summarize the input.")
+    assert "## Inputs" not in system_prompt
+
+
+def test_no_inputs_user_is_bare_instruction():
+    t = get_template("generic")
+    _system, user = compose_node_prompt(t, "Just do it.")
+    assert user == "Just do it."
+
+
 # --- register/get round-trip ---
 def test_register_and_get_roundtrip():
     custom = WorkflowTemplate(name="custom_x", base_prompt="You are X.")

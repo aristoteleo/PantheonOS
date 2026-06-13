@@ -57,6 +57,7 @@ from pantheon.agent import Agent
 from pantheon.internal.memory.memory import Memory
 
 from .models import NodeCall, NodeResult
+from .schema_convert import schema_to_field_type
 from .storage import WorkflowStorage
 from .templates import compose_node_prompt, get_template
 
@@ -113,6 +114,38 @@ class InProcessRunner(NodeRunner):
 
     # --- internals --------------------------------------------------------- #
 
+    @staticmethod
+    def _load_inputs(
+        inputs: tuple[str, ...], ctx: NodeRunContext
+    ) -> list[tuple[str, Any]]:
+        """Load declared input files' contents for inlining into the prompt.
+
+        Each entry of ``inputs`` is a relative segment under the workflow's
+        ``context/`` dir (typically an upstream node's ``n{id}.json``). The
+        ``{"kind","result"}`` envelope is unwrapped so the node sees the actual
+        upstream value, not the wrapper. Path resolution is confined via
+        ``safe_node_path``; a missing or unsafe input is skipped (it already
+        hashed as "" for the cache key) rather than failing the node.
+
+        Returns an ordered list of ``(name, value)`` preserving declaration
+        order — order matters because the prompt presents them positionally.
+        """
+        from .storage import safe_node_path
+
+        out: list[tuple[str, Any]] = []
+        context_dir = ctx.storage.context_dir(ctx.workflow_id)
+        for rel in inputs:
+            name = str(rel)
+            try:
+                parts = [p for p in name.split("/") if p]
+                path = safe_node_path(context_dir, *parts)
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue  # missing/unsafe -> skip (consistent with hash="")
+            value = payload.get("result") if isinstance(payload, dict) else payload
+            out.append((name, value))
+        return out
+
     async def _run_inner(
         self, node_call: NodeCall, ctx: NodeRunContext
     ) -> NodeResult:
@@ -139,14 +172,36 @@ class InProcessRunner(NodeRunner):
         memory_path = storage.node_memory_path(wf_id, node_id)
         result_ref = f"context/n{node_id}.json"
 
+        # Phase 1 nodes run tool-less (toolset injection is Phase 2), so a node
+        # cannot READ its declared input files itself. The engine therefore
+        # INLINES the declared inputs' contents into the prompt — deterministic,
+        # no tool round-trip. ``inputs=`` already drives cache invalidation via
+        # content hashing; here it also delivers the actual data downstream.
+        inputs_payload = self._load_inputs(node_call.inputs, ctx)
+
         system_prompt, user_message = compose_node_prompt(
             template,
             node_call.instruction,
             schema=node_call.schema,
             output_path=result_ref,
+            inputs=inputs_payload,
         )
 
         model = node_call.model or template.model
+
+        # NOTE: we deliberately do NOT pass ``response_format`` to the Agent.
+        # The Agent's native structured-output path is unreliable across
+        # OpenAI-compatible proxies (the Responses-API path serializes the
+        # pydantic class raw; the chat-completions path double-wraps), so a
+        # schema node instead asks for JSON *in the prompt* (compose_node_prompt
+        # embeds the concrete schema) and we validate the returned TEXT here.
+        # ``validator`` is the pydantic model built from the JSON-Schema dict;
+        # it is the source of truth for accept/retry. ``None`` -> plain text node.
+        validator = (
+            schema_to_field_type(node_call.schema)
+            if node_call.schema is not None
+            else None
+        )
 
         memory = Memory(
             name=f"wf-{wf_id}-n{node_id}",
@@ -157,7 +212,7 @@ class InProcessRunner(NodeRunner):
             instructions=system_prompt,
             model=model,
             tools=None,
-            response_format=node_call.schema,
+            response_format=None,
             memory=memory,
         )
 
@@ -189,13 +244,20 @@ class InProcessRunner(NodeRunner):
                     continue
                 raise
 
-            if node_call.schema is not None and content is None:
-                last_err = "output did not match the required schema"
-                if attempt < max_attempts - 1:
-                    continue
-                return NodeResult(
-                    node_id=node_id, status="failed", error=last_err
-                )
+            # Schema node: the agent returned TEXT (we never used the Agent's
+            # native structured output — see the note above). Parse + validate
+            # it here against the pydantic model. On failure, retry once with
+            # feedback, else fail the node.
+            if node_call.schema is not None:
+                parsed, err = _parse_and_validate(content, validator)
+                if err is not None:
+                    last_err = err
+                    if attempt < max_attempts - 1:
+                        continue
+                    return NodeResult(
+                        node_id=node_id, status="failed", error=last_err
+                    )
+                content = parsed  # plain dict/list/scalar per the contract
 
             # Success — persist and return. A persistence failure here is NOT
             # an agent failure: the run succeeded, we just couldn't record it.
@@ -220,7 +282,7 @@ class InProcessRunner(NodeRunner):
                 token_cost=0,
             )
 
-        # Exhausted retries (schema node only reaches here on repeated None).
+        # Exhausted retries (schema node only reaches here on repeated invalid).
         return NodeResult(
             node_id=node_id,
             status="failed",
@@ -237,12 +299,16 @@ class InProcessRunner(NodeRunner):
     ) -> Any:
         """Run the agent once; honor an optional timeout. Returns ``.content``.
 
+        We never pass ``response_format`` (the Agent's native structured-output
+        path is unreliable on OpenAI-compatible proxies). Schema enforcement is
+        prompt-driven and validated by the caller against the JSON-Schema model.
+
         Deliberately omits ``process_step_message`` / ``process_chunk``
         (decision 11): node output must NOT bubble to the Leader.
         """
         coro = agent.run(
             msg,
-            response_format=node_call.schema,
+            response_format=None,
             memory=None,
             use_memory=False,
             update_memory=True,
@@ -290,3 +356,61 @@ class InProcessRunner(NodeRunner):
 def _summarize(exc: BaseException, limit: int = 500) -> str:
     msg = f"{type(exc).__name__}: {exc}"
     return msg if len(msg) <= limit else msg[: limit - 1] + "…"
+
+
+def _strip_code_fence(text: str) -> str:
+    """Strip a leading/trailing markdown code fence (```json … ```), if present.
+
+    Agents frequently wrap JSON in a fenced block despite being told not to;
+    tolerate it so a well-formed object isn't rejected over formatting.
+    """
+    s = text.strip()
+    if not s.startswith("```"):
+        return s
+    lines = s.splitlines()
+    # Drop the opening fence line (``` or ```json) and a trailing fence line.
+    if lines and lines[0].startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip().startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def _parse_and_validate(content: Any, validator: Any) -> tuple[Any, str | None]:
+    """Parse ``content`` as JSON and validate it against ``validator``.
+
+    ``validator`` is the pydantic field type built from the node's JSON-Schema
+    (see :mod:`schema_convert`). The text is fence-stripped, JSON-parsed, then
+    validated by wrapping the field type the way ``Agent`` would
+    (``create_model("Response", result=(validator, ...))``) so a top-level
+    array/scalar schema validates as cleanly as an object schema.
+
+    Returns ``(plain_value, None)`` on success — ``plain_value`` is a plain
+    dict/list/scalar — or ``(None, error_message)`` on any parse/validation
+    failure, so the caller can retry once then fail the node.
+    """
+    from pydantic import BaseModel, ValidationError, create_model
+
+    if content is None:
+        return None, "node returned no output"
+    text = _strip_code_fence(content) if isinstance(content, str) else content
+    try:
+        data = json.loads(text) if isinstance(text, str) else text
+    except (ValueError, TypeError) as exc:
+        return None, f"output was not valid JSON: {_summarize(exc)}"
+
+    # Validate via a Response wrapper so list/scalar top-level schemas work too.
+    wrapper = create_model("Response", result=(validator, ...))
+    try:
+        validated = wrapper.model_validate({"result": data})
+    except ValidationError as exc:
+        return None, f"output did not match the schema: {_summarize(exc)}"
+
+    result = validated.result
+    # Normalize a validated pydantic submodel back to a plain dict/list/scalar.
+    if isinstance(result, BaseModel):
+        return result.model_dump(), None
+    if isinstance(result, (list, tuple)):
+        return [r.model_dump() if isinstance(r, BaseModel) else r for r in result], None
+    return result, None
+

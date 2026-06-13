@@ -110,7 +110,14 @@ async def test_agent_constructed_with_correct_params(ctx):
     # instructions include the engine protocol layer (from compose_node_prompt)
     assert "Execution contract" in kw["instructions"]
     assert kw["model"] == "m1"
-    assert kw["response_format"] == schema
+    # The engine does NOT use the Agent's native structured-output mode (it is
+    # unreliable across OpenAI-compatible proxies). Schema nodes are run as
+    # plain-text agents and the runner validates the JSON reply itself, so the
+    # Agent is always constructed with response_format=None.
+    assert kw["response_format"] is None
+    # The concrete schema is embedded in the system prompt instead, so the
+    # agent knows the exact shape to emit.
+    assert "JSON Schema" in kw["instructions"] or "json schema" in kw["instructions"].lower()
 
 
 @pytest.mark.asyncio
@@ -144,7 +151,8 @@ async def test_memory_path_ignores_label(ctx, storage):
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio
 async def test_result_written_to_context_file(ctx, storage):
-    FakeAgent.script = [("content", {"k": "v"})]
+    # Schema node: the agent emits a JSON STRING; the runner parses+validates it.
+    FakeAgent.script = [("content", '{"k": "v"}')]
     nc = NodeCall(node_id=3, instruction="x", schema={"type": "object"})
 
     res = await _runner().run(nc, ctx)
@@ -152,9 +160,19 @@ async def test_result_written_to_context_file(ctx, storage):
     assert res.status == "completed"
     path = storage.node_context_path(WF_ID, 3)
     assert path.exists()
-    # Self-describing envelope: schema node carries the structured object.
+    # Self-describing envelope: schema node carries the parsed structured object.
     assert json.loads(path.read_text()) == {"kind": "schema", "result": {"k": "v"}}
     assert res.result_ref == "context/n3.json"
+    assert res.result == {"k": "v"}
+
+
+@pytest.mark.asyncio
+async def test_schema_node_accepts_fenced_json(ctx, storage):
+    # Agents often wrap JSON in a ```json fence despite instructions; tolerate it.
+    FakeAgent.script = [("content", '```json\n{"k": "v"}\n```')]
+    nc = NodeCall(node_id=4, instruction="x", schema={"type": "object"})
+    res = await _runner().run(nc, ctx)
+    assert res.status == "completed"
     assert res.result == {"k": "v"}
 
 
@@ -169,6 +187,35 @@ async def test_text_result_serialization(ctx, storage):
     path = storage.node_context_path(WF_ID, 5)
     # Self-describing envelope: text node carries raw text under kind="text".
     assert json.loads(path.read_text()) == {"kind": "text", "result": "plain text"}
+
+
+@pytest.mark.asyncio
+async def test_declared_inputs_inlined_into_prompt(ctx, storage):
+    # Write an upstream node's context file, then declare it as an input. The
+    # runner must unwrap the envelope and inline the value into the user message
+    # (Phase-1 nodes are tool-less; inputs are delivered inline, not read).
+    storage.node_context_path(WF_ID, 0).write_text(
+        json.dumps({"kind": "text", "result": "UPSTREAM_VALUE_42"}),
+        encoding="utf-8",
+    )
+    FakeAgent.script = [("content", "done")]
+    nc = NodeCall(node_id=1, instruction="use the input", inputs=("n0.json",))
+
+    await _runner().run(nc, ctx)
+
+    sent_msg = FakeAgent.instances[0].run_calls[0]["msg"]
+    assert "UPSTREAM_VALUE_42" in sent_msg
+    assert "n0.json" in sent_msg
+    assert sent_msg.rstrip().endswith("use the input")
+
+
+@pytest.mark.asyncio
+async def test_missing_input_is_skipped_not_fatal(ctx):
+    # A declared-but-absent input must not crash the node (it hashed as "").
+    FakeAgent.script = [("content", "ok")]
+    nc = NodeCall(node_id=2, instruction="go", inputs=("does_not_exist.json",))
+    res = await _runner().run(nc, ctx)
+    assert res.status == "completed"
 
 
 @pytest.mark.asyncio
@@ -193,8 +240,8 @@ async def test_persist_failure_distinguishable_from_agent_failure(ctx, storage, 
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio
 async def test_schema_retry_then_success(ctx):
-    # First call: schema node returns None (invalid). Second: valid object.
-    FakeAgent.script = [("content", None), ("content", {"ok": True})]
+    # First call: invalid (non-JSON text). Second: valid JSON object.
+    FakeAgent.script = [("content", "not json at all"), ("content", '{"ok": true}')]
     nc = NodeCall(node_id=9, instruction="x", schema={"type": "object"})
 
     res = await _runner().run(nc, ctx)
@@ -210,7 +257,7 @@ async def test_schema_retry_then_success(ctx):
 
 @pytest.mark.asyncio
 async def test_schema_retry_on_raise(ctx):
-    FakeAgent.script = [("raise", ValueError("bad json")), ("content", {"ok": 1})]
+    FakeAgent.script = [("raise", ValueError("bad json")), ("content", '{"ok": 1}')]
     nc = NodeCall(node_id=11, instruction="x", schema={"type": "object"})
 
     res = await _runner().run(nc, ctx)
@@ -223,7 +270,8 @@ async def test_schema_retry_on_raise(ctx):
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio
 async def test_schema_retry_exhausted_fails(ctx):
-    FakeAgent.script = [("content", None), ("content", None)]
+    # Both attempts emit non-JSON text -> validation fails twice -> node fails.
+    FakeAgent.script = [("content", "nope"), ("content", "still nope")]
     nc = NodeCall(node_id=13, instruction="x", schema={"type": "object"})
 
     res = await _runner().run(nc, ctx)
