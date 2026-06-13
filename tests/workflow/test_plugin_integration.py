@@ -29,8 +29,9 @@ from pantheon.workflow.toolset import WorkflowToolSet
 
 
 class _FakeAgent:
-    def __init__(self, name: str):
+    def __init__(self, name: str, instructions: str = "base instructions"):
         self.name = name
+        self.instructions = instructions
 
 
 class _FakeTeam:
@@ -75,10 +76,42 @@ async def test_get_toolsets_empty_when_no_leader():
 
 
 @pytest.mark.asyncio
-async def test_on_team_created_is_noop():
+async def test_on_team_created_injects_script_guide_into_leader_only():
+    from pantheon.workflow.toolset import SCRIPT_GUIDE
+
     plugin = WorkflowTeamPlugin(_FakeEngine())
-    # ABC-required hook; must not raise.
-    assert await plugin.on_team_created(_FakeTeam([_FakeAgent("leader")])) is None
+    leader = _FakeAgent("leader")
+    worker = _FakeAgent("worker")
+    team = _FakeTeam([leader, worker])
+
+    result = await plugin.on_team_created(team)
+    assert result is None  # ABC contract: returns None
+
+    # The Leader's instructions now carry the scripting guide; the worker's
+    # are untouched (only the Leader drives workflows — decision 9/13).
+    assert "Workflow scripting reference" in leader.instructions
+    assert SCRIPT_GUIDE in leader.instructions
+    assert leader.instructions.startswith("base instructions")
+    assert worker.instructions == "base instructions"
+
+
+@pytest.mark.asyncio
+async def test_on_team_created_injection_is_idempotent():
+    plugin = WorkflowTeamPlugin(_FakeEngine())
+    leader = _FakeAgent("leader")
+    team = _FakeTeam([leader])
+
+    await plugin.on_team_created(team)
+    once = leader.instructions
+    await plugin.on_team_created(team)  # second pass must not double-append
+    assert leader.instructions == once
+
+
+@pytest.mark.asyncio
+async def test_on_team_created_no_leader_is_safe():
+    plugin = WorkflowTeamPlugin(_FakeEngine())
+    # Empty team: must not raise.
+    assert await plugin.on_team_created(_FakeTeam([])) is None
 
 
 # --- 2. real team injection (no LLM) -------------------------------------- #
@@ -103,6 +136,14 @@ async def test_team_setup_injects_workflow_tools_into_leader_only():
     # The WorkflowToolSet registers as a provider named "workflow".
     assert "workflow" in leader.providers
     assert "workflow" not in worker.providers
+
+    # on_team_created (run by async_setup) injected the scripting guide into the
+    # leader's instructions only.
+    from pantheon.workflow.toolset import SCRIPT_GUIDE
+
+    assert "Workflow scripting reference" in leader.instructions
+    assert SCRIPT_GUIDE and SCRIPT_GUIDE in leader.instructions
+    assert "Workflow scripting reference" not in worker.instructions
 
     # The leader's workflow provider exposes the 5 tools.
     ts = WorkflowToolSet(_FakeEngine())

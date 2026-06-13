@@ -207,6 +207,12 @@ class InProcessRunner(NodeRunner):
             name=f"wf-{wf_id}-n{node_id}",
             file_path=str(memory_path),
         )
+        # Memory persists under ``memory.id`` (a random uuid by default), which
+        # would land the JSONL at ``nodes/{uuid}.jsonl`` instead of the
+        # node_id-addressed ``nodes/n{node_id}.jsonl`` that ``storage`` /
+        # Phase-2 ``workflow_node_trace`` expect. Align the id with the path
+        # stem so the trace file is addressable by node_id.
+        memory.id = memory_path.stem  # "n{node_id}"
         agent = self._agent_factory(
             name=f"wf-{wf_id}-n{node_id}",
             instructions=system_prompt,
@@ -226,68 +232,75 @@ class InProcessRunner(NodeRunner):
         )
         last_err: str | None = None
 
-        for attempt in range(max_attempts):
-            msg = user_message
-            if attempt > 0:
-                msg = (
-                    f"{user_message}\n\n---\nYour previous output was invalid: "
-                    f"{last_err}. Return ONLY valid JSON conforming to the "
-                    "schema, with nothing else."
-                )
-            try:
-                content = await self._invoke(
-                    agent, msg, node_call, context_variables, ctx
-                )
-            except Exception as exc:  # noqa: BLE001
-                if node_call.schema is not None and attempt < max_attempts - 1:
-                    last_err = _summarize(exc)
-                    continue
-                raise
-
-            # Schema node: the agent returned TEXT (we never used the Agent's
-            # native structured output — see the note above). Parse + validate
-            # it here against the pydantic model. On failure, retry once with
-            # feedback, else fail the node.
-            if node_call.schema is not None:
-                parsed, err = _parse_and_validate(content, validator)
-                if err is not None:
-                    last_err = err
-                    if attempt < max_attempts - 1:
-                        continue
-                    return NodeResult(
-                        node_id=node_id, status="failed", error=last_err
+        try:
+            for attempt in range(max_attempts):
+                msg = user_message
+                if attempt > 0:
+                    msg = (
+                        f"{user_message}\n\n---\nYour previous output was invalid: "
+                        f"{last_err}. Return ONLY valid JSON conforming to the "
+                        "schema, with nothing else."
                     )
-                content = parsed  # plain dict/list/scalar per the contract
+                try:
+                    content = await self._invoke(
+                        agent, msg, node_call, context_variables, ctx
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    if node_call.schema is not None and attempt < max_attempts - 1:
+                        last_err = _summarize(exc)
+                        continue
+                    raise
 
-            # Success — persist and return. A persistence failure here is NOT
-            # an agent failure: the run succeeded, we just couldn't record it.
-            # Surface it with a distinguishable error so the journal/API layer
-            # can tell "agent failed" from "we failed to record a success".
-            try:
-                self._write_context(context_path, content, node_call.schema)
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("node %s persist failed", node_id)
+                # Schema node: the agent returned TEXT (we never used the Agent's
+                # native structured output — see the note above). Parse + validate
+                # it here against the pydantic model. On failure, retry once with
+                # feedback, else fail the node.
+                if node_call.schema is not None:
+                    parsed, err = _parse_and_validate(content, validator)
+                    if err is not None:
+                        last_err = err
+                        if attempt < max_attempts - 1:
+                            continue
+                        return NodeResult(
+                            node_id=node_id, status="failed", error=last_err
+                        )
+                    content = parsed  # plain dict/list/scalar per the contract
+
+                # Success — persist and return. A persistence failure here is NOT
+                # an agent failure: the run succeeded, we just couldn't record it.
+                # Surface it with a distinguishable error so the journal/API layer
+                # can tell "agent failed" from "we failed to record a success".
+                try:
+                    self._write_context(context_path, content, node_call.schema)
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("node %s persist failed", node_id)
+                    return NodeResult(
+                        node_id=node_id,
+                        status="failed",
+                        error=f"persist failed: {_summarize(exc)}",
+                    )
                 return NodeResult(
                     node_id=node_id,
-                    status="failed",
-                    error=f"persist failed: {_summarize(exc)}",
+                    status="completed",
+                    result=content,
+                    result_ref=result_ref,
+                    # TODO: token_cost is a best-effort stub — ResponseDetails
+                    # carries no usage field yet; wire real usage when available.
+                    token_cost=0,
                 )
+
+            # Exhausted retries (schema node only reaches here on repeated invalid).
             return NodeResult(
                 node_id=node_id,
-                status="completed",
-                result=content,
-                result_ref=result_ref,
-                # TODO: token_cost is a best-effort stub — ResponseDetails
-                # carries no usage field yet; wire real usage when available.
-                token_cost=0,
+                status="failed",
+                error=last_err or "schema validation failed",
             )
-
-        # Exhausted retries (schema node only reaches here on repeated invalid).
-        return NodeResult(
-            node_id=node_id,
-            status="failed",
-            error=last_err or "schema validation failed",
-        )
+        finally:
+            # Force the node's conversation memory to disk on EVERY exit path
+            # (success, failure, raise). The Memory debounce (2s) would otherwise
+            # lose the trace for a fast node that returns before it fires — and
+            # Phase-2 node-trace reads this file. flush() is best-effort.
+            await self._flush_memory(memory, node_id)
 
     async def _invoke(
         self,
@@ -326,6 +339,23 @@ class InProcessRunner(NodeRunner):
         else:
             response = await coro
         return getattr(response, "content", None)
+
+    @staticmethod
+    async def _flush_memory(memory: Memory, node_id: int) -> None:
+        """Force-persist the node's memory now; never raise.
+
+        Memory auto-persists on a 2s debounce, so a fast node would otherwise
+        return (and the engine could tear the loop down) before its trace hit
+        disk. Flushing here makes ``nodes/n{node_id}.jsonl`` exist by the time
+        the node settles. Best-effort: a flush failure must not fail the node.
+        """
+        flush = getattr(memory, "flush", None)
+        if flush is None:
+            return
+        try:
+            await flush()
+        except Exception as exc:  # noqa: BLE001 — trace persistence is best-effort
+            logger.warning("node %s memory flush failed: %s", node_id, exc)
 
     @staticmethod
     def _write_context(path, content: Any, schema: dict | None) -> None:

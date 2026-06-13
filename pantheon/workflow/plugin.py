@@ -19,11 +19,17 @@ from typing import TYPE_CHECKING, Any
 from pantheon.team.plugin import TeamPlugin
 from pantheon.utils.log import logger
 
-from .toolset import WorkflowToolSet
+from .toolset import SCRIPT_GUIDE, WorkflowToolSet
 
 if TYPE_CHECKING:
     from pantheon.team.pantheon import PantheonTeam
     from .engine import WorkflowEngine
+
+
+#: Wrapper marking the injected guide so re-injection is idempotent and the
+#: Leader can see where its workflow-scripting reference begins/ends.
+_GUIDE_HEADER = "\n\n# Workflow scripting reference (workflow_create)\n\n"
+_GUIDE_SENTINEL = "# Workflow scripting reference (workflow_create)"
 
 
 class WorkflowTeamPlugin(TeamPlugin):
@@ -56,5 +62,36 @@ class WorkflowTeamPlugin(TeamPlugin):
         return [(toolset, [leader.name])]
 
     async def on_team_created(self, team: "PantheonTeam") -> None:
-        """Required by the ABC. No team-level instruction injection in Phase 1."""
-        return None
+        """Inject the workflow scripting guide into the Leader's instructions.
+
+        The Leader authors restricted Python orchestration scripts for
+        ``workflow_create`` / ``workflow_edit``. ``SCRIPT_GUIDE`` is the
+        authoritative reference for the script API, determinism rules, and the
+        node/parallel/pipeline contract — without it the Leader has only the
+        terse tool docstrings and tends to write invalid scripts. We append it
+        to the Leader (``team.team_agents[0]``) ONLY, mirroring the toolset
+        scoping (sub-agents never drive workflows).
+
+        Idempotent: if the guide is already present (re-created team, duplicate
+        plugin), it is not appended again. A missing guide (packaging glitch ->
+        empty ``SCRIPT_GUIDE``) is a no-op rather than a crash.
+        """
+        if not getattr(team, "team_agents", None):
+            return
+        if not SCRIPT_GUIDE:
+            logger.warning(
+                "WorkflowTeamPlugin: SCRIPT_GUIDE is empty; Leader will have no "
+                "workflow-scripting reference"
+            )
+            return
+
+        leader = team.team_agents[0]
+        instructions = getattr(leader, "instructions", None)
+        if not instructions:
+            return
+        if _GUIDE_SENTINEL in instructions:
+            return  # already injected
+        leader.instructions = instructions + _GUIDE_HEADER + SCRIPT_GUIDE
+        logger.debug(
+            f"WorkflowTeamPlugin: injected SCRIPT_GUIDE into leader '{leader.name}'"
+        )

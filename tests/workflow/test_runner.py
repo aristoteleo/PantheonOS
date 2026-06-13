@@ -144,6 +144,31 @@ async def test_memory_path_ignores_label(ctx, storage):
     expected = str(storage.node_memory_path(WF_ID, 42))
     assert mem._file_path == expected
     assert expected.endswith("nodes/n42.jsonl")
+    # The runner aligns memory.id to the path stem so persistence lands at the
+    # node_id-addressed file (not a random uuid) — Phase-2 trace reads this.
+    assert mem.id == "n42"
+
+
+@pytest.mark.asyncio
+async def test_node_memory_persists_at_node_id_path(ctx, storage):
+    # The node's memory must be addressable by node_id. After run(), the
+    # backend's metadata file lands at nodes/n{node_id}.meta.json (the JSONL
+    # messages file is written only when there are messages — exercised by the
+    # real-LLM E2E; the fake agent adds none). What matters here is that
+    # persistence is keyed to n{node_id}, NOT a random uuid.
+    FakeAgent.script = [("content", "ok")]
+    nc = NodeCall(node_id=7, instruction="x")
+    await _runner().run(nc, ctx)
+
+    meta_path = storage.nodes_dir(WF_ID) / "n7.meta.json"
+    assert meta_path.exists(), f"expected node memory meta at {meta_path}"
+    # No stray uuid-named files leaked into the nodes dir.
+    stray = [
+        p.name
+        for p in storage.nodes_dir(WF_ID).iterdir()
+        if not p.name.startswith("n7.")
+    ]
+    assert stray == [], f"unexpected non-node_id files in nodes/: {stray}"
 
 
 # --------------------------------------------------------------------------- #
