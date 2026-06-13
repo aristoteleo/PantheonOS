@@ -8,53 +8,65 @@ This module builds the five names a Leader script calls — ``node``,
 :class:`~pantheon.workflow.runner.NodeRunContext`, a concurrency semaphore, a
 shared **node_id counter**, and a small mutable :class:`RunState`.
 
-node_id ordering guarantee (resume correctness)
-===============================================
-Resume correctness depends on the Nth ``node()`` call this run being assigned
-``node_id == N`` — the same N it had on the recorded run — so that
-``journal.lookup(node_id, key)`` consults the right prior position and the
-prefix-cascade boundary stays meaningful. ``Journal.lookup`` additionally
-REQUIRES that calls arrive in ascending ``node_id`` order.
+Deterministic node_id allocation (resume correctness)
+=====================================================
+Resume correctness depends on the Nth ``node()`` *in source order* this run
+being assigned the SAME ``node_id`` it had on the recorded run, so
+``journal.lookup(node_id, key)`` consults the right prior position. The old
+implementation allocated the id inside each ``node()`` coroutine's prologue and
+relied on ``ensure_future`` + ``sleep(0)`` step ordering — which races under
+nested ``parallel`` / multi-stage ``pipeline`` (an inner ``node()`` preceded by
+an ``await`` allocates in execution-timing order, not source order). That is a
+silent-corruption bug: resume could map cached results to the WRONG nodes.
 
-We guarantee BOTH with one rule: **node_id allocation and the journal lookup
-happen synchronously at the very top of ``node()``, before its first
-``await``.** A Python coroutine runs synchronously from the moment it is
-awaited (or stepped) until it hits its first real suspension point. ``node()``
-does its allocate-and-lookup with NO ``await`` in between, so once a particular
-``node()`` coroutine begins executing it cannot be interleaved with another
-coroutine until after it has both allocated its id and recorded its lookup.
+The fix is **eager synchronous submission**: node_id allocation happens
+synchronously at the moment ``node()`` is CALLED, in source-evaluation order,
+decoupled from execution timing.
 
-The remaining question is the ORDER in which ``node()`` coroutines first begin
-executing. The script issues calls in deterministic source order:
+* ``node(...)`` is a **regular (sync) function** returning an awaitable. Its
+  synchronous body, with NO ``await``, does in order: (1) allocate ``node_id``,
+  (2) compute input hashes + ``compute_node_key``, (3) ``journal.lookup``
+  (capturing the cached entry). It then returns an inner ``_execute()``
+  coroutine closing over ``node_id``/``key``/``cached`` that does the
+  events + run-or-return-cached + record. The script writes ``await node(...)``:
+  calling ``node(...)`` runs the sync allocation immediately; awaiting runs
+  ``_execute()``.
 
-* Sequential ``await node(...)``: trivially in order.
-* ``parallel(thunks)``: we invoke the thunks **in list order** and immediately
-  ``await`` step each resulting coroutine up to its first suspension before
-  moving to the next — see :func:`_start_in_order`. Concretely we create the
-  coroutine for thunk[i], wrap it in a task, and yield control so it runs its
-  synchronous prologue (allocate + lookup) before thunk[i+1] is invoked. Thus
-  node_ids are allocated 0,1,2,... matching thunk/source order regardless of
-  how long each node's runner work later takes.
-* ``pipeline(items, *stages)``: each item is an independent serial chain; the
-  chains are likewise started in item order via :func:`_start_in_order`, so
-  the stage-1 ``node()`` of item 0 allocates before item 1's, etc. (Stages
-  beyond the first allocate when reached; in a no-barrier pipeline the global
-  allocation order across items is therefore data-dependent, BUT a *resume*
-  re-executes the identical script with the identical stage timing model, so
-  the same allocation order reproduces. The invariant we rely on is only that,
-  for a fixed deterministic script, the allocation order is reproducible — and
-  the synchronous-prologue rule plus in-order start gives exactly that.)
+* ``parallel(thunks)`` synchronously materializes ``coros = [t() for t in
+  thunks]`` (calling each thunk in list order → each ``node()`` allocates its
+  id synchronously, in source order, BEFORE any execution), then
+  ``await asyncio.gather(*coros, return_exceptions=True)``. A NESTED ``parallel``
+  thunk calls ``parallel(...)`` synchronously, which synchronously materializes
+  its inner coros → allocation is synchronous depth-first in source order.
 
-The counter is a plain ``int`` in the closure incremented inside the
-synchronous prologue; because the prologue cannot be interleaved, no lock is
-needed within a single event loop.
+* ``pipeline(items, *stages)`` is the hard case: a stage-k>0 ``node()`` cannot
+  be called synchronously (it needs stage-(k-1)'s result). We use **reserved id
+  blocks**: at the synchronous start of ``pipeline`` reserve ``N*S`` ids
+  (N=len(items), S=len(stages)) in **item-major, stage-minor** order — item i,
+  stage s → ``block_base + i*S + s``. The reserved id for the stage about to run
+  is published via a ``contextvars.ContextVar`` (``_reserved_node_id``); each
+  item-chain coroutine sets the var immediately before awaiting stage s, and
+  ``node()``'s sync allocator consumes it (resetting the var) instead of calling
+  the counter. Each chain runs as its OWN ``asyncio.Task``, which copies the
+  current context at creation (PEP 567), so interleaved chains cannot steal each
+  other's reserved id.
+
+  Phase-1 constraint (documented + logged): exactly one ``node()`` per stage. A
+  stage that calls ``node()`` zero times leaves its reserved id unused (fine). A
+  stage that calls ``node()`` MORE than once consumes the reserved id on the
+  first call only; subsequent calls fall back to ``counter.next()`` — which is
+  NOT position-deterministic across resume. We log a warning when that happens.
+
+The counter remains the source of sequential + parallel ids; ``pipeline``
+reserves blocks from the SAME counter, so all ids across a script are unique.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
-from collections.abc import Awaitable, Callable
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -68,8 +80,18 @@ from .models import (
 )
 from .runner import NodeRunContext, NodeRunner
 
+logger = logging.getLogger(__name__)
+
 #: Default cap on concurrent ``runner.run`` calls.
 API_DEFAULT_CONCURRENCY = 8
+
+#: Publishes the reserved node_id for the pipeline stage about to call node().
+#: ``None`` means "no reservation; allocate from the counter". Set per item-chain
+#: coroutine in its own task (whose context is a copy) so interleaved chains
+#: never collide.
+_reserved_node_id: contextvars.ContextVar[int | None] = contextvars.ContextVar(
+    "_reserved_node_id", default=None
+)
 
 
 class NodeError(Exception):
@@ -158,9 +180,23 @@ def make_api(
     async def _publish(event: dict) -> None:
         await publisher.publish(chat_id, event)
 
+    def _allocate_node_id() -> int:
+        """Allocate the node_id for a ``node()`` call SYNCHRONOUSLY.
+
+        Consumes a pipeline-reserved id from the contextvar if one is set (and
+        resets the var so a second ``node()`` in the same stage falls back to
+        the counter — Phase-1: one node per stage). Otherwise pulls the next id
+        from the monotonic counter (sequential + parallel).
+        """
+        reserved = _reserved_node_id.get()
+        if reserved is not None:
+            _reserved_node_id.set(None)
+            return reserved
+        return counter.next()
+
     # --- node -------------------------------------------------------------- #
 
-    async def node(
+    def node(
         instruction: str,
         *,
         template: str = "generic",
@@ -171,102 +207,126 @@ def make_api(
         model: str | None = None,
         timeout: float | None = None,
     ) -> Any:
-        # ---- SYNCHRONOUS PROLOGUE (no await before the lookup) ------------- #
-        # Allocating node_id and consulting the journal happen here, with NO
-        # await in between, so this prologue cannot interleave with another
-        # coroutine. This is what guarantees node_ids are allocated, and
-        # journal.lookup is called, in ascending source order. See module
-        # docstring.
-        node_id = counter.next()
+        """Allocate a node SYNCHRONOUSLY, return an awaitable that executes it.
+
+        This is a **regular function**, not a coroutine: calling ``node(...)``
+        runs the synchronous prologue (id allocation + key + journal lookup)
+        immediately, in source-evaluation order. Awaiting the returned object
+        runs the node (events + run-or-return-cached + record).
+        """
+        # ---- SYNCHRONOUS PROLOGUE (runs at CALL time, no await) ----------- #
+        node_id = _allocate_node_id()
         input_hashes = _input_hashes(tuple(inputs))
         key = compute_node_key(instruction, template, schema, model, input_hashes)
         cached = journal.lookup(node_id, key)
+        eff_phase = phase or run_state.current_phase
         # ---- END SYNCHRONOUS PROLOGUE ------------------------------------- #
 
-        eff_phase = phase or run_state.current_phase
+        async def _execute() -> Any:
+            if cached is not None:
+                # Cache hit: reflect status via events, never call the runner.
+                await _publish(
+                    ev.make_node_started(wf_id, node_id, label, eff_phase)
+                )
+                await _publish(
+                    ev.make_node_finished(
+                        wf_id, node_id, label, cached.status, cached.result_ref
+                    )
+                )
+                if cached.status == "skipped":
+                    return None
+                return _load_result_ref(cached.result_ref)
 
-        if cached is not None:
-            # Cache hit: reflect status via events, never call the runner.
+            # Cache miss: run the node.
             await _publish(
                 ev.make_node_started(wf_id, node_id, label, eff_phase)
             )
-            await _publish(
-                ev.make_node_finished(
-                    wf_id, node_id, label, cached.status, cached.result_ref
+
+            node_call = NodeCall(
+                node_id=node_id,
+                instruction=instruction,
+                template=template,
+                schema=schema,
+                inputs=tuple(inputs),
+                label=label,
+                phase=eff_phase,
+                model=model,
+                timeout=timeout,
+            )
+
+            # The semaphore wraps ONLY runner.run — not the journal/event work.
+            async with semaphore:
+                result: NodeResult = await runner.run(node_call, ctx)
+
+            journal.record(
+                JournalEntry(
+                    node_id=node_id,
+                    key=key,
+                    label=label,
+                    status=result.status,
+                    result_ref=result.result_ref,
+                    token_cost=result.token_cost,
                 )
             )
-            if cached.status == "skipped":
-                return None
-            return _load_result_ref(cached.result_ref)
-
-        # Cache miss: run the node.
-        await _publish(ev.make_node_started(wf_id, node_id, label, eff_phase))
-
-        node_call = NodeCall(
-            node_id=node_id,
-            instruction=instruction,
-            template=template,
-            schema=schema,
-            inputs=tuple(inputs),
-            label=label,
-            phase=eff_phase,
-            model=model,
-            timeout=timeout,
-        )
-
-        # The semaphore wraps ONLY runner.run — not the journal/event work.
-        async with semaphore:
-            result: NodeResult = await runner.run(node_call, ctx)
-
-        journal.record(
-            JournalEntry(
-                node_id=node_id,
-                key=key,
-                label=label,
-                status=result.status,
-                result_ref=result.result_ref,
-                token_cost=result.token_cost,
+            await _publish(
+                ev.make_node_finished(
+                    wf_id, node_id, label, result.status, result.result_ref
+                )
             )
-        )
-        await _publish(
-            ev.make_node_finished(
-                wf_id, node_id, label, result.status, result.result_ref
+
+            # Update progress + emit a status event.
+            run_state.progress["done"] = run_state.progress.get("done", 0) + 1
+            await _publish(
+                ev.make_status(wf_id, "running", dict(run_state.progress))
             )
-        )
 
-        # Update progress + emit a status event.
-        run_state.progress["done"] = run_state.progress.get("done", 0) + 1
-        await _publish(
-            ev.make_status(wf_id, "running", dict(run_state.progress))
-        )
+            if result.status == "failed":
+                raise NodeError(node_id, label, result.error)
 
-        if result.status == "failed":
-            raise NodeError(node_id, label, result.error)
+            # Prefer the in-memory result the runner already holds (avoids a
+            # re-read of result_ref); fall back to the envelope if absent.
+            if result.result is not None:
+                return result.result
+            return _load_result_ref(result.result_ref)
 
-        # Prefer the in-memory result the runner already holds (avoids a
-        # re-read of result_ref); fall back to the envelope if absent.
-        if result.result is not None:
-            return result.result
-        return _load_result_ref(result.result_ref)
+        return _execute()
 
     # --- parallel ---------------------------------------------------------- #
 
-    async def parallel(thunks) -> list:
-        """Run zero-arg coroutine-returning thunks concurrently.
+    def parallel(thunks) -> Any:
+        """Run zero-arg awaitable-returning thunks concurrently.
 
-        Thunks are invoked in list order and each is stepped through its
-        synchronous prologue (node_id allocation + journal lookup) before the
-        next is invoked — preserving source-order node_id allocation. Uses
-        ``return_exceptions=True``: a failing thunk yields its exception in the
-        result list and does NOT cancel its siblings (Claude-Code semantics).
+        This is a **regular function** returning an awaitable (like ``node``).
+        At CALL time it synchronously calls each thunk in list order — so each
+        ``node()`` (or nested ``parallel()``, itself sync) inside a thunk
+        allocates its node_id(s) immediately, in source order, DEPTH-FIRST,
+        before any execution. Awaiting the returned object gathers the
+        materialized awaitables. ``return_exceptions=True``: a failing thunk
+        yields its exception in the result list and does NOT cancel siblings
+        (Claude-Code semantics).
+
+        ``parallel`` MUST be sync-returning-awaitable (not ``async def``) so a
+        NESTED ``parallel`` thunk materializes its inner coros synchronously at
+        the moment the outer thunk list is evaluated — otherwise a later sibling
+        ``node()`` would allocate before the nested block's nodes, breaking
+        depth-first source order.
         """
-        tasks = await _start_in_order([lambda t=t: t() for t in thunks])
-        return await asyncio.gather(*tasks, return_exceptions=True)
+        coros = [t() for t in thunks]  # synchronous, source-order allocation
+
+        async def _gather() -> list:
+            return await asyncio.gather(*coros, return_exceptions=True)
+
+        return _gather()
 
     # --- pipeline ---------------------------------------------------------- #
 
-    async def pipeline(items, *stages) -> list:
+    def pipeline(items, *stages) -> Any:
         """Run each item through ``stages`` as an independent serial chain.
+
+        Regular function returning an awaitable (like ``node``/``parallel``).
+        The ``N*S`` reserved-id block is allocated SYNCHRONOUSLY at call time so
+        that a ``pipeline`` nested inside ``parallel`` claims its block in source
+        order, depth-first, before later siblings allocate.
 
         There is NO barrier between stages: item A may be in stage 3 while item
         B is still in stage 1. Each stage is ``Callable(prev, item, index) ->
@@ -274,21 +334,54 @@ def make_api(
         stage raising drops that item to the exception and skips its remaining
         stages; other items are unaffected. The returned list is aligned to
         ``items``.
+
+        node_id allocation is deterministic via RESERVED ID BLOCKS: ``N*S`` ids
+        reserved in item-major/stage-minor order (item i, stage s ->
+        ``block_base + i*S + s``), independent of completion timing. Phase-1
+        assumes exactly one ``node()`` per stage (see module docstring).
         """
         items = list(items)
+        n_items = len(items)
+        n_stages = len(stages)
+
+        # Reserve the whole N*S block SYNCHRONOUSLY, up front, from the shared
+        # counter so all ids across the script stay unique. Item-major order.
+        block_base = counter.reserve(n_items * n_stages)
 
         def _chain_thunk(item, idx):
             async def _chain():
                 prev = item
-                for stage in stages:
+                for s, stage in enumerate(stages):
+                    reserved = block_base + idx * n_stages + s
+                    # Set the reservation IMMEDIATELY before the stage call. The
+                    # stage's node() runs its sync allocator within this same
+                    # task and consumes it. Each chain runs in its own task whose
+                    # context is a copy (see below), so this cannot leak across
+                    # concurrently-interleaved chains.
+                    _reserved_node_id.set(reserved)
                     prev = await _call_stage(stage, prev, item, idx)
+                    # Defensive: if the stage didn't call node() (zero nodes),
+                    # clear the stale reservation so it can't bleed into the
+                    # next stage of THIS chain.
+                    _reserved_node_id.set(None)
                 return prev
 
             return _chain
 
-        thunks = [_chain_thunk(item, idx) for idx, item in enumerate(items)]
-        tasks = await _start_in_order(thunks)
-        return await asyncio.gather(*tasks, return_exceptions=True)
+        # Each chain runs as its OWN asyncio.Task. A Task copies the current
+        # context at creation time (PEP 567), so the ``_reserved_node_id`` var
+        # each chain sets inside itself lives in that task's private context
+        # copy and is invisible to sibling chains — even when they interleave on
+        # the event loop. (Verified: see test_pipeline_stress_many_chains_*.)
+        tasks = [
+            asyncio.ensure_future(_chain_thunk(item, idx)())
+            for idx, item in enumerate(items)
+        ]
+
+        async def _gather() -> list:
+            return await asyncio.gather(*tasks, return_exceptions=True)
+
+        return _gather()
 
     # --- phase / log (sync, fire-and-forget publish) ----------------------- #
 
@@ -320,10 +413,11 @@ def make_api(
 
 
 class _Counter:
-    """Monotonic node_id counter. Incremented inside the synchronous prologue.
+    """Monotonic node_id allocator. Incremented inside the synchronous prologue.
 
-    Safe without a lock within a single event loop because the prologue that
-    calls :meth:`next` does not ``await`` between read and increment.
+    Safe without a lock within a single event loop because :meth:`next` /
+    :meth:`reserve` are called from synchronous code (no ``await`` between read
+    and increment).
     """
 
     def __init__(self) -> None:
@@ -334,29 +428,14 @@ class _Counter:
         self._n += 1
         return nid
 
-
-async def _start_in_order(
-    thunks: list[Callable[[], Awaitable]],
-) -> list[asyncio.Task]:
-    """Invoke ``thunks`` in list order, each stepped past its sync prologue.
-
-    For each thunk we build its coroutine, wrap it in a task, then yield
-    control (``await asyncio.sleep(0)``) so the task runs its synchronous
-    prologue — which for ``node()`` is node_id allocation + journal lookup —
-    before the next thunk is invoked. This makes node_id allocation order
-    follow thunk/source order even though the tasks then proceed concurrently.
-    """
-    tasks: list[asyncio.Task] = []
-    for thunk in thunks:
-        task = asyncio.ensure_future(thunk())
-        tasks.append(task)
-        # Let the freshly-scheduled task run up to its first await (its
-        # synchronous prologue) before creating the next one.
-        await asyncio.sleep(0)
-    return tasks
+    def reserve(self, count: int) -> int:
+        """Reserve ``count`` consecutive ids; return the first (block base)."""
+        base = self._n
+        self._n += count
+        return base
 
 
-def _fire(coro: Awaitable) -> None:
+def _fire(coro) -> None:
     """Schedule a fire-and-forget coroutine on the running loop.
 
     Used by the synchronous ``phase``/``log`` to publish events without an
