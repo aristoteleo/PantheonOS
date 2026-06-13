@@ -19,22 +19,21 @@ Design decisions encoded here:
   ``NodeResult(status="failed", error=...)``. The runner itself does not
   propagate exceptions; the engine/API layer decides what to do.
 
-Schema-retry (spec §6 decision 1)
----------------------------------
-Pantheon's ``agent.run(response_format=...)`` extracts the parsed structured
-object from ``last_message["parsed"]`` (see ``agent.py`` ~line 2693). On
-output that fails to parse/validate, two surfaces are possible and BOTH are
-handled here:
+Schema enforcement (prompt-driven, NOT the Agent's native structured output)
+----------------------------------------------------------------------------
+The Agent's native structured-output path (``agent.run(response_format=...)``)
+is unreliable across OpenAI-compatible proxies: the Responses-API path
+serializes the pydantic class raw (``ModelMetaclass is not JSON serializable``)
+and the chat-completions path double-wraps the result. So this runner does NOT
+pass ``response_format`` — it always runs schema nodes as plain TEXT agents.
 
-1. the run *raises* (provider/validation error), or
-2. the run *returns* with ``content is None`` (no parsed object).
-
-For a schema node, either is treated as an invalid attempt and the node is
-re-run ONCE with an error-feedback user message. After the retry still fails
-we return ``status="failed"``. (DONE_WITH_CONCERNS note: the exact provider
-failure surface for malformed structured output was not 100% pinned down from
-a static read; catching both a raise and a ``None`` content is the
-conservative, correct superset.)
+Instead, a schema node's concrete JSON Schema is embedded in the prompt by
+``compose_node_prompt``, and the runner parses + validates the text reply here
+(:func:`_parse_and_validate`, backed by :mod:`schema_convert`). On an invalid
+reply (not JSON, or JSON that fails the schema) the node is re-run ONCE with an
+error-feedback user message; a second failure yields ``status="failed"``. The
+validated value is normalized to a plain dict/list/scalar before persistence,
+matching the SCRIPT_GUIDE §6 contract ("schema nodes give you validated dicts").
 
 Testability seam
 ----------------
