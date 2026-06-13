@@ -189,6 +189,14 @@ class Journal:
         with self.path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(asdict(entry), sort_keys=True) + "\n")
 
+    def recorded_node_ids(self) -> frozenset[int]:
+        """Return the node_ids :meth:`record` was called with THIS run (a copy).
+
+        Lets a resume caller distinguish freshly-executed nodes from cache hits
+        without reaching into the private ``_recorded_this_run`` set.
+        """
+        return frozenset(self._recorded_this_run)
+
     def invalidate(self, node_id: int) -> None:
         """Drop the entry at ``node_id`` and every entry with id >= it (retry).
 

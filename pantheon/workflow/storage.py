@@ -144,6 +144,31 @@ class WorkflowStorage:
     def read_script(self, workflow_id: str) -> str:
         return self.script_path(workflow_id).read_text(encoding="utf-8")
 
+    # --- final result ---
+
+    def result_path(self, workflow_id: str) -> Path:
+        return self.workflow_dir(workflow_id) / "result.json"
+
+    def write_result(self, workflow_id: str, value: object) -> None:
+        """Atomically persist a workflow's final return value to result.json.
+
+        Serializes ``{"result": value}`` with ``default=str``; if that still
+        fails (e.g. a non-serializable container), falls back to stringifying
+        the value. Uses the same temp-file + ``os.replace`` atomic write as the
+        meta/state writers.
+        """
+        self.ensure_workflow(workflow_id)
+        try:
+            text = json.dumps({"result": value}, default=str)
+        except (TypeError, ValueError):
+            text = json.dumps({"result": str(value)})
+        _atomic_write_text(self.result_path(workflow_id), text)
+
+    def read_result(self, workflow_id: str) -> object:
+        """Read back the ``{"result": ...}`` payload's ``result`` value."""
+        data = json.loads(self.result_path(workflow_id).read_text(encoding="utf-8"))
+        return data.get("result")
+
 
 def scan_workflows(base_dir: Path) -> list[WorkflowMeta]:
     """Scan ``{base_dir}/.pantheon/workflows/*/meta.json`` for valid metas.

@@ -25,8 +25,10 @@ Resource caps (decision §4.1):
     is internal; wrapping here is the simplest correct Phase-1 enforcement).
 
 Final result persistence: ``WorkflowState`` has no field for the script's
-return value, so the engine writes ``{workflow_dir}/result.json`` as
-``{"result": <value>}`` (json ``default=str``). ``get_output`` reads it back.
+return value, so the final value is persisted via
+``WorkflowStorage.write_result`` to ``{workflow_dir}/result.json`` as
+``{"result": <value>}`` (atomic temp+replace, json ``default=str``).
+``get_output`` reads it back.
 """
 
 from __future__ import annotations
@@ -65,6 +67,11 @@ DEFAULT_CONCURRENCY = 8
 
 #: How many characters of a result/preview to surface when ``summary_only``.
 _PREVIEW_CHARS = 500
+
+#: Statuses from which a workflow never transitions again. Used to guard the
+#: control() cancel branch so a cancel arriving AFTER a natural terminal status
+#: cannot clobber it (completed/failed) or write a redundant terminal status.
+TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled", "interrupted"})
 
 
 class WorkflowLimitError(Exception):
@@ -173,7 +180,13 @@ class WorkflowEngine:
         """Ownership gate (decision 8 / Codex F2): meta.chat_id must match.
 
         Enforced at the engine layer on EVERY caller-facing method (status,
-        get_output, resume, control). Raises ``PermissionError`` on mismatch.
+        get_output, resume, control).
+
+        Raises:
+            FileNotFoundError: no ``meta.json`` exists for ``workflow_id``
+                (unknown workflow).
+            PermissionError: the workflow exists but ``meta.chat_id`` does not
+                match the calling ``chat_id``.
         """
         meta = self._read_meta(workflow_id)
         if meta.chat_id != chat_id:
@@ -197,7 +210,6 @@ class WorkflowEngine:
         script: str,
         args: Any = None,
         *,
-        base_dir: Path | None = None,  # accepted for API symmetry; unused
         auto_start: bool = True,
         created_at: str,
         workflow_id: str | None = None,
@@ -259,11 +271,42 @@ class WorkflowEngine:
     # --- run -------------------------------------------------------------- #
 
     def _launch(self, session: WorkflowSession, *, goal: str, phases: list) -> None:
-        """Start ``_run`` as a background task and store it on the session."""
+        """Start ``_run`` as a background task and store it on the session.
+
+        A done-callback is attached so the engine's OWN exceptions (publisher
+        errors, disk I/O in ``_persist_status`` / ``write_result``) cannot vanish
+        as an unretrieved-task-exception at GC and leave the session stuck at
+        "running". ``run_script`` already absorbs *script* exceptions; this
+        guards the work AROUND it.
+        """
         session.status = "running"
-        session.task = asyncio.ensure_future(
-            self._run(session, goal=goal, phases=phases)
+        task = asyncio.ensure_future(self._run(session, goal=goal, phases=phases))
+        task.add_done_callback(lambda t: self._on_task_done(session, t))
+        session.task = task
+
+    def _on_task_done(self, session: WorkflowSession, task: asyncio.Task) -> None:
+        """Surface an unhandled ``_run`` exception and fail the session.
+
+        Cancellation is expected (pause/cancel/timeout) and ignored here. Any
+        other exception means ``_run`` itself broke (not the script); we log it
+        and best-effort mark the workflow "failed" so it is never stuck running.
+        """
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is None:
+            return
+        logger.exception(
+            "workflow %s background task crashed", session.workflow_id,
+            exc_info=exc,
         )
+        session.status = "failed"
+        try:
+            self._mark(session.workflow_id, "failed")
+        except Exception:  # noqa: BLE001 — best-effort; never raise from a callback
+            logger.exception(
+                "failed to persist crash status for %s", session.workflow_id
+            )
 
     async def _run(
         self, session: WorkflowSession, *, goal: str, phases: list
@@ -307,6 +350,15 @@ class WorkflowEngine:
         )
 
         # Map the script outcome to a terminal status.
+        #
+        # State semantics:
+        #   * "interrupted" = system/environment stopped it and it is RESUMABLE:
+        #     overall-timeout, sandbox CancelledError caught by run_script, or
+        #     crash-recovery (recover()). run_script returns cancelled=True for
+        #     both timeout and cancellation, so a NATURAL run that hits these
+        #     lands here as interrupted.
+        #   * "cancelled"   = a USER explicitly stopped it (control("cancel")).
+        #     That status is written by control(), not here, and is TERMINAL.
         if result.ok:
             status = "completed"
         elif result.cancelled:
@@ -316,7 +368,7 @@ class WorkflowEngine:
 
         session.status = status
         self._persist_status(session, status)
-        self._write_result(wf_id, result.result if result.ok else None)
+        self.storage.write_result(wf_id, result.result if result.ok else None)
 
         await self.publisher.publish(
             chat_id,
@@ -377,14 +429,6 @@ class WorkflowEngine:
                 progress=self._progress(session),
             )
         )
-
-    def _write_result(self, workflow_id: str, value: Any) -> None:
-        path = self.storage.workflow_dir(workflow_id) / "result.json"
-        try:
-            text = json.dumps({"result": value}, default=str)
-        except (TypeError, ValueError):
-            text = json.dumps({"result": str(value)})
-        path.write_text(text, encoding="utf-8")
 
     @staticmethod
     def _failure_summary(result: Any) -> str:
@@ -474,7 +518,7 @@ class WorkflowEngine:
         self._check_owner(workflow_id, chat_id)
 
         if node_id is None:
-            path = self.storage.workflow_dir(workflow_id) / "result.json"
+            path = self.storage.result_path(workflow_id)
             return self._file_summary(path, summary_only)
 
         path = self.storage.node_context_path(workflow_id, node_id)
@@ -515,11 +559,11 @@ class WorkflowEngine:
         stored script. Returns resume stats: ``cached_nodes`` (prior-run entries
         reused this run) and ``will_rerun`` (entries re-recorded this run).
 
-        Counting approach (honest approximation, no cross-module hook): before
-        the re-run we snapshot the prior journal's node_ids; the journal's
-        ``_recorded_this_run`` set after the run tells us exactly which ids were
-        re-executed. ``cached_nodes`` = prior ids NOT re-recorded; ``will_rerun``
-        = the ids that were re-recorded (drawn from the prior set).
+        Counting approach (honest approximation): before the re-run we snapshot
+        the prior journal's node_ids; ``journal.recorded_node_ids()`` after the
+        run tells us exactly which ids were re-executed. ``cached_nodes`` = prior
+        ids NOT re-recorded; ``will_rerun`` = the ids re-recorded (drawn from the
+        prior set).
         """
         meta = self._check_owner(workflow_id, chat_id)
 
@@ -552,9 +596,9 @@ class WorkflowEngine:
         self._launch(session, goal=meta.goal, phases=phases)
         await self._await_task(session)
 
-        # ``_run`` rebuilt session.journal for this run; its _recorded_this_run
-        # tells us exactly which ids were re-executed.
-        recorded = set(session.journal._recorded_this_run)
+        # ``_run`` rebuilt session.journal for this run; its recorded-this-run
+        # set tells us exactly which ids were re-executed.
+        recorded = set(session.journal.recorded_node_ids())
         rerun = sorted(prior_ids & recorded)
         cached = sorted(prior_ids - recorded)
         out = {
@@ -586,11 +630,25 @@ class WorkflowEngine:
 
         if action == "pause":
             await self._cancel_task(workflow_id)
+            # If the run already settled terminally (completed/failed/cancelled/
+            # interrupted) before/while we cancelled, do NOT clobber it.
+            terminal = self._terminal_status(workflow_id)
+            if terminal is not None:
+                return {"workflow_id": workflow_id, "status": terminal}
             self._mark(workflow_id, "paused")
             return {"workflow_id": workflow_id, "status": "paused"}
 
         if action == "cancel":
             await self._cancel_task(workflow_id)
+            # Race guard (I-2): a cancel arriving AFTER natural completion must
+            # not flip a terminal status. run_script catches CancelledError and
+            # returns cancelled=True, so a truly-cancelled run lands as
+            # "interrupted" via _run; we promote that (and only that) to the
+            # user-terminal "cancelled". An already-completed/failed run is left
+            # untouched.
+            terminal = self._terminal_status(workflow_id)
+            if terminal in ("completed", "failed", "cancelled"):
+                return {"workflow_id": workflow_id, "status": terminal}
             self._mark(workflow_id, "cancelled")
             return {"workflow_id": workflow_id, "status": "cancelled"}
 
@@ -623,6 +681,19 @@ class WorkflowEngine:
         except (asyncio.CancelledError, Exception):  # noqa: BLE001
             pass
         session.task = None
+
+    def _terminal_status(self, workflow_id: str) -> str | None:
+        """Return the persisted status iff it is terminal, else ``None``.
+
+        Reads ``meta.json`` (the persisted authority that ``_run`` updates on
+        settle) so the control() race guard sees whatever the background task
+        committed before/while the cancel resolved.
+        """
+        try:
+            status = self.storage.read_meta(workflow_id).status
+        except (OSError, ValueError):
+            return None
+        return status if status in TERMINAL_STATUSES else None
 
     def _mark(self, workflow_id: str, status: str) -> None:
         session = self.sessions.get(workflow_id)

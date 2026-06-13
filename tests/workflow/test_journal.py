@@ -284,3 +284,24 @@ def test_out_of_order_record_then_lookup(tmp_path):
     reloaded = Journal(path)
     assert reloaded.lookup(0, "k0") is not None
     assert reloaded.lookup(1, "k1") is not None
+
+
+# --- recorded_node_ids accessor (I-4) ---
+
+def test_recorded_node_ids_reflects_this_run(tmp_path):
+    path = _journal_path(tmp_path)
+    j = Journal(path)
+    assert j.recorded_node_ids() == frozenset()
+    j.record(_entry(0, "k0", result_ref="context/n0.json"))
+    j.record(_entry(1, "k1", result_ref="context/n1.json"))
+    assert j.recorded_node_ids() == frozenset({0, 1})
+
+    # A freshly-loaded journal sees the persisted entries but recorded nothing
+    # THIS run (cache-hit candidates, not re-executed).
+    reloaded = Journal(path)
+    assert reloaded.entries.keys() == {0, 1}
+    assert reloaded.recorded_node_ids() == frozenset()
+
+    # Returned set is a copy: mutating it must not affect the journal.
+    snap = reloaded.recorded_node_ids()
+    assert isinstance(snap, frozenset)

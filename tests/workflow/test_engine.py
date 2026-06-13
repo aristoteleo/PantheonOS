@@ -451,3 +451,71 @@ async def test_status_and_get_output(tmp_path):
     # List view (no workflow_id).
     listing = await engine.status(chat_id=CHAT_ID)
     assert any(w["workflow_id"] == "wf1" for w in listing["workflows"])
+
+
+# --- I-1: background task done-callback surfaces engine's own exceptions ---- #
+
+
+class ExplodingPublisher:
+    """Publisher that raises on the workflow.status event (post-run engine work).
+
+    The created/node events publish fine so the run reaches its tail; the final
+    ``workflow.status`` publish raises — exercising an exception in ``_run``'s
+    own work AROUND run_script, which nobody awaits in the auto_start path.
+    """
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict]] = []
+
+    async def publish(self, chat_id: str, event: dict) -> None:
+        if event.get("type") == "workflow.status" and event.get("status") in (
+            "completed",
+            "failed",
+            "interrupted",
+        ):
+            raise RuntimeError("publish boom")
+        self.events.append((chat_id, event))
+
+
+@pytest.mark.asyncio
+async def test_run_engine_exception_marks_failed_not_stuck(tmp_path):
+    runner = WritingRunner()
+    engine = make_engine(tmp_path, runner, publisher=ExplodingPublisher())
+    await engine.create(
+        CHAT_ID,
+        "g",
+        'await node("x", label="a")\nreturn "ok"\n',
+        created_at=CREATED_AT,
+        workflow_id="wf1",
+    )
+    # The task will raise inside _run (terminal status publish). Await it and
+    # assert the exception surfaced rather than being swallowed at GC.
+    task = engine.sessions["wf1"].task
+    with pytest.raises(RuntimeError, match="publish boom"):
+        await task
+    # The done-callback must have marked the workflow failed — NOT stuck running.
+    assert engine.storage.read_meta("wf1").status == "failed"
+    assert engine.sessions["wf1"].status == "failed"
+
+
+# --- I-2: cancel after natural completion does NOT clobber terminal status -- #
+
+
+@pytest.mark.asyncio
+async def test_cancel_after_completion_does_not_clobber(tmp_path):
+    runner = WritingRunner()
+    engine = make_engine(tmp_path, runner)
+    await engine.create(
+        CHAT_ID,
+        "g",
+        'await node("x", label="a")\nreturn "ok"\n',
+        created_at=CREATED_AT,
+        workflow_id="wf1",
+    )
+    await wait_done(engine, "wf1")
+    assert engine.storage.read_meta("wf1").status == "completed"
+
+    # A late cancel must NOT flip completed -> cancelled.
+    out = await engine.control("wf1", CHAT_ID, "cancel")
+    assert out["status"] == "completed"
+    assert engine.storage.read_meta("wf1").status == "completed"
