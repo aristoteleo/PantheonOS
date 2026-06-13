@@ -151,6 +151,60 @@ async def test_publish_swallows_adapter_error():
     assert len(raising.calls) == 1
 
 
+# ── 4b. Headless degradation: first failure latches the publisher disabled ──
+
+
+async def test_publish_failure_latches_disabled():
+    # After the first failure, subsequent publishes are instant no-ops — no
+    # repeated connect attempts / log spam in a no-NATS environment.
+    raising = RaisingAdapter()
+    pub = WorkflowEventPublisher(nats=raising)
+    await pub.publish("chat1", events.make_log("wf1", "a"))
+    await pub.publish("chat1", events.make_log("wf1", "b"))
+    await pub.publish("chat1", events.make_log("wf1", "c"))
+    assert pub._disabled is True
+    # The adapter was called exactly once (the first attempt); then disabled.
+    assert len(raising.calls) == 1
+
+
+async def test_publish_timeout_latches_disabled_and_closes_backend():
+    # Simulate a NATS client that blocks forever inside connect() (the real
+    # infinite-reconnect behavior). A bounded first publish must time out,
+    # disable the publisher, and tear the backend down.
+    import asyncio
+
+    class HangingBackend:
+        def __init__(self):
+            self.closed = False
+
+        async def close(self):
+            self.closed = True
+
+    class HangingAdapter:
+        def __init__(self):
+            self._backend = HangingBackend()
+
+        async def publish(self, chat_id, message_type, data):
+            await asyncio.Event().wait()  # never completes
+
+    adapter = HangingAdapter()
+    pub = WorkflowEventPublisher(nats=adapter, connect_timeout=0.05)
+    await pub.publish("chat1", events.make_log("wf1", "x"))
+    assert pub._disabled is True
+    assert adapter._backend.closed is True
+    # A later publish is a no-op (does not re-create or re-attempt).
+    await pub.publish("chat1", events.make_log("wf1", "y"))
+
+
+async def test_aclose_disables_publisher():
+    fake = FakeAdapter()
+    pub = WorkflowEventPublisher(nats=fake)
+    await pub.aclose()
+    assert pub._disabled is True
+    await pub.publish("chat1", events.make_log("wf1", "x"))
+    assert fake.calls == []  # disabled -> no publish
+
+
 # ── 5. Lazy real-adapter path ─────────────────────────────────────────────
 
 
