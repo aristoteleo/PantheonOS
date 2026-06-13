@@ -25,6 +25,7 @@ from pantheon.team import PantheonTeam
 from pantheon.toolset import ToolSet, tool
 from pantheon.utils.log import logger
 from pantheon.utils.misc import generate_service_id, run_func
+from pantheon.workflow.plugin import WorkflowTeamPlugin
 from .projects import ProjectManager
 from .special_agents import get_suggestion_generator
 from .thread import Thread
@@ -158,6 +159,26 @@ class ChatRoom(ToolSet):
         from pantheon.settings import get_settings as _get_settings
         _ws = workspace_path or str(_get_settings().workspace)
         self.project_manager = ProjectManager(active_path=_ws)
+
+        # Dynamic-workflow engine (Task 10 wiring point 1): a room-level
+        # singleton rooted at the room workspace. The engine stores workflows
+        # under ``{base}/.pantheon/workflows/``. base_dir reuses the existing
+        # ``_ws`` resolution (workspace_path or settings.workspace) — the same
+        # rule the workdir logic uses. (Phase 1: one engine per room rooted at
+        # the room workspace; per-chat isolated-workspace rooting is a Phase 2
+        # refinement.) on_key_event wakes the Leader exactly like the
+        # background-task completion notify (decision 14).
+        from pantheon.workflow.engine import WorkflowEngine as _WorkflowEngine
+        self._workflow_engine = _WorkflowEngine(
+            base_dir=_ws,
+            on_key_event=self._on_workflow_key_event,
+        )
+        try:
+            # Restart recovery (decision 14.3): mark interrupted workflows.
+            # Best-effort — never block room construction.
+            self._workflow_engine.recover()
+        except Exception as e:
+            logger.warning(f"ChatRoom: workflow recover() failed: {e}")
 
         self.description = description
 
@@ -462,6 +483,15 @@ class ChatRoom(ToolSet):
             logger.error(f"ChatRoom: Failed to initialize plugins: {e}")
             import traceback
             traceback.print_exc()
+
+        # Task 10 wiring point 2: add the dynamic-workflow plugin (Leader-scoped
+        # WorkflowToolSet injection). Additive — appended after the registry
+        # plugins, idempotent, and outside the try/except above so a registry
+        # failure never silently drops workflow wiring.
+        if getattr(self, "_workflow_engine", None) is not None and not any(
+            isinstance(p, WorkflowTeamPlugin) for p in self._plugins
+        ):
+            self._plugins.append(WorkflowTeamPlugin(self._workflow_engine))
 
         return self._plugins
 
@@ -2252,6 +2282,38 @@ class ChatRoom(ToolSet):
                     )
         except Exception as e:
             logger.error(f"Background chat rename failed: {e}", exc_info=True)
+
+    def _on_workflow_key_event(
+        self, workflow_id: str, chat_id: str, kind: str, summary: str
+    ) -> None:
+        """Wake the Leader when a workflow settles (Task 10 wiring point 3).
+
+        The WorkflowEngine calls this (decision 14) on completed/failed. It wakes
+        an idle Leader with a tagged notification using the SAME mechanism as the
+        background-task completion notify: schedule a fresh ``self.chat`` turn via
+        ``loop.create_task`` (guarded for "no running loop"). The engine already
+        wraps this in try/except, but it stays clean and self-contained.
+        """
+        notif_text = (
+            f"<workflow_notification>"
+            f"[Workflow {workflow_id} {kind}. {summary}]"
+            f"</workflow_notification>"
+        )
+
+        async def _auto_chat():
+            try:
+                await self.chat(
+                    chat_id=chat_id,
+                    message=[{"role": "user", "content": notif_text}],
+                )
+            except Exception as e:
+                logger.warning(f"Workflow notification chat failed: {e}")
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_auto_chat())
+        except RuntimeError:
+            pass
 
     def _setup_bg_auto_notify(self, chat_id: str, team):
         """Wire bg task completion to auto-trigger a new chat turn.

@@ -27,8 +27,9 @@ Design notes (Phase-1 design decision 8):
 
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from datetime import datetime, timezone
-from typing import Any, Awaitable
+from typing import Any
 
 from pantheon.toolset import ToolSet, tool
 from pantheon.utils.log import logger
