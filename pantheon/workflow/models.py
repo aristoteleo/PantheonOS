@@ -38,8 +38,10 @@ class WorkflowState:
 class NodeCall:
     """Full ``node()`` call parameters plus engine-assigned addressing.
 
-    ``node_id`` is the engine-assigned monotonic sequence number and is the
-    addressing key. ``label`` is display-only and must never touch a filesystem
+    ``node_id`` is the engine-assigned integer id, allocated synchronously in
+    source-evaluation order (structurally deterministic, not completion-order;
+    ``pipeline`` reserves item-major/stage-minor blocks), and is the addressing
+    key. ``label`` is display-only and must never touch a filesystem
     path.
     """
 

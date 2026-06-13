@@ -82,11 +82,11 @@ class FakeEngine:
         self._maybe_raise("get_output")
         return self.returns.get("get_output", {"path": "/x", "preview": "hi"})
 
-    async def resume(self, workflow_id, chat_id, new_script=None, *, created_at=None):
+    async def resume(self, workflow_id, chat_id, new_script=None):
         self.calls.append(
             ("resume", dict(
                 workflow_id=workflow_id, chat_id=chat_id,
-                new_script=new_script, created_at=created_at,
+                new_script=new_script,
             ))
         )
         self._maybe_raise("resume")
@@ -226,7 +226,8 @@ async def test_edit_delegates_to_resume(ts, engine):
     assert kw["workflow_id"] == "wf-2"
     assert kw["chat_id"] == CHAT
     assert kw["new_script"] == "meta={}\nx=1"
-    assert isinstance(kw["created_at"], str) and kw["created_at"]
+    # resume does NOT take created_at — meta.created_at is unchanged on re-run.
+    assert "created_at" not in kw
 
 
 # --- 6. control routes each action --------------------------------------- #

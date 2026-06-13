@@ -4,9 +4,10 @@ The journal records every ``node()`` call of a deterministic workflow script,
 one JSON object per line in ``journal.jsonl``. It powers cheap ``resume`` via a
 *longest-unchanged-prefix* cache.
 
-Addressing is ALWAYS by ``node_id`` (an engine-assigned monotonically
-increasing int, position in the journal), NEVER by ``label`` (label is
-display-only; it may repeat or be empty -- Codex Finding 4).
+Addressing is ALWAYS by ``node_id`` (an engine-assigned integer allocated in
+source-evaluation order — structurally deterministic, not completion-order),
+NEVER by ``label`` (label is display-only; it may repeat or be empty -- Codex
+Finding 4).
 
 Order-independence (concurrency correctness)
 ---------------------------------------------

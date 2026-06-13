@@ -239,9 +239,7 @@ class WorkflowToolSet(ToolSet):
         if not chat_id:
             return {"error": "no chat context"}
         return await self._safe(
-            self._engine.resume(
-                workflow_id, chat_id, new_script=script, created_at=self._now()
-            )
+            self._engine.resume(workflow_id, chat_id, new_script=script)
         )
 
     @tool

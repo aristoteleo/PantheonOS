@@ -550,10 +550,11 @@ class WorkflowEngine:
         workflow_id: str,
         chat_id: str,
         new_script: str | None = None,
-        *,
-        created_at: str | None = None,
     ) -> dict:
         """Re-run a workflow with the SAME journal (prefix-cache reuse).
+
+        ``meta.created_at`` is intentionally unchanged on a re-run (resume is the
+        same workflow, not a new one), so no timestamp is taken here.
 
         Ownership-checked. An optional ``new_script`` (validated) replaces the
         stored script. Returns resume stats: ``cached_nodes`` (prior-run entries
