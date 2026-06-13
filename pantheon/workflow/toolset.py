@@ -29,10 +29,34 @@ from __future__ import annotations
 
 from collections.abc import Awaitable
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from pantheon.toolset import ToolSet, tool
 from pantheon.utils.log import logger
+
+#: Path to the Leader-facing script-authoring guide shipped beside this module.
+SCRIPT_GUIDE_PATH = Path(__file__).with_name("SCRIPT_GUIDE.md")
+
+
+def load_script_guide() -> str:
+    """Return the SCRIPT_GUIDE.md text (the Leader's script-authoring contract).
+
+    The guide lives beside this module so it can be injected into the Leader's
+    context (e.g. via the team plugin's system instructions) so the Leader writes
+    correct, accurate workflow scripts. Returns ``""`` if the file is missing,
+    so a packaging glitch never crashes toolset construction.
+    """
+    try:
+        return SCRIPT_GUIDE_PATH.read_text(encoding="utf-8")
+    except OSError:
+        logger.warning("workflow: SCRIPT_GUIDE.md not found at {}", SCRIPT_GUIDE_PATH)
+        return ""
+
+
+#: The script-authoring guide text, loaded once at import. Exposed so the plugin
+#: (or any Leader-context assembler) can include it in the Leader's instructions.
+SCRIPT_GUIDE: str = load_script_guide()
 
 
 class WorkflowToolSet(ToolSet):
@@ -94,7 +118,9 @@ class WorkflowToolSet(ToolSet):
         that calls the workflow ``node(...)`` API to fan out delegated work. It
         MUST begin with a ``meta = {...}`` literal whose ``phases`` list names
         the high-level phases — those phases are returned so you can narrate the
-        plan to the user.
+        plan to the user. See the bundled SCRIPT_GUIDE (``SCRIPT_GUIDE`` constant
+        in ``pantheon.workflow.toolset``) for the full, authoritative script API,
+        the determinism rules, and worked examples.
 
         The script is validated before it runs. On a validation failure this
         returns ``{"error": <message>, "line": <line>}`` — REWRITE the script to
