@@ -1423,11 +1423,15 @@ class ChatRoom(ToolSet):
             - chats: A list of dictionaries, each containing the info of a chat.
         """
         try:
-            metadata_items = await run_func(self.memory_manager.list_memory_metadata)
+            metadata_items = await run_func(self.memory_manager.list_memory_metadata, True)
             chats = []
             skipped_chats = []
             for item in metadata_items:
                 id = item["id"]
+                if item.get("metadata_error"):
+                    logger.warning(f"Skipping unreadable chat {id}: {item['metadata_error']}")
+                    skipped_chats.append({"id": id, "message": "metadata unreadable"})
+                    continue
                 extra_data = item.get("extra_data", {})
                 if not isinstance(extra_data, dict):
                     logger.warning(f"Skipping chat with invalid metadata {id}: extra_data is not a dict")

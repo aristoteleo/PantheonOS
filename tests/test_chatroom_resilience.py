@@ -39,6 +39,33 @@ async def test_list_chats_skips_corrupted_metadata():
 
 
 @pytest.mark.asyncio
+async def test_list_chats_skips_corrupted_legacy_json_metadata():
+    temp_dir = tempfile.mkdtemp()
+    try:
+        memory_dir = Path(temp_dir)
+        manager = MemoryManager(memory_dir, use_jsonl=False)
+
+        valid = manager.new_memory("Healthy Legacy Chat")
+        valid.extra_data["last_activity_date"] = "2026-04-08T09:40:00"
+        manager.save_one(valid.id)
+
+        broken = manager.new_memory("Broken Legacy Chat")
+        manager.save_one(broken.id)
+        (memory_dir / f"{broken.id}.json").write_text("{broken json", encoding="utf-8")
+
+        chatroom = ChatRoom.__new__(ChatRoom)
+        chatroom.memory_manager = MemoryManager(memory_dir, use_jsonl=True)
+
+        result = await ChatRoom.list_chats(chatroom)
+
+        assert result["success"] is True
+        assert [chat["id"] for chat in result["chats"]] == [valid.id]
+        assert result["skipped_chats"] == [{"id": broken.id, "message": "metadata unreadable"}]
+    finally:
+        shutil.rmtree(temp_dir)
+
+
+@pytest.mark.asyncio
 async def test_list_chats_uses_metadata_without_loading_jsonl_messages(monkeypatch):
     temp_dir = tempfile.mkdtemp()
     try:

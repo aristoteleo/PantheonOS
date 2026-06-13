@@ -703,7 +703,7 @@ class MemoryManager:
 
         return list(memory_ids)
 
-    def list_memory_metadata(self) -> list[dict]:
+    def list_memory_metadata(self, include_errors: bool = False) -> list[dict]:
         """
         List memory metadata without loading message histories.
 
@@ -739,6 +739,16 @@ class MemoryManager:
                 loaded_id, name, extra_data = jsonl_backend.load_metadata(memory_id)
             except Exception as e:
                 logger.error(f"Failed to load memory metadata from {meta_file}: {e}")
+                if include_errors:
+                    metadata.append(
+                        {
+                            "id": memory_id,
+                            "extra_data": None,
+                            "memory_path": self.path / f"{memory_id}.jsonl",
+                            "metadata_error": str(e),
+                        }
+                    )
+                    loaded_ids.add(memory_id)
                 continue
             metadata.append(
                 {
@@ -761,7 +771,16 @@ class MemoryManager:
                 loaded_id, name, extra_data = json_backend.load_metadata(memory_id)
             except Exception as e:
                 logger.error(f"Failed to load memory metadata from {json_file}: {e}")
-                raise
+                if include_errors:
+                    metadata.append(
+                        {
+                            "id": memory_id,
+                            "extra_data": None,
+                            "memory_path": json_file,
+                            "metadata_error": str(e),
+                        }
+                    )
+                continue
             metadata.append(
                 {
                     "id": loaded_id,
