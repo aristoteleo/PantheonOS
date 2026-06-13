@@ -293,14 +293,15 @@ async def node(
 ) -> Any:                       # schema 时返回验证后 dict；否则返回文本
 ```
 
-**节点寻址：稳定 node_id（不是 label）**。引擎在节点发起时分配 `node_id`（= 该 workflow 内单调递增的 seq，确定且唯一——脚本确定性保证调用顺序确定）。`node_id` 是 journal 条目、事件、`skip_node`/`retry_node`/UI 控制的**唯一寻址键**；`label` 仅作 UI 显示，可重复、可为空，绝不用于寻址或文件名（修 Codex Finding 3/4 同根问题：label 此前同时承担显示/文件名/寻址三职，拆分后只保留显示）。
+**节点寻址：稳定 node_id（不是 label）**。引擎在**调用点同步分配** `node_id`（= 该 workflow 内的整数序，由源码结构确定而非执行时序）。`node_id` 是 journal 条目、事件、`skip_node`/`retry_node`/UI 控制的**唯一寻址键**；`label` 仅作 UI 显示，可重复、可为空，绝不用于寻址或文件名（修 Codex Finding 3/4 同根问题：label 此前同时承担显示/文件名/寻址三职，拆分后只保留显示）。
 
 Journal 规则：
 - 条目 = `{node_id, key: sha256(instruction+template+schema+model+inputs内容哈希), label, status, result_ref, ...}`（node_id 寻址，key 判缓存命中）
-- 命中 = **node_id 位置一致 + key 一致**（最长未变化前缀语义，Claude Code 同款）；第一个 miss 之后全部失效真跑。
-- **`inputs` 内容哈希的意义**：用户/上游改了中间产物文件 → 声明依赖它的下游节点自动失效——文件上下文模式独有的正确性保障。
-- `retry_node(node_id)` = 失效该条 + resume；`skip_node(node_id)` = 改写为 `{status: skipped, result: null}` + resume，脚本侧返回 None（Engine 注入的脚本编写指南写明 `filter(None, results)` 习惯用法）。
-- **node_id 分配**：在发起时分配（脚本确定性 ⇒ asyncio task 创建顺序确定），完成时回填结果。
+- 存储为 **`dict[int, JournalEntry]`（按 node_id 寻址，非 append-only list）**：record 为 upsert、与完成顺序无关（并行节点可乱序完成/落账）；lookup 与调用顺序无关。
+- 命中 = **node_id 位置有条目 + key 一致 + node_id < first_miss**（first_miss 为运行期所有 miss 的滚动最小值）。`skipped` 条目无视 key 命中。
+- **正确性以 inputs 内容哈希为准**：用户/上游改了中间产物文件 → 声明依赖它的下游节点 key 变化自动失效（文件上下文模式独有的保障）。first_miss 级联仅为顺序主干上的**尽力而为保守层**——并发下高 id 节点可能在低 id miss 被观察到之前命中，但真实数据依赖已被内容哈希捕获（依赖变化 ⇒ key 失配 ⇒ miss），故安全。
+- `retry_node(node_id)` = 失效该条及其后 + resume；`skip_node(node_id)` = 改写为 `{status: skipped, result: null}` + resume，脚本侧返回 None（Engine 注入的脚本编写指南写明 `filter(None, results)` 习惯用法）。
+- **node_id 确定性分配（修订，原"asyncio task 创建顺序确定"premise 被并发审查证伪）**：`node()`/`parallel()`/`pipeline()` 均为**同步返回 awaitable** 的函数——`node()` 在被调用的同步时刻（非 await 时刻）即完成 id 分配 + key + lookup，故分配顺序 = 源码求值顺序，与运行时延迟无关。`parallel(thunks)` 同步物化 `[t() for t in thunks]`（含嵌套 parallel 的深度优先分配）。`pipeline(items,*stages)` 在调用时同步预留 `N*S` 的 id 块（item-major, stage-minor），经 `contextvars` 把预留 id 喂给各 stage 节点（每 item-chain 一个 asyncio.Task，PEP 567 context 拷贝隔离，互不窃取）。**Phase 1 约束**：每 stage 恰一个 `node()`（>1 时多出的回退到计数器，跨 resume 非位置确定——已记录的有界限制）。
 
 ### 决策 11：节点执行接口（node → Agent 实例化）
 
@@ -423,10 +424,10 @@ project chat  → {project_dir}/.pantheon/workflows/{workflow_id}/
 ### 决策 17：干预机制 — Journal/Resume（前缀缓存）
 
 借鉴 Claude Code `resumeFromRunId` 语义：
-- 每次 `node()` 调用按**调用序 + 参数哈希**记录到 journal（`journal.jsonl`）。
-- **resume**：重跑脚本，`node()` 命中"未变化前缀"直接返回缓存结果（瞬时），第一个 miss 之后真实执行。
-- **skip 节点**（按 node_id）= 向 journal 注入空结果再 resume；**retry 节点**（按 node_id）= 失效该条 journal 再 resume。寻址用引擎生成的稳定 node_id，绝不用可重复的 label（修 Codex Finding 4：label 重复/为空会误伤其他节点，而 skip 注入 null + resume 是数据损坏路径）。
-- **确定性约束**（resume 的前提）：脚本禁用 `time.time()`/`random`/裸 `datetime.now()`（受限 globals 不提供，违者 NameError）；时间戳等从 `args` 传入。
+- 每次 `node()` 调用按**源码结构序（确定性 node_id）+ 参数/输入内容哈希（key）**记录到 journal（`journal.jsonl`，dict 存储、与完成顺序无关）。
+- **resume**：重跑脚本，`node()` 命中"未变化前缀"（node_id 位置有条目 + key 一致 + 在 first_miss 之前）直接返回缓存结果（瞬时）；正确性由内容哈希 key 保证（依赖变化即 key 失配 miss），first_miss 级联为顺序主干的保守层。
+- **skip 节点**（按 node_id）= 向 journal 注入空结果再 resume；**retry 节点**（按 node_id）= 失效该条及其后再 resume。寻址用引擎生成的稳定 node_id，绝不用可重复的 label（修 Codex Finding 4：label 重复/为空会误伤其他节点，而 skip 注入 null + resume 是数据损坏路径）。
+- **确定性约束**（resume 的前提）：脚本禁用 `time.time()`/`random`/裸 `datetime.now()`（受限 globals 不提供，违者 NameError）；时间戳等从 `args` 传入。node_id 在**调用点同步分配**（非执行时序），故跨 resume 稳定——见决策 10 修订。
 
 ## 4. 架构总览
 
