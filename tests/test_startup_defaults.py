@@ -6,6 +6,7 @@ import pytest
 from pantheon.endpoint.core import Endpoint
 from pantheon.endpoint.gateway import UnifiedMCPGateway
 from pantheon.factory.template_io import FileBasedTemplateManager
+from pantheon.factory.template_manager import TemplateManager
 from pantheon.settings import load_jsonc
 from pantheon.utils import log as pantheon_log
 from pantheon.utils.log import log_startup_profile, startup_profile_enabled
@@ -59,6 +60,37 @@ def test_startup_profile_log_helper_respects_disabled_env(monkeypatch):
     log_startup_profile("hidden")
 
     assert emitted == []
+
+
+def test_template_sync_scope_project_copies_factory_templates_to_project(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("PANTHEON_TEMPLATE_SYNC_SCOPE", "project")
+
+    manager = TemplateManager(work_dir=tmp_path / "workspace")
+
+    assert (manager.teams_dir / "default.md").exists()
+    assert not (manager.settings.global_teams_dir / "default.md").exists()
+
+
+def test_project_template_sync_preserves_user_modified_files(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("PANTHEON_TEMPLATE_SYNC_SCOPE", "project")
+
+    manager = TemplateManager(work_dir=tmp_path / "workspace")
+    factory_dir = tmp_path / "factory"
+    (factory_dir / "teams").mkdir(parents=True)
+    (factory_dir / "teams" / "default.md").write_text("factory v1\n", encoding="utf-8")
+
+    manager.system_templates_dir = factory_dir
+    manager.force_sync_factory_templates()
+
+    project_team = manager.teams_dir / "default.md"
+    project_team.write_text("user edited\n", encoding="utf-8")
+    (factory_dir / "teams" / "default.md").write_text("factory v2\n", encoding="utf-8")
+
+    manager._ensure_default_templates()
+
+    assert project_team.read_text(encoding="utf-8") == "user edited\n"
 
 
 @pytest.mark.asyncio

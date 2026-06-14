@@ -7,6 +7,7 @@ Provides interface for template discovery, loading, file operations, and bootstr
 - Bootstrap initialization on startup
 """
 
+import os
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -127,6 +128,39 @@ class TemplateManager:
         import json
         hash_file = self.settings.pantheon_dir / ".factory_hashes.json"
         hash_file.write_text(json.dumps(hashes, indent=2), encoding="utf-8")
+
+    def _template_sync_scope(self) -> str:
+        """Return where factory templates should be synced on startup."""
+        scope = os.environ.get("PANTHEON_TEMPLATE_SYNC_SCOPE", "global").strip().lower()
+        if not scope:
+            return "global"
+        if scope not in {"global", "project", "none"}:
+            logger.warning(
+                f"Invalid PANTHEON_TEMPLATE_SYNC_SCOPE={scope!r}; falling back to 'global'"
+            )
+            return "global"
+        return scope
+
+    def _factory_template_targets(self) -> list[tuple[str, Path, str]]:
+        """Return factory template copy targets for the configured sync scope."""
+        scope = self._template_sync_scope()
+        if scope == "none":
+            return []
+
+        if scope == "project":
+            return [
+                ("agents", self.agents_dir, "agent(s)"),
+                ("teams", self.teams_dir, "team(s)"),
+                ("prompts", self.prompts_dir, "prompt(s)"),
+                ("skills", self.skills_dir, "skill(s)"),
+            ]
+
+        return [
+            ("agents", self.settings.global_agents_dir, "agent(s)"),
+            ("teams", self.settings.global_teams_dir, "team(s)"),
+            ("prompts", self.settings.global_prompts_dir, "prompt(s)"),
+            ("skills", self.settings.global_skills_dir, "skill(s)"),
+        ]
 
     @staticmethod
     def _file_hash(path: Path) -> str:
@@ -284,7 +318,7 @@ class TemplateManager:
         self._save_factory_hashes(factory_hashes)
 
     def _ensure_default_templates(self):
-        """Sync factory defaults to ~/.pantheon/ (global), NOT project dir.
+        """Sync factory defaults according to PANTHEON_TEMPLATE_SYNC_SCOPE.
 
         Respects the `default_template_auto_update` setting for all categories
         (agents/teams/prompts/skills):
@@ -293,25 +327,27 @@ class TemplateManager:
           updated to the latest version.
         - False: only copy files that don't exist yet (preserves all user edits).
 
-        New projects start clean and inherit via 3-layer fallback:
+        Default scope is global so local/desktop behavior keeps the same
+        3-layer fallback:
         project → global (~/.pantheon/) → factory
+
+        Modal sandboxes can set PANTHEON_TEMPLATE_SYNC_SCOPE=project so the
+        copied factory templates and their hashes live on the persisted
+        workspace volume instead of ephemeral HOME.
         """
+        scope = self._template_sync_scope()
+        if scope == "none":
+            logger.info("PANTHEON_TEMPLATE_SYNC_SCOPE=none: skipping factory template sync")
+            return
+
         overwrite = self.settings.default_template_auto_update
         if overwrite:
-            logger.info("default_template_auto_update=true: smart-overwriting agents/teams/prompts/skills with latest factory defaults")
+            logger.info(
+                "default_template_auto_update=true: smart-overwriting "
+                f"agents/teams/prompts/skills with latest factory defaults (scope={scope})"
+            )
 
-        # Target: global ~/.pantheon/ dirs
-        global_agents = self.settings.global_agents_dir
-        global_teams = self.settings.global_teams_dir
-        global_prompts = self.settings.global_prompts_dir
-        global_skills = self.settings.global_skills_dir
-
-        for subdir, dest_dir, label in [
-            ("agents", global_agents, "agent(s)"),
-            ("teams", global_teams, "team(s)"),
-            ("prompts", global_prompts, "prompt(s)"),
-            ("skills", global_skills, "skill(s)"),
-        ]:
+        for subdir, dest_dir, label in self._factory_template_targets():
             try:
                 self._copy_missing_templates(
                     self.system_templates_dir / subdir, dest_dir, label, overwrite=overwrite
@@ -320,30 +356,29 @@ class TemplateManager:
                 logger.error(f"Failed to copy default {label}: {e}")
 
     def force_sync_factory_templates(self):
-        """Force-sync ALL factory templates (including skills) to global ~/.pantheon/.
+        """Force-sync ALL factory templates (including skills) to the configured scope.
 
         Clears hash tracking and copies everything with overwrite=True.
         Used for image upgrades where stale templates need to be replaced.
         """
+        scope = self._template_sync_scope()
+        if scope == "none":
+            logger.info("PANTHEON_TEMPLATE_SYNC_SCOPE=none: skipping force-sync")
+            return 0
+
         hash_file = self.settings.pantheon_dir / ".factory_hashes.json"
         if hash_file.exists():
             hash_file.unlink()
 
-        targets = [
-            ("agents", self.settings.global_agents_dir, "agent(s)"),
-            ("teams", self.settings.global_teams_dir, "team(s)"),
-            ("prompts", self.settings.global_prompts_dir, "prompt(s)"),
-            ("skills", self.settings.global_skills_dir, "skill(s)"),
-        ]
         total = 0
-        for subdir, dest_dir, label in targets:
+        for subdir, dest_dir, label in self._factory_template_targets():
             try:
                 total += self._copy_missing_templates(
                     self.system_templates_dir / subdir, dest_dir, label, overwrite=True
                 )
             except Exception as e:
                 logger.error(f"Failed to force-sync {label}: {e}")
-        logger.info(f"Force-sync complete: {total} file(s) synced")
+        logger.info(f"Force-sync complete: {total} file(s) synced (scope={scope})")
         return total
 
     def _ensure_settings(self):
