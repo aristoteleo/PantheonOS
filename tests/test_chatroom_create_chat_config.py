@@ -41,7 +41,7 @@ def test_model_parameters_are_appended_to_existing_tool_signatures():
         "template_obj",
         "save_to_memory",
     ]
-    assert setup_params[-2:] == ["model", "validate_model"]
+    assert setup_params[-3:] == ["model", "validate_model", "template_id"]
 
 
 @pytest.mark.asyncio
@@ -189,6 +189,28 @@ async def test_setup_team_for_chat_can_update_only_saved_template_model(tmp_path
     team_template = memory.extra_data["team_template"]
     assert team_template["id"] == "scoped-team"
     assert {agent["model"] for agent in team_template["agents"]} == {"openai/gpt-5.4"}
+
+
+@pytest.mark.asyncio
+async def test_setup_team_for_chat_can_apply_template_id_directly(tmp_path: Path):
+    chatroom = _make_chatroom(tmp_path)
+    created = await ChatRoom.create_chat(chatroom, chat_name="Template ID Chat")
+    chat_id = created["chat_id"]
+    chatroom.chat_teams[chat_id] = object()
+
+    result = await ChatRoom.setup_team_for_chat(
+        chatroom,
+        chat_id=chat_id,
+        template_id="default",
+    )
+
+    assert result["success"] is True
+    assert result["chat_id"] == chat_id
+    assert result["template"]["id"] == "default"
+    assert chat_id not in chatroom.chat_teams
+
+    memory = chatroom.memory_manager.get_memory(chat_id)
+    assert memory.extra_data["team_template"]["id"] == "default"
 
 
 @pytest.mark.asyncio

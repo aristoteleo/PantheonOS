@@ -13,7 +13,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pantheon.constant import PROJECT_ROOT
 from pantheon.utils.log import logger
-from .template_io import FileBasedTemplateManager, resolve_prompts_for_team, init_prompt_resolver
+from .template_io import (
+    FileBasedTemplateManager,
+    _is_path_reference,
+    init_prompt_resolver,
+    resolve_prompts_for_team,
+)
 from .models import AgentConfig, TeamConfig
 
 
@@ -519,12 +524,13 @@ class TemplateManager:
 
     # ===== File Operations (for frontend editing) =====
 
-    def list_template_files(self, file_type: str = "teams") -> Dict[str, Any]:
+    def list_template_files(self, file_type: str = "teams", view: str = "files") -> Dict[str, Any]:
         """
         List available template files.
 
         Args:
             file_type: "teams", "agents", or "all"
+            view: "files" for legacy file metadata, "summary" for lightweight UI metadata
 
         Returns:
             Response dict with list of template files
@@ -532,6 +538,8 @@ class TemplateManager:
         try:
             if file_type not in {"teams", "agents", "all"}:
                 return {"success": False, "error": f"Unknown file_type: {file_type}"}
+            if view not in {"files", "summary"}:
+                return {"success": False, "error": f"Unknown view: {view}"}
 
             def _get_rel_path(source_path: str, fallback_id: str, kind: str) -> str:
                 """Return a ``<kind>/…/<filename>.md`` path that preserves any
@@ -557,17 +565,53 @@ class TemplateManager:
                 # Source lives outside either known root — last resort: basename.
                 return f"{kind}/{p.name}"
 
+            def _agent_ref_summary(agent: AgentConfig, base_path: Path | None = None) -> Dict[str, Any]:
+                is_reference = not bool(agent.name)
+                resolved = agent
+                if is_reference:
+                    try:
+                        if _is_path_reference(agent.id):
+                            resolved = self.file_manager._load_agent_from_path(agent.id, base_path or self.teams_dir)
+                        else:
+                            resolved = self.file_manager.read_agent(agent.id)
+                    except Exception:
+                        resolved = agent
+
+                return {
+                    "id": resolved.id,
+                    "name": resolved.name or agent.id,
+                    "icon": resolved.icon,
+                    "source_path": resolved.source_path,
+                    "is_reference": is_reference,
+                }
+
+            def _team_file(tmpl: TeamConfig) -> Dict[str, Any]:
+                item = {
+                    "id": tmpl.id,
+                    "name": tmpl.name,
+                    "path": _get_rel_path(tmpl.source_path, tmpl.id, "teams"),
+                    "source_path": tmpl.source_path,
+                    "scope": getattr(tmpl, 'scope', 'project'),
+                }
+                if view == "summary":
+                    base_path = Path(tmpl.source_path).parent if tmpl.source_path else None
+                    agent_refs = [
+                        _agent_ref_summary(agent, base_path)
+                        for agent in tmpl.agents
+                    ]
+                    item.update({
+                        "description": tmpl.description,
+                        "icon": tmpl.icon,
+                        "category": tmpl.category,
+                        "tags": tmpl.tags,
+                        "version": tmpl.version,
+                        "agent_count": len(tmpl.agents),
+                        "agent_refs": agent_refs,
+                    })
+                return item
+
             team_files = (
-                [
-                    {
-                        "id": tmpl.id,
-                        "name": tmpl.name,
-                        "path": _get_rel_path(tmpl.source_path, tmpl.id, "teams"),
-                        "source_path": tmpl.source_path,
-                        "scope": getattr(tmpl, 'scope', 'project'),
-                    }
-                    for tmpl in self.file_manager.list_teams(resolve_refs=False)
-                ]
+                [_team_file(tmpl) for tmpl in self.file_manager.list_teams(resolve_refs=False)]
                 if file_type in {"teams", "all"}
                 else []
             )
@@ -597,6 +641,7 @@ class TemplateManager:
             return {
                 "success": True,
                 "file_type": file_type,
+                "view": view,
                 "files": files,
                 "total": len(files),
             }

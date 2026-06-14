@@ -82,6 +82,56 @@ def test_template_file_crud_roundtrip(tmp_path):
     assert "teams/room1.md" not in remaining_paths
 
 
+def test_list_template_files_summary_returns_lightweight_team_metadata(tmp_path):
+    manager = _make_manager(tmp_path)
+
+    agent_payload = {
+        "id": "scribe",
+        "name": "Scribe",
+        "description": "Writes concise notes",
+        "model": "openai/gpt-4o-mini",
+        "icon": "✍️",
+        "instructions": "Write summaries",
+        "toolsets": ["python"],
+    }
+    assert manager.write_template_file("agents/scribe.md", agent_payload)["success"] is True
+
+    team_payload = TeamConfig(
+        id="room1",
+        name="Room One",
+        description="A fast-loading room",
+        icon="🏠",
+        category="research",
+        tags=["fast", "summary"],
+        agents=[AgentConfig(id="scribe", name="", model="")],
+    ).to_dict()
+    team_payload["type"] = "team"
+    assert manager.write_template_file("teams/room1.md", team_payload)["success"] is True
+
+    listing = manager.list_template_files("teams", view="summary")
+
+    assert listing["success"] is True
+    room = next(entry for entry in listing["files"] if entry["id"] == "room1")
+    assert room["name"] == "Room One"
+    assert room["description"] == "A fast-loading room"
+    assert room["icon"] == "🏠"
+    assert room["category"] == "research"
+    assert room["tags"] == ["fast", "summary"]
+    assert room["agent_count"] == 1
+    assert room["agent_refs"] == [
+        {
+            "id": "scribe",
+            "name": "Scribe",
+            "icon": "✍️",
+            "source_path": str(tmp_path / ".pantheon" / "agents" / "scribe.md"),
+            "is_reference": True,
+        }
+    ]
+    assert "instructions" not in room["agent_refs"][0]
+    assert "model" not in room["agent_refs"][0]
+    assert "toolsets" not in room["agent_refs"][0]
+
+
 def test_single_cell_team_includes_fm_router(tmp_path):
     manager = _make_manager(tmp_path)
     team = manager.get_template("single_cell_team")

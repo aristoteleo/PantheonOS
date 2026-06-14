@@ -775,29 +775,45 @@ class ChatRoom(ToolSet):
         save_to_memory: bool = True,
         model: str | None = None,
         validate_model: bool = True,
+        template_id: str | None = None,
     ):
         """Setup/update team for a chat using a template object and/or model override."""
         try:
+            if template_id and template_obj:
+                return {
+                    "success": False,
+                    "message": "template_id and template_obj are mutually exclusive",
+                }
+
             # Read-only: storing template/model config, no need to fix
             memory = await run_func(self.memory_manager.get_memory, chat_id)
 
             if template_obj is None:
-                if model is None:
-                    return {
-                        "success": False,
-                        "message": "template_obj or model is required",
-                    }
-
-                extra_data = getattr(memory, "extra_data", None) or {}
-                template_obj = copy.deepcopy(extra_data.get("team_template"))
-                if not template_obj:
-                    default_template = self.template_manager.get_template("default")
-                    if not default_template:
+                if template_id:
+                    selected_template = self.template_manager.get_template(template_id)
+                    if not selected_template:
                         return {
                             "success": False,
-                            "message": "No existing team template and default template not found",
+                            "message": f"Team template '{template_id}' not found",
                         }
-                    template_obj = dataclasses.asdict(default_template)
+                    template_obj = dataclasses.asdict(selected_template)
+                else:
+                    if model is None:
+                        return {
+                            "success": False,
+                            "message": "template_obj, template_id, or model is required",
+                        }
+
+                    extra_data = getattr(memory, "extra_data", None) or {}
+                    template_obj = copy.deepcopy(extra_data.get("team_template"))
+                    if not template_obj:
+                        default_template = self.template_manager.get_template("default")
+                        if not default_template:
+                            return {
+                                "success": False,
+                                "message": "No existing team template and default template not found",
+                            }
+                        template_obj = dataclasses.asdict(default_template)
 
             if model is not None:
                 template_obj = self._apply_model_to_template(
@@ -2989,12 +3005,12 @@ class ChatRoom(ToolSet):
     # File-Based Template Management (delegates to template_manager)
 
     @tool
-    async def list_template_files(self, file_type: str = "teams") -> dict:
+    async def list_template_files(self, file_type: str = "teams", view: str = "files") -> dict:
         """
         List available template files.
         """
-        logger.debug(f"Listing template files... {file_type}")
-        return self.template_manager.list_template_files(file_type)
+        logger.debug(f"Listing template files... {file_type} view={view}")
+        return self.template_manager.list_template_files(file_type, view=view)
 
     @tool
     async def read_template_file(
