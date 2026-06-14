@@ -355,11 +355,11 @@ async def test_e2e_resume_appended_tail_node_only_new_node_runs(tmp_path):
     assert result == ["r0", "r1", "r2"]
 
 
-# --- 4. failing node -> workflow failed + key-event ------------------------ #
+# --- 4. failing node -> awaiting_intervention + key-event ------------------ #
 
 
 @pytest.mark.asyncio
-async def test_e2e_failing_node_marks_failed_and_fires_key_event(tmp_path):
+async def test_e2e_failing_node_awaits_intervention_and_fires_key_event(tmp_path):
     key_events: list[tuple] = []
 
     def on_key_event(workflow_id, chat_id, kind, summary):
@@ -381,20 +381,21 @@ async def test_e2e_failing_node_marks_failed_and_fires_key_event(tmp_path):
     )
     await wait_done(engine, "wf-fail")
 
-    # Workflow ends failed (the NodeError propagates out of the script).
-    assert engine.storage.read_meta("wf-fail").status == "failed"
-    assert engine.storage.read_state("wf-fail").status == "failed"
+    # §A.4: an intervenable node failure (NodeError) lands the workflow in the
+    # PERSISTENT, NON-terminal awaiting_intervention status — not terminal failed.
+    assert engine.storage.read_meta("wf-fail").status == "awaiting_intervention"
+    assert engine.storage.read_state("wf-fail").status == "awaiting_intervention"
 
-    # Key-event callback fired with kind="failed".
+    # Key-event callback fired with kind="awaiting_intervention".
     assert key_events, "on_key_event should have fired"
     last = key_events[-1]
     assert last[0] == "wf-fail"
     assert last[1] == CHAT_ID
-    assert last[2] == "failed"
+    assert last[2] == "awaiting_intervention"
     assert "fail" in last[3].lower()
 
-    # The failing node's node_finished event carries status failed.
+    # The failing node's node_finished event still carries status failed.
     finished = pub.of_type("workflow.node_finished")
     assert any(e["status"] == "failed" for e in finished)
-    # Terminal workflow.status event is failed.
-    assert pub.of_type("workflow.status")[-1]["status"] == "failed"
+    # Terminal workflow.status event is awaiting_intervention.
+    assert pub.of_type("workflow.status")[-1]["status"] == "awaiting_intervention"

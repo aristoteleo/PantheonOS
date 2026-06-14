@@ -48,8 +48,68 @@ def test_generic_registered():
 
 
 def test_generic_is_only_builtin():
-    # YAGNI: Phase 1 ships exactly one built-in template.
-    assert list_templates() == ["generic"]
+    # Phase 1 shipped exactly one built-in template; Phase 2 adds three more.
+    # Kept for historical context; the canonical assertion is test_all_builtins_listed.
+    assert "generic" in list_templates()
+
+
+# --- Test U5: three new role templates ---
+
+def test_all_builtins_listed():
+    """list_templates() returns all four built-ins, sorted."""
+    assert list_templates() == ["analyzer", "coder", "generic", "researcher"]
+
+
+def test_analyzer_registered():
+    t = get_template("analyzer")
+    assert isinstance(t, WorkflowTemplate)
+    assert t.name == "analyzer"
+    assert t.base_prompt.strip()
+
+
+def test_coder_registered():
+    t = get_template("coder")
+    assert isinstance(t, WorkflowTemplate)
+    assert t.name == "coder"
+    assert t.base_prompt.strip()
+
+
+def test_researcher_registered():
+    t = get_template("researcher")
+    assert isinstance(t, WorkflowTemplate)
+    assert t.name == "researcher"
+    assert t.base_prompt.strip()
+
+
+def test_new_templates_no_engine_protocol_duplication():
+    """Role-layer base_prompts must NOT duplicate ENGINE_PROTOCOL's output contract."""
+    engine_contract_marker = "FINAL reply MUST be valid JSON"
+    for name in ("analyzer", "coder", "researcher"):
+        t = get_template(name)
+        assert engine_contract_marker not in t.base_prompt, (
+            f"Template {name!r} duplicates ENGINE_PROTOCOL output contract text"
+        )
+
+
+def test_new_templates_compose_without_error():
+    """All three new templates flow through compose_node_prompt successfully."""
+    for name in ("analyzer", "coder", "researcher"):
+        t = get_template(name)
+        system_prompt, user_message = compose_node_prompt(t, "some instruction")
+        # Role base_prompt present in system prompt.
+        assert t.base_prompt in system_prompt, f"{name}: base_prompt missing from system_prompt"
+        # Engine protocol always injected.
+        assert ENGINE_PROTOCOL in system_prompt, f"{name}: ENGINE_PROTOCOL missing from system_prompt"
+        # Instruction in user message only.
+        assert "some instruction" in user_message
+        assert "some instruction" not in system_prompt
+
+
+def test_get_nonexistent_still_raises():
+    """get_template behavior for unknown names is unchanged."""
+    with pytest.raises((KeyError, ValueError)) as excinfo:
+        get_template("nonexistent")
+    assert "nonexistent" in str(excinfo.value)
 
 
 # --- Test 2: unknown template raises a clear error ---

@@ -29,6 +29,7 @@ WORKFLOW_PHASE_CHANGED = "workflow.phase_changed"
 WORKFLOW_LOG = "workflow.log"
 WORKFLOW_STATUS = "workflow.status"
 WORKFLOW_RESUMED = "workflow.resumed"
+WORKFLOW_SLOTS_INVALIDATED = "workflow.slots_invalidated"
 
 
 # ── Constructors ──────────────────────────────────────────────────────────
@@ -48,12 +49,29 @@ def make_created(workflow_id: str, goal: str, phases: list) -> dict:
 
 
 def make_node_started(
-    workflow_id: str, node_id: int, label: str, phase: str
+    workflow_id: str,
+    node_id: int,
+    label: str,
+    phase: str,
+    *,
+    slot_id: str | None = None,
+    attempt: int = 0,
+    cascade_epoch: int = 0,
 ) -> dict:
     """``workflow.node_started`` — a node began executing.
 
     ``node_id`` addresses the node (addressing int); ``label`` is the display
     string (may be empty). The two are kept distinct on purpose.
+
+    §A.2 reconcile fields (all defaulted for back-compat):
+      * ``slot_id`` — the blueprint slot this node fills (``None`` if the node
+        was not declared with ``slot=``); lets the UI map a streamed node onto
+        a pre-rendered skeleton slot.
+      * ``attempt`` — per-node retry counter (0 on first execution, +1 each
+        ``retry_node``); lets the UI distinguish a re-run from the original.
+      * ``cascade_epoch`` — the per-workflow monotonic invalidation epoch in
+        effect when this node ran; lets the UI drop events from a superseded
+        epoch on reconnect.
     """
     return {
         "type": WORKFLOW_NODE_STARTED,
@@ -61,6 +79,9 @@ def make_node_started(
         "node_id": node_id,
         "label": label,
         "phase": phase,
+        "slot_id": slot_id,
+        "attempt": attempt,
+        "cascade_epoch": cascade_epoch,
     }
 
 
@@ -70,11 +91,20 @@ def make_node_finished(
     label: str,
     status: str,
     result_ref: str | None,
+    *,
+    phase: str = "",
+    slot_id: str | None = None,
+    attempt: int = 0,
+    cascade_epoch: int = 0,
 ) -> dict:
     """``workflow.node_finished`` — a node finished.
 
     ``status`` is one of ``completed`` / ``failed`` / ``skipped``.
     ``result_ref`` is a relative path to the node result, or ``None``.
+
+    Now carries ``phase`` (previously absent — §A.2) plus the same
+    ``slot_id`` / ``attempt`` / ``cascade_epoch`` reconcile fields as
+    :func:`make_node_started`.
     """
     return {
         "type": WORKFLOW_NODE_FINISHED,
@@ -83,6 +113,10 @@ def make_node_finished(
         "label": label,
         "status": status,
         "result_ref": result_ref,
+        "phase": phase,
+        "slot_id": slot_id,
+        "attempt": attempt,
+        "cascade_epoch": cascade_epoch,
     }
 
 
@@ -124,6 +158,33 @@ def make_resumed(workflow_id: str, cached_nodes: int, will_rerun: list) -> dict:
         "workflow_id": workflow_id,
         "cached_nodes": cached_nodes,
         "will_rerun": will_rerun,
+    }
+
+
+def make_slots_invalidated(
+    workflow_id: str,
+    cascade_epoch: int,
+    slot_ids: list,
+    node_ids: list,
+) -> dict:
+    """``workflow.slots_invalidated`` — a cascade invalidated downstream work.
+
+    Emitted (and persisted to ``invalidations.jsonl``) when ``retry_node``
+    drops a node and everything after it (§A.6). The UI uses this to purge the
+    superseded downstream nodes/slots from its in-memory trace on reconnect.
+
+    * ``cascade_epoch`` — the new monotonic epoch produced by this cascade.
+    * ``slot_ids`` — blueprint slot_ids of the invalidated nodes (best-effort;
+      a node with no slot contributes nothing).
+    * ``node_ids`` — addressing ids of the invalidated nodes (>= the retried
+      node_id), the authoritative set.
+    """
+    return {
+        "type": WORKFLOW_SLOTS_INVALIDATED,
+        "workflow_id": workflow_id,
+        "cascade_epoch": cascade_epoch,
+        "slot_ids": list(slot_ids),
+        "node_ids": list(node_ids),
     }
 
 

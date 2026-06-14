@@ -244,7 +244,11 @@ class WorkflowToolSet(ToolSet):
 
     @tool
     async def workflow_control(
-        self, workflow_id: str, action: str, node_id: int | None = None
+        self,
+        workflow_id: str,
+        action: str,
+        node_id: int | None = None,
+        expected_revision: int | None = None,
     ) -> dict:
         """Pause, resume, cancel, or re-run a node of a running workflow.
 
@@ -260,19 +264,33 @@ class WorkflowToolSet(ToolSet):
         ``node_id`` addresses a node by its integer id (from
         ``workflow_status``), NOT its label.
 
+        Concurrency (§A.3): every control routes through the same serialized,
+        revision-CAS-guarded engine path the UI uses. ``expected_revision`` is
+        the optimistic-concurrency token from ``workflow_status``'s ``revision``:
+          * Pass it to guard against acting on a stale view — if the workflow's
+            revision has advanced since you read it, the engine REJECTS the
+            action and returns ``{"accepted": False, "status", "revision"}`` with
+            the current authoritative state (re-read and decide again).
+          * OMIT it (the default) to act on the workflow's current state
+            unconditionally — appropriate when you are reacting to the latest
+            ``workflow_status`` and just want the action applied.
+
         Args:
             workflow_id: The workflow to control.
             action: One of pause / resume / cancel / skip_node / retry_node.
             node_id: Required for skip_node / retry_node; the node's integer id.
+            expected_revision: Optional CAS token; see Concurrency above.
 
         Returns:
-            ``{"workflow_id", "status"}`` (or resume stats for resume-like
-            actions); ``{"error": ...}`` if unknown / not owned or the action is
-            invalid.
+            ``{"workflow_id", "accepted", "status", "revision"}`` (resume-like
+            actions add ``cached_nodes`` / ``will_rerun``); ``{"error": ...}`` if
+            unknown / not owned or the action is invalid.
         """
         chat_id = self._chat_id()
         if not chat_id:
             return {"error": "no chat context"}
         return await self._safe(
-            self._engine.control(workflow_id, chat_id, action, node_id)
+            self._engine.control(
+                workflow_id, chat_id, action, node_id, expected_revision
+            )
         )

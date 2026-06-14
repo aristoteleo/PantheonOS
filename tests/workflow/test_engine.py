@@ -339,7 +339,10 @@ async def test_key_event_callback_completed(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_key_event_callback_failed_and_raise_safe(tmp_path):
+async def test_key_event_callback_intervention_and_raise_safe(tmp_path):
+    # §A.4: a node() failure (status='failed' → NodeError) is INTERVENABLE, so
+    # the workflow lands persistent NON-terminal 'awaiting_intervention' and the
+    # key-event fires with that kind. A raising callback must not crash the engine.
     events: list[tuple] = []
 
     def on_key_event(workflow_id, chat_id, kind, summary):
@@ -361,8 +364,8 @@ async def test_key_event_callback_failed_and_raise_safe(tmp_path):
         workflow_id="wf1",
     )
     await wait_done(engine, "wf1")
-    assert engine.storage.read_meta("wf1").status == "failed"
-    assert events[-1][2] == "failed"
+    assert engine.storage.read_meta("wf1").status == "awaiting_intervention"
+    assert events[-1][2] == "awaiting_intervention"
     assert "boom" in events[-1][3]
 
 
@@ -448,9 +451,11 @@ async def test_status_and_get_output(tmp_path):
     assert "path" in node_out
     assert node_out["path"].endswith("n0.json")
 
-    # List view (no workflow_id).
+    # List view (no workflow_id). §A.3: list returns ONLY unsettled workflows,
+    # so a completed wf1 is intentionally absent (contract evolution from the
+    # earlier "all statuses" behaviour).
     listing = await engine.status(chat_id=CHAT_ID)
-    assert any(w["workflow_id"] == "wf1" for w in listing["workflows"])
+    assert not any(w["workflow_id"] == "wf1" for w in listing["workflows"])
 
 
 # --- I-1: background task done-callback surfaces engine's own exceptions ---- #

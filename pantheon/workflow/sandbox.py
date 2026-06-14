@@ -92,6 +92,13 @@ class ScriptResult:
     result: Any = None
     error: str | None = None
     cancelled: bool = False
+    # §A.4: when a failure is caused by a ``node()`` raising ``NodeError``, this
+    # carries the offending node_id. A non-None value is the reliable signal
+    # that the failure is INTERVENABLE (engine → awaiting_intervention). It is
+    # None for script syntax/runtime errors and the max_nodes cap, which are
+    # NON-intervenable (engine → terminal failed). Duck-typed off the exception's
+    # ``node_id`` attribute to avoid importing api (NodeError) into the sandbox.
+    failed_node_id: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +374,17 @@ async def run_script(
         await _drain_cancelled(task)
         return ScriptResult(ok=False, result=None, error="cancelled", cancelled=True)
     except Exception as exc:
-        return ScriptResult(ok=False, result=None, error=_fmt_exc(exc), cancelled=False)
+        # Duck-type the §A.4 intervenable signal: only NodeError (api.py) carries
+        # an integer ``node_id``. Reading it via getattr keeps the sandbox free
+        # of an api import (no circular dependency, no coupling).
+        node_id = getattr(exc, "node_id", None)
+        return ScriptResult(
+            ok=False,
+            result=None,
+            error=_fmt_exc(exc),
+            cancelled=False,
+            failed_node_id=node_id if isinstance(node_id, int) else None,
+        )
 
     return ScriptResult(ok=True, result=result, error=None, cancelled=False)
 

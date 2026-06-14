@@ -95,11 +95,14 @@ class FakeEngine:
             {"resumed_from": workflow_id, "cached_nodes": 2, "will_rerun": [3]},
         )
 
-    async def control(self, workflow_id, chat_id, action, node_id=None):
+    async def control(
+        self, workflow_id, chat_id, action, node_id=None, expected_revision=None
+    ):
         self.calls.append(
             ("control", dict(
                 workflow_id=workflow_id, chat_id=chat_id,
                 action=action, node_id=node_id,
+                expected_revision=expected_revision,
             ))
         )
         self._maybe_raise("control")

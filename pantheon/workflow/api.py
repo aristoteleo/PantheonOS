@@ -119,10 +119,23 @@ class NodeError(Exception):
 
 @dataclass
 class RunState:
-    """Mutable run-state the engine can read back (phase + progress)."""
+    """Mutable run-state the engine can read back (phase + progress).
+
+    Also carries the §A.2/§A.6 reconcile counters seeded from the persisted
+    :class:`~pantheon.workflow.models.WorkflowState` at run start:
+
+    * ``cascade_epoch`` — the invalidation epoch in effect for this run. Stamped
+      onto every node event so the UI can drop superseded-epoch events.
+    * ``attempt_counts`` — ``{str(node_id): int}`` running retry counter. The
+      first time a node_id is recorded in a process it is 0; a re-run after
+      ``retry_node`` increments it. Seeded from state so the count survives
+      across resume/restart (the journal entry is deleted on invalidate).
+    """
 
     current_phase: str = ""
     progress: dict = field(default_factory=lambda: {"total": 0, "done": 0})
+    cascade_epoch: int = 0
+    attempt_counts: dict = field(default_factory=dict)
 
 
 def make_api(
@@ -133,17 +146,33 @@ def make_api(
     ctx: NodeRunContext,
     *,
     concurrency: int = API_DEFAULT_CONCURRENCY,
+    cascade_epoch: int = 0,
+    attempt_counts: dict | None = None,
+    slot_enabled: bool = True,
 ) -> dict:
     """Build the orchestration API bound to one workflow run.
 
     Returns a dict with keys ``node``, ``parallel``, ``pipeline``, ``phase``,
     ``log`` (the injected names) plus ``run_state`` (the :class:`RunState`) so
     the engine can read the current phase/progress.
+
+    ``cascade_epoch`` / ``attempt_counts`` seed the §A.2/§A.6 reconcile counters
+    from the persisted :class:`~pantheon.workflow.models.WorkflowState`.
+
+    ``slot_enabled`` (§A.7) is the no-preview boundary switch. When ``False``
+    (the workflow's ``preview == "none"``), ``node()`` IGNORES any ``slot=`` the
+    script passed and threads ``slot_id=None`` onto every event AND the recorded
+    journal entry — so no externally visible orphan slot_id can leak from a
+    no-preview workflow, regardless of what the script wrote. Enforced here at
+    the event/persistence boundary, not by any frontend reading ``preview``.
     """
     wf_id = ctx.workflow_id
     storage = ctx.storage
     semaphore = asyncio.Semaphore(concurrency)
-    run_state = RunState()
+    run_state = RunState(
+        cascade_epoch=cascade_epoch,
+        attempt_counts=dict(attempt_counts or {}),
+    )
     counter = _Counter()
 
     # --- helpers ----------------------------------------------------------- #
@@ -226,6 +255,7 @@ def make_api(
         phase: str = "",
         model: str | None = None,
         timeout: float | None = None,
+        slot: str | None = None,
     ) -> Any:
         """Allocate a node SYNCHRONOUSLY, return an awaitable that executes it.
 
@@ -233,24 +263,69 @@ def make_api(
         runs the synchronous prologue (id allocation + key + journal lookup)
         immediately, in source-evaluation order. Awaiting the returned object
         runs the node (events + run-or-return-cached + record).
+
+        ``slot`` (§A.1) ties this node to a blueprint slot for UI reconcile. It
+        MUST be a literal string or ``None`` — the create-time static validator
+        (``engine._referenced_slots`` / orphan guard) rejects a non-literal
+        ``slot=`` so the slot is always statically knowable. As defense in
+        depth, a non-``str`` value reaching here at runtime raises ``ValueError``
+        (a non-literal that slipped past static analysis must not silently
+        produce ``slot_id=None`` — §A.7 orphan).
         """
         # ---- SYNCHRONOUS PROLOGUE (runs at CALL time, no await) ----------- #
+        # §A.7 no-preview boundary cleansing: when the workflow's preview is
+        # "none" (slot_enabled=False), the externally visible slot_id is ALWAYS
+        # null. We force the effective slot to None up front so every downstream
+        # use (events + journal entry) inherits it. The runtime orphan guard
+        # (C2 defense-in-depth) is skipped here on purpose: there is no orphan to
+        # defend against when the answer is unconditionally None.
+        if not slot_enabled:
+            slot = None
+        elif slot is not None and not isinstance(slot, str):
+            raise ValueError(
+                f"node(slot=...) must be a literal string or None, got "
+                f"{type(slot).__name__}: {slot!r}"
+            )
         node_id = _allocate_node_id()
         input_hashes = _input_hashes(tuple(inputs))
         key = compute_node_key(instruction, template, schema, model, input_hashes)
         cached = journal.lookup(node_id, key)
         eff_phase = phase or run_state.current_phase
+        epoch = run_state.cascade_epoch
+        # attempt: the count of prior (re-)runs of this node_id. Read here in the
+        # sync prologue so a cache HIT reflects the recorded attempt and a MISS
+        # uses the seeded-from-state count (a retried node had its count bumped
+        # at retry_node time, see engine.control).
+        attempt = int(run_state.attempt_counts.get(str(node_id), 0))
         # ---- END SYNCHRONOUS PROLOGUE ------------------------------------- #
 
         async def _execute() -> Any:
             if cached is not None:
                 # Cache hit: reflect status via events, never call the runner.
+                cached_attempt = getattr(cached, "attempt", attempt)
+                cached_slot = getattr(cached, "slot_id", slot)
                 await _publish(
-                    ev.make_node_started(wf_id, node_id, label, eff_phase)
+                    ev.make_node_started(
+                        wf_id,
+                        node_id,
+                        label,
+                        eff_phase,
+                        slot_id=cached_slot,
+                        attempt=cached_attempt,
+                        cascade_epoch=epoch,
+                    )
                 )
                 await _publish(
                     ev.make_node_finished(
-                        wf_id, node_id, label, cached.status, cached.result_ref
+                        wf_id,
+                        node_id,
+                        label,
+                        cached.status,
+                        cached.result_ref,
+                        phase=eff_phase,
+                        slot_id=cached_slot,
+                        attempt=cached_attempt,
+                        cascade_epoch=epoch,
                     )
                 )
                 if cached.status == "skipped":
@@ -259,7 +334,15 @@ def make_api(
 
             # Cache miss: run the node.
             await _publish(
-                ev.make_node_started(wf_id, node_id, label, eff_phase)
+                ev.make_node_started(
+                    wf_id,
+                    node_id,
+                    label,
+                    eff_phase,
+                    slot_id=slot,
+                    attempt=attempt,
+                    cascade_epoch=epoch,
+                )
             )
 
             node_call = NodeCall(
@@ -286,11 +369,25 @@ def make_api(
                     status=result.status,
                     result_ref=result.result_ref,
                     token_cost=result.token_cost,
+                    slot_id=slot,
+                    attempt=attempt,
                 )
             )
+            # Persist the attempt back into run_state so the engine can fold it
+            # into WorkflowState.attempt_counts after the run (idempotent: the
+            # value equals the seeded count; retry_node is what bumps it).
+            run_state.attempt_counts[str(node_id)] = attempt
             await _publish(
                 ev.make_node_finished(
-                    wf_id, node_id, label, result.status, result.result_ref
+                    wf_id,
+                    node_id,
+                    label,
+                    result.status,
+                    result.result_ref,
+                    phase=eff_phase,
+                    slot_id=slot,
+                    attempt=attempt,
+                    cascade_epoch=epoch,
                 )
             )
 

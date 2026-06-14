@@ -3926,3 +3926,155 @@ class ChatRoom(ToolSet):
             return {"running": running, "models": models, "url": url}
         except Exception:
             return {"running": False, "models": [], "url": url}
+
+    # ----------------------------------------------------------------- #
+    # Dynamic-workflow query/control endpoints (Task C7, §A.3).
+    #
+    # Thin Magique-RPC (@tool) wrappers the UI calls over NATS. The
+    # substance lives in ``self._workflow_engine`` (C1-C6). Every
+    # workflow-scoped endpoint forwards ``expected_chat_id`` into the
+    # engine as the ownership/scope gate, so cross-chat access is denied
+    # at the BACKEND (403), never relying on the frontend. Exception →
+    # envelope mapping is uniform:
+    #   * PermissionError   → {success: False, code: 403}  (wrong chat)
+    #   * FileNotFoundError → {success: False, code: 404}  (unknown id)
+    # ----------------------------------------------------------------- #
+
+    @staticmethod
+    def _workflow_denied(exc: Exception) -> dict:
+        """Map an engine ownership error to a 403/404 endpoint envelope."""
+        if isinstance(exc, PermissionError):
+            return {"success": False, "message": "permission denied", "code": 403}
+        if isinstance(exc, FileNotFoundError):
+            return {"success": False, "message": "workflow not found", "code": 404}
+        raise exc
+
+    @tool
+    async def workflow_list(self, chat_id: str = None) -> dict:
+        """List the caller chat's unsettled workflows (§A.3 scope).
+
+        ``chat_id`` is REQUIRED. An empty/None ``chat_id`` is rejected here
+        (not forwarded): the engine tolerates ``None`` by listing across every
+        chat, which at the endpoint layer would be a cross-chat leak. So the
+        endpoint hard-stops it.
+        """
+        if not chat_id:
+            return {"success": False, "message": "chat_id required"}
+        try:
+            out = self._workflow_engine.list_workflows(chat_id)
+            return {"success": True, "workflows": out.get("workflows", [])}
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"workflow_list failed: {e}")
+            return {"success": False, "message": str(e)}
+
+    @tool
+    async def workflow_blueprint(
+        self, workflow_id: str, expected_chat_id: str
+    ) -> dict:
+        """Return one workflow's §A.8 declaration skeleton (blueprint + preview).
+
+        Ownership-checked: a cross-chat ``expected_chat_id`` → 403, an unknown
+        ``workflow_id`` → 404.
+        """
+        if not expected_chat_id:
+            return {"success": False, "message": "expected_chat_id required"}
+        try:
+            data = self._workflow_engine.get_blueprint(
+                workflow_id, expected_chat_id
+            )
+            return {"success": True, **data}
+        except (PermissionError, FileNotFoundError) as e:
+            return self._workflow_denied(e)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"workflow_blueprint failed: {e}")
+            return {"success": False, "message": str(e)}
+
+    @tool
+    async def workflow_state(
+        self, workflow_id: str, expected_chat_id: str
+    ) -> dict:
+        """Return one workflow's reconciled live trace (§A.6) — alias of status.
+
+        Carries the post-replay current state: ``cascade_epoch``,
+        ``invalidations`` and each node's ``attempt`` / ``slot_id``. Cross-chat
+        → 403, unknown ``workflow_id`` → 404.
+        """
+        if not expected_chat_id:
+            return {"success": False, "message": "expected_chat_id required"}
+        try:
+            state = await self._workflow_engine.status(
+                workflow_id, chat_id=expected_chat_id
+            )
+            return {"success": True, "state": state}
+        except (PermissionError, FileNotFoundError) as e:
+            return self._workflow_denied(e)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"workflow_state failed: {e}")
+            return {"success": False, "message": str(e)}
+
+    @tool
+    async def workflow_node_trace(
+        self, workflow_id: str, node_id: int, expected_chat_id: str
+    ) -> dict:
+        """Return one node's output trace, addressed by ``node_id``.
+
+        Distinguishes three cases:
+          * cross-chat / wrong owner → 403 (PermissionError, success: False);
+          * unknown ``workflow_id``  → 404 (FileNotFoundError, success: False);
+          * authorized but the node produced NO artifact → success: True with
+            ``exists: False`` (a 404 *semantic*, not a permission/error — the UI
+            just shows an empty node).
+        """
+        if not expected_chat_id:
+            return {"success": False, "message": "expected_chat_id required"}
+        try:
+            out = await self._workflow_engine.get_output(
+                workflow_id, expected_chat_id, node_id=int(node_id)
+            )
+            # ``out`` already carries {node_id, exists, preview/...}; the auth
+            # gate passed, so this is a successful read regardless of exists.
+            return {"success": True, **out}
+        except (PermissionError, FileNotFoundError) as e:
+            return self._workflow_denied(e)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"workflow_node_trace failed: {e}")
+            return {"success": False, "message": str(e)}
+
+    @tool
+    async def workflow_control(
+        self,
+        workflow_id: str,
+        action: str,
+        expected_chat_id: str,
+        node_id: int = None,
+        expected_revision: int = None,
+    ) -> dict:
+        """Drive a workflow (pause/resume/cancel/skip_node/retry_node) — §A.3/§A.4.
+
+        Auth runs BEFORE the CAS check in the engine, so a cross-chat call is a
+        403 even with a stale ``expected_revision``. The engine returns THREE
+        states which this endpoint forwards WITHOUT assuming an ``accepted`` key:
+          * ``{accepted: True, ...}``  — executed (CAS matched or revision=None);
+          * ``{accepted: False, ...}`` — stale CAS, NOT executed;
+          * ``{error: ...}``           — unknown action / missing node_id (no
+            ``accepted`` key) → wrapped as ``{success: False, error}``.
+        """
+        if not expected_chat_id:
+            return {"success": False, "message": "expected_chat_id required"}
+        try:
+            out = await self._workflow_engine.control(
+                workflow_id,
+                expected_chat_id,
+                action,
+                node_id=node_id,
+                expected_revision=expected_revision,
+            )
+        except (PermissionError, FileNotFoundError) as e:
+            return self._workflow_denied(e)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"workflow_control failed: {e}")
+            return {"success": False, "message": str(e)}
+        # Three-state forwarding: an error dict has NO ``accepted`` key.
+        if "accepted" not in out:
+            return {"success": False, **out}
+        return {"success": True, **out}

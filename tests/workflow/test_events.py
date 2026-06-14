@@ -11,6 +11,7 @@ from pantheon.workflow.events import (
     WORKFLOW_LOG,
     WORKFLOW_STATUS,
     WORKFLOW_RESUMED,
+    WORKFLOW_SLOTS_INVALIDATED,
     WorkflowEventPublisher,
 )
 
@@ -30,12 +31,34 @@ def test_make_created_fields():
 def test_make_node_started_fields_node_id_and_label_distinct():
     e = events.make_node_started("wf1", 7, "Build the thing", "build")
     assert e["type"] == WORKFLOW_NODE_STARTED == "workflow.node_started"
-    assert set(e.keys()) == {"type", "workflow_id", "node_id", "label", "phase"}
+    assert set(e.keys()) == {
+        "type",
+        "workflow_id",
+        "node_id",
+        "label",
+        "phase",
+        "slot_id",
+        "attempt",
+        "cascade_epoch",
+    }
     assert e["node_id"] == 7
     assert e["label"] == "Build the thing"
     # node_id addresses, label displays — must both be present and distinct
     assert "node_id" in e and "label" in e
     assert e["node_id"] != e["label"]
+    # §A.2 reconcile fields default to absent/zero
+    assert e["slot_id"] is None
+    assert e["attempt"] == 0
+    assert e["cascade_epoch"] == 0
+
+
+def test_make_node_started_reconcile_fields():
+    e = events.make_node_started(
+        "wf1", 7, "L", "build", slot_id="s4", attempt=2, cascade_epoch=3
+    )
+    assert e["slot_id"] == "s4"
+    assert e["attempt"] == 2
+    assert e["cascade_epoch"] == 3
 
 
 def test_make_node_started_label_may_be_empty():
@@ -54,12 +77,39 @@ def test_make_node_finished_fields():
         "label",
         "status",
         "result_ref",
+        "phase",
+        "slot_id",
+        "attempt",
+        "cascade_epoch",
     }
     assert e["node_id"] == 7
     assert e["label"] == "Build"
     assert e["status"] == "completed"
     assert e["result_ref"] == "nodes/7/result.json"
     assert e["node_id"] != e["label"]
+    # §A.2: node_finished now carries phase + reconcile fields
+    assert e["phase"] == ""
+    assert e["slot_id"] is None
+    assert e["attempt"] == 0
+    assert e["cascade_epoch"] == 0
+
+
+def test_make_node_finished_reconcile_fields_and_phase():
+    e = events.make_node_finished(
+        "wf1",
+        7,
+        "L",
+        "completed",
+        "context/n7.json",
+        phase="build",
+        slot_id="s4",
+        attempt=1,
+        cascade_epoch=5,
+    )
+    assert e["phase"] == "build"
+    assert e["slot_id"] == "s4"
+    assert e["attempt"] == 1
+    assert e["cascade_epoch"] == 5
 
 
 def test_make_node_finished_result_ref_nullable():
@@ -96,6 +146,21 @@ def test_make_resumed_fields():
     assert set(e.keys()) == {"type", "workflow_id", "cached_nodes", "will_rerun"}
     assert e["cached_nodes"] == 3
     assert e["will_rerun"] == [4, 5]
+
+
+def test_make_slots_invalidated_fields():
+    e = events.make_slots_invalidated("wf1", 2, ["s3", "s4"], [3, 4, 5])
+    assert e["type"] == WORKFLOW_SLOTS_INVALIDATED == "workflow.slots_invalidated"
+    assert set(e.keys()) == {
+        "type",
+        "workflow_id",
+        "cascade_epoch",
+        "slot_ids",
+        "node_ids",
+    }
+    assert e["cascade_epoch"] == 2
+    assert e["slot_ids"] == ["s3", "s4"]
+    assert e["node_ids"] == [3, 4, 5]
 
 
 # ── Publisher fakes ───────────────────────────────────────────────────────

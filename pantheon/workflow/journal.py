@@ -229,5 +229,7 @@ class Journal:
             status="skipped",
             result_ref=None,
             token_cost=0,
+            slot_id=old.slot_id,
+            attempt=old.attempt,
         )
         self._rewrite()

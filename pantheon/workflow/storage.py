@@ -169,6 +169,40 @@ class WorkflowStorage:
         data = json.loads(self.result_path(workflow_id).read_text(encoding="utf-8"))
         return data.get("result")
 
+    # --- invalidations sidecar (§A.6) ---
+
+    def invalidations_path(self, workflow_id: str) -> Path:
+        return self.workflow_dir(workflow_id) / "invalidations.jsonl"
+
+    def append_invalidation(self, workflow_id: str, record: dict) -> None:
+        """Append one cascade-invalidation record to ``invalidations.jsonl``.
+
+        Each record is ``{cascade_epoch, slot_ids, node_ids}`` (§A.6). The file
+        is append-only JSONL so the full invalidation history survives a process
+        restart; a reconnecting UI replays it to purge superseded downstream
+        nodes from its in-memory trace.
+        """
+        self.ensure_workflow(workflow_id)
+        path = self.invalidations_path(workflow_id)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, sort_keys=True) + "\n")
+
+    def read_invalidations(self, workflow_id: str) -> list[dict]:
+        """Read all cascade-invalidation records (oldest first); [] if none."""
+        path = self.invalidations_path(workflow_id)
+        if not path.is_file():
+            return []
+        out: list[dict] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return out
+
 
 def scan_workflows(base_dir: Path) -> list[WorkflowMeta]:
     """Scan ``{base_dir}/.pantheon/workflows/*/meta.json`` for valid metas.
