@@ -51,7 +51,7 @@ PantheonOS is an **evolvable and privacy-preserving multi-agent framework** desi
 | [![][online-app-shield]][online-app] | Play with our Web UI! |
 | [![][desktop-shield]][desktop-release-link] | Download the latest desktop app release. |
 | [![][store-shield]][store-link] | Browse 1,000+ agents, teams, and skills! |
-| 🐍 **Install** | From source: `pip install git+https://github.com/aristoteleo/PantheonOS.git` ([why not PyPI?](#3-installation)) |
+| [![][install-shield]][install-link] | From source: `pip install git+https://github.com/aristoteleo/PantheonOS.git` ([why not PyPI?](#3-installation)) |
 | [![][slack-shield-badge]][slack-link] | Join our Slack community! |
 | [![][discord-shield-badge]][discord-link] | Join our Discord community! |
 
@@ -285,6 +285,9 @@ Copyright © 2026 [Qiu Lab](https://www.devo-evo.com/).
 
 [store-link]: https://app.pantheonos.stanford.edu/#/store
 [store-shield]: https://img.shields.io/badge/store-explore-8B5CF6?labelColor=black&logo=googlechrome&logoColor=white&style=flat-square
+
+[install-link]: #3-installation
+[install-shield]: https://img.shields.io/badge/install-from%20source-2ea043?labelColor=black&logo=github&logoColor=white&style=flat-square
 
 [store-contribute-shield]: https://img.shields.io/badge/store-contribute-8B5CF6?labelColor=black&logo=googlechrome&logoColor=white&style=for-the-badge
 
