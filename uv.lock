@@ -818,20 +818,6 @@ wheels = [
 ]
 
 [[package]]
-name = "cmd2func"
-version = "0.2.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "funcdesc" },
-    { name = "pyyaml" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5d/a3/c370548faeec52eb09f14f961beddd30d5680f9b7c14efc08df6a5062d56/cmd2func-0.2.1.tar.gz", hash = "sha256:08d5278a882a4ad2a77422ec7bc2e9219f570869e2ba6e201873cb03d1d26c2d", size = 10875, upload-time = "2024-04-16T07:57:11.229Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/87/e0/442a26b3f49344fdaa6b1314dac0cfa98a23d98dccd624f4ebd5a4068f16/cmd2func-0.2.1-py3-none-any.whl", hash = "sha256:cdce78ab01d6cbf422a2f58d08f0b0db8fc52a7122b415225bbe58e44e7a8642", size = 7404, upload-time = "2024-04-16T07:57:09.903Z" },
-]
-
-[[package]]
 name = "cohere"
 version = "5.20.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1406,24 +1392,6 @@ wheels = [
 ]
 
 [[package]]
-name = "executor-engine"
-version = "0.3.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "cloudpickle" },
-    { name = "cmd2func" },
-    { name = "diskcache" },
-    { name = "funcdesc" },
-    { name = "loguru" },
-    { name = "loky" },
-    { name = "psutil" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/7a/9c/28613bea2a6692e954a71af3ca01311ace9d54d3d6e78a46467cd36aef1f/executor_engine-0.3.3.tar.gz", hash = "sha256:368acce7628588faf593985487f61d125781b34c67b23942f155e32f7e44cea2", size = 32058, upload-time = "2025-07-24T23:23:44.45Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/14/12/f85605d39f938f528f6e98d558bfa2e2b1a7a4cb632cbc41568204677624/executor_engine-0.3.3-py3-none-any.whl", hash = "sha256:3ede04a49262041e7628adaf894d5e87d515788d276db176abeb5b5610f5be28", size = 29882, upload-time = "2025-07-24T23:23:43.273Z" },
-]
-
-[[package]]
 name = "fake-http-header"
 version = "0.3.5"
 source = { registry = "https://pypi.org/simple" }
@@ -1867,15 +1835,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d5/7d/5df2650c57d47c57232af5ef4b4fdbff182070421e405e0d62c6cdbfaa87/fsspec-2026.1.0.tar.gz", hash = "sha256:e987cb0496a0d81bba3a9d1cee62922fb395e7d4c3b575e57f547953334fe07b", size = 310496, upload-time = "2026-01-09T15:21:35.562Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/01/c9/97cc5aae1648dcb851958a3ddf73ccd7dbe5650d95203ecb4d7720b4cdbf/fsspec-2026.1.0-py3-none-any.whl", hash = "sha256:cb76aa913c2285a3b49bdd5fc55b1d7c708d7208126b60f2eb8194fe1b4cbdcc", size = 201838, upload-time = "2026-01-09T15:21:34.041Z" },
-]
-
-[[package]]
-name = "funcdesc"
-version = "0.2.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/67/c1/2fe5bc5194a8659f4433c11682fe9c16acf83cc0a155d165ae3a029ee148/funcdesc-0.2.1.tar.gz", hash = "sha256:6330ce8a33f1cd6bc387df2d707a0f91c3a08ad05dcbda002cf5cc7440474435", size = 18200, upload-time = "2025-09-11T21:44:32.294Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/39/c0/6ca2fa289d9dd890af713ee6721af530a4464f9d6746cb18bfe17d52e113/funcdesc-0.2.1-py3-none-any.whl", hash = "sha256:64f5b49e686562e69d02940bf2d0db96c9d831a0af3b1ef6c32c582cc641bc05", size = 19664, upload-time = "2025-09-11T21:44:31.458Z" },
 ]
 
 [[package]]
@@ -4302,10 +4261,9 @@ dependencies = [
     { name = "diff-match-patch" },
     { name = "discord-py" },
     { name = "diskcache" },
-    { name = "executor-engine" },
+    { name = "fastavro" },
     { name = "fastmcp" },
     { name = "fire" },
-    { name = "funcdesc" },
     { name = "google-genai" },
     { name = "httpx" },
     { name = "ipykernel" },
@@ -4314,6 +4272,7 @@ dependencies = [
     { name = "lancedb" },
     { name = "lark-oapi" },
     { name = "loguru" },
+    { name = "loky" },
     { name = "matplotlib" },
     { name = "modal" },
     { name = "nats-py" },
@@ -4328,6 +4287,7 @@ dependencies = [
     { name = "pynacl" },
     { name = "python-frontmatter" },
     { name = "python-telegram-bot" },
+    { name = "pyyaml" },
     { name = "qrcode" },
     { name = "requests" },
     { name = "rich" },
@@ -4335,6 +4295,7 @@ dependencies = [
     { name = "slack-bolt" },
     { name = "slack-sdk" },
     { name = "tiktoken" },
+    { name = "tokenizers" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "tree-sitter" },
     { name = "tree-sitter-javascript" },
@@ -4393,11 +4354,10 @@ requires-dist = [
     { name = "discord-py", specifier = ">=2.5" },
     { name = "diskcache" },
     { name = "docx2txt", marker = "extra == 'knowledge'", specifier = ">=0.8" },
-    { name = "executor-engine", specifier = ">=0.3.3" },
+    { name = "fastavro" },
     { name = "fastembed", marker = "extra == 'knowledge'", specifier = ">=0.2.0" },
     { name = "fastmcp", specifier = ">=2.11.0" },
     { name = "fire", specifier = ">=0.7.0" },
-    { name = "funcdesc", specifier = ">=0.1.8" },
     { name = "google-genai", specifier = ">=1.0.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "ipykernel", specifier = ">=6.25.0" },
@@ -4413,6 +4373,7 @@ requires-dist = [
     { name = "llama-index-readers-file", marker = "extra == 'knowledge'", specifier = ">=0.2.0" },
     { name = "llama-index-vector-stores-qdrant", marker = "extra == 'knowledge'", specifier = ">=0.3.0" },
     { name = "loguru", specifier = ">=0.7.3" },
+    { name = "loky" },
     { name = "matplotlib", specifier = ">=3.10.3" },
     { name = "modal", specifier = ">=1.3" },
     { name = "nats-py", specifier = ">=2.10.0" },
@@ -4431,6 +4392,7 @@ requires-dist = [
     { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.3.1" },
     { name = "python-frontmatter", specifier = ">=1.1.0" },
     { name = "python-telegram-bot", specifier = ">=21.3" },
+    { name = "pyyaml" },
     { name = "qdrant-client", marker = "extra == 'knowledge'", specifier = ">=1.12.0" },
     { name = "qrcode" },
     { name = "requests", specifier = ">=2.0" },
@@ -4440,6 +4402,7 @@ requires-dist = [
     { name = "slack-bolt" },
     { name = "slack-sdk" },
     { name = "tiktoken", specifier = ">=0.7.0" },
+    { name = "tokenizers" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0.1" },
     { name = "tree-sitter", specifier = ">=0.24.0" },
     { name = "tree-sitter-javascript", specifier = ">=0.24.0" },
