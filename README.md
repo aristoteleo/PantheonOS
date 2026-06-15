@@ -21,14 +21,12 @@
 [![][manuscript-shield]][manuscript-link]
 [![][slack-shield]][slack-link]
 [![][discord-shield]][discord-link]
-[![][x-shield]][x-link]
 <br/>
-[![][github-contributors-shield]][github-contributors-link]
+[![][x-shield]][x-link]
 [![][github-forks-shield]][github-forks-link]
 [![][github-stars-shield]][github-stars-link]
 [![][github-issues-shield]][github-issues-link]
 [![][github-license-shield]][github-license-link]
-[![][pypi-shield]][pypi-link]
 [![][python-shield]][python-link]
 [![][status-shield]]()
 
@@ -53,7 +51,7 @@ PantheonOS is an **evolvable and privacy-preserving multi-agent framework** desi
 | [![][online-app-shield]][online-app] | Play with our Web UI! |
 | [![][desktop-shield]][desktop-release-link] | Download the latest desktop app release. |
 | [![][store-shield]][store-link] | Browse 1,000+ agents, teams, and skills! |
-| [![][pypi-shield]][pypi-link] | `pip install pantheon-agents` |
+| 🐍 **Install** | From source: `pip install git+https://github.com/aristoteleo/PantheonOS.git` ([why not PyPI?](#3-installation)) |
 | [![][slack-shield-badge]][slack-link] | Join our Slack community! |
 | [![][discord-shield-badge]][discord-link] | Join our Discord community! |
 
