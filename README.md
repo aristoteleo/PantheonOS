@@ -253,7 +253,7 @@ Copyright © 2026 [Qiu Lab](https://www.devo-evo.com/).
 [github-issues-shield]: https://img.shields.io/github/issues/aristoteleo/PantheonOS?color=ff80eb&labelColor=black&style=flat-square
 [github-license-link]: https://github.com/aristoteleo/PantheonOS/blob/main/LICENSE
 [github-license-shield]: https://img.shields.io/badge/license-BSD--2--Clause-white?labelColor=black&style=flat-square
-[github-stars-link]: https://github.com/aristoteleo/PantheonOS/network/stargazers
+[github-stars-link]: https://github.com/aristoteleo/PantheonOS/stargazers
 [github-stars-shield]: https://img.shields.io/github/stars/aristoteleo/PantheonOS?color=ffcb47&labelColor=black&style=flat-square
 
 [website-link]: https://pantheonos.stanford.edu/
