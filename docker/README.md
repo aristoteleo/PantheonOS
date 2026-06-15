@@ -79,8 +79,8 @@ The connection URL will automatically use port 9000 instead of 8080.
 |----------|-------------|---------|
 | `PANTHEON_MODE` | Set to `standalone` for local use | `hub` |
 | `NATS_EXTERNAL_PORT` | External port for NATS WebSocket | `8080` |
-| `PANTHEON_TEMPLATE_SYNC_SCOPE` | Where factory agents/teams/prompts/skills are synced on startup: `project` writes to `/workspace/.pantheon/` (recommended for Docker), `global` writes to the container user's home, `none` skips factory template sync. The image defaults to `project`; pass this explicitly when using older images or custom entrypoints. | `project` |
-| `PANTHEON_RESET_TEMPLATES` | Hub mode only. Set to `true` to clear stale project-level templates in `/workspace/.pantheon/` and force-sync factory defaults using the current `PANTHEON_TEMPLATE_SYNC_SCOPE`. Useful after image upgrades when the persistent volume contains outdated templates. Unset after one successful start. | - |
+| `PANTHEON_TEMPLATE_SYNC_SCOPE` | Factory agents/teams/prompts/skills **always** sync to the **global** scope (container home) so they track the running image and refresh on every start. The **project** scope (`/workspace/.pantheon/`) is reserved for user-created content, which overrides factory defaults via the `project → global → factory` read order. Set to `none` to skip factory sync entirely. (Previously `project` copied factory templates into `/workspace`, which froze them on a persistent volume — bootstrap now auto-reclaims any such stale copies.) | `global` |
+| `PANTHEON_RESET_TEMPLATES` | Hub mode only. Set to `true` to hard-clear `/workspace/.pantheon/` factory dirs and force-sync — **destructive: also deletes user-created project content.** Rarely needed now: bootstrap automatically reclaims stale factory-origin templates from the project scope (preserving user-created and user-modified files). Unset after one successful start. | - |
 | `OPENAI_API_KEY` | OpenAI API key | - |
 | `ANTHROPIC_API_KEY` | Anthropic API key | - |
 | `GEMINI_API_KEY` | Google Gemini API key | - |

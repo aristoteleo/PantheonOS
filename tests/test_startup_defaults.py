@@ -62,14 +62,40 @@ def test_startup_profile_log_helper_respects_disabled_env(monkeypatch):
     assert emitted == []
 
 
-def test_template_sync_scope_project_copies_factory_templates_to_project(monkeypatch, tmp_path):
+def test_factory_templates_sync_to_global_even_under_project_scope(monkeypatch, tmp_path):
+    # Factory templates ALWAYS sync to the GLOBAL scope (image-tracked), even
+    # when PANTHEON_TEMPLATE_SYNC_SCOPE=project. The project scope is reserved
+    # for user-created content; this avoids freezing factory copies on a
+    # persistent volume (the Modal staleness bug).
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("PANTHEON_TEMPLATE_SYNC_SCOPE", "project")
 
     manager = TemplateManager(work_dir=tmp_path / "workspace")
 
-    assert (manager.teams_dir / "default.md").exists()
-    assert not (manager.settings.global_teams_dir / "default.md").exists()
+    assert (manager.settings.global_teams_dir / "default.md").exists()
+    assert not (manager.teams_dir / "default.md").exists()
+
+
+def test_bootstrap_reclaims_stale_factory_skill_from_project_keeps_user_skill(monkeypatch, tmp_path):
+    # Reproduces the Modal-freeze state: a stale factory-origin skill + a
+    # user-created skill, both pre-seeded in the PROJECT scope. bootstrap should
+    # reclaim the factory-origin one (now served fresh from global) and keep the
+    # user-created one.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("PANTHEON_TEMPLATE_SYNC_SCOPE", "project")
+    pdir = tmp_path / "workspace" / ".pantheon"
+    gosling = pdir / "skills" / "live_view" / "gosling" / "gosling.md"
+    gosling.parent.mkdir(parents=True)
+    gosling.write_text("STALE no-hic\n", encoding="utf-8")
+    user_skill = pdir / "skills" / "openclaw-medical_x" / "SKILL.md"
+    user_skill.parent.mkdir(parents=True)
+    user_skill.write_text("user custom\n", encoding="utf-8")
+
+    manager = TemplateManager(work_dir=tmp_path / "workspace")
+
+    assert not gosling.exists()  # factory-origin reclaimed from project
+    assert (manager.settings.global_skills_dir / "live_view" / "gosling" / "gosling.md").exists()
+    assert user_skill.exists()  # user-created skill preserved
 
 
 def test_project_template_sync_preserves_user_modified_files(monkeypatch, tmp_path):

@@ -96,8 +96,22 @@ class TemplateManager:
         self._ensure_settings()
         self._ensure_mcp_config()
 
-        # Ensure packaged templates exist locally (copy missing ones)
+        # Snapshot the factory hashes BEFORE the global sync overwrites them, so
+        # reclaim can tell a user-MODIFIED project file (changed since its last
+        # sync) from a merely-stale factory copy.
+        pre_sync_hashes = self._load_factory_hashes()
+
+        # Ensure packaged templates exist locally (copy missing ones).
+        # Factory content now syncs to GLOBAL (see _factory_template_targets).
         self._ensure_default_templates()
+
+        # Reclaim: older builds copied factory templates into the PROJECT scope
+        # (PANTHEON_TEMPLATE_SYNC_SCOPE=project). On Modal those froze on the
+        # persistent volume and shadowed the fresh global copies. Remove the
+        # factory-origin project files (now served from global), preserving
+        # user-created and user-modified content. Runs after the global sync so
+        # nothing is lost.
+        self._reclaim_factory_from_project(pre_sync_hashes)
 
         logger.info("Template system bootstrap complete")
 
@@ -142,18 +156,22 @@ class TemplateManager:
         return scope
 
     def _factory_template_targets(self) -> list[tuple[str, Path, str]]:
-        """Return factory template copy targets for the configured sync scope."""
-        scope = self._template_sync_scope()
-        if scope == "none":
-            return []
+        """Return factory template copy targets.
 
-        if scope == "project":
-            return [
-                ("agents", self.agents_dir, "agent(s)"),
-                ("teams", self.teams_dir, "team(s)"),
-                ("prompts", self.prompts_dir, "prompt(s)"),
-                ("skills", self.skills_dir, "skill(s)"),
-            ]
+        Factory templates (agents/teams/prompts/skills) ALWAYS sync to the
+        GLOBAL scope so they track the running image — on Modal that means
+        ephemeral HOME, refreshed every start; on local it's the hash-tracked
+        smart-overwrite. The persisted PROJECT scope is reserved for
+        user-created content, which still wins via the project -> global ->
+        factory read fallback.
+
+        Previously PANTHEON_TEMPLATE_SYNC_SCOPE=project wrote factory templates
+        into the project scope; on Modal that pinned them on the persistent
+        volume and FROZE them (they never tracked image upgrades, and the stale
+        project copies shadowed the fresh global ones). `none` still skips sync.
+        """
+        if self._template_sync_scope() == "none":
+            return []
 
         return [
             ("agents", self.settings.global_agents_dir, "agent(s)"),
@@ -262,6 +280,7 @@ class TemplateManager:
             ("agents", self.agents_dir, "agents"),
             ("teams", self.teams_dir, "teams"),
             ("prompts", self.prompts_dir, "prompts"),
+            ("skills", self.skills_dir, "skills"),
         ]:
             src_dir = self.system_templates_dir / subdir
             if not src_dir.exists():
@@ -300,6 +319,7 @@ class TemplateManager:
             "agents": (self.system_templates_dir / "agents", self.agents_dir),
             "teams": (self.system_templates_dir / "teams", self.teams_dir),
             "prompts": (self.system_templates_dir / "prompts", self.prompts_dir),
+            "skills": (self.system_templates_dir / "skills", self.skills_dir),
         }
 
         for item in items:
@@ -354,6 +374,68 @@ class TemplateManager:
                 )
             except Exception as e:
                 logger.error(f"Failed to copy default {label}: {e}")
+
+    def _reclaim_factory_from_project(self, prior_hashes: dict | None = None):
+        """Remove factory-origin templates that an older build copied into the
+        PROJECT scope, so they stop shadowing the fresh GLOBAL copies (read
+        order is project -> global -> factory).
+
+        Safety:
+        - A project file is only removed when the SAME relative path exists in
+          the packaged factory (factory-origin). User-created files with no
+          factory counterpart (e.g. project-specific skills) are preserved.
+        - It is only removed once its GLOBAL counterpart exists, so the content
+          is never lost (the global scope serves it from the current image).
+        - User-MODIFIED factory files are preserved: `prior_hashes` is the hash
+          snapshot from BEFORE this run's global sync; if a file has a recorded
+          hash and no longer matches it, the user edited it on purpose (a
+          project override) and it is kept. Files with no recorded hash (the
+          Modal-freeze case) or that still match are safe to reclaim.
+        """
+        factory_hashes = prior_hashes if prior_hashes is not None else self._load_factory_hashes()
+        targets = [
+            (self.agents_dir, self.system_templates_dir / "agents", self.settings.global_agents_dir, "agent(s)"),
+            (self.teams_dir, self.system_templates_dir / "teams", self.settings.global_teams_dir, "team(s)"),
+            (self.prompts_dir, self.system_templates_dir / "prompts", self.settings.global_prompts_dir, "prompt(s)"),
+            (self.skills_dir, self.system_templates_dir / "skills", self.settings.global_skills_dir, "skill(s)"),
+        ]
+        removed = 0
+        for project_dir, factory_dir, global_dir, label in targets:
+            if not project_dir.exists() or not factory_dir.exists():
+                continue
+            for project_file in list(project_dir.rglob("*")):
+                if not project_file.is_file():
+                    continue
+                rel = project_file.relative_to(project_dir)
+                if not (factory_dir / rel).exists():
+                    continue  # user-created → keep
+                if not (global_dir / rel).exists():
+                    continue  # global doesn't serve it yet → don't risk data loss
+                # Preserve USER-MODIFIED factory files: if a last-synced hash is
+                # recorded and the project copy no longer matches it, the user
+                # edited it on purpose (an override) — keep it. Files with no
+                # recorded hash (legacy project copies, the Modal-freeze case)
+                # or that still match the recorded hash are safe to reclaim.
+                stored = factory_hashes.get(f"{label}/{rel}")
+                if stored is not None and self._file_hash(project_file) != stored:
+                    continue
+                try:
+                    project_file.unlink()
+                    removed += 1
+                except Exception as e:
+                    logger.error(f"reclaim: failed to remove {project_file}: {e}")
+            # prune directories left empty by the removals
+            for d in sorted((p for p in project_dir.rglob("*") if p.is_dir()), reverse=True):
+                try:
+                    if not any(d.iterdir()):
+                        d.rmdir()
+                except Exception:
+                    pass
+        if removed:
+            logger.info(
+                f"Reclaimed {removed} factory-origin file(s) from the project scope; "
+                "now served from the image-tracked global scope."
+            )
 
     def force_sync_factory_templates(self):
         """Force-sync ALL factory templates (including skills) to the configured scope.
