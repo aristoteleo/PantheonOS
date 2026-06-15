@@ -96,21 +96,18 @@ class TemplateManager:
         self._ensure_settings()
         self._ensure_mcp_config()
 
-        # Snapshot the factory hashes BEFORE the global sync overwrites them, so
-        # reclaim can tell a user-MODIFIED project file (changed since its last
-        # sync) from a merely-stale factory copy.
+        # Snapshot hashes before any optional materialization so reclaim can
+        # distinguish a user-modified project override from a stale factory copy.
         pre_sync_hashes = self._load_factory_hashes()
 
-        # Ensure packaged templates exist locally (copy missing ones).
-        # Factory content now syncs to GLOBAL (see _factory_template_targets).
+        # Optional materialization. The default is runtime factory fallback, so
+        # sandbox startup does not copy package templates into ephemeral HOME.
         self._ensure_default_templates()
 
         # Reclaim: older builds copied factory templates into the PROJECT scope
-        # (PANTHEON_TEMPLATE_SYNC_SCOPE=project). On Modal those froze on the
-        # persistent volume and shadowed the fresh global copies. Remove the
-        # factory-origin project files (now served from global), preserving
-        # user-created and user-modified content. Runs after the global sync so
-        # nothing is lost.
+        # On Modal those froze on the persistent volume and shadowed the fresh
+        # factory fallback. Remove factory-origin project files, preserving
+        # user-created and user-modified content.
         self._reclaim_factory_from_project(pre_sync_hashes)
 
         logger.info("Template system bootstrap complete")
@@ -143,34 +140,27 @@ class TemplateManager:
         hash_file = self.settings.pantheon_dir / ".factory_hashes.json"
         hash_file.write_text(json.dumps(hashes, indent=2), encoding="utf-8")
 
-    def _template_sync_scope(self) -> str:
-        """Return where factory templates should be synced on startup."""
-        scope = os.environ.get("PANTHEON_TEMPLATE_SYNC_SCOPE", "global").strip().lower()
-        if not scope:
-            return "global"
-        if scope not in {"global", "project", "none"}:
-            logger.warning(
-                f"Invalid PANTHEON_TEMPLATE_SYNC_SCOPE={scope!r}; falling back to 'global'"
-            )
-            return "global"
-        return scope
+    def _factory_template_mode(self) -> str:
+        """Return how factory templates are materialized on startup.
 
-    def _factory_template_targets(self) -> list[tuple[str, Path, str]]:
-        """Return factory template copy targets.
-
-        Factory templates (agents/teams/prompts/skills) ALWAYS sync to the
-        GLOBAL scope so they track the running image — on Modal that means
-        ephemeral HOME, refreshed every start; on local it's the hash-tracked
-        smart-overwrite. The persisted PROJECT scope is reserved for
-        user-created content, which still wins via the project -> global ->
-        factory read fallback.
-
-        Previously PANTHEON_TEMPLATE_SYNC_SCOPE=project wrote factory templates
-        into the project scope; on Modal that pinned them on the persistent
-        volume and FROZE them (they never tracked image upgrades, and the stale
-        project copies shadowed the fresh global ones). `none` still skips sync.
+        Default is runtime fallback: do not copy factory templates anywhere at
+        startup. Loading resolves project -> global -> packaged factory.
         """
-        if self._template_sync_scope() == "none":
+        raw_mode = os.environ.get("PANTHEON_FACTORY_TEMPLATE_MODE", "")
+        mode = raw_mode.strip().lower()
+        if not mode:
+            return "runtime"
+        if mode not in {"runtime", "global"}:
+            logger.warning(
+                f"Invalid PANTHEON_FACTORY_TEMPLATE_MODE={mode!r}; falling back to 'runtime'"
+            )
+            return "runtime"
+        return mode
+
+    def _factory_template_targets(self, *, mode: str | None = None) -> list[tuple[str, Path, str]]:
+        """Return optional factory template copy targets for materialization."""
+        mode = self._factory_template_mode() if mode is None else mode
+        if mode != "global":
             return []
 
         return [
@@ -338,7 +328,7 @@ class TemplateManager:
         self._save_factory_hashes(factory_hashes)
 
     def _ensure_default_templates(self):
-        """Sync factory defaults according to PANTHEON_TEMPLATE_SYNC_SCOPE.
+        """Optionally materialize factory defaults according to factory mode.
 
         Respects the `default_template_auto_update` setting for all categories
         (agents/teams/prompts/skills):
@@ -347,27 +337,25 @@ class TemplateManager:
           updated to the latest version.
         - False: only copy files that don't exist yet (preserves all user edits).
 
-        Default scope is global so local/desktop behavior keeps the same
-        3-layer fallback:
-        project → global (~/.pantheon/) → factory
-
-        Modal sandboxes can set PANTHEON_TEMPLATE_SYNC_SCOPE=project so the
-        copied factory templates and their hashes live on the persisted
-        workspace volume instead of ephemeral HOME.
+        Default mode is runtime fallback, which performs no startup copy:
+        project → global (~/.pantheon/) → packaged factory.
         """
-        scope = self._template_sync_scope()
-        if scope == "none":
-            logger.info("PANTHEON_TEMPLATE_SYNC_SCOPE=none: skipping factory template sync")
+        mode = self._factory_template_mode()
+        if mode == "runtime":
+            logger.info(
+                "PANTHEON_FACTORY_TEMPLATE_MODE=runtime: using packaged factory fallback; "
+                "skipping startup template sync"
+            )
             return
 
         overwrite = self.settings.default_template_auto_update
         if overwrite:
             logger.info(
                 "default_template_auto_update=true: smart-overwriting "
-                f"agents/teams/prompts/skills with latest factory defaults (scope={scope})"
+                f"agents/teams/prompts/skills with latest factory defaults (mode={mode})"
             )
 
-        for subdir, dest_dir, label in self._factory_template_targets():
+        for subdir, dest_dir, label in self._factory_template_targets(mode=mode):
             try:
                 self._copy_missing_templates(
                     self.system_templates_dir / subdir, dest_dir, label, overwrite=overwrite
@@ -377,15 +365,15 @@ class TemplateManager:
 
     def _reclaim_factory_from_project(self, prior_hashes: dict | None = None):
         """Remove factory-origin templates that an older build copied into the
-        PROJECT scope, so they stop shadowing the fresh GLOBAL copies (read
+        PROJECT scope, so they stop shadowing the fresh FACTORY fallback (read
         order is project -> global -> factory).
 
         Safety:
         - A project file is only removed when the SAME relative path exists in
           the packaged factory (factory-origin). User-created files with no
           factory counterpart (e.g. project-specific skills) are preserved.
-        - It is only removed once its GLOBAL counterpart exists, so the content
-          is never lost (the global scope serves it from the current image).
+        - It is only removed when packaged factory still has the same relative
+          path, so the content is still served by runtime factory fallback.
         - User-MODIFIED factory files are preserved: `prior_hashes` is the hash
           snapshot from BEFORE this run's global sync; if a file has a recorded
           hash and no longer matches it, the user edited it on purpose (a
@@ -394,13 +382,13 @@ class TemplateManager:
         """
         factory_hashes = prior_hashes if prior_hashes is not None else self._load_factory_hashes()
         targets = [
-            (self.agents_dir, self.system_templates_dir / "agents", self.settings.global_agents_dir, "agent(s)"),
-            (self.teams_dir, self.system_templates_dir / "teams", self.settings.global_teams_dir, "team(s)"),
-            (self.prompts_dir, self.system_templates_dir / "prompts", self.settings.global_prompts_dir, "prompt(s)"),
-            (self.skills_dir, self.system_templates_dir / "skills", self.settings.global_skills_dir, "skill(s)"),
+            (self.agents_dir, self.system_templates_dir / "agents", "agent(s)"),
+            (self.teams_dir, self.system_templates_dir / "teams", "team(s)"),
+            (self.prompts_dir, self.system_templates_dir / "prompts", "prompt(s)"),
+            (self.skills_dir, self.system_templates_dir / "skills", "skill(s)"),
         ]
         removed = 0
-        for project_dir, factory_dir, global_dir, label in targets:
+        for project_dir, factory_dir, label in targets:
             if not project_dir.exists() or not factory_dir.exists():
                 continue
             for project_file in list(project_dir.rglob("*")):
@@ -409,8 +397,6 @@ class TemplateManager:
                 rel = project_file.relative_to(project_dir)
                 if not (factory_dir / rel).exists():
                     continue  # user-created → keep
-                if not (global_dir / rel).exists():
-                    continue  # global doesn't serve it yet → don't risk data loss
                 # Preserve USER-MODIFIED factory files: if a last-synced hash is
                 # recorded and the project copy no longer matches it, the user
                 # edited it on purpose (an override) — keep it. Files with no
@@ -434,33 +420,28 @@ class TemplateManager:
         if removed:
             logger.info(
                 f"Reclaimed {removed} factory-origin file(s) from the project scope; "
-                "now served from the image-tracked global scope."
+                "now served from packaged factory fallback."
             )
 
     def force_sync_factory_templates(self):
-        """Force-sync ALL factory templates (including skills) to the configured scope.
+        """Force-sync ALL factory templates (including skills) to global.
 
         Clears hash tracking and copies everything with overwrite=True.
         Used for image upgrades where stale templates need to be replaced.
         """
-        scope = self._template_sync_scope()
-        if scope == "none":
-            logger.info("PANTHEON_TEMPLATE_SYNC_SCOPE=none: skipping force-sync")
-            return 0
-
         hash_file = self.settings.pantheon_dir / ".factory_hashes.json"
         if hash_file.exists():
             hash_file.unlink()
 
         total = 0
-        for subdir, dest_dir, label in self._factory_template_targets():
+        for subdir, dest_dir, label in self._factory_template_targets(mode="global"):
             try:
                 total += self._copy_missing_templates(
                     self.system_templates_dir / subdir, dest_dir, label, overwrite=True
                 )
             except Exception as e:
                 logger.error(f"Failed to force-sync {label}: {e}")
-        logger.info(f"Force-sync complete: {total} file(s) synced (scope={scope})")
+        logger.info(f"Force-sync complete: {total} file(s) synced (mode=global)")
         return total
 
     def _ensure_settings(self):

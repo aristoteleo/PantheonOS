@@ -64,8 +64,12 @@ class TestRuntimeIntegration:
         assert "## Skills" in guidance
         assert "skill_manage" in guidance
 
-    def test_no_guidance_when_empty(self, runtime_config, tmp_pantheon_dir):
+    def test_no_guidance_when_empty(self, monkeypatch, runtime_config, tmp_pantheon_dir, tmp_path):
         from pantheon.internal.learning_system.runtime import LearningRuntime
+        from pantheon.settings import get_settings
+
+        settings = get_settings()
+        monkeypatch.setattr(settings, "package_templates", tmp_path / "empty_factory")
 
         rt = LearningRuntime(runtime_config)
         rt.initialize(tmp_pantheon_dir)

@@ -228,8 +228,9 @@ else
     mkdir -p /workspace/.pantheon
     echo "✓ Ensured .pantheon directory exists"
 
-    # Clear stale project-level templates before forcing a factory sync with the
-    # current PANTHEON_TEMPLATE_SYNC_SCOPE.
+    # Clear stale project-level templates before forcing an explicit factory
+    # materialization. Normal startup uses runtime factory fallback and does not
+    # copy factory templates.
     if [ "${PANTHEON_RESET_TEMPLATES}" = "true" ]; then
         echo "Clearing stale project-level templates..."
         rm -rf /workspace/.pantheon/agents /workspace/.pantheon/teams /workspace/.pantheon/prompts /workspace/.pantheon/skills /workspace/.pantheon/.factory_hashes.json

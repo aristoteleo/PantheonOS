@@ -252,6 +252,10 @@ class Settings:
         return self.user_home / "agents"
 
     @property
+    def factory_agents_dir(self) -> Path:
+        return self.package_templates / "agents"
+
+    @property
     def teams_dir(self) -> Path:
         return self.pantheon_dir / "teams"
 
@@ -260,12 +264,20 @@ class Settings:
         return self.user_home / "teams"
 
     @property
+    def factory_teams_dir(self) -> Path:
+        return self.package_templates / "teams"
+
+    @property
     def prompts_dir(self) -> Path:
         return self.pantheon_dir / "prompts"
 
     @property
     def global_prompts_dir(self) -> Path:
         return self.user_home / "prompts"
+
+    @property
+    def factory_prompts_dir(self) -> Path:
+        return self.package_templates / "prompts"
 
     @property
     def memory_dir(self) -> Path:
@@ -286,6 +298,10 @@ class Settings:
     @property
     def global_skills_dir(self) -> Path:
         return self.user_home / "skills"
+
+    @property
+    def factory_skills_dir(self) -> Path:
+        return self.package_templates / "skills"
 
     @property
     def learning_dir(self) -> Path:
@@ -715,7 +731,7 @@ class Settings:
 
     @property
     def default_template_auto_update(self) -> bool:
-        """Whether to overwrite factory templates (agents/prompts/teams) on startup. Defaults to True."""
+        """Whether explicit factory materialization can update unchanged copies. Defaults to True."""
         self._ensure_loaded()
         return self._settings.get("default_template_auto_update", True)
 

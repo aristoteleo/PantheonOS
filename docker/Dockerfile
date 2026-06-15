@@ -266,10 +266,7 @@ ENV PATH="${VENV_PATH}/bin:$PATH" \
     UV_CACHE_DIR=/app/.uv-cache \
     # Install playwright browsers to an explicit path outside /root/.cache.
     # This prevents accidental deletion and makes the installation location unambiguous.
-    PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/ms-playwright \
-    # Docker containers usually persist /workspace, not /root. Keep factory
-    # templates, skills, and hash stamps in the mounted project area by default.
-    PANTHEON_TEMPLATE_SYNC_SCOPE=project
+    PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/ms-playwright
 
 # Layer C — Playwright browsers (~300-400MB, stable): only rebuilt when Playwright version changes.
 # Using chromium is sufficient for most web scraping/automation tasks.

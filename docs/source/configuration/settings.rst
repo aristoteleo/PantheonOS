@@ -133,8 +133,14 @@ Template Auto-Update
      "default_template_auto_update": true
    }
 
-When ``true`` (default), factory templates are synced to your ``.pantheon/`` directory on startup.
-The sync uses **hash-based change detection** to avoid overwriting user modifications:
+By default, factory templates are read directly from the installed package using
+the runtime fallback order ``project → global → factory``. No startup copy is
+needed for agents, teams, prompts, or skills.
+
+When factory templates are explicitly materialized with
+``PANTHEON_FACTORY_TEMPLATE_MODE=global``, this setting controls
+whether unchanged factory copies can be updated. The materialization uses
+**hash-based change detection** to avoid overwriting user modifications:
 
 - If only the factory template changed, it is updated automatically.
 - If you modified a template (e.g. via ``/model``), your changes are preserved even when the factory version updates.

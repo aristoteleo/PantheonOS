@@ -119,10 +119,10 @@ def update_templates():
 
 
 def sync_templates():
-    """Force-sync all factory templates (agents, teams, prompts, skills) to ~/.pantheon/.
+    """Force-sync all factory templates (agents, teams, prompts, skills).
 
     Non-interactive. Clears hash tracking and overwrites all factory-origin files.
-    Useful after image upgrades to ensure latest templates are in use.
+    Materializes packaged factory templates to ~/.pantheon/ for legacy workflows.
     """
     from pantheon.factory.template_manager import get_template_manager
 
