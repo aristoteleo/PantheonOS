@@ -110,6 +110,13 @@ class TemplateManager:
         # user-created and user-modified content.
         self._reclaim_factory_from_project(pre_sync_hashes)
 
+        # One-time per-workspace migration: older builds hash-tracked factory
+        # agents/teams/prompts in the PROJECT scope, but on some workspaces those
+        # recorded hashes drifted so the reclaim above can't tell a STALE frozen
+        # factory copy from a real user override (e.g. a frozen v1.3.0 team kept
+        # shadowing the current v1.4.0). Clear them once, with backup.
+        self._reclaim_legacy_frozen_factory()
+
         logger.info("Template system bootstrap complete")
 
 
@@ -421,6 +428,83 @@ class TemplateManager:
             logger.info(
                 f"Reclaimed {removed} factory-origin file(s) from the project scope; "
                 "now served from packaged factory fallback."
+            )
+
+    def _reclaim_legacy_frozen_factory(self):
+        """ONE-TIME per-workspace migration for LEGACY frozen factory templates.
+
+        Older builds (PANTHEON_TEMPLATE_SYNC_SCOPE=project) copied factory
+        agents/teams/prompts into the persistent PROJECT scope AND recorded their
+        hashes. On some workspaces those recorded hashes DRIFTED (buggy/partial
+        syncs across image versions), so `_reclaim_factory_from_project`'s
+        user-modified guard (file != recorded hash) can no longer tell a STALE
+        factory copy from a real user override — and the stale copy keeps
+        shadowing the fresh factory (project -> global -> factory read order),
+        e.g. a frozen v1.3.0 team hiding the current v1.4.0. (Skills escaped this:
+        older builds never hash-tracked them, so the no-hash reclaim path cleared
+        them already.)
+
+        Runs ONCE per workspace (sentinel file). For each project file matching a
+        current packaged-factory path, it backs the project copy up to
+        `.overrides_backup/` (zero data loss — a genuine override is recoverable)
+        and removes it so the fresh factory/global copy is served. After this, the
+        normal reclaim preserves NEW user overrides as usual.
+        """
+        import shutil
+        sentinel = self.settings.pantheon_dir / ".legacy_factory_reclaim_done"
+        if sentinel.exists():
+            return
+        backup_root = self.settings.pantheon_dir / ".overrides_backup"
+        targets = [
+            (self.agents_dir, self.system_templates_dir / "agents", "agents"),
+            (self.teams_dir, self.system_templates_dir / "teams", "teams"),
+            (self.prompts_dir, self.system_templates_dir / "prompts", "prompts"),
+        ]
+        cleared = 0
+        backed_up = 0
+        for project_dir, factory_dir, kind in targets:
+            if not project_dir.exists() or not factory_dir.exists():
+                continue
+            for project_file in list(project_dir.rglob("*")):
+                if not project_file.is_file():
+                    continue
+                rel = project_file.relative_to(project_dir)
+                factory_file = factory_dir / rel
+                if not factory_file.exists():
+                    continue  # no factory counterpart → user-created → keep
+                try:
+                    # Back up only when the project copy differs from the current
+                    # factory (identical copies need no backup). Then remove so the
+                    # fresh factory/global copy is served.
+                    if self._file_hash(project_file) != self._file_hash(factory_file):
+                        backup = backup_root / kind / rel
+                        backup.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(project_file, backup)
+                        backed_up += 1
+                    project_file.unlink()
+                    cleared += 1
+                except Exception as e:
+                    logger.error(f"legacy reclaim: failed on {project_file}: {e}")
+            for d in sorted((p for p in project_dir.rglob("*") if p.is_dir()), reverse=True):
+                try:
+                    if not any(d.iterdir()):
+                        d.rmdir()
+                except Exception:
+                    pass
+        try:
+            sentinel.parent.mkdir(parents=True, exist_ok=True)
+            sentinel.write_text(
+                "legacy factory-origin project templates reclaimed; "
+                "drifted copies backed up under .overrides_backup\n",
+                encoding="utf-8",
+            )
+        except Exception as e:
+            logger.error(f"legacy reclaim: failed to write sentinel: {e}")
+        if cleared:
+            logger.info(
+                f"Legacy factory reclaim: cleared {cleared} frozen factory-origin "
+                f"project file(s) (agents/teams/prompts), {backed_up} backed up to "
+                f".overrides_backup; fresh factory/global copies now served."
             )
 
     def force_sync_factory_templates(self):
