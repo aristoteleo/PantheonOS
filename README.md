@@ -59,6 +59,16 @@ PantheonOS is an **evolvable and privacy-preserving multi-agent framework** desi
 
 ## `3` [Installation](#3-installation)
 
+> [!WARNING]
+> **Security notice (June 2026) — install from source, not PyPI.**
+> The PyPI account that published `pantheon-agents` was compromised in the "Hades"
+> supply-chain attack, and the PyPI releases **`pantheon-agents` 0.6.1 and 0.6.2 are
+> trojanized** (a `*-setup.pth` hook downloads the Bun runtime and runs a credential
+> stealer). **Do not `pip install pantheon-agents` from PyPI.** Install from the GitHub
+> source as shown below — the source repository is clean. If you previously installed
+> 0.6.1 or 0.6.2, uninstall it immediately and rotate any credentials that were present
+> on that machine. PyPI distribution will resume once the account is restored.
+
 ### Desktop App
 
 Download the latest Pantheon Desktop app:
@@ -89,15 +99,17 @@ uv sync --extra claw       # PantheonClaw mobile gateway channels
 uv sync --extra r          # R language support (requires R installed)
 ```
 
-### Using pip
+### Using pip (from GitHub source)
+
+> PyPI installs are temporarily disabled (see the security notice above). Install
+> directly from the clean GitHub source instead:
 
 ```bash
-# Basic installation
-pip install pantheon-agents
+# Basic installation (from source)
+pip install "git+https://github.com/aristoteleo/PantheonOS.git"
 
-# With optional dependencies
-pip install "pantheon-agents[knowledge]"  # RAG/vector search support
-pip install "pantheon-agents[claw]"       # PantheonClaw mobile gateway channels
+# With optional dependencies (e.g. RAG / vector search)
+pip install "pantheon-agents[knowledge] @ git+https://github.com/aristoteleo/PantheonOS.git"
 ```
 
 ### Development Installation
