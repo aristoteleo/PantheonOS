@@ -45,7 +45,7 @@ class SkillHeader:
     related_skills: list[str] = field(default_factory=list)
     agent_scope: list[str] | None = None  # None = all agents
     mtime: float = 0.0
-    scope: str = "project"  # "project" or "global"
+    scope: str = "project"  # "project", "global", or "factory"
 
 
 @dataclass

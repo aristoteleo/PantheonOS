@@ -25,7 +25,11 @@ class TestInitialization:
 
 
 class TestBuildGuidance:
-    def test_empty(self, runtime_config, tmp_pantheon_dir):
+    def test_empty(self, monkeypatch, runtime_config, tmp_pantheon_dir, tmp_path):
+        from pantheon.settings import get_settings
+
+        settings = get_settings()
+        monkeypatch.setattr(settings, "package_templates", tmp_path / "empty_factory")
         rt = LearningRuntime(runtime_config)
         rt.initialize(tmp_pantheon_dir)
         assert rt.build_skill_guidance() == ""
@@ -36,6 +40,14 @@ class TestBuildGuidance:
         rt.store.create_skill("test", MINIMAL_SKILL.replace("minimal", "test"))
         guidance = rt.build_skill_guidance()
         assert "test" in guidance
+
+    def test_includes_factory_skills_by_default(self, runtime_config, tmp_pantheon_dir):
+        rt = LearningRuntime(runtime_config)
+        rt.initialize(tmp_pantheon_dir)
+
+        guidance = rt.build_skill_guidance()
+
+        assert "live_view" in guidance or "omics" in guidance
 
 
 class TestMaybeExtractSkillsCounter:

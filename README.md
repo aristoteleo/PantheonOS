@@ -124,13 +124,12 @@ docker pull nanguage/pantheon-agents:latest
 # Run in standalone mode (for local use)
 docker run -it --rm \
   -e PANTHEON_MODE=standalone \
-  -e PANTHEON_TEMPLATE_SYNC_SCOPE=project \
   -v $(pwd)/workspace:/workspace \
   -p 8080:8080 \
   nanguage/pantheon-agents:latest
 ```
 
-After startup, copy the displayed connection URL to your browser and start using Pantheon. The Docker image stores factory templates, skills, and user edits under the mounted `/workspace/.pantheon/` project directory by default, so they persist across container restarts when you reuse the same workspace mount.
+After startup, copy the displayed connection URL to your browser and start using Pantheon. The Docker image reads factory templates directly from the running image, so startup does not copy templates into `/workspace` or container home. User-created project overrides still persist under the mounted `/workspace/.pantheon/` directory.
 
 For detailed Docker usage, deployment modes, and configuration options, see the [Docker documentation](https://github.com/aristoteleo/PantheonOS/tree/main/pantheon-agents/docker).
 

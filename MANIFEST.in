@@ -1,5 +1,5 @@
 # Include package data
-recursive-include pantheon/factory/templates *.md *.json *.example
+recursive-include pantheon/factory/templates *.md *.json *.example *.js *.css *.py .gitkeep
 recursive-include pantheon/toolsets/database_api/schemas *.json
 
 # Include documentation

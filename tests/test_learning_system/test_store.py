@@ -112,6 +112,30 @@ class TestScanHeaders:
         assert len(headers) == 2
         assert headers[0].name == "skill-b"  # newer first
 
+    def test_scan_factory_headers_when_project_and_global_empty(self, tmp_path):
+        factory_skills = tmp_path / "factory" / "skills"
+        skill = factory_skills / "factory-only" / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text(
+            "---\n"
+            "name: factory-only\n"
+            "description: Factory fallback skill\n"
+            "---\n\n"
+            "Use the packaged factory skill.\n",
+            encoding="utf-8",
+        )
+        store = SkillStore(
+            tmp_path / "project" / "skills",
+            tmp_path / "project" / "runtime",
+            global_skills_dir=tmp_path / "global" / "skills",
+            factory_skills_dir=factory_skills,
+        )
+
+        headers = store.scan_headers()
+
+        assert [header.name for header in headers] == ["factory-only"]
+        assert headers[0].scope == "factory"
+
 
 class TestLoadSkill:
     def test_load_success(self, store_with_skill):
@@ -122,6 +146,32 @@ class TestLoadSkill:
 
     def test_load_not_found(self, store):
         assert store.load_skill("nonexistent") is None
+
+    def test_load_factory_skill_when_project_and_global_empty(self, tmp_path):
+        factory_skills = tmp_path / "factory" / "skills"
+        skill = factory_skills / "factory-only" / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text(
+            "---\n"
+            "name: factory-only\n"
+            "description: Factory fallback skill\n"
+            "---\n\n"
+            "Use the packaged factory skill.\n",
+            encoding="utf-8",
+        )
+        store = SkillStore(
+            tmp_path / "project" / "skills",
+            tmp_path / "project" / "runtime",
+            global_skills_dir=tmp_path / "global" / "skills",
+            factory_skills_dir=factory_skills,
+        )
+
+        entry = store.load_skill("factory-only")
+
+        assert entry is not None
+        assert entry.scope == "factory"
+        assert entry.path == "factory-only"
+        assert "packaged factory skill" in entry.content
 
 
 class TestSupportingFiles:

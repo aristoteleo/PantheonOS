@@ -151,6 +151,7 @@ class LiveViewToolSet(ToolSet):
             pass
         roots.append(s.skills_dir)
         roots.append(s.global_skills_dir)
+        roots.append(s.factory_skills_dir)
         return roots
 
     async def _ensure_data_server(self):
@@ -182,6 +183,7 @@ class LiveViewToolSet(ToolSet):
         candidates = [
             s.skills_dir / "live_view" / name / "adapter.js",
             s.global_skills_dir / "live_view" / name / "adapter.js",
+            s.factory_skills_dir / "live_view" / name / "adapter.js",
         ]
         adapter = next((p for p in candidates if p.exists()), None)
         if adapter is None:

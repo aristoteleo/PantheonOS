@@ -35,6 +35,24 @@ def test_default_team_keeps_package_for_lazy_dynamic_start():
     assert "package" in leader.toolsets
 
 
+def test_factory_runtime_fallback_assets_are_included_in_package_metadata():
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    manifest = Path(__file__).resolve().parents[1] / "MANIFEST.in"
+
+    pyproject_text = pyproject.read_text(encoding="utf-8")
+    manifest_text = manifest.read_text(encoding="utf-8")
+
+    for pattern in [
+        '"templates/**/*.js"',
+        '"templates/**/*.css"',
+        '"templates/**/*.py"',
+        '"templates/**/.gitkeep"',
+    ]:
+        assert pattern in pyproject_text
+
+    assert "recursive-include pantheon/factory/templates *.md *.json *.example *.js *.css *.py .gitkeep" in manifest_text
+
+
 def test_startup_profile_logs_default_enabled(monkeypatch):
     monkeypatch.delenv("PANTHEON_STARTUP_PROFILE", raising=False)
 
@@ -62,27 +80,52 @@ def test_startup_profile_log_helper_respects_disabled_env(monkeypatch):
     assert emitted == []
 
 
-def test_factory_templates_sync_to_global_even_under_project_scope(monkeypatch, tmp_path):
-    # Factory templates ALWAYS sync to the GLOBAL scope (image-tracked), even
-    # when PANTHEON_TEMPLATE_SYNC_SCOPE=project. The project scope is reserved
-    # for user-created content; this avoids freezing factory copies on a
-    # persistent volume (the Modal staleness bug).
+def test_factory_templates_do_not_sync_to_global_in_runtime_mode(monkeypatch, tmp_path):
+    # Sandbox startup should not copy factory templates into ephemeral HOME.
+    # Runtime loading falls back to the packaged factory templates instead.
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("PANTHEON_TEMPLATE_SYNC_SCOPE", "project")
+    monkeypatch.delenv("PANTHEON_TEMPLATE_SYNC_SCOPE", raising=False)
+    monkeypatch.delenv("PANTHEON_FACTORY_TEMPLATE_MODE", raising=False)
 
     manager = TemplateManager(work_dir=tmp_path / "workspace")
 
-    assert (manager.settings.global_teams_dir / "default.md").exists()
+    assert not (manager.settings.global_teams_dir / "default.md").exists()
     assert not (manager.teams_dir / "default.md").exists()
+
+
+def test_force_sync_materializes_to_global_from_runtime_mode(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("PANTHEON_TEMPLATE_SYNC_SCOPE", raising=False)
+    monkeypatch.delenv("PANTHEON_FACTORY_TEMPLATE_MODE", raising=False)
+
+    manager = TemplateManager(work_dir=tmp_path / "workspace")
+    assert not (manager.settings.global_teams_dir / "default.md").exists()
+
+    total = manager.force_sync_factory_templates()
+
+    assert total > 0
+    assert (manager.settings.global_teams_dir / "default.md").exists()
+
+
+def test_legacy_sync_scope_none_disables_force_sync(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("PANTHEON_TEMPLATE_SYNC_SCOPE", "none")
+    monkeypatch.delenv("PANTHEON_FACTORY_TEMPLATE_MODE", raising=False)
+
+    manager = TemplateManager(work_dir=tmp_path / "workspace")
+
+    assert manager.force_sync_factory_templates() == 0
+    assert not (manager.settings.global_teams_dir / "default.md").exists()
 
 
 def test_bootstrap_reclaims_stale_factory_skill_from_project_keeps_user_skill(monkeypatch, tmp_path):
     # Reproduces the Modal-freeze state: a stale factory-origin skill + a
     # user-created skill, both pre-seeded in the PROJECT scope. bootstrap should
-    # reclaim the factory-origin one (now served fresh from global) and keep the
-    # user-created one.
+    # reclaim the factory-origin one (now served fresh from factory fallback)
+    # and keep the user-created one.
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("PANTHEON_TEMPLATE_SYNC_SCOPE", "project")
+    monkeypatch.delenv("PANTHEON_TEMPLATE_SYNC_SCOPE", raising=False)
+    monkeypatch.delenv("PANTHEON_FACTORY_TEMPLATE_MODE", raising=False)
     pdir = tmp_path / "workspace" / ".pantheon"
     gosling = pdir / "skills" / "live_view" / "gosling" / "gosling.md"
     gosling.parent.mkdir(parents=True)
@@ -94,7 +137,8 @@ def test_bootstrap_reclaims_stale_factory_skill_from_project_keeps_user_skill(mo
     manager = TemplateManager(work_dir=tmp_path / "workspace")
 
     assert not gosling.exists()  # factory-origin reclaimed from project
-    assert (manager.settings.global_skills_dir / "live_view" / "gosling" / "gosling.md").exists()
+    assert (manager.system_templates_dir / "skills" / "live_view" / "gosling" / "gosling.md").exists()
+    assert not (manager.settings.global_skills_dir / "live_view" / "gosling" / "gosling.md").exists()
     assert user_skill.exists()  # user-created skill preserved
 
 

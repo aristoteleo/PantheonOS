@@ -13,7 +13,6 @@ Run Pantheon AI agents in a containerized environment with everything pre-config
 ```bash
 docker run -it --rm \
   -e PANTHEON_MODE=standalone \
-  -e PANTHEON_TEMPLATE_SYNC_SCOPE=project \
   -e OPENAI_API_KEY="sk-your-key" \
   -v $(pwd)/workspace:/workspace \
   -p 8080:8080 \
@@ -40,7 +39,6 @@ docker run -it --rm \
 ```bash
 docker run -it --rm \
   -e PANTHEON_MODE=standalone \
-  -e PANTHEON_TEMPLATE_SYNC_SCOPE=project \
   -v $(pwd)/workspace:/workspace \
   -p 8080:8080 \
   nanguage/pantheon-agents:latest
@@ -51,7 +49,6 @@ docker run -it --rm \
 ```bash
 docker run -it --rm \
   -e PANTHEON_MODE=standalone \
-  -e PANTHEON_TEMPLATE_SYNC_SCOPE=project \
   -e OPENAI_API_KEY="sk-your-key" \
   -e ANTHROPIC_API_KEY="sk-ant-your-key" \
   -v $(pwd)/workspace:/workspace \
@@ -64,7 +61,6 @@ docker run -it --rm \
 ```bash
 docker run -it --rm \
   -e PANTHEON_MODE=standalone \
-  -e PANTHEON_TEMPLATE_SYNC_SCOPE=project \
   -e NATS_EXTERNAL_PORT=9000 \
   -v $(pwd)/workspace:/workspace \
   -p 9000:8080 \
@@ -79,8 +75,9 @@ The connection URL will automatically use port 9000 instead of 8080.
 |----------|-------------|---------|
 | `PANTHEON_MODE` | Set to `standalone` for local use | `hub` |
 | `NATS_EXTERNAL_PORT` | External port for NATS WebSocket | `8080` |
-| `PANTHEON_TEMPLATE_SYNC_SCOPE` | Factory agents/teams/prompts/skills **always** sync to the **global** scope (container home) so they track the running image and refresh on every start. The **project** scope (`/workspace/.pantheon/`) is reserved for user-created content, which overrides factory defaults via the `project → global → factory` read order. Set to `none` to skip factory sync entirely. (Previously `project` copied factory templates into `/workspace`, which froze them on a persistent volume — bootstrap now auto-reclaims any such stale copies.) | `global` |
-| `PANTHEON_RESET_TEMPLATES` | Hub mode only. Set to `true` to hard-clear `/workspace/.pantheon/` factory dirs and force-sync — **destructive: also deletes user-created project content.** Rarely needed now: bootstrap automatically reclaims stale factory-origin templates from the project scope (preserving user-created and user-modified files). Unset after one successful start. | - |
+| `PANTHEON_FACTORY_TEMPLATE_MODE` | Factory template materialization mode. `runtime` reads factory agents/teams/prompts/skills directly from the running image without startup copies. `global` or `project` explicitly copy factory templates to that scope for legacy workflows. | `runtime` |
+| `PANTHEON_TEMPLATE_SYNC_SCOPE` | Legacy alias for `global`, `project`, or `none` materialization. Leave unset for runtime factory fallback. | - |
+| `PANTHEON_RESET_TEMPLATES` | Hub mode only. Set to `true` to hard-clear `/workspace/.pantheon/` factory dirs before a forced sync — **destructive: also deletes user-created project content.** Rarely needed now: bootstrap automatically reclaims stale factory-origin templates from the project scope (preserving user-created and user-modified files). Unset after one successful start. | - |
 | `OPENAI_API_KEY` | OpenAI API key | - |
 | `ANTHROPIC_API_KEY` | Anthropic API key | - |
 | `GEMINI_API_KEY` | Google Gemini API key | - |
@@ -96,9 +93,9 @@ The container creates a `workspace` directory for your files:
 workspace/
 ├── .pantheon/          # Pantheon configuration
 │   ├── .env           # API keys (auto-created)
-│   ├── agents/        # Project-scoped factory/user agents
-│   ├── teams/         # Project-scoped factory/user teams
-│   ├── prompts/       # Project-scoped prompt snippets
+│   ├── agents/        # Project-scoped agent overrides
+│   ├── teams/         # Project-scoped team overrides
+│   ├── prompts/       # Project-scoped prompt overrides
 │   ├── skills/        # Project-scoped skills and LiveView adapters
 │   └── memory/        # Agent memory
 ├── your-code/         # Your code files
@@ -110,10 +107,11 @@ Mount your local directory to persist data:
 -v $(pwd)/workspace:/workspace
 ```
 
-The Docker image defaults to `PANTHEON_TEMPLATE_SYNC_SCOPE=project` so factory
-templates and hash stamps are stored under `/workspace/.pantheon/`. This keeps
-templates, skills, and user edits persistent across `docker run --rm` restarts
-as long as you mount the same workspace directory.
+The Docker image defaults to runtime factory fallback. Factory templates are
+read from the running image, so image upgrades automatically expose the latest
+defaults without copying them into `/workspace`. User-created project overrides
+and edits persist across `docker run --rm` restarts as long as you mount the
+same workspace directory.
 
 ---
 
@@ -206,7 +204,6 @@ For production Kubernetes deployments with centralized NATS server:
 docker run -d \
   -e ID_HASH=agent-001 \
   -e NATS_SERVERS=nats://hub-nats:4222 \
-  -e PANTHEON_TEMPLATE_SYNC_SCOPE=project \
   -v $(pwd)/workspace:/workspace \
   nanguage/pantheon-agents:latest
 ```

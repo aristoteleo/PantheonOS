@@ -28,58 +28,57 @@ MAX_SKILLS = 200
 class SkillStore:
     """Skill filesystem management with atomic writes and validation.
 
-    Supports layered scanning: project skills override global skills.
+    Supports layered scanning: project skills override global skills, which
+    override packaged factory skills.
     """
 
-    def __init__(self, skills_dir: Path, runtime_dir: Path, global_skills_dir: Path | None = None):
+    def __init__(
+        self,
+        skills_dir: Path,
+        runtime_dir: Path,
+        global_skills_dir: Path | None = None,
+        factory_skills_dir: Path | None = None,
+    ):
         self.skills_dir = skills_dir
         self.runtime_dir = runtime_dir
         self.global_skills_dir = global_skills_dir
+        self.factory_skills_dir = factory_skills_dir
         self.skills_dir.mkdir(parents=True, exist_ok=True)
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Discovery ──
 
     def scan_headers(self) -> list[SkillHeader]:
-        """Scan all SKILL.md files from project + global, project overrides global."""
+        """Scan all SKILL.md files from project, global, and factory."""
         headers: list[SkillHeader] = []
         seen_paths: set[str] = set()
 
-        # Project skills first (higher priority)
-        for skill_md in self._iter_skill_files(self.skills_dir):
-            header = parse_frontmatter_only(skill_md, skills_dir=self.skills_dir)
-            if header:
-                header.scope = "project"
-                headers.append(header)
-                seen_paths.add(header.path)
-
-        # Global skills (lower priority, skip duplicates)
-        if self.global_skills_dir and self.global_skills_dir.exists():
-            for skill_md in self._iter_skill_files(self.global_skills_dir):
-                header = parse_frontmatter_only(skill_md, skills_dir=self.global_skills_dir)
+        for base_dir, scope in self._skill_layers():
+            if not base_dir or not base_dir.exists():
+                continue
+            for skill_md in self._iter_skill_files(base_dir):
+                header = parse_frontmatter_only(skill_md, skills_dir=base_dir)
                 if header and header.path not in seen_paths:
-                    header.scope = "global"
+                    header.scope = scope
                     headers.append(header)
+                    seen_paths.add(header.path)
 
         headers.sort(key=lambda h: h.mtime, reverse=True)
         return headers[:MAX_SKILLS]
 
     def load_skill(self, name: str) -> SkillEntry | None:
-        """Load full skill content by name (project overrides global)."""
-        # Try project first
-        skill_dir = self._find_skill_dir_in(name, self.skills_dir)
-        base_dir = self.skills_dir
-        # Fallback to global
-        if not skill_dir and self.global_skills_dir:
-            skill_dir = self._find_skill_dir_in(name, self.global_skills_dir)
-            base_dir = self.global_skills_dir
-        if not skill_dir:
+        """Load full skill content by name using project -> global -> factory."""
+        found = self._find_skill_dir_with_base(name)
+        if not found:
             return None
+        skill_dir, base_dir, scope = found
         skill_md = skill_dir / "SKILL.md"
         if not skill_md.exists():
             return None
         try:
-            return parse_skill_file(skill_md, skills_dir=base_dir)
+            entry = parse_skill_file(skill_md, skills_dir=base_dir)
+            entry.scope = scope
+            return entry
         except Exception as e:
             logger.warning(f"Failed to parse skill '{name}': {e}")
             return None
@@ -173,7 +172,7 @@ class SkillStore:
         if err:
             raise ValueError(err)
 
-        skill_dir = self._find_skill_dir(name)
+        skill_dir = self._find_writable_skill_dir(name)
         if not skill_dir:
             raise ValueError(f"Skill '{name}' not found.")
 
@@ -198,7 +197,7 @@ class SkillStore:
 
         Returns path to patched SKILL.md.
         """
-        skill_dir = self._find_skill_dir(name)
+        skill_dir = self._find_writable_skill_dir(name)
         if not skill_dir:
             raise ValueError(f"Skill '{name}' not found.")
 
@@ -237,7 +236,7 @@ class SkillStore:
 
     def delete_skill(self, name: str) -> bool:
         """Delete a skill directory entirely."""
-        skill_dir = self._find_skill_dir(name)
+        skill_dir = self._find_writable_skill_dir(name)
         if not skill_dir:
             return False
 
@@ -265,7 +264,7 @@ class SkillStore:
         if len(content.encode("utf-8")) > MAX_FILE_SIZE:
             raise ValueError(f"File exceeds {MAX_FILE_SIZE:,} byte limit.")
 
-        skill_dir = self._find_skill_dir(name)
+        skill_dir = self._find_writable_skill_dir(name)
         if not skill_dir:
             raise ValueError(f"Skill '{name}' not found.")
 
@@ -284,7 +283,7 @@ class SkillStore:
         if err:
             raise ValueError(err)
 
-        skill_dir = self._find_skill_dir(name)
+        skill_dir = self._find_writable_skill_dir(name)
         if not skill_dir:
             return False
 
@@ -309,11 +308,35 @@ class SkillStore:
     # ── Internal ──
 
     def _find_skill_dir(self, name: str) -> Path | None:
-        """Find a skill directory by name (project > global)."""
+        """Find a skill directory by name (project > global > factory)."""
+        found = self._find_skill_dir_with_base(name)
+        return found[0] if found else None
+
+    def _find_writable_skill_dir(self, name: str) -> Path | None:
+        """Find a mutable skill directory by name (project > global).
+
+        Factory skills are read-only fallback content and must not be patched,
+        deleted, or receive supporting files.
+        """
         result = self._find_skill_dir_in(name, self.skills_dir)
         if not result and self.global_skills_dir:
             result = self._find_skill_dir_in(name, self.global_skills_dir)
         return result
+
+    def _find_skill_dir_with_base(self, name: str) -> tuple[Path, Path, str] | None:
+        for base_dir, scope in self._skill_layers():
+            result = self._find_skill_dir_in(name, base_dir)
+            if result:
+                return result, base_dir, scope
+        return None
+
+    def _skill_layers(self) -> list[tuple[Path, str]]:
+        layers: list[tuple[Path, str]] = [(self.skills_dir, "project")]
+        if self.global_skills_dir:
+            layers.append((self.global_skills_dir, "global"))
+        if self.factory_skills_dir:
+            layers.append((self.factory_skills_dir, "factory"))
+        return layers
 
     @staticmethod
     def _find_skill_dir_in(name: str, base_dir: Path) -> Path | None:

@@ -152,6 +152,10 @@ packages = {find = {where = ["."], exclude = ["tests*", "examples*", "tmp*", "tr
 "pantheon.factory" = [
     "templates/**/*.md",
     "templates/**/*.json",
+    "templates/**/*.js",
+    "templates/**/*.css",
+    "templates/**/*.py",
+    "templates/**/.gitkeep",
     "templates/*.json",
     "templates/*.example",
 ]
