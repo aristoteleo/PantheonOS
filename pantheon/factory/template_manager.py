@@ -105,10 +105,9 @@ class TemplateManager:
         self._ensure_default_templates()
 
         # Reclaim: older builds copied factory templates into the PROJECT scope
-        # (PANTHEON_TEMPLATE_SYNC_SCOPE=project). On Modal those froze on the
-        # persistent volume and shadowed the fresh factory fallback. Remove
-        # factory-origin project files, preserving user-created and user-modified
-        # content.
+        # On Modal those froze on the persistent volume and shadowed the fresh
+        # factory fallback. Remove factory-origin project files, preserving
+        # user-created and user-modified content.
         self._reclaim_factory_from_project(pre_sync_hashes)
 
         logger.info("Template system bootstrap complete")
@@ -146,57 +145,23 @@ class TemplateManager:
 
         Default is runtime fallback: do not copy factory templates anywhere at
         startup. Loading resolves project -> global -> packaged factory.
-
-        Backwards compatibility:
-        - PANTHEON_TEMPLATE_SYNC_SCOPE=global/project still requests materialization.
-        - PANTHEON_TEMPLATE_SYNC_SCOPE=none skips materialization.
-        - PANTHEON_FACTORY_TEMPLATE_MODE can explicitly set runtime/global/project/off.
         """
-        raw_mode = os.environ.get("PANTHEON_FACTORY_TEMPLATE_MODE")
-        if raw_mode is not None:
-            mode = raw_mode.strip().lower()
-            if not mode:
-                return "runtime"
-            aliases = {"fallback": "runtime", "none": "runtime"}
-            mode = aliases.get(mode, mode)
-            if mode not in {"runtime", "global", "project", "off"}:
-                logger.warning(
-                    f"Invalid PANTHEON_FACTORY_TEMPLATE_MODE={mode!r}; falling back to 'runtime'"
-                )
-                return "runtime"
-            return mode
-
-        scope = os.environ.get("PANTHEON_TEMPLATE_SYNC_SCOPE", "").strip().lower()
-        if not scope:
+        raw_mode = os.environ.get("PANTHEON_FACTORY_TEMPLATE_MODE", "")
+        mode = raw_mode.strip().lower()
+        if not mode:
             return "runtime"
-        if scope not in {"global", "project", "none"}:
+        if mode not in {"runtime", "global"}:
             logger.warning(
-                f"Invalid PANTHEON_TEMPLATE_SYNC_SCOPE={scope!r}; falling back to 'runtime'"
+                f"Invalid PANTHEON_FACTORY_TEMPLATE_MODE={mode!r}; falling back to 'runtime'"
             )
             return "runtime"
-        return "off" if scope == "none" else scope
+        return mode
 
-    def _legacy_sync_scope_is_none(self) -> bool:
-        return (
-            "PANTHEON_FACTORY_TEMPLATE_MODE" not in os.environ
-            and os.environ.get("PANTHEON_TEMPLATE_SYNC_SCOPE", "").strip().lower() == "none"
-        )
-
-    def _factory_template_targets(self, *, default_mode: str | None = None) -> list[tuple[str, Path, str]]:
+    def _factory_template_targets(self, *, mode: str | None = None) -> list[tuple[str, Path, str]]:
         """Return optional factory template copy targets for materialization."""
-        mode = self._factory_template_mode()
-        if mode in {"runtime", "off"} and default_mode is not None:
-            mode = default_mode
-        if mode in {"runtime", "off"}:
+        mode = self._factory_template_mode() if mode is None else mode
+        if mode != "global":
             return []
-
-        if mode == "project":
-            return [
-                ("agents", self.agents_dir, "agent(s)"),
-                ("teams", self.teams_dir, "team(s)"),
-                ("prompts", self.prompts_dir, "prompt(s)"),
-                ("skills", self.skills_dir, "skill(s)"),
-            ]
 
         return [
             ("agents", self.settings.global_agents_dir, "agent(s)"),
@@ -376,7 +341,7 @@ class TemplateManager:
         project → global (~/.pantheon/) → packaged factory.
         """
         mode = self._factory_template_mode()
-        if mode in {"runtime", "off"}:
+        if mode == "runtime":
             logger.info(
                 "PANTHEON_FACTORY_TEMPLATE_MODE=runtime: using packaged factory fallback; "
                 "skipping startup template sync"
@@ -390,7 +355,7 @@ class TemplateManager:
                 f"agents/teams/prompts/skills with latest factory defaults (mode={mode})"
             )
 
-        for subdir, dest_dir, label in self._factory_template_targets():
+        for subdir, dest_dir, label in self._factory_template_targets(mode=mode):
             try:
                 self._copy_missing_templates(
                     self.system_templates_dir / subdir, dest_dir, label, overwrite=overwrite
@@ -459,30 +424,24 @@ class TemplateManager:
             )
 
     def force_sync_factory_templates(self):
-        """Force-sync ALL factory templates (including skills) to the configured scope.
+        """Force-sync ALL factory templates (including skills) to global.
 
         Clears hash tracking and copies everything with overwrite=True.
         Used for image upgrades where stale templates need to be replaced.
         """
-        mode = self._factory_template_mode()
-        if self._legacy_sync_scope_is_none():
-            logger.info("PANTHEON_TEMPLATE_SYNC_SCOPE=none: skipping force-sync")
-            return 0
-        sync_mode = "global" if mode in {"runtime", "off"} else mode
-
         hash_file = self.settings.pantheon_dir / ".factory_hashes.json"
         if hash_file.exists():
             hash_file.unlink()
 
         total = 0
-        for subdir, dest_dir, label in self._factory_template_targets(default_mode=sync_mode):
+        for subdir, dest_dir, label in self._factory_template_targets(mode="global"):
             try:
                 total += self._copy_missing_templates(
                     self.system_templates_dir / subdir, dest_dir, label, overwrite=True
                 )
             except Exception as e:
                 logger.error(f"Failed to force-sync {label}: {e}")
-        logger.info(f"Force-sync complete: {total} file(s) synced (mode={sync_mode})")
+        logger.info(f"Force-sync complete: {total} file(s) synced (mode=global)")
         return total
 
     def _ensure_settings(self):

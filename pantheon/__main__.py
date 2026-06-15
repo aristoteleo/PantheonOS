@@ -122,7 +122,7 @@ def sync_templates():
     """Force-sync all factory templates (agents, teams, prompts, skills).
 
     Non-interactive. Clears hash tracking and overwrites all factory-origin files.
-    In runtime fallback mode this materializes to ~/.pantheon/ for legacy workflows.
+    Materializes packaged factory templates to ~/.pantheon/ for legacy workflows.
     """
     from pantheon.factory.template_manager import get_template_manager
 

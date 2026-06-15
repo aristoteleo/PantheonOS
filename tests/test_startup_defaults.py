@@ -84,7 +84,6 @@ def test_factory_templates_do_not_sync_to_global_in_runtime_mode(monkeypatch, tm
     # Sandbox startup should not copy factory templates into ephemeral HOME.
     # Runtime loading falls back to the packaged factory templates instead.
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.delenv("PANTHEON_TEMPLATE_SYNC_SCOPE", raising=False)
     monkeypatch.delenv("PANTHEON_FACTORY_TEMPLATE_MODE", raising=False)
 
     manager = TemplateManager(work_dir=tmp_path / "workspace")
@@ -95,7 +94,6 @@ def test_factory_templates_do_not_sync_to_global_in_runtime_mode(monkeypatch, tm
 
 def test_force_sync_materializes_to_global_from_runtime_mode(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.delenv("PANTHEON_TEMPLATE_SYNC_SCOPE", raising=False)
     monkeypatch.delenv("PANTHEON_FACTORY_TEMPLATE_MODE", raising=False)
 
     manager = TemplateManager(work_dir=tmp_path / "workspace")
@@ -107,15 +105,24 @@ def test_force_sync_materializes_to_global_from_runtime_mode(monkeypatch, tmp_pa
     assert (manager.settings.global_teams_dir / "default.md").exists()
 
 
-def test_legacy_sync_scope_none_disables_force_sync(monkeypatch, tmp_path):
+def test_global_mode_materializes_to_global_on_startup(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("PANTHEON_TEMPLATE_SYNC_SCOPE", "none")
-    monkeypatch.delenv("PANTHEON_FACTORY_TEMPLATE_MODE", raising=False)
+    monkeypatch.setenv("PANTHEON_FACTORY_TEMPLATE_MODE", "global")
 
     manager = TemplateManager(work_dir=tmp_path / "workspace")
 
-    assert manager.force_sync_factory_templates() == 0
+    assert (manager.settings.global_teams_dir / "default.md").exists()
+    assert not (manager.teams_dir / "default.md").exists()
+
+
+def test_project_mode_is_not_supported_for_factory_materialization(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("PANTHEON_FACTORY_TEMPLATE_MODE", "project")
+
+    manager = TemplateManager(work_dir=tmp_path / "workspace")
+
     assert not (manager.settings.global_teams_dir / "default.md").exists()
+    assert not (manager.teams_dir / "default.md").exists()
 
 
 def test_bootstrap_reclaims_stale_factory_skill_from_project_keeps_user_skill(monkeypatch, tmp_path):
@@ -124,7 +131,6 @@ def test_bootstrap_reclaims_stale_factory_skill_from_project_keeps_user_skill(mo
     # reclaim the factory-origin one (now served fresh from factory fallback)
     # and keep the user-created one.
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.delenv("PANTHEON_TEMPLATE_SYNC_SCOPE", raising=False)
     monkeypatch.delenv("PANTHEON_FACTORY_TEMPLATE_MODE", raising=False)
     pdir = tmp_path / "workspace" / ".pantheon"
     gosling = pdir / "skills" / "live_view" / "gosling" / "gosling.md"
@@ -142,9 +148,9 @@ def test_bootstrap_reclaims_stale_factory_skill_from_project_keeps_user_skill(mo
     assert user_skill.exists()  # user-created skill preserved
 
 
-def test_project_template_sync_preserves_user_modified_files(monkeypatch, tmp_path):
+def test_global_template_sync_preserves_user_modified_files(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("PANTHEON_TEMPLATE_SYNC_SCOPE", "project")
+    monkeypatch.setenv("PANTHEON_FACTORY_TEMPLATE_MODE", "global")
 
     manager = TemplateManager(work_dir=tmp_path / "workspace")
     factory_dir = tmp_path / "factory"
@@ -154,13 +160,13 @@ def test_project_template_sync_preserves_user_modified_files(monkeypatch, tmp_pa
     manager.system_templates_dir = factory_dir
     manager.force_sync_factory_templates()
 
-    project_team = manager.teams_dir / "default.md"
-    project_team.write_text("user edited\n", encoding="utf-8")
+    global_team = manager.settings.global_teams_dir / "default.md"
+    global_team.write_text("user edited\n", encoding="utf-8")
     (factory_dir / "teams" / "default.md").write_text("factory v2\n", encoding="utf-8")
 
     manager._ensure_default_templates()
 
-    assert project_team.read_text(encoding="utf-8") == "user edited\n"
+    assert global_team.read_text(encoding="utf-8") == "user edited\n"
 
 
 @pytest.mark.asyncio

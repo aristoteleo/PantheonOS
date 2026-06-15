@@ -266,10 +266,7 @@ ENV PATH="${VENV_PATH}/bin:$PATH" \
     UV_CACHE_DIR=/app/.uv-cache \
     # Install playwright browsers to an explicit path outside /root/.cache.
     # This prevents accidental deletion and makes the installation location unambiguous.
-    PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/ms-playwright \
-    # Do not copy factory templates into ephemeral HOME on sandbox startup.
-    # Runtime loaders fall back to the packaged templates inside the image.
-    PANTHEON_FACTORY_TEMPLATE_MODE=runtime
+    PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/ms-playwright
 
 # Layer C — Playwright browsers (~300-400MB, stable): only rebuilt when Playwright version changes.
 # Using chromium is sufficient for most web scraping/automation tasks.

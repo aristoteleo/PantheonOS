@@ -138,7 +138,7 @@ the runtime fallback order ``project → global → factory``. No startup copy i
 needed for agents, teams, prompts, or skills.
 
 When factory templates are explicitly materialized with
-``PANTHEON_FACTORY_TEMPLATE_MODE=global`` or ``project``, this setting controls
+``PANTHEON_FACTORY_TEMPLATE_MODE=global``, this setting controls
 whether unchanged factory copies can be updated. The materialization uses
 **hash-based change detection** to avoid overwriting user modifications:
 

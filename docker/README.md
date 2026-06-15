@@ -75,8 +75,7 @@ The connection URL will automatically use port 9000 instead of 8080.
 |----------|-------------|---------|
 | `PANTHEON_MODE` | Set to `standalone` for local use | `hub` |
 | `NATS_EXTERNAL_PORT` | External port for NATS WebSocket | `8080` |
-| `PANTHEON_FACTORY_TEMPLATE_MODE` | Factory template materialization mode. `runtime` reads factory agents/teams/prompts/skills directly from the running image without startup copies. `global` or `project` explicitly copy factory templates to that scope for legacy workflows. | `runtime` |
-| `PANTHEON_TEMPLATE_SYNC_SCOPE` | Legacy alias for `global`, `project`, or `none` materialization. Leave unset for runtime factory fallback. | - |
+| `PANTHEON_FACTORY_TEMPLATE_MODE` | Factory template materialization mode. `runtime` reads factory agents/teams/prompts/skills directly from the running image without startup copies. `global` explicitly copies factory templates to global for legacy workflows. | `runtime` |
 | `PANTHEON_RESET_TEMPLATES` | Hub mode only. Set to `true` to hard-clear `/workspace/.pantheon/` factory dirs before a forced sync — **destructive: also deletes user-created project content.** Rarely needed now: bootstrap automatically reclaims stale factory-origin templates from the project scope (preserving user-created and user-modified files). Unset after one successful start. | - |
 | `OPENAI_API_KEY` | OpenAI API key | - |
 | `ANTHROPIC_API_KEY` | Anthropic API key | - |
