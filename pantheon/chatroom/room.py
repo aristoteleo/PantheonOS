@@ -768,6 +768,7 @@ class ChatRoom(ToolSet):
         self,
         service_type: str,
         required_services: list[str],
+        endpoint_service_id: str | None = None,
     ):
         """Ensure required services (MCP servers or ToolSets) are started."""
         if not required_services:
@@ -782,6 +783,7 @@ class ChatRoom(ToolSet):
             )
             result = await self._call_endpoint_method(
                 endpoint_method_name="manage_service",
+                endpoint_service_id=endpoint_service_id,
                 action="start",
                 service_type=service_type,
                 name=required_services,
@@ -807,9 +809,10 @@ class ChatRoom(ToolSet):
 
         logger.info(f"🏗️ Creating team from template '{template_name}'")
 
-        # Connect to endpoint service
+        # Connect to endpoint service — route to the chat's per-project endpoint
         endpoint_t0 = time.perf_counter()
-        endpoint_service = await self._get_endpoint_service()
+        endpoint_sid = await self._resolve_endpoint_for_chat(chat_id)
+        endpoint_service = await self._get_endpoint_service(endpoint_service_id=endpoint_sid)
         log_startup_profile(
             "ChatRoom team endpoint resolved in "
             f"{time.perf_counter() - endpoint_t0:.3f}s "
@@ -831,14 +834,14 @@ class ChatRoom(ToolSet):
 
         # ===== STEP 2: Compute and ensure all required services =====
         ensure_mcp_t0 = time.perf_counter()
-        await self._ensure_services("mcp", list(required_mcp_servers))
+        await self._ensure_services("mcp", list(required_mcp_servers), endpoint_service_id=endpoint_sid)
         log_startup_profile(
             "ChatRoom team ensure MCP finished in "
             f"{time.perf_counter() - ensure_mcp_t0:.3f}s "
             f"(template={template_name}, mcp_servers={list(required_mcp_servers)})"
         )
         ensure_toolset_t0 = time.perf_counter()
-        await self._ensure_services("toolset", list(required_toolsets))
+        await self._ensure_services("toolset", list(required_toolsets), endpoint_service_id=endpoint_sid)
         log_startup_profile(
             "ChatRoom team ensure ToolSets finished in "
             f"{time.perf_counter() - ensure_toolset_t0:.3f}s "
