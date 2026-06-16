@@ -2089,6 +2089,23 @@ class ChatRoom(ToolSet):
         return {"success": ok, "message": "Removed" if ok else "Not found"}
 
     @tool
+    async def set_active_project(self, path: str) -> dict:
+        """Record the active project WITHOUT a heavy context switch — no chdir,
+        no settings/memory/template singleton reset.
+
+        For multi-project view-switching: each chat runs in its own per-project
+        endpoint, so switching the *viewed* project must NOT interrupt running
+        chats or reset the default endpoint. Use this from the UI project
+        switcher; use switch_project only when the default endpoint must follow.
+        """
+        resolved = str(Path(path).resolve())
+        if not Path(resolved).is_dir():
+            return {"success": False, "message": f"Directory does not exist: {resolved}"}
+        info = self.project_manager.get_project(resolved) or self.project_manager.register(resolved)
+        self.project_manager.set_active(resolved)
+        return {"success": True, "project": info.to_dict()}
+
+    @tool
     async def switch_project(self, path: str) -> dict:
         """Switch the active project to a different directory.
 
