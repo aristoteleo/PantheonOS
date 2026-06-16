@@ -150,6 +150,8 @@ class ChatRoom(ToolSet):
         # own outward worker stays on the primary backend (NATS) for the frontend.
         self._endpoint_services: dict = {}
         self._internal_backend = None
+        # Per-project endpoint subprocesses: project_path -> {service_id, proc, log}
+        self._project_endpoints: dict = {}
 
         # NATS streaming (optional)
         self._nats_adapter = None
@@ -228,6 +230,101 @@ class ChatRoom(ToolSet):
             self._endpoint_services[sid] = svc
         return svc
 
+    async def _ensure_project_endpoint(self, project_path: str) -> str:
+        """Lazily spawn a dedicated endpoint subprocess for a project directory
+        and return its service_id. Each project gets its own endpoint process
+        (own work_dir), so multiple projects run concurrently. The endpoint's
+        primary worker uses the internal backend (e.g. local TCP) for ChatRoom;
+        its secondary worker stays on NATS for the frontend (dual-channel)."""
+        import os
+        import sys
+        import hashlib
+
+        project_path = str(Path(project_path).resolve())
+        existing = self._project_endpoints.get(project_path)
+        if existing is not None:
+            proc = existing.get("proc")
+            if proc is None or proc.returncode is None:
+                return existing["service_id"]
+            # process died — drop and respawn
+            self._project_endpoints.pop(project_path, None)
+            self._endpoint_services.pop(existing["service_id"], None)
+
+        id_hash = "proj-" + hashlib.sha256(project_path.encode()).hexdigest()[:16]
+        sid = generate_service_id(id_hash)
+        Path(project_path).mkdir(parents=True, exist_ok=True)
+        log_dir = Path(project_path) / ".pantheon" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "endpoint-subprocess.log"
+
+        env = dict(os.environ)
+        internal = os.getenv("PANTHEON_INTERNAL_BACKEND", "tcp")
+        env["PANTHEON_REMOTE_BACKEND"] = internal  # endpoint primary = internal transport (ChatRoom side)
+        env.setdefault("PANTHEON_FRONTEND_BACKEND", "nats")  # endpoint secondary = frontend
+
+        cmd = [
+            sys.executable, "-m", "pantheon.endpoint", "start",
+            "--workspace_path", project_path, "--id_hash", id_hash,
+        ]
+        logger.info(f"[multi-project] spawning endpoint for {project_path} (sid={sid[:12]}…)")
+        log_fh = open(log_file, "w", encoding="utf-8")
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, env=env, stdout=log_fh, stderr=asyncio.subprocess.STDOUT
+        )
+
+        backend = self._get_internal_backend()
+        ready = False
+        for _ in range(600):  # up to ~60s
+            if proc.returncode is not None:
+                raise RuntimeError(
+                    f"endpoint for {project_path} exited (code={proc.returncode}); see {log_file}"
+                )
+            try:
+                svc = await backend.connect(sid)
+                await svc.invoke("_ping")
+                ready = True
+                break
+            except Exception:
+                await asyncio.sleep(0.1)
+        if not ready:
+            proc.terminate()
+            raise TimeoutError(f"endpoint for {project_path} not ready in 60s; see {log_file}")
+
+        self._project_endpoints[project_path] = {
+            "service_id": sid, "proc": proc, "log": str(log_file),
+        }
+        logger.info(f"[multi-project] endpoint ready for {project_path} (sid={sid[:12]}…)")
+        return sid
+
+    async def _resolve_endpoint_for_chat(self, session_id: str | None) -> str | None:
+        """Resolve which endpoint a chat should use: a chat bound to an isolated
+        project gets that project's own endpoint; otherwise None (fall back to
+        the default endpoint)."""
+        if not session_id:
+            return None
+        try:
+            memory = await run_func(self.memory_manager.get_memory, session_id)
+            project = memory.extra_data.get("project", {})
+            if isinstance(project, dict):
+                wpath = project.get("workspace_path")
+                if wpath and Path(wpath).is_dir():
+                    return await self._ensure_project_endpoint(wpath)
+        except Exception as e:
+            logger.debug(f"[multi-project] resolve endpoint for {session_id}: {e}")
+        return None
+
+    async def _shutdown_project_endpoints(self):
+        """Terminate all per-project endpoint subprocesses (cleanup)."""
+        for _path, entry in list(self._project_endpoints.items()):
+            proc = entry.get("proc")
+            if proc is not None and proc.returncode is None:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+            self._endpoint_services.pop(entry.get("service_id"), None)
+        self._project_endpoints.clear()
+
     def _embedded_endpoint_ready(self) -> bool:
         if not self._endpoint_embed or self._endpoint is None:
             return True
@@ -255,10 +352,14 @@ class ChatRoom(ToolSet):
             "ready": False,
         }
 
-    async def _call_endpoint_method(self, endpoint_method_name: str, **kwargs):
+    async def _call_endpoint_method(
+        self, endpoint_method_name: str, endpoint_service_id: str | None = None, **kwargs
+    ):
         from pantheon.utils.misc import call_endpoint_method
 
-        endpoint_service = await self._get_endpoint_service()
+        endpoint_service = await self._get_endpoint_service(
+            endpoint_service_id=endpoint_service_id
+        )
         return await call_endpoint_method(
             endpoint_service, endpoint_method_name=endpoint_method_name, **kwargs
         )
@@ -1133,9 +1234,14 @@ class ChatRoom(ToolSet):
                 except Exception as e:
                     logger.debug(f"Could not inject workdir for session {session_id}: {e}")
 
+            # Route to the chat's per-project endpoint (multi-project); falls
+            # back to the default endpoint when the chat has no isolated project.
+            endpoint_sid = await self._resolve_endpoint_for_chat(session_id)
+
             # Use unified endpoint call method
             result = await self._call_endpoint_method(
                 endpoint_method_name="proxy_toolset",
+                endpoint_service_id=endpoint_sid,
                 method_name=method_name,
                 args=args or {},
                 toolset_name=toolset_name,
