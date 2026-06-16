@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import json
+import os
 import sys
 from abc import ABC
 from contextlib import asynccontextmanager
@@ -399,6 +400,31 @@ class ToolSet(ABC):
                 self.worker.register(method, **tool_kwargs)
             logger.info(f"[ToolSet.run] Registered {len(self._functions)} tools")
 
+            # ===== Optional dual-channel: a secondary worker on another backend =====
+            # Lets the Endpoint answer ChatRoom over the primary (e.g. local TCP)
+            # backend AND the frontend over NATS at the same time, on the SAME
+            # service_id. Opt-in via `_enable_frontend_channel` (Endpoint sets it)
+            # + PANTHEON_FRONTEND_BACKEND differing from the primary backend.
+            self._frontend_worker = None
+            self._frontend_backend = None
+            if getattr(self, "_enable_frontend_channel", False):
+                primary_name = os.getenv("PANTHEON_REMOTE_BACKEND") or "nats"
+                frontend_name = os.getenv("PANTHEON_FRONTEND_BACKEND") or "nats"
+                if frontend_name != primary_name:
+                    from .remote.factory import RemoteConfig
+                    self._frontend_backend = RemoteBackendFactory.create_backend(
+                        RemoteConfig.from_config(backend=frontend_name)
+                    )
+                    self._frontend_worker = self._frontend_backend.create_worker(
+                        self._service_name, **self._worker_kwargs
+                    )
+                    for _n, (_m, _k) in self._functions.items():
+                        self._frontend_worker.register(_m, **_k)
+                    logger.info(
+                        f"[ToolSet.run] Dual-channel enabled: primary={primary_name} "
+                        f"+ frontend={frontend_name} worker (same service_id)"
+                    )
+
             # Run custom setup
             logger.info(f"[ToolSet.run] Running setup...")
             await self.run_setup()
@@ -410,7 +436,10 @@ class ToolSet(ABC):
             logger.info(f"Service ID: {self.service_id}")
             logger.info(f"[ToolSet.run] Starting worker.run() (NATS subscribe)...")
             try:
-                await self.worker.run()
+                if self._frontend_worker is not None:
+                    await asyncio.gather(self.worker.run(), self._frontend_worker.run())
+                else:
+                    await self.worker.run()
             finally:
                 # Cleanup on shutdown
                 await self.cleanup()

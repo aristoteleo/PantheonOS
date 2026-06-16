@@ -115,6 +115,11 @@ class Endpoint(FileTransferToolSet):
             **kwargs,
         )
 
+        # Dual-channel: the Endpoint serves ChatRoom over the primary backend
+        # (e.g. local TCP) and the frontend over NATS simultaneously. ToolSet.run
+        # honors this when PANTHEON_FRONTEND_BACKEND differs from the primary.
+        self._enable_frontend_channel = True
+
     @staticmethod
     def default_config() -> EndpointConfig:
         """Get default endpoint configuration from Settings."""
