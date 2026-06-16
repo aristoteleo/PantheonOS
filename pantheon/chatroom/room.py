@@ -144,6 +144,12 @@ class ChatRoom(ToolSet):
             self._auto_created_endpoint = False
 
         self._endpoint_service = None
+        # Connection pool keyed by endpoint service_id (supports multiple
+        # endpoints, one per project). ChatRoom reaches endpoints over the
+        # INTERNAL backend (PANTHEON_INTERNAL_BACKEND, e.g. local TCP) while its
+        # own outward worker stays on the primary backend (NATS) for the frontend.
+        self._endpoint_services: dict = {}
+        self._internal_backend = None
 
         # NATS streaming (optional)
         self._nats_adapter = None
@@ -184,21 +190,43 @@ class ChatRoom(ToolSet):
         # Plugin system (memory, learning, compression)
         self._init_plugins()
 
-    async def _get_endpoint_service(self):
-        """Get endpoint service object (instance or RemoteService)."""
-        if self._endpoint_embed:
-            # Embed mode: directly return instance
-            return self._endpoint
-        else:
-            # Process mode: lazy connect to remote service
-            if self._endpoint_service is None:
-                from pantheon.remote import RemoteBackendFactory
+    def _get_internal_backend(self):
+        """Backend ChatRoom uses to reach endpoints. Defaults to the global
+        backend, but PANTHEON_INTERNAL_BACKEND (e.g. "tcp") lets ChatRoom talk
+        to endpoints over a local transport while its own outward worker stays
+        on the primary backend (NATS) for the frontend."""
+        if self._internal_backend is None:
+            import os
+            from pantheon.remote import RemoteBackendFactory
 
-                self._backend = RemoteBackendFactory.create_backend()
-                self._endpoint_service = await self._backend.connect(
-                    self.endpoint_service_id
+            internal = os.getenv("PANTHEON_INTERNAL_BACKEND")
+            if internal:
+                from pantheon.remote.factory import RemoteConfig
+
+                self._internal_backend = RemoteBackendFactory.create_backend(
+                    RemoteConfig.from_config(backend=internal)
                 )
-            return self._endpoint_service
+            else:
+                self._internal_backend = RemoteBackendFactory.create_backend()
+        return self._internal_backend
+
+    async def _get_endpoint_service(self, endpoint_service_id: str | None = None):
+        """Get endpoint service object (embedded instance or a pooled RemoteService).
+
+        Pass endpoint_service_id to route to a specific endpoint (multi-project);
+        defaults to self.endpoint_service_id.
+        """
+        sid = endpoint_service_id or self.endpoint_service_id
+        # Embedded fast-path only for the owned/default endpoint
+        if self._endpoint_embed and (endpoint_service_id is None or sid == self.endpoint_service_id):
+            return self._endpoint
+        # Connection pool keyed by service_id
+        svc = self._endpoint_services.get(sid)
+        if svc is None:
+            backend = self._get_internal_backend()
+            svc = await backend.connect(sid)
+            self._endpoint_services[sid] = svc
+        return svc
 
     def _embedded_endpoint_ready(self) -> bool:
         if not self._endpoint_embed or self._endpoint is None:
@@ -917,6 +945,7 @@ class ChatRoom(ToolSet):
             # Force reconnection on next use and drop cached teams bound to the old endpoint.
             self._endpoint_service = None
             self._backend = None
+            self._endpoint_services.clear()
             self.chat_teams.clear()
 
             # Sanity-check connectivity immediately to fail fast.
