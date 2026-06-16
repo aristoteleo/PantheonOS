@@ -9,6 +9,13 @@ try:
 except ImportError:
     pass
 
+try:
+    from .tcp import TCPBackend
+
+    BackendRegistry.register("tcp", TCPBackend)
+except ImportError:
+    pass
+
 __all__ = [
     "RemoteBackend",
     "RemoteService",
