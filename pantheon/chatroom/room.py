@@ -152,6 +152,8 @@ class ChatRoom(ToolSet):
         self._internal_backend = None
         # Per-project endpoint subprocesses: project_path -> {service_id, proc, log}
         self._project_endpoints: dict = {}
+        # Per-project spawn locks so concurrent tool calls don't duplicate-spawn.
+        self._project_endpoint_locks: dict = {}
 
         # NATS streaming (optional)
         self._nats_adapter = None
@@ -235,20 +237,33 @@ class ChatRoom(ToolSet):
         and return its service_id. Each project gets its own endpoint process
         (own work_dir), so multiple projects run concurrently. The endpoint's
         primary worker uses the internal backend (e.g. local TCP) for ChatRoom;
-        its secondary worker stays on NATS for the frontend (dual-channel)."""
+        its secondary worker stays on NATS for the frontend (dual-channel).
+
+        A per-project lock serializes concurrent callers so the same project is
+        spawned exactly once (otherwise parallel tool calls race and create
+        duplicate endpoints that fight over the same service_id / registry)."""
+        project_path = str(Path(project_path).resolve())
+        lock = self._project_endpoint_locks.get(project_path)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._project_endpoint_locks[project_path] = lock
+        async with lock:
+            existing = self._project_endpoints.get(project_path)
+            if existing is not None:
+                proc = existing.get("proc")
+                if proc is None or proc.returncode is None:
+                    return existing["service_id"]
+                # process died — drop and respawn
+                self._project_endpoints.pop(project_path, None)
+                self._endpoint_services.pop(existing["service_id"], None)
+            return await self._spawn_project_endpoint(project_path)
+
+    async def _spawn_project_endpoint(self, project_path: str) -> str:
+        """Spawn a per-project endpoint subprocess and wait until ready.
+        Always called under the project's lock (see _ensure_project_endpoint)."""
         import os
         import sys
         import hashlib
-
-        project_path = str(Path(project_path).resolve())
-        existing = self._project_endpoints.get(project_path)
-        if existing is not None:
-            proc = existing.get("proc")
-            if proc is None or proc.returncode is None:
-                return existing["service_id"]
-            # process died — drop and respawn
-            self._project_endpoints.pop(project_path, None)
-            self._endpoint_services.pop(existing["service_id"], None)
 
         id_hash = "proj-" + hashlib.sha256(project_path.encode()).hexdigest()[:16]
         sid = generate_service_id(id_hash)
