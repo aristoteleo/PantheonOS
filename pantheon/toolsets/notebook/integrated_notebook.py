@@ -128,8 +128,21 @@ class IntegratedNotebookToolSet(ToolSet):
         # Initialize remote backend only when streaming is allowed
         if allow_streaming and self.remote_backend is None:
             try:
-                self.remote_backend = RemoteBackendFactory.create_backend()
-                logger.info("Auto-created remote backend from environment")
+                # Streaming targets the frontend, which speaks NATS. When the
+                # primary backend is a local transport (e.g. TCP) that can't
+                # stream, use PANTHEON_FRONTEND_BACKEND for the stream channel.
+                import os
+                frontend_name = os.getenv("PANTHEON_FRONTEND_BACKEND")
+                primary_name = os.getenv("PANTHEON_REMOTE_BACKEND") or "nats"
+                if frontend_name and frontend_name != primary_name:
+                    from pantheon.remote.factory import RemoteConfig
+                    self.remote_backend = RemoteBackendFactory.create_backend(
+                        RemoteConfig.from_config(backend=frontend_name)
+                    )
+                    logger.info(f"Auto-created frontend backend ({frontend_name}) for streaming")
+                else:
+                    self.remote_backend = RemoteBackendFactory.create_backend()
+                    logger.info("Auto-created remote backend from environment")
             except Exception as e:
                 logger.warning(f"No remote backend available: {e}")
 

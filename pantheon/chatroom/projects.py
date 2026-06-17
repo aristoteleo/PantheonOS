@@ -59,10 +59,16 @@ class ProjectManager:
         self._registry_path = _registry_path()
         self._projects: dict[str, ProjectInfo] = {}
         self._active_path: Optional[str] = None
+        # The "home" project — the directory the server was started in (work_dir).
+        # The UI is always "in" some project; when no project is otherwise active
+        # (e.g. the active one was just removed), we fall back to home rather than
+        # leaving the UI with "No Project".
+        self._default_path: Optional[str] = None
         self._load()
 
         if active_path:
             resolved = str(Path(active_path).resolve())
+            self._default_path = resolved
             self.register(resolved)
             self.set_active(resolved)
 
@@ -91,10 +97,25 @@ class ProjectManager:
     def active_project(self) -> Optional[ProjectInfo]:
         if self._active_path and self._active_path in self._projects:
             return self._projects[self._active_path]
-        # Fallback: if cwd is set but not registered, auto-register it
+        # Fallback: if active is set but not registered, auto-register it
         if self._active_path and Path(self._active_path).is_dir():
             self.register(self._active_path)
             return self._projects.get(self._active_path)
+        # Never leave the UI projectless: fall back to the home (work_dir) project.
+        if self._default_path and Path(self._default_path).is_dir():
+            if self._default_path not in self._projects:
+                self.register(self._default_path)
+            self._active_path = self._default_path
+            return self._projects.get(self._default_path)
+        return None
+
+    @property
+    def default_project(self) -> Optional[ProjectInfo]:
+        """The home (work_dir) project — owns chats that have no project."""
+        if self._default_path and self._default_path in self._projects:
+            return self._projects[self._default_path]
+        if self._default_path and Path(self._default_path).is_dir():
+            return self.register(self._default_path)
         return None
 
     def list_projects(self) -> list[dict]:
@@ -126,7 +147,11 @@ class ProjectManager:
         if resolved in self._projects:
             del self._projects[resolved]
             if self._active_path == resolved:
-                self._active_path = None
+                # Don't orphan the active pointer — fall back to home (work_dir)
+                # so the UI stays "in" a project.
+                self._active_path = (
+                    self._default_path if self._default_path != resolved else None
+                )
             self._save()
             return True
         return False

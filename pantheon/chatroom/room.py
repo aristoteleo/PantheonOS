@@ -21,6 +21,7 @@ from pantheon.factory import (
     TeamConfig,
 )
 from pantheon.internal.memory import MemoryManager, _ALL_CONTEXTS
+from pantheon.chatroom.routed_memory import ProjectRoutedMemoryManager, project_memory_dir
 from pantheon.settings import get_settings
 from pantheon.team import PantheonTeam
 from pantheon.toolset import ToolSet, tool
@@ -103,7 +104,10 @@ class ChatRoom(ToolSet):
         # ChatRoom specific initialization (before endpoint setup for workspace_path default)
         # Convert to absolute path BEFORE Endpoint creation (Endpoint does os.chdir)
         self.memory_dir = Path(memory_dir).resolve()
-        self.memory_manager = MemoryManager(self.memory_dir)
+        # Per-project memory routing: list/new follow the active project; per-chat
+        # ops follow each chat to its own project's .pantheon/memory. The work_dir
+        # is "home" (owns chats with no project of their own).
+        self.memory_manager = ProjectRoutedMemoryManager(self.memory_dir)
 
         # Determine endpoint connection mode based on type
         if isinstance(endpoint, str):
@@ -144,6 +148,16 @@ class ChatRoom(ToolSet):
             self._auto_created_endpoint = False
 
         self._endpoint_service = None
+        # Connection pool keyed by endpoint service_id (supports multiple
+        # endpoints, one per project). ChatRoom reaches endpoints over the
+        # INTERNAL backend (PANTHEON_INTERNAL_BACKEND, e.g. local TCP) while its
+        # own outward worker stays on the primary backend (NATS) for the frontend.
+        self._endpoint_services: dict = {}
+        self._internal_backend = None
+        # Per-project endpoint subprocesses: project_path -> {service_id, proc, log}
+        self._project_endpoints: dict = {}
+        # Per-project spawn locks so concurrent tool calls don't duplicate-spawn.
+        self._project_endpoint_locks: dict = {}
 
         # NATS streaming (optional)
         self._nats_adapter = None
@@ -159,6 +173,18 @@ class ChatRoom(ToolSet):
         from pantheon.settings import get_settings as _get_settings
         _ws = workspace_path or str(_get_settings().workspace)
         self.project_manager = ProjectManager(active_path=_ws)
+        # Point memory routing at the registered projects + the active one so
+        # list_chats shows the active project's own chats and per-chat ops can
+        # find any chat in any project.
+        try:
+            self.memory_manager.set_search_dirs(
+                [project_memory_dir(p["path"]) for p in self.project_manager.list_projects()]
+            )
+            _active = self.project_manager.active_project
+            if _active:
+                self.memory_manager.set_active_dir(project_memory_dir(_active.path))
+        except Exception as _e:
+            logger.warning(f"[memory routing] init failed: {_e}")
 
         self.description = description
 
@@ -184,21 +210,180 @@ class ChatRoom(ToolSet):
         # Plugin system (memory, learning, compression)
         self._init_plugins()
 
-    async def _get_endpoint_service(self):
-        """Get endpoint service object (instance or RemoteService)."""
-        if self._endpoint_embed:
-            # Embed mode: directly return instance
-            return self._endpoint
-        else:
-            # Process mode: lazy connect to remote service
-            if self._endpoint_service is None:
-                from pantheon.remote import RemoteBackendFactory
+    def _get_internal_backend(self):
+        """Backend ChatRoom uses to reach endpoints. Defaults to the global
+        backend, but PANTHEON_INTERNAL_BACKEND (e.g. "tcp") lets ChatRoom talk
+        to endpoints over a local transport while its own outward worker stays
+        on the primary backend (NATS) for the frontend."""
+        if self._internal_backend is None:
+            import os
+            from pantheon.remote import RemoteBackendFactory
 
-                self._backend = RemoteBackendFactory.create_backend()
-                self._endpoint_service = await self._backend.connect(
-                    self.endpoint_service_id
+            internal = os.getenv("PANTHEON_INTERNAL_BACKEND")
+            if internal:
+                from pantheon.remote.factory import RemoteConfig
+
+                self._internal_backend = RemoteBackendFactory.create_backend(
+                    RemoteConfig.from_config(backend=internal)
                 )
-            return self._endpoint_service
+            else:
+                self._internal_backend = RemoteBackendFactory.create_backend()
+        return self._internal_backend
+
+    async def _get_endpoint_service(self, endpoint_service_id: str | None = None):
+        """Get endpoint service object (embedded instance or a pooled RemoteService).
+
+        Pass endpoint_service_id to route to a specific endpoint (multi-project);
+        defaults to self.endpoint_service_id.
+        """
+        sid = endpoint_service_id or self.endpoint_service_id
+        # Embedded fast-path only for the owned/default endpoint
+        if self._endpoint_embed and (endpoint_service_id is None or sid == self.endpoint_service_id):
+            return self._endpoint
+        # Connection pool keyed by service_id
+        svc = self._endpoint_services.get(sid)
+        if svc is None:
+            backend = self._get_internal_backend()
+            svc = await backend.connect(sid)
+            self._endpoint_services[sid] = svc
+        return svc
+
+    async def _ensure_project_endpoint(self, project_path: str) -> str:
+        """Lazily spawn a dedicated endpoint subprocess for a project directory
+        and return its service_id. Each project gets its own endpoint process
+        (own work_dir), so multiple projects run concurrently. The endpoint's
+        primary worker uses the internal backend (e.g. local TCP) for ChatRoom;
+        its secondary worker stays on NATS for the frontend (dual-channel).
+
+        A per-project lock serializes concurrent callers so the same project is
+        spawned exactly once (otherwise parallel tool calls race and create
+        duplicate endpoints that fight over the same service_id / registry)."""
+        project_path = str(Path(project_path).resolve())
+        lock = self._project_endpoint_locks.get(project_path)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._project_endpoint_locks[project_path] = lock
+        async with lock:
+            existing = self._project_endpoints.get(project_path)
+            if existing is not None:
+                proc = existing.get("proc")
+                if proc is None or proc.returncode is None:
+                    return existing["service_id"]
+                # process died — drop and respawn
+                self._project_endpoints.pop(project_path, None)
+                self._endpoint_services.pop(existing["service_id"], None)
+            return await self._spawn_project_endpoint(project_path)
+
+    async def _spawn_project_endpoint(self, project_path: str) -> str:
+        """Spawn a per-project endpoint subprocess and wait until ready.
+        Always called under the project's lock (see _ensure_project_endpoint)."""
+        import os
+        import sys
+        import hashlib
+
+        id_hash = "proj-" + hashlib.sha256(project_path.encode()).hexdigest()[:16]
+        sid = generate_service_id(id_hash)
+        Path(project_path).mkdir(parents=True, exist_ok=True)
+        log_dir = Path(project_path) / ".pantheon" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "endpoint-subprocess.log"
+
+        env = dict(os.environ)
+        internal = os.getenv("PANTHEON_INTERNAL_BACKEND", "tcp")
+        env["PANTHEON_REMOTE_BACKEND"] = internal  # endpoint primary = internal transport (ChatRoom side)
+        env.setdefault("PANTHEON_FRONTEND_BACKEND", "nats")  # endpoint secondary = frontend
+
+        cmd = [
+            sys.executable, "-m", "pantheon.endpoint", "start",
+            "--workspace_path", project_path, "--id_hash", id_hash,
+        ]
+        logger.info(f"[multi-project] spawning endpoint for {project_path} (sid={sid[:12]}…)")
+        log_fh = open(log_file, "w", encoding="utf-8")
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, env=env, stdout=log_fh, stderr=asyncio.subprocess.STDOUT
+        )
+
+        backend = self._get_internal_backend()
+        ready = False
+        for _ in range(600):  # up to ~60s
+            if proc.returncode is not None:
+                raise RuntimeError(
+                    f"endpoint for {project_path} exited (code={proc.returncode}); see {log_file}"
+                )
+            try:
+                svc = await backend.connect(sid)
+                await svc.invoke("_ping")
+                ready = True
+                break
+            except Exception:
+                await asyncio.sleep(0.1)
+        if not ready:
+            proc.terminate()
+            raise TimeoutError(f"endpoint for {project_path} not ready in 60s; see {log_file}")
+
+        self._project_endpoints[project_path] = {
+            "service_id": sid, "proc": proc, "log": str(log_file),
+        }
+        logger.info(f"[multi-project] endpoint ready for {project_path} (sid={sid[:12]}…)")
+        return sid
+
+    def _is_home_dir(self, p) -> bool:
+        """Is `p` the home (work_dir) project? Home uses the default endpoint."""
+        try:
+            home = self.project_manager.default_project
+            return bool(home) and Path(home.path).resolve() == Path(p).resolve()
+        except Exception:
+            return False
+
+    async def _resolve_endpoint_for_chat(self, session_id: str | None) -> str | None:
+        """Resolve which endpoint a chat should use so its tools AND file panel
+        see the right project's files.
+
+        Priority: (1) the chat's explicit workspace_path dir, else (2) the project
+        that OWNS the chat's memory (per-project memory — concurrency-safe: a chat
+        running in A always routes to A even while you view B), else (3) for a
+        draft / no chat, the ACTIVE project you're currently "in". Home → None
+        (the default endpoint)."""
+        if session_id:
+            try:
+                memory = await run_func(self.memory_manager.get_memory, session_id)
+                project = memory.extra_data.get("project", {})
+                if isinstance(project, dict):
+                    wpath = project.get("workspace_path")
+                    if wpath and Path(wpath).is_dir() and not self._is_home_dir(wpath):
+                        return await self._ensure_project_endpoint(wpath)
+            except Exception as e:
+                logger.debug(f"[multi-project] resolve endpoint for {session_id}: {e}")
+            # No explicit workspace_path (e.g. legacy chat) → the project whose
+            # memory store holds this chat.
+            try:
+                mdir = self.memory_manager.mgr_for_chat(session_id).path
+                pdir = Path(mdir).parent.parent
+                if pdir.is_dir() and not self._is_home_dir(pdir):
+                    return await self._ensure_project_endpoint(str(pdir))
+            except Exception as e:
+                logger.debug(f"[multi-project] resolve by memory dir for {session_id}: {e}")
+            return None
+        # Draft / no chat → the active project (you're "in" it).
+        try:
+            active = self.project_manager.active_project
+            if active and active.path and Path(active.path).is_dir() and not self._is_home_dir(active.path):
+                return await self._ensure_project_endpoint(active.path)
+        except Exception as e:
+            logger.debug(f"[multi-project] resolve endpoint for active project: {e}")
+        return None
+
+    async def _shutdown_project_endpoints(self):
+        """Terminate all per-project endpoint subprocesses (cleanup)."""
+        for _path, entry in list(self._project_endpoints.items()):
+            proc = entry.get("proc")
+            if proc is not None and proc.returncode is None:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+            self._endpoint_services.pop(entry.get("service_id"), None)
+        self._project_endpoints.clear()
 
     def _embedded_endpoint_ready(self) -> bool:
         if not self._endpoint_embed or self._endpoint is None:
@@ -227,10 +412,14 @@ class ChatRoom(ToolSet):
             "ready": False,
         }
 
-    async def _call_endpoint_method(self, endpoint_method_name: str, **kwargs):
+    async def _call_endpoint_method(
+        self, endpoint_method_name: str, endpoint_service_id: str | None = None, **kwargs
+    ):
         from pantheon.utils.misc import call_endpoint_method
 
-        endpoint_service = await self._get_endpoint_service()
+        endpoint_service = await self._get_endpoint_service(
+            endpoint_service_id=endpoint_service_id
+        )
         return await call_endpoint_method(
             endpoint_service, endpoint_method_name=endpoint_method_name, **kwargs
         )
@@ -639,6 +828,7 @@ class ChatRoom(ToolSet):
         self,
         service_type: str,
         required_services: list[str],
+        endpoint_service_id: str | None = None,
     ):
         """Ensure required services (MCP servers or ToolSets) are started."""
         if not required_services:
@@ -653,6 +843,7 @@ class ChatRoom(ToolSet):
             )
             result = await self._call_endpoint_method(
                 endpoint_method_name="manage_service",
+                endpoint_service_id=endpoint_service_id,
                 action="start",
                 service_type=service_type,
                 name=required_services,
@@ -678,9 +869,10 @@ class ChatRoom(ToolSet):
 
         logger.info(f"🏗️ Creating team from template '{template_name}'")
 
-        # Connect to endpoint service
+        # Connect to endpoint service — route to the chat's per-project endpoint
         endpoint_t0 = time.perf_counter()
-        endpoint_service = await self._get_endpoint_service()
+        endpoint_sid = await self._resolve_endpoint_for_chat(chat_id)
+        endpoint_service = await self._get_endpoint_service(endpoint_service_id=endpoint_sid)
         log_startup_profile(
             "ChatRoom team endpoint resolved in "
             f"{time.perf_counter() - endpoint_t0:.3f}s "
@@ -702,14 +894,14 @@ class ChatRoom(ToolSet):
 
         # ===== STEP 2: Compute and ensure all required services =====
         ensure_mcp_t0 = time.perf_counter()
-        await self._ensure_services("mcp", list(required_mcp_servers))
+        await self._ensure_services("mcp", list(required_mcp_servers), endpoint_service_id=endpoint_sid)
         log_startup_profile(
             "ChatRoom team ensure MCP finished in "
             f"{time.perf_counter() - ensure_mcp_t0:.3f}s "
             f"(template={template_name}, mcp_servers={list(required_mcp_servers)})"
         )
         ensure_toolset_t0 = time.perf_counter()
-        await self._ensure_services("toolset", list(required_toolsets))
+        await self._ensure_services("toolset", list(required_toolsets), endpoint_service_id=endpoint_sid)
         log_startup_profile(
             "ChatRoom team ensure ToolSets finished in "
             f"{time.perf_counter() - ensure_toolset_t0:.3f}s "
@@ -917,6 +1109,7 @@ class ChatRoom(ToolSet):
             # Force reconnection on next use and drop cached teams bound to the old endpoint.
             self._endpoint_service = None
             self._backend = None
+            self._endpoint_services.clear()
             self.chat_teams.clear()
 
             # Sanity-check connectivity immediately to fail fast.
@@ -1104,9 +1297,14 @@ class ChatRoom(ToolSet):
                 except Exception as e:
                     logger.debug(f"Could not inject workdir for session {session_id}: {e}")
 
+            # Route to the chat's per-project endpoint (multi-project); falls
+            # back to the default endpoint when the chat has no isolated project.
+            endpoint_sid = await self._resolve_endpoint_for_chat(session_id)
+
             # Use unified endpoint call method
             result = await self._call_endpoint_method(
                 endpoint_method_name="proxy_toolset",
+                endpoint_service_id=endpoint_sid,
                 method_name=method_name,
                 args=args or {},
                 toolset_name=toolset_name,
@@ -1425,6 +1623,30 @@ class ChatRoom(ToolSet):
             logger.error(f"Error deleting chat: {e}")
             return {"success": False, "message": str(e)}
 
+    def _chat_has_running_bg_tasks(self, chat_id: str) -> bool:
+        """Whether a chat has at least one in-flight background task.
+
+        Background tasks are asyncio tasks owned by the chat's agents and can
+        outlive the agent turn that spawned them — the main loop returns (and
+        the persisted "running" flag flips False) while the task keeps running.
+        The team is retained in ``self.chat_teams``, so the UI busy indicator can
+        reflect this post-loop work by consulting it. Cheap: O(1) miss for chats
+        with no cached team (the common case).
+        """
+        team = self.chat_teams.get(chat_id)
+        if team is None:
+            return False
+        try:
+            for agent in team.agents.values():
+                mgr = getattr(agent, "_bg_manager", None)
+                if mgr is None:
+                    continue
+                if any(t.status == "running" for t in mgr.list_tasks()):
+                    return True
+        except Exception as e:
+            logger.debug(f"bg-task check failed for {chat_id}: {e}")
+        return False
+
     @tool
     async def list_chats(self, project_name: str | None = None) -> dict:
         """List all the chats, optionally filtered by project.
@@ -1473,11 +1695,18 @@ class ChatRoom(ToolSet):
                 chat_config = extra_data.get("chat_config", None)
                 team_template = extra_data.get("team_template", None)
 
+                # UI busy flag = main agent loop active OR an in-flight background
+                # task (which outlives the loop). Response-only OR — does not touch
+                # the persisted "running" flag; chat()'s busy-guard keys off
+                # self.threads, not this. Lets the sidebar / project-switcher keep
+                # showing background work after the agent turn returns.
+                bg_running = self._chat_has_running_bg_tasks(id)
                 chats.append(
                     {
                         "id": id,
                         "name": item["name"],
-                        "running": extra_data.get("running", False),
+                        "running": bool(extra_data.get("running", False)) or bg_running,
+                        "has_background_tasks": bg_running,
                         "last_activity_date": extra_data.get(
                             "last_activity_date", None
                         ),
@@ -1899,14 +2128,48 @@ class ChatRoom(ToolSet):
         return {"projects": self.project_manager.list_projects()}
 
     @tool
+    async def list_running_chats(self) -> dict:
+        """Running chats across ALL projects, with each chat's project.
+
+        The chat list (list_chats) is scoped to the active project's own memory,
+        so the UI project switcher needs this separate, cross-project view to show
+        which OTHER projects currently have work in flight (running indicator).
+        """
+        running = []
+        for chat_id in list(self.threads.keys()):
+            project = None
+            # Derive the project from WHERE the chat's memory lives (per-project
+            # memory is authoritative). The chat's own metadata may lack a
+            # name/workspace_path (e.g. created in a project without being tagged),
+            # so the memory dir is the reliable signal for the running indicator.
+            try:
+                mdir = self.memory_manager.mgr_for_chat(chat_id).path
+                pdir = Path(mdir).parent.parent  # <proj>/.pantheon/memory → <proj>
+                info = self.project_manager.get_project(str(pdir))
+                if info:
+                    project = {"name": info.name, "workspace_path": info.path}
+                elif Path(pdir).is_dir():
+                    project = {"name": Path(pdir).name, "workspace_path": str(pdir)}
+            except Exception as e:
+                logger.debug(f"[list_running_chats] project for {chat_id}: {e}")
+            running.append({"chat_id": chat_id, "project": project})
+        return {"running": running}
+
+    @tool
     async def get_active_project(self) -> dict:
-        """Get the currently active project."""
+        """Get the currently active project plus the home (work_dir) project.
+
+        `home` owns chats that have no project of their own (legacy / isolated
+        chats), so the UI can show them while you are "in" the home project.
+        """
         p = self.project_manager.active_project
+        home = self.project_manager.default_project
+        home_d = home.to_dict() if home else None
         if not p:
-            return {"active": None}
+            return {"active": None, "home": home_d}
         d = p.to_dict()
         d["is_active"] = True
-        return {"active": d}
+        return {"active": d, "home": home_d}
 
     @tool
     async def register_project(self, path: str, name: str = "") -> dict:
@@ -1934,6 +2197,30 @@ class ChatRoom(ToolSet):
         """
         ok = self.project_manager.remove(path)
         return {"success": ok, "message": "Removed" if ok else "Not found"}
+
+    @tool
+    async def set_active_project(self, path: str) -> dict:
+        """Record the active project WITHOUT a heavy context switch — no chdir,
+        no settings/memory/template singleton reset.
+
+        For multi-project view-switching: each chat runs in its own per-project
+        endpoint, so switching the *viewed* project must NOT interrupt running
+        chats or reset the default endpoint. Use this from the UI project
+        switcher; use switch_project only when the default endpoint must follow.
+        """
+        resolved = str(Path(path).resolve())
+        if not Path(resolved).is_dir():
+            return {"success": False, "message": f"Directory does not exist: {resolved}"}
+        info = self.project_manager.get_project(resolved) or self.project_manager.register(resolved)
+        self.project_manager.set_active(resolved)
+        # Route list/new chats to this project's own memory store (entering a
+        # project shows its own chats). Per-chat ops still follow each chat to its
+        # own store, so running chats in other projects are unaffected.
+        self.memory_manager.set_active_dir(project_memory_dir(resolved))
+        self.memory_manager.set_search_dirs(
+            [project_memory_dir(p["path"]) for p in self.project_manager.list_projects()]
+        )
+        return {"success": True, "project": info.to_dict()}
 
     @tool
     async def switch_project(self, path: str) -> dict:
@@ -1973,10 +2260,14 @@ class ChatRoom(ToolSet):
             pantheon_dir.mkdir(parents=True, exist_ok=True)
             (pantheon_dir / "memory").mkdir(parents=True, exist_ok=True)
 
-            # 4. Switch MemoryManager
+            # 4. Point memory routing at the new project (keep the router so
+            # per-chat routing + other projects' stores stay intact).
             new_memory_dir = pantheon_dir / "memory"
             self.memory_dir = new_memory_dir
-            self.memory_manager = MemoryManager(new_memory_dir)
+            self.memory_manager.set_active_dir(new_memory_dir)
+            self.memory_manager.set_search_dirs(
+                [project_memory_dir(p["path"]) for p in self.project_manager.list_projects()]
+            )
             logger.info(f"[switch_project] memory → {new_memory_dir}")
 
             # 5. Reload TemplateManager (reads dirs from settings)

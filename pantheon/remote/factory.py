@@ -138,6 +138,13 @@ def resolve_backend_config(
             except ValueError:
                 logger.warning(f"Invalid NATS_CONNECT_TIMEOUT value: {connect_timeout}, using default")
 
+    elif backend == "tcp":
+        # Local TCP transport for ChatRoom<->Endpoint (no NATS broker).
+        config = {}
+        registry_dir = remote_config.get("registry_dir") or os.getenv("PANTHEON_TCP_REGISTRY")
+        if registry_dir:
+            config["registry_dir"] = registry_dir
+
     else:
         raise ValueError(f"Unknown backend: {backend}")
 
@@ -189,6 +196,13 @@ class RemoteBackendFactory:
         from .backend.nats import NATSBackend
 
         BackendRegistry.register("nats", NATSBackend)
+
+        try:
+            from .backend.tcp import TCPBackend
+
+            BackendRegistry.register("tcp", TCPBackend)
+        except ImportError:
+            pass
 
 
 # Auto-register backends on import
