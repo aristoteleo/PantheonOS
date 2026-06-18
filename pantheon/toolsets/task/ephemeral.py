@@ -38,6 +38,21 @@ Remember that task boundaries should correspond to the artifact task.md, if you 
 Since you are NOT in an active task section, DO NOT call the `notify_user` tool unless you are requesting review of files.
 </no_active_task_reminder>"""
 
+# Bridges the gap between `active_task` (the in-memory state that drives this
+# message) and task.md (the visible checklist). The agent can close its active
+# task while task.md still has open items — then the reminder above wrongly reads
+# "it's fine to have no task", nobody nudges the agent to finish, and it either
+# leaves todos dangling or spins. Surfacing the open items keeps it honest.
+UNFINISHED_TODOS_REMINDER = """\
+<unfinished_todos_reminder>
+You have no active task, but task.md still has UNFINISHED checklist items:
+{items}
+The work is NOT complete yet. For each item: finish it and mark it [x] in task.md,
+or — if it genuinely cannot or should not be done — mark it [x] with a short
+"(skipped: reason)" note. Do not give your final wrap-up to the user until task.md
+has no remaining [ ] or [/] items. Take a concrete action now; do not just think.
+</unfinished_todos_reminder>"""
+
 # =============================================================================
 # Artifact Reminders
 # =============================================================================
@@ -128,6 +143,28 @@ Consider whether the current work belongs in a new task boundary.
 </too_many_steps_in_task_reminder>"""
 
 
+def _read_incomplete_todos(brain_dir: str) -> list[str]:
+    """Open items in the chat's task.md checklist — lines marked ``[ ]`` (todo) or
+    ``[/]`` (in progress). ``[x]`` / ``[-]`` (done / dropped) are excluded.
+
+    Read straight from task.md (the same source the user sees in Plan & Todo) so
+    the reminder can't drift from the persisted checklist."""
+    import re
+
+    path = os.path.join(brain_dir, "task.md")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except Exception:
+        return []
+    items: list[str] = []
+    for line in text.splitlines():
+        m = re.match(r"\s*[-*]\s*\[([ /xX\-])\]\s*(.+)", line)
+        if m and m.group(1) in (" ", "/"):
+            items.append(m.group(2).strip())
+    return items
+
+
 def generate_ephemeral_message(state: ConversationState, brain_dir: str) -> str:
     """Generate EPHEMERAL_MESSAGE based on current state.
 
@@ -177,6 +214,14 @@ def generate_ephemeral_message(state: ConversationState, brain_dir: str) -> str:
             )
     else:
         parts.append(NO_ACTIVE_TASK_REMINDER.format(reason=state.task_boundary_reason))
+
+        # No active task, but task.md may still have open items (the agent closed
+        # the task prematurely). Surface them so it finishes/closes them instead of
+        # leaving them dangling or spinning on a static "no task is fine" reminder.
+        open_todos = _read_incomplete_todos(brain_dir)
+        if open_todos:
+            items = "\n".join(f"  - {t}" for t in open_todos[:15])
+            parts.append(UNFINISHED_TODOS_REMINDER.format(items=items))
 
         # Add excessive tools reminder when not in task
         if state.tools_since_boundary >= EXCESSIVE_TOOLS_THRESHOLD:

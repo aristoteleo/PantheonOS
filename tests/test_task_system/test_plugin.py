@@ -146,6 +146,8 @@ class TestOnTeamCreated:
         team = _make_team(["main", "coder"])
         team.team_agents[0].instructions = "base instructions"
         team.team_agents[1].instructions = "sub instructions"
+        # No per-project root resolved → fall back to the global settings brain dir.
+        team._project_dir = None
 
         fake_settings = MagicMock()
         fake_settings.brain_dir = "/fake/.pantheon/brain"
@@ -158,8 +160,25 @@ class TestOnTeamCreated:
 
         assert "<task_brain_dir>" in primary_instr
         assert "/fake/.pantheon/brain" in primary_instr
-        assert "{client_id}" in primary_instr
+        assert "{chat_id}" in primary_instr
         assert "<task_brain_dir>" not in sub_instr  # sub-agent untouched
+
+    @pytest.mark.asyncio
+    async def test_anchors_brain_dir_to_per_project_root(self):
+        """When the team carries a project root, the brain dir + workspace-root
+        prompt point at THAT project — not the global home brain dir."""
+        plugin = TaskSystemPlugin()
+        team = _make_team(["main"])
+        team.team_agents[0].instructions = "base instructions"
+        team._project_dir = "/Users/me/Desktop/tmp"
+
+        await plugin.on_team_created(team)
+
+        instr = team.team_agents[0].instructions
+        assert "Your workspace root is /Users/me/Desktop/tmp" in instr
+        assert "/Users/me/Desktop/tmp/.pantheon/brain" in instr
+        # The global home brain dir must NOT leak in.
+        assert "/fake/.pantheon/brain" not in instr
 
     @pytest.mark.asyncio
     async def test_noop_when_no_agents(self):
@@ -238,3 +257,45 @@ class TestPluginBaseClass:
     def test_no_on_tool_calls_batch(self):
         from pantheon.team.plugin import TeamPlugin
         assert not hasattr(TeamPlugin, "on_tool_calls_batch")
+
+
+class TestUnfinishedTodosReminder:
+    """The ephemeral message is generated from `active_task` (in-memory state), but
+    the agent can close its task while task.md still has open items. The reminder
+    must read task.md and surface those open items — bridging the active_task ↔
+    task.md gap so the agent finishes/closes them instead of leaving them dangling
+    (and instead of spinning on a static 'no task is fine' reminder)."""
+
+    def test_reads_only_open_checklist_items(self, tmp_path):
+        from pantheon.toolsets.task.ephemeral import _read_incomplete_todos
+        (tmp_path / "task.md").write_text(
+            "- [x] done item\n"
+            "- [ ] open todo A\n"
+            "- [/] in-progress B — bg running\n"
+            "- [-] dropped item\n"
+            "plain prose, not a checklist line\n"
+        )
+        assert _read_incomplete_todos(str(tmp_path)) == [
+            "open todo A",
+            "in-progress B — bg running",
+        ]
+
+    def test_missing_task_md_returns_empty(self, tmp_path):
+        from pantheon.toolsets.task.ephemeral import _read_incomplete_todos
+        assert _read_incomplete_todos(str(tmp_path)) == []
+
+    def test_em_surfaces_open_todos_when_no_active_task(self, tmp_path):
+        from pantheon.toolsets.task.ephemeral import generate_ephemeral_message
+        from pantheon.toolsets.task.task_state import ConversationState
+        (tmp_path / "task.md").write_text("- [x] done\n- [ ] finish the notebook\n")
+        # Fresh state → no active task — exactly the "closed task, open todos" gap.
+        em = generate_ephemeral_message(ConversationState(), str(tmp_path))
+        assert "<unfinished_todos_reminder>" in em
+        assert "finish the notebook" in em
+
+    def test_em_silent_when_all_todos_done(self, tmp_path):
+        from pantheon.toolsets.task.ephemeral import generate_ephemeral_message
+        from pantheon.toolsets.task.task_state import ConversationState
+        (tmp_path / "task.md").write_text("- [x] done one\n- [x] done two\n")
+        em = generate_ephemeral_message(ConversationState(), str(tmp_path))
+        assert "<unfinished_todos_reminder>" not in em

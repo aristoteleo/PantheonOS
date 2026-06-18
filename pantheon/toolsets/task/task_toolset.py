@@ -56,20 +56,26 @@ class TaskToolSet(ToolSet):
         under client_id, the UI-connection id; that was redundant and made the
         path non-deterministic for readers that don't know the client_id.)
 
-        Priority:
-        1. Use workdir if present in context (isolated-project scenario)
-        2. Fall back to settings.brain_dir
+        Anchor priority:
+        1. `project_root` — the chat's IMMUTABLE project root, set once by
+           ChatRoom.chat(). Prefer this over `workdir`: `workdir` is an
+           endpoint-cwd hint that proxy_toolset legitimately pops/overwrites on
+           the shared per-task context for every endpoint-toolset call, so by the
+           time a later task_boundary (or ephemeral refresh) runs it may be gone —
+           which silently relocated the brain to the global home dir, splitting it
+           away from the workspace. `project_root` is never mutated.
+        2. `workdir` — legacy fallback (e.g. isolated chats that only set workdir).
+        3. settings.brain_dir — global home, last resort.
         """
         chat_id = context.get("chat_id") or "default"
 
-        # Priority 1: Use workdir from context if available (isolated project)
-        workdir = context.get("workdir")
-        if workdir:
-            brain_path = Path(workdir) / ".pantheon" / "brain" / chat_id
-            logger.debug(f"[TaskToolSet] Using workdir brain_dir: {brain_path}")
+        root = context.get("project_root") or context.get("workdir")
+        if root:
+            brain_path = Path(root) / ".pantheon" / "brain" / chat_id
+            logger.debug(f"[TaskToolSet] Using project-root brain_dir: {brain_path}")
             return str(brain_path)
 
-        # Priority 2: Fall back to settings
+        # Last resort: the global home brain dir.
         from pantheon.settings import get_settings
         brain_path = get_settings().brain_dir / chat_id
         logger.debug(f"[TaskToolSet] Using settings brain_dir: {brain_path}")
@@ -353,7 +359,10 @@ class TaskToolSet(ToolSet):
         """
         import os
 
-        root = context.get("workdir") or os.getcwd()
+        # Prefer the immutable project anchor over `workdir` (which proxy_toolset
+        # clears mid-run for endpoint calls — see _get_brain_dir). os.getcwd() is
+        # the ChatRoom process dir, the wrong root, so it's only a last resort.
+        root = context.get("project_root") or context.get("workdir") or os.getcwd()
         p = os.path.expanduser(path)
         abs_path = p if os.path.isabs(p) else os.path.join(root, p)
         exists = os.path.exists(abs_path)

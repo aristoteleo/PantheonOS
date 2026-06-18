@@ -22,7 +22,10 @@ if TYPE_CHECKING:
 TASK_BRAIN_DIR_BLOCK = """
 
 <task_brain_dir>
-Artifact directory: {brain_dir}/{{chat_id}}
+Your workspace root is {workspace_root}. Create ALL output files — notebooks,
+reports, figures, data — under this directory. Never write outside it (file and
+notebook tools are scoped to it and will reject paths elsewhere).
+Internal task-state directory: {brain_dir}/{{chat_id}}
   - Base path: {brain_dir}
   - {{chat_id}} is the current conversation's ID (provided per-request in
     context). It keeps each conversation's task.md isolated from other chats.
@@ -120,9 +123,20 @@ class TaskSystemPlugin(TeamPlugin):
         if not team.team_agents:
             return
 
+        from pathlib import Path
+
         settings = get_settings()
-        brain_dir = str(settings.brain_dir)
-        tag = TASK_BRAIN_DIR_BLOCK.format(brain_dir=brain_dir)
+        # Anchor the brain dir + workspace root to THIS chat's project (set on the
+        # team at creation, see ChatRoom._create_team_from_template). Falls back to
+        # the global home brain dir only when no per-project root was resolved.
+        proj_dir = getattr(team, "_project_dir", None)
+        if proj_dir:
+            brain_dir = str(Path(proj_dir) / ".pantheon" / "brain")
+            workspace_root = str(proj_dir)
+        else:
+            brain_dir = str(settings.brain_dir)
+            workspace_root = str(Path(brain_dir).parent.parent)
+        tag = TASK_BRAIN_DIR_BLOCK.format(brain_dir=brain_dir, workspace_root=workspace_root)
 
         primary = team.team_agents[0]
         if hasattr(primary, "instructions") and primary.instructions:

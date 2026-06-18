@@ -104,7 +104,11 @@ def _append_context_blocks(prompt: str, ctx: dict[str, Any]) -> str:
         prompt += USER_INFORMATION_BLOCK.format(content="\n".join(lines))
 
     # <workdir_constraint>
-    workdir = ctx.get("workdir", "")
+    # Prefer the immutable `project_root`: this prompt is re-rendered every turn,
+    # and proxy_toolset pops `workdir` off the shared context for endpoint calls —
+    # so reading `workdir` here makes the constraint (and the image-output block
+    # nested under it) vanish mid-run once the agent touches a notebook/shell tool.
+    workdir = ctx.get("project_root") or ctx.get("workdir", "")
     if workdir:
         prompt += WORKDIR_CONSTRAINT_BLOCK.format(workdir=workdir)
         img_dir = ctx.get("image_output_dir", "")

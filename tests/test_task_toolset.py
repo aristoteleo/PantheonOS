@@ -522,5 +522,61 @@ class TestTaskToolSet:
         assert "<EPHEMERAL_MESSAGE>" in eu["content"]
 
 
+class TestBrainDirAnchor:
+    """The brain dir must anchor to the IMMUTABLE `project_root`, not the mutable
+    `workdir`. proxy_toolset pops/overwrites `workdir` on the shared per-task
+    context for every endpoint-toolset call (steering the endpoint's cwd); if the
+    brain followed `workdir`, the first notebook/shell call would relocate the
+    task brain to the global home dir mid-run — splitting brain from workspace.
+    """
+
+    def test_prefers_project_root_over_workdir(self):
+        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        ts = TaskToolSet()
+        # workdir is the (transient) endpoint hint; project_root is the anchor.
+        brain = ts._get_brain_dir({
+            "chat_id": "c1",
+            "project_root": "/Users/me/Desktop/tmp",
+            "workdir": "/some/endpoint/override",
+        })
+        assert brain == "/Users/me/Desktop/tmp/.pantheon/brain/c1"
+
+    def test_survives_workdir_being_popped(self):
+        """The real failure mode: a later turn whose context has had `workdir`
+        popped by proxy_toolset still resolves to the project, not global home."""
+        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        ts = TaskToolSet()
+        brain = ts._get_brain_dir({"chat_id": "c1", "project_root": "/proj"})  # no workdir
+        assert brain == "/proj/.pantheon/brain/c1"
+
+    def test_falls_back_to_workdir_when_no_project_root(self):
+        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        ts = TaskToolSet()
+        brain = ts._get_brain_dir({"chat_id": "c1", "workdir": "/legacy/iso"})
+        assert brain == "/legacy/iso/.pantheon/brain/c1"
+
+    def test_falls_back_to_settings_when_no_root(self):
+        from unittest.mock import patch, MagicMock
+        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        ts = TaskToolSet()
+        fake = MagicMock()
+        fake.brain_dir = Path("/home/.pantheon/brain")
+        with patch("pantheon.settings.get_settings", return_value=fake):
+            brain = ts._get_brain_dir({"chat_id": "c1"})
+        assert brain == str(Path("/home/.pantheon/brain/c1"))
+
+    def test_resolve_output_path_uses_project_root(self):
+        """register_output's path resolution shares the same anchor — a relative
+        deliverable must resolve under the project, never os.getcwd()."""
+        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        ts = TaskToolSet()
+        abs_path, _exists, _is_dir, store_path = ts._resolve_output_path(
+            "outputs/fig.png",
+            {"project_root": "/Users/me/Desktop/tmp"},  # workdir absent (popped)
+        )
+        assert abs_path == "/Users/me/Desktop/tmp/outputs/fig.png"
+        assert store_path == "outputs/fig.png"  # workspace-relative for the tree
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

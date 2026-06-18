@@ -373,6 +373,48 @@ class ChatRoom(ToolSet):
             logger.debug(f"[multi-project] resolve endpoint for active project: {e}")
         return None
 
+    async def _project_dir_for_chat(self, session_id: str | None) -> str | None:
+        """Resolve a chat's PROJECT ROOT directory (workspace root) — the dir its
+        files, task brain, and image outputs should all live under.
+
+        Mirrors _resolve_endpoint_for_chat's routing but returns the directory
+        (no endpoint spawn), and — unlike that method — resolves home chats to the
+        home dir too, so the brain/prompt are ALWAYS anchored to a concrete project
+        instead of silently falling back to the global default brain dir.
+
+        Priority: (1) the chat's explicit workspace_path, else (2) the project that
+        owns the chat's memory, else (3) the active project, else (4) home."""
+        if session_id:
+            try:
+                memory = await run_func(self.memory_manager.get_memory, session_id)
+                project = memory.extra_data.get("project", {})
+                if isinstance(project, dict):
+                    wpath = project.get("workspace_path")
+                    if wpath and Path(wpath).is_dir():
+                        return str(Path(wpath).resolve())
+            except Exception as e:
+                logger.debug(f"[multi-project] project dir (workspace_path) for {session_id}: {e}")
+            try:
+                mdir = self.memory_manager.mgr_for_chat(session_id).path
+                pdir = Path(mdir).parent.parent
+                if pdir.is_dir():
+                    return str(pdir.resolve())
+            except Exception as e:
+                logger.debug(f"[multi-project] project dir (memory) for {session_id}: {e}")
+        try:
+            active = self.project_manager.active_project
+            if active and active.path and Path(active.path).is_dir():
+                return str(Path(active.path).resolve())
+        except Exception:
+            pass
+        try:
+            home = self.project_manager.default_project
+            if home and home.path and Path(home.path).is_dir():
+                return str(Path(home.path).resolve())
+        except Exception:
+            pass
+        return None
+
     async def _shutdown_project_endpoints(self):
         """Terminate all per-project endpoint subprocesses (cleanup)."""
         for _path, entry in list(self._project_endpoints.items()):
@@ -937,6 +979,12 @@ class ChatRoom(ToolSet):
             agents=all_agents,
             plugins=plugins,
         )
+        # Anchor the task/brain prompt to this chat's project root (TaskSystemPlugin
+        # reads team._project_dir in on_team_created, which runs inside async_setup).
+        try:
+            team._project_dir = await self._project_dir_for_chat(chat_id)
+        except Exception as e:
+            logger.debug(f"[multi-project] team project dir for {chat_id}: {e}")
         setup_t0 = time.perf_counter()
         await team.async_setup()
         log_startup_profile(
@@ -1269,7 +1317,12 @@ class ChatRoom(ToolSet):
             if self._endpoint_embed and not self._embedded_endpoint_ready():
                 return self._endpoint_not_ready_response()
 
-            # Inject workdir from project metadata if session is in isolated mode
+            # Steer the ENDPOINT toolset's cwd via `workdir` (isolated → workspace_path;
+            # project → clear so the endpoint falls back to its own project path). This
+            # mutates the SHARED per-task context, so it ONLY governs endpoint-side cwd.
+            # The LOCAL task toolset's brain/output anchor is `project_root` (set once in
+            # chat()), which we deliberately never touch here — popping workdir below must
+            # not relocate the brain.
             session_id = (args or {}).get("session_id") or getattr(self, '_current_chat_id', None)
             # Special '__global__' session_id: explicitly use project root (clear any workdir)
             if session_id == '__global__':
@@ -1696,16 +1749,20 @@ class ChatRoom(ToolSet):
                 team_template = extra_data.get("team_template", None)
 
                 # UI busy flag = main agent loop active OR an in-flight background
-                # task (which outlives the loop). Response-only OR — does not touch
-                # the persisted "running" flag; chat()'s busy-guard keys off
-                # self.threads, not this. Lets the sidebar / project-switcher keep
-                # showing background work after the agent turn returns.
+                # task (which outlives the loop). The persisted "running" flag is
+                # only trusted when the chat actually has a LIVE thread — otherwise a
+                # run that was killed mid-flight (e.g. a backend restart, which never
+                # runs the completion reset) leaves "running": true on disk and the
+                # sidebar shows a phantom spinner on a cold start. self.threads is
+                # empty right after startup, so a stale flag resolves to not-running
+                # immediately instead of waiting for the list_running_chats poll.
                 bg_running = self._chat_has_running_bg_tasks(id)
+                main_running = bool(extra_data.get("running", False)) and id in self.threads
                 chats.append(
                     {
                         "id": id,
                         "name": item["name"],
-                        "running": bool(extra_data.get("running", False)) or bg_running,
+                        "running": main_running or bg_running,
                         "has_background_tasks": bg_running,
                         "last_activity_date": extra_data.get(
                             "last_activity_date", None
@@ -2895,16 +2952,24 @@ class ChatRoom(ToolSet):
         team = await self.get_team_for_chat(chat_id)
         self._setup_bg_auto_notify(chat_id, team)
 
-        # Inject workdir from project metadata if in isolated mode
+        # Anchor the run to THIS chat's project root (workspace root) so the task
+        # brain, image output, and file tools all live under it — never the global
+        # home. Previously workdir was set ONLY for "isolated" chats with an
+        # explicit workspace_path; a "project"-mode chat (no workspace_path) left
+        # workdir empty, so the task brain fell back to the global brain dir and the
+        # agent saw home paths and wrote files into the wrong project.
         project = memory.extra_data.get("project", {})
-        workspace_path = None
-        if isinstance(project, dict):
-            workspace_mode = project.get("workspace_mode",
-                "isolated" if project.get("workspace_path") else "project")
-            workspace_path = project.get("workspace_path")
-            if workspace_mode == "isolated" and workspace_path:
-                context_variables = context_variables or {}
-                context_variables["workdir"] = workspace_path
+        workspace_path = project.get("workspace_path") if isinstance(project, dict) else None
+        project_dir = await self._project_dir_for_chat(chat_id)
+        if project_dir:
+            context_variables = context_variables or {}
+            context_variables["workdir"] = project_dir
+            # `project_root` is the IMMUTABLE anchor for this chat's project. Unlike
+            # `workdir` — which proxy_toolset pops/overwrites per endpoint-toolset
+            # call to steer the endpoint's cwd — `project_root` is never mutated, so
+            # LOCAL toolsets (task brain, register_output) always resolve to the
+            # right project instead of silently falling back to the global home.
+            context_variables["project_root"] = project_dir
 
         # Set up a designated image output directory so agents save images
         # to a known location and claw channels can detect them cheaply.
@@ -2912,9 +2977,10 @@ class ChatRoom(ToolSet):
             IMAGE_OUTPUT_DIR, snapshot_images, diff_snapshots, encode_images_to_uris,
         )
         image_output_path: str | None = None
-        if workspace_path:
+        img_root = project_dir or workspace_path
+        if img_root:
             import os
-            image_output_path = os.path.join(workspace_path, IMAGE_OUTPUT_DIR)
+            image_output_path = os.path.join(img_root, IMAGE_OUTPUT_DIR)
             os.makedirs(image_output_path, exist_ok=True)
             context_variables = context_variables or {}
             context_variables["image_output_dir"] = image_output_path
