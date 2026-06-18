@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Any, Union
 from enum import Enum
 
 from pantheon.utils.log import logger
+from pantheon.utils.misc import wire_safe_tool_args
 
 if TYPE_CHECKING:
     from pantheon.remote import RemoteService
@@ -254,22 +255,25 @@ class ToolsetProxy:
                 method_name=method_name, args=args, toolset_name=self.toolset_name
             )
         elif self.mode == ProxyMode.ENDPOINT_ID:
-            # Remote invoke through endpoint service
+            # Remote invoke through endpoint service. The payload is cloudpickled
+            # over the wire, so strip agent-internal live closures (see
+            # wire_safe_tool_args) that would otherwise raise
+            # "cannot pickle '_asyncio.Future'/'_asyncio.Task' object".
             if not self.service:
                 raise ValueError("service is None for ENDPOINT_ID mode")
             return await self.service.invoke(
                 "proxy_toolset",
                 {
                     "method_name": method_name,
-                    "args": args,
+                    "args": wire_safe_tool_args(args),
                     "toolset_name": self.toolset_name,
                 },
             )
         else:  # TOOLSET_ID
-            # Direct invoke to toolset (bypass endpoint)
+            # Direct invoke to toolset (bypass endpoint) — also cloudpickled.
             if not self.service:
                 raise ValueError("service is None for TOOLSET_ID mode")
-            return await self.service.invoke(method_name, args)
+            return await self.service.invoke(method_name, wire_safe_tool_args(args))
 
     async def invoke(self, method_name: str, args: Optional[Dict] = None) -> Dict:
         """Invoke toolset method (simple passthrough, returns result or raises)."""
