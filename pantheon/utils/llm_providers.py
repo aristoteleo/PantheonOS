@@ -11,7 +11,7 @@ import os
 import time
 from enum import Enum
 from typing import Any, Callable, Optional, NamedTuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .misc import run_func
 from .log import logger
@@ -40,6 +40,7 @@ class ProviderConfig:
     base_url: Optional[str] = None
     api_key: Optional[str] = None
     relaxed_schema: bool = False
+    responses_required_models: dict[str, Any] = field(default_factory=dict)
 
 
 # OpenAI-compatible providers that need custom base_url.
@@ -99,6 +100,7 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
     base_url = None
     api_key = None
     provider_type = None
+    responses_required_models: dict[str, Any] | None = None
 
     if "/" in model:
         provider_str, model_name = model.split("/", 1)
@@ -120,9 +122,17 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
                     provider_lower,
                     catalog_config.get("base_url"),
                 )
+                if (
+                    provider_lower == "openai"
+                    and base_url == catalog_config.get("base_url")
+                ):
+                    base_url = None
                 api_key = get_provider_api_key(
                     provider_lower,
                     catalog_config.get("api_key_env"),
+                )
+                responses_required_models = catalog_config.get(
+                    "responses_required_models"
                 )
         # Check if it's explicitly openai provider
         if provider_lower == "openai":
@@ -148,6 +158,11 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
             provider_type = ProviderType.NATIVE
         else:
             provider_type = ProviderType.OPENAI
+            if not _pcfg:
+                from pantheon.utils.provider_registry import get_provider_config
+
+                _pcfg = get_provider_config("openai")
+            responses_required_models = _pcfg.get("responses_required_models")
         model_name = model
 
     # Override with NATIVE if relaxed_schema is forced
@@ -160,15 +175,15 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
         base_url=base_url,
         api_key=api_key or None,
         relaxed_schema=relaxed_schema,
+        responses_required_models=responses_required_models or {},
     )
 
 
 def is_responses_api_model(config: ProviderConfig) -> bool:
     """Check if the model is Responses-API-only (no Chat Completions fallback).
 
-    Triggers for:
-    - Models with "codex" in the name (e.g. codex-mini-latest)
-    - Pro models (gpt-5.x-pro, gpt-5.2-pro) which are Responses-only
+    Providers opt into this by declaring responses_required_models in the
+    catalog. For now, OpenAI declares codex and -pro model rules.
 
     For the broader "should I try Responses API" question (which covers all
     OpenAI models by default), use ``should_use_responses_api`` instead.
@@ -176,9 +191,20 @@ def is_responses_api_model(config: ProviderConfig) -> bool:
     name_lower = config.model_name.lower()
     if config.provider_type != ProviderType.OPENAI:
         return False
+    required_models = config.responses_required_models or {}
+    if not isinstance(required_models, dict):
+        return False
+    contains = [
+        str(pattern).lower() for pattern in required_models.get("contains", [])
+    ]
+    suffixes = [str(suffix).lower() for suffix in required_models.get("suffixes", [])]
+    if not contains and not suffixes:
+        return False
     # Strip "openai/" prefix for matching
     bare = name_lower.split("/")[-1] if "/" in name_lower else name_lower
-    return "codex" in bare or bare.endswith("-pro")
+    return any(pattern in bare for pattern in contains) or any(
+        bare.endswith(suffix) for suffix in suffixes
+    )
 
 
 # Per-process cache of (base_url, model_name) combinations where the
@@ -189,7 +215,7 @@ _RESPONSES_API_UNAVAILABLE: set[tuple[str, str]] = set()
 
 
 def _responses_cache_key(config: ProviderConfig) -> tuple[str, str]:
-    return (config.base_url or "", config.model_name.lower())
+    return ((config.base_url or "").rstrip("/"), config.model_name.lower())
 
 
 def should_use_responses_api(config: ProviderConfig) -> bool:
@@ -209,9 +235,9 @@ def should_use_responses_api(config: ProviderConfig) -> bool:
         return False
     if "codex/" in config.model_name.lower():
         return False
-    if _responses_cache_key(config) in _RESPONSES_API_UNAVAILABLE:
-        return False
-    return True
+    if is_responses_api_model(config):
+        return True
+    return _responses_cache_key(config) not in _RESPONSES_API_UNAVAILABLE
 
 
 def mark_responses_api_unavailable(config: ProviderConfig) -> None:

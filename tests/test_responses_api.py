@@ -20,6 +20,10 @@ from pantheon.utils.llm import (
 
 HAS_OPENAI_KEY = bool(os.environ.get("OPENAI_API_KEY"))
 CODEX_MODEL = "gpt-5.1-codex-mini"
+OPENAI_RESPONSES_REQUIRED_MODELS = {
+    "contains": ["codex"],
+    "suffixes": ["-pro"],
+}
 
 
 # ============ is_responses_api_model ============
@@ -27,19 +31,35 @@ CODEX_MODEL = "gpt-5.1-codex-mini"
 
 class TestIsResponsesApiModel:
     def test_codex_model_openai(self):
-        config = ProviderConfig(provider_type=ProviderType.OPENAI, model_name="codex-mini-latest")
+        config = ProviderConfig(
+            provider_type=ProviderType.OPENAI,
+            model_name="codex-mini-latest",
+            responses_required_models=OPENAI_RESPONSES_REQUIRED_MODELS,
+        )
         assert is_responses_api_model(config) is True
 
     def test_codex_model_with_prefix(self):
-        config = ProviderConfig(provider_type=ProviderType.OPENAI, model_name="openai/codex-mini-latest")
+        config = ProviderConfig(
+            provider_type=ProviderType.OPENAI,
+            model_name="openai/codex-mini-latest",
+            responses_required_models=OPENAI_RESPONSES_REQUIRED_MODELS,
+        )
         assert is_responses_api_model(config) is True
 
     def test_codex_model_case_insensitive(self):
-        config = ProviderConfig(provider_type=ProviderType.OPENAI, model_name="Codex-Mini")
+        config = ProviderConfig(
+            provider_type=ProviderType.OPENAI,
+            model_name="Codex-Mini",
+            responses_required_models=OPENAI_RESPONSES_REQUIRED_MODELS,
+        )
         assert is_responses_api_model(config) is True
 
     def test_non_codex_openai(self):
-        config = ProviderConfig(provider_type=ProviderType.OPENAI, model_name="gpt-4o")
+        config = ProviderConfig(
+            provider_type=ProviderType.OPENAI,
+            model_name="gpt-4o",
+            responses_required_models=OPENAI_RESPONSES_REQUIRED_MODELS,
+        )
         assert is_responses_api_model(config) is False
 
     def test_codex_model_native_provider(self):
@@ -52,7 +72,42 @@ class TestIsResponsesApiModel:
         assert is_responses_api_model(config) is False
 
     def test_o1_model_not_codex(self):
-        config = ProviderConfig(provider_type=ProviderType.OPENAI, model_name="o1-mini")
+        config = ProviderConfig(
+            provider_type=ProviderType.OPENAI,
+            model_name="o1-mini",
+            responses_required_models=OPENAI_RESPONSES_REQUIRED_MODELS,
+        )
+        assert is_responses_api_model(config) is False
+
+    def test_pro_model_without_required_models_is_not_responses_only(self):
+        config = ProviderConfig(
+            provider_type=ProviderType.OPENAI,
+            model_name="gpt-5.4-pro",
+        )
+        assert is_responses_api_model(config) is False
+
+    def test_detect_provider_loads_required_responses_models_from_openai_catalog(self):
+        from pantheon.utils.llm_providers import detect_provider
+
+        config = detect_provider("openai/gpt-5.4-pro", relaxed_schema=False)
+
+        assert config.responses_required_models == OPENAI_RESPONSES_REQUIRED_MODELS
+        assert is_responses_api_model(config) is True
+
+    def test_detect_provider_loads_required_responses_models_for_bare_openai_model(self):
+        from pantheon.utils.llm_providers import detect_provider
+
+        config = detect_provider(CODEX_MODEL, relaxed_schema=False)
+
+        assert config.responses_required_models == OPENAI_RESPONSES_REQUIRED_MODELS
+        assert is_responses_api_model(config) is True
+
+    def test_detect_provider_does_not_give_deepseek_openai_required_models(self):
+        from pantheon.utils.llm_providers import detect_provider
+
+        config = detect_provider("deepseek/deepseek-v4-pro", relaxed_schema=False)
+
+        assert config.responses_required_models == {}
         assert is_responses_api_model(config) is False
 
 
@@ -685,6 +740,37 @@ class TestDefaultResponsesAPIRouting:
         )
         assert should_use_responses_api(cfg) is False
 
+    def test_should_use_responses_api_uses_required_responses_rule(self):
+        from pantheon.utils.llm_providers import should_use_responses_api
+
+        cfg = ProviderConfig(
+            provider_type=ProviderType.OPENAI,
+            model_name="gpt-5.4-pro",
+            responses_required_models={
+                "suffixes": ["-pro"],
+            },
+        )
+
+        assert should_use_responses_api(cfg) is True
+
+    def test_required_responses_model_ignores_unavailable_cache(self):
+        from pantheon.utils.llm_providers import (
+            mark_responses_api_unavailable,
+            reset_responses_api_cache,
+            should_use_responses_api,
+        )
+
+        cfg = ProviderConfig(
+            provider_type=ProviderType.OPENAI,
+            model_name="gpt-5.4-pro",
+            responses_required_models=OPENAI_RESPONSES_REQUIRED_MODELS,
+        )
+
+        reset_responses_api_cache()
+        mark_responses_api_unavailable(cfg)
+        assert should_use_responses_api(cfg) is True
+        reset_responses_api_cache()
+
     def test_cache_key_is_per_base_url_and_model(self):
         """Marking one (base_url, model) pair unavailable must not leak into
         other pairs — a custom proxy that lacks /v1/responses should not
@@ -711,6 +797,50 @@ class TestDefaultResponsesAPIRouting:
         assert should_use_responses_api(proxy_cfg) is False
         assert should_use_responses_api(default_cfg) is True
         assert should_use_responses_api(other_model_cfg) is True
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_404_for_custom_openai_compatible_pro_model(
+        self, monkeypatch
+    ):
+        """A custom OpenAI-compatible -pro model should still fall back to
+        Chat Completions when the endpoint does not implement /v1/responses."""
+        import openai as openai_mod
+
+        from pantheon.utils.llm_providers import (
+            call_llm_provider,
+            detect_provider,
+            should_use_responses_api,
+        )
+
+        async def fake_responses(**kwargs):
+            raise openai_mod.NotFoundError(
+                message="Not Found",
+                response=MagicMock(status_code=404, request=MagicMock()),
+                body=None,
+            )
+
+        async def fake_completion(**kwargs):
+            return {"role": "assistant", "content": "fallback worked"}
+
+        monkeypatch.setattr(
+            "pantheon.utils.llm.acompletion_responses", fake_responses
+        )
+        monkeypatch.setattr("pantheon.utils.llm.acompletion", fake_completion)
+        monkeypatch.setattr(
+            "pantheon.utils.llm_providers.extract_message_from_response",
+            lambda msg, prefix: msg,
+        )
+
+        config = detect_provider("deepseek/deepseek-v4-pro", relaxed_schema=False)
+        assert should_use_responses_api(config) is True
+
+        result = await call_llm_provider(
+            config=config,
+            messages=[{"role": "user", "content": "hi"}],
+        )
+
+        assert result == {"role": "assistant", "content": "fallback worked"}
+        assert should_use_responses_api(config) is False
 
     @pytest.mark.asyncio
     async def test_fallback_on_404_routes_to_chat_completions(self, monkeypatch):
