@@ -151,3 +151,32 @@ class TestEmptyMessagesPath:
         memory.add_messages([{"role": "assistant", "content": "hello"}])
         result = await gen.generate_or_update_name(memory)
         assert result == "New Chat"
+
+
+class TestFallbackName:
+
+    @pytest.mark.asyncio
+    async def test_fallback_prefers_clean_content_over_llm_wrapper(self, monkeypatch):
+        """Regression: _llm_content can contain wrapper markup intended for the
+        LLM, but fallback chat titles should use the user-visible message."""
+        gen = ChatNameGenerator()
+        memory = Memory("New Chat")
+        memory.add_messages([
+            {
+                "role": "user",
+                "content": "帮我分析一个数据",
+                "_llm_content": (
+                    "<USER_REQUEST>\n帮我分析一个数据\n</USER_REQUEST>\n\n"
+                    "<CJK_ARTIFACT>internal context</CJK_ARTIFACT>"
+                ),
+            }
+        ])
+
+        async def no_ai_name(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(gen, "_generate_with_ai", no_ai_name)
+
+        result = await gen.generate_or_update_name(memory)
+
+        assert result == "帮我分析一个数据"

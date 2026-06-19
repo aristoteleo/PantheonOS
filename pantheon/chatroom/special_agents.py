@@ -15,11 +15,29 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pantheon.agent import Agent, get_current_run_model
+from pantheon.agent import (
+    Agent,
+    _resolve_model_spec_with_current_provider,
+    get_current_run_model,
+)
 from pantheon.internal.memory import Memory
 from pantheon.utils.log import logger, temporary_log_level
 
 # ===== SummaryGenerator =====
+
+
+def _resolve_provider_low_model(
+    preferred_model: str | None,
+) -> str | list[str] | None:
+    """Resolve low tier while keeping the active provider when possible."""
+    current_model = preferred_model or get_current_run_model()
+    return _resolve_model_spec_with_current_provider("low", current_model=current_model)
+
+
+def _model_cache_key(model: str | list[str] | None) -> str:
+    if isinstance(model, list):
+        return "\n".join(model)
+    return model or ""
 
 
 class SummaryGenerator:
@@ -195,24 +213,28 @@ class SuggestionGenerator:
 
     async def _ensure_initialized(self, preferred_model: str | None = None):
         """Ensure the suggestion agent is initialized (lazy loading)"""
-        preferred_model = preferred_model or get_current_run_model()
-        if self._is_initialized and self._suggestion_agent_model == preferred_model:
+        helper_model = _resolve_provider_low_model(preferred_model)
+        helper_model_key = _model_cache_key(helper_model)
+        if self._is_initialized and self._suggestion_agent_model == helper_model_key:
             return
 
         async with self._initialization_lock:
-            if self._is_initialized and self._suggestion_agent_model == preferred_model:
+            if self._is_initialized and self._suggestion_agent_model == helper_model_key:
                 return
 
-            await self._initialize_suggestion_agent(preferred_model=preferred_model)
+            await self._initialize_suggestion_agent(model=helper_model)
             self._is_initialized = True
 
-    async def _initialize_suggestion_agent(self, preferred_model: str | None = None):
+    async def _initialize_suggestion_agent(
+        self,
+        model: str | list[str] | None = None,
+    ):
         """Initialize the dedicated suggestion agent"""
         try:
             # Create a simple suggestion agent directly
             self._suggestion_agent = Agent(
                 name="Suggestion Agent",
-                model=preferred_model,
+                model=model,
                 instructions="""You are a suggestion assistant that generates contextual follow-up questions.
 Your role is to analyze conversation context and suggest 3 relevant questions the user might want to ask next.
 
@@ -223,7 +245,7 @@ Rules:
 4. Keep questions concise and natural
 5. Return only the questions, one per line, without numbering or formatting""",
             )
-            self._suggestion_agent_model = preferred_model
+            self._suggestion_agent_model = _model_cache_key(model)
 
             if not self._suggestion_agent:
                 raise RuntimeError("Failed to create suggestion agent")
@@ -461,11 +483,12 @@ class ChatNameGenerator:
         preferred_model: str | None = None,
     ) -> Optional[str]:
         """Generate name using the most informative user messages"""
-        preferred_model = preferred_model or get_current_run_model()
-        if not self._name_agent or self._name_agent_model != preferred_model:
+        helper_model = _resolve_provider_low_model(preferred_model)
+        helper_model_key = _model_cache_key(helper_model)
+        if not self._name_agent or self._name_agent_model != helper_model_key:
             self._name_agent = Agent(
                 name="ChatNameGen",
-                model=preferred_model,
+                model=helper_model,
                 instructions=(
                     "You are a helpful assistant that generates chat titles with relevant icons. "
                     "Generate a concise (3-6 words) title based on the user's intent. "
@@ -477,7 +500,7 @@ class ChatNameGenerator:
                     "- Return ONLY the emoji and the title text, no quotes or preamble."
                 ),
             )
-            self._name_agent_model = preferred_model
+            self._name_agent_model = helper_model_key
 
         # 1. Filter for USER messages only
         user_msgs = [m for m in messages if m.get("role") == "user"]
@@ -552,7 +575,7 @@ class ChatNameGenerator:
         """Simple fallback: use first user message"""
         for msg in messages:
             if msg.get("role") == "user":
-                content = msg.get("_llm_content") or msg.get("content", "")
+                content = msg.get("content") or msg.get("_llm_content", "")
                 if isinstance(content, list):
                     text_parts = [
                         item.get("text", "")
