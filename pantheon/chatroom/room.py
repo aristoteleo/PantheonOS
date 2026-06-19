@@ -2985,7 +2985,10 @@ class ChatRoom(ToolSet):
             context_variables = context_variables or {}
             context_variables["image_output_dir"] = image_output_path
 
-        # Pre-snapshot: only scan the designated image output directory
+        # Pre-snapshot: only scan the dedicated quick-preview dir (.pantheon/images).
+        # Deliverable figures are surfaced via the Output panel — register_output plus
+        # the live preview of the task's declared output_dir — NOT this inline channel,
+        # which exists mainly for claw channels that have no Output panel.
         pre_image_snapshot = snapshot_images(image_output_path) if image_output_path else {}
 
         # Expose the chat id to tools. `client_id` in the tool context is the
@@ -3058,8 +3061,8 @@ class ChatRoom(ToolSet):
                 self._background_tasks.add(task)
                 task.add_done_callback(self._background_tasks.discard)
 
-            # Post-execution image detection: scan the designated image
-            # output directory for any newly created images.
+            # Post-execution image detection: scan the quick-preview dir for images
+            # created during this run and push them inline (mainly for claw channels).
             if image_output_path and pre_image_snapshot is not None:
                 post_image_snapshot = snapshot_images(image_output_path)
                 new_image_paths = diff_snapshots(pre_image_snapshot, post_image_snapshot)

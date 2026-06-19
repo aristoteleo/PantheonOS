@@ -353,9 +353,41 @@ class TestEphemeralMessage:
         state.on_tool_call(15)  # Make it stale (> 10 steps)
         
         msg = generate_ephemeral_message(state, ".pantheon/brain/test")
-        
+
         assert "<artifact_file_reminder>" in msg
         assert "/path/to/old.md" in msg
+
+
+class TestConfirmOpenChoicesReminder:
+    """During PLANNING, before the agent has asked anything, the EM must nudge it to
+    confirm under-specified choices (which dataset/method) — the stronger lever for
+    'agent picked the dataset without asking'. Self-limits once it asks / leaves plan."""
+
+    def test_fires_when_planning_and_not_yet_asked(self, tmp_path):
+        from pantheon.toolsets.task.ephemeral import generate_ephemeral_message
+        from pantheon.toolsets.task.task_state import ConversationState
+        s = ConversationState()
+        s.on_task_boundary("Plan it", "PLANNING", "status", "summary")
+        em = generate_ephemeral_message(s, str(tmp_path))
+        assert "<confirm_open_choices>" in em
+        assert "find some data" in em   # the loophole it must not rationalize past
+
+    def test_silent_once_review_requested(self, tmp_path):
+        from pantheon.toolsets.task.ephemeral import generate_ephemeral_message
+        from pantheon.toolsets.task.task_state import ConversationState
+        s = ConversationState()
+        s.on_task_boundary("Plan it", "PLANNING", "status", "summary")
+        s.pending_review_paths = ["/x/plan.md"]   # agent already asked the user
+        em = generate_ephemeral_message(s, str(tmp_path))
+        assert "<confirm_open_choices>" not in em
+
+    def test_silent_in_execution_phase(self, tmp_path):
+        from pantheon.toolsets.task.ephemeral import generate_ephemeral_message
+        from pantheon.toolsets.task.task_state import ConversationState
+        s = ConversationState()
+        s.on_task_boundary("Do it", "EXECUTION", "status", "summary")
+        em = generate_ephemeral_message(s, str(tmp_path))
+        assert "<confirm_open_choices>" not in em   # only the plan/research window
 
 
 class TestTaskToolSet:
@@ -400,8 +432,9 @@ class TestTaskToolSet:
     async def test_task_boundary_analysis_mode(self):
         """Test task_boundary accepts ANALYSIS mode."""
         from pantheon.toolsets.task.task_toolset import TaskToolSet
-        
+
         ts = TaskToolSet()
+        ts.state.has_asked_user = True   # satisfy the pre-execution gate (tested separately)
         result = await ts.task_boundary(
             task_name="Analysis Task",
             mode="ANALYSIS",
@@ -576,6 +609,121 @@ class TestBrainDirAnchor:
         )
         assert abs_path == "/Users/me/Desktop/tmp/outputs/fig.png"
         assert store_path == "outputs/fig.png"  # workspace-relative for the tree
+
+
+class TestTaskOutputDir:
+    """task_boundary declares the task's output folder up front (at PLANNING), so
+    the UI can live-preview that folder before the agent registers deliverables."""
+
+    @pytest.mark.asyncio
+    async def test_records_declared_output_dir(self):
+        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        ts = TaskToolSet()
+        await ts.task_boundary("scATAC", "PLANNING", "sum", "status", 5,
+                               output_dir="scatac_pbmc5k/")
+        assert ts.state.active_task.output_dir == "scatac_pbmc5k"   # trailing slash stripped
+        assert ts.state.task_dirs["scATAC"] == "scatac_pbmc5k"
+
+    @pytest.mark.asyncio
+    async def test_output_dir_persists_when_omitted_on_update(self):
+        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        ts = TaskToolSet()
+        await ts.task_boundary("scATAC", "PLANNING", "s", "st", 5, output_dir="scatac_pbmc5k")
+        # A later update of the SAME task omits output_dir → keeps the declared one.
+        await ts.task_boundary("scATAC", "EXECUTION", "s2", "st2", 5)
+        assert ts.state.active_task.output_dir == "scatac_pbmc5k"
+        assert ts.state.task_dirs["scATAC"] == "scatac_pbmc5k"
+
+    @pytest.mark.asyncio
+    async def test_output_dir_same_sentinel_reuses(self):
+        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        ts = TaskToolSet()
+        await ts.task_boundary("scATAC", "PLANNING", "s", "st", 5, output_dir="scatac_pbmc5k")
+        await ts.task_boundary("%SAME%", "%SAME%", "%SAME%", "%SAME%", 5, output_dir="%SAME%")
+        assert ts.state.active_task.output_dir == "scatac_pbmc5k"
+
+    @pytest.mark.asyncio
+    async def test_second_task_gets_its_own_dir(self):
+        """Two tasks in one chat → two folders, keyed by task (drives 'By task')."""
+        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        ts = TaskToolSet()
+        await ts.task_boundary("scATAC", "PLANNING", "s", "st", 5, output_dir="scatac_pbmc5k")
+        await ts.task_boundary("Visium", "PLANNING", "s", "st", 5, output_dir="visium_qc")
+        assert ts.state.task_dirs == {"scATAC": "scatac_pbmc5k", "Visium": "visium_qc"}
+
+    def test_state_roundtrip_preserves_dirs(self):
+        from pantheon.toolsets.task.task_state import ConversationState
+        s = ConversationState()
+        s.on_task_boundary("T", "PLANNING", "st", "sum", output_dir="folder_a")
+        restored = ConversationState.from_dict(s.to_dict())
+        assert restored.task_dirs == {"T": "folder_a"}
+        assert restored.active_task.output_dir == "folder_a"
+
+    def test_backward_compat_old_state_without_dirs(self):
+        """Pre-output_dir task_state.json must still load cleanly."""
+        from pantheon.toolsets.task.task_state import ConversationState
+        old = {
+            "active_task": {"name": "T", "mode": "PLANNING", "status": "s",
+                            "summary": "x", "start_step": 3},
+            "outputs": [],
+        }
+        s = ConversationState.from_dict(old)
+        assert s.task_dirs == {}
+        assert s.active_task.output_dir is None
+
+
+class TestExecutionGate:
+    """One-time hard checkpoint: the FIRST entry into an execute mode WITHOUT having
+    consulted the user fails (a tool error the agent must address), forcing a
+    conscious confirm-or-proceed decision. Fires once (never loops); permanently
+    satisfied once the agent calls notify_user. This is the reliable backstop after
+    prompt + ephemeral nudges proved unreliable."""
+
+    @pytest.mark.asyncio
+    async def test_gates_first_execution_when_user_not_asked(self):
+        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        ts = TaskToolSet()
+        r = await ts.task_boundary("Analyze", "EXECUTION", "sum", "status", 5)
+        assert r["success"] is False
+        assert "CHECKPOINT" in r["error"]
+        assert ts.state.active_task is None          # blocked → did not transition
+        assert ts.state.execution_gate_fired is True
+
+    @pytest.mark.asyncio
+    async def test_proceeds_on_retry_after_gate(self):
+        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        ts = TaskToolSet()
+        await ts.task_boundary("Analyze", "EXECUTION", "s", "st", 5)      # gated (fires once)
+        r = await ts.task_boundary("Analyze", "EXECUTION", "s", "st", 5)  # retry → passes
+        assert r["success"] is True
+        assert ts.state.active_task.mode == "EXECUTION"
+
+    @pytest.mark.asyncio
+    async def test_not_gated_after_notify_user(self):
+        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        ts = TaskToolSet()
+        await ts.notify_user(
+            paths_to_review=[], blocked_on_user=True, message="Which dataset?",
+            confidence_justification="x", confidence_score=0.5, questions=[],
+        )
+        assert ts.state.has_asked_user is True
+        r = await ts.task_boundary("Analyze", "EXECUTION", "s", "st", 5)
+        assert r["success"] is True                  # already consulted the user
+
+    @pytest.mark.asyncio
+    async def test_planning_is_never_gated(self):
+        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        ts = TaskToolSet()
+        r = await ts.task_boundary("Plan", "PLANNING", "s", "st", 5)
+        assert r["success"] is True
+        assert ts.state.execution_gate_fired is False
+
+    @pytest.mark.asyncio
+    async def test_analysis_mode_also_gated(self):
+        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        ts = TaskToolSet()
+        r = await ts.task_boundary("Analyze", "ANALYSIS", "s", "st", 5)   # ANALYSIS = execute phase
+        assert r["success"] is False
 
 
 if __name__ == "__main__":

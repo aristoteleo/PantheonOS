@@ -80,6 +80,11 @@ PLAN_ARTIFACT_MODIFIED_REMINDER = """\
 You have modified {files} during this task in {ctx_mode} mode. Before you switch to execution/analysis mode, you should notify and request the user to review your plan changes via notify_user.
 </plan_artifact_modified_reminder>"""
 
+CONFIRM_OPEN_CHOICES_REMINDER = """\
+<confirm_open_choices>
+You are still PLANNING and have NOT yet asked the user anything. Before you commit to an approach or run anything expensive (downloading a dataset, long compute): did the request leave a CONSEQUENTIAL choice that is the user's to make — most often WHICH specific dataset/sample to analyze, but also which method/scope when it changes the outcome? Vague phrasing like "find some data" / "any dataset" does NOT waive this — it means "propose one and let me confirm", NOT "pick silently and run". If such a choice is open, use notify_user(blocked_on_user=true) to present your specific proposal + 1-2 alternatives and get a quick OK FIRST. If the request already pinned every consequential choice, just proceed — don't ask for pointless confirmation.
+</confirm_open_choices>"""
+
 ARTIFACTS_MODIFIED_REMINDER = """\
 <artifacts_modified_reminder>
 You have modified {count} artifact(s) in this task.
@@ -241,6 +246,18 @@ def generate_ephemeral_message(state: ConversationState, brain_dir: str) -> str:
                     files=files_str, ctx_mode=state.active_task.mode
                 )
             )
+
+    # 3b. Confirm under-specified choices BEFORE committing — re-surfaced every
+    # planning turn until the agent asks the user. This is the stronger lever for
+    # "agent picked the dataset without asking": a static prompt rule got ignored
+    # (it read "find some data" as "pick silently"), so we nudge it at decision
+    # time. Self-limiting: stops once review is requested or it leaves plan phase.
+    if (
+        state.active_task
+        and state.active_task.is_plan_phase
+        and not state.pending_review_paths
+    ):
+        parts.append(CONFIRM_OPEN_CHOICES_REMINDER)
 
     # 4. General artifact modification reminder (non-plan phases)
     if state.active_task and not state.active_task.is_plan_phase:

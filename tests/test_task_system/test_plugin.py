@@ -181,6 +181,49 @@ class TestOnTeamCreated:
         assert "/fake/.pantheon/brain" not in instr
 
     @pytest.mark.asyncio
+    async def test_instructs_per_task_folder_organization(self):
+        """The brain-dir prompt must tell the agent to put each analysis in its
+        OWN folder (not scatter files at the workspace root) — the fix for the
+        'everything dumped at root' organization complaint."""
+        plugin = TaskSystemPlugin()
+        team = _make_team(["main"])
+        team.team_agents[0].instructions = "base"
+        team._project_dir = "/proj"
+
+        await plugin.on_team_created(team)
+
+        instr = team.team_agents[0].instructions.lower()
+        assert "own folder" in instr or "dedicated" in instr
+        assert "subfolder" in instr
+        assert "scatter" in instr  # explicit "don't scatter at the root" guidance
+
+    @pytest.mark.asyncio
+    async def test_injects_decision_points_into_primary_only(self):
+        """The leader must get decision-point gating: ask the user at a genuine
+        fork (under-specified / expensive / irreversible), proceed otherwise — the
+        fix for 'agent stopped confirming consequential choices'."""
+        from unittest.mock import patch
+
+        plugin = TaskSystemPlugin()
+        team = _make_team(["main", "coder"])
+        team.team_agents[0].instructions = "base"
+        team.team_agents[1].instructions = "sub"
+        team._project_dir = None
+
+        fake_settings = MagicMock()
+        fake_settings.brain_dir = "/fake/.pantheon/brain"
+        with patch("pantheon.settings.get_settings", return_value=fake_settings):
+            await plugin.on_team_created(team)
+
+        primary = team.team_agents[0].instructions.lower()
+        assert "<decision_points>" in primary
+        assert "blocked_on_user" in primary             # HOW to ask
+        assert "pointless confirmations are" in primary  # and when NOT to
+        assert "find some data" in primary              # closes the "you pick" loophole
+        # Sub-agents don't gate user decisions — they execute delegated work.
+        assert "<decision_points>" not in team.team_agents[1].instructions
+
+    @pytest.mark.asyncio
     async def test_noop_when_no_agents(self):
         plugin = TaskSystemPlugin()
         team = _make_team([])

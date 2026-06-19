@@ -76,6 +76,16 @@ class TestAppendContextBlocks:
         assert "<image_output_constraint>" in result
         assert "/sandbox/imgs" in result
 
+    def test_image_constraint_steers_figures_into_task_folder(self):
+        """The reframed constraint points figures at the task folder + register_output
+        (the Output panel live-previews it) — NOT the old '.pantheon/images' dump."""
+        result = _append_context_blocks(
+            "base", {"workdir": "/sandbox", "image_output_dir": "/sandbox/imgs"}
+        )
+        assert "figures/" in result and "register_output" in result
+        assert "/sandbox/imgs" in result            # {img_dir} interpolated
+        assert "ALWAYS save them to" not in result  # old forced-dir wording gone
+
     def test_image_output_constraint_skipped_without_workdir(self):
         result = _append_context_blocks("base", {"image_output_dir": "/imgs"})
         assert "<image_output_constraint>" not in result

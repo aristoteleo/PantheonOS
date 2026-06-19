@@ -39,8 +39,13 @@ IMPORTANT: You are operating in a restricted workspace environment.
 IMAGE_OUTPUT_CONSTRAINT_BLOCK = """\
 
 <image_output_constraint>
-When you generate or save images (plots, charts, figures, etc.), ALWAYS save them to: {img_dir}
-This directory is monitored so images saved here are automatically sent back to the user.
+Save deliverable figures INTO the current task's folder (e.g.
+`<task_folder>/figures/`) — the folder you declared via task_boundary's
+output_dir. The Output panel live-previews that folder, so figures appear to the
+user as you create them; then mark the real ones with `register_output`.
+Do NOT save figures into {img_dir} or scatter them at the workspace root.
+{img_dir} is ONLY for a quick throwaway plot you want pushed inline into the chat
+right now (e.g. on a messaging channel) — never for deliverable figures.
 </image_output_constraint>"""
 
 # ── Public API ────────────────────────────────────────────────────────────────
