@@ -130,6 +130,23 @@ def oauth(action: str = "status", provider: str = "codex"):
         print("Actions: login, import, status, logout")
 
 
+async def endpoint_cmd(
+    workspace_path: str | None = None,
+    id_hash: str | None = None,
+    config_path: str | None = None,
+):
+    """Run a per-project Endpoint as a subcommand of THIS binary.
+
+    The chatroom spawns per-project endpoints. In a PyInstaller bundle the exe's
+    entry point is fixed to this module, so `-m pantheon.endpoint` does NOT work
+    (it falls through to `start`, launching a second chatroom that wrongly opens
+    a browser and exposes the wrong working dir). The chatroom instead invokes
+    `<exe> endpoint --workspace_path … --id_hash …`, and Fire routes it here.
+    Imported lazily to avoid an import cycle at startup."""
+    from pantheon.endpoint.__main__ import start_endpoint
+    await start_endpoint(config_path=config_path, workspace_path=workspace_path, id_hash=id_hash)
+
+
 if __name__ == "__main__":
     # Check for API keys and run setup wizard if none found
     check_and_run_setup()
@@ -142,6 +159,6 @@ if __name__ == "__main__":
     if len(sys.argv) == 1 or (len(sys.argv) > 1 and sys.argv[1].startswith("-")):
         sys.argv.insert(1, "start")
     fire.Fire(
-        {"start": start_services, "oauth": oauth},
+        {"start": start_services, "endpoint": endpoint_cmd, "oauth": oauth},
         name="pantheon-chatroom",
     )

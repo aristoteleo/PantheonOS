@@ -115,6 +115,55 @@ class ProjectRoutedMemoryManager:
     def list_memory_metadata(self, include_errors: bool = False):
         return self._mgr(self._active_dir).list_memory_metadata(include_errors)
 
+    # ---- explicit-project ops (for per-window / multi-project views) ------
+    # The desktop runs one window PER project against ONE shared backend, so the
+    # chat list and new-chat must be scoped to a *specific* project — not the
+    # single global active dir. These target a project explicitly.
+    def new_memory_in(self, project_dir: str | Path, name: str | None = None):
+        """Create a new chat in a SPECIFIC project's store (not the active one)."""
+        d = str(Path(project_dir).resolve())
+        memory = self._mgr(d).new_memory(name)
+        self._chat_dir[memory.id] = d
+        return memory
+
+    def list_memory_metadata_in(self, project_dir: str | Path, include_errors: bool = False):
+        """List chat metadata in ONE specific project's store (by directory).
+
+        A desktop project window must show the chats that physically live in its
+        project's store — chats are organised by store, NOT reliably tagged with a
+        ``project.name`` (pre-existing chats carry only ``workspace_mode``), so a
+        name-tag filter would hide them. This lists the store directly instead."""
+        d = str(Path(project_dir).resolve())
+        return self._mgr(d).list_memory_metadata(include_errors)
+
+    def list_all_memory_metadata(self, dirs=None, include_errors: bool = False):
+        """Aggregate chat metadata across ALL known project stores — the home dir,
+        the active dir, the configured search dirs, and any extra ``dirs`` passed
+        in — deduped by chat id (first store wins). Callers filter by project name.
+        This is what lets each window list its own project's chats regardless of
+        which project is globally 'active'."""
+        all_dirs: list[str] = [self._home_dir, self._active_dir, *self._search_dirs]
+        for d in (dirs or []):
+            try:
+                all_dirs.append(str(Path(d).resolve()))
+            except Exception:
+                continue
+        seen: set[str] = set()
+        out: list = []
+        for d in dict.fromkeys(all_dirs):  # dedupe dirs, preserve order
+            try:
+                for item in self._mgr(d).list_memory_metadata(include_errors):
+                    cid = item.get("id") if isinstance(item, dict) else None
+                    if cid is not None:
+                        if cid in seen:
+                            continue
+                        seen.add(cid)
+                    out.append(item)
+            except Exception as e:
+                logger.debug(f"[routed memory] list {d} failed: {e}")
+                continue
+        return out
+
     @property
     def path(self):
         return self._mgr(self._active_dir).path

@@ -388,6 +388,13 @@ async def start_services(
         total = tm.force_sync_factory_templates()
         logger.info(f"[sync-templates] Synced {total} template(s) from factory")
 
+    # Hard kill-switch: an env var (set by the desktop and when the chatroom
+    # spawns per-project endpoints) forces the browser auto-open OFF regardless
+    # of the parsed flag — belt-and-suspenders against a misrouted subprocess.
+    import os as _os
+    if _os.getenv("PANTHEON_DISABLE_AUTO_UI", "").lower() in ("1", "true", "yes", "on"):
+        auto_ui = False
+
     # Validate auto_ui parameter
     if auto_ui and not auto_start_nats:
         raise ValueError(
