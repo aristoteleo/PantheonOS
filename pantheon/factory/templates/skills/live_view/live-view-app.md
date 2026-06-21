@@ -15,8 +15,20 @@ When no existing viewer fits, write your own interactive component. With the
 **LiveView SDK** the component is controllable-by-construction: the agent
 drives it and reads it back, with no extra wiring.
 
-Use this for bespoke dashboards, custom plots, tailored data views. For
-heavy domain viewers (spatial omics) prefer the Vitessce skill instead.
+Use this for bespoke dashboards, custom plots, tailored data views. **First
+check the existing viewer skills — a custom build is the last resort, not the
+first move.** In particular:
+
+- **Genomics / genome browser / Hi-C contact matrices → use the `gosling` skill.**
+  Gosling already IS HiGlass + PIXI, correctly wired and bundled. Do NOT hand-roll
+  a raw HiGlass viewer here (a custom app loading `hglib.min.js` from a CDN) — you
+  will forget HiGlass's **PIXI** peer dependency and it dies with `hglib is not
+  defined` / `Cannot read properties of undefined (reading 'rgb2hex')`.
+- **Spatial omics / single-cell / imaging → Vitessce or Viv.**
+- **Structures, MSAs, networks, molecules, classic locus browser → Mol\*, MSA,
+  Cytoscape, RDKit, IGV.**
+
+If one of those fits even roughly, load its skill and use it — don't rebuild it.
 
 ## The golden rule: ONE state path
 
