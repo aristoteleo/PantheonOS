@@ -52,6 +52,10 @@ COMPACTABLE_TOOL_SUFFIXES = {
 PER_TOOL_RESULT_SIZE_CHARS: dict[str, int | float] = {
     "read_file":   40_000,
     "view_file":   40_000,
+    # Viewing a skill exists precisely to LOAD its full content into context;
+    # externalizing it (preview + forcing a second read_file) defeats the purpose.
+    # Generous finite cap: inlines every realistic skill, still guards a runaway one.
+    "skill_view":  50_000,
     "web_fetch":   30_000,
     "web_crawl":   30_000,
     "web_search":  20_000,
