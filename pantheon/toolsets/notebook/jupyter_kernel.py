@@ -154,7 +154,7 @@ class JupyterKernelToolSet(ToolSet):
         ctx = self.get_context()
         return dict(ctx) if ctx else {}
 
-    def _build_kernel_env(self) -> dict:
+    def _build_kernel_env(self, kernel_python: str | None = None) -> dict:
         import sys
 
         env = os.environ.copy()
@@ -162,17 +162,20 @@ class JupyterKernelToolSet(ToolSet):
         for _drop_var in ("LS_COLORS", "LESSOPEN", "LESSCLOSE", "PANTHEON_CONTEXT"):
             env.pop(_drop_var, None)
 
-        # Get paths from current sys.path and existing PYTHONPATH
-        # Prepend sys.path to give it priority for the kernel subprocess
-        current_paths = [p for p in sys.path if p]
-        existing_pythonpath = env.get("PYTHONPATH", "")
-        existing_paths = [p for p in existing_pythonpath.split(os.pathsep) if p]
-
-        # Combine and deduplicate while preserving order
-        all_paths = current_paths + existing_paths
-        unique_paths = list(dict.fromkeys(all_paths))
-
-        env["PYTHONPATH"] = os.pathsep.join(unique_paths)
+        # Only share THIS process's import paths with the kernel when the kernel
+        # runs the SAME Python interpreter. For a kernel on a DIFFERENT Python
+        # (e.g. a conda env the user selected), injecting our sys.path / PYTHONPATH
+        # points it at THIS interpreter's site-packages — the kernel then loads C
+        # extensions (numpy, …) compiled for a different Python version and dies on
+        # startup ("Kernel died before replying to kernel_info"). Give a foreign
+        # kernel a clean env so it uses its own environment's packages.
+        if self._is_same_interpreter(kernel_python):
+            current_paths = [p for p in sys.path if p]
+            existing_paths = [p for p in env.get("PYTHONPATH", "").split(os.pathsep) if p]
+            env["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(current_paths + existing_paths))
+        else:
+            env.pop("PYTHONPATH", None)
+            env.pop("PYTHONHOME", None)
 
         context_vars = {
             k: v for k, v in self._current_context_dict().items()
@@ -185,6 +188,23 @@ class JupyterKernelToolSet(ToolSet):
             base_env=env,
             optimize=True,
         )
+
+    def _is_same_interpreter(self, kernel_python: str | None) -> bool:
+        """Whether the kernel's Python IS this process's interpreter. Unknown or
+        unresolvable values (e.g. a relative 'python') default to True, preserving
+        the legacy sys.path-sharing behavior for the in-process default kernel."""
+        import sys
+        if not kernel_python:
+            return True
+        try:
+            from shutil import which
+            resolved = (
+                kernel_python if os.path.isabs(kernel_python)
+                else (which(kernel_python) or kernel_python)
+            )
+            return os.path.realpath(resolved) == os.path.realpath(sys.executable)
+        except Exception:
+            return True
 
     def _context_prefix_code(self) -> str:
         from pantheon.internal.package_runtime.context import build_context_payload, export_context
@@ -387,8 +407,10 @@ class JupyterKernelToolSet(ToolSet):
             kernel_python = available.get(kernel_spec, "")
             km = AsyncKernelManager(kernel_name=kernel_spec)
 
-            # Start kernel in specified working directory with Pantheon context
-            env = self._build_kernel_env()
+            # Start kernel in specified working directory with Pantheon context.
+            # Pass the kernel's Python so a foreign interpreter (conda env) doesn't
+            # inherit THIS interpreter's PYTHONPATH (which crashes it on startup).
+            env = self._build_kernel_env(kernel_python)
 
             # Diagnostic logging for environment size
             total_env_size = sum(len(str(k)) + len(str(v)) + 1 for k, v in env.items())

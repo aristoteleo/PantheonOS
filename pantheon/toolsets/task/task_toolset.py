@@ -56,20 +56,26 @@ class TaskToolSet(ToolSet):
         under client_id, the UI-connection id; that was redundant and made the
         path non-deterministic for readers that don't know the client_id.)
 
-        Priority:
-        1. Use workdir if present in context (isolated-project scenario)
-        2. Fall back to settings.brain_dir
+        Anchor priority:
+        1. `project_root` — the chat's IMMUTABLE project root, set once by
+           ChatRoom.chat(). Prefer this over `workdir`: `workdir` is an
+           endpoint-cwd hint that proxy_toolset legitimately pops/overwrites on
+           the shared per-task context for every endpoint-toolset call, so by the
+           time a later task_boundary (or ephemeral refresh) runs it may be gone —
+           which silently relocated the brain to the global home dir, splitting it
+           away from the workspace. `project_root` is never mutated.
+        2. `workdir` — legacy fallback (e.g. isolated chats that only set workdir).
+        3. settings.brain_dir — global home, last resort.
         """
         chat_id = context.get("chat_id") or "default"
 
-        # Priority 1: Use workdir from context if available (isolated project)
-        workdir = context.get("workdir")
-        if workdir:
-            brain_path = Path(workdir) / ".pantheon" / "brain" / chat_id
-            logger.debug(f"[TaskToolSet] Using workdir brain_dir: {brain_path}")
+        root = context.get("project_root") or context.get("workdir")
+        if root:
+            brain_path = Path(root) / ".pantheon" / "brain" / chat_id
+            logger.debug(f"[TaskToolSet] Using project-root brain_dir: {brain_path}")
             return str(brain_path)
 
-        # Priority 2: Fall back to settings
+        # Last resort: the global home brain dir.
         from pantheon.settings import get_settings
         brain_path = get_settings().brain_dir / chat_id
         logger.debug(f"[TaskToolSet] Using settings brain_dir: {brain_path}")
@@ -83,6 +89,7 @@ class TaskToolSet(ToolSet):
         task_summary: str,
         task_status: str,
         predicted_task_size: int,
+        output_dir: str = "",
     ) -> dict:
         """
         CRITICAL: You must ALWAYS call this tool as the VERY FIRST tool in your list of tool calls, before any other tools.
@@ -90,7 +97,7 @@ class TaskToolSet(ToolSet):
 
         The tool should also be used to update the status and summary periodically throughout the task. When updating the status or summary of the current task, you must use the exact same task_name as before.
 
-        To avoid repeating the same values, use the special string "%SAME%" for mode, task_name, task_status, or task_summary to reuse the previous value.
+        To avoid repeating the same values, use the special string "%SAME%" for mode, task_name, task_status, task_summary, or output_dir to reuse the previous value.
 
         Args:
             task_name: Name of the task boundary. This is the identifier that groups steps together, should be human readable like 'Researching Existing Server Implementation'. This should correspond to a top-level item in task.md.
@@ -98,6 +105,7 @@ class TaskToolSet(ToolSet):
             task_summary: Concise summary of what has been accomplished throughout the entire task so far. Should be at most 1-2 lines, past tense. Cite important files between backticks.
             task_status: Active status of the current action, e.g 'Looking for files'. Should describe what you are GOING TO DO NEXT, not what you have done.
             predicted_task_size: Your best estimation on how many tool calls are needed to fulfill this task.
+            output_dir: The workspace-relative folder where THIS task's outputs (notebook, figures, data, reports) will live — e.g. 'scatac_pbmc5k' or 'scatac_pbmc5k/'. DECLARE THIS when you first set up the task (during PLANNING), even before the folder exists. The UI live-previews this folder so the user sees results appear as you produce them, before you formally register deliverables. Use "%SAME%" or omit to keep the previously declared folder. Leave empty only if this task produces no files.
         """
         # Handle %SAME% substitution
         task_name = self._last.get("task_name") if "%SAME%" in task_name else task_name
@@ -106,6 +114,7 @@ class TaskToolSet(ToolSet):
             self._last.get("summary") if "%SAME%" in task_summary else task_summary
         )
         task_status = self._last.get("status") if "%SAME%" in task_status else task_status
+        output_dir = self._last.get("output_dir") if "%SAME%" in (output_dir or "") else output_dir
 
         # Validate mode: accept known modes, warn for unknown but allow
         if not mode or not mode.strip():
@@ -117,15 +126,56 @@ class TaskToolSet(ToolSet):
                 f"Unknown mode '{mode}', proceeding anyway. Known modes: {ModeSemantics.ALL_KNOWN_MODES}"
             )
 
+        # Normalize (workspace-relative, no trailing slash). Empty/omitted ⇒ keep the
+        # previously declared folder (self._last still holds the prior call's value).
+        output_dir = (output_dir or "").strip().rstrip("/") or self._last.get("output_dir")
+
         # Store for next %SAME% reference
         self._last = {
             "task_name": task_name,
             "mode": mode_upper,
             "summary": task_summary,
             "status": task_status,
+            "output_dir": output_dir,
         }
 
-        self.state.on_task_boundary(task_name, mode_upper, task_status, task_summary)
+        # Decision-point GATE — one-time hard checkpoint before the FIRST execution.
+        # Prompt + ephemeral nudges proved unreliable (the model would autopilot from
+        # planning straight into execution, silently picking e.g. a dataset). So if
+        # the agent enters an execute mode without ever having consulted the user,
+        # fail this call ONCE: a tool error it must address forces a conscious "do I
+        # need to confirm?" decision instead of barreling through. Fires once (never
+        # loops), and for genuinely-specified tasks the agent simply re-calls and
+        # proceeds — so the user is not interrupted on clear tasks.
+        if (
+            ModeSemantics.is_execute_mode(mode_upper)
+            and not self.state.has_asked_user
+            and not self.state.execution_gate_fired
+        ):
+            self.state.execution_gate_fired = True
+            gate_context = self.get_context()
+            if gate_context:
+                self._save(self._get_brain_dir(gate_context))
+            return {
+                "success": False,
+                "error": (
+                    "DECISION CHECKPOINT — do not proceed yet. You are entering "
+                    "execution without having consulted the user. If the request left "
+                    "a consequential choice open, you MUST confirm first. In "
+                    "particular, vague phrasing like 'find some data' / 'analyze "
+                    "<topic>' with NO specific dataset/accession named IS "
+                    "under-specified — picking the dataset is the user's call: "
+                    "research candidates, then notify_user(blocked_on_user=true) with "
+                    "your proposed dataset + 1-2 alternatives and WAIT for the user. "
+                    "Only if the request already named the specific dataset/scope (or "
+                    "the choice is trivial / easily reversible) may you call "
+                    "task_boundary again now to proceed."
+                ),
+            }
+
+        self.state.on_task_boundary(
+            task_name, mode_upper, task_status, task_summary, output_dir=output_dir
+        )
 
         # Persist state using context from toolset
         context = self.get_context()
@@ -353,7 +403,10 @@ class TaskToolSet(ToolSet):
         """
         import os
 
-        root = context.get("workdir") or os.getcwd()
+        # Prefer the immutable project anchor over `workdir` (which proxy_toolset
+        # clears mid-run for endpoint calls — see _get_brain_dir). os.getcwd() is
+        # the ChatRoom process dir, the wrong root, so it's only a last resort.
+        root = context.get("project_root") or context.get("workdir") or os.getcwd()
         p = os.path.expanduser(path)
         abs_path = p if os.path.isabs(p) else os.path.join(root, p)
         exists = os.path.exists(abs_path)

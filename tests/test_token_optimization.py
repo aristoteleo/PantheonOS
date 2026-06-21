@@ -1694,6 +1694,27 @@ def test_per_tool_limit_values():
     assert get_per_tool_limit("unknown", 30_000) == 30_000
     # MCP-prefixed tool name normalization
     assert get_per_tool_limit("mcp__server__grep", 200_000) == 20_000
+    # skill_view: explicit high limit so a skill's full content inlines (not
+    # externalized + re-read) EVEN when the global limit is low — an explicit
+    # entry returns directly, so it does NOT collapse to min(50K, low_global).
+    assert get_per_tool_limit("skill_view", 2_000) == 50_000
+    assert get_per_tool_limit("skills__skill_view", 2_000) == 50_000  # prefix normalized
+
+
+def test_skill_view_full_content_inlined_not_externalized():
+    """Regression: viewing a skill returns its full content inline — NOT the
+    <persisted-output> preview that forces a second read_file. Reproduces the real
+    case: an ~11KB skill with a LOW global limit (which previously externalized it)."""
+    from pantheon.utils.llm import process_tool_result
+
+    skill_content = "SKILL CONTENT LINE\n" * 650  # ~12KB, like the live_view index
+    assert len(skill_content) > 11_000
+    out = process_tool_result(skill_content, max_length=2_000, tool_name="skills__skill_view")
+    out = out if isinstance(out, str) else str(out)
+
+    assert "<persisted-output>" not in out      # not spilled to disk
+    assert "Output too large" not in out
+    assert len(out) > 11_000                     # full content inline, not a ~2KB preview
 
 
 def test_full_pipeline_layer2_then_layer3(tmp_path):

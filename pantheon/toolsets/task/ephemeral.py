@@ -38,6 +38,21 @@ Remember that task boundaries should correspond to the artifact task.md, if you 
 Since you are NOT in an active task section, DO NOT call the `notify_user` tool unless you are requesting review of files.
 </no_active_task_reminder>"""
 
+# Bridges the gap between `active_task` (the in-memory state that drives this
+# message) and task.md (the visible checklist). The agent can close its active
+# task while task.md still has open items — then the reminder above wrongly reads
+# "it's fine to have no task", nobody nudges the agent to finish, and it either
+# leaves todos dangling or spins. Surfacing the open items keeps it honest.
+UNFINISHED_TODOS_REMINDER = """\
+<unfinished_todos_reminder>
+You have no active task, but task.md still has UNFINISHED checklist items:
+{items}
+The work is NOT complete yet. For each item: finish it and mark it [x] in task.md,
+or — if it genuinely cannot or should not be done — mark it [x] with a short
+"(skipped: reason)" note. Do not give your final wrap-up to the user until task.md
+has no remaining [ ] or [/] items. Take a concrete action now; do not just think.
+</unfinished_todos_reminder>"""
+
 # =============================================================================
 # Artifact Reminders
 # =============================================================================
@@ -64,6 +79,11 @@ PLAN_ARTIFACT_MODIFIED_REMINDER = """\
 <plan_artifact_modified_reminder>
 You have modified {files} during this task in {ctx_mode} mode. Before you switch to execution/analysis mode, you should notify and request the user to review your plan changes via notify_user.
 </plan_artifact_modified_reminder>"""
+
+CONFIRM_OPEN_CHOICES_REMINDER = """\
+<confirm_open_choices>
+You are still PLANNING and have NOT yet asked the user anything. Before you commit to an approach or run anything expensive (downloading a dataset, long compute): did the request leave a CONSEQUENTIAL choice that is the user's to make — most often WHICH specific dataset/sample to analyze, but also which method/scope when it changes the outcome? Vague phrasing like "find some data" / "any dataset" does NOT waive this — it means "propose one and let me confirm", NOT "pick silently and run". If such a choice is open, use notify_user(blocked_on_user=true) to present your specific proposal + 1-2 alternatives and get a quick OK FIRST. If the request already pinned every consequential choice, just proceed — don't ask for pointless confirmation.
+</confirm_open_choices>"""
 
 ARTIFACTS_MODIFIED_REMINDER = """\
 <artifacts_modified_reminder>
@@ -128,6 +148,28 @@ Consider whether the current work belongs in a new task boundary.
 </too_many_steps_in_task_reminder>"""
 
 
+def _read_incomplete_todos(brain_dir: str) -> list[str]:
+    """Open items in the chat's task.md checklist — lines marked ``[ ]`` (todo) or
+    ``[/]`` (in progress). ``[x]`` / ``[-]`` (done / dropped) are excluded.
+
+    Read straight from task.md (the same source the user sees in Plan & Todo) so
+    the reminder can't drift from the persisted checklist."""
+    import re
+
+    path = os.path.join(brain_dir, "task.md")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except Exception:
+        return []
+    items: list[str] = []
+    for line in text.splitlines():
+        m = re.match(r"\s*[-*]\s*\[([ /xX\-])\]\s*(.+)", line)
+        if m and m.group(1) in (" ", "/"):
+            items.append(m.group(2).strip())
+    return items
+
+
 def generate_ephemeral_message(state: ConversationState, brain_dir: str) -> str:
     """Generate EPHEMERAL_MESSAGE based on current state.
 
@@ -178,6 +220,14 @@ def generate_ephemeral_message(state: ConversationState, brain_dir: str) -> str:
     else:
         parts.append(NO_ACTIVE_TASK_REMINDER.format(reason=state.task_boundary_reason))
 
+        # No active task, but task.md may still have open items (the agent closed
+        # the task prematurely). Surface them so it finishes/closes them instead of
+        # leaving them dangling or spinning on a static "no task is fine" reminder.
+        open_todos = _read_incomplete_todos(brain_dir)
+        if open_todos:
+            items = "\n".join(f"  - {t}" for t in open_todos[:15])
+            parts.append(UNFINISHED_TODOS_REMINDER.format(items=items))
+
         # Add excessive tools reminder when not in task
         if state.tools_since_boundary >= EXCESSIVE_TOOLS_THRESHOLD:
             parts.append(
@@ -196,6 +246,18 @@ def generate_ephemeral_message(state: ConversationState, brain_dir: str) -> str:
                     files=files_str, ctx_mode=state.active_task.mode
                 )
             )
+
+    # 3b. Confirm under-specified choices BEFORE committing — re-surfaced every
+    # planning turn until the agent asks the user. This is the stronger lever for
+    # "agent picked the dataset without asking": a static prompt rule got ignored
+    # (it read "find some data" as "pick silently"), so we nudge it at decision
+    # time. Self-limiting: stops once review is requested or it leaves plan phase.
+    if (
+        state.active_task
+        and state.active_task.is_plan_phase
+        and not state.pending_review_paths
+    ):
+        parts.append(CONFIRM_OPEN_CHOICES_REMINDER)
 
     # 4. General artifact modification reminder (non-plan phases)
     if state.active_task and not state.active_task.is_plan_phase:

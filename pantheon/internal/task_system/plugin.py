@@ -22,7 +22,22 @@ if TYPE_CHECKING:
 TASK_BRAIN_DIR_BLOCK = """
 
 <task_brain_dir>
-Artifact directory: {brain_dir}/{{chat_id}}
+Your workspace root is {workspace_root}.
+
+ORGANIZE EVERY ANALYSIS INTO ITS OWN FOLDER. For each distinct task/analysis,
+FIRST create a dedicated, descriptively-named subfolder directly under the
+workspace root (e.g. `scatac_pbmc5k/`, `visium_brain_qc/`) and keep ALL of that
+task's files together inside it — the notebook, figures (in a `figures/`
+subfolder), intermediate + result data, and reports. Do NOT scatter task files
+loosely at the workspace root, and do NOT reuse an unrelated task's folder.
+Before starting, glance at the workspace root: reuse the matching task folder if
+this continues earlier work, otherwise make a new one. DECLARE this folder up
+front via task_boundary's `output_dir` (during PLANNING) so the user sees your
+results appear live in the Output panel as you produce them. Never write outside
+the workspace root (file and notebook tools are scoped to it and reject paths
+elsewhere).
+
+Internal task-state directory: {brain_dir}/{{chat_id}}
   - Base path: {brain_dir}
   - {{chat_id}} is the current conversation's ID (provided per-request in
     context). It keeps each conversation's task.md isolated from other chats.
@@ -37,9 +52,12 @@ When you produce a user-facing DELIVERABLE — a report, a figure, a data
 file/table, or an output folder — register it with the `register_output` tool
 so the user can find and browse it in the Output panel.
 
-  - This is the ONLY way deliverables show up for the user. In particular,
-    files produced by RUNNING CODE (e.g. a plot a script saved, a generated
-    CSV) are tracked NOWHERE else — you MUST register them.
+  - The Output panel live-previews your declared task folder as you work, so the
+    user sees raw files appear. But REGISTERING is how you mark and title the
+    FINAL, curated deliverables — and is the only way files produced by RUNNING
+    CODE (a plot a script saved, a generated CSV) are surfaced as real outputs
+    rather than scratch. Register each deliverable as soon as it's final; don't
+    wait until the very end.
   - Deliverables produced by SUB-AGENTS you delegated to are reported back to
     you in their `## Files Produced` list — treat them exactly like your own
     output and register the real deliverables among them. Sub-agents do not
@@ -53,6 +71,46 @@ so the user can find and browse it in the Output panel.
   - Do NOT register scratch/intermediate files or the task.md/plan.md
     artifacts — only things the user actually wants.
 </output_registration>"""
+
+
+DECISION_POINTS_BLOCK = """
+
+<decision_points>
+Calibrate when to ask the user vs. just proceed — neither over-confirm nor
+silently guess on choices that are theirs to make.
+
+STOP and ask (notify_user, blocked_on_user=true, with concrete options + your
+recommended default) when the request leaves a REAL, consequential choice that is
+yours to guess — for example:
+  - It is under-specified and several materially-different options exist: which
+    dataset / sample / organism / condition, which method when the choice changes
+    the result, which scope or target.
+  - A step is expensive or hard to undo (large download/compute, destructive or
+    irreversible operation) and a wrong guess wastes significant work.
+  - Proceeding needs an assumption that, if wrong, yields the wrong deliverable.
+
+CRUCIAL — do not rationalize past this: vague phrasing like "find some data", "any
+dataset", or "analyze X" does NOT make the path clear and does NOT waive a
+confirmation. Picking the SPECIFIC dataset/sample to analyze is itself a choice the
+user usually wants in on — "find some" means "propose one and let me confirm", NOT
+"pick silently and run with it".
+
+Worked example — user: "find some spatial metabolomics data and analyze it":
+  1. Research candidate datasets — do NOT download yet.
+  2. notify_user(blocked_on_user=true): "I propose <dataset A> (<1-line why>).
+     Alternatives: <B>, <C>. Go with A?"
+  3. ONLY after they confirm: download + analyze.
+
+Ask ONCE, up front, bundling the open choices — don't drip-feed questions, and
+don't ask only after you've already done the work. Set blocked_on_user=true at
+these points even though you COULD technically proceed without approval — a choice
+being the user's to make is itself a valid reason to block; "needing the user" is
+not limited to being mechanically stuck.
+
+Otherwise — when the request already pinned every consequential choice, or the
+choice is trivial / easily reversible — just DO IT. Pointless confirmations are
+noise.
+</decision_points>"""
 
 
 SUBAGENT_FILE_REPORT_BLOCK = """
@@ -120,14 +178,25 @@ class TaskSystemPlugin(TeamPlugin):
         if not team.team_agents:
             return
 
+        from pathlib import Path
+
         settings = get_settings()
-        brain_dir = str(settings.brain_dir)
-        tag = TASK_BRAIN_DIR_BLOCK.format(brain_dir=brain_dir)
+        # Anchor the brain dir + workspace root to THIS chat's project (set on the
+        # team at creation, see ChatRoom._create_team_from_template). Falls back to
+        # the global home brain dir only when no per-project root was resolved.
+        proj_dir = getattr(team, "_project_dir", None)
+        if proj_dir:
+            brain_dir = str(Path(proj_dir) / ".pantheon" / "brain")
+            workspace_root = str(proj_dir)
+        else:
+            brain_dir = str(settings.brain_dir)
+            workspace_root = str(Path(brain_dir).parent.parent)
+        tag = TASK_BRAIN_DIR_BLOCK.format(brain_dir=brain_dir, workspace_root=workspace_root)
 
         primary = team.team_agents[0]
         if hasattr(primary, "instructions") and primary.instructions:
-            primary.instructions += tag + OUTPUT_REGISTRATION_BLOCK
-            logger.debug(f"TaskSystemPlugin: injected task_brain_dir + output_registration into '{primary.name}'")
+            primary.instructions += tag + DECISION_POINTS_BLOCK + OUTPUT_REGISTRATION_BLOCK
+            logger.debug(f"TaskSystemPlugin: injected task_brain_dir + decision_points + output_registration into '{primary.name}'")
 
         # Sub-agents never register outputs themselves — the leader is the single
         # point of registration (consistency). But each sub-agent MUST report the

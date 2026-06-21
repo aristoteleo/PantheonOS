@@ -104,6 +104,11 @@ traps make this fail (both observed in practice):
   spec below.
 - ❌ giving up and rendering the matrix as a full-resolution Plotly / matplotlib
   heatmap → **not scalable**, the UI lags badly. Don't.
+- ❌ abandoning gosling to hand-roll a raw HiGlass viewer (a custom LiveView app
+  that loads `hglib.min.js` from a CDN). gosling already IS HiGlass + PIXI,
+  correctly wired and bundled; a raw build almost always forgets HiGlass's **PIXI**
+  peer dependency and dies with `hglib is not defined` / `Cannot read properties of
+  undefined (reading 'rgb2hex')`. Use the matrix spec below — not a custom app.
 
 **Default = a genome browser: matrix + gene track.** Don't open a bare matrix.
 Build a **two-track linked view** — the contact **matrix** on top, a **gene

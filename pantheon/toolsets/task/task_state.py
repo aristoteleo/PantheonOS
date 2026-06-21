@@ -115,6 +115,11 @@ class TaskInfo:
     status: str
     summary: str
     start_step: int = 0
+    # Workspace-relative folder this task's outputs will land in, DECLARED up front
+    # (at planning / task_boundary time). Lets the UI live-preview the folder while
+    # the task runs — before the agent formally registers deliverables. May be None
+    # if the agent didn't declare one.
+    output_dir: Optional[str] = None
     
     @property
     def is_plan_phase(self) -> bool:
@@ -160,6 +165,12 @@ class ConversationState:
     active_task: Optional[TaskInfo] = None
     task_boundary_reason: str = "a task boundary has never been set yet in this conversation"
 
+    # Declared output folders, keyed by task_name (workspace-relative). Set when a
+    # task declares its output_dir at task_boundary time; CUMULATIVE across the
+    # conversation (survives active_task being cleared) so the UI can live-preview
+    # each task's folder and group previews "by task" alongside registered outputs.
+    task_dirs: dict[str, str] = field(default_factory=dict)
+
     # Counter tracking
     tools_since_boundary: int = 0
     tools_since_update: int = 0
@@ -176,6 +187,15 @@ class ConversationState:
     # Conditional flags (deprecated, kept for backward compatibility)
     plan_edited_in_planning: bool = False
     pending_review_paths: list[str] = field(default_factory=list)
+
+    # Decision-point gate. has_asked_user: has the agent EVER consulted the user
+    # via notify_user (cumulative, never reset). execution_gate_fired: has the
+    # one-time pre-execution checkpoint already triggered. Together they let
+    # task_boundary hard-stop ONCE before the first execution when the user was
+    # never consulted — so the agent can't autopilot past confirming an
+    # under-specified choice (a tool error it must address, not a passive nudge).
+    has_asked_user: bool = False
+    execution_gate_fired: bool = False
 
     def to_dict(self) -> dict:
         """Convert state to dictionary."""
@@ -198,7 +218,10 @@ class ConversationState:
         return cls(**init_data)
 
 
-    def on_task_boundary(self, name: str, mode: str, status: str, summary: str):
+    def on_task_boundary(
+        self, name: str, mode: str, status: str, summary: str,
+        output_dir: Optional[str] = None,
+    ):
         """Called when task_boundary tool is invoked."""
         is_new_task = self.active_task is None or self.active_task.name != name
 
@@ -212,9 +235,15 @@ class ConversationState:
             # Same task, increment update count (this is a step change)
             self.task_update_count += 1
 
+        # Persist the declared output folder (keyed by task) so it survives
+        # active_task resets; reuse the prior declaration when this call omits one.
+        if output_dir:
+            self.task_dirs[name] = output_dir
+        resolved_dir = output_dir or self.task_dirs.get(name)
+
         self.active_task = TaskInfo(
             name=name, mode=mode, status=status, summary=summary,
-            start_step=self.current_step
+            start_step=self.current_step, output_dir=resolved_dir,
         )
         self.tools_since_update = 0
         self.tools_since_think = 0  # 新增：重置 think 计数
@@ -223,6 +252,7 @@ class ConversationState:
     def on_notify_user(self, paths: list[str]):
         """Called when notify_user tool is invoked."""
         self.pending_review_paths = paths
+        self.has_asked_user = True   # the agent consulted the user → gate satisfied
         self.active_task = None
         self.tools_since_think = 0  # 新增：重置 think 计数
         self.task_boundary_reason = "there has been a notify_user action since the last task boundary"

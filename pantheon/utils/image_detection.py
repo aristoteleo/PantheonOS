@@ -8,8 +8,14 @@ logger = logging.getLogger(__name__)
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 
-# Standard directory (relative to workspace root) where agents should save
-# generated images so claw channels can detect and forward them.
+# Quick-preview image dir (relative to workspace root). Images saved here are
+# snapshot-detected and pushed INLINE — primarily so claw messaging channels
+# (Telegram/Discord/…), which have no Output panel, can show generated plots.
+# Deliverable figures belong in the task folder + register_output (the Output
+# panel live-previews the declared task folder); this dir is only for throwaway
+# inline previews. Scanning is deliberately top-level + per-dir (NOT a recursive
+# whole-workspace walk) — a shared filesystem can't attribute a new image to the
+# chat that made it, so concurrent chats would cross-contaminate.
 IMAGE_OUTPUT_DIR = ".pantheon/images"
 
 # Default limits (can be overridden via claw config images.max_size_bytes / images.max_dimension)

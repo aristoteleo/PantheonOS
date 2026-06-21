@@ -230,48 +230,69 @@ class IntegratedNotebookToolSet(ToolSet):
         import shutil
         import subprocess
 
+        import asyncio
+
+        # Probe each kernel's Python for version + key-package versions. Use
+        # importlib.metadata (reads dist metadata — milliseconds) instead of
+        # actually importing the packages: importing scanpy/scvi-tools/cellrank
+        # costs seconds EACH, and doing it for every registered kernelspec
+        # sequentially made list_kernels take a minute+. (Bonus: metadata uses the
+        # distribution name, so 'scvi-tools' is detected correctly — the old
+        # __import__('scvi_tools') silently failed.)
+        _probe_script = (
+            "import sys\n"
+            "print('%d.%d.%d' % sys.version_info[:3])\n"
+            "try:\n"
+            "    from importlib.metadata import version\n"
+            "except Exception:\n"
+            "    from importlib_metadata import version\n"
+            "for _p in ['scanpy','pertpy','anndata','numpy','pandas','scipy',"
+            "'matplotlib','scvi-tools','cellrank']:\n"
+            "    try:\n"
+            "        print(_p, version(_p))\n"
+            "    except Exception:\n"
+            "        pass\n"
+        )
+
+        async def _probe_kernel(name, info):
+            spec = info.get("spec", {})
+            argv = spec.get("argv", [])
+            python_path = argv[0] if argv else "unknown"
+            is_abs = os.path.isabs(python_path)
+            actual_python = python_path if is_abs else (shutil.which(python_path) or python_path)
+            python_version = None
+            key_packages: list = []
+            if os.path.isfile(actual_python):
+                try:
+                    result = await asyncio.to_thread(
+                        subprocess.run,
+                        [actual_python, "-c", _probe_script],
+                        capture_output=True, text=True, timeout=10,
+                    )
+                    lines = [ln for ln in result.stdout.strip().split("\n") if ln]
+                    if lines:
+                        python_version = lines[0]
+                        key_packages = lines[1:]
+                except Exception:
+                    pass
+            return {
+                "name": name,
+                "display_name": spec.get("display_name", name),
+                "python": actual_python,
+                "python_version": python_version,
+                "is_absolute_path": is_abs,
+                "key_packages": key_packages,
+            }
+
         kernels = []
         try:
             from jupyter_client.kernelspec import KernelSpecManager
-            ksm = KernelSpecManager()
-            specs = ksm.get_all_specs()
-            for name, info in specs.items():
-                spec = info.get("spec", {})
-                argv = spec.get("argv", [])
-                python_path = argv[0] if argv else "unknown"
-                is_abs = os.path.isabs(python_path)
-
-                # Try to get Python version and key packages
-                actual_python = python_path if is_abs else (shutil.which(python_path) or python_path)
-                python_version = None
-                key_packages = []
-                if os.path.isfile(actual_python):
-                    try:
-                        result = subprocess.run(
-                            [actual_python, "-c",
-                             "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'); "
-                             "pkgs = ['scanpy','pertpy','anndata','numpy','pandas','scipy','matplotlib','scvi-tools','cellrank']\n"
-                             "for p in pkgs:\n"
-                             " try:\n"
-                             "  mod=__import__(p.replace('-','_')); print(f'{p} {getattr(mod,\"__version__\",\"?\")}')\n"
-                             " except: pass"],
-                            capture_output=True, text=True, timeout=10,
-                        )
-                        lines = result.stdout.strip().split("\n")
-                        if lines:
-                            python_version = lines[0]
-                            key_packages = lines[1:]
-                    except Exception:
-                        pass
-
-                kernels.append({
-                    "name": name,
-                    "display_name": spec.get("display_name", name),
-                    "python": actual_python,
-                    "python_version": python_version,
-                    "is_absolute_path": is_abs,
-                    "key_packages": key_packages,
-                })
+            specs = KernelSpecManager().get_all_specs()
+            # Probe every kernel concurrently — wall-clock ≈ the slowest single
+            # probe, not the sum.
+            kernels = list(await asyncio.gather(
+                *(_probe_kernel(name, info) for name, info in specs.items())
+            ))
         except Exception as e:
             logger.warning(f"Failed to list kernelspecs: {e}")
 
@@ -728,15 +749,34 @@ class IntegratedNotebookToolSet(ToolSet):
             # Eagerly create kernel context if kernel_spec is specified
             if session_id:
                 context = self._get_context(notebook_path, session_id)
+
+                # If a DIFFERENT kernel was explicitly requested than the one
+                # currently bound to this notebook, switch to it (tear the old
+                # kernel down + recreate below). Previously this was silently
+                # ignored, stranding the notebook on the wrong env — e.g. the agent
+                # asks for its conda env 'vizgen-liver' but the notebook stays on
+                # bare 'python3', so every cell dies with "No module named 'pandas'"
+                # and the agent can't recover (recreating the file kept the kernel).
+                if context and kernel_spec and kernel_spec != context.kernel_spec:
+                    logger.info(
+                        f"Switching kernel for {notebook_path}: "
+                        f"'{context.kernel_spec}' -> '{kernel_spec}'"
+                    )
+                    try:
+                        await self.kernel_toolset.shutdown_session(context.kernel_session_id)
+                    except Exception as e:
+                        logger.warning(f"Old-kernel shutdown during switch failed: {e}")
+                    try:
+                        self.completion_service.clear_session_context(context.kernel_session_id)
+                    except Exception:
+                        pass
+                    self.notebook_contexts.pop((notebook_path, session_id), None)
+                    await self._save_contexts()
+                    context = None  # recreate below with the requested kernel
+
                 if context:
                     result["kernel_session_id"] = context.kernel_session_id
                     result["kernel_spec"] = context.kernel_spec
-                    if kernel_spec and kernel_spec != context.kernel_spec:
-                        result["kernel_warning"] = (
-                            f"Notebook already has an active kernel '{context.kernel_spec}'. "
-                            f"Requested kernel_spec='{kernel_spec}' was ignored. "
-                            f"Use manage_kernel(action='delete') then recreate to switch kernels."
-                        )
                 elif kernel_spec:
                     # Create context now with the specified kernel
                     try:
@@ -745,6 +785,10 @@ class IntegratedNotebookToolSet(ToolSet):
                         )
                         result["kernel_session_id"] = context.kernel_session_id
                         result["kernel_spec"] = context.kernel_spec
+                        if kernel_spec and kernel_spec != "python3":
+                            result["kernel_message"] = (
+                                f"Notebook bound to kernel '{context.kernel_spec}'."
+                            )
                     except Exception as e:
                         result["kernel_warning"] = f"Notebook created but kernel '{kernel_spec}' failed to start: {e}"
 

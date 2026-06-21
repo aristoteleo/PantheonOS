@@ -70,6 +70,43 @@ async def run_func(func: Callable, *args, **kwargs):
         return await asyncio.to_thread(func, *args, **kwargs)
 
 
+def wire_safe_tool_args(args):
+    """Strip agent-internal, non-sendable entries from tool ``args`` before a tool
+    call crosses a process boundary (cloudpickle → remote toolset / endpoint).
+
+    The agent injects live closures into ``context_variables`` — ``_call_agent``
+    (spawns sub-agents) and ``_report_output`` (streams progress) — plus a
+    top-level ``_call_agent``. Those closures capture the running ``Agent``, which
+    holds ``asyncio.Future`` / ``asyncio.Task`` objects, so cloudpickle raises
+    ``cannot pickle '_asyncio.Future' object`` (foreground) or
+    ``'_asyncio.Task'`` (background). They are also meaningless to an
+    out-of-process toolset (they reference in-process state).
+
+    We drop only the non-sendable values (callables / coroutines / asyncio
+    Futures & Tasks); all plain context (workdir, chat_id, image_output_dir,
+    model_params, …) is preserved. In-process (LOCAL / embedded) tool calls never
+    reach this helper, so they keep the closures they may rely on.
+    """
+    if not isinstance(args, dict):
+        return args
+
+    def _unsendable(v) -> bool:
+        return (
+            callable(v)
+            or asyncio.isfuture(v)
+            or asyncio.iscoroutine(v)
+            or isinstance(v, asyncio.Task)
+        )
+
+    out = {}
+    for k, v in args.items():
+        if k == "context_variables" and isinstance(v, dict):
+            out[k] = {ck: cv for ck, cv in v.items() if not _unsendable(cv)}
+        elif not _unsendable(v):
+            out[k] = v
+    return out
+
+
 def _parse_docstring_args(docstring: str | None) -> dict[str, str]:
     """Parse docstring Args section into a dict using docstring_parser library.
 

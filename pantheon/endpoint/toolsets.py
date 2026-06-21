@@ -198,12 +198,16 @@ class ToolSetManager:
                     )
                     return await self._execute_local_method(method, args)
             else:
-                # REMOTE mode: call via remote service
+                # REMOTE mode: call via remote service. Args are cloudpickled over
+                # the wire to the toolset subprocess, so strip agent-internal live
+                # closures (wire_safe_tool_args) that capture the in-process Agent's
+                # asyncio Future/Task and would raise "cannot pickle ... object".
                 logger.debug(f"Using REMOTE mode for {toolset_name}")
                 from pantheon.remote import connect_remote
+                from pantheon.utils.misc import wire_safe_tool_args
 
                 toolset_service = await connect_remote(service_info["id"])
-                return await toolset_service.invoke(method_name, args)
+                return await toolset_service.invoke(method_name, wire_safe_tool_args(args))
 
         except Exception as e:
             logger.error(f"Error calling {method_name} on {toolset_name}: {e}")
