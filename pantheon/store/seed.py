@@ -134,6 +134,23 @@ def _bump_patch(version: str) -> str:
         return (version or "1.0.0") + ".1"
 
 
+def _git_meta(path) -> Tuple[Optional[str], Optional[str]]:
+    """Return (commit_sha, committed_at_iso) for the git repo containing `path`,
+    or (None, None) if it is not a git checkout. Used to record which upstream
+    revision a package was ingested from, so the store can detect when an upstream
+    source has moved ahead of what we hold."""
+    import subprocess
+    try:
+        p = str(path)
+        rev = subprocess.run(["git", "-C", p, "rev-parse", "HEAD"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+        date = subprocess.run(["git", "-C", p, "log", "-1", "--format=%cI"],
+                              capture_output=True, text=True, check=True).stdout.strip()
+        return (rev or None, date or None)
+    except Exception:
+        return (None, None)
+
+
 def _dedup_by_store_name(skills: list, source_name: str = "") -> list:
     """Resolve store_name collisions. A repo can give two DIFFERENT skills the
     same `name:` frontmatter (e.g. OpenClaw `pptx` and `pptx-official` both
@@ -450,8 +467,12 @@ class StoreSeed:
     #  External discovery                                                  #
     # ------------------------------------------------------------------ #
 
-    def _clone_repo(self, url: str) -> Path:
-        """Clone a repo to a temp directory."""
+    def _clone_repo(self, url: str) -> Tuple[Path, dict]:
+        """Clone a repo to a temp directory.
+
+        Returns (tmp_dir, source_meta) where source_meta records the upstream
+        commit we cloned: {"source_rev", "source_committed_at"}.
+        """
         import os
         import subprocess
         tmp_dir = Path(tempfile.mkdtemp(prefix="pantheon_seed_"))
@@ -462,7 +483,8 @@ class StoreSeed:
             ["git", "clone", "--depth", "1", url, str(tmp_dir)],
             check=True, capture_output=True, env=env,
         )
-        return tmp_dir
+        rev, committed = _git_meta(tmp_dir)
+        return tmp_dir, {"source_rev": rev, "source_committed_at": committed}
 
     def _convert_external_skill(self, skill_md_path: Path, source_name: str,
                                  source_config: dict,
@@ -634,6 +656,11 @@ class StoreSeed:
         out = Path(output_dir)
         manifest = []
 
+        # Pantheon's own (factory) content lives in this repo — record its HEAD so
+        # the store can tell how fresh the Pantheon-authored packages are too.
+        factory_dir = Path(__file__).parent.parent / "factory" / "templates" / "skills"
+        factory_rev, factory_committed = _git_meta(factory_dir)
+
         # --- Factory skills ---
         skills = self._discover_factory_skills()
         skills_dir = out / "skills" / "factory"
@@ -655,6 +682,8 @@ class StoreSeed:
                 "references": skill.get("references", []),
                 "source": "Pantheon",
                 "source_url": None,
+                "source_rev": factory_rev,
+                "source_committed_at": factory_committed,
                 "file": str(fpath.relative_to(out)).replace("\\", "/"),
             }
             # Save bundled skill files
@@ -686,6 +715,8 @@ class StoreSeed:
                 "tags": [],
                 "source": "Pantheon",
                 "source_url": None,
+                "source_rev": factory_rev,
+                "source_committed_at": factory_committed,
                 "file": str(fpath.relative_to(out)).replace("\\", "/"),
             })
 
@@ -706,6 +737,8 @@ class StoreSeed:
                 "tags": [],
                 "source": "Pantheon",
                 "source_url": None,
+                "source_rev": factory_rev,
+                "source_committed_at": factory_committed,
                 "file": str(fpath.relative_to(out)).replace("\\", "/"),
             }
             # Save bundled agent files
@@ -726,10 +759,13 @@ class StoreSeed:
         for source_name, config in EXTERNAL_REPOS.items():
             console.print(f"\n[bold]Cloning {config['display_name']}[/bold]...")
             try:
-                repo_path = self._clone_repo(config["url"])
+                repo_path, src_meta = self._clone_repo(config["url"])
             except Exception as e:
                 console.print(f"  [red]Failed to clone: {e}[/red]")
                 continue
+            if src_meta.get("source_rev"):
+                console.print(f"  [dim]at {src_meta['source_rev'][:10]} "
+                              f"({src_meta.get('source_committed_at') or '?'})[/dim]")
 
             ext_skills = self._discover_external_skills(repo_path, source_name, config)
             ext_dir = out / "skills" / source_name
@@ -756,6 +792,8 @@ class StoreSeed:
                         "references": skill.get("references", []),
                         "source": config["display_name"],
                         "source_url": config["source_url"],
+                        "source_rev": src_meta.get("source_rev"),
+                        "source_committed_at": src_meta.get("source_committed_at"),
                         "file": str(fpath.relative_to(out)).replace("\\", "/"),
                     }
                     # Save bundled skill files
@@ -857,6 +895,8 @@ class StoreSeed:
                     source=entry.get("source", "Pantheon"),
                     source_url=entry.get("source_url"),
                     references=entry.get("references", []),
+                    source_rev=entry.get("source_rev"),
+                    source_committed_at=entry.get("source_committed_at"),
                     dry_run=dry_run,
                 )
                 progress.advance(task)
@@ -865,11 +905,27 @@ class StoreSeed:
 
         self._print_summary("Publish from prepared data")
 
+        # Reconcile each source: a skill that vanished from upstream (renamed or
+        # removed) is still in the store. If it carries reviews, either reclaim
+        # them onto the renamed package (same content, new name) or warn that
+        # they would be stranded.
+        if not dry_run:
+            by_source_names: Dict[str, set] = {}
+            for entry in manifest:
+                by_source_names.setdefault(entry.get("source", "Pantheon"), set()).add(entry["name"])
+            console.print("\n[bold]Reconciling sources (stranded reviews)[/bold]...")
+            for source_display, names in by_source_names.items():
+                try:
+                    self._reconcile_source(source_display, names)
+                except Exception as e:
+                    logger.warning(f"reconcile {source_display} failed: {e}")
+
     def _publish_one(self, name: str, pkg_type: str, display_name: str,
                      description: str, category: str, content: str,
                      files: dict = None, version: str = "1.0.0",
                      source: str = "Pantheon", source_url: str = None,
-                     references: list = None, dry_run: bool = False) -> bool:
+                     references: list = None, source_rev: str = None,
+                     source_committed_at: str = None, dry_run: bool = False) -> bool:
         """Publish a package. If it already exists, publish a NEW VERSION when the
         content changed (auto-bumped patch), else skip. This makes re-seeding a
         real content sync instead of a no-op, with version history."""
@@ -886,6 +942,10 @@ class StoreSeed:
         }
         if source_url:
             payload["source_url"] = source_url
+        if source_rev:
+            payload["source_rev"] = source_rev
+        if source_committed_at:
+            payload["source_committed_at"] = source_committed_at
 
         # 1. Try to create as a brand-new package.
         try:
@@ -917,12 +977,17 @@ class StoreSeed:
                 # content identical (or version clash) -> no update needed
                 self.stats["skipped"] += 1
                 return False
-            # version published -> sync package-level metadata (refs/desc/tags)
+            # version published -> sync package-level metadata (refs/desc/tags/source rev)
             try:
-                _run(self.client.update_package(pkg_id, {
+                meta_update = {
                     "references": references or [], "description": description or "",
                     "display_name": display_name, "category": category,
-                }))
+                }
+                if source_rev:
+                    meta_update["source_rev"] = source_rev
+                if source_committed_at:
+                    meta_update["source_committed_at"] = source_committed_at
+                _run(self.client.update_package(pkg_id, meta_update))
             except Exception:
                 pass  # version is published; metadata sync is best-effort
             self.stats["updated"] += 1
@@ -941,4 +1006,105 @@ class StoreSeed:
         table.add_row("[cyan]Updated (new version)[/cyan]", str(self.stats["updated"]))
         table.add_row("[yellow]Skipped (unchanged)[/yellow]", str(self.stats["skipped"]))
         table.add_row("[red]Failed[/red]", str(self.stats["failed"]))
+        console.print(table)
+
+    # ------------------------------------------------------------------ #
+    #  Reconciliation: detect renamed/removed upstream skills              #
+    # ------------------------------------------------------------------ #
+
+    def _all_hub_packages_for_source(self, source_display: str) -> list:
+        """Page through every store package that belongs to `source_display`."""
+        out, offset, page = [], 0, 100
+        while True:
+            res = _run(self.client.search(source=source_display, limit=page, offset=offset))
+            pkgs = res.get("packages", [])
+            out.extend(pkgs)
+            if len(pkgs) < page:
+                break
+            offset += page
+        return out
+
+    def _reconcile_source(self, source_display: str, manifest_names: set):
+        """For one source, compare what the store holds against what upstream
+        still provides. A package present in the store but absent from this seed
+        run is an orphan (upstream renamed or removed it). Orphans carrying reviews
+        are either reclaimed (content matches a current package -> rename) or warned
+        about (content gone -> reviews would be stranded)."""
+        hub_pkgs = self._all_hub_packages_for_source(source_display)
+        if not hub_pkgs:
+            return
+        live_by_hash = {
+            p["content_hash"]: p for p in hub_pkgs
+            if p["name"] in manifest_names and p.get("content_hash")
+        }
+        orphans = [p for p in hub_pkgs if p["name"] not in manifest_names]
+        for orphan in orphans:
+            rc = orphan.get("rating_count", 0) or 0
+            if rc == 0:
+                continue  # no reviews -> nothing to lose, leave it as a stale package
+            match = live_by_hash.get(orphan.get("content_hash"))
+            if match and match["name"] != orphan["name"]:
+                try:
+                    _run(self.client.transfer_reviews(match["id"], orphan["id"]))
+                    console.print(
+                        f"  [green]reclaimed[/green] {rc} review(s): "
+                        f"{orphan['name']} -> {match['name']} (renamed upstream)"
+                    )
+                except Exception as e:
+                    console.print(f"  [yellow]reclaim failed[/yellow] "
+                                  f"{orphan['name']} -> {match['name']}: {e}")
+            else:
+                console.print(
+                    f"  [yellow]⚠ stranded[/yellow]: '{orphan['name']}' has {rc} review(s) "
+                    f"but is gone from upstream (no content match). If it was renamed, run:\n"
+                    f"      pantheon store seed reclaim-reviews "
+                    f"--from-name {orphan['name']} --to-name <new-name>"
+                )
+
+    def reclaim_reviews(self, from_name: str, to_name: str):
+        """Manually move reviews from one package to another (rename recovery).
+
+        Usage: pantheon store seed reclaim-reviews --from-name old --to-name new
+        """
+        if not self.client.auth.is_logged_in:
+            raise SystemExit("Not logged in. Run: pantheon store login")
+        res = _run(self.client.transfer_reviews(to_name, from_name))
+        console.print(f"[green]Moved {res.get('moved', 0)} review(s)[/green] "
+                      f"{res.get('from')} -> {res.get('to')}")
+
+    def check_updates(self):
+        """Compare each external source's live upstream HEAD against the revision
+        the store currently holds, so you can see what has drifted out of date.
+
+        Usage: pantheon store seed check-updates
+        """
+        import subprocess
+        table = Table(title="Source freshness (store vs upstream HEAD)")
+        table.add_column("Source", style="bold")
+        table.add_column("Store rev")
+        table.add_column("Upstream HEAD")
+        table.add_column("Status")
+        for source_name, config in EXTERNAL_REPOS.items():
+            display, url = config["display_name"], config["url"]
+            try:
+                out = subprocess.run(["git", "ls-remote", url, "HEAD"],
+                                     capture_output=True, text=True, check=True).stdout
+                live = out.split()[0] if out.strip() else None
+            except Exception:
+                live = None
+            try:
+                res = _run(self.client.search(source=display, limit=1))
+                pkgs = res.get("packages", [])
+                held = pkgs[0].get("source_rev") if pkgs else None
+            except Exception:
+                held = None
+            if not held:
+                status = "[dim]no source_rev — re-seed to record[/dim]"
+            elif not live:
+                status = "[red]upstream unreachable[/red]"
+            elif held == live:
+                status = "[green]up to date[/green]"
+            else:
+                status = "[yellow]BEHIND — upstream moved[/yellow]"
+            table.add_row(display, (held or "—")[:10], (live or "—")[:10], status)
         console.print(table)
