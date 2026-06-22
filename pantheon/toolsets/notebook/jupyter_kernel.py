@@ -377,9 +377,17 @@ class JupyterKernelToolSet(ToolSet):
 
     @tool
     async def create_session(
-        self, kernel_spec: str = "python3", kernel_session_id: str = None
+        self, kernel_spec: str = "python3", kernel_session_id: str = None,
+        cwd: str | None = None,
     ) -> dict:
-        """Create new kernel session"""
+        """Create new kernel session.
+
+        cwd: absolute working directory to start the kernel in. The notebook
+        layer passes the .ipynb's OWN folder so relative paths inside the
+        notebook (e.g. savefig("figures/x.png")) land next to the notebook —
+        standard Jupyter behavior. Falls back to the effective workspace workdir
+        when not given or not an existing directory.
+        """
         import json
         try:
             if kernel_session_id is None:
@@ -425,7 +433,13 @@ class JupyterKernelToolSet(ToolSet):
                 for k, v in sorted_env[:3]:
                     logger.warning(f"Large Env Var: {k} (Size: {len(str(v))} bytes)")
 
-            await km.start_kernel(cwd=self._get_effective_workdir() or self.workdir, env=env)
+            kernel_cwd = cwd if (cwd and os.path.isdir(cwd)) else (self._get_effective_workdir() or self.workdir)
+            if cwd and cwd != kernel_cwd:
+                logger.warning(
+                    f"create_session: requested cwd '{cwd}' is not a directory; "
+                    f"falling back to '{kernel_cwd}'"
+                )
+            await km.start_kernel(cwd=kernel_cwd, env=env)
 
             # Wait for kernel to be ready
             kc = km.client()

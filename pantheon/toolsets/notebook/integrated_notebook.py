@@ -407,6 +407,21 @@ class IntegratedNotebookToolSet(ToolSet):
             "message": f"Kernel '{kernel_name}' registered. Use kernel_spec='{kernel_name}' when creating notebooks.",
         }
 
+    def _notebook_dir(self, notebook_path: str) -> str | None:
+        """Absolute directory containing the notebook file, so its kernel starts
+        there and relative paths inside the notebook (e.g. savefig("figures/x.png"))
+        land next to the .ipynb — standard Jupyter behavior. Returns None to let
+        create_session fall back to the workspace workdir when it can't resolve."""
+        try:
+            base = self._get_effective_workdir() or self.workdir
+            p = Path(notebook_path)
+            if not p.is_absolute():
+                p = Path(base) / p
+            nb_dir = p.resolve().parent
+            return str(nb_dir) if nb_dir.is_dir() else None
+        except Exception:
+            return None
+
     async def _get_or_create_context(
         self, notebook_path: str, session_id: str, kernel_spec: str = "python3"
     ) -> NotebookContext:
@@ -444,8 +459,12 @@ class IntegratedNotebookToolSet(ToolSet):
                         )
                     notebook_file_is_new = True
 
-                # 2. Create kernel session (internal)
-                kernel_result = await self.kernel_toolset.create_session(kernel_spec)
+                # 2. Create kernel session (internal). Start it in the notebook's
+                # OWN directory so relative paths inside the notebook resolve next
+                # to the .ipynb (standard Jupyter behavior), not at the workspace root.
+                kernel_result = await self.kernel_toolset.create_session(
+                    kernel_spec, cwd=self._notebook_dir(notebook_path)
+                )
                 if not kernel_result["success"]:
                     raise Exception(f"Failed to create kernel: {kernel_result['error']}")
 
@@ -481,6 +500,7 @@ class IntegratedNotebookToolSet(ToolSet):
                     kernel_result = await self.kernel_toolset.create_session(
                         kernel_spec=context.kernel_spec,
                         kernel_session_id=context.kernel_session_id,
+                        cwd=self._notebook_dir(notebook_path),
                     )
 
                     if not kernel_result["success"]:
