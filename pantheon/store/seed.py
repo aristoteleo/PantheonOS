@@ -93,6 +93,25 @@ EXTERNAL_REPOS = {
         "source_url": "https://github.com/Starlitnightly/omicclaw",
         "has_categories": False,
     },
+    "bioskills": {
+        # GPTomics/bioSkills — 540+ SKILL.md across 60+ bioinformatics categories (MIT).
+        # Category folders live at the REPO ROOT (e.g. differential-expression/, chip-seq/),
+        # so skills_dir is "." : <category>/<skill-name>/SKILL.md.
+        "url": "https://github.com/GPTomics/bioSkills.git",
+        "skills_dir": ".",
+        "display_name": "bioSkills",
+        "source_url": "https://github.com/GPTomics/bioSkills",
+        "has_categories": True,
+    },
+    "sciagent": {
+        # jaechang-hits/SciAgent-Skills — ~197 skills (CC-BY-4.0); 92% on BixBench-Verified-50.
+        # Curated skills under skills/<category>/<skill-name>/SKILL.md (legacy/ is excluded).
+        "url": "https://github.com/jaechang-hits/SciAgent-Skills.git",
+        "skills_dir": "skills",
+        "display_name": "SciAgent-Skills",
+        "source_url": "https://github.com/jaechang-hits/SciAgent-Skills",
+        "has_categories": True,
+    },
 }
 
 
