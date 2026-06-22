@@ -48,9 +48,10 @@ class StoreClient:
     # --- Public ---
 
     async def search(self, q: str = None, type: str = None,
-                     category: str = None, limit: int = 20, offset: int = 0) -> dict:
+                     category: str = None, source: str = None,
+                     limit: int = 20, offset: int = 0) -> dict:
         params = {k: v for k, v in {
-            "q": q, "type": type, "category": category,
+            "q": q, "type": type, "category": category, "source": source,
             "limit": limit, "offset": offset,
         }.items() if v is not None}
         async with httpx.AsyncClient(timeout=30) as client:
@@ -114,6 +115,17 @@ class StoreClient:
             resp = await client.put(
                 f"{self.hub_url}/api/store/packages/{package_id}",
                 json=data, headers=self._headers(),
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def transfer_reviews(self, to_package_id: str, from_package_id: str) -> dict:
+        """Move reviews from one package onto another (rename/move recovery)."""
+        self._check_auth()
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{self.hub_url}/api/store/packages/{to_package_id}/reviews/transfer",
+                json={"from_package_id": from_package_id}, headers=self._headers(),
             )
             resp.raise_for_status()
             return resp.json()
