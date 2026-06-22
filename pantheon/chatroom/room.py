@@ -292,11 +292,25 @@ class ChatRoom(ToolSet):
         internal = os.getenv("PANTHEON_INTERNAL_BACKEND", "tcp")
         env["PANTHEON_REMOTE_BACKEND"] = internal  # endpoint primary = internal transport (ChatRoom side)
         env.setdefault("PANTHEON_FRONTEND_BACKEND", "nats")  # endpoint secondary = frontend
+        # Safety net: a spawned endpoint must NEVER auto-open a browser. If the
+        # binary ever falls through to start_services, this still suppresses it.
+        env["PANTHEON_DISABLE_AUTO_UI"] = "1"
 
-        cmd = [
-            sys.executable, "-m", "pantheon.endpoint", "start",
-            "--workspace_path", project_path, "--id_hash", id_hash,
-        ]
+        if getattr(sys, "frozen", False):
+            # PyInstaller bundle: `-m pantheon.endpoint` does NOT work — the exe's
+            # entry point is fixed to pantheon.chatroom, so `-m …` falls through to
+            # `start` and launches a second chatroom (wrong: opens a browser, wrong
+            # work dir). Use the chatroom exe's `endpoint` subcommand instead; it
+            # routes to the same start_endpoint() and is reachable from the binary.
+            cmd = [
+                sys.executable, "endpoint",
+                "--workspace_path", project_path, "--id_hash", id_hash,
+            ]
+        else:
+            cmd = [
+                sys.executable, "-m", "pantheon.endpoint", "start",
+                "--workspace_path", project_path, "--id_hash", id_hash,
+            ]
         logger.info(f"[multi-project] spawning endpoint for {project_path} (sid={sid[:12]}…)")
         log_fh = open(log_file, "w", encoding="utf-8")
         proc = await asyncio.create_subprocess_exec(
@@ -1564,7 +1578,19 @@ class ChatRoom(ToolSet):
             except ValueError as exc:
                 return {"success": False, "message": str(exc)}
 
-        memory = await run_func(self.memory_manager.new_memory, chat_name)
+        # Create the chat's memory in the NAMED project's own store (not the global
+        # active project) — so a desktop window scoped to project P puts its new
+        # chats in P regardless of which project another window made active.
+        _target_dir = None
+        if project_name and hasattr(self.memory_manager, "new_memory_in"):
+            for _p in self.project_manager.list_projects():
+                if _p.get("name") == project_name and _p.get("path"):
+                    _target_dir = project_memory_dir(_p["path"])
+                    break
+        if _target_dir:
+            memory = await run_func(self.memory_manager.new_memory_in, _target_dir, chat_name)
+        else:
+            memory = await run_func(self.memory_manager.new_memory, chat_name)
         memory.set_metadata("last_activity_date", datetime.now().isoformat())
 
         project = copy.deepcopy(project_metadata) if project_metadata else {}
@@ -1714,7 +1740,37 @@ class ChatRoom(ToolSet):
             - chats: A list of dictionaries, each containing the info of a chat.
         """
         try:
-            metadata_items = await run_func(self.memory_manager.list_memory_metadata, True)
+            # Scoping a chat list to a project (a desktop window).
+            _filter_by_name = False
+            if project_name is not None:
+                # If project_name is a REGISTERED project (desktop window), list
+                # ITS store directly. Its chats physically live there but are NOT
+                # reliably tagged with project.name (pre-existing chats carry only
+                # workspace_mode), so a name-tag filter would wrongly hide them.
+                _proj = next(
+                    (p for p in self.project_manager.list_projects()
+                     if p.get("name") == project_name),
+                    None,
+                )
+                if _proj is not None and hasattr(self.memory_manager, "list_memory_metadata_in"):
+                    metadata_items = await run_func(
+                        self.memory_manager.list_memory_metadata_in,
+                        project_memory_dir(_proj["path"]), True,
+                    )
+                elif hasattr(self.memory_manager, "list_all_memory_metadata"):
+                    # Not a registered project (e.g. hub test-user isolation keyed
+                    # by user id): aggregate across stores and filter by name tag.
+                    _dirs = [project_memory_dir(p["path"]) for p in self.project_manager.list_projects()]
+                    metadata_items = await run_func(
+                        self.memory_manager.list_all_memory_metadata, _dirs, True
+                    )
+                    _filter_by_name = True
+                else:
+                    metadata_items = await run_func(self.memory_manager.list_memory_metadata, True)
+                    _filter_by_name = True
+            else:
+                # Single-window / web / home-window default: active store only.
+                metadata_items = await run_func(self.memory_manager.list_memory_metadata, True)
             chats = []
             skipped_chats = []
             for item in metadata_items:
@@ -1730,8 +1786,10 @@ class ChatRoom(ToolSet):
                     continue
                 project = extra_data.get("project", None)
 
-                # Filter by project_name if specified
-                if project_name is not None:
+                # Filter by project_name only on the aggregate-by-name-tag path
+                # (hub test-user isolation). The registered-project path already
+                # listed exactly that project's store, so no name filter there.
+                if project_name is not None and _filter_by_name:
                     chat_project_name = project.get("name") if isinstance(project, dict) else None
                     if chat_project_name != project_name:
                         continue
