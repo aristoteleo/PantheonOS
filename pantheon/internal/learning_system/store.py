@@ -67,8 +67,15 @@ class SkillStore:
         return headers[:MAX_SKILLS]
 
     def load_skill(self, name: str) -> SkillEntry | None:
-        """Load full skill content by name using project -> global -> factory."""
-        found = self._find_skill_dir_with_base(name)
+        """Load full skill content by name using project -> global -> factory.
+
+        Resolution is forgiving so an agent can follow a SKILL.md's relative links
+        verbatim: a parent-relative path ("sc_best_practices/chromatin_accessibility"),
+        a bare nested leaf ("database_access"), or a link with a trailing "/SKILL.md"
+        all resolve to the right (possibly nested) skill — see
+        _find_skill_dir_forgiving().
+        """
+        found = self._find_skill_dir_with_base(name) or self._find_skill_dir_forgiving(name)
         if not found:
             return None
         skill_dir, base_dir, scope = found
@@ -94,6 +101,10 @@ class SkillStore:
             raise ValueError(err)
 
         skill_dir = self._find_skill_dir(name)
+        if not skill_dir:
+            # Forgiving fallback for parent-relative skill refs (read-only path).
+            forgiving = self._find_skill_dir_forgiving(name)
+            skill_dir = forgiving[0] if forgiving else None
         if not skill_dir:
             return None
 
@@ -362,6 +373,95 @@ class SkillStore:
                 dirs[:] = []
                 continue
             dirs[:] = [d for d in dirs if not d.startswith(".")]
+
+    @staticmethod
+    def _walk_skill_dirs(base_dir: Path):
+        """Yield (skill_dir, rel_parts) for EVERY skill in base_dir, nested included.
+
+        Unlike _iter_skill_files (which prunes at the first SKILL.md to list only
+        top-level skills), this descends fully so nested sub-skills stay visible —
+        required to resolve a parent-relative reference like "database_access" or
+        "sc_best_practices/chromatin_accessibility" back to its full path.
+        """
+        if not base_dir or not base_dir.exists():
+            return
+        for root, dirs, files in os.walk(base_dir):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            if "SKILL.md" in files:
+                d = Path(root)
+                yield d, d.relative_to(base_dir).parts
+
+    @staticmethod
+    def _norm_skill_ref(name: str) -> str:
+        """Strip a trailing '/SKILL.md' (a SKILL.md link names its own skill)."""
+        norm = name.strip().strip("/")
+        if norm.endswith("/SKILL.md"):
+            norm = norm[: -len("/SKILL.md")]
+        return norm
+
+    def _find_skill_dir_forgiving(self, name: str) -> tuple[Path, Path, str] | None:
+        """Resolve a parent-relative skill reference to its full nested path.
+
+        For agents that follow a SKILL.md's relative links verbatim and drop the
+        parent prefix (e.g. "database_access" or "sc_best_practices/..." instead of
+        "omics/database_access"). Strips a trailing "/SKILL.md", then matches the
+        UNIQUE skill whose path ends with the requested segments. Refuses to guess
+        when ambiguous. Read-only — not used on the write path, so create()'s
+        collision check stays exact.
+        """
+        norm = self._norm_skill_ref(name)
+        if not norm or norm == "SKILL.md":
+            return None
+        want = tuple(Path(norm).parts)
+        for base_dir, scope in self._skill_layers():
+            matches = [
+                d
+                for d, rel in self._walk_skill_dirs(base_dir)
+                if len(want) <= len(rel) and rel[-len(want):] == want
+            ]
+            if len(matches) == 1:
+                return matches[0], base_dir, scope
+            if len(matches) > 1:
+                return None
+        return None
+
+    def suggest_for(self, name: str, limit: int = 4) -> list[str]:
+        """Suggest the correct skill_view() call(s) for a name that didn't resolve.
+
+        Matches nested skills by path-suffix and, when the name's tail looks like a
+        supporting file, the skill that owns it — so a wrong guess gets the exact
+        call to make next instead of a bare 'not found'.
+        """
+        norm = self._norm_skill_ref(name)
+        if not norm:
+            return []
+        parts = tuple(Path(norm).parts)
+
+        def suffix_skill_matches(want: tuple) -> list[str]:
+            hits: list[str] = []
+            for base_dir, _scope in self._skill_layers():
+                for _d, rel in self._walk_skill_dirs(base_dir):
+                    if rel and len(want) <= len(rel) and rel[-len(want):] == want:
+                        hits.append("/".join(rel))
+            return hits
+
+        out: list[str] = []
+        seen: set[str] = set()
+
+        def add(s: str) -> None:
+            if s not in seen:
+                seen.add(s)
+                out.append(s)
+
+        # (a) the name (minus /SKILL.md) is itself a nested skill
+        for ident in suffix_skill_matches(parts):
+            add(f"skill_view(name='{ident}')")
+        # (b) the tail looks like a supporting file -> point at its owning skill
+        tail = parts[-1] if parts else ""
+        if len(parts) >= 2 and "." in tail:
+            for ident in suffix_skill_matches(parts[:-1]):
+                add(f"skill_view(name='{ident}', file_path='{tail}')")
+        return out[:limit]
 
     @staticmethod
     def _atomic_write(path: Path, content: str) -> None:
