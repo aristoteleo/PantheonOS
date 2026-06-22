@@ -8,11 +8,12 @@ Two modes:
 import asyncio
 import hashlib
 import json
+import posixpath
 import re
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 import frontmatter
 from loguru import logger
@@ -123,6 +124,86 @@ def _slugify(name: str) -> str:
     return s.strip("-")
 
 
+def _bump_patch(version: str) -> str:
+    """Increment the patch component of a semver-ish string: 1.0.0 -> 1.0.1."""
+    parts = (version or "1.0.0").split(".")
+    try:
+        parts[-1] = str(int(parts[-1]) + 1)
+        return ".".join(parts)
+    except (ValueError, IndexError):
+        return (version or "1.0.0") + ".1"
+
+
+def _dedup_by_store_name(skills: list, source_name: str = "") -> list:
+    """Resolve store_name collisions. A repo can give two DIFFERENT skills the
+    same `name:` frontmatter (e.g. OpenClaw `pptx` and `pptx-official` both
+    declare name: pptx -> both derive `openclaw-medical_pptx`).
+
+    - Exact duplicate (identical content + files): drop the extra.
+    - Same name but DIFFERENT content: keep both, suffix the later one
+      (`..._pptx`, `..._pptx-2`) so each distinct skill gets a distinct id.
+    """
+    def _hash(s):
+        return hashlib.md5(
+            (s.get("content", "") + json.dumps(s.get("files", {}), sort_keys=True)).encode()
+        ).hexdigest()
+
+    seen: Dict[str, str] = {}  # store_name -> content hash
+    out, dropped, renamed = [], 0, 0
+    for s in skills:
+        n = s["store_name"]
+        h = _hash(s)
+        if n not in seen:
+            seen[n] = h
+            out.append(s)
+            continue
+        if seen[n] == h:
+            dropped += 1          # exact duplicate
+            continue
+        i = 2                      # different skill, same name -> disambiguate
+        while f"{n}-{i}" in seen:
+            i += 1
+        s["store_name"] = f"{n}-{i}"
+        s["display_name"] = f"{s.get('display_name', n)} ({i})"
+        seen[s["store_name"]] = h
+        out.append(s)
+        renamed += 1
+    if dropped or renamed:
+        logger.info(f"[{source_name or 'factory'}] dedup: dropped {dropped} exact dup(s), "
+                    f"renamed {renamed} same-name-different skill(s)")
+    return out
+
+
+# --- Skill cross-reference extraction (resolved to exact store names at ingest) ---
+_REL_LINK_RE = re.compile(r"\]\((\.\.?/[^)\s]+?\.md)\)", re.I)
+_RELATED_HDR_RE = re.compile(r"^\s*#{1,5}\s*(related skills|see also|related)\b", re.I)
+_HDR_RE = re.compile(r"^\s*#{1,5}\s")
+_BULLET_RE = re.compile(r"^\s*[-*]\s*`?([A-Za-z0-9][\w./-]*)`?")
+
+
+def _extract_refs(content: str) -> Tuple[List[str], List[str]]:
+    """From a skill's markdown, return (relative_link_paths, related_skill_names).
+
+    Two referencing styles: relative links like `[x](./single_cell/SKILL.md)`
+    and name bullets under a `## Related Skills` / `## See Also` heading.
+    """
+    text = content or ""
+    rel_paths = _REL_LINK_RE.findall(text)
+    names: List[str] = []
+    in_section = False
+    for ln in text.splitlines():
+        if _RELATED_HDR_RE.match(ln):
+            in_section = True
+            continue
+        if in_section:
+            if _HDR_RE.match(ln):
+                break
+            m = _BULLET_RE.match(ln)
+            if m:
+                names.append(m.group(1))
+    return rel_paths, names
+
+
 def _get_factory_category(rel_path: str) -> str:
     """Get category for a factory skill based on its relative path."""
     if rel_path in FACTORY_SKILL_CATEGORY:
@@ -153,10 +234,10 @@ class StoreSeed:
 
     def __init__(self, hub_url: str = None):
         self.client = StoreClient(hub_url=hub_url)
-        self.stats = {"published": 0, "skipped": 0, "failed": 0}
+        self.stats = {"published": 0, "updated": 0, "skipped": 0, "failed": 0}
 
     def _reset_stats(self):
-        self.stats = {"published": 0, "skipped": 0, "failed": 0}
+        self.stats = {"published": 0, "updated": 0, "skipped": 0, "failed": 0}
 
     # ------------------------------------------------------------------ #
     #  Factory discovery                                                   #
@@ -201,6 +282,9 @@ class StoreSeed:
                 "tags": tags if isinstance(tags, list) else [],
                 "content": frontmatter.dumps(post),
                 "source": "factory",
+                "_relkey": rel_no_ext,
+                "_basedir": posixpath.dirname(rel_no_ext),
+                "_is_group": False,
             })
 
         # --- Skill groups (directories with SKILL.md index) ---
@@ -269,9 +353,33 @@ class StoreSeed:
                 "content": frontmatter.dumps(post),
                 "files": files,
                 "source": "factory",
+                "_relkey": rel_dir_str,
+                "_basedir": rel_dir_str,
+                "_is_group": True,
             })
 
-        return skills
+        # Resolve relative-link references to exact store names (index→sub-skill graph)
+        indiv_by_path = {s["_relkey"]: s["store_name"] for s in skills if not s["_is_group"]}
+        group_by_dir = {s["_relkey"]: s["store_name"] for s in skills if s["_is_group"]}
+        for s in skills:
+            refs: List[str] = []
+            rel_paths, _names = _extract_refs(s["content"])
+            for rp in rel_paths:
+                tgt = posixpath.normpath(posixpath.join(s["_basedir"], rp))
+                if tgt.endswith("/SKILL.md"):
+                    r = group_by_dir.get(tgt[: -len("/SKILL.md")])
+                elif tgt == "SKILL.md":
+                    r = group_by_dir.get(s["_basedir"])
+                else:
+                    key = tgt[:-3] if tgt.endswith(".md") else tgt
+                    r = indiv_by_path.get(key) or group_by_dir.get(key)
+                if r and r != s["store_name"]:
+                    refs.append(r)
+            s["references"] = list(dict.fromkeys(refs))
+            for k in ("_relkey", "_basedir", "_is_group"):
+                s.pop(k, None)
+
+        return _dedup_by_store_name(skills, "factory")
 
     def _discover_factory_agents(self):
         """Discover agent files in factory/templates/agents/."""
@@ -482,9 +590,22 @@ class StoreSeed:
                 skill_md, source_name, source_config, category_hint
             )
             if converted:
+                converted["_dirname"] = skill_md.parent.name
                 skills.append(converted)
 
-        return skills
+        # Resolve "Related Skills" names (= sibling directory names) to store names
+        by_dirname = {_slugify(s["_dirname"]): s["store_name"] for s in skills}
+        for s in skills:
+            refs: List[str] = []
+            _rel_paths, names = _extract_refs(s["content"])
+            for nm in names:
+                r = by_dirname.get(_slugify(nm))
+                if r and r != s["store_name"]:
+                    refs.append(r)
+            s["references"] = list(dict.fromkeys(refs))
+            s.pop("_dirname", None)
+
+        return _dedup_by_store_name(skills, source_name)
 
     # ------------------------------------------------------------------ #
     #  prepare: Collect everything into a local directory                   #
@@ -531,6 +652,7 @@ class StoreSeed:
                 "description": skill["description"],
                 "category": skill["category"],
                 "tags": skill.get("tags", []),
+                "references": skill.get("references", []),
                 "source": "Pantheon",
                 "source_url": None,
                 "file": str(fpath.relative_to(out)).replace("\\", "/"),
@@ -631,6 +753,7 @@ class StoreSeed:
                         "description": skill["description"],
                         "category": skill["category"],
                         "tags": skill.get("tags", []),
+                        "references": skill.get("references", []),
                         "source": config["display_name"],
                         "source_url": config["source_url"],
                         "file": str(fpath.relative_to(out)).replace("\\", "/"),
@@ -733,6 +856,7 @@ class StoreSeed:
                     files=files,
                     source=entry.get("source", "Pantheon"),
                     source_url=entry.get("source_url"),
+                    references=entry.get("references", []),
                     dry_run=dry_run,
                 )
                 progress.advance(task)
@@ -745,36 +869,66 @@ class StoreSeed:
                      description: str, category: str, content: str,
                      files: dict = None, version: str = "1.0.0",
                      source: str = "Pantheon", source_url: str = None,
-                     dry_run: bool = False) -> bool:
-        """Publish a single package. Returns True if published."""
+                     references: list = None, dry_run: bool = False) -> bool:
+        """Publish a package. If it already exists, publish a NEW VERSION when the
+        content changed (auto-bumped patch), else skip. This makes re-seeding a
+        real content sync instead of a no-op, with version history."""
         if dry_run:
             console.print(f"  [dim][dry-run][/dim] {pkg_type}: {name} ({category})")
             self.stats["published"] += 1
             return True
 
+        payload = {
+            "name": name, "type": pkg_type, "display_name": display_name,
+            "description": description or "", "category": category, "version": version,
+            "content": content, "files": files or {}, "source": source,
+            "references": references or [],
+        }
+        if source_url:
+            payload["source_url"] = source_url
+
+        # 1. Try to create as a brand-new package.
         try:
-            payload = {
-                "name": name,
-                "type": pkg_type,
-                "display_name": display_name,
-                "description": description or "",
-                "category": category,
-                "version": version,
-                "content": content,
-                "files": files or {},
-                "source": source,
-            }
-            if source_url:
-                payload["source_url"] = source_url
             _run(self.client.publish(payload))
             self.stats["published"] += 1
             return True
         except SystemExit:
-            logger.debug(f"Skipped (exists): {name}")
-            self.stats["skipped"] += 1
-            return False
+            pass  # already exists -> fall through to the version-update path
         except Exception as e:
             logger.warning(f"Failed to publish {name}: {e}")
+            self.stats["failed"] += 1
+            return False
+
+        # 2. Exists: look it up, and publish a new version if the content changed.
+        try:
+            res = _run(self.client.search(q=name, limit=8))
+            existing = next((p for p in res.get("packages", []) if p.get("name") == name), None)
+            if not existing:
+                self.stats["skipped"] += 1
+                return False
+            pkg_id = existing["id"]
+            next_ver = _bump_patch(existing.get("latest_version") or "1.0.0")
+            try:
+                _run(self.client.publish_version(pkg_id, {
+                    "version": next_ver, "content": content, "files": files or {},
+                    "changelog": "Synced from source",
+                }))
+            except SystemExit:
+                # content identical (or version clash) -> no update needed
+                self.stats["skipped"] += 1
+                return False
+            # version published -> sync package-level metadata (refs/desc/tags)
+            try:
+                _run(self.client.update_package(pkg_id, {
+                    "references": references or [], "description": description or "",
+                    "display_name": display_name, "category": category,
+                }))
+            except Exception:
+                pass  # version is published; metadata sync is best-effort
+            self.stats["updated"] += 1
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to update {name}: {e}")
             self.stats["failed"] += 1
             return False
 
@@ -783,7 +937,8 @@ class StoreSeed:
         table = Table(title=title)
         table.add_column("Status", style="bold")
         table.add_column("Count", justify="right")
-        table.add_row("[green]Published[/green]", str(self.stats["published"]))
-        table.add_row("[yellow]Skipped (exists)[/yellow]", str(self.stats["skipped"]))
+        table.add_row("[green]Published (new)[/green]", str(self.stats["published"]))
+        table.add_row("[cyan]Updated (new version)[/cyan]", str(self.stats["updated"]))
+        table.add_row("[yellow]Skipped (unchanged)[/yellow]", str(self.stats["skipped"]))
         table.add_row("[red]Failed[/red]", str(self.stats["failed"]))
         console.print(table)
