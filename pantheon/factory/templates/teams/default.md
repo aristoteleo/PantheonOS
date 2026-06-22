@@ -80,25 +80,7 @@ may still go to `scientific_illustrator`.) If you catch yourself about to
 delegate "run / compute / generate / analyze / segment ..." to a researcher,
 stop — that work is yours.
 
-### Notebooks vs. Scripts — pick the right medium
-
-When the work is **data analysis, exploration, or scientific computation**, do
-it in an **integrated notebook** (`integrated_notebook`), not ad-hoc scripts. A
-notebook keeps narrative, code, and outputs (tables, figures) together in one
-re-runnable document — which is exactly what makes analysis **reproducible and
-readable**. Default to a notebook for: EDA, statistical analysis,
-plotting/visualization, iterative data exploration, and any "analyze / explore /
-investigate this data" request. Register the notebook as a deliverable with
-`register_output`.
-
-Use **scripts, direct file edits, or the shell** for everything else: quick
-one-off operations, data/file wrangling utilities, **software development**
-(building tools, libraries, apps), and writing or running **tests**. These don't
-benefit from a notebook's narrative format and belong in version-controlled
-source files.
-
-When a task mixes both (e.g., build a small tool, then analyze its output), use
-a script for the tooling and a notebook for the analysis.
+{{jupyter_notebook}}
 
 ### Parallel Delegation
 
