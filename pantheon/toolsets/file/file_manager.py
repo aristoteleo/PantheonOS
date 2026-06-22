@@ -111,6 +111,37 @@ def _replace_in_content(
         return new_content, replaced, None
 
 
+def _resolve_template_layer_path(file_path: str) -> Path | None:
+    """Resolve a `.pantheon/{prompts,teams,agents}/<name>.md` reference through the
+    template precedence (global ~/.pantheon -> factory package templates) when the
+    workspace has no project-level copy. Read-only, namespace-scoped, no path
+    traversal; None if not such a reference or nothing resolves.
+
+    Module-level on purpose: a ToolSet subclass method here would be auto-registered
+    and asyncified into a coroutine tool.
+    """
+    rel = str(file_path).replace("\\", "/")
+    marker = ".pantheon/"
+    idx = rel.find(marker)
+    if idx == -1:
+        return None
+    segs = [s for s in rel[idx + len(marker):].split("/") if s]
+    if len(segs) < 2 or segs[0] not in ("prompts", "teams", "agents") or ".." in segs:
+        return None
+    sub = Path(*segs)
+    bases: list[Path] = [Path.home() / ".pantheon"]
+    try:
+        import pantheon.factory as _factory
+        bases.append(Path(_factory.__file__).resolve().parent / "templates")
+    except Exception:
+        pass
+    for base in bases:
+        cand = base / sub
+        if cand.is_file():
+            return cand
+    return None
+
+
 class FileManagerToolSetBase(ToolSet):
     """Base class for file manager toolsets.
 
@@ -769,6 +800,11 @@ class FileManagerToolSet(FileManagerToolSetBase):
 
         # Support both absolute and relative paths
         target_path = self._resolve_path(file_path)
+        if not target_path.exists():
+            # Template references (.pantheon/{prompts,teams,agents}/*) resolve
+            # through layer precedence — fall back to global/factory when the
+            # workspace has no project-level copy.
+            target_path = _resolve_template_layer_path(file_path) or target_path
         if not target_path.exists():
             return {"success": False, "error": "File does not exist"}
         if not target_path.is_file():
