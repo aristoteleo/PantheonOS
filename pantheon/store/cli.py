@@ -183,54 +183,71 @@ class StoreCLI:
         console.print(f"[green]Published {type} '{name}' v{version}[/green]")
         return data
 
-    def install(self, package: str, version: str = None, hub_url: str = None):
-        """Install a package from the Store.
+    def install(self, package: str, version: str = None, hub_url: str = None,
+                deps: bool = True):
+        """Install a package from the Store, plus the skills it references.
 
         Args:
             package: Package name or ID
             version: Specific version (default: latest)
             hub_url: Hub server URL
+            deps: Also install referenced skills (dependency closure). Pass
+                  --deps=False (or --nodeps) to install ONLY the requested package.
         """
         from .installer import PackageInstaller
 
         client = StoreClient(hub_url=hub_url)
-
-        # Resolve package — try by name first
-        try:
-            pkg_info = _run(client.search(q=package, limit=1))
-            pkgs = pkg_info.get("packages", [])
-            match = next((p for p in pkgs if p.get("name") == package), None)
-            if match:
-                pkg_id = match["id"]
-            else:
-                pkg_id = package  # Assume it's a direct ID
-        except Exception:
-            pkg_id = package
-
-        # Download
-        download = _run(client.download(pkg_id, version))
-
-        pkg_name = download.get("name", package)
-        pkg_type = download.get("type", "agent")
-        pkg_version = download.get("version", "unknown")
-        content = download.get("content", "")
-        files = download.get("files") or {}
-
-        # Install locally
         installer = PackageInstaller()
-        written = installer.install(pkg_type, pkg_name, content, files)
-
-        # Record install if logged in
         auth = StoreAuth()
-        if auth.is_logged_in:
-            try:
-                _run(client.record_install(pkg_id, pkg_version))
-            except Exception:
-                pass  # Non-critical
 
-        console.print(f"[green]Installed {pkg_type} '{pkg_name}' v{pkg_version}[/green]")
-        for p in written:
-            console.print(f"  → {p}")
+        # Breadth-first install over the reference graph (the root + its deps).
+        queue = [(package, version, True)]
+        seen: set[str] = set()
+        installed: list[tuple[str, str, list]] = []
+        missing: list[str] = []
+
+        while queue:
+            ref, ver, is_root = queue.pop(0)
+            if ref in seen:
+                continue
+            seen.add(ref)
+            try:
+                download = _run(client.download(ref, ver))
+            except Exception as e:
+                if is_root:
+                    raise SystemExit(f"Failed to download '{ref}': {e}")
+                missing.append(ref)
+                continue
+
+            pkg_name = download.get("name", ref)
+            pkg_type = download.get("type", "skill")
+            pkg_version = download.get("version", "unknown")
+            written = installer.install(
+                pkg_type, pkg_name, download.get("content", ""), download.get("files") or {}
+            )
+            installed.append((pkg_type, pkg_name, written))
+
+            if auth.is_logged_in:
+                try:
+                    _run(client.record_install(download.get("package_id", ref), pkg_version))
+                except Exception:
+                    pass
+
+            if deps:
+                for dep in download.get("references", []) or []:
+                    if dep not in seen:
+                        queue.append((dep, None, False))
+
+        root_type, root_name, _ = installed[0]
+        dep_count = len(installed) - 1
+        console.print(f"[green]Installed {root_type} '{root_name}'[/green]"
+                      + (f" + [cyan]{dep_count}[/cyan] referenced skill(s)" if dep_count else ""))
+        for ptype, pname, written in installed:
+            tag = "" if pname == root_name else "  [dim](dep)[/dim]"
+            console.print(f"  • {ptype} [bold]{pname}[/bold]{tag}")
+        if missing:
+            console.print(f"[yellow]⚠ {len(missing)} referenced skill(s) not in store: "
+                          f"{', '.join(missing)}[/yellow]")
 
     def uninstall(self, package: str, type: str = None, hub_url: str = None):
         """Uninstall a package.

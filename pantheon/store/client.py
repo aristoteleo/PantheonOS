@@ -101,6 +101,10 @@ class StoreClient:
                 f"{self.hub_url}/api/store/packages/{package_id}/versions",
                 json=data, headers=self._headers(),
             )
+            if resp.status_code == 409:
+                # version already exists OR content identical to latest — not a real error
+                detail = resp.json().get("detail", "No changes to publish")
+                raise SystemExit(f"Version skipped: {detail}")
             resp.raise_for_status()
             return resp.json()
 
