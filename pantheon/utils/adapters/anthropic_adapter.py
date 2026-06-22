@@ -84,6 +84,19 @@ def _wrap_anthropic_error(e: Exception) -> Exception:
 # ============ Message Format Conversion ============
 
 
+def _msg_has_content(content: Any) -> bool:
+    """Whether a message carries any content. Anthropic 400s on an empty user
+    message ('user messages must have non-empty content'), which a bare approval
+    / empty user turn (content == [] or '') would otherwise produce."""
+    if content is None:
+        return False
+    if isinstance(content, str):
+        return content.strip() != ""
+    if isinstance(content, list):
+        return len(content) > 0
+    return bool(content)
+
+
 def _convert_messages_to_anthropic(messages: list[dict]) -> tuple[str | list | None, list[dict]]:
     """Convert OpenAI-format messages to Anthropic format.
 
@@ -147,7 +160,9 @@ def _convert_messages_to_anthropic(messages: list[dict]) -> tuple[str | list | N
                         result_content.extend(content)
                 converted.append({"role": "user", "content": result_content})
                 pending_tool_results = []
-            else:
+            elif _msg_has_content(content):
+                # Skip a bare/empty user turn (e.g. an approval action with no
+                # text) — an empty user message is rejected by the API.
                 converted.append({"role": "user", "content": content})
             continue
 
@@ -195,6 +210,11 @@ def _convert_messages_to_anthropic(messages: list[dict]) -> tuple[str | list | N
     # Flush remaining tool results
     if pending_tool_results:
         converted.append({"role": "user", "content": list(pending_tool_results)})
+
+    # Belt-and-suspenders: drop any message that still has empty content (a bare
+    # approval / empty user turn) before the alternation-merge, so the merge sees
+    # only real content and the API never gets an empty user message.
+    converted = [m for m in converted if _msg_has_content(m.get("content"))]
 
     # Anthropic requires alternating user/assistant messages
     # Merge consecutive same-role messages
