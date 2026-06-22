@@ -109,7 +109,7 @@ class SkillToolSet(ToolSet):
             if not entry:
                 return self._json({
                     "success": False,
-                    "error": f"Skill '{name}' not found. Use skill_list() to see available skills.",
+                    "error": self._not_found_msg(name),
                 })
             # A SKILL.md path points at a (possibly nested) skill's MAIN file —
             # itself a skill, not a supporting file. Resolve it to that skill so
@@ -153,10 +153,29 @@ class SkillToolSet(ToolSet):
         if not entry:
             return self._json({
                 "success": False,
-                "error": f"Skill '{name}' not found. Use skill_list() to see available skills.",
+                "error": self._not_found_msg(name),
             })
 
         return self._skill_view_result(entry)
+
+    def _not_found_msg(self, name: str) -> str:
+        """Not-found error enriched with concrete skill_view() suggestions when the
+        name looks like a parent-relative reference followed from a SKILL.md link."""
+        store = self._runtime.store
+        suggestions = []
+        if store:
+            try:
+                suggestions = store.suggest_for(name)
+            except Exception:
+                suggestions = []
+        if suggestions:
+            return (
+                f"Skill '{name}' not found. Did you mean: "
+                + " | ".join(suggestions)
+                + " ? (Nested skills/files need the full path, or use "
+                "skill_view(name=<parent>, file_path=...).)"
+            )
+        return f"Skill '{name}' not found. Use skill_list() to see available skills."
 
     def _skill_view_result(self, entry) -> str:
         """Build the full-skill JSON result. Shared by the no-file_path branch

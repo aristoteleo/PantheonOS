@@ -174,6 +174,96 @@ class TestLoadSkill:
         assert "packaged factory skill" in entry.content
 
 
+def _write_skill(base, rel, name, body="Body.\n"):
+    md = base / rel / "SKILL.md"
+    md.parent.mkdir(parents=True, exist_ok=True)
+    md.write_text(
+        f"---\nname: {name}\ndescription: {name} skill\n---\n\n{body}",
+        encoding="utf-8",
+    )
+    return md
+
+
+class TestNestedSkillResolution:
+    """An agent following a SKILL.md's RELATIVE links drops the parent prefix
+    (e.g. 'database_access' instead of 'omics/database_access'). load_skill /
+    load_file must still resolve those to the right nested skill; writes must not.
+    Mirrors the omics/* skill tree that broke skill reads."""
+
+    @pytest.fixture
+    def nested_store(self, tmp_path):
+        factory = tmp_path / "factory" / "skills"
+        _write_skill(factory, "omics", "omics")
+        _write_skill(factory, "omics/database_access", "database_access")
+        _write_skill(factory, "omics/sc_best_practices", "sc_best_practices")
+        (factory / "omics/sc_best_practices" / "chromatin.md").write_text(
+            "chromatin notes", encoding="utf-8"
+        )
+        _write_skill(factory, "omics/upstream/nfcore", "nfcore")
+        return SkillStore(
+            tmp_path / "p" / "s",
+            tmp_path / "p" / "r",
+            global_skills_dir=tmp_path / "g" / "s",
+            factory_skills_dir=factory,
+        )
+
+    def test_full_path_still_resolves(self, nested_store):
+        assert nested_store.load_skill("omics/database_access").path == "omics/database_access"
+
+    def test_link_text_with_skill_md_suffix(self, nested_store):
+        # The agent's exact failing form: skill_view(name="database_access/SKILL.md")
+        assert nested_store.load_skill("database_access/SKILL.md").path == "omics/database_access"
+
+    def test_bare_nested_leaf(self, nested_store):
+        assert nested_store.load_skill("database_access").path == "omics/database_access"
+
+    def test_partial_and_deep_leaf(self, nested_store):
+        assert nested_store.load_skill("upstream/nfcore").path == "omics/upstream/nfcore"
+        assert nested_store.load_skill("nfcore").path == "omics/upstream/nfcore"
+
+    def test_real_miss_returns_none(self, nested_store):
+        assert nested_store.load_skill("does_not_exist") is None
+
+    def test_supporting_file_with_dropped_prefix(self, nested_store):
+        # skill_view(name="sc_best_practices", file_path="chromatin.md")
+        assert nested_store.load_file("sc_best_practices", "chromatin.md") == "chromatin notes"
+
+    def test_ambiguous_leaf_refuses_to_guess(self, tmp_path):
+        # Two same-named sub-skills under DIFFERENT parents (each a real skill, so
+        # the leaf is pruned from the exact-resolver and only the guarded forgiving
+        # resolver can see it). It must refuse to guess and suggest both.
+        factory = tmp_path / "factory" / "skills"
+        _write_skill(factory, "omics", "omics")
+        _write_skill(factory, "omics/database_access", "database_access")
+        _write_skill(factory, "proteomics", "proteomics")
+        _write_skill(factory, "proteomics/database_access", "database_access2")
+        store = SkillStore(
+            tmp_path / "p" / "s", tmp_path / "p" / "r", factory_skills_dir=factory
+        )
+        assert store.load_skill("database_access") is None  # two matches -> no guess
+        sugg = store.suggest_for("database_access")
+        assert "skill_view(name='omics/database_access')" in sugg
+        assert "skill_view(name='proteomics/database_access')" in sugg
+
+    def test_suggestions_point_at_correct_call(self, nested_store):
+        assert "skill_view(name='omics/database_access')" in nested_store.suggest_for(
+            "database_access/SKILL.md"
+        )
+        assert (
+            "skill_view(name='omics/sc_best_practices', file_path='chromatin.md')"
+            in nested_store.suggest_for("sc_best_practices/chromatin.md")
+        )
+
+    def test_write_path_stays_exact(self, nested_store):
+        # Forgiving resolution is read-only: creating a top-level "database_access"
+        # must NOT collide with the nested omics/database_access.
+        path = nested_store.create_skill(
+            "database_access",
+            "---\nname: database_access\ndescription: top-level one\n---\n\nNew.\n",
+        )
+        assert path == nested_store.skills_dir / "database_access" / "SKILL.md"
+
+
 class TestSupportingFiles:
     def test_write_and_load(self, store_with_skill):
         store_with_skill.write_supporting_file(
