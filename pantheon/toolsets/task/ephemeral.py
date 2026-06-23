@@ -170,6 +170,20 @@ def _read_incomplete_todos(brain_dir: str) -> list[str]:
     return items
 
 
+# Headless (-i / one-shot) — no user is present to answer. Counters the agent's
+# instinct (reinforced by the reminders below) to stop and ask: decide for itself.
+HEADLESS_AUTONOMOUS_REMINDER = """\
+<headless_autonomous_reminder>
+You are running HEADLESS: there is NO user present. You cannot ask questions,
+request approval, or offer choices — nobody will answer. Do NOT call
+notify_user(blocked_on_user=true) and do NOT pose questions to the user. For any
+consequential or under-specified decision (which dataset/method/scope, an
+expensive or irreversible step), choose the most reasonable default yourself,
+state your assumption briefly in your work, and proceed to completion
+autonomously. Use notify_user only to register final deliverables.
+</headless_autonomous_reminder>"""
+
+
 def generate_ephemeral_message(state: ConversationState, brain_dir: str) -> str:
     """Generate EPHEMERAL_MESSAGE based on current state.
 
@@ -181,6 +195,12 @@ def generate_ephemeral_message(state: ConversationState, brain_dir: str) -> str:
         XML-formatted ephemeral message content
     """
     parts = []
+
+    # Headless (-i / one-shot): no user to ask. Lead with a reminder to decide
+    # autonomously instead of trying to block on approvals/choices it can't get.
+    headless = os.environ.get("PANTHEON_HEADLESS") == "1"
+    if headless:
+        parts.append(HEADLESS_AUTONOMOUS_REMINDER)
 
     # 1. artifact_reminder (always included)
     if state.created_artifacts:
@@ -253,7 +273,8 @@ def generate_ephemeral_message(state: ConversationState, brain_dir: str) -> str:
     # (it read "find some data" as "pick silently"), so we nudge it at decision
     # time. Self-limiting: stops once review is requested or it leaves plan phase.
     if (
-        state.active_task
+        not headless  # headless: never nudge the agent to ask the user — nobody's there
+        and state.active_task
         and state.active_task.is_plan_phase
         and not state.pending_review_paths
     ):

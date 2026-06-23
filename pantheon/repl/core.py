@@ -191,6 +191,9 @@ class Repl(ReplUI):
         # Pending user approval for notify_user        # Pending operations state
         self._pending_approval: dict | None = None
         self._pending_clear_confirmation: bool = False  # For /clear confirmation
+        # Headless one-shot mode: auto-approve plan/approval gates (no human at the keyboard)
+        self._auto_approve: bool = False
+        self._auto_approve_depth: int = 0
 
     def _create_chatroom_from_agent(
         self, agent: Agent | Team, memory_dir: str
@@ -730,13 +733,17 @@ class Repl(ReplUI):
         except Exception as e:
             logger.debug(f"[WARMUP] Tools warmup error (non-critical): {e}")
 
-    async def run(self, message: str | dict | None = None, disable_logging: bool = True, log_to_file: bool = True, log_level: str = "CRITICAL"):
+    async def run(self, message: str | dict | None = None, disable_logging: bool = True, log_to_file: bool = True, log_level: str = "CRITICAL", once: bool = False, model: str | None = None):
         """Main REPL loop.
-        
+
         Args:
             message: Optional initial message to process
             disable_logging: If True, suppress console logging (only show ERROR)
             log_to_file: If True, save all logs to .pantheon/logs/ (even when console logging is suppressed)
+            once: Headless one-shot mode — run `message` to completion through the
+                normal default team, then exit. No interactive prompt_toolkit UI
+                (no tty required). Used by the benchmark runner.
+            model: Optional model name/tag to apply to the team before running (once mode).
         """
         # Setup file logging FIRST (before suppressing console output)
         # This ensures all logs are captured to file for debugging
@@ -762,6 +769,37 @@ class Repl(ReplUI):
 
         # Print greeting first (REPL shows immediately)
         await self.print_greeting()
+
+        # Headless one-shot mode: run a single message to completion, then exit.
+        # Runs the SAME default team / skills / prompts as interactive `pantheon cli`,
+        # just without the prompt_toolkit TUI (no tty needed) — for the benchmark runner.
+        # _process_message() already supports prompt_app=None (falls back to a Live console).
+        if once:
+            # Headless one-shot (-i): signal the task system so notify_user never
+            # blocks on a non-existent user and the ephemeral reminders tell the
+            # agent to decide autonomously instead of asking/approving/choosing.
+            import os  # local: run() shadows the module-level os with a later import
+            os.environ["PANTHEON_HEADLESS"] = "1"
+            try:
+                self._init_renderers()
+            except Exception:
+                pass
+            # Headless: no human to approve plan-gates, so auto-approve and drive
+            # the agent to completion instead of cancelling at the approval dialog.
+            self._auto_approve = True
+            self._auto_approve_depth = 0
+            if model:
+                try:
+                    await self._handle_model_command(str(model))
+                except Exception as e:
+                    self.console.print(f"[yellow]--model override failed: {e}[/yellow]")
+            if message is not None:
+                await self._handle_message_or_command(message)
+            try:
+                await self._print_session_summary()
+            except Exception:
+                pass
+            return
 
         # Initialize prompt_toolkit app if enabled
         if self._use_prompt_toolkit:
@@ -1500,8 +1538,40 @@ class Repl(ReplUI):
         
         # Handle pending approval (notify_user with interrupt=True)
         if self._pending_approval:
-            await self._handle_pending_approval()
-    
+            if self._auto_approve:
+                await self._auto_approve_pending()
+            else:
+                await self._handle_pending_approval()
+
+    async def _auto_approve_pending(self):
+        """Headless auto-approval: approve the agent's plan/approval gate and drive
+        it to completion. No human is at the keyboard in `--once` mode, so the
+        interactive dialog would always cancel; instead we feed an approval back
+        into the same chat (preserving context) and let the agent execute.
+
+        Re-entrant: `_handle_message_or_command` re-checks `_pending_approval`
+        at the end, so a multi-step plan that gates several times keeps flowing.
+        A depth guard prevents an agent that gates every turn from looping forever.
+        """
+        approval_data = self._pending_approval or {}
+        self._pending_approval = None
+        self._auto_approve_depth += 1
+        if self._auto_approve_depth > 8:
+            self.console.print(
+                "[yellow]⚠ auto-approve limit reached (8); stopping to avoid a loop[/yellow]"
+            )
+            return
+        self.console.print("[green]✓ Auto-approved (headless --once)[/green]")
+        # If the gate asked structured questions, we can't answer them blindly;
+        # still nudge the agent to proceed with sensible defaults.
+        approve_msg = (
+            "Approved — proceed and execute the plan to completion now. "
+            "Do NOT ask for any further confirmation or approval; make reasonable "
+            "default choices for any open questions, run all remaining steps "
+            "autonomously, and save the final output to the requested path."
+        )
+        await self._handle_message_or_command(approve_msg)
+
     async def _handle_pending_approval(self):
         """Handle pending user approval with interactive dialog.
 

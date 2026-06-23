@@ -146,6 +146,23 @@ def main():
     except RuntimeError:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
+    # Normalize the `cli` subcommand's flags before Fire parses them:
+    #   -r / -r=<id>  ->  --resume / --resume=<id>   (short alias)
+    #   --once        ->  deprecated no-op (passing -i now implies one-shot); drop it
+    #                     so existing callers (benchmark harness / older images) keep working.
+    if len(sys.argv) > 1 and sys.argv[1] == "cli":
+        _rest = []
+        for tok in sys.argv[2:]:
+            if tok == "-r":
+                _rest.append("--resume")
+            elif tok.startswith("-r="):
+                _rest.append("--resume=" + tok[3:])
+            elif tok == "--once" or tok.startswith("--once="):
+                continue
+            else:
+                _rest.append(tok)
+        sys.argv = sys.argv[:2] + _rest
+
     # Import REAL functions — Fire reads their signatures for --help
     from pantheon.repl.__main__ import start as cli
     from pantheon.chatroom.start import start_services as ui

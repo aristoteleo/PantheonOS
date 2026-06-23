@@ -5,6 +5,7 @@ workflow modes (PLANNING/EXECUTION/VERIFICATION or RESEARCH/ANALYSIS/INTERPRETAT
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -151,6 +152,7 @@ class TaskToolSet(ToolSet):
             ModeSemantics.is_execute_mode(mode_upper)
             and not self.state.has_asked_user
             and not self.state.execution_gate_fired
+            and os.environ.get("PANTHEON_HEADLESS") != "1"  # headless: no user to confirm with
         ):
             self.state.execution_gate_fired = True
             gate_context = self.get_context()
@@ -381,6 +383,17 @@ class TaskToolSet(ToolSet):
         # This ensures logical consistency - asking questions implies waiting for answers
         has_questions = len(questions) > 0
         actual_interrupt = blocked_on_user or has_questions
+
+        # Headless (-i / one-shot): nobody is available to approve or answer. Never
+        # hand control back to a non-existent user — drop the interrupt and tell the
+        # agent to choose a sensible default and keep going to completion.
+        if actual_interrupt and os.environ.get("PANTHEON_HEADLESS") == "1":
+            actual_interrupt = False
+            message = (message or "") + (
+                "\n\n[Headless mode: no user is available to approve or answer. Do not "
+                "wait — pick the most reasonable default for any open decision, note "
+                "your assumption, and proceed to completion autonomously.]"
+            )
 
         return {
             "success": True,

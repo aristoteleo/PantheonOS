@@ -54,6 +54,7 @@ def start(
     quiet: bool = None,
     resync: bool = False,
     i: str = None,
+    model: str = None,
 ):
     """Start Pantheon REPL.
 
@@ -62,12 +63,14 @@ def start(
         memory_dir: Directory for chat persistence. (default from settings: .pantheon)
         workspace: Workspace directory for Endpoint.
         chat_id: Resume specific chat by ID.
-        resume: Resume a previous chat. Use --resume to resume the last chat,
-                or --resume=<id> / --resume=<number> to resume a specific one.
+        resume: Resume a previous chat. Use -r / --resume to resume the most recent
+                chat, or -r=<id> / --resume=<id> (or a number / name prefix) for a
+                specific one. Combine with -i to continue that chat's context one-shot.
         log_level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: CRITICAL.
         quiet: Disable all logging. Use --quiet to enable. (default: False)
         resync: Force resync templates by deleting skills/agents/teams directories. (default: False)
-        i: Initial input message to send immediately after startup.
+        i: Initial input message. Providing it runs headless one-shot (send it,
+           print the result, exit); omit it to start the interactive REPL.
     """
     # Load settings for defaults (CLI > Settings > code defaults)
     from pantheon.settings import get_settings
@@ -141,10 +144,16 @@ def start(
                 return
             chat_id = found["id"]
 
-    # Check for API keys and run setup wizard if none found
-    from .setup_wizard import check_and_run_setup
+    # Providing an initial input (-i) implies a headless one-shot run: send the
+    # message, print the result, and exit. Without -i, start the interactive REPL.
+    run_once = i is not None
 
-    check_and_run_setup()
+    # Check for API keys and run the setup wizard if none found — but skip it in
+    # headless one-shot mode (assume keys preconfigured) so automation never blocks.
+    if not run_once:
+        from .setup_wizard import check_and_run_setup
+
+        check_and_run_setup()
 
     asyncio.run(
         _start_async(
@@ -155,6 +164,8 @@ def start(
             log_level=log_level,
             quiet=quiet,
             initial_input=i,
+            once=run_once,
+            model=model,
         )
     )
 
@@ -168,6 +179,8 @@ async def _start_async(
     log_level: str = "CRITICAL",
     quiet: bool = False,
     initial_input: str = None,
+    once: bool = False,
+    model: str = None,
 ):
     """Async implementation of start."""
     from pantheon.settings import get_settings
@@ -301,10 +314,26 @@ async def _start_async(
     # Disable logging unless explicitly set to DEBUG
     disable_logging = quiet and log_level != "DEBUG"
 
-    await repl.run(message=initial_input, disable_logging=disable_logging, log_level=log_level)
+    await repl.run(message=initial_input, disable_logging=disable_logging, log_level=log_level, once=once, model=model)
 
 
 if __name__ == "__main__":
+    # Normalize argv before Fire parses it:
+    #   -r / -r=<id>   -> short alias for --resume / --resume=<id>
+    #   --once         -> deprecated no-op (passing -i now implies one-shot); drop it
+    #                     so existing callers (benchmark harness / older images) don't break.
+    _argv = []
+    for tok in sys.argv:
+        if tok == "-r":
+            _argv.append("--resume")
+        elif tok.startswith("-r="):
+            _argv.append("--resume=" + tok[3:])
+        elif tok == "--once" or tok.startswith("--once="):
+            continue
+        else:
+            _argv.append(tok)
+    sys.argv = _argv
+
     # Support two call styles:
     # 1. python -m pantheon.repl start --template xxx
     # 2. python -m pantheon.repl --template xxx (implicit start)
