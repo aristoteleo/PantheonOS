@@ -277,8 +277,15 @@ class AnthropicAdapter(BaseAdapter):
         api_key: str | None = None,
     ):
         from anthropic import AsyncAnthropic
+        import httpx
 
-        kwargs = {}
+        # Bound the request so a stalled endpoint fails fast (~120s) and lets
+        # pantheon's own num_retries loop retry, instead of hanging on the SDK
+        # default (~600s). max_retries=0: don't also retry inside the SDK.
+        kwargs = {
+            "timeout": httpx.Timeout(120.0, connect=10.0),
+            "max_retries": 0,
+        }
         if base_url:
             kwargs["base_url"] = base_url
         if api_key:
