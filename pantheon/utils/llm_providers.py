@@ -274,6 +274,32 @@ def get_global_fallback_base_url() -> str:
     return get_settings().get_api_key("LLM_API_BASE") or ""
 
 
+def is_force_proxy_enabled() -> bool:
+    """True when this backend is in 'platform budget' mode: every LLM call is routed
+    through the platform LiteLLM proxy + the user's virtual key, bypassing the user's
+    own provider keys (without deleting them). Toggled at runtime via the
+    ``set_llm_proxy`` RPC, which sets ``LLM_FORCE_PROXY`` +
+    ``PANTHEON_PLATFORM_PROXY_BASE`` / ``PANTHEON_PLATFORM_PROXY_KEY`` (dedicated env
+    so the user's own ``LLM_API_BASE`` is never touched)."""
+    import os
+
+    val = os.environ.get("LLM_FORCE_PROXY", "")
+    return val.strip().lower() in ("1", "true", "yes", "on")
+
+
+def get_force_proxy_config() -> tuple[Optional[str], Optional[str]]:
+    """``(base_url, api_key)`` to force every provider through the platform proxy when
+    force-proxy is on, else ``(None, None)``."""
+    if not is_force_proxy_enabled():
+        return None, None
+    import os
+
+    return (
+        os.environ.get("PANTHEON_PLATFORM_PROXY_BASE") or None,
+        os.environ.get("PANTHEON_PLATFORM_PROXY_KEY") or None,
+    )
+
+
 def resolve_provider_base_url(
     provider_key: str,
     default_base_url: str | None = None,

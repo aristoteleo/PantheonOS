@@ -734,6 +734,7 @@ async def acompletion(
     )
     from .adapters import get_adapter
     from .llm_providers import (
+        get_force_proxy_config,
         get_openai_effective_config,
         get_openai_fallback_config,
         get_provider_api_key,
@@ -854,6 +855,16 @@ async def acompletion(
         if not effective_api_key and provider_config.get("local"):
             effective_api_key = "ollama"
         effective_model = model_name  # use bare model name with native SDK
+
+    # Platform-budget (force-proxy) mode: route every non-OAuth provider through the
+    # platform LiteLLM proxy (LLM_API_BASE + the user's virtual key), bypassing the
+    # user's own provider keys WITHOUT deleting them. Adapter/model selection stays,
+    # so claude-* still uses the Anthropic adapter against the proxy (as in hub mode).
+    if sdk_type not in ("codex", "gemini-cli"):
+        _fp_base, _fp_key = get_force_proxy_config()
+        if _fp_base and _fp_key:
+            effective_base_url = _fp_base
+            effective_api_key = _fp_key
 
     adapter = get_adapter(sdk_type)
 

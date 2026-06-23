@@ -3933,6 +3933,51 @@ class ChatRoom(ToolSet):
             }
 
     @tool(exclude=True)
+    async def set_llm_proxy(
+        self, enabled: bool, base_url: str = "", api_key: str = ""
+    ) -> dict:
+        """Toggle 'platform budget' mode for THIS local backend (frontend-only).
+
+        enabled=True: route every LLM call through the platform LiteLLM proxy
+        (base_url) using the user's per-user virtual key (api_key) — usage spends
+        against the user's platform budget — bypassing (NOT deleting) the user's own
+        provider keys. enabled=False: go back to the user's own keys.
+
+        Sets the env in this process so it takes effect immediately. The frontend
+        re-pushes this on every connect, so it survives backend restarts without
+        persisting the virtual key to disk.
+        """
+        import os
+
+        try:
+            if enabled:
+                if not base_url or not api_key:
+                    return {
+                        "success": False,
+                        "message": "base_url and api_key are required when enabling platform budget",
+                    }
+                # Dedicated env so the user's own LLM_API_BASE/KEY are never touched.
+                os.environ["PANTHEON_PLATFORM_PROXY_BASE"] = base_url
+                os.environ["PANTHEON_PLATFORM_PROXY_KEY"] = api_key
+                os.environ["LLM_FORCE_PROXY"] = "true"
+            else:
+                os.environ.pop("LLM_FORCE_PROXY", None)
+                os.environ.pop("PANTHEON_PLATFORM_PROXY_BASE", None)
+                os.environ.pop("PANTHEON_PLATFORM_PROXY_KEY", None)
+            return {
+                "success": True,
+                "enabled": bool(enabled),
+                "message": (
+                    "Platform budget enabled — LLM calls now use the platform proxy."
+                    if enabled
+                    else "Platform budget disabled — using your own API keys."
+                ),
+            }
+        except Exception as e:
+            logger.error(f"set_llm_proxy failed: {e}")
+            return {"success": False, "message": str(e)}
+
+    @tool(exclude=True)
     async def check_api_keys(self) -> dict:
         """Check the configuration status of LLM API keys.
 
