@@ -151,6 +151,13 @@ def prefix_saved_models(provider: str, model_names: list[str]) -> list[str]:
 
 DEFAULT_PROVIDER_PRIORITY = ["anthropic", "openai", "gemini", "gemini-cli", "zai", "deepseek", "minimax", "moonshot", "qwen", "groq", "mistral", "together_ai", "openrouter", "codex", "ollama"]
 
+# Providers the platform LiteLLM proxy serves. When platform budget (force-proxy)
+# is on, model resolution is restricted to these so quality-tier chains (high/
+# normal/low) never fall through to a local-only provider (gemini-cli / ollama /
+# zai / minimax / …) the proxy can't run. The budget supplies these keys, so they
+# are usable even without the user configuring their own.
+PLATFORM_PROXY_PROVIDERS = ["anthropic", "openai", "gemini"]
+
 # Quality levels map to MODEL LISTS (not single models) for fallback chains
 # Models within each level are ordered by preference
 DEFAULT_PROVIDER_MODELS = {
@@ -397,6 +404,23 @@ class ModelSelector:
 
         return self._available_providers
 
+    def _effective_providers(self) -> set[str]:
+        """Providers usable for model resolution *right now*.
+
+        Under platform budget (force-proxy), only the proxy's providers are usable
+        regardless of what the user configured locally: the budget supplies the
+        keys, and local-only providers (gemini-cli / ollama / zai / …) aren't
+        reachable through the proxy. Read fresh each call (not cached) so a runtime
+        budget toggle is reflected.
+        """
+        try:
+            from pantheon.utils.llm_providers import is_force_proxy_enabled
+            if is_force_proxy_enabled():
+                return set(PLATFORM_PROXY_PROVIDERS)
+        except Exception:
+            pass
+        return self._get_available_providers()
+
     def detect_available_provider(self) -> str | None:
         """Detect first available provider based on API keys.
 
@@ -412,7 +436,7 @@ class ModelSelector:
             return self._detected_provider
 
         # Get available providers from environment
-        available = self._get_available_providers()
+        available = self._effective_providers()
         if not available:
             logger.warning("No LLM providers detected from environment API keys")
             return None
@@ -715,7 +739,7 @@ class ModelSelector:
             return []
 
         tier_order = tier_order or ["normal", "high", "low"]
-        available = self._get_available_providers()
+        available = self._effective_providers()
         if not available:
             return []
 
@@ -802,7 +826,7 @@ class ModelSelector:
         Returns:
             List of image generation models as fallback chain
         """
-        available = self._get_available_providers()
+        available = self._effective_providers()
         
         # Priority order for image generation providers
         priority = ["openai", "gemini"]
