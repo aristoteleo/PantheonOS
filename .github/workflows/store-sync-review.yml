@@ -1,0 +1,77 @@
+name: store-sync-review
+
+# Sync skill sources from upstream + auto-review new/changed skills.
+#
+# Runs the existing CLI loop inside the agent image:
+#   1. seed check-updates  — which upstream sources moved
+#   2. seed prepare         — clone sources into a local manifest
+#   3. seed publish         — re-publish changed skills (auto-versioned, rename-reconciled)
+#   4. review --changed-only — score only new / content-changed skills, as the
+#                              pantheon-reviewer bot, via the hub API
+#
+# Start with the manual `workflow_dispatch` trigger and confirm a clean run against
+# STAGING. Only then uncomment the `schedule:` block below to enable nightly runs.
+#
+# Requires repo secrets:
+#   PANTHEON_HUB_URL              e.g. https://app.pantheonos.stanford.edu (or staging)
+#   STORE_PUBLISHER_USER/_PASSWORD   account allowed to publish store packages (seed)
+#   PANTHEON_REVIEWER_PASSWORD       password of the `pantheon-reviewer` bot user
+#   REVIEWER_ANTHROPIC_API_KEY       LLM key the reviewer scores with
+#
+# Prereq: the hub must be deployed with review/source_rev/evaluation support, the
+# `pantheon-reviewer` bot user must exist, and the agent image must include
+# `pantheon store review` (PR: automated reviewer).
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "Source to review (a source label, or 'all')"
+        default: "all"
+      skip_publish:
+        description: "Skip the seed sync/publish — review only"
+        type: boolean
+        default: false
+      review_limit:
+        description: "Cap how many skills to review (0 = no cap; use a small number for a first run)"
+        default: "0"
+  # schedule:
+  #   - cron: "0 7 * * *"   # 07:00 UTC nightly — enable after a clean manual run
+
+concurrency:
+  group: store-sync-review
+  cancel-in-progress: false
+
+jobs:
+  sync-review:
+    runs-on: ubuntu-latest
+    container:
+      image: nanguage/pantheon-agents:latest
+    env:
+      PANTHEON_HUB_URL: ${{ secrets.PANTHEON_HUB_URL }}
+      # Reviewer LLM
+      ANTHROPIC_API_KEY: ${{ secrets.REVIEWER_ANTHROPIC_API_KEY }}
+      REVIEW_MODEL: claude-sonnet-4-6
+      # Reviewer bot (write=api logs in as this user)
+      PANTHEON_REVIEWER_USER: pantheon-reviewer
+      PANTHEON_REVIEWER_PASSWORD: ${{ secrets.PANTHEON_REVIEWER_PASSWORD }}
+    steps:
+      - name: Sync sources from upstream
+        if: ${{ github.event.inputs.skip_publish != 'true' }}
+        run: |
+          set -e
+          pantheon store login --hub_url "$PANTHEON_HUB_URL" \
+            --username "${{ secrets.STORE_PUBLISHER_USER }}" \
+            --password "${{ secrets.STORE_PUBLISHER_PASSWORD }}"
+          pantheon store seed check-updates --hub_url "$PANTHEON_HUB_URL" || true
+          pantheon store seed prepare
+          pantheon store seed publish --hub_url "$PANTHEON_HUB_URL"
+
+      - name: Review new / changed skills
+        run: |
+          pantheon store review \
+            --source "${{ github.event.inputs.source || 'all' }}" \
+            --changed_only \
+            --write api \
+            --limit "${{ github.event.inputs.review_limit || '0' }}" \
+            --hub_url "$PANTHEON_HUB_URL"
