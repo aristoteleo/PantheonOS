@@ -372,10 +372,41 @@ class StoreCLI:
             seeder.prepare(output_dir=output_dir)
         elif action == "publish":
             seeder.publish_prepared(input_dir=output_dir, dry_run=dry_run)
+        elif action in ("check-updates", "check_updates"):
+            seeder.check_updates()
         else:
             raise SystemExit(
-                f"Unknown action: {action}. Options: prepare, publish"
+                f"Unknown action: {action}. Options: prepare, publish, check-updates"
             )
+
+    def review(self, source: str = "all", changed_only: bool = True, write: str = "api",
+               only: str = None, limit: int = 0, workers: int = 6, force: bool = False,
+               hub_url: str = None):
+        """Review store skills against the skill-review rubric, writing results as the
+        pantheon-reviewer bot. Intended for scheduled runs after `seed publish`.
+
+        Needs ANTHROPIC_API_KEY (the reviewer LLM key). For `write=api` it logs in as
+        the bot (PANTHEON_REVIEWER_USER / PANTHEON_REVIEWER_PASSWORD).
+
+        Args:
+            source: source label, or "all" for every skill.
+            changed_only: only re-review skills whose content changed since their last
+                review (default True — this is what makes nightly runs cheap).
+            write: "api" (POST as the bot; works against dev or prod) or "db" (direct SQLite; dev).
+            only: comma-separated store names to restrict to (e.g. what `seed publish` just changed).
+            limit: cap the number reviewed (0 = no cap).
+            workers: concurrent reviewers.
+            force: re-review even if unchanged/already reviewed.
+            hub_url: override PANTHEON_HUB_URL.
+        """
+        import os as _os
+        if hub_url:
+            _os.environ["PANTHEON_HUB_URL"] = hub_url
+        from . import batch_review
+        if hub_url:
+            batch_review.HUB = hub_url.rstrip("/")
+        batch_review.run(source=source, write=write, changed_only=changed_only,
+                         only=only, limit=limit, workers=workers, force=force)
 
     def list(self, what: str = "installed", hub_url: str = None):
         """List installed or published packages.

@@ -119,6 +119,27 @@ class StoreClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def submit_review(self, package_id: str, rating: int, comment: str = None,
+                            evaluation: dict = None) -> dict:
+        """Post a review (rating + optional comment + structured rubric evaluation)
+        for a package as the logged-in user. Used by the automated reviewer to write
+        results as the pantheon-reviewer bot."""
+        self._check_auth()
+        body = {"rating": rating, "comment": comment, "evaluation": evaluation}
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{self.hub_url}/api/store/packages/{package_id}/reviews",
+                json=body, headers=self._headers(),
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def get_reviews(self, package_id: str) -> dict:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(f"{self.hub_url}/api/store/packages/{package_id}/reviews")
+            resp.raise_for_status()
+            return resp.json()
+
     async def transfer_reviews(self, to_package_id: str, from_package_id: str) -> dict:
         """Move reviews from one package onto another (rename/move recovery)."""
         self._check_auth()
