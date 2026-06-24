@@ -29,6 +29,8 @@ class LearningRuntime:
 
     def initialize(self, pantheon_dir: Path, global_pantheon_dir: Path | None = None) -> None:
         """Initialize all components."""
+        import os
+
         from pantheon.settings import get_settings
 
         skills_dir = resolve_skills_dir(pantheon_dir)
@@ -36,11 +38,25 @@ class LearningRuntime:
         global_skills_dir = resolve_skills_dir(global_pantheon_dir) if global_pantheon_dir else None
         factory_skills_dir = get_settings().factory_skills_dir
 
+        # Deployment-level skill denylist. A host app (e.g. Virtual Embryo) whose
+        # own agent already reaches that app's data via a dedicated MCP sets
+        # PANTHEON_EXCLUDED_SKILLS so the packaged factory skill for that app is
+        # hidden + unloadable *in this sandbox only* — the skill stays in the
+        # factory tree for every other PantheonOS agent. Comma-separated path keys.
+        excluded_skills = [
+            s.strip()
+            for s in os.environ.get("PANTHEON_EXCLUDED_SKILLS", "").split(",")
+            if s.strip()
+        ]
+        if excluded_skills:
+            logger.info(f"LearningRuntime skill denylist active: {excluded_skills}")
+
         self.store = SkillStore(
             skills_dir,
             runtime_dir,
             global_skills_dir=global_skills_dir,
             factory_skills_dir=factory_skills_dir,
+            excluded_skills=excluded_skills,
         )
         self.injector = SkillInjector(
             self.store,

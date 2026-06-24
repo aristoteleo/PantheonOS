@@ -38,13 +38,31 @@ class SkillStore:
         runtime_dir: Path,
         global_skills_dir: Path | None = None,
         factory_skills_dir: Path | None = None,
+        excluded_skills: list[str] | None = None,
     ):
         self.skills_dir = skills_dir
         self.runtime_dir = runtime_dir
         self.global_skills_dir = global_skills_dir
         self.factory_skills_dir = factory_skills_dir
+        # Per-deployment skill denylist (e.g. a host app whose own agent reaches
+        # its data via a dedicated MCP and must NOT also see the packaged factory
+        # skill for that app). Keyed by the skill's path/dir key (e.g.
+        # "virtualembryo"); a name N also hides any nested skill under "N/".
+        # Applied at this choke point so the skill stays in the factory tree for
+        # every other agent while being invisible + unloadable here.
+        self.excluded_skills = set(excluded_skills or [])
         self.skills_dir.mkdir(parents=True, exist_ok=True)
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
+
+    def _is_excluded(self, path_key: str) -> bool:
+        """True if a skill path key is in the deployment denylist (exact dir
+        match, or nested under an excluded dir)."""
+        if not self.excluded_skills:
+            return False
+        return any(
+            path_key == name or path_key.startswith(f"{name}/")
+            for name in self.excluded_skills
+        )
 
     # ── Discovery ──
 
@@ -59,6 +77,8 @@ class SkillStore:
             for skill_md in self._iter_skill_files(base_dir):
                 header = parse_frontmatter_only(skill_md, skills_dir=base_dir)
                 if header and header.path not in seen_paths:
+                    if self._is_excluded(header.path):
+                        continue
                     header.scope = scope
                     headers.append(header)
                     seen_paths.add(header.path)
@@ -84,6 +104,10 @@ class SkillStore:
             return None
         try:
             entry = parse_skill_file(skill_md, skills_dir=base_dir)
+            # Denylisted skills are invisible in scan_headers; also refuse to load
+            # them here so a stale/guessed name can't pull the content back in.
+            if self._is_excluded(entry.path):
+                return None
             entry.scope = scope
             return entry
         except Exception as e:
