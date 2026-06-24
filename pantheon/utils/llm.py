@@ -865,6 +865,21 @@ async def acompletion(
         if _fp_base and _fp_key:
             effective_base_url = _fp_base
             effective_api_key = _fp_key
+            _mk = f"{_fp_key[:7]}…({len(_fp_key)}c)" if _fp_key else "—"
+            logger.info(
+                f"[PLATFORM-BUDGET-ROUTE] model={model!r} sdk={sdk_type} → platform proxy "
+                f"{_fp_base} (vkey {_mk}) — spending platform budget"
+            )
+    else:
+        # force-proxy can't apply to OAuth/CLI providers — flag if budget is on yet a
+        # local-auth model still got picked (the budget-aware selector should prevent this).
+        from .llm_providers import is_force_proxy_enabled
+        if is_force_proxy_enabled():
+            logger.warning(
+                f"[PLATFORM-BUDGET-ROUTE] model={model!r} sdk={sdk_type} is a LOCAL OAuth/CLI "
+                f"provider → NOT routed through the platform proxy (uses local auth). A budget "
+                f"quality tier should not resolve to this."
+            )
 
     adapter = get_adapter(sdk_type)
 

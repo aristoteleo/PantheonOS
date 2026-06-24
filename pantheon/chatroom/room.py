@@ -3964,6 +3964,14 @@ class ChatRoom(ToolSet):
                 os.environ.pop("LLM_FORCE_PROXY", None)
                 os.environ.pop("PANTHEON_PLATFORM_PROXY_BASE", None)
                 os.environ.pop("PANTHEON_PLATFORM_PROXY_KEY", None)
+            # Rebuild the model selector so quality-tier chains (high/normal/low)
+            # re-resolve under the new mode — under budget they must use only the
+            # platform's providers, not a cached local one.
+            try:
+                from pantheon.utils.model_selector import reset_model_selector
+                reset_model_selector()
+            except Exception as e:
+                logger.warning(f"set_llm_proxy: model selector reset failed: {e}")
             return {
                 "success": True,
                 "enabled": bool(enabled),
