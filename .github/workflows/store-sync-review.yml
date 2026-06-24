@@ -20,7 +20,7 @@ name: store-sync-review
 #
 # Prereq: the hub must be deployed with review/source_rev/evaluation support, the
 # `pantheon-reviewer` bot user must exist, and the agent image must include
-# `pantheon store review` (PR: automated reviewer).
+# `python -m pantheon store review` (PR: automated reviewer).
 
 on:
   workflow_dispatch:
@@ -60,16 +60,16 @@ jobs:
         if: ${{ github.event.inputs.skip_publish != 'true' }}
         run: |
           set -e
-          pantheon store login --hub_url "$PANTHEON_HUB_URL" \
+          python -m pantheon store login --hub_url "$PANTHEON_HUB_URL" \
             --username "${{ secrets.STORE_PUBLISHER_USER }}" \
             --password "${{ secrets.STORE_PUBLISHER_PASSWORD }}"
-          pantheon store seed check-updates --hub_url "$PANTHEON_HUB_URL" || true
-          pantheon store seed prepare
-          pantheon store seed publish --hub_url "$PANTHEON_HUB_URL"
+          python -m pantheon store seed check-updates --hub_url "$PANTHEON_HUB_URL" || true
+          python -m pantheon store seed prepare
+          python -m pantheon store seed publish --hub_url "$PANTHEON_HUB_URL"
 
       - name: Review new / changed skills
         run: |
-          pantheon store review \
+          python -m pantheon store review \
             --source "${{ github.event.inputs.source || 'all' }}" \
             --changed_only \
             --write api \
