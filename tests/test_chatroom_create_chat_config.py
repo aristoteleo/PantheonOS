@@ -15,6 +15,14 @@ def _make_chatroom(tmp_path: Path) -> ChatRoom:
     chatroom.memory_manager = MemoryManager(memory_dir, use_jsonl=True)
     chatroom.template_manager = get_template_manager(tmp_path)
     chatroom.chat_teams = {}
+    chatroom.project_manager = type(
+        "PM",
+        (),
+        {
+            "list_projects": lambda self: [],
+            "active_project": None,
+        },
+    )()
     return chatroom
 
 

@@ -410,6 +410,7 @@ class ChatNameGenerator:
     async def generate_or_update_name(
         self,
         memory: Memory,
+        messages: List[Dict[str, Any]] | None = None,
         preferred_model: str | None = None,
     ) -> str:
         """Generate a chat name only if the chat still has a default name.
@@ -431,26 +432,85 @@ class ChatNameGenerator:
         # rename never actually stuck (e.g. leftover from a prior bug where the
         # name was clobbered back). Fall through and try again.
 
-        agent_messages = memory.get_messages(None)
+        agent_messages = messages if messages is not None else memory.get_messages(None)
         user_msgs = [m for m in agent_messages if m.get("role") == "user"]
         if not user_msgs:
             return memory.name
 
+        new_name = await self.generate_name_candidate(
+            agent_messages,
+            preferred_model=preferred_model,
+        )
+        if new_name:
+            self._update_metadata(memory, len(agent_messages))
+            return new_name
+
+        fallback = self._fallback_name(agent_messages)
+        self._update_metadata(memory, len(agent_messages))
+        return fallback
+
+    async def generate_name_candidate(
+        self,
+        messages: List[Dict[str, Any]],
+        preferred_model: str | None = None,
+    ) -> str | None:
+        """Generate a chat title candidate without mutating memory."""
+        user_msgs = [m for m in messages if m.get("role") == "user"]
+        if not user_msgs:
+            return None
+
         try:
             new_name = await self._generate_with_ai(
-                agent_messages,
+                messages,
                 preferred_model=preferred_model,
             )
             if new_name:
-                self._update_metadata(memory, len(agent_messages))
                 return new_name
         except Exception as e:
             logger.warning(f"AI name generation failed: {e}")
 
-        # Fallback to simple extraction
-        fallback = self._fallback_name(agent_messages)
-        self._update_metadata(memory, len(agent_messages))
-        return fallback
+        return self._fallback_name(messages)
+
+    def _normalize_message_text(self, content: Any) -> str:
+        if isinstance(content, list):
+            text_parts = [
+                item.get("text", "")
+                for item in content
+                if isinstance(item, dict) and item.get("type") == "text"
+            ]
+            content = " ".join(text_parts)
+        return str(content).strip()
+
+    def _message_title_text(self, msg: Dict[str, Any]) -> str:
+        visible = self._normalize_message_text(msg.get("content"))
+        if visible:
+            return visible
+        return self._normalize_message_text(msg.get("_llm_content"))
+
+    def _build_title_context(self, messages: List[Dict[str, Any]]) -> List[str]:
+        user_msgs = [m for m in messages if m.get("role") == "user"]
+        if not user_msgs:
+            return []
+
+        final_msg = user_msgs[-1]
+        other_msgs = user_msgs[:-1]
+
+        msg_info = []
+        for i, msg in enumerate(other_msgs):
+            text = self._message_title_text(msg)
+            if not text:
+                continue
+            msg_info.append((i, text))
+
+        msg_info.sort(key=lambda x: len(x[1]), reverse=True)
+        selected = msg_info[:5]
+
+        final_text = self._message_title_text(final_msg)
+        if final_text:
+            selected.append((len(user_msgs) - 1, final_text))
+
+        selected.sort(key=lambda x: x[0])
+        return [text for _, text in selected]
 
     def _is_default_name(self, name: str) -> bool:
         """Check if a name is a default placeholder that should be replaced.
@@ -502,52 +562,13 @@ class ChatNameGenerator:
             )
             self._name_agent_model = helper_model_key
 
-        # 1. Filter for USER messages only
-        user_msgs = [m for m in messages if m.get("role") == "user"]
-        if not user_msgs:
+        context_lines = self._build_title_context(messages)
+        if not context_lines:
             return None
 
-        # 2. Informative Strategy: Top 5 longest messages + Last message
-        # Exploratory messages (Hi, etc) are short; real tasks are usually longer.
-        # This global selection naturally filters 'noise' messages.
-        
-        # Always include the very last user message for latest focus
-        final_msg = user_msgs[-1]
-        other_msgs = user_msgs[:-1]
-
-        # Pick top 5 longest from the rest
-        msg_info = []
-        for i, m in enumerate(other_msgs):
-            length = len(str(m.get("_llm_content") or m.get("content") or ""))
-            msg_info.append((i, m, length))
-            
-        # Sort by length descending, take top 5
-        msg_info.sort(key=lambda x: x[2], reverse=True)
-        selected_info = msg_info[:5]
-        
-        # Create unique set of selected indices
-        selected_msgs_with_index = [(i, m) for i, m, _ in selected_info]
-        selected_msgs_with_index.append((len(user_msgs) - 1, final_msg))
-        
-        # Sort back by original index to keep chronological order
-        selected_msgs_with_index.sort(key=lambda x: x[0])
-        
-        # 3. Format Context
         context_str = ""
-        for _, msg in selected_msgs_with_index:
-            # Prioritize _llm_content > content
-            content = msg.get("_llm_content") or msg.get("content") or ""
-            
-            if isinstance(content, list):
-                # Extract text from multimodal
-                text_parts = [
-                    item.get("text", "")
-                    for item in content
-                    if isinstance(item, dict) and item.get("type") == "text"
-                ]
-                content = " ".join(text_parts)
-            
-            context_str += f"- {str(content)[:500]}\n"
+        for text in context_lines:
+            context_str += f"- {text[:500]}\n"
 
         prompt = (
             f"User's Messages defining this chat:\n{context_str}\n"
@@ -575,16 +596,7 @@ class ChatNameGenerator:
         """Simple fallback: use first user message"""
         for msg in messages:
             if msg.get("role") == "user":
-                content = msg.get("content") or msg.get("_llm_content", "")
-                if isinstance(content, list):
-                    text_parts = [
-                        item.get("text", "")
-                        for item in content
-                        if isinstance(item, dict) and item.get("type") == "text"
-                    ]
-                    content = " ".join(text_parts)
-                
-                content = str(content)
+                content = self._message_title_text(msg)
                 if content:
                     fallback = content[:50].strip()
                     if len(content) > 50:

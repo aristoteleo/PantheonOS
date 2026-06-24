@@ -180,3 +180,92 @@ class TestFallbackName:
         result = await gen.generate_or_update_name(memory)
 
         assert result == "帮我分析一个数据"
+
+
+# ============================================================================
+# generate_or_update_name: message source priority
+# ============================================================================
+
+
+class TestMessageSourcePriority:
+
+    @pytest.mark.asyncio
+    async def test_generate_or_update_name_prefers_visible_content_over_llm_content(self, monkeypatch):
+        """When both are present, the human-visible content should drive the title.
+
+        The _llm_content wrapper is useful for the main agent, but chat title
+        generation should prefer the cleaner user-visible content.
+        """
+        gen = ChatNameGenerator()
+        memory = Memory("New Chat")
+        memory.id = "chat-1"
+
+        captured = {}
+
+        async def fake_run(self, prompt, *args, **kwargs):
+            captured["prompt"] = prompt
+            return type("Resp", (), {"content": "🧪 Visible Title"})()
+
+        def fake_resolve_model(model, current_model=None):
+            return ["anthropic/claude-haiku-4-5"]
+
+        monkeypatch.setattr("pantheon.chatroom.special_agents.Agent.run", fake_run)
+        monkeypatch.setattr(
+            "pantheon.chatroom.special_agents._resolve_model_spec_with_current_provider",
+            fake_resolve_model,
+            raising=False,
+        )
+
+        result = await gen.generate_or_update_name(
+            memory,
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Visible request for the title",
+                    "_llm_content": "<USER_REQUEST>Hidden wrapper text</USER_REQUEST>",
+                }
+            ],
+            preferred_model="anthropic/claude-opus-4-8",
+        )
+
+        assert result == "🧪 Visible Title"
+        assert "Visible request for the title" in captured["prompt"]
+        assert "Hidden wrapper text" not in captured["prompt"]
+
+    @pytest.mark.asyncio
+    async def test_generate_or_update_name_falls_back_to_llm_content_when_visible_content_is_blank(self, monkeypatch):
+        """Blank/whitespace content should not win over a real _llm_content payload."""
+        gen = ChatNameGenerator()
+        memory = Memory("New Chat")
+        memory.id = "chat-2"
+
+        captured = {}
+
+        async def fake_run(self, prompt, *args, **kwargs):
+            captured["prompt"] = prompt
+            return type("Resp", (), {"content": "🧪 Wrapper Title"})()
+
+        def fake_resolve_model(model, current_model=None):
+            return ["anthropic/claude-haiku-4-5"]
+
+        monkeypatch.setattr("pantheon.chatroom.special_agents.Agent.run", fake_run)
+        monkeypatch.setattr(
+            "pantheon.chatroom.special_agents._resolve_model_spec_with_current_provider",
+            fake_resolve_model,
+            raising=False,
+        )
+
+        result = await gen.generate_or_update_name(
+            memory,
+            messages=[
+                {
+                    "role": "user",
+                    "content": "   ",
+                    "_llm_content": "<USER_REQUEST>Wrapper text should be used</USER_REQUEST>",
+                }
+            ],
+            preferred_model="anthropic/claude-opus-4-8",
+        )
+
+        assert result == "🧪 Wrapper Title"
+        assert "Wrapper text should be used" in captured["prompt"]

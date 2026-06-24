@@ -2681,51 +2681,78 @@ class ChatRoom(ToolSet):
             await asyncio.sleep(time_delta)
         return {"success": True, "message": "Hooks attached successfully"}
 
-    async def _background_rename_chat(self, memory):
+    async def _apply_chat_rename(self, memory, new_name, chat_name_generator, messages=None):
+        if not new_name or new_name == memory.name:
+            return False
+        if not chat_name_generator._is_default_name(memory.name):
+            return False
+
+        message_count = len(messages) if messages is not None else len(memory.get_messages(None))
+        chat_name_generator._update_metadata(memory, message_count)
+        memory.name = new_name
+        # Sync customTitle to keep session_storage in step with memory.name,
+        # otherwise restoreSessionMetadata would clobber memory.name back
+        # on the next turn.
+        session_storage = memory.extra_data.get("session_storage")
+        if isinstance(session_storage, dict):
+            metadata = session_storage.get("metadata")
+            if isinstance(metadata, dict) and metadata.get("customTitle") != new_name:
+                metadata["customTitle"] = new_name
+                memory.mark_dirty()
+        # Save only this chat's memory
+        await run_func(self.memory_manager.save_one, memory.id)
+        # Notify frontend via NATS
+        if self._nats_adapter is not None:
+            await self._nats_adapter.publish(
+                memory.id, "chat_renamed",
+                {"type": "chat_renamed", "chat_id": memory.id, "name": new_name},
+            )
+        return True
+
+    async def _background_rename_chat(self, memory, messages=None, preferred_model=None, candidate_task=None):
         """Background task to rename chat without blocking main flow.
 
-        This runs asynchronously after chat() returns, so the user doesn't
-        experience any delay from the LLM call for name generation.
+        This runs asynchronously so the user doesn't experience any delay from
+        the LLM call for name generation.
         """
         try:
             from .special_agents import get_chat_name_generator
 
-            preferred_model = None
-            try:
-                team = await self.get_team_for_chat(memory.id)
-                active_agent = team.get_active_agent(memory)
-                preferred_model = (
-                    active_agent.models[0] if getattr(active_agent, "models", None) else None
-                )
-            except Exception:
-                preferred_model = None
-
             chat_name_generator = get_chat_name_generator()
-            new_name = await chat_name_generator.generate_or_update_name(
+            if not chat_name_generator._is_default_name(memory.name):
+                return
+
+            if candidate_task is not None:
+                try:
+                    new_name = await candidate_task
+                except Exception:
+                    new_name = None
+            else:
+                new_name = None
+
+            if not new_name:
+                agent_messages = messages if messages is not None else memory.get_messages(None)
+                new_name = await chat_name_generator.generate_name_candidate(
+                    agent_messages,
+                    preferred_model=preferred_model,
+                )
+
+            await self._apply_chat_rename(
                 memory,
-                preferred_model=preferred_model,
+                new_name,
+                chat_name_generator,
+                messages=messages,
             )
-            if new_name and new_name != memory.name:
-                memory.name = new_name
-                # Sync customTitle to keep session_storage in step with memory.name,
-                # otherwise restoreSessionMetadata would clobber memory.name back
-                # on the next turn.
-                session_storage = memory.extra_data.get("session_storage")
-                if isinstance(session_storage, dict):
-                    metadata = session_storage.get("metadata")
-                    if isinstance(metadata, dict) and metadata.get("customTitle") != new_name:
-                        metadata["customTitle"] = new_name
-                        memory.mark_dirty()
-                # Save only this chat's memory
-                await run_func(self.memory_manager.save_one, memory.id)
-                # Notify frontend via NATS
-                if self._nats_adapter is not None:
-                    await self._nats_adapter.publish(
-                        memory.id, "chat_renamed",
-                        {"type": "chat_renamed", "chat_id": memory.id, "name": new_name},
-                    )
         except Exception as e:
             logger.error(f"Background chat rename failed: {e}", exc_info=True)
+
+    async def _resolve_chat_name_preferred_model(self, memory):
+        try:
+            team = await self.get_team_for_chat(memory.id)
+            active_agent = team.get_active_agent(memory)
+            return active_agent.models[0] if getattr(active_agent, "models", None) else None
+        except Exception:
+            return None
 
     def _setup_bg_auto_notify(self, chat_id: str, team):
         """Wire bg task completion to auto-trigger a new chat turn.
@@ -3010,6 +3037,33 @@ class ChatRoom(ToolSet):
         team = await self.get_team_for_chat(chat_id)
         self._setup_bg_auto_notify(chat_id, team)
 
+        rename_candidate_task = None
+        rename_apply_task = None
+        rename_preferred_model = None
+        if self._enable_auto_chat_name:
+            from .special_agents import get_chat_name_generator
+
+            rename_preferred_model = await self._resolve_chat_name_preferred_model(memory)
+            chat_name_generator = get_chat_name_generator()
+            rename_candidate_task = asyncio.create_task(
+                chat_name_generator.generate_name_candidate(
+                    message,
+                    preferred_model=rename_preferred_model,
+                )
+            )
+            self._background_tasks.add(rename_candidate_task)
+            rename_candidate_task.add_done_callback(self._background_tasks.discard)
+            rename_apply_task = asyncio.create_task(
+                self._background_rename_chat(
+                    memory,
+                    messages=message,
+                    preferred_model=rename_preferred_model,
+                    candidate_task=rename_candidate_task,
+                )
+            )
+            self._background_tasks.add(rename_apply_task)
+            rename_apply_task.add_done_callback(self._background_tasks.discard)
+
         # Anchor the run to THIS chat's project root (workspace root) so the task
         # brain, image output, and file tools all live under it — never the global
         # home. Previously workdir was set ONLY for "isolated" chats with an
@@ -3110,14 +3164,17 @@ class ChatRoom(ToolSet):
                 except RuntimeError:
                     pass
 
-            # Kick off rename AFTER thread.run() so memory has the user
-            # message (added inside agent.run()) and the agent response.
-            # Running it earlier raced the user-message insertion and caused
-            # the first message to never trigger a rename.
             if self._enable_auto_chat_name:
-                task = asyncio.create_task(self._background_rename_chat(memory))
-                self._background_tasks.add(task)
-                task.add_done_callback(self._background_tasks.discard)
+                if rename_apply_task is None or rename_apply_task.done():
+                    task = asyncio.create_task(
+                        self._background_rename_chat(
+                            memory,
+                            messages=message,
+                            preferred_model=rename_preferred_model,
+                        )
+                    )
+                    self._background_tasks.add(task)
+                    task.add_done_callback(self._background_tasks.discard)
 
             # Post-execution image detection: scan the quick-preview dir for images
             # created during this run and push them inline (mainly for claw channels).
