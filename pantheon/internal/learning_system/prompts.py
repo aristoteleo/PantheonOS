@@ -27,6 +27,10 @@ Choose by: `best_for` matching your task, a `recommended` verdict and solid rati
 and `not_for` / `caveats` that don't exclude your case. Prefer a local skill when \
 both fit. Adopted store skills are ephemeral — used for this task only, not installed.
 
+After finishing a task in which you adopted a store skill, leave usage feedback with \
+`skill_rate(name, rating, comment)` — did it actually help, was its best_for/caveats \
+accurate? This is how the store learns which skills truly work, beyond the static review.
+
 **Creating and Maintaining Skills:**
 
 After completing a complex task (5+ tool calls), fixing a tricky error, \

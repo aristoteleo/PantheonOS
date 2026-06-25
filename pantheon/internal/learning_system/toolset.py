@@ -393,6 +393,61 @@ class SkillToolSet(ToolSet):
             "bundled_files": list(files.keys()),
             "hint": (
                 "EPHEMERAL store skill (not installed). Follow its content as a playbook for "
-                "this task. (Bundled files are listed by name only in v1.)"
+                "this task. When the task is done, leave usage feedback with "
+                "skill_rate(name, rating, comment)."
             ),
+        })
+
+    @tool
+    async def skill_rate(self, name: str, rating: int, comment: str = None) -> str:
+        """Leave usage feedback on a Pantheon Store skill you ADOPTED and used this task.
+
+        Call this AFTER finishing a task in which you used skill_adopt(), to report
+        whether the skill actually helped: did it work, was its best_for accurate, did
+        its caveats hold? Your feedback becomes a real review (rating + comment) — the
+        store's quality signal is usage-validated this way, not just the static AI
+        review. Only rate skills you actually used.
+
+        Args:
+            name: the store name of an adopted skill.
+            rating: 1-5 (1 = useless/wrong/misleading, 5 = exactly what was needed).
+            comment: optional — what worked, what didn't, whether the caveats held.
+        """
+        try:
+            rating = int(rating)
+        except Exception:
+            return self._json({"success": False, "error": "rating must be an integer 1-5"})
+        if not (1 <= rating <= 5):
+            return self._json({"success": False, "error": "rating must be 1-5"})
+        import os as _os
+        import httpx
+        # Feedback is posted as the USER. Token from the store login file, or an
+        # injected PANTHEON_STORE_TOKEN (how the agent runtime would carry the user's).
+        token = _os.environ.get("PANTHEON_STORE_TOKEN")
+        if not token:
+            try:
+                from pantheon.store.client import StoreClient
+                token = StoreClient(hub_url=self._hub_url()).auth.token
+            except Exception:
+                token = None
+        if not token:
+            return self._json({
+                "success": False,
+                "error": "No store credentials — feedback skipped. (`pantheon store login` or set PANTHEON_STORE_TOKEN.)",
+            })
+        try:
+            async with httpx.AsyncClient(timeout=20) as c:
+                r = await c.post(
+                    f"{self._hub_url()}/api/store/packages/{name}/reviews",
+                    json={"rating": rating, "comment": (comment or "").strip() or None},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                if r.status_code == 404:
+                    return self._json({"success": False, "error": f"Skill '{name}' not found in the store"})
+                r.raise_for_status()
+        except Exception as e:
+            return self._json({"success": False, "error": f"feedback failed: {e}"})
+        return self._json({
+            "success": True,
+            "hint": f"Recorded your usage feedback on '{name}' (rating {rating}/5). This improves the store for everyone.",
         })
