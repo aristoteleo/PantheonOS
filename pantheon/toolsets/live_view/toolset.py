@@ -773,6 +773,90 @@ class LiveViewToolSet(ToolSet):
         })
         return {"success": True}
 
+    @tool
+    async def manage_endpoints(
+        self, action: str, name: str | None = None,
+    ) -> dict:
+        """Manage dynamic LiveView endpoints (list, info, unregister).
+
+        This tool provides endpoint lifecycle management operations to
+        complement serve_endpoint. Use it to inspect registered endpoints
+        or clean up ones that are no longer needed.
+
+        Args:
+            action: Operation to perform:
+                - "list": List all registered endpoints with their URLs
+                - "info": Get details about a specific endpoint (requires name)
+                - "unregister": Remove an endpoint registration (requires name)
+            name: Endpoint name (required for "info" and "unregister" actions)
+
+        Returns:
+            dict with success status and operation-specific data:
+            - list: {"success": True, "endpoints": [{"name": ..., "url": ...}, ...]}
+            - info: {"success": True, "name": ..., "url": ..., "exists": True}
+            - unregister: {"success": True, "removed": True/False}
+
+        Examples:
+            manage_endpoints("list")
+            manage_endpoints("info", "ab_track")
+            manage_endpoints("unregister", "old_endpoint")
+        """
+        if action not in ("list", "info", "unregister"):
+            return {
+                "success": False,
+                "error": f"Invalid action '{action}'. Must be 'list', 'info', or 'unregister'",
+            }
+
+        if action in ("info", "unregister") and not name:
+            return {
+                "success": False,
+                "error": f"Action '{action}' requires a 'name' parameter",
+            }
+
+        try:
+            server = await self._ensure_data_server()
+        except Exception as e:  # noqa: BLE001
+            return {"success": False, "error": f"Data server not available: {e}"}
+
+        if action == "list":
+            endpoints = server.list_endpoints()
+            return {"success": True, "endpoints": endpoints}
+
+        if action == "info":
+            from .data_server import LiveViewDataServer
+            try:
+                LiveViewDataServer.validate_endpoint_name(name)  # type: ignore[arg-type]
+            except ValueError as e:
+                return {"success": False, "error": str(e)}
+
+            exists = server.endpoint_exists(name)  # type: ignore[arg-type]
+            if not exists:
+                return {
+                    "success": True,
+                    "name": name,
+                    "exists": False,
+                    "url": None,
+                }
+            url = server.url_for_endpoint(name)  # type: ignore[arg-type]
+            return {
+                "success": True,
+                "name": name,
+                "exists": True,
+                "url": url,
+            }
+
+        if action == "unregister":
+            from .data_server import LiveViewDataServer
+            try:
+                LiveViewDataServer.validate_endpoint_name(name)  # type: ignore[arg-type]
+            except ValueError as e:
+                return {"success": False, "error": str(e)}
+
+            removed = server.unregister_endpoint(name)  # type: ignore[arg-type]
+            return {"success": True, "removed": removed}
+
+        return {"success": False, "error": "Unreachable"}
+
     # ── UI-facing methods (not exposed to the LLM) ────────────────────────
 
     @tool(exclude=True)

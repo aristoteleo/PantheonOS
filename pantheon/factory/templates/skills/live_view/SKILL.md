@@ -214,6 +214,7 @@ the agent can still open, drive, and observe.
 | `open_live_view(view_type, title, state, module_url?)` | Open a viewer plugin (e.g. `view_type="vitessce"`) or a custom component (`view_type="custom"` + `module_url`); returns `view_id` |
 | `serve_local_data(path)` | Expose a workspace file/dir over HTTP+CORS; returns a fetchable URL |
 | `serve_endpoint(name, path, config?)` | Expose a lightweight Python HTTP endpoint over the same CORS data server; returns a fetchable `/api/<name>/` URL |
+| `manage_endpoints(action, name?)` | Manage endpoints: `action="list"` lists all, `action="info"` checks one, `action="unregister"` removes one |
 | `live_view_update(view_id, patch)` | Deep-merge a partial-state patch (drive it) |
 | `live_view_set_state(view_id, state)` | Replace the whole state |
 | `live_view_get_state(view_id)` | Read state, `status`, and `diagnostics` — incl. the user's own edits |
@@ -237,6 +238,16 @@ JSON-serializable constants such as fixed paths or sample names; use request
 parameters for interactive controls, and files plus `serve_local_data` for large
 arrays or binary data. Keep handlers light: precompute heavy results before
 serving, or run complex services in a separate process and proxy them in.
+
+Use `manage_endpoints` to inspect or clean up registered endpoints:
+- `manage_endpoints("list")` — list all active endpoints with their URLs
+- `manage_endpoints("info", "track_name")` — check if a specific endpoint exists
+- `manage_endpoints("unregister", "old_track")` — remove an endpoint that's no
+  longer needed
+
+Registering a new endpoint with the same name replaces the previous handler.
+Endpoint handlers run in the data server's thread and should return quickly;
+any exceptions are logged but clients receive only a generic error message.
 
 Workflow: `open_live_view` → **verify** (`live_view_get_state` for
 `diagnostics`, `live_view_screenshot` to see it — `status: ready` does NOT
