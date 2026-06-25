@@ -226,6 +226,53 @@ class LiveViewDataServer:
             return f"{self._tunnel_base}/api/{name}/?token={self._token}"
         return f"{self._base_url}/api/{name}/"
 
+    def list_endpoints(self) -> list[dict[str, str]]:
+        """List all registered dynamic endpoints with their URLs.
+
+        Returns:
+            List of dicts with 'name' and 'url' keys for each endpoint.
+        """
+        with self._endpoint_lock:
+            endpoints = list(self._endpoints.keys())
+        result = []
+        for name in endpoints:
+            url = self.url_for_endpoint(name)
+            if url:
+                result.append({"name": name, "url": url})
+        return result
+
+    def unregister_endpoint(self, name: str) -> bool:
+        """Unregister a dynamic endpoint by name.
+
+        Args:
+            name: The endpoint name to remove.
+
+        Returns:
+            True if the endpoint was removed, False if it didn't exist.
+        """
+        self.validate_endpoint_name(name)
+        with self._endpoint_lock:
+            if name in self._endpoints:
+                del self._endpoints[name]
+                return True
+            return False
+
+    def endpoint_exists(self, name: str) -> bool:
+        """Check if an endpoint is currently registered.
+
+        Args:
+            name: The endpoint name to check.
+
+        Returns:
+            True if the endpoint exists, False otherwise.
+        """
+        try:
+            self.validate_endpoint_name(name)
+        except ValueError:
+            return False
+        with self._endpoint_lock:
+            return name in self._endpoints
+
     def _valid_api_token(self, request: web.Request) -> bool:
         if not self._server_mode:
             return True
@@ -259,11 +306,16 @@ class LiveViewDataServer:
                 result = await result
         except Exception as e:  # noqa: BLE001
             logger.exception("live_view: endpoint '{}' failed", name)
-            return web.Response(status=500, text=f"endpoint failed: {e}")
+            # Return generic error message to avoid leaking internal details
+            return web.Response(status=500, text="Internal server error")
         if not isinstance(result, web.StreamResponse):
+            logger.error(
+                "live_view: endpoint '{}' handler returned invalid type: {}",
+                name, type(result).__name__,
+            )
             return web.Response(
                 status=500,
-                text="endpoint handler must return aiohttp.web.StreamResponse",
+                text="Internal server error",
             )
         return result
 
