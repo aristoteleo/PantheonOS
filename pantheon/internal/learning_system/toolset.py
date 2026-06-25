@@ -306,6 +306,29 @@ class SkillToolSet(ToolSet):
             "PANTHEON_HUB_URL", "https://app.pantheonos.stanford.edu"
         ).rstrip("/")
 
+    def _store_credentials(self):
+        """Resolve the user's store identity for WRITE ops (feedback) only.
+
+        Read ops (search/adopt) are anonymous; only feedback is posted as the
+        user, so only it requires login. Hosted runtimes inject the logged-in
+        user's store JWT via PANTHEON_STORE_TOKEN (+ optional PANTHEON_STORE_USER
+        for attribution); the local CLI uses the `pantheon store login`
+        credentials file. Returns (token, username), or (None, None) when the
+        user isn't logged in.
+        """
+        import os
+        token = os.environ.get("PANTHEON_STORE_TOKEN")
+        if token:
+            return token, os.environ.get("PANTHEON_STORE_USER")
+        try:
+            from pantheon.store.auth import StoreAuth
+            auth = StoreAuth()
+            if auth.is_logged_in:
+                return auth.token, auth.username
+        except Exception:
+            pass
+        return None, None
+
     @tool
     async def skill_search_store(self, query: str, limit: int = 8) -> str:
         """Search the Pantheon Store MARKETPLACE for skills relevant to your task.
@@ -385,6 +408,14 @@ class SkillToolSet(ToolSet):
         except Exception:
             pass
         files = dl.get("files") or {}
+        token, _user = self._store_credentials()
+        if token:
+            fb = ("When the task is done, leave usage feedback with "
+                  "skill_rate(name, rating, comment) — it's posted as the user's review.")
+        else:
+            fb = ("To leave usage feedback when done (it becomes the user's own review and "
+                  "improves the store), the user must be logged in — mention they can run "
+                  "`pantheon store login`.")
         return self._json({
             "success": True,
             "name": dl.get("name"),
@@ -392,9 +423,8 @@ class SkillToolSet(ToolSet):
             "content": dl.get("content", ""),
             "bundled_files": list(files.keys()),
             "hint": (
-                "EPHEMERAL store skill (not installed). Follow its content as a playbook for "
-                "this task. When the task is done, leave usage feedback with "
-                "skill_rate(name, rating, comment)."
+                "EPHEMERAL store skill (not installed). Follow its content as a playbook "
+                "for this task. " + fb
             ),
         })
 
@@ -419,22 +449,19 @@ class SkillToolSet(ToolSet):
             return self._json({"success": False, "error": "rating must be an integer 1-5"})
         if not (1 <= rating <= 5):
             return self._json({"success": False, "error": "rating must be 1-5"})
-        import os as _os
-        import httpx
-        # Feedback is posted as the USER. Token from the store login file, or an
-        # injected PANTHEON_STORE_TOKEN (how the agent runtime would carry the user's).
-        token = _os.environ.get("PANTHEON_STORE_TOKEN")
-        if not token:
-            try:
-                from pantheon.store.client import StoreClient
-                token = StoreClient(hub_url=self._hub_url()).auth.token
-            except Exception:
-                token = None
+        # Feedback is posted as the USER's own review, so it requires login.
+        token, username = self._store_credentials()
         if not token:
             return self._json({
                 "success": False,
-                "error": "No store credentials — feedback skipped. (`pantheon store login` or set PANTHEON_STORE_TOKEN.)",
+                "needs_login": True,
+                "error": (
+                    "Feedback becomes the user's own review, which requires login. Tell the "
+                    "user they can run `pantheon store login` to enable it — don't silently "
+                    "skip. (Hosted runtimes inject PANTHEON_STORE_TOKEN automatically.)"
+                ),
             })
+        import httpx
         try:
             async with httpx.AsyncClient(timeout=20) as c:
                 r = await c.post(
@@ -442,12 +469,21 @@ class SkillToolSet(ToolSet):
                     json={"rating": rating, "comment": (comment or "").strip() or None},
                     headers={"Authorization": f"Bearer {token}"},
                 )
-                if r.status_code == 404:
-                    return self._json({"success": False, "error": f"Skill '{name}' not found in the store"})
-                r.raise_for_status()
+            if r.status_code == 404:
+                return self._json({"success": False, "error": f"Skill '{name}' not found in the store"})
+            if r.status_code in (401, 403):
+                return self._json({
+                    "success": False,
+                    "needs_login": True,
+                    "error": "Store session expired or invalid — tell the user to run "
+                             "`pantheon store login` again to leave feedback.",
+                })
+            r.raise_for_status()
         except Exception as e:
             return self._json({"success": False, "error": f"feedback failed: {e}"})
+        who = f" as {username}" if username else ""
         return self._json({
             "success": True,
-            "hint": f"Recorded your usage feedback on '{name}' (rating {rating}/5). This improves the store for everyone.",
+            "hint": f"Recorded your usage feedback{who} on '{name}' (rating {rating}/5). "
+                    "This usage-validates the store's quality signal for everyone.",
         })

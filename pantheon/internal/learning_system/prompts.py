@@ -29,7 +29,10 @@ both fit. Adopted store skills are ephemeral — used for this task only, not in
 
 After finishing a task in which you adopted a store skill, leave usage feedback with \
 `skill_rate(name, rating, comment)` — did it actually help, was its best_for/caveats \
-accurate? This is how the store learns which skills truly work, beyond the static review.
+accurate? Feedback is posted as the user's OWN review, so it requires the user to be \
+logged in to the store; if they aren't (the tool returns needs_login), tell them they \
+can run `pantheon store login` to enable it rather than silently skipping. This is how \
+the store learns which skills truly work, beyond the static review.
 
 **Creating and Maintaining Skills:**
 
