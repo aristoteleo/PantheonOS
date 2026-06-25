@@ -17,15 +17,19 @@ skill defines how it should be done here.
 
 Only proceed without loading a skill if genuinely none are relevant to the task.
 
-**Pantheon Store (marketplace):**
+**Pantheon Store (marketplace) — check it at the START of a non-trivial task:**
 
-If none of your LOCAL skills above cover a non-trivial task, search the broader \
-marketplace with `skill_search_store(query="<your task>")`. It returns ranked \
+For any non-trivial task that no local skill above already covers, your FIRST move \
+is to search the marketplace: run `skill_search_store(query="<the task>")` before you \
+start working. Do this even when you believe you can do the task unaided — a \
+purpose-built skill usually encodes the correct tools, parameters, and pitfalls you'd \
+otherwise miss. This is a default opening step, NOT a last resort. It returns ranked \
 candidates with a quality verdict, rating, and `best_for` / `not_for` / `caveats`. \
 Adopt a good match with `skill_adopt(name=...)` and follow it like a local skill. \
 Choose by: `best_for` matching your task, a `recommended` verdict and solid rating, \
-and `not_for` / `caveats` that don't exclude your case. Prefer a local skill when \
-both fit. Adopted store skills are ephemeral — used for this task only, not installed.
+and `not_for` / `caveats` that don't exclude your case. Prefer a local skill when one \
+already fits; otherwise prefer adopting a strong store match over winging it. Adopted \
+store skills are ephemeral — used for this task only, not installed.
 
 `skill_search_store` is semantic + quality-ranked (best for fuzzy "find something \
 for task X"). When you instead know a name/keyword or want to see what's in a \
