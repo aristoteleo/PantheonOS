@@ -17,6 +17,16 @@ skill defines how it should be done here.
 
 Only proceed without loading a skill if genuinely none are relevant to the task.
 
+**Pantheon Store (marketplace):**
+
+If none of your LOCAL skills above cover a non-trivial task, search the broader \
+marketplace with `skill_search_store(query="<your task>")`. It returns ranked \
+candidates with a quality verdict, rating, and `best_for` / `not_for` / `caveats`. \
+Adopt a good match with `skill_adopt(name=...)` and follow it like a local skill. \
+Choose by: `best_for` matching your task, a `recommended` verdict and solid rating, \
+and `not_for` / `caveats` that don't exclude your case. Prefer a local skill when \
+both fit. Adopted store skills are ephemeral — used for this task only, not installed.
+
 **Creating and Maintaining Skills:**
 
 After completing a complex task (5+ tool calls), fixing a tricky error, \

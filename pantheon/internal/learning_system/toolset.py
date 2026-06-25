@@ -297,3 +297,102 @@ class SkillToolSet(ToolSet):
                 "error": str(e),
                 "hint": "Use skill_list() to see existing skills.",
             })
+
+    # ---- Pantheon Store marketplace (broader than the local skill set) ----
+
+    def _hub_url(self) -> str:
+        import os
+        return os.environ.get(
+            "PANTHEON_HUB_URL", "https://app.pantheonos.stanford.edu"
+        ).rstrip("/")
+
+    @tool
+    async def skill_search_store(self, query: str, limit: int = 8) -> str:
+        """Search the Pantheon Store MARKETPLACE for skills relevant to your task.
+
+        Your LOCAL skills (skill_list) are the trusted default — use this when the
+        local set doesn't cover the task; the marketplace is broader. Returns ranked
+        candidates with the AI reviewer's decision payload: verdict, rating, best_for,
+        not_for, caveats. Adopt a good one with skill_adopt(name=...).
+
+        Choosing: prefer a candidate whose `best_for` matches your task with a good
+        `verdict`/rating; avoid ones whose `not_for`/`caveats` exclude your case (e.g.
+        a caveat that an organism is hardcoded). Don't adopt one that duplicates a
+        local skill — prefer the local one.
+
+        Args:
+            query: task description / capability keywords.
+            limit: max candidates (default 8).
+        """
+        import httpx
+        exclude = []
+        if self._runtime.store:
+            try:
+                exclude = [h.path for h in self._runtime.store.scan_headers()]
+            except Exception:
+                exclude = []
+        try:
+            async with httpx.AsyncClient(timeout=20) as c:
+                r = await c.get(
+                    f"{self._hub_url()}/api/store/recommend",
+                    params={"q": query, "limit": limit, "exclude": ",".join(exclude)},
+                )
+                r.raise_for_status()
+                data = r.json()
+        except Exception as e:
+            return self._json({"success": False, "error": f"store search failed: {e}"})
+        results = data.get("results", [])
+        return self._json({
+            "success": True,
+            "count": len(results),
+            "results": results,
+            "hint": (
+                "Adopt one with skill_adopt(name=...). Prefer verdict=recommended with a "
+                "matching best_for and good rating; check not_for/caveats don't exclude your "
+                "task. Skip any that duplicate a local skill from skill_list()."
+            ),
+        })
+
+    @tool
+    async def skill_adopt(self, name: str) -> str:
+        """Adopt a Pantheon Store skill for THIS task (ephemeral — NOT installed locally).
+
+        Downloads the skill's content into your context so you can follow it as a
+        playbook for the current task. It is not added to your local skills. Use
+        skill_search_store first to find candidates.
+
+        Args:
+            name: the store `name` of a candidate from skill_search_store.
+        """
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=30) as c:
+                r = await c.get(f"{self._hub_url()}/api/store/packages/{name}/download")
+                if r.status_code == 404:
+                    return self._json({"success": False, "error": f"Skill '{name}' not found in the store"})
+                r.raise_for_status()
+                dl = r.json()
+        except Exception as e:
+            return self._json({"success": False, "error": f"adopt failed: {e}"})
+        # Remember which store skills were used this session (for post-task feedback, later).
+        try:
+            adopted = getattr(self._runtime, "adopted_store_skills", None)
+            if adopted is None:
+                adopted = []
+                setattr(self._runtime, "adopted_store_skills", adopted)
+            if name not in adopted:
+                adopted.append(name)
+        except Exception:
+            pass
+        files = dl.get("files") or {}
+        return self._json({
+            "success": True,
+            "name": dl.get("name"),
+            "version": dl.get("version"),
+            "content": dl.get("content", ""),
+            "bundled_files": list(files.keys()),
+            "hint": (
+                "EPHEMERAL store skill (not installed). Follow its content as a playbook for "
+                "this task. (Bundled files are listed by name only in v1.)"
+            ),
+        })
