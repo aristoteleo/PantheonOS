@@ -190,6 +190,10 @@ class ChatRoom(ToolSet):
 
         # Per-chat team management
         self.chat_teams: dict[str, PantheonTeam] = {}  # Per-chat teams cache
+        # Per-chat single-flight locks: serialize concurrent first-time team
+        # creation for the same chat so the team — and its endpoint + MCP
+        # gateway — is built exactly once. Mirrors _project_endpoint_locks.
+        self._team_init_locks: dict[str, asyncio.Lock] = {}
 
         self.speech_to_text_model = speech_to_text_model
         self.threads: dict[str, Thread] = {}
@@ -813,11 +817,27 @@ class ChatRoom(ToolSet):
         if chat_id in self.chat_teams:
             return self.chat_teams[chat_id]
 
-        # 2. Try to load team from persistent memory
-        team = await self._load_team_from_memory(chat_id, save_to_memory=save_to_memory)
-        self.chat_teams[chat_id] = team  # Cache it
+        # 2. Serialize concurrent first-time creation for this chat. Without
+        # this single-flight lock, parallel requests (e.g. the first message
+        # racing a session restore) both miss the cache, both build the team,
+        # and the duplicate endpoint / MCP gateway fight over port 3100 —
+        # either crashing the sandbox ("bind: address already in use") or
+        # mis-registering MCP tools so ve_curator drops out of the agent's
+        # active toolset. Mirrors _ensure_project_endpoint's per-project lock.
+        lock = self._team_init_locks.get(chat_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._team_init_locks[chat_id] = lock
+        async with lock:
+            # Double-check: another caller may have built it while we waited.
+            if chat_id in self.chat_teams:
+                return self.chat_teams[chat_id]
 
-        return team
+            # 3. Try to load (or create) the team from persistent memory.
+            team = await self._load_team_from_memory(chat_id, save_to_memory=save_to_memory)
+            self.chat_teams[chat_id] = team  # Cache it
+
+            return team
 
     async def _load_team_from_memory(self, chat_id: str, save_to_memory: bool = True) -> PantheonTeam:
         """Load team from chat's persistent memory.
