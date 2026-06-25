@@ -377,6 +377,54 @@ class SkillToolSet(ToolSet):
         })
 
     @tool
+    async def skill_browse_store(self, query: str = None, category: str = None, limit: int = 15) -> str:
+        """Look up Pantheon Store skills by KEYWORD or CATEGORY — exact/filter
+        search, NOT semantic ranking.
+
+        Use this when you know a name, a keyword, or a category and want precise
+        matches or to see what exists in a category. For a fuzzy "find me something
+        for task X" with quality signals, use skill_search_store instead (semantic
+        + reviewer verdict/best_for). Adopt any result with skill_adopt(name=...).
+
+        Args:
+            query: keyword matched in name/display/description (optional).
+            category: restrict to one category, e.g. "bioinformatics" (optional).
+            limit: max results (default 15).
+        """
+        import httpx
+        params = {"type": "skill", "limit": limit}
+        if query:
+            params["q"] = query
+        if category:
+            params["category"] = category
+        try:
+            async with httpx.AsyncClient(timeout=20) as c:
+                r = await c.get(f"{self._hub_url()}/api/store/packages", params=params)
+                r.raise_for_status()
+                data = r.json()
+        except Exception as e:
+            return self._json({"success": False, "error": f"store browse failed: {e}"})
+        results = [{
+            "name": p.get("name"),
+            "display_name": p.get("display_name"),
+            "description": p.get("description"),
+            "category": p.get("category"),
+            "rating_avg": p.get("rating_avg"),
+            "rating_count": p.get("rating_count"),
+        } for p in data.get("packages", [])]
+        return self._json({
+            "success": True,
+            "count": len(results),
+            "total": data.get("total"),
+            "results": results,
+            "hint": (
+                "Exact keyword/category matches (no semantic ranking, no reviewer verdict). "
+                "Adopt one with skill_adopt(name=...). For task-intent discovery with quality "
+                "signals use skill_search_store. Prefer a local skill from skill_list() if it fits."
+            ),
+        })
+
+    @tool
     async def skill_adopt(self, name: str) -> str:
         """Adopt a Pantheon Store skill for THIS task (ephemeral — NOT installed locally).
 
