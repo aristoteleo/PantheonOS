@@ -213,12 +213,41 @@ the agent can still open, drive, and observe.
 |------|---------|
 | `open_live_view(view_type, title, state, module_url?)` | Open a viewer plugin (e.g. `view_type="vitessce"`) or a custom component (`view_type="custom"` + `module_url`); returns `view_id` |
 | `serve_local_data(path)` | Expose a workspace file/dir over HTTP+CORS; returns a fetchable URL |
+| `serve_endpoint(name, path, config?)` | Expose a lightweight Python HTTP endpoint over the same CORS data server; returns a fetchable `/api/<name>/` URL |
+| `manage_endpoints(action, name?)` | Manage endpoints: `action="list"` lists all, `action="info"` checks one, `action="unregister"` removes one |
 | `live_view_update(view_id, patch)` | Deep-merge a partial-state patch (drive it) |
 | `live_view_set_state(view_id, state)` | Replace the whole state |
 | `live_view_get_state(view_id)` | Read state, `status`, and `diagnostics` — incl. the user's own edits |
 | `live_view_call(view_id, action, args)` | Invoke a component-defined action |
 | `live_view_screenshot(view_id)` | Render the view to an image — `observe_images` it to see it |
 | `list_live_views()` / `close_live_view(view_id)` | List / close |
+
+Use `serve_local_data` when the browser should fetch a file you already wrote.
+Use `serve_endpoint` when the browser should fetch computed data. It is not
+specific to Gosling: any LiveView can use the returned URL if its config accepts
+data URLs, and custom LiveView apps can call `fetch(url)` directly. Examples:
+Gosling CSV/JSON/BED tracks, Cytoscape graph JSON, MSA alignment text, a custom
+dashboard's computed table, or a future tileset-style API.
+
+Endpoint modules must export `async def handle(request)`, `def build(): return
+handler`, or `def build(config): return handler`, where the handler returns an
+`aiohttp.web.Response` / `StreamResponse`. The frontend and endpoint coordinate
+runtime parameters through ordinary HTTP: path tail (`/api/name/<tail>`), query
+params, headers, or POST JSON. `config` is only for registration-time
+JSON-serializable constants such as fixed paths or sample names; use request
+parameters for interactive controls, and files plus `serve_local_data` for large
+arrays or binary data. Keep handlers light: precompute heavy results before
+serving, or run complex services in a separate process and proxy them in.
+
+Use `manage_endpoints` to inspect or clean up registered endpoints:
+- `manage_endpoints("list")` — list all active endpoints with their URLs
+- `manage_endpoints("info", "track_name")` — check if a specific endpoint exists
+- `manage_endpoints("unregister", "old_track")` — remove an endpoint that's no
+  longer needed
+
+Registering a new endpoint with the same name replaces the previous handler.
+Endpoint handlers run in the data server's thread and should return quickly;
+any exceptions are logged but clients receive only a generic error message.
 
 Workflow: `open_live_view` → **verify** (`live_view_get_state` for
 `diagnostics`, `live_view_screenshot` to see it — `status: ready` does NOT

@@ -24,14 +24,22 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import inspect
 import os
+import re
 import socket
 import threading
 from pathlib import Path
+from typing import Awaitable, Callable
 
 from aiohttp import web
 
 from pantheon.utils.log import logger
+
+
+EndpointHandler = Callable[
+    [web.Request], web.StreamResponse | Awaitable[web.StreamResponse],
+]
 
 
 def _free_port() -> int:
@@ -56,7 +64,7 @@ async def _cors_middleware(request: web.Request, handler):
     else:
         resp = await handler(request)
     resp.headers["Access-Control-Allow-Origin"] = "*"
-    resp.headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, HEAD, POST, OPTIONS"
     resp.headers["Access-Control-Allow-Headers"] = "*"
     # Never let the browser cache anything this server returns. Two reasons:
     #  1. Viewer modules (adapter.js) are edited during development — an ES module
@@ -83,6 +91,8 @@ class LiveViewDataServer:
         self._roots: dict[str, Path] = {}  # prefix -> root dir
         self._base_url: str | None = None  # local bind URL (also the "started" sentinel)
         self._lock = threading.Lock()
+        self._endpoint_lock = threading.Lock()
+        self._endpoints: dict[str, EndpointHandler] = {}
         # ── Server mode ──────────────────────────────────────────────────────
         # In a hub/server deployment the agent runs in a Modal sandbox and the
         # browser cannot reach 127.0.0.1. The hub exposes a fixed port via a
@@ -94,6 +104,14 @@ class LiveViewDataServer:
         self._fixed_port: int = int(os.environ.get("LIVE_VIEW_DATA_PORT", "0") or 0)
         self._server_mode: bool = bool(self._token)
         self._tunnel_base: str | None = None  # public https base, delivered by the hub
+
+    @staticmethod
+    def validate_endpoint_name(name: str) -> None:
+        """Validate a dynamic endpoint URL segment."""
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+            raise ValueError(
+                "Endpoint name must contain only letters, numbers, '_' and '-'",
+            )
 
     async def ensure_started(self, roots: list[Path]) -> str:
         """Start the server (once) serving `roots`; return its base URL.
@@ -136,6 +154,10 @@ class LiveViewDataServer:
                                 show_index=False, follow_symlinks=False,
                             )
                     self._roots = mounts
+                    app.router.add_route("*", "/api/{name}", self._serve_endpoint)
+                    app.router.add_route(
+                        "*", "/api/{name}/{tail:.*}", self._serve_endpoint,
+                    )
                     if self._server_mode:
                         # /d/<token>/<prefix>/<rel> — constant-time token check,
                         # then FileResponse (Range-aware) from the mounted root.
@@ -168,6 +190,134 @@ class LiveViewDataServer:
                 "live_view: data server at {} serving {} root(s)",
                 self._base_url, len(self._roots),
             )
+
+    async def register_endpoint(
+        self, name: str, handler: EndpointHandler,
+    ) -> str:
+        """Register or replace a dynamic endpoint handler.
+
+        The aiohttp router is fixed at server startup. Runtime registration
+        updates this registry; requests to /api/<name>/... dispatch through it.
+        """
+        self.validate_endpoint_name(name)
+        if self._base_url is None:
+            raise RuntimeError("LiveView data server has not been started")
+        if not callable(handler):
+            raise TypeError("handler must be callable")
+        with self._endpoint_lock:
+            self._endpoints[name] = handler
+        url = self.url_for_endpoint(name)
+        if url is None:
+            raise RuntimeError("Endpoint is not browser-reachable yet")
+        return url
+
+    def url_for_endpoint(self, name: str) -> str | None:
+        """Return the browser URL for a registered dynamic endpoint."""
+        self.validate_endpoint_name(name)
+        if self._base_url is None:
+            return None
+        if self._server_mode:
+            if not self._tunnel_base:
+                logger.warning(
+                    "live_view: server mode but no tunnel base delivered yet; "
+                    "cannot emit a browser-reachable endpoint URL for {}", name,
+                )
+                return None
+            return f"{self._tunnel_base}/api/{name}/?token={self._token}"
+        return f"{self._base_url}/api/{name}/"
+
+    def list_endpoints(self) -> list[dict[str, str]]:
+        """List all registered dynamic endpoints with their URLs.
+
+        Returns:
+            List of dicts with 'name' and 'url' keys for each endpoint.
+        """
+        with self._endpoint_lock:
+            endpoints = list(self._endpoints.keys())
+        result = []
+        for name in endpoints:
+            url = self.url_for_endpoint(name)
+            if url:
+                result.append({"name": name, "url": url})
+        return result
+
+    def unregister_endpoint(self, name: str) -> bool:
+        """Unregister a dynamic endpoint by name.
+
+        Args:
+            name: The endpoint name to remove.
+
+        Returns:
+            True if the endpoint was removed, False if it didn't exist.
+        """
+        self.validate_endpoint_name(name)
+        with self._endpoint_lock:
+            if name in self._endpoints:
+                del self._endpoints[name]
+                return True
+            return False
+
+    def endpoint_exists(self, name: str) -> bool:
+        """Check if an endpoint is currently registered.
+
+        Args:
+            name: The endpoint name to check.
+
+        Returns:
+            True if the endpoint exists, False otherwise.
+        """
+        try:
+            self.validate_endpoint_name(name)
+        except ValueError:
+            return False
+        with self._endpoint_lock:
+            return name in self._endpoints
+
+    def _valid_api_token(self, request: web.Request) -> bool:
+        if not self._server_mode:
+            return True
+        supplied = request.query.get("token")
+        auth = request.headers.get("Authorization", "")
+        if not supplied and auth.lower().startswith("bearer "):
+            supplied = auth[7:].strip()
+        return bool(
+            self._token and supplied
+            and hmac.compare_digest(str(supplied), self._token)
+        )
+
+    async def _serve_endpoint(self, request: web.Request) -> web.StreamResponse:
+        """Dispatch /api/<name>/... to a registered dynamic endpoint."""
+        if request.method == "OPTIONS":
+            return web.Response()
+        if not self._valid_api_token(request):
+            return web.Response(status=403, text="forbidden")
+        name = request.match_info.get("name", "")
+        try:
+            self.validate_endpoint_name(name)
+        except ValueError:
+            return web.Response(status=404, text="unknown endpoint")
+        with self._endpoint_lock:
+            handler = self._endpoints.get(name)
+        if handler is None:
+            return web.Response(status=404, text="unknown endpoint")
+        try:
+            result = handler(request)
+            if inspect.isawaitable(result):
+                result = await result
+        except Exception as e:  # noqa: BLE001
+            logger.exception("live_view: endpoint '{}' failed", name)
+            # Return generic error message to avoid leaking internal details
+            return web.Response(status=500, text="Internal server error")
+        if not isinstance(result, web.StreamResponse):
+            logger.error(
+                "live_view: endpoint '{}' handler returned invalid type: {}",
+                name, type(result).__name__,
+            )
+            return web.Response(
+                status=500,
+                text="Internal server error",
+            )
+        return result
 
     async def _serve_token_gated(self, request: web.Request) -> web.StreamResponse:
         """Serve /d/<token>/<prefix>/<rel> in server mode.

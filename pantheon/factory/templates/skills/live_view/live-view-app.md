@@ -30,6 +30,48 @@ first move.** In particular:
 
 If one of those fits even roughly, load its skill and use it — don't rebuild it.
 
+## Data URLs: files vs computed endpoints
+
+Custom apps can fetch any browser-reachable URL. Use `serve_local_data(path)`
+for files you already wrote, such as JSON, CSV, images, or model artifacts. Use
+`serve_endpoint(name, path, config?)` when the app needs computed data from a
+lightweight Python endpoint:
+
+```python
+# endpoint.py
+from aiohttp import web
+
+def build(config):
+    async def handle(request):
+        payload = await request.json()
+        return web.json_response({
+            "sample": config["sample"],
+            "region": payload["region"],
+            "points": [{"x": 1, "y": 2}],
+        })
+    return handle
+```
+
+```js
+// my-app.js
+export function setup(lv, root) {
+  lv.onState(async (state) => {
+    const data = await fetch(state.dataUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ region: state.region || 'chr1:1-1000' })
+    }).then((r) => r.json())
+    root.textContent = JSON.stringify(data)
+  })
+}
+```
+
+Pass registration-time constants such as `{"sample": "GM12878"}` via `config`.
+Pass runtime UI controls through the HTTP request (query params, path tail, or
+POST JSON), and open the app with `state: {"dataUrl": <serve_endpoint url>}`.
+Keep endpoint handlers light; expensive computation should happen before serving
+or in a separate service.
+
 ## The golden rule: ONE state path
 
 Every state change — a user click, an agent update, an action handler —

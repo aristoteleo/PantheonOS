@@ -90,6 +90,14 @@ https://gosling-lang.org/docs/ for the full grammar.
       }]
   }})
   ```
+- **Computed data endpoints** — when the agent computes a small track (for
+  example A/B compartments, peak summaries, loop annotations), write a tiny
+  endpoint module and expose it with `serve_endpoint(name, path, config?)`.
+  Gosling can then load the returned URL as `csv`, `json`, or `bed`. Use
+  query/path parameters for runtime controls when a viewer/custom app makes
+  requests; use `config` only for registration-time JSON constants such as fixed
+  sample names or paths. Keep endpoint handlers lightweight; do the expensive
+  computation before serving, then return the precomputed table.
 
 ## Hi-C / contact matrices
 
@@ -188,6 +196,11 @@ Then serve `matrix.mcool` from a local HiGlass server (`higlass-server`, or the
 that server's local `tileset_info` URL. If a HiGlass server is genuinely out of
 scope, a **coarse downsampled** matrix (≤ ~500 bins) as a static heatmap is OK
 for a quick look — but never a full-resolution one.
+
+`serve_endpoint` can expose a custom `tileset_info` / tile API later, but a
+Gosling `matrix` track still requires the HiGlass tileset protocol. Use
+`serve_endpoint` directly for small 1D computed tracks; use a real tileset API
+for genome-scale matrices.
 
 ## Driving
 

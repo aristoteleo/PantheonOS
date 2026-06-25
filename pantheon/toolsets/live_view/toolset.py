@@ -27,6 +27,10 @@ Vitessce it is the Vitessce view config; a patch deep-merges into it.
 from __future__ import annotations
 
 import asyncio
+import importlib.util
+import inspect
+import json
+import sys
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -591,6 +595,158 @@ class LiveViewToolSet(ToolSet):
         return {"success": True, "base_url": server.base_url, "url": url}
 
     @tool
+    async def serve_endpoint(
+        self, name: str, path: str, config: dict | None = None,
+    ) -> dict:
+        """Expose a lightweight Python HTTP endpoint over the LiveView data server.
+
+        Any LiveView can fetch the returned URL: built-in viewer plugins
+        (Gosling, Cytoscape, IGV adapters, etc.) when their config accepts a
+        data URL, or a custom LiveView app that calls fetch(url). Use this
+        when the browser needs computed data rather than a file already on
+        disk (that case is serve_local_data).
+
+        The endpoint module must export either:
+            async def handle(request): ...
+        or:
+            def build(): return handle
+            def build(config): return handle
+
+        The handler receives an aiohttp.web.Request, so the frontend and server
+        coordinate through normal HTTP parameters: path segments (`tail`), query
+        params, headers, or POST JSON. `config` is only for registration-time
+        JSON constants passed to build(config), such as fixed paths or sample
+        names. Use request parameters for runtime controls and files for large
+        arrays or binary data.
+        Keep request handlers light: precompute heavy results before serving,
+        or run complex apps as separate processes and proxy them in a later
+        endpoint mode.
+
+        Args:
+            name: URL segment for the endpoint. Letters, numbers, "_" and "-"
+                only. Registering the same name replaces the handler.
+            path: Absolute path, or workspace-relative path, to a Python module.
+            config: Optional JSON-serializable constants for build(config).
+
+        Returns:
+            dict with success, base_url, and url (the endpoint base URL).
+        """
+        from pathlib import Path
+
+        from .data_server import LiveViewDataServer
+
+        try:
+            LiveViewDataServer.validate_endpoint_name(name)
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
+        try:
+            json.dumps(config if config is not None else {})
+        except (TypeError, ValueError) as e:
+            return {
+                "success": False,
+                "error": f"Endpoint config must be JSON-serializable: {e}",
+            }
+
+        p = Path(path)
+        if not p.is_absolute():
+            from pantheon.settings import get_settings
+            p = get_settings().work_dir / p
+        p = p.resolve()
+        if not p.exists():
+            return {"success": False, "error": f"Path does not exist: {p}"}
+        if not p.is_file():
+            return {"success": False, "error": f"Path is not a file: {p}"}
+        roots = [root.resolve() for root in self._data_roots() if root.exists()]
+        if not any(self._path_is_relative_to(p, root) for root in roots):
+            return {
+                "success": False,
+                "error": (
+                    f"Path {p} is outside the LiveView data server roots "
+                    f"({', '.join(str(r) for r in roots)}). Put endpoint "
+                    "modules under the workspace."
+                ),
+            }
+
+        try:
+            handler = self._load_endpoint_handler(p, config)
+        except Exception as e:  # noqa: BLE001
+            return {"success": False, "error": str(e)}
+
+        try:
+            server = await self._ensure_data_server()
+            url = await server.register_endpoint(name, handler)
+        except Exception as e:  # noqa: BLE001
+            return {"success": False, "error": str(e)}
+
+        return {"success": True, "base_url": server.base_url, "url": url}
+
+    def _load_endpoint_handler(self, path, config: dict | None = None) -> Any:
+        """Load a handler callable from an endpoint module."""
+        module_name = f"_pantheon_live_view_endpoint_{uuid.uuid4().hex}"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load endpoint module: {path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        try:
+            spec.loader.exec_module(module)
+        except Exception:
+            sys.modules.pop(module_name, None)
+            raise
+        finally:
+            sys.modules.pop(module_name, None)
+
+        if hasattr(module, "build"):
+            builder = getattr(module, "build")
+            if not callable(builder):
+                raise RuntimeError("Endpoint `build` export is not callable")
+            handler = self._call_endpoint_builder(builder, config)
+        else:
+            handler = getattr(module, "handle", None)
+
+        if not callable(handler):
+            raise RuntimeError(
+                "Endpoint module must export `handle(request)` or `build()`",
+            )
+        return handler
+
+    @staticmethod
+    def _call_endpoint_builder(builder, config: dict | None) -> Any:
+        signature = inspect.signature(builder)
+        params = list(signature.parameters.values())
+        positional = [
+            p for p in params
+            if p.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        ]
+        has_varargs = any(
+            p.kind == inspect.Parameter.VAR_POSITIONAL for p in params
+        )
+        required = [
+            p for p in positional if p.default is inspect.Parameter.empty
+        ]
+        if len(required) > 1:
+            raise RuntimeError("Endpoint build() must accept zero or one argument")
+        accepts_config = has_varargs or len(positional) >= 1
+        if config is not None:
+            if not accepts_config:
+                raise RuntimeError("Endpoint build() does not accept config")
+            return builder(config)
+        if required:
+            return builder({})
+        return builder()
+
+    @staticmethod
+    def _path_is_relative_to(path, root) -> bool:
+        try:
+            path.relative_to(root)
+            return True
+        except ValueError:
+            return False
+
+    @tool
     async def list_live_views(self) -> dict:
         """List the LiveViews currently open in this chat."""
         chat_id = self._chat_id()
@@ -616,6 +772,90 @@ class LiveViewToolSet(ToolSet):
             "view_id": view_id,
         })
         return {"success": True}
+
+    @tool
+    async def manage_endpoints(
+        self, action: str, name: str | None = None,
+    ) -> dict:
+        """Manage dynamic LiveView endpoints (list, info, unregister).
+
+        This tool provides endpoint lifecycle management operations to
+        complement serve_endpoint. Use it to inspect registered endpoints
+        or clean up ones that are no longer needed.
+
+        Args:
+            action: Operation to perform:
+                - "list": List all registered endpoints with their URLs
+                - "info": Get details about a specific endpoint (requires name)
+                - "unregister": Remove an endpoint registration (requires name)
+            name: Endpoint name (required for "info" and "unregister" actions)
+
+        Returns:
+            dict with success status and operation-specific data:
+            - list: {"success": True, "endpoints": [{"name": ..., "url": ...}, ...]}
+            - info: {"success": True, "name": ..., "url": ..., "exists": True}
+            - unregister: {"success": True, "removed": True/False}
+
+        Examples:
+            manage_endpoints("list")
+            manage_endpoints("info", "ab_track")
+            manage_endpoints("unregister", "old_endpoint")
+        """
+        if action not in ("list", "info", "unregister"):
+            return {
+                "success": False,
+                "error": f"Invalid action '{action}'. Must be 'list', 'info', or 'unregister'",
+            }
+
+        if action in ("info", "unregister") and not name:
+            return {
+                "success": False,
+                "error": f"Action '{action}' requires a 'name' parameter",
+            }
+
+        try:
+            server = await self._ensure_data_server()
+        except Exception as e:  # noqa: BLE001
+            return {"success": False, "error": f"Data server not available: {e}"}
+
+        if action == "list":
+            endpoints = server.list_endpoints()
+            return {"success": True, "endpoints": endpoints}
+
+        if action == "info":
+            from .data_server import LiveViewDataServer
+            try:
+                LiveViewDataServer.validate_endpoint_name(name)  # type: ignore[arg-type]
+            except ValueError as e:
+                return {"success": False, "error": str(e)}
+
+            exists = server.endpoint_exists(name)  # type: ignore[arg-type]
+            if not exists:
+                return {
+                    "success": True,
+                    "name": name,
+                    "exists": False,
+                    "url": None,
+                }
+            url = server.url_for_endpoint(name)  # type: ignore[arg-type]
+            return {
+                "success": True,
+                "name": name,
+                "exists": True,
+                "url": url,
+            }
+
+        if action == "unregister":
+            from .data_server import LiveViewDataServer
+            try:
+                LiveViewDataServer.validate_endpoint_name(name)  # type: ignore[arg-type]
+            except ValueError as e:
+                return {"success": False, "error": str(e)}
+
+            removed = server.unregister_endpoint(name)  # type: ignore[arg-type]
+            return {"success": True, "removed": removed}
+
+        return {"success": False, "error": "Unreachable"}
 
     # ── UI-facing methods (not exposed to the LLM) ────────────────────────
 
