@@ -999,7 +999,16 @@ class Agent:
         # Providers return ToolInfo with pre-generated inputSchema (the "function" part)
         logger.debug(f"get tools for llm: {self.providers} ")
         provider_tools = []
+        # MCP provider tools are task-bound: the MCP client session lives on the
+        # endpoint's main asyncio task, so they cannot be run via background_task
+        # (a separate asyncio.Task) — cross-task access makes list_tools()/call_tool()
+        # fail with "tool not found". Collect their fully-qualified names so step 3
+        # does NOT advertise a `_background` option for them (foreground-only).
+        from .providers import MCPProvider
+
+        mcp_tool_names: set[str] = set()
         for provider_name, provider in self.providers.items():
+            is_mcp_provider = isinstance(provider, MCPProvider)
             try:
                 # Get tools from provider (uses cached list if available)
                 tools = await provider.list_tools()
@@ -1015,7 +1024,10 @@ class Agent:
                     function_schema = tool_info.inputSchema.copy()
 
                     # Add provider prefix to tool name (using __ as separator to support provider names with _)
-                    function_schema["name"] = f"{provider_name}__{tool_info.name}"
+                    full_name = f"{provider_name}__{tool_info.name}"
+                    function_schema["name"] = full_name
+                    if is_mcp_provider:
+                        mcp_tool_names.add(full_name)
 
                     # Build complete OpenAI tool dict
                     provider_tools.append(
@@ -1041,8 +1053,10 @@ class Agent:
         all_tools = base_tools + provider_tools
         for tool_dict in all_tools:
             name = tool_dict["function"]["name"]
-            if name in _BG_PARAM_SKIP or any(
-                name.startswith(p) for p in _BG_PARAM_SKIP_PREFIXES
+            if (
+                name in _BG_PARAM_SKIP
+                or name in mcp_tool_names
+                or any(name.startswith(p) for p in _BG_PARAM_SKIP_PREFIXES)
             ):
                 continue
 
