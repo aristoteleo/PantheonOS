@@ -27,6 +27,11 @@ Choose by: `best_for` matching your task, a `recommended` verdict and solid rati
 and `not_for` / `caveats` that don't exclude your case. Prefer a local skill when \
 both fit. Adopted store skills are ephemeral — used for this task only, not installed.
 
+`skill_search_store` is semantic + quality-ranked (best for fuzzy "find something \
+for task X"). When you instead know a name/keyword or want to see what's in a \
+category, use `skill_browse_store(query=..., category=...)` — an exact keyword/\
+category lookup (no semantic ranking). Both feed `skill_adopt`.
+
 After finishing a task in which you adopted a store skill, leave usage feedback with \
 `skill_rate(name, rating, comment)` — did it actually help, was its best_for/caveats \
 accurate? Feedback is posted as the user's OWN review, so it requires the user to be \
