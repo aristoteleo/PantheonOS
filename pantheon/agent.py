@@ -2125,6 +2125,14 @@ class Agent:
             )
             return len(pending)
 
+        # Idle-spin guard: count consecutive turns whose ONLY action is think().
+        # think() is metacognition, not external progress — a run that loops on
+        # think-only turns (e.g. the task is done but the agent didn't cleanly
+        # yield) just re-reasons "nothing to do" and burns tokens. After a few
+        # such turns we end the run and hand control back to the user.
+        consecutive_think_only = 0
+        IDLE_THINK_ONLY_LIMIT = 3
+
         while len(history) - init_len < max_turns:
             # Pull in any user messages queued mid-run before this turn (steering)
             await _drain_steer_messages()
@@ -2267,6 +2275,29 @@ class Agent:
             # Handle notify_user interrupt - break loop to return control to user
             if interrupt_message:
                 break
+
+            # Idle-spin guard: if this turn's ONLY action was think() (no other
+            # tool, no user-facing message), the agent made no external progress.
+            # A few such turns in a row means it's spinning (typically after the
+            # task is done but it didn't yield) — end the run and return control to
+            # the user instead of burning tokens re-thinking "nothing to do".
+            _turn_tool_names = [
+                (c.get("function") or {}).get("name", "")
+                for c in (message.get("tool_calls") or [])
+            ]
+            if _turn_tool_names and all(n == "think" for n in _turn_tool_names):
+                consecutive_think_only += 1
+                if consecutive_think_only >= IDLE_THINK_ONLY_LIMIT:
+                    logger.warning(
+                        "[idle-guard] {} consecutive think-only turns with no "
+                        "external action in agent={} — ending the run to return "
+                        "control to the user.",
+                        consecutive_think_only,
+                        self.name,
+                    )
+                    break
+            else:
+                consecutive_think_only = 0
 
         return ResponseDetails(
             messages=history[init_len:],
