@@ -3890,7 +3890,7 @@ class ChatRoom(ToolSet):
             dl = await client.download(package_id, version)
             installer = PackageInstaller()
             written = installer.install(
-                dl["type"], dl["name"], dl["content"], dl.get("files")
+                dl["type"], dl["name"], dl["content"], dl.get("files"), path=dl.get("path")
             )
             # Record in local manifest
             try:
@@ -3899,6 +3899,7 @@ class ChatRoom(ToolSet):
                     "name": dl["name"],
                     "type": dl["type"],
                     "version": dl["version"],
+                    "path": dl.get("path"),
                     "installed_at": datetime.now().isoformat(),
                 }
                 self._save_store_installs(installs)
@@ -3925,6 +3926,40 @@ class ChatRoom(ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool
+    async def uninstall_store_package(self, package_id: str) -> dict:
+        """Uninstall a previously store-installed package.
+
+        Removes the package's local files (using the recorded original ``path``
+        so the source-folder layout is cleaned up) and drops it from the local
+        install manifest. Built-in (factory) skills are not store-installed and
+        cannot be removed this way.
+
+        Args:
+            package_id: The ID of the installed package to remove.
+        """
+        from pantheon.store.installer import PackageInstaller
+
+        try:
+            installs = self._load_store_installs()
+            info = installs.get(package_id)
+            if not info:
+                return {"success": False, "error": "Package is not installed"}
+            installer = PackageInstaller()
+            removed = installer.uninstall(
+                info.get("type", "skill"), info.get("name", ""), path=info.get("path")
+            )
+            del installs[package_id]
+            self._save_store_installs(installs)
+            return {
+                "success": True,
+                "name": info.get("name"),
+                "removed_files": [str(p) for p in removed],
+            }
+        except Exception as e:
+            logger.error(f"Error uninstalling store package: {e}")
+            return {"success": False, "error": str(e)}
+
+    @tool
     async def get_installed_store_packages(self) -> dict:
         """Get locally installed store packages with their versions.
 
@@ -3945,8 +3980,13 @@ class ChatRoom(ToolSet):
                 exists = False
 
                 if pkg_type == "skill":
+                    from pantheon.store.installer import _skill_install_root
+                    sub = _skill_install_root(name)[len("skills/"):]  # "<slug>/<base>" or "<name>"
+                    rel_path = (info.get("path") or "").strip("/")  # original hierarchical path, if recorded
                     for base in [settings.skills_dir, user_home / "skills"]:
-                        if (base / name / "SKILL.md").exists() or (base / name).exists():
+                        if ((base / name / "SKILL.md").exists() or (base / name).exists()
+                                or (base / sub / "SKILL.md").exists()
+                                or (rel_path and (base / rel_path / "SKILL.md").exists())):
                             exists = True
                             break
                 elif pkg_type == "agent":
@@ -3972,6 +4012,83 @@ class ChatRoom(ToolSet):
         except Exception as e:
             logger.error(f"Error reading store installs: {e}")
             return {"success": False, "installs": {}, "error": str(e)}
+
+    @tool
+    async def get_local_skills(self) -> dict:
+        """List the agent's LOCAL skills (factory built-ins + global + project) so
+        the store UI can show built-ins as already-installed.
+
+        Each entry: {path, name, scope, modified}.
+          - scope: "factory" (built-in, pristine), "global", or "project".
+          - modified: true when a user-layer copy shadows a factory built-in AND
+            its SKILL.md differs from the factory original. Compared LOCALLY
+            (user-layer vs factory), NOT against the store — the store-synced copy
+            has an added Source header, so a store comparison would false-positive.
+
+        Returns: {success, skills: [...]}.
+        """
+        try:
+            import hashlib
+            from pantheon.internal.learning_system import plugin as _lp
+            rt = getattr(_lp, "_learning_runtime", None)
+            store = getattr(rt, "store", None) if rt else None
+            if not store:
+                return {"success": True, "skills": []}
+            factory_dir = getattr(store, "factory_skills_dir", None)
+
+            def _md5(p: Path):
+                try:
+                    return hashlib.md5(p.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+                except Exception:
+                    return None
+
+            out = []
+            for h in store.scan_headers():
+                scope = getattr(h, "scope", "project")
+                modified = False
+                # A factory built-in the user overrode (project/global) — flag if changed.
+                if scope in ("project", "global") and factory_dir:
+                    fac_md = Path(factory_dir) / h.path / "SKILL.md"
+                    if fac_md.exists():
+                        cur = _md5(Path(h.skill_dir) / "SKILL.md")
+                        fac = _md5(fac_md)
+                        modified = bool(cur and fac and cur != fac)
+                out.append({
+                    "name": h.name,
+                    "path": h.path,
+                    "scope": scope,
+                    "modified": modified,
+                })
+
+            # Factory-bundled sub-skills: nested resource ".md" files (e.g.
+            # live_view/cytoscape/cytoscape.md) that ship INSIDE a built-in skill.
+            # The store seeds each as a SEPARATE package, but they're already
+            # present locally — so the UI must show them as built-in, not as
+            # installable. Mirror the seed's path convention (rel-without-suffix,
+            # "_"-flattened name) so the store rows match by path.
+            if factory_dir:
+                fac = Path(factory_dir)
+                seen_paths = {e["path"] for e in out}
+                for md_file in sorted(fac.rglob("*.md")):
+                    if md_file.name in ("SKILL.md", "SKILLS.md"):
+                        continue
+                    rel = md_file.relative_to(fac)
+                    if any(p.startswith(("_", ".")) for p in rel.parts[:-1]):
+                        continue
+                    path = str(rel.with_suffix("")).replace("\\", "/")
+                    if path in seen_paths:
+                        continue
+                    seen_paths.add(path)
+                    out.append({
+                        "name": md_file.stem,
+                        "path": path,
+                        "scope": "factory",
+                        "modified": False,
+                    })
+            return {"success": True, "skills": out}
+        except Exception as e:
+            logger.error(f"Error listing local skills: {e}")
+            return {"success": False, "skills": [], "error": str(e)}
 
     @tool
     async def reload_settings(self) -> dict:
