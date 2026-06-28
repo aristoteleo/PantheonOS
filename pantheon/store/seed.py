@@ -393,6 +393,7 @@ class StoreSeed:
                 if r and r != s["store_name"]:
                     refs.append(r)
             s["references"] = list(dict.fromkeys(refs))
+            s["path"] = s.get("_relkey")  # preserve the original hierarchical source path
             for k in ("_relkey", "_basedir", "_is_group"):
                 s.pop(k, None)
 
@@ -613,6 +614,8 @@ class StoreSeed:
             )
             if converted:
                 converted["_dirname"] = skill_md.parent.name
+                # Original hierarchical source path (skill dir relative to skills_dir).
+                converted["path"] = str(rel.parent).replace("\\", "/")
                 skills.append(converted)
 
         # Resolve "Related Skills" names (= sibling directory names) to store names
@@ -678,6 +681,7 @@ class StoreSeed:
                 "display_name": skill["display_name"],
                 "description": skill["description"],
                 "category": skill["category"],
+                "path": skill.get("path"),
                 "tags": skill.get("tags", []),
                 "references": skill.get("references", []),
                 "source": "Pantheon",
@@ -788,6 +792,7 @@ class StoreSeed:
                         "display_name": skill["display_name"],
                         "description": skill["description"],
                         "category": skill["category"],
+                        "path": skill.get("path"),
                         "tags": skill.get("tags", []),
                         "references": skill.get("references", []),
                         "source": config["display_name"],
@@ -897,6 +902,7 @@ class StoreSeed:
                     references=entry.get("references", []),
                     source_rev=entry.get("source_rev"),
                     source_committed_at=entry.get("source_committed_at"),
+                    path=entry.get("path"),
                     dry_run=dry_run,
                 )
                 progress.advance(task)
@@ -925,7 +931,8 @@ class StoreSeed:
                      files: dict = None, version: str = "1.0.0",
                      source: str = "Pantheon", source_url: str = None,
                      references: list = None, source_rev: str = None,
-                     source_committed_at: str = None, dry_run: bool = False) -> bool:
+                     source_committed_at: str = None, path: str = None,
+                     dry_run: bool = False) -> bool:
         """Publish a package. If it already exists, publish a NEW VERSION when the
         content changed (auto-bumped patch), else skip. This makes re-seeding a
         real content sync instead of a no-op, with version history."""
@@ -946,6 +953,8 @@ class StoreSeed:
             payload["source_rev"] = source_rev
         if source_committed_at:
             payload["source_committed_at"] = source_committed_at
+        if path:
+            payload["path"] = path
 
         # 1. Try to create as a brand-new package.
         try:
@@ -968,25 +977,36 @@ class StoreSeed:
                 return False
             pkg_id = existing["id"]
             next_ver = _bump_patch(existing.get("latest_version") or "1.0.0")
+            # Package-level metadata to sync (refs/desc/path/source rev). Computed
+            # once so it can be applied whether or not the content changed.
+            meta_update = {
+                "references": references or [], "description": description or "",
+                "display_name": display_name, "category": category,
+            }
+            if path:
+                meta_update["path"] = path
+            if source_rev:
+                meta_update["source_rev"] = source_rev
+            if source_committed_at:
+                meta_update["source_committed_at"] = source_committed_at
             try:
                 _run(self.client.publish_version(pkg_id, {
                     "version": next_ver, "content": content, "files": files or {},
                     "changelog": "Synced from source",
                 }))
             except SystemExit:
-                # content identical (or version clash) -> no update needed
-                self.stats["skipped"] += 1
-                return False
-            # version published -> sync package-level metadata (refs/desc/tags/source rev)
+                # Content identical (or version clash) -> no new version. Still sync
+                # package-level metadata so re-seeds can backfill path/refs WITHOUT
+                # republishing content (preserves reviews, costs no review tokens).
+                try:
+                    _run(self.client.update_package(pkg_id, meta_update))
+                    self.stats["updated"] += 1
+                    return True
+                except Exception:
+                    self.stats["skipped"] += 1
+                    return False
+            # version published -> sync package-level metadata
             try:
-                meta_update = {
-                    "references": references or [], "description": description or "",
-                    "display_name": display_name, "category": category,
-                }
-                if source_rev:
-                    meta_update["source_rev"] = source_rev
-                if source_committed_at:
-                    meta_update["source_committed_at"] = source_committed_at
                 _run(self.client.update_package(pkg_id, meta_update))
             except Exception:
                 pass  # version is published; metadata sync is best-effort
