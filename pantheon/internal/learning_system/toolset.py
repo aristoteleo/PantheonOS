@@ -354,27 +354,64 @@ class SkillToolSet(ToolSet):
                 exclude = [h.path for h in self._runtime.store.scan_headers()]
             except Exception:
                 exclude = []
+        base = self._hub_url()
+        # 1. Semantic recommend (preferred — carries the reviewer verdict/best_for).
         try:
             async with httpx.AsyncClient(timeout=20) as c:
                 r = await c.get(
-                    f"{self._hub_url()}/api/store/recommend",
+                    f"{base}/api/store/recommend",
                     params={"q": query, "limit": limit, "exclude": ",".join(exclude)},
                 )
                 r.raise_for_status()
                 data = r.json()
-        except Exception as e:
-            return self._json({"success": False, "error": f"store search failed: {e}"})
-        results = data.get("results", [])
-        return self._json({
-            "success": True,
-            "count": len(results),
-            "results": results,
-            "hint": (
-                "Adopt one with skill_adopt(name=...). Prefer verdict=recommended with a "
-                "matching best_for and good rating; check not_for/caveats don't exclude your "
-                "task. Skip any that duplicate a local skill from skill_list()."
-            ),
-        })
+            results = data.get("results", [])
+            return self._json({
+                "success": True,
+                "count": len(results),
+                "results": results,
+                "hint": (
+                    "Adopt one with skill_adopt(name=...). Prefer verdict=recommended with a "
+                    "matching best_for and good rating; check not_for/caveats don't exclude your "
+                    "task. Skip any that duplicate a local skill from skill_list()."
+                ),
+            })
+        except Exception as semantic_err:
+            # /recommend may not exist on a store backend without semantic search
+            # (e.g. a 404). Fall back to LEXICAL keyword search so the agent still
+            # gets candidates instead of a hard failure — just without the reviewer
+            # verdict/best_for signals.
+            try:
+                async with httpx.AsyncClient(timeout=20) as c:
+                    r = await c.get(
+                        f"{base}/api/store/packages",
+                        params={"q": query, "type": "skill", "limit": limit},
+                    )
+                    r.raise_for_status()
+                    data = r.json()
+            except Exception as lexical_err:
+                return self._json({"success": False, "error": (
+                    f"store search failed: {semantic_err}; lexical fallback also failed: {lexical_err}"
+                )})
+            results = [{
+                "name": p.get("name"),
+                "display_name": p.get("display_name"),
+                "description": p.get("description"),
+                "category": p.get("category"),
+                "rating_avg": p.get("rating_avg"),
+                "rating_count": p.get("rating_count"),
+            } for p in data.get("packages", [])]
+            return self._json({
+                "success": True,
+                "count": len(results),
+                "results": results,
+                "degraded": "lexical",
+                "hint": (
+                    "Semantic search was unavailable, so these are LEXICAL keyword matches "
+                    "(no reviewer verdict/best_for/caveats) — judge fit from the description. "
+                    "Adopt one with skill_adopt(name=...). Skip any that duplicate a local "
+                    "skill from skill_list()."
+                ),
+            })
 
     @tool
     async def skill_browse_store(self, query: str = None, category: str = None, limit: int = 15) -> str:
