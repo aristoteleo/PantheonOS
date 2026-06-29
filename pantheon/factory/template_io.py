@@ -42,7 +42,7 @@ class PromptResolver:
     Usage:
         resolver = PromptResolver()
         expanded = resolver.resolve(
-            "{{skills(root_dir='./my_skills')}}",
+            "{{my_prompt(root_dir='./my_dir')}}",
             base_path=Path("/path/to/agent.md").parent
         )
     """
