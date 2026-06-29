@@ -225,18 +225,24 @@ class TaskToolSet(ToolSet):
 
         Args:
             paths_to_review: List of ABSOLUTE paths to files that the user should be notified about. MUST populate this if requesting review.
-            blocked_on_user: Whether execution control should RETURN TO THE USER after this
-                message — i.e. you will STOP and wait. This is NOT "am I stuck?"; it is
-                "after sending this, do I have more work I can do RIGHT NOW on my own?".
-                - Set TRUE when the answer is no, you need the user before continuing. This
-                  covers BOTH cases: (a) you are blocked on the user's approval/input, AND
-                  (b) the task is COMPLETE and you are handing the result back. "Done,
-                  waiting for the user's next instruction" IS a stop — set TRUE.
-                - Set FALSE ONLY for a transient progress FYI that you immediately follow
-                  with more of your own work in the SAME run (e.g. "downloaded the data,
-                  now running the analysis"). If you have nothing left to do, do NOT set
-                  FALSE — that leaves the loop running with no work and wastes tokens.
-                  When in doubt, prefer TRUE.
+            blocked_on_user: Controls BOTH how this message renders AND whether it
+                interrupts. The deciding question is: are you ASKING the user for
+                something (true) or TELLING them something (false)?
+                - TRUE → renders as an APPROVAL / REVIEW gate ("Awaiting Review") and
+                  STOPS to wait for the user. Use ONLY when you genuinely need the user
+                  to approve, review, or decide something BEFORE you could continue
+                  (e.g. confirm which dataset to use, approve a risky/irreversible step).
+                  Providing `questions` is this case.
+                - FALSE → renders as a NOTIFICATION (a progress update or a "Completed"
+                  card) and does NOT block. Use it for a transient progress FYI
+                  ("downloaded the data, now running the analysis") AND for FINAL
+                  COMPLETION ("analysis complete — here are the outputs"): at the end you
+                  are DELIVERING a result, not asking permission, so it must read as
+                  Completed, NOT as an approval request. The run hands control back to the
+                  user on its own once there is nothing left to do — you do NOT need
+                  blocked_on_user=true to "stop" after finishing.
+                So a finished task is TELLING the user → blocked_on_user=FALSE (attach the
+                deliverables via paths_to_review). Reserve TRUE for genuine asks.
                 IMPORTANT: If you provide questions, the tool will automatically set interrupt=True regardless of this value,
                 as asking questions implies waiting for answers. You typically should set this to True when providing questions.
             message: Required message to notify the user with, e.g to provide context or explanation. Use GitHub Flavored Markdown (GFM) format.
