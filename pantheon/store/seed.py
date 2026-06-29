@@ -149,6 +149,37 @@ def _content_fingerprint(content: str, files: dict = None) -> str:
     return h.hexdigest()
 
 
+# Per-file cap + types that don't belong in a store package's bundle. A store
+# skill should be its SKILL.md + small helper scripts/configs, NOT its data
+# artifacts (datasets, vector DBs, model weights, archives, media). Bundling
+# multi-MB files balloons the publish payload — e.g. a 105 MB skill 413s at the
+# ingress, and ~19 MB ones time out — for zero benefit to anyone installing it.
+_BUNDLE_MAX_FILE_BYTES = 1024 * 1024  # 1 MiB per bundled file
+_BUNDLE_SKIP_SUFFIXES = frozenset({
+    ".sqlite", ".sqlite3", ".db", ".bin", ".pt", ".pth", ".ckpt", ".onnx",
+    ".h5", ".hdf5", ".npy", ".npz", ".parquet", ".pkl", ".pickle", ".faiss",
+    ".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar",
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".pdf",
+    ".mp4", ".mov", ".avi", ".mp3", ".wav", ".so", ".dylib", ".dll",
+})
+
+
+def _bundle_skip_reason(path: Path) -> Optional[str]:
+    """Return a human reason if `path` should NOT be bundled into a store package
+    (a binary/data artifact, or over the per-file size cap), else None. Applied
+    BEFORE reading the file so large/binary blobs are never loaded into memory or
+    the publish payload."""
+    if path.suffix.lower() in _BUNDLE_SKIP_SUFFIXES:
+        return f"binary/data type {path.suffix.lower()}"
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return "unreadable"
+    if size > _BUNDLE_MAX_FILE_BYTES:
+        return f"{size / 1048576:.1f} MB exceeds {_BUNDLE_MAX_FILE_BYTES // 1048576} MB cap"
+    return None
+
+
 def _git_meta(path) -> Tuple[Optional[str], Optional[str]]:
     """Return (commit_sha, committed_at_iso) for the git repo containing `path`,
     or (None, None) if it is not a git checkout. Used to record which upstream
@@ -359,6 +390,10 @@ class StoreSeed:
                         sub_rel = sub_file.relative_to(factory_dir)
                         if any(p.startswith(("_", ".")) or p == "__pycache__" for p in sub_rel.parts):
                             continue
+                        skip = _bundle_skip_reason(sub_file)
+                        if skip:
+                            logger.info(f"[seed] skip bundling {sub_rel} ({skip})")
+                            continue
                         try:
                             content_text = sub_file.read_text(encoding="utf-8")
                         except (UnicodeDecodeError, PermissionError):
@@ -368,11 +403,15 @@ class StoreSeed:
                 elif child.is_file():
                     if child.name in ("SKILL.md", "SKILLS.md"):
                         continue
+                    child_rel = child.relative_to(factory_dir)
+                    skip = _bundle_skip_reason(child)
+                    if skip:
+                        logger.info(f"[seed] skip bundling {child_rel} ({skip})")
+                        continue
                     try:
                         content_text = child.read_text(encoding="utf-8")
                     except (UnicodeDecodeError, PermissionError):
                         continue
-                    child_rel = child.relative_to(factory_dir)
                     file_key = f"skills/{str(child_rel).replace(chr(92), '/')}"
                     files[file_key] = content_text
 
@@ -582,6 +621,10 @@ class StoreSeed:
             rel_to_skill = child.relative_to(skill_dir)
             parts = rel_to_skill.parts
             if any(p.startswith(".") or p == "__pycache__" for p in parts):
+                continue
+            skip = _bundle_skip_reason(child)
+            if skip:
+                logger.info(f"[seed] skip bundling {store_name}/{rel_to_skill} ({skip})")
                 continue
             try:
                 file_content = child.read_text(encoding="utf-8")
