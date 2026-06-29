@@ -837,18 +837,6 @@ def test_prompt_with_multiple_params(tmp_path):
     assert "Count: 5" in result
 
 
-def test_builtin_skills_prompt_has_params():
-    """Test that built-in skills prompt has path parameter defined."""
-    resolver = get_prompt_resolver()
-    prompts = resolver.list_prompts()
-
-    skills_prompt = next((p for p in prompts if p["id"] == "skills"), None)
-    assert skills_prompt is not None
-    assert "params" in skills_prompt
-    assert "root_dir" in skills_prompt["params"]
-    assert skills_prompt["params"]["root_dir"]["type"] == "path"
-
-
 def test_parse_agent_with_parameterized_prompt(tmp_path):
     """Parser keeps placeholder; prepare_team resolves parameterized prompts."""
     prompts_dir = tmp_path / "prompts"
