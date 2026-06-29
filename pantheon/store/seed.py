@@ -134,6 +134,21 @@ def _bump_patch(version: str) -> str:
         return (version or "1.0.0") + ".1"
 
 
+def _content_fingerprint(content: str, files: dict = None) -> str:
+    """Replicate the Hub's StorePackage content hash so publish can detect an
+    UNCHANGED skill locally and skip re-uploading it.
+
+    MUST stay byte-for-byte in sync with the Hub
+    (pantheon_hub/api/store.py::_content_hash): sha256(content), then — only when
+    `files` is non-empty — fold in json.dumps(files, sort_keys=True). The list
+    endpoint returns this same hash as each package's `content_hash`.
+    """
+    h = hashlib.sha256((content or "").encode("utf-8"))
+    if files:
+        h.update(json.dumps(files, sort_keys=True).encode("utf-8"))
+    return h.hexdigest()
+
+
 def _git_meta(path) -> Tuple[Optional[str], Optional[str]]:
     """Return (commit_sha, committed_at_iso) for the git repo containing `path`,
     or (None, None) if it is not a git checkout. Used to record which upstream
@@ -867,6 +882,20 @@ class StoreSeed:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         console.print(f"\n[bold]Publishing from {inp}[/bold] ({len(manifest)} packages)")
 
+        # Pre-index the store in ONE bulk read so we can diff each package locally
+        # (content_hash + metadata) and skip the ~95% that are unchanged, instead
+        # of blindly re-uploading every package's full content every run. Falls
+        # back to the per-package lookup path if the index can't be fetched.
+        hub_index = None
+        if not dry_run:
+            try:
+                hub_index = self._fetch_hub_index()
+                console.print(f"[dim]Indexed {len(hub_index)} existing packages "
+                              f"(diffing locally to skip unchanged)[/dim]")
+            except Exception as e:
+                logger.warning(f"Could not pre-index store ({e}); "
+                               f"falling back to per-package publish")
+
         with Progress(SpinnerColumn(), TextColumn("{task.description}"),
                        BarColumn(), TextColumn("{task.completed}/{task.total}"),
                        console=console) as progress:
@@ -889,7 +918,10 @@ class StoreSeed:
                         if bf_path.exists():
                             files[rel_path] = bf_path.read_text(encoding="utf-8")
 
-                self._publish_one(
+                existing = hub_index.get(entry["name"]) if hub_index is not None else None
+                local_hash = _content_fingerprint(content, files)
+
+                action = self._publish_one(
                     name=entry["name"],
                     pkg_type=entry["type"],
                     display_name=entry["display_name"],
@@ -904,9 +936,13 @@ class StoreSeed:
                     source_committed_at=entry.get("source_committed_at"),
                     path=entry.get("path"),
                     dry_run=dry_run,
+                    existing=existing,
+                    local_hash=local_hash,
                 )
                 progress.advance(task)
-                if not dry_run:
+                # Only throttle when we actually hit the write API — skipped
+                # (unchanged) packages cost no request, so don't sleep on them.
+                if not dry_run and action not in ("skipped",):
                     time.sleep(0.2)
 
         self._print_summary("Publish from prepared data")
@@ -926,20 +962,50 @@ class StoreSeed:
                 except Exception as e:
                     logger.warning(f"reconcile {source_display} failed: {e}")
 
+    def _fetch_hub_index(self) -> Dict[str, dict]:
+        """One bulk read of every store package, keyed by name, so publish() can
+        diff each package locally (content_hash + metadata) and skip unchanged
+        ones instead of re-uploading. The list endpoint returns metadata +
+        content_hash but NOT the heavy content/readme, so this stays cheap even
+        for thousands of packages. Paginates by the page's actual length so a
+        server-side limit cap can't make it skip rows."""
+        index: Dict[str, dict] = {}
+        offset, page = 0, 200
+        while True:
+            res = _run(self.client.search(limit=page, offset=offset))
+            pkgs = res.get("packages", [])
+            if not pkgs:
+                break
+            for p in pkgs:
+                nm = p.get("name")
+                if nm:
+                    index[nm] = p
+            if len(pkgs) < page:
+                break
+            offset += len(pkgs)
+        return index
+
     def _publish_one(self, name: str, pkg_type: str, display_name: str,
                      description: str, category: str, content: str,
                      files: dict = None, version: str = "1.0.0",
                      source: str = "Pantheon", source_url: str = None,
                      references: list = None, source_rev: str = None,
                      source_committed_at: str = None, path: str = None,
-                     dry_run: bool = False) -> bool:
-        """Publish a package. If it already exists, publish a NEW VERSION when the
-        content changed (auto-bumped patch), else skip. This makes re-seeding a
-        real content sync instead of a no-op, with version history."""
+                     dry_run: bool = False, existing: dict = None,
+                     local_hash: str = None) -> str:
+        """Publish / sync ONE package. Returns the action taken: 'published' (new
+        package), 'updated' (new version or metadata sync), 'skipped' (already in
+        sync), or 'failed'.
+
+        When `existing` (a pre-fetched Hub record from the bulk index) and
+        `local_hash` are supplied, an UNCHANGED package is detected locally and
+        costs ZERO write requests — only new/changed packages hit the API. If the
+        index was unavailable, `existing` is None and we fall back to the original
+        try-create-then-lookup path (still correct, just slower)."""
         if dry_run:
             console.print(f"  [dim][dry-run][/dim] {pkg_type}: {name} ({category})")
             self.stats["published"] += 1
-            return True
+            return "published"
 
         payload = {
             "name": name, "type": pkg_type, "display_name": display_name,
@@ -956,66 +1022,97 @@ class StoreSeed:
         if path:
             payload["path"] = path
 
-        # 1. Try to create as a brand-new package.
-        try:
-            _run(self.client.publish(payload))
-            self.stats["published"] += 1
-            return True
-        except SystemExit:
-            pass  # already exists -> fall through to the version-update path
-        except Exception as e:
-            logger.warning(f"Failed to publish {name}: {e}")
-            self.stats["failed"] += 1
-            return False
+        # Package-level metadata to sync (refs/desc/path/source rev), applied
+        # whether or not the content changed.
+        meta_update = {
+            "references": references or [], "description": description or "",
+            "display_name": display_name, "category": category,
+        }
+        if path:
+            meta_update["path"] = path
+        if source_rev:
+            meta_update["source_rev"] = source_rev
+        if source_committed_at:
+            meta_update["source_committed_at"] = source_committed_at
 
-        # 2. Exists: look it up, and publish a new version if the content changed.
-        try:
-            res = _run(self.client.search(q=name, limit=8))
-            existing = next((p for p in res.get("packages", []) if p.get("name") == name), None)
-            if not existing:
-                self.stats["skipped"] += 1
-                return False
-            pkg_id = existing["id"]
-            next_ver = _bump_patch(existing.get("latest_version") or "1.0.0")
-            # Package-level metadata to sync (refs/desc/path/source rev). Computed
-            # once so it can be applied whether or not the content changed.
-            meta_update = {
-                "references": references or [], "description": description or "",
-                "display_name": display_name, "category": category,
-            }
-            if path:
-                meta_update["path"] = path
-            if source_rev:
-                meta_update["source_rev"] = source_rev
-            if source_committed_at:
-                meta_update["source_committed_at"] = source_committed_at
+        # Not in the pre-fetched index -> treat as new and create it. A 409 here
+        # means it actually exists (race, or the index was unavailable), so look
+        # it up and fall through to the diff path.
+        if existing is None:
             try:
-                _run(self.client.publish_version(pkg_id, {
-                    "version": next_ver, "content": content, "files": files or {},
-                    "changelog": "Synced from source",
-                }))
+                _run(self.client.publish(payload))
+                self.stats["published"] += 1
+                return "published"
             except SystemExit:
-                # Content identical (or version clash) -> no new version. Still sync
-                # package-level metadata so re-seeds can backfill path/refs WITHOUT
-                # republishing content (preserves reviews, costs no review tokens).
                 try:
-                    _run(self.client.update_package(pkg_id, meta_update))
-                    self.stats["updated"] += 1
-                    return True
+                    res = _run(self.client.search(q=name, limit=8))
+                    existing = next((p for p in res.get("packages", [])
+                                     if p.get("name") == name), None)
                 except Exception:
+                    existing = None
+                if existing is None:
                     self.stats["skipped"] += 1
-                    return False
-            # version published -> sync package-level metadata
+                    return "skipped"
+            except Exception as e:
+                logger.warning(f"Failed to publish {name}: {e}")
+                self.stats["failed"] += 1
+                return "failed"
+
+        pkg_id = existing["id"]
+
+        # Content unchanged (local hash == Hub's stored content_hash) -> no new
+        # version. Sync package metadata only if it actually drifted, else skip
+        # with ZERO requests. (references derive from content, so when the hash
+        # matches they're already current and don't force an update.)
+        if local_hash is not None and existing.get("content_hash") == local_hash:
+            def _n(x):
+                return x or ""
+            in_sync = (
+                _n(existing.get("path")) == _n(path)
+                and _n(existing.get("source_rev")) == _n(source_rev)
+                and _n(existing.get("description")) == _n(description)
+                and _n(existing.get("display_name")) == _n(display_name)
+                and _n(existing.get("category")) == _n(category)
+            )
+            if in_sync:
+                self.stats["skipped"] += 1
+                return "skipped"
             try:
                 _run(self.client.update_package(pkg_id, meta_update))
+                self.stats["updated"] += 1
+                return "updated"
             except Exception:
-                pass  # version is published; metadata sync is best-effort
-            self.stats["updated"] += 1
-            return True
+                self.stats["skipped"] += 1
+                return "skipped"
+
+        # Content changed (or hash unknown -> let the Hub decide): publish a new
+        # auto-bumped version, then sync metadata.
+        next_ver = _bump_patch(existing.get("latest_version") or "1.0.0")
+        try:
+            _run(self.client.publish_version(pkg_id, {
+                "version": next_ver, "content": content, "files": files or {},
+                "changelog": "Synced from source",
+            }))
+        except SystemExit:
+            # Hub says identical (hash race) -> just sync metadata.
+            try:
+                _run(self.client.update_package(pkg_id, meta_update))
+                self.stats["updated"] += 1
+                return "updated"
+            except Exception:
+                self.stats["skipped"] += 1
+                return "skipped"
         except Exception as e:
             logger.warning(f"Failed to update {name}: {e}")
             self.stats["failed"] += 1
-            return False
+            return "failed"
+        # version published -> sync package-level metadata (best-effort)
+        try:
+            _run(self.client.update_package(pkg_id, meta_update))
+        except Exception:
+            pass
+        self.stats["updated"] += 1
+        return "updated"
 
     def _print_summary(self, title: str):
         """Print a summary table."""
