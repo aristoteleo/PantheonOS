@@ -225,7 +225,24 @@ class TaskToolSet(ToolSet):
 
         Args:
             paths_to_review: List of ABSOLUTE paths to files that the user should be notified about. MUST populate this if requesting review.
-            blocked_on_user: Set to true if you are blocked on user approval to proceed. Set false if just notifying about completion.
+            blocked_on_user: Controls BOTH how this message renders AND whether it
+                interrupts. The deciding question is: are you ASKING the user for
+                something (true) or TELLING them something (false)?
+                - TRUE → renders as an APPROVAL / REVIEW gate ("Awaiting Review") and
+                  STOPS to wait for the user. Use ONLY when you genuinely need the user
+                  to approve, review, or decide something BEFORE you could continue
+                  (e.g. confirm which dataset to use, approve a risky/irreversible step).
+                  Providing `questions` is this case.
+                - FALSE → renders as a NOTIFICATION (a progress update or a "Completed"
+                  card) and does NOT block. Use it for a transient progress FYI
+                  ("downloaded the data, now running the analysis") AND for FINAL
+                  COMPLETION ("analysis complete — here are the outputs"): at the end you
+                  are DELIVERING a result, not asking permission, so it must read as
+                  Completed, NOT as an approval request. The run hands control back to the
+                  user on its own once there is nothing left to do — you do NOT need
+                  blocked_on_user=true to "stop" after finishing.
+                So a finished task is TELLING the user → blocked_on_user=FALSE (attach the
+                deliverables via paths_to_review). Reserve TRUE for genuine asks.
                 IMPORTANT: If you provide questions, the tool will automatically set interrupt=True regardless of this value,
                 as asking questions implies waiting for answers. You typically should set this to True when providing questions.
             message: Required message to notify the user with, e.g to provide context or explanation. Use GitHub Flavored Markdown (GFM) format.

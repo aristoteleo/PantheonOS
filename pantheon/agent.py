@@ -2125,6 +2125,19 @@ class Agent:
             )
             return len(pending)
 
+        # Idle-spin guard. A run that loops on think-only turns (e.g. the task is
+        # done but the agent didn't cleanly yield) re-reasons "nothing to do" and
+        # burns tokens. But several DISTINCT think-only turns in a row are normal
+        # planning, so we must not kill those. Discriminator: real spinning REPEATS
+        # the SAME thought, planning PROGRESSES through different ones. So we end the
+        # run on N near-identical think-only turns (repetition), with a high absolute
+        # cap as a backstop for a distinct-but-runaway idle loop.
+        repeated_think_streak = 0          # consecutive ~identical think-only turns
+        think_only_streak = 0              # consecutive think-only turns (any thought)
+        last_think_norm = None
+        IDLE_REPEATED_THINK_LIMIT = 3      # 3 ~identical thoughts in a row = spinning
+        IDLE_THINK_ONLY_CAP = 12           # absolute backstop for distinct idle loops
+
         while len(history) - init_len < max_turns:
             # Pull in any user messages queued mid-run before this turn (steering)
             await _drain_steer_messages()
@@ -2267,6 +2280,45 @@ class Agent:
             # Handle notify_user interrupt - break loop to return control to user
             if interrupt_message:
                 break
+
+            # Idle-spin guard: a turn whose ONLY action is think() makes no external
+            # progress. Several DISTINCT such turns are normal planning, so we only
+            # bail when the agent REPEATS a near-identical thought (true spinning),
+            # or as an absolute backstop after far more think-only turns than any
+            # real reasoning needs.
+            _turn_calls = message.get("tool_calls") or []
+            _turn_tool_names = [(c.get("function") or {}).get("name", "") for c in _turn_calls]
+            if _turn_tool_names and all(n == "think" for n in _turn_tool_names):
+                think_only_streak += 1
+                # Normalised thought of this turn (lowercased, whitespace-collapsed,
+                # capped) to compare against the previous think-only turn.
+                _thoughts = []
+                for _c in _turn_calls:
+                    try:
+                        _args = json.loads((_c.get("function") or {}).get("arguments") or "{}")
+                    except Exception:
+                        _args = {}
+                    _t = _args.get("thought")
+                    if isinstance(_t, str):
+                        _thoughts.append(_t)
+                _cur_norm = " ".join(" ".join(_thoughts).lower().split())[:160]
+                if _cur_norm and last_think_norm is not None and _cur_norm == last_think_norm:
+                    repeated_think_streak += 1
+                else:
+                    repeated_think_streak = 0
+                last_think_norm = _cur_norm
+                if repeated_think_streak >= IDLE_REPEATED_THINK_LIMIT or think_only_streak >= IDLE_THINK_ONLY_CAP:
+                    logger.warning(
+                        "[idle-guard] agent={} spinning on think-only turns "
+                        "(repeated={}, streak={}) — ending the run to return control "
+                        "to the user.",
+                        self.name, repeated_think_streak, think_only_streak,
+                    )
+                    break
+            else:
+                think_only_streak = 0
+                repeated_think_streak = 0
+                last_think_norm = None
 
         return ResponseDetails(
             messages=history[init_len:],
