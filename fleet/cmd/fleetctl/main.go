@@ -33,10 +33,57 @@ func main() {
 		cmdRun(os.Args[2:])
 	case "ping":
 		cmdPing(os.Args[2:])
+	case "transfer":
+		cmdTransfer(os.Args[2:])
 	default:
 		fmt.Fprintln(os.Stderr, "unknown command:", os.Args[1])
 		os.Exit(2)
 	}
+}
+
+func cmdTransfer(args []string) {
+	fs := flag.NewFlagSet("transfer", flag.ExitOnError)
+	natsURL := fs.String("nats", nats.DefaultURL, "NATS url")
+	fleet := fs.String("fleet", "", "fleet id")
+	src := fs.String("src", "", "source node id")
+	dst := fs.String("dst", "", "destination node id")
+	srcPath := fs.String("src-path", "", "source path (on src node)")
+	dstPath := fs.String("dst-path", "", "destination path (on dst node)")
+	timeout := fs.Int("timeout", 600, "timeout seconds")
+	_ = fs.Parse(args)
+
+	nc := dial(*natsURL)
+	defer nc.Drain() //nolint:errcheck
+
+	tid := "x_" + uuid.NewString()[:8]
+	sub, err := nc.Subscribe(proto.SubjTransferProgress(*fleet, tid), func(m *nats.Msg) {
+		var p proto.TransferProgress
+		if json.Unmarshal(m.Data, &p) == nil && p.State == "transferring" {
+			fmt.Printf("\rtransferring %d/%d bytes (%.1f MB/s)      ",
+				p.BytesDone, p.BytesTotal, float64(p.RateBps)/1e6)
+		}
+	})
+	must(err)
+	defer sub.Unsubscribe() //nolint:errcheck
+
+	cmd := proto.Command{Type: "transfer", Transfer: &proto.TransferRequest{
+		TransferID: tid, SrcNode: *src, DstNode: *dst,
+		SrcPath: *srcPath, DstPath: *dstPath,
+		Options: proto.TransferOptions{Verify: "sha256"},
+	}}
+	b, _ := json.Marshal(cmd)
+	msg, err := nc.Request(proto.SubjNodeCmd(*fleet, *src), b, time.Duration(*timeout)*time.Second)
+	must(err)
+
+	var res proto.TransferProgress
+	must(json.Unmarshal(msg.Data, &res))
+	fmt.Println()
+	if res.State == "done" {
+		fmt.Printf("done -> %s  (sha256=%s)\n", *dstPath, res.SHA256)
+		return
+	}
+	fmt.Fprintln(os.Stderr, "transfer failed:", res.Error)
+	os.Exit(1)
 }
 
 func cmdNodes(args []string) {

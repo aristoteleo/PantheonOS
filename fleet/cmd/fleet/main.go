@@ -1,11 +1,10 @@
 // Command fleet is the Pantheon-Fleet Runner: the single binary a user starts
 // on any machine to join their Fleet. It detects the machine's capability,
-// registers into the Fleet's Registry over NATS, heartbeats, and serves the
-// Agent's Tasks.
+// brings up the data plane (libp2p), registers into the Fleet's Registry over
+// NATS, heartbeats, and serves the Agent's Tasks and Transfers.
 //
-// Phase 1a: control plane + execution. The data plane (libp2p transfers) and
-// the Controller join (key -> fleet + scoped creds) land in following steps;
-// in dev you bypass the Controller with --nats and --fleet.
+// The Controller join (key -> fleet + scoped creds) is a separate service; in
+// dev you bypass it with --nats and --fleet.
 package main
 
 import (
@@ -20,10 +19,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aristoteleo/pantheon-fleet/internal/control"
+	"github.com/aristoteleo/pantheon-fleet/internal/dataplane"
 	"github.com/aristoteleo/pantheon-fleet/internal/node"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/aristoteleo/pantheon-fleet/internal/registry"
+	"github.com/aristoteleo/pantheon-fleet/internal/runner"
 	"github.com/nats-io/nats.go"
 )
 
@@ -50,7 +50,7 @@ func usage() {
 
 Usage:
   fleet up   --key <key> [--name <name>] [--labels a,b] [--workdir <dir>]
-                          [--nats <url>] [--fleet <id>]
+                          [--nats <url>] [--fleet <id>] [--no-dataplane]
   fleet version
 
 In Phase 1 (dev) you can bypass the Controller with --nats <url> and --fleet <id>.`)
@@ -64,15 +64,30 @@ func cmdUp(args []string) {
 	workDir := fs.String("workdir", ".", "working directory for Tasks")
 	natsURL := fs.String("nats", "", "NATS url (dev: bypass the Controller)")
 	fleetID := fs.String("fleet", "", "fleet id (dev: bypass the Controller)")
+	relaysCSV := fs.String("relays", "", "comma-separated relay multiaddrs")
+	noDataplane := fs.Bool("no-dataplane", false, "control plane only (no libp2p / Transfers)")
+	stateDir := fs.String("state-dir", defaultStateDir(), "where the stable node id is kept (set per-node to run several on one host)")
 	_ = fs.Parse(args)
 
-	nodeID, err := node.Identity(defaultStateDir())
+	nodeID, err := node.Identity(*stateDir)
 	must(err)
 
-	// Phase 1 dev path: --nats + --fleet are used directly. The Controller
-	// join (key -> fleet id + scoped NATS creds + relay list) is wired next.
 	if *natsURL == "" || *fleetID == "" {
-		fatal("dev mode needs --nats <url> and --fleet <id> (Controller join is TODO; key=%q)", redact(*key))
+		fatal("dev mode needs --nats <url> and --fleet <id> (Controller join is separate; key=%q)", redact(*key))
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Data plane (libp2p) — advertise its addresses in the Node record.
+	var dp *dataplane.Plane
+	netInfo := proto.Net{}
+	if !*noDataplane {
+		dp, err = dataplane.New(ctx, splitCSV(*relaysCSV))
+		must(err)
+		defer dp.Close() //nolint:errcheck
+		netInfo.Multiaddrs = dp.Multiaddrs()
+		netInfo.Reachability = dp.Reachability()
 	}
 
 	capa := node.DetectCapability(*workDir)
@@ -82,7 +97,7 @@ func cmdUp(args []string) {
 		Labels:     splitCSV(*labelsCSV),
 		Capability: capa,
 		State:      proto.State{Status: proto.StatusOnline, Load: node.LiveLoad()},
-		Net:        proto.Net{Reachability: proto.ReachDirect}, // data plane: TODO (phase 1b)
+		Net:        netInfo,
 		Version:    version,
 	}
 
@@ -90,40 +105,30 @@ func cmdUp(args []string) {
 	must(err)
 	defer nc.Drain() //nolint:errcheck
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
 	reg, err := registry.Open(ctx, nc, *fleetID, nodeID, 30*time.Second)
 	must(err)
 	must(reg.Put(ctx, rec))
 
-	conn := control.New(nc, *fleetID, nodeID)
-	sub, err := conn.ServeCommands(ctx)
+	r := runner.New(nc, *fleetID, nodeID, reg, dp, &rec)
+	sub, err := r.Serve()
 	must(err)
 	defer sub.Unsubscribe() //nolint:errcheck
 
-	fmt.Printf("node %q (%s) joined fleet %q — %d cores, %.0f GB RAM, gpu=%q\n",
-		rec.Name, nodeID, *fleetID, capa.CPUCores, capa.RAMGB, capa.GPU)
-	printJSON(rec)
-	fmt.Println("serving tasks; Ctrl-C to leave the fleet…")
-
-	tick := time.NewTicker(10 * time.Second)
-	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			fmt.Println("\nleaving fleet…")
-			c2, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			_ = reg.Delete(c2)
-			cancel()
-			return
-		case <-tick.C:
-			rec.State.Load = node.LiveLoad()
-			if err := reg.Put(ctx, rec); err != nil {
-				fmt.Fprintln(os.Stderr, "heartbeat failed:", err)
-			}
-		}
+	fmt.Printf("node %q (%s) joined fleet %q — %d cores, %.0f GB RAM, gpu=%q, dataplane=%v\n",
+		rec.Name, nodeID, *fleetID, capa.CPUCores, capa.RAMGB, capa.GPU, dp != nil)
+	if dp != nil {
+		fmt.Printf("  peer %s, %d addr(s)\n", dp.ID(), len(netInfo.Multiaddrs))
 	}
+	printJSON(rec)
+	fmt.Println("serving tasks & transfers; Ctrl-C to leave the fleet…")
+
+	go r.Heartbeat(ctx, 10*time.Second)
+
+	<-ctx.Done()
+	fmt.Println("\nleaving fleet…")
+	c2, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	_ = reg.Delete(c2)
+	cancel()
 }
 
 func defaultStateDir() string {

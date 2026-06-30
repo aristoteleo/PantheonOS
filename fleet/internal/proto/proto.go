@@ -70,10 +70,12 @@ type Net struct {
 	Reachability string   `json:"reachability,omitempty"`
 }
 
-// Command is the envelope sent to a Node's cmd subject.
+// Command is the envelope sent to a Node's cmd subject. A transfer command is
+// sent to the *source* Node, which then streams to the destination.
 type Command struct {
-	Type string `json:"type"` // run_task | cancel | ping
-	Task *Task  `json:"task,omitempty"`
+	Type     string           `json:"type"` // run_task | transfer | cancel | ping
+	Task     *Task            `json:"task,omitempty"`
+	Transfer *TransferRequest `json:"transfer,omitempty"`
 }
 
 // Task is a single code execution request (Agent -> Node).
@@ -120,6 +122,7 @@ type TransferProgress struct {
 	BytesTotal int64  `json:"bytes_total"`
 	RateBps    int64  `json:"rate_bps"`
 	Path       string `json:"path"` // direct | relay
+	SHA256     string `json:"sha256,omitempty"`
 	Error      string `json:"error,omitempty"`
 }
 

@@ -53,3 +53,16 @@ func (r *Registry) Put(ctx context.Context, n proto.Node) error {
 func (r *Registry) Delete(ctx context.Context) error {
 	return r.kv.Delete(ctx, r.node)
 }
+
+// Get reads another Node's record (e.g. to find a transfer peer's multiaddrs).
+func (r *Registry) Get(ctx context.Context, node string) (proto.Node, error) {
+	var n proto.Node
+	e, err := r.kv.Get(ctx, node)
+	if err != nil {
+		return n, err
+	}
+	if err := json.Unmarshal(e.Value(), &n); err != nil {
+		return n, err
+	}
+	return n, nil
+}
