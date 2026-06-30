@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from .evolution import EvolutionToolSet, EvaluatorToolSet
     from .scfm import SCFMToolSet
     from .live_view import LiveViewToolSet
+    from .fleet import FleetToolSet
 
 _TOOLSET_MAPPING = {
     "PythonInterpreterToolSet": ".python",
@@ -41,6 +42,7 @@ _TOOLSET_MAPPING = {
     "EvaluatorToolSet": ".evolution",
     "SCFMToolSet": ".scfm",
     "LiveViewToolSet": ".live_view",
+    "FleetToolSet": ".fleet",
 }
 
 __all__ = list(_TOOLSET_MAPPING.keys())

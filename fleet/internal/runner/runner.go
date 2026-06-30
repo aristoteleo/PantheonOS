@@ -103,7 +103,9 @@ func (r *Runner) handleTransfer(m *nats.Msg, req proto.TransferRequest) {
 		livePath = "direct"
 	}
 	start := time.Now()
+	var lastDone, lastTotal int64
 	onProg := func(done, total int64) {
+		lastDone, lastTotal = done, total
 		rate := int64(0)
 		if d := time.Since(start).Seconds(); d > 0 {
 			rate = int64(float64(done) / d)
@@ -122,7 +124,10 @@ func (r *Runner) handleTransfer(m *nats.Msg, req proto.TransferRequest) {
 	if viaRelay {
 		path = "relay"
 	}
-	done := proto.TransferProgress{TransferID: req.TransferID, State: "done", Path: path, SHA256: sum}
+	done := proto.TransferProgress{
+		TransferID: req.TransferID, State: "done", Path: path, SHA256: sum,
+		BytesDone: lastDone, BytesTotal: lastTotal,
+	}
 	pub(done)
 	r.reply(m, done)
 }
