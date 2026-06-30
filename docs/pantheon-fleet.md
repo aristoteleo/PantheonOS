@@ -429,9 +429,10 @@ Legend: ✅ done & verified · ◻︎ todo · 🔸 needs a decision (§13) or re
 
 **Phase 1 — MVP (the agent can see, run, and move data)**
 - ✅ Controller: key → Fleet, relay list, **scoped NATS JWT** (per-fleet
-  subject/KV/inbox isolation, `internal/auth`) + an interim **access gate**
-  (`--allowed-keys`). 🔸 hub-backed key validation (the gate is the stopgap
-  until the hub gains a platform-key API). A reference secured stack
+  subject/KV/inbox isolation, `internal/auth`) + key gating — **hub-backed
+  platform-key validation** (`--hub-url`; the hub mints/validates `pbk_` keys,
+  pantheon-hub `feat/platform-api-keys`, pending prod-hub deploy) with an
+  interim `--allowed-keys` fallback. A reference secured stack
   (Controller+NATS+relay) is deployed on DO — see `fleet/deploy/production.md`.
 - ✅ Runner: NATS connect + JetStream KV registry/heartbeat + go-libp2p data
   plane (direct + relay fallback) + shell/python execution.
@@ -452,7 +453,8 @@ Node, runs code on a chosen Node, and moves a large file A→B (direct or relaye
 
 **Phase 3 — reach & integration**
 - 🔸 Globus/rsync Transfer backend for HPC↔HPC (needs HPC/Globus infra to verify).
-- ◻︎ Managed Python toolset endpoint on Nodes (full notebook/interpreter on a Node).
+- ~~Managed Python toolset endpoint on Nodes~~ — **dropped**: `run_on_node(kind="python")`
+  and shell already cover running code on a Node; a managed interpreter adds little.
 - ✅ Optional auto-placement (`fleet_pick_node`); ✅ data-plane tuning (zstd); ◻︎ multistream.
 
 ---

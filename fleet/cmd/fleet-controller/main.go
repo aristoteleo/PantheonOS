@@ -10,19 +10,24 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 )
+
+var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 func main() {
 	addr := flag.String("addr", ":8099", "HTTP listen address")
@@ -31,6 +36,8 @@ func main() {
 	enableAuth := flag.Bool("auth", true, "issue per-fleet scoped NATS credentials (decentralized JWT)")
 	allowedKeysCSV := flag.String("allowed-keys", "", "comma-separated keys allowed to /join (empty = OPEN; gate before exposing publicly)")
 	allowedKeysFile := flag.String("allowed-keys-file", "", "file of allowed keys, one per line (# comments); preferred over --allowed-keys for secrets")
+	hubURL := flag.String("hub-url", "", "PantheonOS hub base URL — validate keys via its platform-key API (preferred over --allowed-keys)")
+	hubToken := flag.String("hub-token", os.Getenv("FLEET_CONTROLLER_SERVICE_TOKEN"), "service token for hub key validation (or env FLEET_CONTROLLER_SERVICE_TOKEN)")
 	stateDir := flag.String("state-dir", defaultStateDir(), "where the Authority's keys are persisted")
 	emitCfg := flag.String("emit-nats-config", "", "write a nats-server config for this Authority to this path, then keep serving")
 	natsListen := flag.String("nats-listen", "0.0.0.0:4222", "listen address baked into --emit-nats-config")
@@ -39,16 +46,22 @@ func main() {
 
 	relays := splitCSV(*relaysCSV)
 
-	// Interim access gate: until the hub validates platform keys, only keys on a
-	// configured allowlist may /join. Empty allowlist = OPEN (dev only).
+	// Access gate. Preferred: validate keys against the hub (--hub-url). Interim:
+	// a static allowlist. Neither set = OPEN (dev only).
 	allowed, err := loadAllowedKeys(*allowedKeysCSV, *allowedKeysFile)
 	if err != nil {
 		log.Fatalf("allowed keys: %v", err)
 	}
-	if len(allowed) == 0 {
-		log.Printf("gate: OPEN — any key creates a fleet. Set --allowed-keys(-file) before exposing this publicly.")
-	} else {
-		log.Printf("gate: %d key(s) allowed to /join", len(allowed))
+	switch {
+	case *hubURL != "":
+		log.Printf("gate: hub validation via %s", *hubURL)
+		if *hubToken == "" {
+			log.Printf("  WARNING: no --hub-token / FLEET_CONTROLLER_SERVICE_TOKEN — validation will fail")
+		}
+	case len(allowed) > 0:
+		log.Printf("gate: %d key(s) allowed to /join (interim allowlist)", len(allowed))
+	default:
+		log.Printf("gate: OPEN — any key creates a fleet. Set --hub-url or --allowed-keys(-file) before exposing publicly.")
 	}
 
 	var authority *auth.Authority
@@ -87,13 +100,25 @@ func main() {
 			http.Error(w, "missing key", http.StatusUnauthorized)
 			return
 		}
-		if len(allowed) > 0 && !allowed[req.Key] {
-			http.Error(w, "key not allowed", http.StatusForbidden)
-			return
+		var fid string
+		if *hubURL != "" {
+			vfid, ok, err := validateViaHub(*hubURL, *hubToken, req.Key)
+			if err != nil {
+				http.Error(w, "hub validation unavailable: "+err.Error(), http.StatusBadGateway)
+				return
+			}
+			if !ok {
+				http.Error(w, "key not allowed", http.StatusForbidden)
+				return
+			}
+			fid = vfid // the hub maps the key to the user's fleet
+		} else {
+			if len(allowed) > 0 && !allowed[req.Key] {
+				http.Error(w, "key not allowed", http.StatusForbidden)
+				return
+			}
+			fid = deriveFleet(req.Key)
 		}
-		// TODO: validate req.Key against the PantheonOS hub (the allowlist above
-		// is the interim gate until then). For now, derive a stable Fleet id.
-		fid := deriveFleet(req.Key)
 		resp := proto.JoinResponse{
 			FleetID: fid,
 			NatsURL: *natsURL,
@@ -115,11 +140,42 @@ func main() {
 	log.Fatal(http.ListenAndServe(*addr, mux))
 }
 
-// deriveFleet maps a key to a stable Fleet id. Replace with hub-backed
-// user lookup; one Fleet per user.
+// deriveFleet maps a key to a stable Fleet id (used in interim allowlist mode).
+// With --hub-url the fleet id comes from the hub instead (keyed to the user).
 func deriveFleet(key string) string {
 	h := sha256.Sum256([]byte(key))
 	return "f_" + hex.EncodeToString(h[:])[:16]
+}
+
+// validateViaHub asks the PantheonOS hub to validate a platform key, returning
+// the user's fleet id. ok=false means the key is unknown/revoked (deny the
+// join); a non-nil error means the hub itself was unreachable/misconfigured.
+func validateViaHub(hubURL, token, key string) (fleetID string, ok bool, err error) {
+	body, _ := json.Marshal(map[string]string{"key": key})
+	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(hubURL, "/")+"/api/platform-keys/validate", bytes.NewReader(body))
+	if err != nil {
+		return "", false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", false, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode != http.StatusOK {
+		// 401/403 = our service token is wrong; 5xx = hub problem. Either way the
+		// hub couldn't authoritatively validate, so surface it (don't silently deny).
+		return "", false, fmt.Errorf("hub returned %d", resp.StatusCode)
+	}
+	var out struct {
+		Valid   bool   `json:"valid"`
+		FleetID string `json:"fleet_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", false, err
+	}
+	return out.FleetID, out.Valid, nil
 }
 
 func defaultStateDir() string {

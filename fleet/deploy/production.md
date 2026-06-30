@@ -18,18 +18,29 @@ scp fleet-controller fleet-relay fleet fleetctl host:/root/fleet/
 curl -fsSL https://github.com/nats-io/nats-server/releases/download/v2.12.4/nats-server-v2.12.4-linux-amd64.tar.gz | tar xz
 ```
 
-## 1. Access gate (until the hub validates keys)
+## 1. Access gate
 
-The Controller only issues a fleet for keys on an allowlist; everything else
-gets 403. Put one key per line in a 0600 file:
+**Preferred — hub validation.** Point the Controller at the PantheonOS hub; it
+validates each `pbk_` key via the hub's platform-key API and maps it to the
+user's fleet. Users mint keys with `POST /api/platform-keys/create` (logged in);
+revoke with `DELETE /api/platform-keys/{id}`.
+
+```sh
+fleet-controller --hub-url https://pantheon.aristoteleo.com \
+                 --hub-token $FLEET_CONTROLLER_SERVICE_TOKEN  …
+```
+
+The hub must run with the same `FLEET_CONTROLLER_SERVICE_TOKEN` (it protects the
+`/api/platform-keys/validate` endpoint). One fleet per **user** — all of a
+user's keys map to the same fleet.
+
+**Interim — static allowlist** (no hub dependency): only listed keys may join;
+each distinct key → its own fleet. One key per line in a 0600 file:
 
 ```sh
 echo "pbk_$(openssl rand -hex 20)" > /root/fleet/allowed-keys && chmod 600 /root/fleet/allowed-keys
+fleet-controller --allowed-keys-file /root/fleet/allowed-keys  …
 ```
-
-Each distinct key → its own isolated fleet. Share a key with the machines that
-should join the same fleet. (When the hub gains a platform-key API, swap the
-allowlist for hub validation in the Controller's `/join`.)
 
 ## 2. Bring it up (order matters)
 
