@@ -29,6 +29,8 @@ func main() {
 	natsURL := flag.String("nats", "nats://localhost:4222", "NATS url advertised to Nodes")
 	relaysCSV := flag.String("relays", "", "comma-separated relay multiaddrs advertised to Nodes")
 	enableAuth := flag.Bool("auth", true, "issue per-fleet scoped NATS credentials (decentralized JWT)")
+	allowedKeysCSV := flag.String("allowed-keys", "", "comma-separated keys allowed to /join (empty = OPEN; gate before exposing publicly)")
+	allowedKeysFile := flag.String("allowed-keys-file", "", "file of allowed keys, one per line (# comments); preferred over --allowed-keys for secrets")
 	stateDir := flag.String("state-dir", defaultStateDir(), "where the Authority's keys are persisted")
 	emitCfg := flag.String("emit-nats-config", "", "write a nats-server config for this Authority to this path, then keep serving")
 	natsListen := flag.String("nats-listen", "0.0.0.0:4222", "listen address baked into --emit-nats-config")
@@ -36,6 +38,18 @@ func main() {
 	flag.Parse()
 
 	relays := splitCSV(*relaysCSV)
+
+	// Interim access gate: until the hub validates platform keys, only keys on a
+	// configured allowlist may /join. Empty allowlist = OPEN (dev only).
+	allowed, err := loadAllowedKeys(*allowedKeysCSV, *allowedKeysFile)
+	if err != nil {
+		log.Fatalf("allowed keys: %v", err)
+	}
+	if len(allowed) == 0 {
+		log.Printf("gate: OPEN — any key creates a fleet. Set --allowed-keys(-file) before exposing this publicly.")
+	} else {
+		log.Printf("gate: %d key(s) allowed to /join", len(allowed))
+	}
 
 	var authority *auth.Authority
 	if *enableAuth {
@@ -73,8 +87,12 @@ func main() {
 			http.Error(w, "missing key", http.StatusUnauthorized)
 			return
 		}
-		// TODO: validate req.Key against the PantheonOS hub. For now, derive a
-		// stable Fleet id from the key.
+		if len(allowed) > 0 && !allowed[req.Key] {
+			http.Error(w, "key not allowed", http.StatusForbidden)
+			return
+		}
+		// TODO: validate req.Key against the PantheonOS hub (the allowlist above
+		// is the interim gate until then). For now, derive a stable Fleet id.
 		fid := deriveFleet(req.Key)
 		resp := proto.JoinResponse{
 			FleetID: fid,
@@ -109,6 +127,29 @@ func defaultStateDir() string {
 		return filepath.Join(d, "pantheon-fleet-controller")
 	}
 	return ".pantheon-fleet-controller"
+}
+
+// loadAllowedKeys builds the /join allowlist from a CSV flag and/or a file
+// (one key per line, # comments and blanks ignored).
+func loadAllowedKeys(csv, file string) (map[string]bool, error) {
+	allowed := map[string]bool{}
+	for _, k := range splitCSV(csv) {
+		allowed[k] = true
+	}
+	if file != "" {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			allowed[line] = true
+		}
+	}
+	return allowed, nil
 }
 
 func splitCSV(s string) []string {
