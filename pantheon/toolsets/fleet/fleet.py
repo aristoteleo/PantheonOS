@@ -322,6 +322,7 @@ class FleetToolSet(ToolSet):
         dst_node: str,
         dst_path: str,
         verify: str = "sha256",
+        compress: str = "none",
         wait: bool = False,
         timeout: int = 600,
     ) -> dict:
@@ -339,6 +340,9 @@ class FleetToolSet(ToolSet):
             dst_node: Node that should receive the file.
             dst_path: Destination path on dst_node.
             verify: "sha256" (default) or "none".
+            compress: "none" (default) or "zstd" — zstd compresses on the wire
+                (a win for compressible data like text/csv/h5ad; skip it for
+                already-compressed data). sha256 still covers the original bytes.
             wait: If True, block until the transfer finishes and return the final
                 record (incl. sha256 and whether it went "direct" or via "relay").
             timeout: Max seconds for completion. Default 600.
@@ -351,7 +355,7 @@ class FleetToolSet(ToolSet):
             await self._ensure_connected()
         except Exception as e:  # noqa: BLE001
             return {"success": False, "error": str(e)}
-        tid = self._start_transfer(src_node, src_path, dst_node, dst_path, verify, timeout)
+        tid = self._start_transfer(src_node, src_path, dst_node, dst_path, verify, compress, timeout)
         if wait:
             task = self._transfer_tasks.get(tid)
             try:
@@ -368,19 +372,25 @@ class FleetToolSet(ToolSet):
             "note": "poll transfer_status(transfer_id) for progress",
         }
 
-    def _start_transfer(self, src_node, src_path, dst_node, dst_path, verify, timeout) -> str:
+    def _start_transfer(self, src_node, src_path, dst_node, dst_path, verify, compress, timeout) -> str:
         """Kick off a Node->Node transfer in the background; return its id."""
         tid = "x_" + uuid.uuid4().hex[:8]
         self._transfers[tid] = {"transfer_id": tid, "state": "pending"}
         task = asyncio.create_task(
-            self._run_transfer(tid, src_node, src_path, dst_node, dst_path, verify, timeout)
+            self._run_transfer(tid, src_node, src_path, dst_node, dst_path, verify, compress, timeout)
         )
         self._transfer_tasks[tid] = task
         return tid
 
     @tool
     async def broadcast(
-        self, src_node: str, src_path: str, dst_nodes: list, dst_path: str, verify: str = "sha256"
+        self,
+        src_node: str,
+        src_path: str,
+        dst_nodes: list,
+        dst_path: str,
+        verify: str = "sha256",
+        compress: str = "none",
     ) -> dict:
         """Fan-out: copy one file from src_node to many dst_nodes at once.
 
@@ -405,13 +415,20 @@ class FleetToolSet(ToolSet):
         if not dst_nodes:
             return {"success": False, "error": "no dst_nodes given"}
         transfers = {
-            d: self._start_transfer(src_node, src_path, d, dst_path, verify, 600) for d in dst_nodes
+            d: self._start_transfer(src_node, src_path, d, dst_path, verify, compress, 600)
+            for d in dst_nodes
         }
         return {"success": True, "count": len(transfers), "transfers": transfers}
 
     @tool
     async def gather(
-        self, src_nodes: list, src_path: str, dst_node: str, dst_dir: str, verify: str = "sha256"
+        self,
+        src_nodes: list,
+        src_path: str,
+        dst_node: str,
+        dst_dir: str,
+        verify: str = "sha256",
+        compress: str = "none",
     ) -> dict:
         """Fan-in: pull a same-path file from many src_nodes onto one dst_node.
 
@@ -438,12 +455,12 @@ class FleetToolSet(ToolSet):
         base = os.path.basename(src_path.rstrip("/")) or "file"
         d = dst_dir.rstrip("/")
         transfers = {
-            s: self._start_transfer(s, src_path, dst_node, f"{d}/{s}_{base}", verify, 600)
+            s: self._start_transfer(s, src_path, dst_node, f"{d}/{s}_{base}", verify, compress, 600)
             for s in src_nodes
         }
         return {"success": True, "count": len(transfers), "dst_dir": dst_dir, "transfers": transfers}
 
-    async def _run_transfer(self, tid, src_node, src_path, dst_node, dst_path, verify, timeout):
+    async def _run_transfer(self, tid, src_node, src_path, dst_node, dst_path, verify, compress, timeout):
         progress_subj = _subj_transfer_progress(self._fleet_id, tid)
 
         async def _on_prog(m):
@@ -454,6 +471,9 @@ class FleetToolSet(ToolSet):
 
         sub = await self._nc.subscribe(progress_subj, cb=_on_prog)
         try:
+            opts = {"verify": verify}
+            if compress and compress != "none":
+                opts["compress"] = compress
             cmd = {
                 "type": "transfer",
                 "transfer": {
@@ -462,7 +482,7 @@ class FleetToolSet(ToolSet):
                     "dst_node": dst_node,
                     "src_path": src_path,
                     "dst_path": dst_path,
-                    "options": {"verify": verify},
+                    "options": opts,
                 },
             }
             msg = await self._nc.request(

@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -33,6 +34,7 @@ import (
 const TransferProto protocol.ID = "/pantheon-fleet/transfer/1.0.0"
 
 const maxFrame = 1 << 20 // 1 MiB cap on a JSON frame
+const maxChunk = 16 << 20 // 16 MiB cap on a single body chunk
 
 // Plane is a running libp2p host.
 type Plane struct {
@@ -40,8 +42,9 @@ type Plane struct {
 }
 
 type header struct {
-	DstPath string `json:"dst_path"`
-	Size    int64  `json:"size"`
+	DstPath  string `json:"dst_path"`
+	Size     int64  `json:"size"`
+	Compress string `json:"compress,omitempty"` // "" (raw) | "zstd"
 }
 type trailer struct {
 	SHA256 string `json:"sha256"`
@@ -107,10 +110,12 @@ func (p *Plane) Reachability() string {
 func (p *Plane) Close() error { return p.host.Close() }
 
 // Send connects to dst (by its advertised multiaddrs) and streams srcPath; the
-// receiver writes it to dstPath. onProgress is called periodically with bytes
-// done / total. Returns the verified sha256 and whether the connection went
-// through a relay (vs a direct connection).
-func (p *Plane) Send(ctx context.Context, dstAddrs []string, srcPath, dstPath string, onProgress func(done, total int64)) (sum string, viaRelay bool, err error) {
+// receiver writes it to dstPath. compress is "" (raw) or "zstd" — when "zstd"
+// the body is compressed on the wire but the sha256 still covers the original
+// bytes, so it verifies against the source file regardless. onProgress is
+// called periodically with original bytes done / total. Returns the verified
+// sha256 and whether the connection went through a relay (vs a direct one).
+func (p *Plane) Send(ctx context.Context, dstAddrs []string, srcPath, dstPath, compress string, onProgress func(done, total int64)) (sum string, viaRelay bool, err error) {
 	ai, err := addrInfo(dstAddrs)
 	if err != nil {
 		return "", false, err
@@ -141,14 +146,37 @@ func (p *Plane) Send(ctx context.Context, dstAddrs []string, srcPath, dstPath st
 		return "", false, err
 	}
 	total := fi.Size()
+	if compress != "zstd" {
+		compress = ""
+	}
 
-	if err := writeFrame(s, header{DstPath: dstPath, Size: total}); err != nil {
+	if err := writeFrame(s, header{DstPath: dstPath, Size: total, Compress: compress}); err != nil {
 		return "", false, err
 	}
 
+	// Body is a sequence of length-prefixed chunks (so the compressed length need
+	// not be known up front). The hasher always sees the *original* bytes.
 	hasher := sha256.New()
-	pw := &progressWriter{w: s, total: total, cb: onProgress, last: time.Now()}
-	if _, err := io.CopyBuffer(io.MultiWriter(pw, hasher), io.LimitReader(f, total), make([]byte, 256<<10)); err != nil {
+	cw := &chunkWriter{w: s}
+	var sink io.Writer = cw
+	var enc *zstd.Encoder
+	if compress == "zstd" {
+		enc, err = zstd.NewWriter(cw)
+		if err != nil {
+			return "", false, err
+		}
+		sink = enc
+	}
+	pr := &progressReader{r: io.LimitReader(f, total), total: total, cb: onProgress, last: time.Now()}
+	if _, err := io.CopyBuffer(io.MultiWriter(sink, hasher), pr, make([]byte, 256<<10)); err != nil {
+		return "", false, err
+	}
+	if enc != nil {
+		if err := enc.Close(); err != nil { // flush the zstd frame into the chunks
+			return "", false, err
+		}
+	}
+	if err := cw.Close(); err != nil { // 0-length chunk = end of body
 		return "", false, err
 	}
 	if onProgress != nil {
@@ -186,10 +214,27 @@ func (p *Plane) handleIncoming(s network.Stream) {
 		_ = writeFrame(s, ack{Error: err.Error()})
 		return
 	}
+	// Body is length-prefixed chunks; decompress if the sender used zstd. The
+	// hasher sees the *original* (decompressed) bytes so it matches the source.
 	hasher := sha256.New()
-	if _, err := io.CopyN(io.MultiWriter(f, hasher), s, h.Size); err != nil {
+	var src io.Reader = &chunkReader{r: s}
+	var dec *zstd.Decoder
+	if h.Compress == "zstd" {
+		dec, err = zstd.NewReader(src)
+		if err != nil {
+			f.Close()
+			_ = writeFrame(s, ack{Error: "zstd: " + err.Error()})
+			return
+		}
+		src = dec
+	}
+	_, copyErr := io.Copy(io.MultiWriter(f, hasher), src)
+	if dec != nil {
+		dec.Close()
+	}
+	if copyErr != nil {
 		f.Close()
-		_ = writeFrame(s, ack{Error: "copy: " + err.Error()})
+		_ = writeFrame(s, ack{Error: "copy: " + copyErr.Error()})
 		return
 	}
 	if err := f.Close(); err != nil {
@@ -281,21 +326,84 @@ func readFrame(r io.Reader, v any) error {
 	return json.Unmarshal(b, v)
 }
 
-// progressWriter throttles onProgress callbacks to ~3/s.
-type progressWriter struct {
-	w     io.Writer
+// progressReader throttles onProgress callbacks to ~3/s, counting the original
+// (pre-compression) bytes read from the source.
+type progressReader struct {
+	r     io.Reader
 	total int64
 	done  int64
 	cb    func(done, total int64)
 	last  time.Time
 }
 
-func (p *progressWriter) Write(b []byte) (int, error) {
-	n, err := p.w.Write(b)
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
 	p.done += int64(n)
 	if p.cb != nil && time.Since(p.last) > 300*time.Millisecond {
 		p.last = time.Now()
 		p.cb(p.done, p.total)
 	}
+	return n, err
+}
+
+// chunkWriter frames a byte stream as [uint32 len][bytes]… terminated by a
+// zero-length chunk, so the receiver can read a body of unknown (e.g. streamed-
+// compressed) length and still find the trailer frame that follows it.
+type chunkWriter struct{ w io.Writer }
+
+func (c *chunkWriter) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	var lp [4]byte
+	binary.BigEndian.PutUint32(lp[:], uint32(len(p)))
+	if _, err := c.w.Write(lp[:]); err != nil {
+		return 0, err
+	}
+	if _, err := c.w.Write(p); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (c *chunkWriter) Close() error {
+	var zero [4]byte // length 0 = end of body
+	_, err := c.w.Write(zero[:])
+	return err
+}
+
+// chunkReader reads the framing chunkWriter produces, presenting a plain byte
+// stream that returns io.EOF at the zero-length terminator (and leaves the
+// underlying reader positioned at the following frame).
+type chunkReader struct {
+	r   io.Reader
+	rem uint32
+	eof bool
+}
+
+func (c *chunkReader) Read(p []byte) (int, error) {
+	if c.eof {
+		return 0, io.EOF
+	}
+	if c.rem == 0 {
+		var lp [4]byte
+		if _, err := io.ReadFull(c.r, lp[:]); err != nil {
+			return 0, err
+		}
+		n := binary.BigEndian.Uint32(lp[:])
+		if n == 0 {
+			c.eof = true
+			return 0, io.EOF
+		}
+		if n > maxChunk {
+			return 0, errors.New("chunk too large")
+		}
+		c.rem = n
+	}
+	if uint32(len(p)) > c.rem {
+		p = p[:c.rem]
+	}
+	n, err := c.r.Read(p)
+	c.rem -= uint32(n)
 	return n, err
 }
