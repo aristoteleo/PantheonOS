@@ -1,6 +1,11 @@
 # Pantheon-Fleet — Design & Implementation Plan
 
-> Status: **Draft** · Owner: Nanguage · Last updated: 2026-06-29
+> Status: **Phase 1 implemented & verified** · Owner: Nanguage · Last updated: 2026-06-29
+>
+> The Go implementation lives in [`../fleet/`](../fleet/). Phase 1 — Runner,
+> control plane, data plane (libp2p transfers), Controller (key join), relay,
+> installer, and the Python toolset core — is complete and end-to-end verified
+> (see the fleet README for what's verified vs what needs real infra).
 
 Pantheon-Fleet lets a PantheonOS **Agent** operate a pool of computers it can
 see, command, and move data between. A user runs a single binary on any
