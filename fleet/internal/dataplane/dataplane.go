@@ -45,13 +45,15 @@ type header struct {
 	DstPath  string `json:"dst_path"`
 	Size     int64  `json:"size"`
 	Compress string `json:"compress,omitempty"` // "" (raw) | "zstd"
+	Resume   bool   `json:"resume,omitempty"`   // continue an existing partial dst
 }
 type trailer struct {
 	SHA256 string `json:"sha256"`
 }
 type ack struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
+	OK     bool   `json:"ok"`
+	Offset int64  `json:"offset,omitempty"` // start-ack: byte offset to resume from
+	Error  string `json:"error,omitempty"`
 }
 
 // New starts a libp2p host listening on the given QUIC port (0 = random).
@@ -112,10 +114,12 @@ func (p *Plane) Close() error { return p.host.Close() }
 // Send connects to dst (by its advertised multiaddrs) and streams srcPath; the
 // receiver writes it to dstPath. compress is "" (raw) or "zstd" — when "zstd"
 // the body is compressed on the wire but the sha256 still covers the original
-// bytes, so it verifies against the source file regardless. onProgress is
-// called periodically with original bytes done / total. Returns the verified
-// sha256 and whether the connection went through a relay (vs a direct one).
-func (p *Plane) Send(ctx context.Context, dstAddrs []string, srcPath, dstPath, compress string, onProgress func(done, total int64)) (sum string, viaRelay bool, err error) {
+// bytes, so it verifies against the source file regardless. When resume is true
+// and the receiver already holds a prefix of the file, only the remaining bytes
+// are sent (the sha256 still covers the whole file). onProgress is called
+// periodically with original bytes done / total. Returns the verified sha256 and
+// whether the connection went through a relay (vs a direct one).
+func (p *Plane) Send(ctx context.Context, dstAddrs []string, srcPath, dstPath, compress string, resume bool, onProgress func(done, total int64)) (sum string, viaRelay bool, err error) {
 	ai, err := addrInfo(dstAddrs)
 	if err != nil {
 		return "", false, err
@@ -150,13 +154,34 @@ func (p *Plane) Send(ctx context.Context, dstAddrs []string, srcPath, dstPath, c
 		compress = ""
 	}
 
-	if err := writeFrame(s, header{DstPath: dstPath, Size: total, Compress: compress}); err != nil {
+	if err := writeFrame(s, header{DstPath: dstPath, Size: total, Compress: compress, Resume: resume}); err != nil {
 		return "", false, err
 	}
 
+	// The receiver replies with the byte offset to start from (0 unless it holds
+	// a resumable prefix) plus any early error (e.g. it couldn't open the file).
+	var start ack
+	if err := readFrame(s, &start); err != nil {
+		return "", false, err
+	}
+	if !start.OK {
+		return "", false, fmt.Errorf("receiver rejected transfer: %s", start.Error)
+	}
+	offset := start.Offset
+	if offset < 0 || offset > total {
+		offset = 0
+	}
+
 	// Body is a sequence of length-prefixed chunks (so the compressed length need
-	// not be known up front). The hasher always sees the *original* bytes.
+	// not be known up front). The hasher always sees the *original* bytes — and
+	// when resuming, the skipped prefix [0,offset) is folded in first so the
+	// sha256 still covers the whole file.
 	hasher := sha256.New()
+	if offset > 0 {
+		if _, err := io.CopyN(hasher, f, offset); err != nil {
+			return "", false, err
+		}
+	}
 	cw := &chunkWriter{w: s}
 	var sink io.Writer = cw
 	var enc *zstd.Encoder
@@ -167,7 +192,7 @@ func (p *Plane) Send(ctx context.Context, dstAddrs []string, srcPath, dstPath, c
 		}
 		sink = enc
 	}
-	pr := &progressReader{r: io.LimitReader(f, total), total: total, cb: onProgress, last: time.Now()}
+	pr := &progressReader{r: io.LimitReader(f, total-offset), total: total, done: offset, cb: onProgress, last: time.Now()}
 	if _, err := io.CopyBuffer(io.MultiWriter(sink, hasher), pr, make([]byte, 256<<10)); err != nil {
 		return "", false, err
 	}
@@ -209,21 +234,47 @@ func (p *Plane) handleIncoming(s network.Stream) {
 		_ = writeFrame(s, ack{Error: err.Error()})
 		return
 	}
-	f, err := os.Create(h.DstPath)
-	if err != nil {
-		_ = writeFrame(s, ack{Error: err.Error()})
+	// Resume: if asked and we already hold a prefix (no larger than the source),
+	// open it for append and fold it into the hash; otherwise start fresh.
+	hasher := sha256.New()
+	var f *os.File
+	var offset int64
+	if h.Resume {
+		if fi, serr := os.Stat(h.DstPath); serr == nil && fi.Size() > 0 && fi.Size() <= h.Size {
+			if fh, oerr := os.OpenFile(h.DstPath, os.O_RDWR, 0o644); oerr == nil {
+				if _, herr := io.CopyN(hasher, fh, fi.Size()); herr == nil {
+					f, offset = fh, fi.Size()
+				} else {
+					fh.Close()
+					hasher.Reset()
+				}
+			}
+		}
+	}
+	if f == nil {
+		var cerr error
+		if f, cerr = os.Create(h.DstPath); cerr != nil {
+			_ = writeFrame(s, ack{Error: cerr.Error()})
+			return
+		}
+		offset = 0
+	}
+
+	// Tell the sender where to start; it streams only [offset, size).
+	if err := writeFrame(s, ack{OK: true, Offset: offset}); err != nil {
+		f.Close()
 		return
 	}
+
 	// Body is length-prefixed chunks; decompress if the sender used zstd. The
 	// hasher sees the *original* (decompressed) bytes so it matches the source.
-	hasher := sha256.New()
 	var src io.Reader = &chunkReader{r: s}
 	var dec *zstd.Decoder
 	if h.Compress == "zstd" {
-		dec, err = zstd.NewReader(src)
-		if err != nil {
+		var derr error
+		if dec, derr = zstd.NewReader(src); derr != nil {
 			f.Close()
-			_ = writeFrame(s, ack{Error: "zstd: " + err.Error()})
+			_ = writeFrame(s, ack{Error: "zstd: " + derr.Error()})
 			return
 		}
 		src = dec
@@ -248,6 +299,7 @@ func (p *Plane) handleIncoming(s network.Stream) {
 	}
 	got := hex.EncodeToString(hasher.Sum(nil))
 	if got != tr.SHA256 {
+		_ = os.Remove(h.DstPath) // bad/partial result — don't leave it to mislead a future resume
 		_ = writeFrame(s, ack{Error: "sha256 mismatch"})
 		return
 	}

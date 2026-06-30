@@ -115,7 +115,7 @@ func (r *Runner) handleTransfer(m *nats.Msg, req proto.TransferRequest) {
 			BytesDone: done, BytesTotal: total, RateBps: rate, Path: livePath,
 		})
 	}
-	sum, viaRelay, err := r.dp.Send(ctx, dst.Net.Multiaddrs, req.SrcPath, req.DstPath, req.Options.Compress, onProg)
+	sum, viaRelay, err := r.dp.Send(ctx, dst.Net.Multiaddrs, req.SrcPath, req.DstPath, req.Options.Compress, req.Options.Resume, onProg)
 	if err != nil {
 		fail(err.Error())
 		return

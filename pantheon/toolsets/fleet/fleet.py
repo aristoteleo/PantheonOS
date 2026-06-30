@@ -323,6 +323,7 @@ class FleetToolSet(ToolSet):
         dst_path: str,
         verify: str = "sha256",
         compress: str = "none",
+        resume: bool = False,
         wait: bool = False,
         timeout: int = 600,
     ) -> dict:
@@ -343,6 +344,8 @@ class FleetToolSet(ToolSet):
             compress: "none" (default) or "zstd" — zstd compresses on the wire
                 (a win for compressible data like text/csv/h5ad; skip it for
                 already-compressed data). sha256 still covers the original bytes.
+            resume: If True and dst_node already holds a prefix of the file, only
+                the remaining bytes are sent (handy to retry an interrupted move).
             wait: If True, block until the transfer finishes and return the final
                 record (incl. sha256 and whether it went "direct" or via "relay").
             timeout: Max seconds for completion. Default 600.
@@ -355,7 +358,9 @@ class FleetToolSet(ToolSet):
             await self._ensure_connected()
         except Exception as e:  # noqa: BLE001
             return {"success": False, "error": str(e)}
-        tid = self._start_transfer(src_node, src_path, dst_node, dst_path, verify, compress, timeout)
+        tid = self._start_transfer(
+            src_node, src_path, dst_node, dst_path, verify, compress, resume, timeout
+        )
         if wait:
             task = self._transfer_tasks.get(tid)
             try:
@@ -372,12 +377,16 @@ class FleetToolSet(ToolSet):
             "note": "poll transfer_status(transfer_id) for progress",
         }
 
-    def _start_transfer(self, src_node, src_path, dst_node, dst_path, verify, compress, timeout) -> str:
+    def _start_transfer(
+        self, src_node, src_path, dst_node, dst_path, verify, compress, resume, timeout
+    ) -> str:
         """Kick off a Node->Node transfer in the background; return its id."""
         tid = "x_" + uuid.uuid4().hex[:8]
         self._transfers[tid] = {"transfer_id": tid, "state": "pending"}
         task = asyncio.create_task(
-            self._run_transfer(tid, src_node, src_path, dst_node, dst_path, verify, compress, timeout)
+            self._run_transfer(
+                tid, src_node, src_path, dst_node, dst_path, verify, compress, resume, timeout
+            )
         )
         self._transfer_tasks[tid] = task
         return tid
@@ -415,7 +424,7 @@ class FleetToolSet(ToolSet):
         if not dst_nodes:
             return {"success": False, "error": "no dst_nodes given"}
         transfers = {
-            d: self._start_transfer(src_node, src_path, d, dst_path, verify, compress, 600)
+            d: self._start_transfer(src_node, src_path, d, dst_path, verify, compress, False, 600)
             for d in dst_nodes
         }
         return {"success": True, "count": len(transfers), "transfers": transfers}
@@ -455,12 +464,14 @@ class FleetToolSet(ToolSet):
         base = os.path.basename(src_path.rstrip("/")) or "file"
         d = dst_dir.rstrip("/")
         transfers = {
-            s: self._start_transfer(s, src_path, dst_node, f"{d}/{s}_{base}", verify, compress, 600)
+            s: self._start_transfer(s, src_path, dst_node, f"{d}/{s}_{base}", verify, compress, False, 600)
             for s in src_nodes
         }
         return {"success": True, "count": len(transfers), "dst_dir": dst_dir, "transfers": transfers}
 
-    async def _run_transfer(self, tid, src_node, src_path, dst_node, dst_path, verify, compress, timeout):
+    async def _run_transfer(
+        self, tid, src_node, src_path, dst_node, dst_path, verify, compress, resume, timeout
+    ):
         progress_subj = _subj_transfer_progress(self._fleet_id, tid)
 
         async def _on_prog(m):
@@ -474,6 +485,8 @@ class FleetToolSet(ToolSet):
             opts = {"verify": verify}
             if compress and compress != "none":
                 opts["compress"] = compress
+            if resume:
+                opts["resume"] = True
             cmd = {
                 "type": "transfer",
                 "transfer": {
