@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pantheon-Fleet</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --fg:#e6edf3; --mut:#8b949e;
+          --grn:#3fb950; --ylw:#d29922; --red:#f85149; --blu:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  header { padding:16px 24px; border-bottom:1px solid var(--line); display:flex;
+           align-items:baseline; gap:16px; flex-wrap:wrap; }
+  h1 { font-size:18px; margin:0; letter-spacing:.5px; }
+  h1 b { color:var(--blu); }
+  .muted { color:var(--mut); }
+  .wrap { padding:20px 24px; max-width:1200px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:1px; color:var(--mut);
+       margin:24px 0 10px; }
+  table { width:100%; border-collapse:collapse; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--mut); font-weight:600; font-size:12px; }
+  tr.off { opacity:.45; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
+  .online{background:var(--grn)} .busy{background:var(--ylw)} .offline{background:var(--red)}
+  .tag { background:#21262d; border:1px solid var(--line); border-radius:10px;
+         padding:1px 8px; font-size:12px; color:var(--blu); }
+  .reach-relay{color:var(--ylw)} .reach-direct{color:var(--grn)}
+  .bar { background:#21262d; border-radius:4px; height:6px; width:90px; overflow:hidden; display:inline-block; vertical-align:middle;}
+  .bar > i { display:block; height:100%; background:var(--blu); }
+  .empty { color:var(--mut); padding:14px 10px; }
+  .gpu { color:var(--grn); }
+  code { color:var(--mut); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pantheon-<b>Fleet</b></h1>
+  <span class="muted">fleet <code id="fleet">…</code></span>
+  <span class="muted" id="summary"></span>
+  <span class="muted" style="margin-left:auto" id="updated"></span>
+</header>
+<div class="wrap">
+  <h2>Nodes</h2>
+  <table id="nodes"><thead><tr>
+    <th>Node</th><th>Status</th><th>OS/Arch</th><th>CPU</th><th>RAM</th><th>GPU</th>
+    <th>CPU load</th><th>Reach</th><th>Labels</th><th>Seen</th>
+  </tr></thead><tbody id="nbody"></tbody></table>
+  <div id="nempty" class="empty" hidden>No nodes online.</div>
+
+  <h2>Transfers</h2>
+  <table id="transfers"><thead><tr>
+    <th>ID</th><th>State</th><th>Progress</th><th>Rate</th><th>Path</th>
+  </tr></thead><tbody id="tbody"></tbody></table>
+  <div id="tempty" class="empty">No transfers yet.</div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const fmtBytes = n => { if(!n) return "0"; const u=["B","KB","MB","GB","TB"]; let i=0,v=n;
+  while(v>=1024&&i<u.length-1){v/=1024;i++;} return v.toFixed(v<10&&i>0?1:0)+u[i]; };
+const ago = ts => { if(!ts) return "—"; const s=(Date.now()-new Date(ts).getTime())/1000;
+  if(s<0||isNaN(s)) return "—"; if(s<60) return Math.round(s)+"s"; if(s<3600) return Math.round(s/60)+"m";
+  return Math.round(s/3600)+"h"; };
+
+async function tick(){
+  let d; try { d = await (await fetch('/api/state')).json(); } catch(e){ return; }
+  $('fleet').textContent = d.fleet;
+  $('updated').textContent = "updated " + new Date(d.ts).toLocaleTimeString();
+
+  const nodes = d.nodes||[];
+  const online = nodes.filter(n=>n.state?.status==='online').length;
+  const cores = nodes.reduce((a,n)=>a+(n.capability?.cpu_cores||0),0);
+  $('summary').textContent = `· ${online}/${nodes.length} online · ${cores} cores`;
+  $('nempty').hidden = nodes.length>0;
+  $('nbody').innerHTML = nodes.map(n=>{
+    const st=n.state?.status||'offline', cap=n.capability||{}, net=n.net||{};
+    const load=Math.round((n.state?.load?.cpu||0)*100);
+    const reach=net.reachability||'?';
+    const labels=(n.labels||[]).map(l=>`<span class="tag">${l}</span>`).join(' ');
+    return `<tr class="${st==='offline'?'off':''}">
+      <td>${n.name||''} <code>${(n.node_id||'').slice(0,10)}</code></td>
+      <td><span class="dot ${st}"></span>${st}</td>
+      <td>${cap.os||''}/${cap.arch||''}</td>
+      <td>${cap.cpu_cores||'—'}</td>
+      <td>${cap.ram_gb?Math.round(cap.ram_gb)+'G':'—'}</td>
+      <td class="${cap.gpu?'gpu':''}">${cap.gpu||'—'}</td>
+      <td><span class="bar"><i style="width:${load}%"></i></span> ${load}%</td>
+      <td class="reach-${reach}">${reach}</td>
+      <td>${labels||'<span class="muted">—</span>'}</td>
+      <td class="muted">${ago(n.last_seen)}</td>
+    </tr>`;
+  }).join('');
+
+  const tr=d.transfers||[];
+  $('tempty').hidden = tr.length>0;
+  $('tbody').innerHTML = tr.map(t=>{
+    const pct = t.bytes_total? Math.round(100*t.bytes_done/t.bytes_total):
+                (t.state==='done'?100:0);
+    const rate = t.rate_bps? fmtBytes(t.rate_bps)+'/s':'—';
+    return `<tr>
+      <td><code>${t.transfer_id}</code></td>
+      <td>${t.state}${t.error?' <span class="reach-relay">'+t.error+'</span>':''}</td>
+      <td><span class="bar" style="width:120px"><i style="width:${pct}%"></i></span>
+          ${fmtBytes(t.bytes_done)}/${fmtBytes(t.bytes_total)} (${pct}%)</td>
+      <td>${rate}</td>
+      <td class="reach-${t.path||''}">${t.path||'—'}</td>
+    </tr>`;
+  }).join('');
+}
+tick(); setInterval(tick, 1500);
+</script>
+</body>
+</html>
