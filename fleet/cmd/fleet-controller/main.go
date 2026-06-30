@@ -11,6 +11,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -20,11 +21,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
@@ -136,6 +140,36 @@ func main() {
 		json.NewEncoder(w).Encode(resp) //nolint:errcheck
 	})
 
+	// /nodes lists a Fleet's registered Nodes for the hub's Cluster panel. The hub
+	// (the only holder of the service token) passes the caller's own fleet id; the
+	// Controller mints a short-lived scoped credential and reads the registry KV.
+	mux.HandleFunc("/nodes", func(w http.ResponseWriter, r *http.Request) {
+		if *hubToken == "" || r.Header.Get("Authorization") != "Bearer "+*hubToken {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		fid := strings.TrimSpace(r.URL.Query().Get("fleet"))
+		if fid == "" {
+			http.Error(w, "missing fleet", http.StatusBadRequest)
+			return
+		}
+		if authority == nil {
+			http.Error(w, "auth disabled — cannot read registry", http.StatusServiceUnavailable)
+			return
+		}
+		nodes, err := readFleetNodes(*natsURL, fid, authority)
+		if err != nil {
+			http.Error(w, "registry read: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"fleet_id": fid,
+			"count":    len(nodes),
+			"nodes":    nodes,
+		})
+	})
+
 	log.Printf("fleet-controller listening on %s (nats=%s, auth=%v)", *addr, *natsURL, *enableAuth)
 	log.Fatal(http.ListenAndServe(*addr, mux))
 }
@@ -176,6 +210,70 @@ func validateViaHub(hubURL, token, key string) (fleetID string, ok bool, err err
 		return "", false, err
 	}
 	return out.FleetID, out.Valid, nil
+}
+
+// readFleetNodes mints a short-lived fleet-scoped credential (the Controller is
+// the Authority, so it can mint for any fleet), connects to NATS, and reads the
+// Fleet's Node records from its registry KV bucket FLEET_<fid>_NODES.
+func readFleetNodes(natsURL, fid string, authority *auth.Authority) ([]proto.Node, error) {
+	creds, err := authority.MintFleetUser(fid)
+	if err != nil {
+		return nil, fmt.Errorf("mint creds: %w", err)
+	}
+	f, err := os.CreateTemp("", "fleet-*.creds")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(f.Name()) //nolint:errcheck
+	if _, err := f.Write(creds); err != nil {
+		f.Close() //nolint:errcheck
+		return nil, err
+	}
+	f.Close() //nolint:errcheck
+
+	nc, err := nats.Connect(natsURL,
+		nats.Name("fleet-controller-registry"),
+		nats.UserCredentials(f.Name()),
+		nats.CustomInboxPrefix("_INBOX_"+fid),
+		nats.Timeout(5*time.Second),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("nats connect: %w", err)
+	}
+	defer nc.Drain() //nolint:errcheck
+	js, err := jetstream.New(nc)
+	if err != nil {
+		return nil, err
+	}
+	return readNodes(js, fid), nil
+}
+
+// readNodes reads every Node record from a Fleet's registry KV. A missing bucket
+// (no Node has joined yet) is not an error — it returns an empty slice.
+func readNodes(js jetstream.JetStream, fleet string) []proto.Node {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	kv, err := js.KeyValue(ctx, proto.RegistryBucket(fleet))
+	if err != nil {
+		return []proto.Node{}
+	}
+	keys, err := kv.Keys(ctx)
+	if err != nil {
+		return []proto.Node{}
+	}
+	out := make([]proto.Node, 0, len(keys))
+	for _, k := range keys {
+		e, err := kv.Get(ctx, k)
+		if err != nil {
+			continue
+		}
+		var n proto.Node
+		if json.Unmarshal(e.Value(), &n) == nil {
+			out = append(out, n)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 func defaultStateDir() string {
