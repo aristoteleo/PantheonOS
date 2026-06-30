@@ -1,6 +1,6 @@
 # Pantheon-Fleet — Design & Implementation Plan
 
-> Status: **Phase 1 done (bar security); Phase 2/3 in progress** · Owner: Nanguage · Last updated: 2026-06-29
+> Status: **Phase 1 done (incl. NATS auth); Phase 2/3 in progress; reference stack live on DO** · Owner: Nanguage · Last updated: 2026-06-30
 >
 > The Go implementation lives in [`../fleet/`](../fleet/); the Agent toolset in
 > [`../pantheon/toolsets/fleet/`](../pantheon/toolsets/fleet/). Done & verified:
@@ -428,8 +428,11 @@ sub-millisecond and irrelevant to file streaming.
 Legend: ✅ done & verified · ◻︎ todo · 🔸 needs a decision (§13) or real infra.
 
 **Phase 1 — MVP (the agent can see, run, and move data)**
-- ✅ Controller: key → Fleet, relay list. 🔸 scoped NATS JWT + signed Node
-  identity (blocked on the isolation-model decision, §13).
+- ✅ Controller: key → Fleet, relay list, **scoped NATS JWT** (per-fleet
+  subject/KV/inbox isolation, `internal/auth`) + an interim **access gate**
+  (`--allowed-keys`). 🔸 hub-backed key validation (the gate is the stopgap
+  until the hub gains a platform-key API). A reference secured stack
+  (Controller+NATS+relay) is deployed on DO — see `fleet/deploy/production.md`.
 - ✅ Runner: NATS connect + JetStream KV registry/heartbeat + go-libp2p data
   plane (direct + relay fallback) + shell/python execution.
 - ✅ 1–2 self-hosted Relays (relay-fallback path verified on real cross-region infra).
@@ -442,7 +445,8 @@ Node, runs code on a chosen Node, and moves a large file A→B (direct or relaye
 
 **Phase 2 — robust & observable**
 - ✅ Transfer **resume**; ✅ live progress; ✅ `broadcast` / `gather`. ◻︎ parallel streams.
-- 🔸 Live-view Fleet dashboard (human-facing) — needs a UX/where-it-lives decision.
+- ✅ Live-view Fleet dashboard — `fleet-dashboard` (standalone Go + embedded page;
+  `--creds` for a secured fleet). Product placement (hub/desktop) still open.
 - ✅ Labels & label-targeted execution (`run_on_label`, `fleet_pick_node`).
   ◻︎ live label mutation (`set_label`); 🔸 audit log + Node revocation (tie to the security model).
 
