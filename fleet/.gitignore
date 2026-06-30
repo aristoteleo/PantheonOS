@@ -1,0 +1,5 @@
+/dist/
+/bin/
+/fleet
+/fleetctl
+*.test
