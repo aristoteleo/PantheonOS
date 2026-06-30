@@ -572,3 +572,96 @@ class SkillToolSet(ToolSet):
             "hint": f"Recorded your usage feedback{who} on '{name}' (rating {rating}/5). "
                     "This usage-validates the store's quality signal for everyone.",
         })
+
+    @tool
+    async def skill_publish(
+        self,
+        name: str,
+        content: str,
+        display_name: str = None,
+        description: str = None,
+        category: str = "general",
+        derived_from: str = None,
+        derived_note: str = None,
+    ) -> str:
+        """Contribute a skill you wrote or OPTIMIZED to the Pantheon Store so others can find it.
+
+        Use this when you've produced a genuinely reusable SKILL.md (a crisp playbook
+        with concrete steps, key params, failure modes) and want to share it. The
+        submission starts PRIVATE to the user and is auto-reviewed; it becomes public
+        ONLY if the reviewer scores it 'recommended' — so publish real, well-scoped
+        skills, not rough notes.
+
+        If your skill is an optimization/refinement of an existing store or built-in
+        skill, set `derived_from` to that skill's store name: the derivation is
+        recorded (shown in the store) and the reviewer is given the diff so it judges
+        your CHANGE. If you adopted a skill this task, that lineage is captured
+        automatically when you omit `derived_from`.
+
+        Args:
+            name: unique store slug (lowercase, hyphens/dots/underscores, <=64 chars).
+            content: the full SKILL.md content to publish.
+            display_name: human-readable name (defaults to `name`).
+            description: one-line "use this when ..." summary (helps discovery/review).
+            category: store category (default "general").
+            derived_from: store name of the parent skill this optimizes, if any.
+            derived_note: one line on what you changed/improved vs the parent.
+        """
+        if not (content or "").strip():
+            return self._json({"success": False, "error": "content (the SKILL.md) is required."})
+        token, username = self._store_credentials()
+        if not token:
+            return self._json({
+                "success": False, "needs_login": True,
+                "error": ("Publishing posts the skill as the user's contribution, which requires "
+                          "login. Tell the user they can run `pantheon store login` (hosted "
+                          "runtimes inject PANTHEON_STORE_TOKEN automatically)."),
+            })
+        # Auto-capture lineage: if not given, default to the most-recently adopted
+        # store skill this task (the likely parent of an optimization).
+        if not derived_from:
+            adopted = getattr(self._runtime, "adopted_store_skills", None) or []
+            if adopted:
+                derived_from = adopted[-1]
+        payload = {
+            "name": name, "type": "skill",
+            "display_name": display_name or name,
+            "description": (description or "").strip() or None,
+            "category": category or "general",
+            "version": "1.0.0",
+            "content": content,
+        }
+        if derived_from:
+            payload["derived_from"] = {"ref": derived_from,
+                                       "note": (derived_note or "").strip() or None}
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=30) as c:
+                r = await c.post(
+                    f"{self._hub_url()}/api/store/contribute",
+                    json=payload, headers={"Authorization": f"Bearer {token}"},
+                )
+            if r.status_code == 429:
+                return self._json({"success": False, "rate_limited": True,
+                                   "error": r.json().get("detail", "Daily contribution limit reached.")})
+            if r.status_code == 409:
+                return self._json({"success": False, "duplicate": True,
+                                   "error": r.json().get("detail", "Duplicate / not an optimization.")})
+            if r.status_code in (401, 403):
+                return self._json({"success": False, "needs_login": True,
+                                   "error": "Store session expired — tell the user to run `pantheon store login` again."})
+            if r.status_code == 400:
+                return self._json({"success": False, "error": r.json().get("detail", "Invalid contribution.")})
+            r.raise_for_status()
+            data = r.json()
+        except Exception as e:
+            return self._json({"success": False, "error": f"publish failed: {e}"})
+        lin = f" (recorded as derived from '{derived_from}')" if derived_from else ""
+        return self._json({
+            "success": True,
+            "package_id": data.get("package_id"),
+            "moderation_status": data.get("moderation_status", "pending"),
+            "hint": (f"Submitted '{name}'{lin}. It's PRIVATE to the user for now and becomes "
+                     "public automatically if the reviewer scores it 'recommended'; otherwise it "
+                     "stays private. Don't resubmit — check status later."),
+        })
