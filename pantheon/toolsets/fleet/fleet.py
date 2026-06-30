@@ -40,6 +40,15 @@ def _subj_transfer_progress(fleet: str, tid: str) -> str:
     return f"fleet.{fleet}.transfer.{tid}.progress"
 
 
+def _as_list(v) -> list[str]:
+    """Accept a list, or a comma/space-separated string, of ids."""
+    if v is None:
+        return []
+    if isinstance(v, str):
+        return [x.strip() for x in v.replace(",", " ").split() if x.strip()]
+    return [str(x).strip() for x in v if str(x).strip()]
+
+
 class FleetToolSet(ToolSet):
     """Let the Agent see and drive a Pantheon-Fleet of compute Nodes.
 
@@ -269,6 +278,40 @@ class FleetToolSet(ToolSet):
         except Exception as e:  # noqa: BLE001
             return {"success": False, "error": str(e)}
 
+    @tool
+    async def run_on_label(
+        self, label: str, code: str, kind: str = "shell", timeout: int = 60
+    ) -> dict:
+        """Run the same code on every Node carrying a given label (e.g. "gpu").
+
+        Args:
+            label: The label to match (a Node matches if it's in its labels list).
+            code: The shell command or Python source to run on each match.
+            kind: "shell" (default) or "python".
+            timeout: Per-Node timeout in seconds. Default 60.
+
+        Returns:
+            dict: {"success", "label", "nodes": [...], "results": {node_id: result}}.
+            success is True only if every matched Node succeeded.
+        """
+        try:
+            nodes = await self._read_nodes()
+        except Exception as e:  # noqa: BLE001
+            return {"success": False, "error": str(e)}
+        targets = [n["node_id"] for n in nodes if label in (n.get("labels") or [])]
+        if not targets:
+            return {"success": False, "error": f"no nodes with label {label!r}", "nodes": []}
+        results = await asyncio.gather(
+            *[self.run_on_node(t, code, kind, timeout) for t in targets]
+        )
+        by_node = dict(zip(targets, results))
+        return {
+            "success": all(r.get("success") for r in results),
+            "label": label,
+            "nodes": targets,
+            "results": by_node,
+        }
+
     # ---- Transfer -----------------------------------------------------------
 
     @tool
@@ -308,15 +351,12 @@ class FleetToolSet(ToolSet):
             await self._ensure_connected()
         except Exception as e:  # noqa: BLE001
             return {"success": False, "error": str(e)}
-        tid = "x_" + uuid.uuid4().hex[:8]
-        self._transfers[tid] = {"transfer_id": tid, "state": "pending"}
-        task = asyncio.create_task(
-            self._run_transfer(tid, src_node, src_path, dst_node, dst_path, verify, timeout)
-        )
-        self._transfer_tasks[tid] = task
+        tid = self._start_transfer(src_node, src_path, dst_node, dst_path, verify, timeout)
         if wait:
+            task = self._transfer_tasks.get(tid)
             try:
-                await asyncio.wait_for(asyncio.shield(task), timeout=timeout + 10)
+                if task is not None:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=timeout + 10)
             except Exception as e:  # noqa: BLE001
                 return {"success": False, "transfer_id": tid, "error": str(e), **self._transfers.get(tid, {})}
             final = self._transfers.get(tid, {})
@@ -327,6 +367,81 @@ class FleetToolSet(ToolSet):
             "state": "started",
             "note": "poll transfer_status(transfer_id) for progress",
         }
+
+    def _start_transfer(self, src_node, src_path, dst_node, dst_path, verify, timeout) -> str:
+        """Kick off a Node->Node transfer in the background; return its id."""
+        tid = "x_" + uuid.uuid4().hex[:8]
+        self._transfers[tid] = {"transfer_id": tid, "state": "pending"}
+        task = asyncio.create_task(
+            self._run_transfer(tid, src_node, src_path, dst_node, dst_path, verify, timeout)
+        )
+        self._transfer_tasks[tid] = task
+        return tid
+
+    @tool
+    async def broadcast(
+        self, src_node: str, src_path: str, dst_nodes: list, dst_path: str, verify: str = "sha256"
+    ) -> dict:
+        """Fan-out: copy one file from src_node to many dst_nodes at once.
+
+        Starts one Node->Node transfer per destination (all from src_node) and
+        returns immediately; poll transfer_status(transfer_id) for each.
+
+        Args:
+            src_node: Node that has the file.
+            src_path: Path of the file on src_node.
+            dst_nodes: List of destination Node ids (or a comma-separated string).
+            dst_path: Destination path on every dst_node.
+            verify: "sha256" (default) or "none".
+
+        Returns:
+            dict: {"success", "count", "transfers": {dst_node: transfer_id, ...}}.
+        """
+        try:
+            await self._ensure_connected()
+        except Exception as e:  # noqa: BLE001
+            return {"success": False, "error": str(e)}
+        dst_nodes = _as_list(dst_nodes)
+        if not dst_nodes:
+            return {"success": False, "error": "no dst_nodes given"}
+        transfers = {
+            d: self._start_transfer(src_node, src_path, d, dst_path, verify, 600) for d in dst_nodes
+        }
+        return {"success": True, "count": len(transfers), "transfers": transfers}
+
+    @tool
+    async def gather(
+        self, src_nodes: list, src_path: str, dst_node: str, dst_dir: str, verify: str = "sha256"
+    ) -> dict:
+        """Fan-in: pull a same-path file from many src_nodes onto one dst_node.
+
+        Each source's file lands in dst_dir as "<src_node>_<basename>" so they
+        don't collide. Non-blocking; poll transfer_status for each id.
+
+        Args:
+            src_nodes: List of source Node ids (or a comma-separated string).
+            src_path: Path of the file on each src_node.
+            dst_node: Node that should receive all the files.
+            dst_dir: Directory on dst_node to collect the files into.
+            verify: "sha256" (default) or "none".
+
+        Returns:
+            dict: {"success", "count", "dst_dir", "transfers": {src_node: id, ...}}.
+        """
+        try:
+            await self._ensure_connected()
+        except Exception as e:  # noqa: BLE001
+            return {"success": False, "error": str(e)}
+        src_nodes = _as_list(src_nodes)
+        if not src_nodes:
+            return {"success": False, "error": "no src_nodes given"}
+        base = os.path.basename(src_path.rstrip("/")) or "file"
+        d = dst_dir.rstrip("/")
+        transfers = {
+            s: self._start_transfer(s, src_path, dst_node, f"{d}/{s}_{base}", verify, 600)
+            for s in src_nodes
+        }
+        return {"success": True, "count": len(transfers), "dst_dir": dst_dir, "transfers": transfers}
 
     async def _run_transfer(self, tid, src_node, src_path, dst_node, dst_path, verify, timeout):
         progress_subj = _subj_transfer_progress(self._fleet_id, tid)

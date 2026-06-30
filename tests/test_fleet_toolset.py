@@ -17,8 +17,11 @@ EXPECTED_TOOLS = {
     "fleet_node_info",
     "fleet_status",
     "run_on_node",
+    "run_on_label",
     "transfer",
     "transfer_status",
+    "broadcast",
+    "gather",
 }
 
 _FLEET_ENV = ("FLEET_NATS_URL", "FLEET_ID", "FLEET_CONTROLLER_URL", "FLEET_KEY", "PANTHEON_API_KEY")
@@ -67,6 +70,12 @@ async def test_fleet_toolset_unconfigured_is_graceful(monkeypatch):
     r = await ts.transfer("n_a", "/x", "n_b", "/y")
     assert r["success"] is False and "configured" in r["error"].lower()
 
+    r = await ts.broadcast("n_a", "/x", ["n_b", "n_c"], "/y")
+    assert r["success"] is False and "configured" in r["error"].lower()
+
+    r = await ts.run_on_label("gpu", "echo hi")
+    assert r["success"] is False  # no fleet -> read fails / no nodes
+
     r = await ts.transfer_status("x_nope")
     assert r["success"] is False  # unknown transfer id
 
@@ -99,4 +108,8 @@ async def test_fleet_toolset_live_smoke():
 
     run = await ts.run_on_node(node, "echo fleet-e2e", kind="shell")
     assert run["success"] and "fleet-e2e" in run["stdout"]
+
+    # run_on_label must always return a dict (matching 0 nodes is fine here).
+    labelled = await ts.run_on_label("__nope__", "echo x")
+    assert isinstance(labelled, dict) and "success" in labelled
     await ts.cleanup()
