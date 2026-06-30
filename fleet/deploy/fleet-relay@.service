@@ -1,0 +1,18 @@
+# Pantheon-Fleet relay (systemd template unit).
+# The instance name is the relay's public IP, e.g.:
+#   systemctl enable --now fleet-relay@203.0.113.5
+[Unit]
+Description=Pantheon-Fleet relay (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/fleet-relay --port 4250 --announce %i --identity /var/lib/pantheon-fleet/relay.key
+Restart=always
+RestartSec=3
+DynamicUser=yes
+StateDirectory=pantheon-fleet
+StateDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target
