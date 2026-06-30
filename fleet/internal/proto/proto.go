@@ -149,3 +149,20 @@ func SubjTransferProgress(fleet, id string) string {
 
 // RegistryBucket is the JetStream KV bucket holding a Fleet's Node records.
 func RegistryBucket(fleet string) string { return "FLEET_" + fleet + "_NODES" }
+
+// --- Controller join ---
+
+// JoinRequest is what a Runner POSTs to the Controller's /join endpoint.
+type JoinRequest struct {
+	Key string `json:"key"`
+}
+
+// JoinResponse is what the Controller returns: the Fleet the key maps to, how
+// to reach the control plane, and the data-plane relays. Creds (a scoped NATS
+// credential) is the security-hardening step.
+type JoinResponse struct {
+	FleetID string   `json:"fleet_id"`
+	NatsURL string   `json:"nats_url"`
+	Relays  []string `json:"relays,omitempty"`
+	Creds   string   `json:"creds,omitempty"`
+}

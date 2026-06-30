@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/dataplane"
+	"github.com/aristoteleo/pantheon-fleet/internal/join"
 	"github.com/aristoteleo/pantheon-fleet/internal/node"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/aristoteleo/pantheon-fleet/internal/registry"
@@ -62,6 +63,7 @@ func cmdUp(args []string) {
 	name := fs.String("name", node.DefaultName(), "friendly node name")
 	labelsCSV := fs.String("labels", "", "comma-separated labels (e.g. gpu,hpc)")
 	workDir := fs.String("workdir", ".", "working directory for Tasks")
+	controllerURL := fs.String("controller", "", "Controller URL — resolves --key to your Fleet")
 	natsURL := fs.String("nats", "", "NATS url (dev: bypass the Controller)")
 	fleetID := fs.String("fleet", "", "fleet id (dev: bypass the Controller)")
 	relaysCSV := fs.String("relays", "", "comma-separated relay multiaddrs")
@@ -72,18 +74,31 @@ func cmdUp(args []string) {
 	nodeID, err := node.Identity(*stateDir)
 	must(err)
 
-	if *natsURL == "" || *fleetID == "" {
-		fatal("dev mode needs --nats <url> and --fleet <id> (Controller join is separate; key=%q)", redact(*key))
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	relays := splitCSV(*relaysCSV)
+
+	// Resolve the Fleet from the API key via the Controller. Dev mode bypasses
+	// it with --nats + --fleet.
+	if *controllerURL != "" {
+		asg, err := join.Join(ctx, *controllerURL, *key)
+		must(err)
+		*natsURL, *fleetID = asg.NatsURL, asg.FleetID
+		if len(asg.Relays) > 0 {
+			relays = asg.Relays
+		}
+		fmt.Printf("controller: key %s -> fleet %q via %s\n", redact(*key), *fleetID, *natsURL)
+	}
+	if *natsURL == "" || *fleetID == "" {
+		fatal("need --controller <url> --key <key>, or dev --nats <url> --fleet <id>")
+	}
 
 	// Data plane (libp2p) — advertise its addresses in the Node record.
 	var dp *dataplane.Plane
 	netInfo := proto.Net{}
 	if !*noDataplane {
-		dp, err = dataplane.New(ctx, splitCSV(*relaysCSV))
+		dp, err = dataplane.New(ctx, relays)
 		must(err)
 		defer dp.Close() //nolint:errcheck
 		netInfo.Multiaddrs = dp.Multiaddrs()
