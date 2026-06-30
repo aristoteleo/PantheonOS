@@ -179,6 +179,7 @@ DEFAULT_PROVIDER_MODELS = {
             "anthropic/claude-opus-4-5-20251101",
         ],
         "normal": [
+            "anthropic/claude-sonnet-5",
             "anthropic/claude-sonnet-4-6",
             "anthropic/claude-sonnet-4-5-20250929",
             "anthropic/claude-sonnet-4-20250514",
