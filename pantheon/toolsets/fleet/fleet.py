@@ -76,6 +76,9 @@ class FleetToolSet(ToolSet):
         self._fleet_id = fleet_id or os.environ.get("FLEET_ID")
         self._controller_url = controller_url or os.environ.get("FLEET_CONTROLLER_URL")
         self._key = key or os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY")
+        self._creds_content = None  # decorated .creds returned by the Controller
+        self._creds_path = os.environ.get("FLEET_CREDS")  # explicit creds file (dev/manual)
+        self._tmp_creds = None  # temp creds file we wrote, removed on cleanup
         self._nc = None
         self._js = None
         self._connect_lock = asyncio.Lock()
@@ -105,6 +108,12 @@ class FleetToolSet(ToolSet):
                 pass
         self._nc = None
         self._js = None
+        if self._tmp_creds:
+            try:
+                os.remove(self._tmp_creds)
+            except OSError:
+                pass
+            self._tmp_creds = None
 
     # ---- connection ---------------------------------------------------------
 
@@ -118,6 +127,7 @@ class FleetToolSet(ToolSet):
             data = r.json()
         self._nats_url = data["nats_url"]
         self._fleet_id = data["fleet_id"]
+        self._creds_content = data.get("creds") or None
 
     async def _ensure_connected(self):
         if self._nc is not None and self._js is not None:
@@ -134,25 +144,67 @@ class FleetToolSet(ToolSet):
                 )
             import nats
 
-            self._nc = await nats.connect(self._nats_url, name="pantheon-fleet-toolset")
+            opts = {"name": "pantheon-fleet-toolset"}
+            creds_path = self._creds_path
+            if not creds_path and self._creds_content:
+                import tempfile
+
+                tf = tempfile.NamedTemporaryFile("w", suffix=".creds", delete=False)
+                tf.write(self._creds_content)
+                tf.close()
+                os.chmod(tf.name, 0o600)
+                self._tmp_creds = tf.name
+                creds_path = tf.name
+            if creds_path:
+                opts["user_credentials"] = creds_path
+                # Match the JWT's per-fleet inbox scope (_INBOX_<fid>.>).
+                opts["inbox_prefix"] = b"_INBOX_" + self._fleet_id.encode()
+            self._nc = await nats.connect(self._nats_url, **opts)
             self._js = self._nc.jetstream()
 
     # ---- registry helpers ---------------------------------------------------
 
     async def _read_nodes(self) -> list[dict]:
         await self._ensure_connected()
+        bucket = _registry_bucket(self._fleet_id)
+        stream = f"KV_{bucket}"
+        subject = f"$KV.{bucket}.>"
         try:
-            kv = await self._js.key_value(_registry_bucket(self._fleet_id))
-            keys = await kv.keys()
+            from nats.js import api
+
+            # Pass the stream EXPLICITLY so nats-py does not resolve it via
+            # $JS.API.STREAM.NAMES — that subject can't be scoped per-fleet, so
+            # avoiding it keeps the scoped credentials strictly isolated. This is
+            # the last-per-subject = latest record for each node key.
+            sub = await self._js.subscribe(
+                subject,
+                stream=stream,
+                ordered_consumer=True,
+                deliver_policy=api.DeliverPolicy.LAST_PER_SUBJECT,
+            )
         except Exception:  # noqa: BLE001 — empty/absent bucket => no nodes
             return []
+        # An ordered push consumer delivers all matching messages immediately, so
+        # num_pending reads 0 even when records exist — drain until next_msg idles.
         out: list[dict] = []
-        for k in keys:
+        try:
+            while True:
+                try:
+                    msg = await sub.next_msg(timeout=1.5)
+                except Exception:  # noqa: BLE001 — idle => done
+                    break
+                hdr = msg.headers or {}
+                if hdr.get("KV-Operation") in ("DEL", "PURGE"):
+                    continue  # skip tombstones for deleted/expired nodes
+                try:
+                    out.append(json.loads(msg.data))
+                except Exception:  # noqa: BLE001
+                    pass
+        finally:
             try:
-                entry = await kv.get(k)
-                out.append(json.loads(entry.value))
+                await sub.unsubscribe()
             except Exception:  # noqa: BLE001
-                continue
+                pass
         return out
 
     @staticmethod

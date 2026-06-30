@@ -83,6 +83,7 @@ func cmdUp(args []string) {
 
 	// Resolve the Fleet from the API key via the Controller. Dev mode bypasses
 	// it with --nats + --fleet.
+	var credsPath string
 	if *controllerURL != "" {
 		asg, err := join.Join(ctx, *controllerURL, *key)
 		must(err)
@@ -90,7 +91,11 @@ func cmdUp(args []string) {
 		if len(asg.Relays) > 0 {
 			relays = asg.Relays
 		}
-		fmt.Printf("controller: key %s -> fleet %q via %s\n", redact(*key), *fleetID, *natsURL)
+		if asg.Creds != "" {
+			credsPath = filepath.Join(*stateDir, "fleet.creds")
+			must(os.WriteFile(credsPath, []byte(asg.Creds), 0o600))
+		}
+		fmt.Printf("controller: key %s -> fleet %q via %s (auth=%v)\n", redact(*key), *fleetID, *natsURL, credsPath != "")
 	}
 	if *natsURL == "" || *fleetID == "" {
 		fatal("need --controller <url> --key <key>, or dev --nats <url> --fleet <id>")
@@ -118,7 +123,13 @@ func cmdUp(args []string) {
 		Version:    version,
 	}
 
-	nc, err := nats.Connect(*natsURL, nats.Name("fleet-runner/"+nodeID))
+	natsOpts := []nats.Option{nats.Name("fleet-runner/" + nodeID)}
+	if credsPath != "" {
+		// Scoped creds: replies/requests use a per-fleet inbox prefix so the
+		// _INBOX namespace is isolated per fleet too (matches the JWT scope).
+		natsOpts = append(natsOpts, nats.UserCredentials(credsPath), nats.CustomInboxPrefix("_INBOX_"+*fleetID))
+	}
+	nc, err := nats.Connect(*natsURL, natsOpts...)
 	must(err)
 	defer nc.Drain() //nolint:errcheck
 
