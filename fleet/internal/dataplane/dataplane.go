@@ -108,57 +108,65 @@ func (p *Plane) Close() error { return p.host.Close() }
 
 // Send connects to dst (by its advertised multiaddrs) and streams srcPath; the
 // receiver writes it to dstPath. onProgress is called periodically with bytes
-// done / total. Returns the verified sha256.
-func (p *Plane) Send(ctx context.Context, dstAddrs []string, srcPath, dstPath string, onProgress func(done, total int64)) (string, error) {
+// done / total. Returns the verified sha256 and whether the connection went
+// through a relay (vs a direct connection).
+func (p *Plane) Send(ctx context.Context, dstAddrs []string, srcPath, dstPath string, onProgress func(done, total int64)) (sum string, viaRelay bool, err error) {
 	ai, err := addrInfo(dstAddrs)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if err := p.host.Connect(ctx, ai); err != nil {
-		return "", fmt.Errorf("connect %s: %w", ai.ID, err)
+		return "", false, fmt.Errorf("connect %s: %w", ai.ID, err)
 	}
-	s, err := p.host.NewStream(ctx, ai.ID, TransferProto)
+	// A relay (circuit) connection is a *limited* connection; libp2p refuses to
+	// open a stream over it unless we explicitly allow it. Without this the relay
+	// fallback can't carry a Transfer at all — it would silently work only when
+	// DCUtR manages to upgrade to a direct connection, defeating the relay's
+	// whole purpose for peers that genuinely can't hole-punch.
+	sctx := network.WithAllowLimitedConn(ctx, "pantheon-fleet-transfer")
+	s, err := p.host.NewStream(sctx, ai.ID, TransferProto)
 	if err != nil {
-		return "", fmt.Errorf("open stream: %w", err)
+		return "", false, fmt.Errorf("open stream: %w", err)
 	}
 	defer s.Close()
+	viaRelay = strings.Contains(s.Conn().RemoteMultiaddr().String(), "p2p-circuit")
 
 	f, err := os.Open(srcPath)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	total := fi.Size()
 
 	if err := writeFrame(s, header{DstPath: dstPath, Size: total}); err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	hasher := sha256.New()
 	pw := &progressWriter{w: s, total: total, cb: onProgress, last: time.Now()}
 	if _, err := io.CopyBuffer(io.MultiWriter(pw, hasher), io.LimitReader(f, total), make([]byte, 256<<10)); err != nil {
-		return "", err
+		return "", false, err
 	}
 	if onProgress != nil {
 		onProgress(total, total)
 	}
-	sum := hex.EncodeToString(hasher.Sum(nil))
+	sum = hex.EncodeToString(hasher.Sum(nil))
 	if err := writeFrame(s, trailer{SHA256: sum}); err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	var a ack
 	if err := readFrame(s, &a); err != nil {
-		return "", err
+		return "", false, err
 	}
 	if !a.OK {
-		return "", fmt.Errorf("receiver rejected transfer: %s", a.Error)
+		return "", false, fmt.Errorf("receiver rejected transfer: %s", a.Error)
 	}
-	return sum, nil
+	return sum, viaRelay, nil
 }
 
 // handleIncoming is the receiver side of a Transfer.

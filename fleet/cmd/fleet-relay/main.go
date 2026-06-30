@@ -18,6 +18,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
@@ -29,6 +30,8 @@ func main() {
 	port := flag.Int("port", 4250, "UDP port for the QUIC listener")
 	identityPath := flag.String("identity", defaultIdentityPath(), "path to the relay's persistent libp2p key (stable peer id)")
 	announce := flag.String("announce", "", "public IP/host to announce so peers can dial this relay (required in production)")
+	limitMB := flag.Int("limit-mb", 0, "per-relayed-connection data cap in MB, each direction (0 = unlimited)")
+	limitMin := flag.Int("limit-min", 0, "per-relayed-connection duration cap in minutes (0 = unlimited)")
 	flag.Parse()
 
 	priv, err := loadOrCreateIdentity(*identityPath)
@@ -59,8 +62,28 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if _, err := relay.New(h); err != nil {
+
+	// The Circuit Relay v2 default caps each relayed connection at 128KB / 2min,
+	// which silently truncates any real Transfer. A Fleet relay exists to carry
+	// bulk data, so default to *unlimited* and let an operator opt into caps for
+	// anti-abuse. WithLimit(nil) => no data/duration limit.
+	var relayLimit *relay.RelayLimit // nil = unlimited
+	if *limitMB > 0 || *limitMin > 0 {
+		relayLimit = &relay.RelayLimit{Data: int64(*limitMB) << 20, Duration: time.Duration(*limitMin) * time.Minute}
+		if *limitMB == 0 {
+			relayLimit.Data = 1 << 60 // effectively unlimited
+		}
+		if *limitMin == 0 {
+			relayLimit.Duration = 24 * time.Hour // effectively unlimited
+		}
+	}
+	if _, err := relay.New(h, relay.WithLimit(relayLimit)); err != nil {
 		log.Fatal("enable relay service: ", err)
+	}
+	if relayLimit == nil {
+		fmt.Println("relay limits: unlimited (set --limit-mb / --limit-min to cap)")
+	} else {
+		fmt.Printf("relay limits: %d MB/dir, %s/conn\n", relayLimit.Data>>20, relayLimit.Duration)
 	}
 
 	fmt.Printf("fleet-relay  peer=%s\n", h.ID())

@@ -95,6 +95,13 @@ func (r *Runner) handleTransfer(m *nats.Msg, req proto.TransferRequest) {
 		return
 	}
 
+	// Live path is the destination's advertised reachability; the authoritative
+	// path (did this connection actually go through a relay?) is known only once
+	// Send returns, and is reported on the final "done" record below.
+	livePath := dst.Net.Reachability
+	if livePath == "" {
+		livePath = "direct"
+	}
 	start := time.Now()
 	onProg := func(done, total int64) {
 		rate := int64(0)
@@ -103,15 +110,19 @@ func (r *Runner) handleTransfer(m *nats.Msg, req proto.TransferRequest) {
 		}
 		pub(proto.TransferProgress{
 			TransferID: req.TransferID, State: "transferring",
-			BytesDone: done, BytesTotal: total, RateBps: rate, Path: "direct",
+			BytesDone: done, BytesTotal: total, RateBps: rate, Path: livePath,
 		})
 	}
-	sum, err := r.dp.Send(ctx, dst.Net.Multiaddrs, req.SrcPath, req.DstPath, onProg)
+	sum, viaRelay, err := r.dp.Send(ctx, dst.Net.Multiaddrs, req.SrcPath, req.DstPath, onProg)
 	if err != nil {
 		fail(err.Error())
 		return
 	}
-	done := proto.TransferProgress{TransferID: req.TransferID, State: "done", Path: "direct", SHA256: sum}
+	path := "direct"
+	if viaRelay {
+		path = "relay"
+	}
+	done := proto.TransferProgress{TransferID: req.TransferID, State: "done", Path: path, SHA256: sum}
 	pub(done)
 	r.reply(m, done)
 }

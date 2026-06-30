@@ -79,7 +79,7 @@ func cmdTransfer(args []string) {
 	must(json.Unmarshal(msg.Data, &res))
 	fmt.Println()
 	if res.State == "done" {
-		fmt.Printf("done -> %s  (sha256=%s)\n", *dstPath, res.SHA256)
+		fmt.Printf("done -> %s  via=%s  (sha256=%s)\n", *dstPath, res.Path, res.SHA256)
 		return
 	}
 	fmt.Fprintln(os.Stderr, "transfer failed:", res.Error)
