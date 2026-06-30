@@ -240,6 +240,69 @@ class FleetToolSet(ToolSet):
             "active_transfers": len(active),
         }
 
+    @tool
+    async def fleet_pick_node(
+        self,
+        min_cpu: int = 0,
+        min_ram_gb: float = 0,
+        need_gpu: bool = False,
+        label: str = "",
+        prefer: str = "idle",
+    ) -> dict:
+        """Pick the best online Node matching requirements (for placement).
+
+        Filters by capability, then ranks. Use this to let the Fleet choose where
+        to run a Task or land a Transfer instead of hard-coding a node.
+
+        Args:
+            min_cpu: Minimum CPU cores required.
+            min_ram_gb: Minimum RAM in GB required.
+            need_gpu: If True, only Nodes with a GPU qualify.
+            label: If set, only Nodes carrying this label qualify.
+            prefer: Tie-breaker — "idle" (lowest CPU load, default),
+                "most_cpu", or "most_ram".
+
+        Returns:
+            dict: {"success", "node_id", "name", "candidates", "reason"} or
+            {"success": False, "error": ...} if nothing qualifies.
+        """
+        try:
+            nodes = await self._read_nodes()
+        except Exception as e:  # noqa: BLE001
+            return {"success": False, "error": str(e)}
+
+        def fits(n: dict) -> bool:
+            if n.get("state", {}).get("status") != "online":
+                return False
+            cap = n.get("capability", {})
+            if int(cap.get("cpu_cores", 0) or 0) < min_cpu:
+                return False
+            if float(cap.get("ram_gb", 0) or 0) < min_ram_gb:
+                return False
+            if need_gpu and not cap.get("gpu"):
+                return False
+            if label and label not in (n.get("labels") or []):
+                return False
+            return True
+
+        cands = [n for n in nodes if fits(n)]
+        if not cands:
+            return {"success": False, "error": "no online node matches the requirements"}
+        if prefer == "most_cpu":
+            cands.sort(key=lambda n: -int(n.get("capability", {}).get("cpu_cores", 0) or 0))
+        elif prefer == "most_ram":
+            cands.sort(key=lambda n: -float(n.get("capability", {}).get("ram_gb", 0) or 0))
+        else:  # "idle" — lowest CPU load
+            cands.sort(key=lambda n: float(n.get("state", {}).get("load", {}).get("cpu", 1.0) or 0))
+        best = cands[0]
+        return {
+            "success": True,
+            "node_id": best.get("node_id"),
+            "name": best.get("name"),
+            "candidates": len(cands),
+            "reason": f"prefer={prefer}",
+        }
+
     # ---- Execute ------------------------------------------------------------
 
     @tool

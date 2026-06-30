@@ -16,6 +16,7 @@ EXPECTED_TOOLS = {
     "fleet_list_nodes",
     "fleet_node_info",
     "fleet_status",
+    "fleet_pick_node",
     "run_on_node",
     "run_on_label",
     "transfer",
