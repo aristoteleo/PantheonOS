@@ -126,6 +126,13 @@ func (r *Runner) Heartbeat(ctx context.Context, interval time.Duration) {
 			return
 		case <-t.C:
 			r.rec.State.Load = node.LiveLoad()
+			// Refresh data-plane addresses: a relay (circuit) address only
+			// appears after AutoRelay reserves a slot, so the Registry must
+			// pick it up on a later heartbeat for peers to reach this Node.
+			if r.dp != nil {
+				r.rec.Net.Multiaddrs = r.dp.Multiaddrs()
+				r.rec.Net.Reachability = r.dp.Reachability()
+			}
 			_ = r.reg.Put(ctx, *r.rec)
 		}
 	}

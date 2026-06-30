@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
@@ -50,19 +51,24 @@ type ack struct {
 	Error string `json:"error,omitempty"`
 }
 
-// New starts a libp2p host listening on a random QUIC port. relayAddrs (if any)
-// are the Fleet's relays used for AutoRelay + hole punching.
-func New(ctx context.Context, relayAddrs []string) (*Plane, error) {
+// New starts a libp2p host listening on the given QUIC port (0 = random).
+// relayAddrs (if any) are the Fleet's relays used for AutoRelay + hole punching.
+func New(ctx context.Context, relayAddrs []string, port int, forceRelay bool) (*Plane, error) {
 	opts := []libp2p.Option{
 		libp2p.ListenAddrStrings(
-			"/ip4/0.0.0.0/udp/0/quic-v1",
-			"/ip6/::/udp/0/quic-v1",
+			fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic-v1", port),
+			fmt.Sprintf("/ip6/::/udp/%d/quic-v1", port),
 		),
 		libp2p.EnableHolePunching(),
 		libp2p.NATPortMap(),
 	}
 	if relays := parseRelays(relayAddrs); len(relays) > 0 {
 		opts = append(opts, libp2p.EnableAutoRelayWithStaticRelays(relays))
+	}
+	// A Node that knows it's behind a strict NAT can force itself "private" so it
+	// reserves a relay slot up front instead of waiting on AutoNAT detection.
+	if forceRelay {
+		opts = append(opts, libp2p.ForceReachabilityPrivate())
 	}
 	h, err := libp2p.New(opts...)
 	if err != nil {
@@ -86,8 +92,16 @@ func (p *Plane) Multiaddrs() []string {
 	return out
 }
 
-// Reachability is a coarse hint for the Registry. (Phase 2: refine via AutoNAT.)
-func (p *Plane) Reachability() string { return "direct" }
+// Reachability is a coarse hint for the Registry: if the host has acquired a
+// relayed (circuit) address it's behind NAT and reachable via a relay.
+func (p *Plane) Reachability() string {
+	for _, a := range p.host.Addrs() {
+		if strings.Contains(a.String(), "p2p-circuit") {
+			return "relay"
+		}
+	}
+	return "direct"
+}
 
 // Close shuts the host down.
 func (p *Plane) Close() error { return p.host.Close() }
