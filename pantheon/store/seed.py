@@ -74,11 +74,26 @@ EXTERNAL_REPOS = {
         "has_categories": False,
     },
     "claude-scientific": {
+        # K-Dense-AI/claude-scientific-skills (== scientific-agent-skills, same repo)
+        # — 149 SKILL.md. The repo MOVED its skills from scientific-skills/ to
+        # skills/, which silently dropped this source to 0; skills_dir fixed below.
         "url": "https://github.com/K-Dense-AI/claude-scientific-skills.git",
-        "skills_dir": "scientific-skills",
+        "skills_dir": "skills",
         "display_name": "Claude Scientific Skills",
         "source_url": "https://github.com/K-Dense-AI/claude-scientific-skills",
         "has_categories": False,
+    },
+    "science-skills": {
+        # google-deepmind/science-skills (Apache-2.0 / CC-BY) — ~37 SKILL.md
+        # wrapping AlphaGenome, AlphaFold DB, UniProt, ClinVar + 30 databases.
+        # `exclude` drops the 3 non-science infra skills it ships (a uv installer,
+        # a shared-utils common, and a meta skill-creator).
+        "url": "https://github.com/google-deepmind/science-skills.git",
+        "skills_dir": "skills",
+        "display_name": "DeepMind Science Skills",
+        "source_url": "https://github.com/google-deepmind/science-skills",
+        "has_categories": False,
+        "exclude": ["uv", "scienceskillscommon", "workflow_skill_creator"],
     },
     "clawbio": {
         "url": "https://github.com/ClawBio/ClawBio.git",
@@ -654,9 +669,15 @@ class StoreSeed:
 
         skills = []
         has_categories = source_config.get("has_categories", False)
+        # Optional per-source skip list (skill dir-name or rel path), e.g. to drop
+        # non-science meta/infra skills a repo ships alongside its real skills.
+        exclude = set(source_config.get("exclude") or [])
 
         for skill_md in sorted(skills_dir.rglob("SKILL.md")):
             rel = skill_md.relative_to(skills_dir)
+            if skill_md.parent.name in exclude or str(rel.parent).replace("\\", "/") in exclude:
+                logger.info(f"[seed] {source_name}: excluding {rel.parent} (config exclude)")
+                continue
             parts = rel.parts
 
             category_hint = None
