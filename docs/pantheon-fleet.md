@@ -1,11 +1,15 @@
 # Pantheon-Fleet — Design & Implementation Plan
 
-> Status: **Phase 1 implemented & verified** · Owner: Nanguage · Last updated: 2026-06-29
+> Status: **Phase 1 done (bar security); Phase 2/3 in progress** · Owner: Nanguage · Last updated: 2026-06-29
 >
-> The Go implementation lives in [`../fleet/`](../fleet/). Phase 1 — Runner,
-> control plane, data plane (libp2p transfers), Controller (key join), relay,
-> installer, and the Python toolset core — is complete and end-to-end verified
-> (see the fleet README for what's verified vs what needs real infra).
+> The Go implementation lives in [`../fleet/`](../fleet/); the Agent toolset in
+> [`../pantheon/toolsets/fleet/`](../pantheon/toolsets/fleet/). Done & verified:
+> Runner, control plane, data plane (direct + **relay-fallback**), Controller
+> (key join), relay, installer, and the **Fleet agent toolset** (observe / run /
+> run_on_label / transfer / broadcast / gather / pick_node). Transfers support
+> **zstd compression** and **resume**. The one open Phase 1 item — scoped NATS
+> JWT + signed Node identity — needs the isolation-model decision (§13).
+> See §12 for per-phase status and the fleet README for what needs real infra.
 
 Pantheon-Fleet lets a PantheonOS **Agent** operate a pool of computers it can
 see, command, and move data between. A user runs a single binary on any
@@ -421,27 +425,31 @@ sub-millisecond and irrelevant to file streaming.
 
 ## 12. Phased rollout
 
-**Phase 1 — MVP (the agent can see, run, and move data)**
-- Controller: key → Fleet, scoped NATS JWT, signed Node identity, relay list.
-- Runner: NATS connect + JetStream KV registry/heartbeat + go-libp2p data plane
-  + shell/python execution.
-- 1–2 self-hosted Relays.
-- Fleet toolset: `fleet_list_nodes`, `fleet_node_info`, `run_on_node`,
-  `transfer`, `transfer_status`.
-- `curl | sh` installer (OS/arch detection).
+Legend: ✅ done & verified · ◻︎ todo · 🔸 needs a decision (§13) or real infra.
 
-→ Outcome: any NAT'd machine joins with one command; the Agent sees every Node,
-runs code on a chosen Node, and moves a large file A→B over a direct connection.
+**Phase 1 — MVP (the agent can see, run, and move data)**
+- ✅ Controller: key → Fleet, relay list. 🔸 scoped NATS JWT + signed Node
+  identity (blocked on the isolation-model decision, §13).
+- ✅ Runner: NATS connect + JetStream KV registry/heartbeat + go-libp2p data
+  plane (direct + relay fallback) + shell/python execution.
+- ✅ 1–2 self-hosted Relays (relay-fallback path verified on real cross-region infra).
+- ✅ Fleet toolset: `fleet_list_nodes`, `fleet_node_info`, `fleet_status`,
+  `run_on_node`, `transfer`, `transfer_status` (+ Phase 2/3 tools below).
+- ✅ `curl | sh` installer (OS/arch detection).
+
+→ Outcome (met): any NAT'd machine joins with one command; the Agent sees every
+Node, runs code on a chosen Node, and moves a large file A→B (direct or relayed).
 
 **Phase 2 — robust & observable**
-- Transfer resume / parallel streams / live progress; `broadcast` / `gather`.
-- Live-view Fleet dashboard (human-facing).
-- Labels & label-targeted execution; audit log; Node revocation.
+- ✅ Transfer **resume**; ✅ live progress; ✅ `broadcast` / `gather`. ◻︎ parallel streams.
+- 🔸 Live-view Fleet dashboard (human-facing) — needs a UX/where-it-lives decision.
+- ✅ Labels & label-targeted execution (`run_on_label`, `fleet_pick_node`).
+  ◻︎ live label mutation (`set_label`); 🔸 audit log + Node revocation (tie to the security model).
 
 **Phase 3 — reach & integration**
-- Globus/rsync Transfer backend for HPC↔HPC.
-- Managed Python toolset endpoint on Nodes (full notebook/interpreter on a Node).
-- Optional auto-placement; data-plane tuning (zstd, multistream).
+- 🔸 Globus/rsync Transfer backend for HPC↔HPC (needs HPC/Globus infra to verify).
+- ◻︎ Managed Python toolset endpoint on Nodes (full notebook/interpreter on a Node).
+- ✅ Optional auto-placement (`fleet_pick_node`); ✅ data-plane tuning (zstd); ◻︎ multistream.
 
 ---
 
