@@ -1,7 +1,7 @@
 #!/bin/sh
 # Pantheon-Fleet installer.
 #
-#   curl -fsSL https://get.pantheonos.stanford.edu/fleet | sh -s -- --controller <url> --key <key>
+#   curl -fsSL https://github.com/aristoteleo/PantheonOS/releases/download/fleet-v0.1.0-alpha/install.sh | sh -s -- --controller <url> --key <key>
 #
 # Detects this machine's OS/arch, downloads the matching `fleet` binary, and
 # runs `fleet up` with whatever args you pass after `--`.
@@ -12,7 +12,7 @@
 #   FLEET_INSTALL_ONLY if set, install the binary but do not run `up`
 set -eu
 
-BASE_URL="${FLEET_BASE_URL:-https://get.pantheonos.stanford.edu/fleet}"
+BASE_URL="${FLEET_BASE_URL:-https://github.com/aristoteleo/PantheonOS/releases/download/fleet-v0.1.0-alpha}"
 DEST="${FLEET_BIN:-/usr/local/bin/fleet}"
 
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
