@@ -33,6 +33,9 @@ REAL machines the user added, separate from this sandbox.
 - List/inspect nodes to see what's available (OS, CPU, RAM, GPU, load, labels).
 - Run shell commands ON a specific node (or on nodes matching a label).
 - Move files between nodes (transfer / gather / broadcast).
+- Pull a file from a node INTO your own workspace with `fetch` (or `transfer` with
+  dst_node="local") — your sandbox/workspace is NOT itself a node, so a plain
+  node→node transfer targeting it fails with "destination node not found".
 
 When the user says "my machine", "the remote node", "my laptop", "my GPU box",
 "run this on my server", etc., they mean a **fleet node** — list the nodes first

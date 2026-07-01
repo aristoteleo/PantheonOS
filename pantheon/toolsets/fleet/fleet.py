@@ -473,6 +473,12 @@ class FleetToolSet(ToolSet):
             await self._ensure_connected()
         except Exception as e:  # noqa: BLE001
             return {"success": False, "error": str(e)}
+        # The agent's own workspace/sandbox is NOT a Fleet Node, so it can't be a
+        # data-plane transfer endpoint. When the destination is "local" (pull a
+        # file into the agent's workspace to read/process it), route to fetch(),
+        # which streams over the control plane instead of Node->Node libp2p.
+        if str(dst_node).strip().lower() in ("local", "workspace", "agent", "sandbox", "here", "me"):
+            return await self.fetch(src_node, src_path, dst_path, timeout=timeout)
         tid = self._start_transfer(
             src_node, src_path, dst_node, dst_path, verify, compress, resume, timeout
         )
@@ -641,3 +647,53 @@ class FleetToolSet(ToolSet):
         if p is None:
             return {"success": False, "error": f"unknown transfer_id {transfer_id}"}
         return {"success": True, **p}
+
+    @tool
+    async def fetch(self, node_id: str, src_path: str, dst_path: str, timeout: int = 300) -> dict:
+        """Fetch a file FROM a Node into the agent's own workspace (this sandbox).
+
+        transfer() moves files between Nodes; the agent's workspace is NOT a Node,
+        so use THIS to pull a file from a Node down to a local path you can then
+        read/process. Streams over the control plane in base64 chunks (no relay or
+        data plane needed) — great for config/docs/small datasets; big files are
+        slow. `transfer(..., dst_node="local")` also routes here.
+
+        Args:
+            node_id: Source Node id (from fleet_list_nodes).
+            src_path: File path on the Node.
+            dst_path: Local destination path in this workspace.
+            timeout: Overall timeout in seconds.
+
+        Returns:
+            dict: {"success", "bytes", "total", "dst_path"} or {"success": False, "error": ...}.
+        """
+        import base64
+        import os
+        import shlex
+
+        chunk = 48 * 1024  # raw bytes/round-trip; base64 ~64KB stays under the NATS ceiling
+        try:
+            q = shlex.quote(src_path)
+            r = await self.run_on_node(node_id, f"wc -c < {q}", timeout=30)
+            if not r.get("success"):
+                return {"success": False, "error": (r.get("stderr") or r.get("error") or "cannot read source").strip()}
+            total = int((r.get("stdout") or "0").strip() or "0")
+            os.makedirs(os.path.dirname(os.path.abspath(dst_path)), exist_ok=True)
+            got = 0
+            with open(dst_path, "wb") as f:
+                off = 0
+                while off < total:
+                    n = min(chunk, total - off)
+                    cmd = f"tail -c +{off + 1} {q} | head -c {n} | base64"
+                    cr = await self.run_on_node(node_id, cmd, timeout=timeout)
+                    if not cr.get("success"):
+                        return {"success": False, "bytes": got, "error": (cr.get("stderr") or cr.get("error") or "chunk read failed").strip()}
+                    data = base64.b64decode((cr.get("stdout") or "").replace("\n", ""))
+                    if not data:
+                        break
+                    f.write(data)
+                    got += len(data)
+                    off += n
+            return {"success": got == total and total > 0, "bytes": got, "total": total, "dst_path": dst_path}
+        except Exception as e:  # noqa: BLE001
+            return {"success": False, "error": str(e)}
