@@ -9,7 +9,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -142,12 +141,17 @@ func cmdUp(args []string) {
 	must(err)
 	defer sub.Unsubscribe() //nolint:errcheck
 
-	fmt.Printf("node %q (%s) joined fleet %q — %d cores, %.0f GB RAM, gpu=%q, dataplane=%v\n",
-		rec.Name, nodeID, *fleetID, capa.CPUCores, capa.RAMGB, capa.GPU, dp != nil)
-	if dp != nil {
-		fmt.Printf("  peer %s, %d addr(s)\n", dp.ID(), len(netInfo.Multiaddrs))
+	gpu := capa.GPU
+	if gpu == "" {
+		gpu = "none"
 	}
-	printJSON(rec)
+	reach := netInfo.Reachability
+	if reach == "" {
+		reach = "control-plane only"
+	}
+	fmt.Printf("\n  \x1b[32m●\x1b[0m %s is online in fleet %s\n", rec.Name, *fleetID)
+	fmt.Printf("    %s/%s · %d cores · %.0f GB RAM · GPU: %s · %s\n",
+		capa.OS, capa.Arch, capa.CPUCores, capa.RAMGB, gpu, reach)
 	fmt.Println("serving tasks & transfers; Ctrl-C to leave the fleet…")
 
 	go r.Heartbeat(ctx, 10*time.Second)
@@ -185,11 +189,6 @@ func redact(key string) string {
 		return "***"
 	}
 	return key[:6] + "…"
-}
-
-func printJSON(v any) {
-	b, _ := json.MarshalIndent(v, "", "  ")
-	fmt.Println(string(b))
 }
 
 func must(err error) {
