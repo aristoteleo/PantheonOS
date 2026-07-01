@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - develop
+      - feat/pantheon-fleet
     tags:
       - 'v*.*.*'
     paths:
