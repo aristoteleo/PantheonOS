@@ -266,6 +266,12 @@
         // Enable the task system (injects TaskToolSet into primary agent)
         "enabled": true
     },
+    // ===== Fleet System Configuration =====
+    // Injects the Fleet toolset into the leader ONLY when the sandbox is wired to
+    // a Pantheon-Fleet (FLEET_CONTROLLER_URL present) — otherwise a no-op.
+    "fleet_system": {
+        "enabled": true
+    },
     // ===== Delegation Configuration =====
     "delegation": {
         // If true, call_agent may fork the parent's optimized history into
