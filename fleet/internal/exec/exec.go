@@ -7,6 +7,9 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"runtime"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
@@ -55,7 +58,51 @@ func Run(ctx context.Context, t proto.Task) proto.TaskResult {
 			res.ExitCode = -1
 		}
 	}
+
+	// On macOS, a "Operation not permitted" almost always means the OS blocked a
+	// TCC-protected path (Downloads/Documents/Desktop/Full Disk). Ask the user for
+	// access on-demand — pop a dialog on the node's own login session and offer to
+	// open the Full Disk Access pane — and give the agent a clear hint to relay.
+	if isMacPermissionDenied(res.Stdout + res.Stderr) {
+		requestMacPermission()
+		res.Stderr += "\n[pantheon-fleet] macOS blocked this file access (privacy/TCC). A permission request was shown on the Mac — grant Full Disk Access to the terminal running fleet, then retry."
+	}
 	return res
+}
+
+var (
+	permMu      sync.Mutex
+	lastPermReq time.Time
+)
+
+// isMacPermissionDenied reports whether output looks like a macOS TCC denial.
+func isMacPermissionDenied(output string) bool {
+	return runtime.GOOS == "darwin" && strings.Contains(output, "Operation not permitted")
+}
+
+// requestMacPermission shows an on-demand permission dialog in the node's GUI
+// session (fleet runs from the user's terminal) and, if they choose, opens the
+// Full Disk Access settings pane. Rate-limited (once/min) and fire-and-forget so
+// it never blocks or spams task execution.
+func requestMacPermission() {
+	permMu.Lock()
+	if !lastPermReq.IsZero() && time.Since(lastPermReq) < time.Minute {
+		permMu.Unlock()
+		return
+	}
+	lastPermReq = time.Now()
+	permMu.Unlock()
+
+	go func() {
+		const script = `display dialog "Pantheon Fleet needs permission to access files on this Mac. Grant Full Disk Access to your terminal (Terminal / iTerm), then retry the request." with title "Pantheon Fleet" buttons {"Later", "Open Settings"} default button "Open Settings"`
+		out, err := exec.Command("osascript", "-e", script).Output()
+		if err != nil {
+			return // no GUI session, or the user dismissed it
+		}
+		if strings.Contains(string(out), "Open Settings") {
+			_ = exec.Command("open", "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles").Run()
+		}
+	}()
 }
 
 func envSlice(m map[string]string) []string {
