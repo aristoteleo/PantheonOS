@@ -82,6 +82,7 @@ class FleetToolSet(ToolSet):
         self._nc = None
         self._js = None
         self._connect_lock = asyncio.Lock()
+        self._refresh_task = None  # keeps the short-lived credential fresh
         # transfer_id -> latest TransferProgress dict (for transfer_status)
         self._transfers: dict[str, dict] = {}
         self._transfer_tasks: dict[str, asyncio.Task] = {}
@@ -94,10 +95,17 @@ class FleetToolSet(ToolSet):
         try:
             await self._ensure_connected()
             logger.info(f"[fleet] connected to {self._nats_url} fleet={self._fleet_id}")
+            # Keep the short-lived credential fresh so the connection survives
+            # expiry (mirrors fleet up's refresh loop). See docs/fleet-security-model.md.
+            if self._controller_url and self._key and self._refresh_task is None:
+                self._refresh_task = asyncio.create_task(self._refresh_creds_loop())
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[fleet] not connected at setup: {e}")
 
     async def cleanup(self):
+        if self._refresh_task is not None:
+            self._refresh_task.cancel()
+            self._refresh_task = None
         for t in list(self._transfer_tasks.values()):
             t.cancel()
         self._transfer_tasks.clear()
@@ -128,6 +136,40 @@ class FleetToolSet(ToolSet):
         self._nats_url = data["nats_url"]
         self._fleet_id = data["fleet_id"]
         self._creds_content = data.get("creds") or None
+
+    async def _refresh_creds_loop(self):
+        """Re-mint the short-lived credential before it expires and reconnect with
+        it, so the agent's fleet connection never sees a credential expiry. We
+        reconnect explicitly rather than rely on the NATS client re-reading the
+        creds file (it doesn't). See docs/fleet-security-model.md.
+        """
+        # Well within the default 1h credential TTL; overridable for testing.
+        interval = int(os.environ.get("FLEET_CRED_REFRESH_SECONDS", "1800"))
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                if not (self._controller_url and self._key):
+                    continue
+                await self._resolve_via_controller()  # fresh creds in _creds_content
+                # Drop the cached connection + its creds file, then reconnect with
+                # the freshly-minted credential.
+                async with self._connect_lock:
+                    old_nc, old_creds = self._nc, self._tmp_creds
+                    self._nc, self._js, self._tmp_creds = None, None, None
+                if old_nc is not None:
+                    try:
+                        await old_nc.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                if old_creds:
+                    try:
+                        os.remove(old_creds)
+                    except OSError:
+                        pass
+                await self._ensure_connected()
+                logger.info("[fleet] refreshed credential + reconnected")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[fleet] credential refresh failed (will retry): {e}")
 
     async def _ensure_connected(self):
         if self._nc is not None and self._js is not None:
