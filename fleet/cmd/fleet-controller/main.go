@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -25,6 +26,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
@@ -98,6 +100,8 @@ func main() {
 	}
 	refreshPub := refreshPriv.Public().(ed25519.PublicKey)
 	const refreshTTL = 30 * 24 * time.Hour
+	const joinTTL = 15 * time.Minute
+	consumed := newJTISet() // single-use enforcement for join tokens
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -113,28 +117,43 @@ func main() {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		if strings.TrimSpace(req.Key) == "" {
-			http.Error(w, "missing key", http.StatusUnauthorized)
-			return
-		}
 		var fid string
-		if *hubURL != "" {
-			vfid, ok, err := validateViaHub(*hubURL, *hubToken, req.Key)
+		switch {
+		case strings.TrimSpace(req.JoinToken) != "":
+			// Single-use join token (preferred): verify signature + expiry, then
+			// consume its jti so it cannot be replayed to add another node.
+			jp, err := token.VerifyJoin(refreshPub, req.JoinToken)
 			if err != nil {
-				http.Error(w, "hub validation unavailable: "+err.Error(), http.StatusBadGateway)
+				http.Error(w, "invalid join token: "+err.Error(), http.StatusUnauthorized)
 				return
 			}
-			if !ok {
-				http.Error(w, "key not allowed", http.StatusForbidden)
+			if !consumed.consume(jp.JTI, jp.Exp) {
+				http.Error(w, "join token already used", http.StatusForbidden)
 				return
 			}
-			fid = vfid // the hub maps the key to the user's fleet
-		} else {
-			if len(allowed) > 0 && !allowed[req.Key] {
-				http.Error(w, "key not allowed", http.StatusForbidden)
-				return
+			fid = jp.FleetID
+		case strings.TrimSpace(req.Key) != "":
+			if *hubURL != "" {
+				vfid, ok, err := validateViaHub(*hubURL, *hubToken, req.Key)
+				if err != nil {
+					http.Error(w, "hub validation unavailable: "+err.Error(), http.StatusBadGateway)
+					return
+				}
+				if !ok {
+					http.Error(w, "key not allowed", http.StatusForbidden)
+					return
+				}
+				fid = vfid // the hub maps the key to the user's fleet
+			} else {
+				if len(allowed) > 0 && !allowed[req.Key] {
+					http.Error(w, "key not allowed", http.StatusForbidden)
+					return
+				}
+				fid = deriveFleet(req.Key)
 			}
-			fid = deriveFleet(req.Key)
+		default:
+			http.Error(w, "missing key or join token", http.StatusUnauthorized)
+			return
 		}
 		resp := proto.JoinResponse{
 			FleetID: fid,
@@ -201,6 +220,52 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(proto.TokenResponse{Creds: string(creds)}) //nolint:errcheck
+	})
+
+	// /join-tokens mints a single-use, short-lived token to add ONE machine. In
+	// P0 it's authorized like /join (the key resolves the fleet); Increment D
+	// moves it behind the platform session. See docs/fleet-security-model.md.
+	mux.HandleFunc("/join-tokens", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		var req proto.JoinTokenRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(req.Key) == "" {
+			http.Error(w, "missing key", http.StatusUnauthorized)
+			return
+		}
+		var fid string
+		if *hubURL != "" {
+			vfid, ok, err := validateViaHub(*hubURL, *hubToken, req.Key)
+			if err != nil {
+				http.Error(w, "hub validation unavailable: "+err.Error(), http.StatusBadGateway)
+				return
+			}
+			if !ok {
+				http.Error(w, "key not allowed", http.StatusForbidden)
+				return
+			}
+			fid = vfid
+		} else {
+			if len(allowed) > 0 && !allowed[req.Key] {
+				http.Error(w, "key not allowed", http.StatusForbidden)
+				return
+			}
+			fid = deriveFleet(req.Key)
+		}
+		exp := time.Now().Add(joinTTL).Unix()
+		jt, err := token.SignJoin(refreshPriv, token.JoinPayload{FleetID: fid, JTI: randID(), Exp: exp})
+		if err != nil {
+			http.Error(w, "issue join token: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(proto.JoinTokenResponse{JoinToken: jt, ExpiresAt: exp}) //nolint:errcheck
 	})
 
 	// /nodes lists a Fleet's registered Nodes for the hub's Cluster panel. The hub
@@ -366,6 +431,39 @@ func loadOrCreateRefreshKey(stateDir string) (ed25519.PrivateKey, error) {
 		return nil, err
 	}
 	return priv, nil
+}
+
+// jtiSet enforces single-use of join tokens by tracking consumed token ids until
+// they expire (in-memory; sufficient for a single controller instance).
+type jtiSet struct {
+	mu   sync.Mutex
+	seen map[string]int64 // jti -> exp
+}
+
+func newJTISet() *jtiSet { return &jtiSet{seen: map[string]int64{}} }
+
+// consume records jti as used and returns false if it was already used.
+func (s *jtiSet) consume(jti string, exp int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().Unix()
+	for k, e := range s.seen { // opportunistic cleanup of expired ids
+		if e < now {
+			delete(s.seen, k)
+		}
+	}
+	if _, used := s.seen[jti]; used {
+		return false
+	}
+	s.seen[jti] = exp
+	return true
+}
+
+// randID returns a random hex id (a join token's jti).
+func randID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // loadAllowedKeys builds the /join allowlist from a CSV flag and/or a file

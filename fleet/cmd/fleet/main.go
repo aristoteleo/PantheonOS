@@ -62,6 +62,7 @@ In Phase 1 (dev) you can bypass the Controller with --nats <url> and --fleet <id
 func cmdUp(args []string) {
 	fs := flag.NewFlagSet("up", flag.ExitOnError)
 	key := fs.String("key", "", "PantheonOS API key (pbk_...) — selects your Fleet")
+	joinToken := fs.String("join-token", "", "single-use join token (preferred over --key; from the Cluster panel)")
 	name := fs.String("name", node.DefaultName(), "friendly node name")
 	labelsCSV := fs.String("labels", "", "comma-separated labels (e.g. gpu,hpc)")
 	workDir := fs.String("workdir", ".", "working directory for Tasks")
@@ -92,7 +93,9 @@ func cmdUp(args []string) {
 	// it with --nats + --fleet.
 	var credsPath, refreshToken string
 	if *controllerURL != "" {
-		asg, err := join.Join(ctx, *controllerURL, *key, nodePub)
+		asg, err := join.Join(ctx, *controllerURL, proto.JoinRequest{
+			Key: *key, JoinToken: *joinToken, NodePub: nodePub,
+		})
 		must(err)
 		*natsURL, *fleetID = asg.NatsURL, asg.FleetID
 		refreshToken = asg.RefreshToken

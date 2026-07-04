@@ -34,7 +34,7 @@ func TestE2EJoinRefresh(t *testing.T) {
 	}
 	pub := node.PubB64(nk)
 
-	asg, err := Join(ctx, url, key, pub)
+	asg, err := Join(ctx, url, proto.JoinRequest{Key: key, NodePub: pub})
 	if err != nil {
 		t.Fatalf("join: %v", err)
 	}
@@ -68,4 +68,19 @@ func TestE2EJoinRefresh(t *testing.T) {
 		t.Fatal("refresh with a wrong-key signature must fail (stolen refresh token must be useless)")
 	}
 	t.Log("stolen refresh token (wrong key) correctly rejected")
+
+	// Single-use join token: mint one, join with it, and a replay must fail.
+	jt, err := MintJoinToken(ctx, url, key)
+	if err != nil {
+		t.Fatalf("mint join token: %v", err)
+	}
+	nk2, _ := node.LoadOrCreateKey(t.TempDir())
+	pub2 := node.PubB64(nk2)
+	if _, err := Join(ctx, url, proto.JoinRequest{JoinToken: jt.JoinToken, NodePub: pub2}); err != nil {
+		t.Fatalf("join with join token: %v", err)
+	}
+	if _, err := Join(ctx, url, proto.JoinRequest{JoinToken: jt.JoinToken, NodePub: pub2}); err == nil {
+		t.Fatal("re-using a single-use join token must fail")
+	}
+	t.Log("single-use join token: first join ok, replay rejected")
 }

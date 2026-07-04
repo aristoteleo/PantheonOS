@@ -152,13 +152,28 @@ func RegistryBucket(fleet string) string { return "FLEET_" + fleet + "_NODES" }
 
 // --- Controller join ---
 
-// JoinRequest is what a Runner POSTs to the Controller's /join endpoint.
+// JoinRequest is what a Runner POSTs to the Controller's /join endpoint. Either
+// Key (legacy) or JoinToken (single-use, preferred) selects the fleet.
 type JoinRequest struct {
-	Key string `json:"key"`
+	Key       string `json:"key,omitempty"`
+	JoinToken string `json:"join_token,omitempty"`
 	// NodePub is the node's base64 Ed25519 public key. The Controller binds it
 	// into the returned refresh token so only the holder of the matching private
 	// key can later refresh (proof-of-possession). See docs/fleet-security-model.md.
 	NodePub string `json:"node_pub,omitempty"`
+}
+
+// JoinTokenRequest asks the Controller to mint a single-use join token. In P0
+// this is authorized like /join (the key resolves the fleet); Increment D moves
+// it behind the platform session.
+type JoinTokenRequest struct {
+	Key string `json:"key"`
+}
+
+// JoinTokenResponse is a single-use, short-lived token that adds one machine.
+type JoinTokenResponse struct {
+	JoinToken string `json:"join_token"`
+	ExpiresAt int64  `json:"expires_at"`
 }
 
 // JoinResponse is what the Controller returns: the Fleet the key maps to, how

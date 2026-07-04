@@ -17,11 +17,12 @@ import (
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Join calls the Controller's /join with the key and the node's public key, and
-// returns the assignment (fleet, nats url, short-lived creds, refresh token).
-func Join(ctx context.Context, controllerURL, key, nodePub string) (proto.JoinResponse, error) {
+// Join calls the Controller's /join (with a key or a single-use join token, plus
+// the node's public key) and returns the assignment (fleet, nats url, short-lived
+// creds, refresh token).
+func Join(ctx context.Context, controllerURL string, jr proto.JoinRequest) (proto.JoinResponse, error) {
 	var out proto.JoinResponse
-	body, _ := json.Marshal(proto.JoinRequest{Key: key, NodePub: nodePub})
+	body, _ := json.Marshal(jr)
 
 	url := strings.TrimRight(controllerURL, "/") + "/join"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -73,6 +74,36 @@ func Refresh(ctx context.Context, controllerURL string, tr proto.TokenRequest) (
 	}
 	if out.Creds == "" {
 		return out, fmt.Errorf("controller returned no credentials")
+	}
+	return out, nil
+}
+
+// MintJoinToken asks the Controller for a single-use join token (P0: key-authed;
+// Increment D moves this behind the platform session).
+func MintJoinToken(ctx context.Context, controllerURL, key string) (proto.JoinTokenResponse, error) {
+	var out proto.JoinTokenResponse
+	body, _ := json.Marshal(proto.JoinTokenRequest{Key: key})
+
+	url := strings.TrimRight(controllerURL, "/") + "/join-tokens"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return out, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return out, fmt.Errorf("controller join-tokens failed: %s", resp.Status)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return out, err
+	}
+	if out.JoinToken == "" {
+		return out, fmt.Errorf("controller returned no join token")
 	}
 	return out, nil
 }
