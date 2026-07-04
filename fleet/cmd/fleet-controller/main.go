@@ -101,7 +101,8 @@ func main() {
 	refreshPub := refreshPriv.Public().(ed25519.PublicKey)
 	const refreshTTL = 30 * 24 * time.Hour
 	const joinTTL = 15 * time.Minute
-	consumed := newJTISet() // single-use enforcement for join tokens
+	consumed := newJTISet()          // single-use enforcement for join tokens
+	revoked := loadRevoked(*stateDir) // node revocation list
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -213,6 +214,10 @@ func main() {
 			http.Error(w, "proof-of-possession failed: "+err.Error(), http.StatusUnauthorized)
 			return
 		}
+		if revoked.isRevoked(p.NodePub) {
+			http.Error(w, "node revoked", http.StatusUnauthorized)
+			return
+		}
 		creds, err := authority.MintFleetUser(p.FleetID)
 		if err != nil {
 			http.Error(w, "mint credentials: "+err.Error(), http.StatusInternalServerError)
@@ -266,6 +271,32 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(proto.JoinTokenResponse{JoinToken: jt, ExpiresAt: exp}) //nolint:errcheck
+	})
+
+	// /revoke adds a node's public key to the revocation list; /token then refuses
+	// it and its short-lived credential expires within the TTL. Authorized by the
+	// hub service token (open in dev, like /join). See docs/fleet-security-model.md.
+	mux.HandleFunc("/revoke", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if *hubToken != "" && r.Header.Get("Authorization") != "Bearer "+*hubToken {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var req proto.RevokeRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(req.NodePub) == "" {
+			http.Error(w, "provide node_pub", http.StatusBadRequest)
+			return
+		}
+		revoked.revoke(req.NodePub)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true}) //nolint:errcheck
 	})
 
 	// /nodes lists a Fleet's registered Nodes for the hub's Cluster panel. The hub
@@ -464,6 +495,45 @@ func randID() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// revokedSet is the node revocation list (by node public key), persisted so
+// revocations survive a Controller restart within the refresh-token lifetime.
+type revokedSet struct {
+	mu   sync.Mutex
+	path string
+	set  map[string]bool
+}
+
+func loadRevoked(stateDir string) *revokedSet {
+	r := &revokedSet{path: filepath.Join(stateDir, "revoked.json"), set: map[string]bool{}}
+	if b, err := os.ReadFile(r.path); err == nil {
+		var list []string
+		if json.Unmarshal(b, &list) == nil {
+			for _, p := range list {
+				r.set[p] = true
+			}
+		}
+	}
+	return r
+}
+
+func (r *revokedSet) isRevoked(nodePub string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.set[nodePub]
+}
+
+func (r *revokedSet) revoke(nodePub string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.set[nodePub] = true
+	list := make([]string, 0, len(r.set))
+	for p := range r.set {
+		list = append(list, p)
+	}
+	b, _ := json.Marshal(list)
+	_ = os.WriteFile(r.path, b, 0o600)
 }
 
 // loadAllowedKeys builds the /join allowlist from a CSV flag and/or a file

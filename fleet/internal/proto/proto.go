@@ -176,6 +176,15 @@ type JoinTokenResponse struct {
 	ExpiresAt int64  `json:"expires_at"`
 }
 
+// RevokeRequest revokes a node's ability to refresh: the Controller records the
+// node's public key on a revocation list, so /token refuses it and its current
+// short-lived credential expires within the TTL. NodeID is looked up in the
+// registry when NodePub isn't supplied directly.
+type RevokeRequest struct {
+	NodePub string `json:"node_pub,omitempty"`
+	NodeID  string `json:"node_id,omitempty"`
+}
+
 // JoinResponse is what the Controller returns: the Fleet the key maps to, how
 // to reach the control plane, and the data-plane relays. Creds (a scoped NATS
 // credential) is short-lived; RefreshToken is used with the node key to mint

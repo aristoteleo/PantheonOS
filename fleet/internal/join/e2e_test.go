@@ -83,4 +83,16 @@ func TestE2EJoinRefresh(t *testing.T) {
 		t.Fatal("re-using a single-use join token must fail")
 	}
 	t.Log("single-use join token: first join ok, replay rejected")
+
+	// Revocation: after revoking the node's pubkey, even a valid proof-of-
+	// possession must be refused at /token.
+	if err := Revoke(ctx, url, pub); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	ts2 := time.Now().Unix()
+	sig2 := node.Sign(nk, token.PoPChallenge(pub, asg.FleetID, ts2))
+	if _, err := Refresh(ctx, url, proto.TokenRequest{RefreshToken: asg.RefreshToken, TS: ts2, Sig: sig2}); err == nil {
+		t.Fatal("refresh after revocation must fail")
+	}
+	t.Log("revoked node can no longer refresh")
 }

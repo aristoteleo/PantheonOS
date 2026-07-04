@@ -107,3 +107,23 @@ func MintJoinToken(ctx context.Context, controllerURL, key string) (proto.JoinTo
 	}
 	return out, nil
 }
+
+// Revoke asks the Controller to revoke a node's refresh ability by its pubkey.
+func Revoke(ctx context.Context, controllerURL, nodePub string) error {
+	body, _ := json.Marshal(proto.RevokeRequest{NodePub: nodePub})
+	url := strings.TrimRight(controllerURL, "/") + "/revoke"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("controller revoke failed: %s", resp.Status)
+	}
+	return nil
+}
