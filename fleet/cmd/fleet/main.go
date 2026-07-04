@@ -9,6 +9,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"flag"
 	"fmt"
 	"os"
@@ -25,6 +26,7 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/aristoteleo/pantheon-fleet/internal/registry"
 	"github.com/aristoteleo/pantheon-fleet/internal/runner"
+	"github.com/aristoteleo/pantheon-fleet/internal/token"
 	"github.com/nats-io/nats.go"
 )
 
@@ -75,6 +77,11 @@ func cmdUp(args []string) {
 
 	nodeID, err := node.Identity(*stateDir)
 	must(err)
+	// The node's Ed25519 key (private key never leaves this machine) proves
+	// possession when refreshing credentials. See docs/fleet-security-model.md.
+	nodeKey, err := node.LoadOrCreateKey(*stateDir)
+	must(err)
+	nodePub := node.PubB64(nodeKey)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -83,11 +90,12 @@ func cmdUp(args []string) {
 
 	// Resolve the Fleet from the API key via the Controller. Dev mode bypasses
 	// it with --nats + --fleet.
-	var credsPath string
+	var credsPath, refreshToken string
 	if *controllerURL != "" {
-		asg, err := join.Join(ctx, *controllerURL, *key)
+		asg, err := join.Join(ctx, *controllerURL, *key, nodePub)
 		must(err)
 		*natsURL, *fleetID = asg.NatsURL, asg.FleetID
+		refreshToken = asg.RefreshToken
 		if len(asg.Relays) > 0 {
 			relays = asg.Relays
 		}
@@ -161,8 +169,8 @@ func cmdUp(args []string) {
 	// re-reads credsPath on its next reconnect (which the server triggers at
 	// expiry), so a legit node stays online while a leaked cred dies fast.
 	// See docs/fleet-security-model.md.
-	if credsPath != "" && *controllerURL != "" {
-		go refreshCredsLoop(ctx, *controllerURL, *key, credsPath)
+	if credsPath != "" && *controllerURL != "" && refreshToken != "" {
+		go refreshCredsLoop(ctx, *controllerURL, *fleetID, refreshToken, nodePub, nodeKey, credsPath)
 	}
 
 	<-ctx.Done()
@@ -175,11 +183,13 @@ func cmdUp(args []string) {
 // refreshCredsLoop re-mints the node's short-lived credential before it expires
 // and rewrites credsPath. The NATS client picks up the new creds on its next
 // (re)connect. See docs/fleet-security-model.md.
-func refreshCredsLoop(ctx context.Context, controllerURL, key, credsPath string) {
-	// Renew at ~75% of the access TTL so a valid cred is always on disk.
+func refreshCredsLoop(ctx context.Context, controllerURL, fleetID, refreshToken, nodePub string, nodeKey ed25519.PrivateKey, credsPath string) {
+	// Renew at ~75% of the access TTL so a valid cred is always on disk. A small
+	// absolute floor avoids pathologically tight loops; it must stay well below
+	// the TTL (a 1-minute floor would exceed a short TTL and refresh too late).
 	interval := auth.AccessTTL * 3 / 4
-	if interval < time.Minute {
-		interval = time.Minute
+	if interval < 5*time.Second {
+		interval = 5 * time.Second
 	}
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -188,12 +198,18 @@ func refreshCredsLoop(ctx context.Context, controllerURL, key, credsPath string)
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			asg, err := join.Join(ctx, controllerURL, key)
-			if err != nil || asg.Creds == "" {
+			// Prove possession of the node key over a fresh challenge, then swap
+			// the refresh token for a new short-lived credential (no API key).
+			ts := time.Now().Unix()
+			sig := node.Sign(nodeKey, token.PoPChallenge(nodePub, fleetID, ts))
+			out, err := join.Refresh(ctx, controllerURL, proto.TokenRequest{
+				RefreshToken: refreshToken, TS: ts, Sig: sig,
+			})
+			if err != nil {
 				fmt.Printf("cred refresh failed (will retry): %v\n", err)
 				continue
 			}
-			if err := os.WriteFile(credsPath, []byte(asg.Creds), 0o600); err != nil {
+			if err := os.WriteFile(credsPath, []byte(out.Creds), 0o600); err != nil {
 				fmt.Printf("cred refresh write failed: %v\n", err)
 			}
 		}

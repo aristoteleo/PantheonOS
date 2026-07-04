@@ -12,7 +12,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -27,6 +29,7 @@ import (
 
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
+	"github.com/aristoteleo/pantheon-fleet/internal/token"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -86,6 +89,16 @@ func main() {
 		log.Printf("auth: OFF — Nodes connect to %s without credentials (dev only)", *natsURL)
 	}
 
+	// Refresh-token signing key (Ed25519), persisted with the Authority keys.
+	// Issues/verifies refresh tokens; the node key provides proof-of-possession
+	// at /token, so a leaked refresh token is useless. See docs/fleet-security-model.md.
+	refreshPriv, err := loadOrCreateRefreshKey(*stateDir)
+	if err != nil {
+		log.Fatalf("refresh key: %v", err)
+	}
+	refreshPub := refreshPriv.Public().(ed25519.PublicKey)
+	const refreshTTL = 30 * 24 * time.Hour
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte("ok")) //nolint:errcheck
@@ -136,8 +149,58 @@ func main() {
 			}
 			resp.Creds = string(creds)
 		}
+		// Bind a refresh token to the node's public key (when provided) so it can
+		// refresh via /token later without re-presenting the API key.
+		if req.NodePub != "" {
+			rt, err := token.Sign(refreshPriv, token.Payload{
+				FleetID: fid,
+				NodePub: req.NodePub,
+				Exp:     time.Now().Add(refreshTTL).Unix(),
+			})
+			if err != nil {
+				http.Error(w, "issue refresh token: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			resp.RefreshToken = rt
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp) //nolint:errcheck
+	})
+
+	// /token refreshes a Node's short-lived credential. Auth = refresh token
+	// (Controller-signed) + proof-of-possession (a node-key signature over a
+	// recent challenge). No API key needed; a stolen refresh token is useless
+	// without the node key. See docs/fleet-security-model.md.
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if authority == nil {
+			http.Error(w, "auth disabled", http.StatusNotImplemented)
+			return
+		}
+		var req proto.TokenRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		p, err := token.Verify(refreshPub, req.RefreshToken)
+		if err != nil {
+			http.Error(w, "invalid refresh token: "+err.Error(), http.StatusUnauthorized)
+			return
+		}
+		if err := token.VerifyPoP(p, req.TS, req.Sig); err != nil {
+			http.Error(w, "proof-of-possession failed: "+err.Error(), http.StatusUnauthorized)
+			return
+		}
+		creds, err := authority.MintFleetUser(p.FleetID)
+		if err != nil {
+			http.Error(w, "mint credentials: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(proto.TokenResponse{Creds: string(creds)}) //nolint:errcheck
 	})
 
 	// /nodes lists a Fleet's registered Nodes for the hub's Cluster panel. The hub
@@ -281,6 +344,28 @@ func defaultStateDir() string {
 		return filepath.Join(d, "pantheon-fleet-controller")
 	}
 	return ".pantheon-fleet-controller"
+}
+
+// loadOrCreateRefreshKey loads (or creates + persists) the Ed25519 key the
+// Controller uses to sign refresh tokens, kept in stateDir/refresh.seed (0600).
+func loadOrCreateRefreshKey(stateDir string) (ed25519.PrivateKey, error) {
+	path := filepath.Join(stateDir, "refresh.seed")
+	if b, err := os.ReadFile(path); err == nil {
+		if seed, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(b))); err == nil && len(seed) == ed25519.SeedSize {
+			return ed25519.NewKeyFromSeed(seed), nil
+		}
+	}
+	_, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, []byte(base64.StdEncoding.EncodeToString(priv.Seed())+"\n"), 0o600); err != nil {
+		return nil, err
+	}
+	return priv, nil
 }
 
 // loadAllowedKeys builds the /join allowlist from a CSV flag and/or a file

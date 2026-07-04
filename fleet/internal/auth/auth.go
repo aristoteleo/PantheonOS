@@ -23,9 +23,16 @@ import (
 
 // AccessTTL bounds how long a minted node/agent credential is valid. The holder
 // must refresh before it expires (fleet up runs a refresh loop), so a legit node
-// stays online while a *leaked* credential dies fast. See
-// docs/fleet-security-model.md.
-const AccessTTL = time.Hour
+// stays online while a *leaked* credential dies fast. Configurable via
+// FLEET_ACCESS_TTL (e.g. "30s") for testing/tuning. See docs/fleet-security-model.md.
+var AccessTTL = func() time.Duration {
+	if s := os.Getenv("FLEET_ACCESS_TTL"); s != "" {
+		if d, err := time.ParseDuration(s); err == nil && d > 0 {
+			return d
+		}
+	}
+	return time.Hour
+}()
 
 // Authority holds the persisted keys and the (regenerated-each-boot) JWTs.
 type Authority struct {

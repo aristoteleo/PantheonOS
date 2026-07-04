@@ -155,14 +155,36 @@ func RegistryBucket(fleet string) string { return "FLEET_" + fleet + "_NODES" }
 // JoinRequest is what a Runner POSTs to the Controller's /join endpoint.
 type JoinRequest struct {
 	Key string `json:"key"`
+	// NodePub is the node's base64 Ed25519 public key. The Controller binds it
+	// into the returned refresh token so only the holder of the matching private
+	// key can later refresh (proof-of-possession). See docs/fleet-security-model.md.
+	NodePub string `json:"node_pub,omitempty"`
 }
 
 // JoinResponse is what the Controller returns: the Fleet the key maps to, how
 // to reach the control plane, and the data-plane relays. Creds (a scoped NATS
-// credential) is the security-hardening step.
+// credential) is short-lived; RefreshToken is used with the node key to mint
+// fresh creds via /token without re-presenting the API key.
 type JoinResponse struct {
-	FleetID string   `json:"fleet_id"`
-	NatsURL string   `json:"nats_url"`
-	Relays  []string `json:"relays,omitempty"`
-	Creds   string   `json:"creds,omitempty"`
+	FleetID      string   `json:"fleet_id"`
+	NatsURL      string   `json:"nats_url"`
+	Relays       []string `json:"relays,omitempty"`
+	Creds        string   `json:"creds,omitempty"`
+	RefreshToken string   `json:"refresh_token,omitempty"`
+}
+
+// TokenRequest is what a Runner POSTs to /token to refresh its credential. It
+// carries the refresh token plus a proof-of-possession: a signature (with the
+// node key) over PoPChallenge(node_id, fleet_id, ts).
+type TokenRequest struct {
+	RefreshToken string `json:"refresh_token"`
+	TS           int64  `json:"ts"`  // unix seconds the challenge was signed at
+	Sig          string `json:"sig"` // base64 node-key signature over the challenge
+}
+
+// TokenResponse returns a fresh short-lived credential (and, on rotation, a new
+// refresh token).
+type TokenResponse struct {
+	Creds        string `json:"creds"`
+	RefreshToken string `json:"refresh_token,omitempty"`
 }
