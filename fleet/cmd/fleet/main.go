@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/dataplane"
 	"github.com/aristoteleo/pantheon-fleet/internal/join"
 	"github.com/aristoteleo/pantheon-fleet/internal/node"
@@ -156,11 +157,47 @@ func cmdUp(args []string) {
 
 	go r.Heartbeat(ctx, 10*time.Second)
 
+	// Refresh the short-lived credential before it expires. The NATS client
+	// re-reads credsPath on its next reconnect (which the server triggers at
+	// expiry), so a legit node stays online while a leaked cred dies fast.
+	// See docs/fleet-security-model.md.
+	if credsPath != "" && *controllerURL != "" {
+		go refreshCredsLoop(ctx, *controllerURL, *key, credsPath)
+	}
+
 	<-ctx.Done()
 	fmt.Println("\nleaving fleet…")
 	c2, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	_ = reg.Delete(c2)
 	cancel()
+}
+
+// refreshCredsLoop re-mints the node's short-lived credential before it expires
+// and rewrites credsPath. The NATS client picks up the new creds on its next
+// (re)connect. See docs/fleet-security-model.md.
+func refreshCredsLoop(ctx context.Context, controllerURL, key, credsPath string) {
+	// Renew at ~75% of the access TTL so a valid cred is always on disk.
+	interval := auth.AccessTTL * 3 / 4
+	if interval < time.Minute {
+		interval = time.Minute
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			asg, err := join.Join(ctx, controllerURL, key)
+			if err != nil || asg.Creds == "" {
+				fmt.Printf("cred refresh failed (will retry): %v\n", err)
+				continue
+			}
+			if err := os.WriteFile(credsPath, []byte(asg.Creds), 0o600); err != nil {
+				fmt.Printf("cred refresh write failed: %v\n", err)
+			}
+		}
+	}
 }
 
 func defaultStateDir() string {

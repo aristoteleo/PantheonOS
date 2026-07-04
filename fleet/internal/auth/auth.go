@@ -15,10 +15,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )
+
+// AccessTTL bounds how long a minted node/agent credential is valid. The holder
+// must refresh before it expires (fleet up runs a refresh loop), so a legit node
+// stays online while a *leaked* credential dies fast. See
+// docs/fleet-security-model.md.
+const AccessTTL = time.Hour
 
 // Authority holds the persisted keys and the (regenerated-each-boot) JWTs.
 type Authority struct {
@@ -122,6 +129,8 @@ func (a *Authority) MintFleetUser(fid string) ([]byte, error) {
 
 	uc := jwt.NewUserClaims(upub)
 	uc.Name = "fleet-" + fid
+	// Short-lived — the holder refreshes before this to stay connected.
+	uc.Expires = time.Now().Add(AccessTTL).Unix()
 	s := func(f string) string { return fmt.Sprintf(f, fid) }
 	uc.Permissions.Pub.Allow = jwt.StringList{
 		s("fleet.%s.>"),
