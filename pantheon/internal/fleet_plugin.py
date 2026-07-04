@@ -33,10 +33,13 @@ REAL machines the user added, separate from this sandbox.
 - List/inspect nodes to see what's available (OS, CPU, RAM, GPU, load, labels).
 - Run shell commands ON a specific node (or on nodes matching a label).
 - Move files between nodes (transfer / gather / broadcast).
-- Your own sandbox is ALSO a fleet node, so to bring a file INTO your workspace
-  use `transfer` with dst_node="local" — e.g.
+- ONE node is the machine you are running on — `fleet_list_nodes` marks it
+  `is_self: true`. Treat it as a DATA-TRANSFER endpoint ONLY: pull a file from
+  another node into your workspace with `transfer` dst_node="local" — e.g.
   transfer(src_node=<their machine>, src_path="~/Downloads/x.pdf",
-  dst_node="local", dst_path="/workspace/x.pdf"). One interface for all moves.
+  dst_node="local", dst_path="/workspace/x.pdf"). Do NOT run_on_node against the
+  is_self node to run local commands — use the `shell` toolset for that (it runs
+  right here, no fleet round-trip).
 
 When the user says "my machine", "the remote node", "my laptop", "my GPU box",
 "run this on my server", etc., they mean a **fleet node** — list the nodes first

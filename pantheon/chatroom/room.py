@@ -3624,6 +3624,157 @@ class ChatRoom(ToolSet):
             return {"success": False, "message": str(e)}
 
     @tool
+    async def list_fleet_nodes(self) -> dict:
+        """List the user's Fleet compute nodes for the web Cluster panel.
+
+        In hub mode the panel calls the hub's ``/api/fleet/nodes``; in LOCAL mode
+        there is no hub, so it invokes this over the chatroom connection instead.
+        Reads the fleet registry via the FleetToolSet (creds resolved from
+        ``FLEET_CONTROLLER_URL`` / ``FLEET_KEY`` in the environment) and returns
+        the same flat node shape the hub serves, plus the controller url + join
+        key so the add-node command is copy-paste ready. The node that IS this
+        machine is marked ``is_self``.
+        """
+        import os
+
+        controller_url = os.environ.get("FLEET_CONTROLLER_URL", "")
+        install_url = os.environ.get("FLEET_INSTALL_URL", "")
+        if not (controller_url or os.environ.get("FLEET_NATS_URL")):
+            return {
+                "success": True,
+                "count": 0,
+                "nodes": [],
+                "controller_url": "",
+                "note": "No fleet configured on this backend.",
+            }
+        try:
+            from pantheon.toolsets.fleet import FleetToolSet
+
+            ts = getattr(self, "_fleet_ts", None)
+            if ts is None:
+                ts = FleetToolSet()
+                self._fleet_ts = ts
+            raw = await ts._read_nodes()
+            self_id = await ts._resolve_local_node(raw)
+            nodes = []
+            for n in raw:
+                s = FleetToolSet._summarize(n)
+                if self_id and s.get("node_id") == self_id:
+                    s["is_self"] = True
+                nodes.append(s)
+            return {
+                "success": True,
+                "count": len(nodes),
+                "nodes": nodes,
+                "self_node_id": self_id,
+                "controller_url": controller_url,
+                "install_url": install_url,
+                # NOTE: never return the fleet key here — it grants command
+                # execution on the user's nodes. The web UI gets its join key
+                # from the authenticated platform-keys API instead.
+                "fleet_id": getattr(ts, "_fleet_id", "") or "",
+            }
+        except Exception as e:
+            logger.error(f"list_fleet_nodes failed: {e}")
+            return {"success": False, "count": 0, "nodes": [], "error": str(e)}
+
+    @tool
+    async def fleet_up_local(self) -> dict:
+        """Auto-join THIS machine to the fleet as a node (local mode).
+
+        When the user is logged in and fleet is configured, the web Cluster panel
+        calls this so the local machine joins the fleet as a data-transfer node
+        without the user running the install/join command by hand. Idempotent: if
+        this machine is already registered, or a `fleet up` is already running, it
+        does nothing. In a sandbox the entrypoint already does this, so it's a
+        no-op there.
+        """
+        import os
+        import shutil
+        import subprocess
+
+        controller = os.environ.get("FLEET_CONTROLLER_URL", "")
+        key = os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY") or ""
+        if not (controller and key):
+            return {"success": False, "message": "Fleet not configured on this backend."}
+
+        # Already registered as a node? Nothing to do.
+        try:
+            from pantheon.toolsets.fleet import FleetToolSet
+
+            ts = getattr(self, "_fleet_ts", None) or FleetToolSet()
+            self._fleet_ts = ts
+            if await ts._resolve_local_node():
+                return {"success": True, "already_joined": True,
+                        "message": "This machine is already in the fleet."}
+        except Exception:  # noqa: BLE001 — registry read is best-effort here
+            pass
+
+        # A `fleet up` already running for this machine? Don't spawn a second.
+        try:
+            r = subprocess.run(
+                ["pgrep", "-f", "fleet up --controller"],
+                capture_output=True, text=True, timeout=3,
+            )
+            if r.stdout.strip():
+                return {"success": True, "already_running": True,
+                        "message": "fleet up is already running."}
+        except Exception:  # noqa: BLE001 — pgrep may be absent; fall through
+            pass
+
+        fleet_bin = shutil.which("fleet") or os.path.expanduser("~/.local/bin/fleet")
+        if not (fleet_bin and os.path.exists(fleet_bin)):
+            return {"success": False,
+                    "message": "fleet binary not found — run the install command once."}
+
+        # Detached so the node keeps serving tasks/transfers after this call.
+        try:
+            log = open("/tmp/pantheon-fleet-up.log", "ab")  # noqa: SIM115
+            subprocess.Popen(
+                [fleet_bin, "up", "--controller", controller, "--key", key],
+                stdout=log, stderr=log, stdin=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"fleet_up_local failed to spawn: {e}")
+            return {"success": False, "message": f"failed to start fleet up: {e}"}
+        return {"success": True, "spawned": True,
+                "message": "Joining this machine to the fleet…"}
+
+    @tool
+    async def fleet_down_local(self) -> dict:
+        """Leave the fleet from THIS machine — stop the local `fleet up` node.
+
+        Symmetric to fleet_up_local: the web Cluster panel / auth flow calls this
+        when the user signs out (local mode) so the machine stops being a fleet
+        node once fleet access is no longer authorized. SIGTERM lets `fleet up`
+        deregister cleanly. Idempotent: a no-op if nothing is running.
+        """
+        import os
+        import signal
+        import subprocess
+
+        try:
+            r = subprocess.run(
+                ["pgrep", "-f", "fleet up --controller"],
+                capture_output=True, text=True, timeout=3,
+            )
+            pids = [p for p in r.stdout.split() if p.strip()]
+        except Exception:  # noqa: BLE001 — pgrep absent → nothing we can stop
+            pids = []
+        if not pids:
+            return {"success": True, "stopped": 0, "message": "No local fleet node was running."}
+        stopped = 0
+        for pid in pids:
+            try:
+                os.kill(int(pid), signal.SIGTERM)  # graceful leave (deregisters)
+                stopped += 1
+            except Exception:  # noqa: BLE001
+                pass
+        return {"success": True, "stopped": stopped,
+                "message": f"Left the fleet ({stopped} node process stopped)."}
+
+    @tool
     async def set_agent_model(
         self,
         chat_id: str,

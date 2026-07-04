@@ -186,7 +186,7 @@ class FleetToolSet(ToolSet):
             return []
         # An ordered push consumer delivers all matching messages immediately, so
         # num_pending reads 0 even when records exist — drain until next_msg idles.
-        out: list[dict] = []
+        by_id: dict = {}
         try:
             while True:
                 try:
@@ -197,15 +197,22 @@ class FleetToolSet(ToolSet):
                 if hdr.get("KV-Operation") in ("DEL", "PURGE"):
                     continue  # skip tombstones for deleted/expired nodes
                 try:
-                    out.append(json.loads(msg.data))
+                    rec = json.loads(msg.data)
                 except Exception:  # noqa: BLE001
-                    pass
+                    continue
+                # Dedupe by node_id: the ordered drain can redeliver a subject
+                # (and a machine may briefly hold >1 registration), which would
+                # otherwise surface the same node twice. Keep the newest record.
+                nid = rec.get("node_id") or id(rec)
+                prev = by_id.get(nid)
+                if prev is None or (rec.get("last_seen") or "") >= (prev.get("last_seen") or ""):
+                    by_id[nid] = rec
         finally:
             try:
                 await sub.unsubscribe()
             except Exception:  # noqa: BLE001
                 pass
-        return out
+        return list(by_id.values())
 
     @staticmethod
     def _summarize(n: dict) -> dict:
@@ -226,6 +233,9 @@ class FleetToolSet(ToolSet):
             "load": st.get("load", {}),
             "reachability": net.get("reachability"),
             "last_seen": n.get("last_seen"),
+            # Flipped to True by the list methods for the node that IS this
+            # machine (the agent's own host). Transfer-only — see the prompt.
+            "is_self": False,
         }
 
     # ---- Observe ------------------------------------------------------------
@@ -238,12 +248,30 @@ class FleetToolSet(ToolSet):
         OS/arch, CPU/GPU/RAM/free-disk, live load, and data-plane reachability —
         so you can decide where to run code or move data.
 
+        One node may be marked ``"is_self": true`` — that is THIS machine (the one
+        you are running on). Use it only as a data-transfer endpoint (e.g.
+        transfer dst_node="local"); to run commands here use the `shell` toolset,
+        NOT run_on_node against yourself.
+
         Returns:
-            dict: {"success": bool, "count": int, "nodes": list[dict]}
+            dict: {"success": bool, "count": int, "nodes": list[dict],
+                   "self_node_id": str | None}
         """
         try:
-            nodes = [self._summarize(n) for n in await self._read_nodes()]
-            return {"success": True, "count": len(nodes), "nodes": nodes}
+            raw = await self._read_nodes()
+            self_id = await self._resolve_local_node(raw)
+            nodes = []
+            for n in raw:
+                s = self._summarize(n)
+                if self_id and s.get("node_id") == self_id:
+                    s["is_self"] = True
+                nodes.append(s)
+            return {
+                "success": True,
+                "count": len(nodes),
+                "nodes": nodes,
+                "self_node_id": self_id,
+            }
         except Exception as e:  # noqa: BLE001
             return {"success": False, "error": str(e)}
 
@@ -651,16 +679,56 @@ class FleetToolSet(ToolSet):
             return {"success": False, "error": f"unknown transfer_id {transfer_id}"}
         return {"success": True, **p}
 
-    async def _resolve_local_node(self) -> str | None:
-        """The sandbox's own Node id. The sandbox joins the fleet as
-        "sandbox-<user>", so "local"/"here" transfer destinations resolve here.
-        Returns None until it has registered (a few seconds after boot)."""
-        want = "sandbox-" + (os.environ.get("USER_ID") or os.environ.get("ID_HASH") or "")
+    async def _resolve_local_node(self, nodes: list[dict] | None = None) -> str | None:
+        """This machine's own Node id — so "local"/"here" transfer destinations
+        and the ``is_self`` marker resolve to it.
+
+        Resolution order (most precise first):
+          1. The node id this machine's ``fleet up`` persisted on disk (a random
+             per-machine id) — precise, and survives two machines sharing a
+             hostname (which a hostname match cannot).
+          2. Sandbox: joined as "sandbox-<user>".
+          3. Hostname match (fallback; ambiguous across same-named machines).
+        Pass ``nodes`` to reuse an already-read registry snapshot.
+        """
+        import socket
+        import sys
+
+        if nodes is None:
+            try:
+                nodes = await self._read_nodes()
+            except Exception:  # noqa: BLE001
+                return None
+        node_ids = {n.get("node_id") for n in nodes}
+
+        # 1) On-disk node id from this machine's fleet state dir (matches Go's
+        #    os.UserConfigDir()/pantheon-fleet/node_id; override with FLEET_STATE_DIR).
+        if sys.platform == "darwin":
+            cfg = os.path.expanduser("~/Library/Application Support")
+        elif sys.platform == "win32":
+            cfg = os.environ.get("APPDATA") or os.path.expanduser("~")
+        else:
+            cfg = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+        state_dir = os.environ.get("FLEET_STATE_DIR") or os.path.join(cfg, "pantheon-fleet")
         try:
-            nodes = await self._read_nodes()
-        except Exception:  # noqa: BLE001
-            return None
+            with open(os.path.join(state_dir, "node_id")) as f:
+                file_id = f.read().strip()
+            if file_id and file_id in node_ids:
+                return file_id
+        except Exception:  # noqa: BLE001 — file may not exist yet
+            pass
+
+        # 2) Sandbox name.
+        want = "sandbox-" + (os.environ.get("USER_ID") or os.environ.get("ID_HASH") or "")
         for n in nodes:
             if n.get("name") == want:
+                return n.get("node_id")
+
+        # 3) Hostname fallback.
+        host = socket.gethostname().lower()
+        host_short = host.split(".")[0]
+        for n in nodes:
+            name = (n.get("name") or "").lower()
+            if name and (name == host or name.split(".")[0] == host_short):
                 return n.get("node_id")
         return None
