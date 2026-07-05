@@ -336,15 +336,20 @@ func main() {
 		}
 		// Authorized by EITHER the hub service token OR a valid fleet key, so the
 		// fleet owner can revoke their own node from the Cluster panel without the
-		// service token. Dev (no service token configured) stays open.
+		// service token. Dev (no service token configured) stays open. When a key is
+		// presented we also capture the fleet id so we can drop the node's registry
+		// record (below) for an immediate disappearance from the panel.
 		authed := *hubToken == "" || r.Header.Get("Authorization") == "Bearer "+*hubToken
-		if !authed && strings.TrimSpace(req.Key) != "" {
+		fid := ""
+		if k := strings.TrimSpace(req.Key); k != "" {
 			if *hubURL != "" {
-				if _, ok, err := validateViaHub(*hubURL, *hubToken, req.Key); err == nil && ok {
+				if vfid, ok, err := validateViaHub(*hubURL, *hubToken, k); err == nil && ok {
 					authed = true
+					fid = vfid
 				}
-			} else if len(allowed) == 0 || allowed[req.Key] {
+			} else if len(allowed) == 0 || allowed[k] {
 				authed = true
+				fid = deriveFleet(k)
 			}
 		}
 		if !authed {
@@ -372,6 +377,16 @@ func main() {
 					_ = os.WriteFile(*emitCfg, []byte(authority.ServerConfig(*natsListen, *jsStore)), 0o600)
 					_ = exec.Command("pkill", "-HUP", "-x", "nats-server").Run()
 					kicked = true
+				}
+			}
+		}
+		// Drop the node's live registry record NOW so the Cluster panel shows it gone
+		// immediately, rather than waiting out its 30s heartbeat TTL (which looks like
+		// the kick failed). Best-effort — the kick above is the security-relevant part.
+		if fid != "" && authority != nil {
+			if nid := strings.TrimSpace(req.NodeID); nid != "" {
+				if err := deleteFleetNode(*natsURL, fid, nid, authority); err != nil {
+					log.Printf("[revoke] node %q kicked; registry record will age out (delete failed: %v)", nid, err)
 				}
 			}
 		}
@@ -485,6 +500,50 @@ func readFleetNodes(natsURL, fid string, authority *auth.Authority) ([]proto.Nod
 		return nil, err
 	}
 	return readNodes(js, fid), nil
+}
+
+// deleteFleetNode removes a Node's live record from the Fleet registry KV so a
+// revoked node disappears from the Cluster panel immediately, instead of
+// lingering until its 30s heartbeat TTL lapses (which reads as "kick failed").
+// Best-effort — the caller has already kicked the node; a missing bucket or a
+// transient NATS error just leaves the record to age out on its own.
+func deleteFleetNode(natsURL, fid, nodeID string, authority *auth.Authority) error {
+	creds, err := authority.MintFleetUser(fid)
+	if err != nil {
+		return fmt.Errorf("mint creds: %w", err)
+	}
+	f, err := os.CreateTemp("", "fleet-*.creds")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name()) //nolint:errcheck
+	if _, err := f.Write(creds); err != nil {
+		f.Close() //nolint:errcheck
+		return err
+	}
+	f.Close() //nolint:errcheck
+
+	nc, err := nats.Connect(natsURL,
+		nats.Name("fleet-controller-revoke"),
+		nats.UserCredentials(f.Name()),
+		nats.CustomInboxPrefix("_INBOX_"+fid),
+		nats.Timeout(5*time.Second),
+	)
+	if err != nil {
+		return fmt.Errorf("nats connect: %w", err)
+	}
+	defer nc.Drain() //nolint:errcheck
+	js, err := jetstream.New(nc)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	kv, err := js.KeyValue(ctx, proto.RegistryBucket(fid))
+	if err != nil {
+		return nil // no bucket = nothing to remove
+	}
+	return kv.Delete(ctx, nodeID)
 }
 
 // readNodes reads every Node record from a Fleet's registry KV. A missing bucket
