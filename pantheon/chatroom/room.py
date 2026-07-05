@@ -3672,9 +3672,12 @@ class ChatRoom(ToolSet):
                 "self_node_id": self_id,
                 "controller_url": controller_url,
                 "install_url": install_url,
-                # NOTE: never return the fleet key here — it grants command
-                # execution on the user's nodes. The web UI gets its join key
-                # from the authenticated platform-keys API instead.
+                # The key PREFIX (not the secret) lets the panel identify the fleet
+                # key in local mode without the platform-keys API. The FULL key still
+                # never leaves the backend — it grants command execution on the nodes.
+                "key_prefix": (
+                    os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY") or ""
+                )[:12],
                 "fleet_id": getattr(ts, "_fleet_id", "") or "",
             }
         except Exception as e:
