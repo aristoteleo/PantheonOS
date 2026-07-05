@@ -156,5 +156,52 @@ controller binaries backed up on the host as `fleet-controller.bak-p3{,b,c,d}-*`
   to claim an existing node_id, closing a narrow impersonation/eavesdrop path for a
   join-token holder who knows a peer's id.
 
-**Still open:** kill the static `pbk_` key in favour of OAuth-session-derived
-creds (needs a prod-hub deploy + coordination with the shared-env owner).
+## D-full: killing the static `pbk_` key (session-derived creds)
+
+The local backend can derive its `FLEET_KEY` from the user's platform session
+instead of holding a static `pbk_` bearer key — same model the hub already uses
+for sandboxes (`build_agent_env_vars`). The mechanism is BUILT and validated
+end-to-end on a local rig; the prod switch is a coordinated migration because it
+moves the fleet id from **key-derived** (`deriveFleet(key)`, today's
+`--allowed-keys` gate) to **user-derived** (`_fleet_id_for_user`, hub-validated).
+
+Pieces (all committed):
+
+- **hub** `POST /api/fleet/credential` — mints a short-lived, fleet-scoped JWT for
+  the authenticated caller (commit `71ceb58`, pantheon-hub; NOT yet pushed/deployed).
+- **controller** `resolveFleet()` — `/join`, `/join-tokens`, `/revoke` accept
+  EITHER a hub-validated credential (session JWT, or a pbk_ the hub knows) OR a
+  local allowlisted key; hub first, allowlist fallback (commit `8728bbf`). Inert
+  with no `--hub-url` — safe to ship ahead of the switch.
+- **backend** `pantheon/chatroom/fleet_session.py` + wiring — when logged in and no
+  static `pbk_` `FLEET_KEY` is set (or `FLEET_PREFER_SESSION_CRED=1`), each fleet
+  tool exchanges the session token for a fleet key via the hub and refreshes it
+  (commit `edbff51`). Back-compat: a static `pbk_` key is left untouched.
+
+Validated locally: `create_access_token(scope=fleet)` → the hub's `/validate`
+returns the user's fleet id; a mock hub + a `--hub-url` controller resolve a session
+JWT to the user-derived fleet + mint narrow creds; a static allowlisted key still
+resolves to its key-derived fleet; unknown keys → 403; the backend helper fetches
+and publishes `FLEET_KEY` (and keeps a `pbk_` key untouched).
+
+Prod rollout (coordinate the shared prod hub with its owner — order matters):
+
+1. **Prod hub** — push `71ceb58` to hub master and deploy the hub so
+   `POST /api/fleet/credential` + the fleet-JWT path of `/api/platform-keys/validate`
+   are live (this arms the already-merged fleet integration too).
+2. **Register the key user-side** — create the user's `pbk_` key in the prod hub
+   (so `/validate` maps it to `user_id`), OR accept that the static key keeps its
+   key-derived fleet during migration (split-brain — avoid by doing this step).
+3. **Controller** — deploy `8728bbf` and add
+   `--hub-url https://pantheon.aristoteleo.com` (+ the existing service token). With
+   the allowlist still present, static keys keep working (fallback); session JWTs
+   now resolve to the user-derived fleet. Reversible: drop `--hub-url` to revert.
+4. **Backend** — unset the static `FLEET_KEY` (ensure the backend is logged in as
+   the real user, not a seed account) → it fetches a session cred → user-derived
+   fleet.
+5. **Re-join nodes** — the Mac (and any node) must re-join to register in the
+   user-derived fleet; the old key-derived registration is a different fleet.
+
+Caveat found during design: the local backend's `store_auth.json` may be a seed
+login (`store-seed`) whose `user_id` ≠ the real user, which would mint a JWT for
+the wrong fleet — confirm the backend's session identity before step 4.
