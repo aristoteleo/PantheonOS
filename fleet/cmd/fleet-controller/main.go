@@ -160,6 +160,15 @@ func main() {
 			http.Error(w, "missing key or join token", http.StatusUnauthorized)
 			return
 		}
+		// A revoked node stays out even if it re-joins: revocation is durable by
+		// node key (nodePub), enforced at BOTH /join and /token. Without this a
+		// kicked node that still holds the API key would just re-join and mint a
+		// fresh credential — the account-level kick only drops the live connection,
+		// so this is what actually keeps it out.
+		if req.NodePub != "" && revoked.isRevoked(req.NodePub) {
+			http.Error(w, "node revoked", http.StatusUnauthorized)
+			return
+		}
 		resp := proto.JoinResponse{
 			FleetID: fid,
 			NatsURL: *natsURL,
