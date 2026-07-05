@@ -109,6 +109,30 @@ func main() {
 	userPubs := loadNodePubs(filepath.Join(*stateDir, "userpubs.json")) // node_id -> current user cred pubkey
 
 	mux := http.NewServeMux()
+
+	// resolveFleet maps a presented key to its fleet id, accepting EITHER a
+	// hub-validated credential (a session-derived fleet JWT, or a pbk_ key the hub
+	// knows) OR a locally-allowlisted pbk_ key. Hub validation is tried first when
+	// configured; a credential the hub doesn't recognise — or an unreachable hub —
+	// falls back to the local allowlist. This lets one controller accept
+	// session-derived creds and static keys simultaneously, which is the migration
+	// path off static bearer keys. ok=false = neither path accepts it.
+	resolveFleet := func(key string) (fid string, ok bool) {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return "", false
+		}
+		if *hubURL != "" {
+			if vfid, vok, err := validateViaHub(*hubURL, *hubToken, key); err == nil && vok {
+				return vfid, true
+			}
+		}
+		if len(allowed) > 0 && !allowed[key] {
+			return "", false
+		}
+		return deriveFleet(key), true
+	}
+
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte("ok")) //nolint:errcheck
 	})
@@ -140,24 +164,12 @@ func main() {
 			fid = jp.FleetID
 			viaJoinToken = true // an owner-minted grant: may reinstate a revoked node
 		case strings.TrimSpace(req.Key) != "":
-			if *hubURL != "" {
-				vfid, ok, err := validateViaHub(*hubURL, *hubToken, req.Key)
-				if err != nil {
-					http.Error(w, "hub validation unavailable: "+err.Error(), http.StatusBadGateway)
-					return
-				}
-				if !ok {
-					http.Error(w, "key not allowed", http.StatusForbidden)
-					return
-				}
-				fid = vfid // the hub maps the key to the user's fleet
-			} else {
-				if len(allowed) > 0 && !allowed[req.Key] {
-					http.Error(w, "key not allowed", http.StatusForbidden)
-					return
-				}
-				fid = deriveFleet(req.Key)
+			vfid, ok := resolveFleet(req.Key)
+			if !ok {
+				http.Error(w, "key not allowed", http.StatusForbidden)
+				return
 			}
+			fid = vfid
 		default:
 			http.Error(w, "missing key or join token", http.StatusUnauthorized)
 			return
@@ -299,24 +311,10 @@ func main() {
 			http.Error(w, "missing key", http.StatusUnauthorized)
 			return
 		}
-		var fid string
-		if *hubURL != "" {
-			vfid, ok, err := validateViaHub(*hubURL, *hubToken, req.Key)
-			if err != nil {
-				http.Error(w, "hub validation unavailable: "+err.Error(), http.StatusBadGateway)
-				return
-			}
-			if !ok {
-				http.Error(w, "key not allowed", http.StatusForbidden)
-				return
-			}
-			fid = vfid
-		} else {
-			if len(allowed) > 0 && !allowed[req.Key] {
-				http.Error(w, "key not allowed", http.StatusForbidden)
-				return
-			}
-			fid = deriveFleet(req.Key)
+		fid, ok := resolveFleet(req.Key)
+		if !ok {
+			http.Error(w, "key not allowed", http.StatusForbidden)
+			return
 		}
 		exp := time.Now().Add(joinTTL).Unix()
 		jt, err := token.SignJoin(refreshPriv, token.JoinPayload{FleetID: fid, JTI: randID(), Exp: exp})
@@ -349,14 +347,9 @@ func main() {
 		authed := *hubToken == "" || r.Header.Get("Authorization") == "Bearer "+*hubToken
 		fid := ""
 		if k := strings.TrimSpace(req.Key); k != "" {
-			if *hubURL != "" {
-				if vfid, ok, err := validateViaHub(*hubURL, *hubToken, k); err == nil && ok {
-					authed = true
-					fid = vfid
-				}
-			} else if len(allowed) == 0 || allowed[k] {
+			if vfid, ok := resolveFleet(k); ok {
 				authed = true
-				fid = deriveFleet(k)
+				fid = vfid
 			}
 		}
 		if !authed {
