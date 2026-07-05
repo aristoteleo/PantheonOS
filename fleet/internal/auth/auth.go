@@ -11,10 +11,12 @@
 package auth
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/jwt/v2"
@@ -44,7 +46,11 @@ type Authority struct {
 	sysJWT string
 	accKP  nkeys.KeyPair // the shared FLEET account — signs every user JWT
 	accPub string
-	accJWT string
+
+	mu             sync.Mutex       // guards accJWT + accRevocations
+	accJWT         string           // FLEET account JWT (carries the revocation list)
+	accRevocations map[string]int64 // revoked user pubkey -> unix time; kicks it from NATS
+	revPath        string           // where accRevocations is persisted
 }
 
 // Bootstrap loads (or creates and persists) the operator, system, and FLEET
@@ -83,14 +89,14 @@ func Bootstrap(stateDir string) (*Authority, error) {
 		return nil, err
 	}
 
-	// Shared FLEET account — JetStream enabled (server-level JS must also be on).
-	accClaims := jwt.NewAccountClaims(a.accPub)
-	accClaims.Name = "FLEET"
-	accClaims.Limits.JetStreamLimits.DiskStorage = jwt.NoLimit
-	accClaims.Limits.JetStreamLimits.MemoryStorage = jwt.NoLimit
-	accClaims.Limits.JetStreamLimits.Streams = jwt.NoLimit
-	accClaims.Limits.JetStreamLimits.Consumer = jwt.NoLimit
-	if a.accJWT, err = accClaims.Encode(a.opKP); err != nil {
+	// Shared FLEET account — JetStream enabled, carrying any persisted node
+	// revocations (which kick a revoked node off NATS on the next server reload).
+	a.revPath = filepath.Join(stateDir, "revocations.json")
+	a.accRevocations = map[string]int64{}
+	if b, rerr := os.ReadFile(a.revPath); rerr == nil {
+		_ = json.Unmarshal(b, &a.accRevocations)
+	}
+	if a.accJWT, err = a.buildAccJWT(); err != nil {
 		return nil, err
 	}
 
@@ -108,14 +114,60 @@ func Bootstrap(stateDir string) (*Authority, error) {
 // operator JWT, the system account, JetStream, and a MEMORY resolver preloaded
 // with the FLEET and SYS account JWTs.
 func (a *Authority) ServerConfig(listen, jsStoreDir string) string {
+	a.mu.Lock()
+	accJWT := a.accJWT
+	a.mu.Unlock()
 	var b strings.Builder
 	fmt.Fprintf(&b, "listen: %s\n", listen)
 	fmt.Fprintf(&b, "jetstream {\n  store_dir: %q\n  max_memory_store: 1G\n  max_file_store: 50G\n}\n", jsStoreDir)
 	fmt.Fprintf(&b, "operator: %q\n", a.opJWT)
 	fmt.Fprintf(&b, "system_account: %q\n", a.sysPub)
 	fmt.Fprintf(&b, "resolver: MEMORY\n")
-	fmt.Fprintf(&b, "resolver_preload: {\n  %s: %q\n  %s: %q\n}\n", a.accPub, a.accJWT, a.sysPub, a.sysJWT)
+	fmt.Fprintf(&b, "resolver_preload: {\n  %s: %q\n  %s: %q\n}\n", a.accPub, accJWT, a.sysPub, a.sysJWT)
 	return b.String()
+}
+
+// buildAccJWT encodes the FLEET account JWT with its current revocation list.
+// The caller holds a.mu when the revocation list may change concurrently.
+func (a *Authority) buildAccJWT() (string, error) {
+	c := jwt.NewAccountClaims(a.accPub)
+	c.Name = "FLEET"
+	c.Limits.JetStreamLimits.DiskStorage = jwt.NoLimit
+	c.Limits.JetStreamLimits.MemoryStorage = jwt.NoLimit
+	c.Limits.JetStreamLimits.Streams = jwt.NoLimit
+	c.Limits.JetStreamLimits.Consumer = jwt.NoLimit
+	if len(a.accRevocations) > 0 {
+		c.Revocations = jwt.RevocationList{}
+		for pub, ts := range a.accRevocations {
+			c.Revocations[pub] = ts
+		}
+	}
+	return c.Encode(a.opKP)
+}
+
+// RevokeUser adds a user credential (its public key) to the FLEET account's
+// revocation list and rebuilds the account JWT. Once the nats-server reloads the
+// re-emitted config, NATS disconnects that user and refuses its reconnect — an
+// immediate, server-enforced kick that even a compromised node cannot bypass.
+func (a *Authority) RevokeUser(userPub string) error {
+	if strings.TrimSpace(userPub) == "" {
+		return fmt.Errorf("empty user pubkey")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.accRevocations == nil {
+		a.accRevocations = map[string]int64{}
+	}
+	a.accRevocations[userPub] = time.Now().Unix()
+	if b, err := json.Marshal(a.accRevocations); err == nil {
+		_ = os.WriteFile(a.revPath, b, 0o600)
+	}
+	j, err := a.buildAccJWT()
+	if err != nil {
+		return err
+	}
+	a.accJWT = j
+	return nil
 }
 
 // MintFleetUser issues a decorated .creds for fid, scoped to fleet.<fid>.> and

@@ -3847,7 +3847,8 @@ class ChatRoom(ToolSet):
                         "message": f"controller {r.status_code}: {r.text[:200]}"}
             data = r.json()
             return {"success": True, "node_id": node_id,
-                    "node_pub": data.get("node_pub", "")}
+                    "node_pub": data.get("node_pub", ""),
+                    "kicked": bool(data.get("kicked", False))}
         except Exception as e:  # noqa: BLE001
             logger.error(f"fleet_revoke_node failed: {e}")
             return {"success": False, "message": f"revoke failed: {e}"}

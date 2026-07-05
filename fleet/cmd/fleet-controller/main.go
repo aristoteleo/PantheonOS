@@ -23,6 +23,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -32,6 +33,7 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 	"github.com/aristoteleo/pantheon-fleet/internal/token"
+	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -102,8 +104,9 @@ func main() {
 	const refreshTTL = 30 * 24 * time.Hour
 	const joinTTL = 15 * time.Minute
 	consumed := newJTISet()          // single-use enforcement for join tokens
-	revoked := loadRevoked(*stateDir)   // node revocation list
-	nodePubs := loadNodePubs(*stateDir) // node_id -> node_pub, for revoke-by-node-id
+	revoked := loadRevoked(*stateDir)                                    // node revocation list
+	nodePubs := loadNodePubs(filepath.Join(*stateDir, "nodepubs.json")) // node_id -> node_pub
+	userPubs := loadNodePubs(filepath.Join(*stateDir, "userpubs.json")) // node_id -> current user cred pubkey
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -177,6 +180,9 @@ func main() {
 				return
 			}
 			resp.Creds = string(creds)
+			if req.NodeID != "" {
+				userPubs.record(req.NodeID, userPubFromCreds(creds)) // for the account-level kick
+			}
 		}
 		// Bind a refresh token to the node's public key (when provided) so it can
 		// refresh via /token later without re-presenting the API key.
@@ -241,6 +247,9 @@ func main() {
 		if err != nil {
 			http.Error(w, "mint credentials: "+err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if p.NodeID != "" {
+			userPubs.record(p.NodeID, userPubFromCreds(creds)) // track the LATEST cred for the kick
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(proto.TokenResponse{Creds: string(creds)}) //nolint:errcheck
@@ -332,8 +341,22 @@ func main() {
 			return
 		}
 		revoked.revoke(nodePub)
+		// Immediate, server-enforced kick: revoke the node's CURRENT user credential
+		// at the account level + reload nats, so it's disconnected now and cannot
+		// reconnect (not merely blocked from refreshing). Needs the node_id -> user
+		// cred mapping; without it, we fall back to the eventual refresh-blocked path.
+		kicked := false
+		if authority != nil {
+			if uPub := userPubs.lookup(strings.TrimSpace(req.NodeID)); uPub != "" {
+				if err := authority.RevokeUser(uPub); err == nil && *emitCfg != "" {
+					_ = os.WriteFile(*emitCfg, []byte(authority.ServerConfig(*natsListen, *jsStore)), 0o600)
+					_ = exec.Command("pkill", "-HUP", "-x", "nats-server").Run()
+					kicked = true
+				}
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"ok": true, "node_pub": nodePub}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "node_pub": nodePub, "kicked": kicked}) //nolint:errcheck
 	})
 
 	// /nodes lists a Fleet's registered Nodes for the hub's Cluster panel. The hub
@@ -582,12 +605,27 @@ type nodePubMap struct {
 	m    map[string]string
 }
 
-func loadNodePubs(stateDir string) *nodePubMap {
-	n := &nodePubMap{path: filepath.Join(stateDir, "nodepubs.json"), m: map[string]string{}}
+func loadNodePubs(path string) *nodePubMap {
+	n := &nodePubMap{path: path, m: map[string]string{}}
 	if b, err := os.ReadFile(n.path); err == nil {
 		_ = json.Unmarshal(b, &n.m)
 	}
 	return n
+}
+
+// userPubFromCreds extracts the user public key (JWT subject) from a decorated
+// .creds blob so the Controller can revoke that exact credential at the account
+// level when kicking the node.
+func userPubFromCreds(creds []byte) string {
+	j, err := jwt.ParseDecoratedJWT(creds)
+	if err != nil {
+		return ""
+	}
+	uc, err := jwt.DecodeUserClaims(j)
+	if err != nil {
+		return ""
+	}
+	return uc.Subject
 }
 
 func (n *nodePubMap) record(nodeID, nodePub string) {
