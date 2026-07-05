@@ -229,6 +229,7 @@ func main() {
 			http.Error(w, "node revoked", http.StatusUnauthorized)
 			return
 		}
+		nodePubs.record(p.NodeID, p.NodePub) // keep the map fresh so existing nodes stay revocable
 		// Re-mint at the SAME scope the join used: a node (node_id in the refresh
 		// token) stays narrow; a legacy token without one falls back to broad.
 		var creds []byte
