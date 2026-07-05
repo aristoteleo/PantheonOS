@@ -102,7 +102,8 @@ func main() {
 	const refreshTTL = 30 * 24 * time.Hour
 	const joinTTL = 15 * time.Minute
 	consumed := newJTISet()          // single-use enforcement for join tokens
-	revoked := loadRevoked(*stateDir) // node revocation list
+	revoked := loadRevoked(*stateDir)   // node revocation list
+	nodePubs := loadNodePubs(*stateDir) // node_id -> node_pub, for revoke-by-node-id
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -180,6 +181,7 @@ func main() {
 		// Bind a refresh token to the node's public key (when provided) so it can
 		// refresh via /token later without re-presenting the API key.
 		if req.NodePub != "" {
+			nodePubs.record(req.NodeID, req.NodePub) // remember for revoke-by-node-id
 			rt, err := token.Sign(refreshPriv, token.Payload{
 				FleetID: fid,
 				NodePub: req.NodePub,
@@ -297,22 +299,40 @@ func main() {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
 			return
 		}
-		if *hubToken != "" && r.Header.Get("Authorization") != "Bearer "+*hubToken {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
 		var req proto.RevokeRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		if strings.TrimSpace(req.NodePub) == "" {
-			http.Error(w, "provide node_pub", http.StatusBadRequest)
+		// Authorized by EITHER the hub service token OR a valid fleet key, so the
+		// fleet owner can revoke their own node from the Cluster panel without the
+		// service token. Dev (no service token configured) stays open.
+		authed := *hubToken == "" || r.Header.Get("Authorization") == "Bearer "+*hubToken
+		if !authed && strings.TrimSpace(req.Key) != "" {
+			if *hubURL != "" {
+				if _, ok, err := validateViaHub(*hubURL, *hubToken, req.Key); err == nil && ok {
+					authed = true
+				}
+			} else if len(allowed) == 0 || allowed[req.Key] {
+				authed = true
+			}
+		}
+		if !authed {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		revoked.revoke(req.NodePub)
+		// Target by node_pub directly, or resolve it from a known node_id.
+		nodePub := strings.TrimSpace(req.NodePub)
+		if nodePub == "" {
+			nodePub = nodePubs.lookup(strings.TrimSpace(req.NodeID))
+		}
+		if nodePub == "" {
+			http.Error(w, "provide node_pub or a known node_id", http.StatusBadRequest)
+			return
+		}
+		revoked.revoke(nodePub)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"ok": true}) //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "node_pub": nodePub}) //nolint:errcheck
 	})
 
 	// /nodes lists a Fleet's registered Nodes for the hub's Cluster panel. The hub
@@ -550,6 +570,47 @@ func (r *revokedSet) revoke(nodePub string) {
 	}
 	b, _ := json.Marshal(list)
 	_ = os.WriteFile(r.path, b, 0o600)
+}
+
+// nodePubMap remembers each node's public key by its node id (last write wins) so
+// /revoke can accept the human-friendly node_id from the Cluster panel and revoke
+// the matching node_pub. Persisted alongside the revocation list.
+type nodePubMap struct {
+	mu   sync.Mutex
+	path string
+	m    map[string]string
+}
+
+func loadNodePubs(stateDir string) *nodePubMap {
+	n := &nodePubMap{path: filepath.Join(stateDir, "nodepubs.json"), m: map[string]string{}}
+	if b, err := os.ReadFile(n.path); err == nil {
+		_ = json.Unmarshal(b, &n.m)
+	}
+	return n
+}
+
+func (n *nodePubMap) record(nodeID, nodePub string) {
+	if nodeID == "" || nodePub == "" {
+		return
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.m[nodeID] == nodePub {
+		return
+	}
+	n.m[nodeID] = nodePub
+	if b, err := json.Marshal(n.m); err == nil {
+		_ = os.WriteFile(n.path, b, 0o600)
+	}
+}
+
+func (n *nodePubMap) lookup(nodeID string) string {
+	if nodeID == "" {
+		return ""
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.m[nodeID]
 }
 
 // loadAllowedKeys builds the /join allowlist from a CSV flag and/or a file

@@ -3818,6 +3818,41 @@ class ChatRoom(ToolSet):
             return {"success": False, "message": f"mint join token failed: {e}"}
 
     @tool
+    async def fleet_revoke_node(self, node_id: str) -> dict:
+        """Revoke a node from the fleet (local mode) — the Cluster panel Revoke button.
+
+        Adds the node to the Controller's revocation list so it can no longer refresh
+        its short-lived credential; the node drops off within the credential TTL.
+        Authorized by the fleet key (which the fleet owner holds), so no admin/service
+        token is needed. A revoked node must rejoin with a fresh identity.
+        """
+        import os
+
+        import httpx
+
+        controller = os.environ.get("FLEET_CONTROLLER_URL", "")
+        key = os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY") or ""
+        if not (controller and key):
+            return {"success": False, "message": "Fleet not configured on this backend."}
+        if not node_id:
+            return {"success": False, "message": "node_id required."}
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.post(
+                    f"{controller.rstrip('/')}/revoke",
+                    json={"key": key, "node_id": node_id},
+                )
+            if r.status_code != 200:
+                return {"success": False,
+                        "message": f"controller {r.status_code}: {r.text[:200]}"}
+            data = r.json()
+            return {"success": True, "node_id": node_id,
+                    "node_pub": data.get("node_pub", "")}
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"fleet_revoke_node failed: {e}")
+            return {"success": False, "message": f"revoke failed: {e}"}
+
+    @tool
     async def set_agent_model(
         self,
         chat_id: str,

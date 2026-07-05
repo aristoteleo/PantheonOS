@@ -188,6 +188,9 @@ type JoinTokenResponse struct {
 type RevokeRequest struct {
 	NodePub string `json:"node_pub,omitempty"`
 	NodeID  string `json:"node_id,omitempty"`
+	// Key authorizes the revoke as the fleet owner (alternative to the hub service
+	// token), so the Cluster panel can revoke a node via the local backend.
+	Key string `json:"key,omitempty"`
 }
 
 // JoinResponse is what the Controller returns: the Fleet the key maps to, how
