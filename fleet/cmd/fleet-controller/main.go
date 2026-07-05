@@ -180,6 +180,13 @@ func main() {
 			revoked.unrevoke(req.NodePub)
 			log.Printf("[join] reinstated revoked node %q (fleet %s) via join token", req.NodeID, fid)
 		}
+		// Bind node_id → node_pub on first claim (TOFU): a node_id is scoped into the
+		// node's NATS credential (its cmd subject), so a second key must not be able to
+		// claim an existing node_id and receive that node's commands.
+		if !nodePubs.claim(req.NodeID, req.NodePub) {
+			http.Error(w, "node_id already bound to a different node key", http.StatusConflict)
+			return
+		}
 		resp := proto.JoinResponse{
 			FleetID: fid,
 			NatsURL: *natsURL,
@@ -738,6 +745,31 @@ func (n *nodePubMap) record(nodeID, nodePub string) {
 	if b, err := json.Marshal(n.m); err == nil {
 		_ = os.WriteFile(n.path, b, 0o600)
 	}
+}
+
+// claim binds a node_id to the FIRST node key that presents it (trust-on-first-use)
+// and returns false if a DIFFERENT key later claims the same node_id. A node_id is
+// baked into the node's NATS credential (its `node.<id>.cmd` subject), so letting a
+// second key claim an existing node_id would let it receive the first node's
+// commands. node_ids are random UUIDs a peer can't predict before a node joins, so
+// first-claim-wins can't be abused to pre-empt a legitimate node. The original
+// claimant re-joining with the same key always passes.
+func (n *nodePubMap) claim(nodeID, nodePub string) bool {
+	if nodeID == "" || nodePub == "" {
+		return true // nothing to bind (legacy/keyless join) — no impersonation possible
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if cur, ok := n.m[nodeID]; ok && cur != nodePub {
+		return false // already bound to a different key
+	}
+	if n.m[nodeID] != nodePub {
+		n.m[nodeID] = nodePub
+		if b, err := json.Marshal(n.m); err == nil {
+			_ = os.WriteFile(n.path, b, 0o600)
+		}
+	}
+	return true
 }
 
 func (n *nodePubMap) lookup(nodeID string) string {
