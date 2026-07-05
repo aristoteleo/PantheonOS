@@ -3653,6 +3653,9 @@ class ChatRoom(ToolSet):
             ts = getattr(self, "_fleet_ts", None)
             if ts is None:
                 ts = FleetToolSet()
+                await ts.run_setup()  # connect + start the refresh loop so its
+                # short-lived creds stay fresh (else _read_nodes returns [] after
+                # the credential expires and the panel shows 0 nodes)
                 self._fleet_ts = ts
             raw = await ts._read_nodes()
             self_id = await ts._resolve_local_node(raw)
@@ -3702,8 +3705,11 @@ class ChatRoom(ToolSet):
         try:
             from pantheon.toolsets.fleet import FleetToolSet
 
-            ts = getattr(self, "_fleet_ts", None) or FleetToolSet()
-            self._fleet_ts = ts
+            ts = getattr(self, "_fleet_ts", None)
+            if ts is None:
+                ts = FleetToolSet()
+                await ts.run_setup()  # keep its creds fresh (shared _fleet_ts)
+                self._fleet_ts = ts
             if await ts._resolve_local_node():
                 return {"success": True, "already_joined": True,
                         "message": "This machine is already in the fleet."}

@@ -172,11 +172,23 @@ class FleetToolSet(ToolSet):
                 logger.warning(f"[fleet] credential refresh failed (will retry): {e}")
 
     async def _ensure_connected(self):
-        if self._nc is not None and self._js is not None:
+        if self._nc is not None and self._js is not None and self._nc.is_connected:
             return
         async with self._connect_lock:
-            if self._nc is not None and self._js is not None:
+            if self._nc is not None and self._js is not None and self._nc.is_connected:
                 return
+            # A stale/expired connection (short-lived creds lapsed, or a network
+            # blip): nats-py won't re-read creds on its own, so drop the dead _nc
+            # and force a fresh /join below instead of reusing expired creds.
+            if self._nc is not None:
+                try:
+                    await self._nc.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                self._nc = None
+                self._js = None
+                if self._controller_url and self._key:
+                    self._nats_url = None  # force _resolve_via_controller to re-mint
             if (not self._nats_url or not self._fleet_id) and self._controller_url and self._key:
                 await self._resolve_via_controller()
             if not self._nats_url or not self._fleet_id:
