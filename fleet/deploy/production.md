@@ -102,3 +102,59 @@ connects to NATS with a per-fleet inbox, and registers. Drive it with the
 - **Not yet hardened for untrusted multi-tenant use:** keys are gated, not
   hub-authenticated; treat as a private/reference deployment until hub platform
   keys land.
+
+## Security hardening (2026-07-05)
+
+Built on the P0/P1 credential model (short-lived creds + proof-of-possession
+refresh + single-use join tokens + revocation — see
+`docs/fleet-security-model.md`). All on `feat/pantheon-fleet`, all live on the
+prod controller behind `https://fleet.aristoteleo.com` (droplet `581354476`);
+controller binaries backed up on the host as `fleet-controller.bak-p3{,b,c,d}-*`.
+
+**Revocation now kicks — and stays kicked**
+
+- `12749f8` — revoke KICKS the node off NATS immediately: the Controller adds the
+  node's current user credential to the FLEET account JWT's revocation list,
+  re-emits the nats config, and `pkill -HUP nats-server`. Server-enforced, so a
+  compromised node can't ignore it. (`node_id → user pubkey` is recorded at every
+  `/join` and `/token`.)
+- `f88ef0c` — `/join` now also enforces `revoked.json` (previously only `/token`
+  did) — otherwise a kicked node still holding the API key just re-joins for a
+  fresh credential. Both endpoints now refuse a revoked node key.
+- `abbad8f` — a fresh single-use join token (only the owner can mint one)
+  REINSTATES a revoked node: `/join` clears it from `revoked.json` and lets it
+  back in. A bare `--key` re-join of a revoked node stays refused. This is how
+  you bring back a node you revoked.
+- `eafa227` — revoke deletes the node's registry KV record at once, so it leaves
+  the Cluster panel immediately instead of lingering ~30s until its heartbeat TTL
+  lapses (which read as "the kick didn't work").
+- `3ddcdac` — a revoked node's `fleet up` detects the revocation (a `/token`
+  "node revoked"), prints a plain-language notice, and exits on its own instead of
+  reconnecting forever. Client change → all four `fleet-v0.1.0-alpha` release
+  binaries rebuilt + re-uploaded (else `install.sh` serves the old one).
+
+**Transport is TLS-only**
+
+- Controller behind Caddy + Let's Encrypt; NATS TLS via the `nats-tls.conf`
+  wrapper (`include nats.conf` + a `tls {}` block).
+- `allow_non_tls` removed and external `:8099` firewalled: plaintext NATS is
+  rejected (`tls_required: true`) and the plaintext HTTP controller port is closed
+  — Caddy's localhost proxy keeps `:443` serving. GOTCHAs: dropping `allow_non_tls`
+  needs a full `systemctl restart fleet-nats` (a SIGHUP reload does NOT apply it);
+  and check every client's actual transport (`journalctl -u <svc> | grep -oE
+  'tls://|nats://'`), including the droplet's OWN `fleet-node`, before flipping it —
+  a node that joined pre-TLS silently stays plaintext until it re-joins.
+
+**Least-privilege scoping**
+
+- P1 mints a NARROW per-node credential (`MintFleetNode`) that can only serve its
+  own `node.<id>.cmd` + progress subjects and write its own registry key — a hacked
+  node can't command or eavesdrop on its peers. The agent (no node id) keeps the
+  broad credential it needs to command every node.
+- `c0ab123` — `node_id → node_pub` is bound on first claim (TOFU): since a node_id
+  is scoped into the per-node credential, `/join` rejects (409) a second key trying
+  to claim an existing node_id, closing a narrow impersonation/eavesdrop path for a
+  join-token holder who knows a peer's id.
+
+**Still open:** kill the static `pbk_` key in favour of OAuth-session-derived
+creds (needs a prod-hub deploy + coordination with the shared-env owner).
