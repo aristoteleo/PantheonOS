@@ -3775,6 +3775,40 @@ class ChatRoom(ToolSet):
                 "message": f"Left the fleet ({stopped} node process stopped)."}
 
     @tool
+    async def fleet_mint_join_token(self) -> dict:
+        """Mint a single-use, short-lived join token to add ONE machine (local mode).
+
+        The web Cluster panel calls this for the "add another machine" command so
+        the displayed command carries a one-time token — safe to copy, screenshare,
+        or log — instead of the reusable fleet key. The token works once and expires
+        within minutes; a stolen token can add at most a single node before it dies.
+        """
+        import os
+
+        import httpx
+
+        controller = os.environ.get("FLEET_CONTROLLER_URL", "")
+        key = os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY") or ""
+        if not (controller and key):
+            return {"success": False, "message": "Fleet not configured on this backend."}
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.post(
+                    f"{controller.rstrip('/')}/join-tokens", json={"key": key}
+                )
+            if r.status_code != 200:
+                return {"success": False,
+                        "message": f"controller {r.status_code}: {r.text[:200]}"}
+            data = r.json()
+            return {"success": True,
+                    "join_token": data.get("join_token"),
+                    "expires_at": data.get("expires_at"),
+                    "controller": controller}
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"fleet_mint_join_token failed: {e}")
+            return {"success": False, "message": f"mint join token failed: {e}"}
+
+    @tool
     async def set_agent_model(
         self,
         chat_id: str,
