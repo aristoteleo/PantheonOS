@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -59,13 +60,13 @@ func Run(ctx context.Context, t proto.Task) proto.TaskResult {
 		}
 	}
 
-	// On macOS, a "Operation not permitted" almost always means the OS blocked a
-	// TCC-protected path (Downloads/Documents/Desktop/Full Disk). Ask the user for
-	// access on-demand — pop a dialog on the node's own login session and offer to
-	// open the Full Disk Access pane — and give the agent a clear hint to relay.
+	// On macOS, "Operation not permitted" almost always means the OS blocked a
+	// TCC-protected path (Downloads/Documents/Desktop). Trip the NATIVE folder
+	// prompt with fleet's OWN identity, then hint the agent to relay a one-click
+	// Allow + retry (see nudgeMacPermission).
 	if isMacPermissionDenied(res.Stdout + res.Stderr) {
-		requestMacPermission()
-		res.Stderr += "\n[pantheon-fleet] macOS blocked this file access (privacy/TCC). A permission request was shown on the Mac — grant Full Disk Access to the terminal running fleet, then retry."
+		nudgeMacPermission(res.Stdout + res.Stderr)
+		res.Stderr += "\n[pantheon-fleet] macOS privacy (TCC) blocked this folder. A native permission prompt (“fleet” wants to access that folder) should now be on the Mac — click Allow, then retry. No Full Disk Access setup needed."
 	}
 	return res
 }
@@ -80,13 +81,20 @@ func isMacPermissionDenied(output string) bool {
 	return runtime.GOOS == "darwin" && strings.Contains(output, "Operation not permitted")
 }
 
-// requestMacPermission shows an on-demand permission dialog in the node's GUI
-// session (fleet runs from the user's terminal) and, if they choose, opens the
-// Full Disk Access settings pane. Rate-limited (once/min) and fire-and-forget so
-// it never blocks or spams task execution.
-func requestMacPermission() {
+// nudgeMacPermission trips the NATIVE macOS folder-access prompt for the folder a
+// task was denied. The fleet binary ships NS{Downloads,Documents,Desktop}Folder-
+// UsageDescription keys and is Developer-ID signed, so when IT (not a subprocess)
+// reads a protected folder, tccd shows a “‘fleet’ wants to access your Downloads
+// folder” prompt — one Allow, no Full Disk Access spelunking. Grants attach to the
+// signed binary, so the next task's subprocess (fleet is its responsible process)
+// then succeeds. Rate-limited + fire-and-forget; the os.Open blocks on the prompt,
+// so it runs off the task path.
+func nudgeMacPermission(output string) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
 	permMu.Lock()
-	if !lastPermReq.IsZero() && time.Since(lastPermReq) < time.Minute {
+	if !lastPermReq.IsZero() && time.Since(lastPermReq) < 30*time.Second {
 		permMu.Unlock()
 		return
 	}
@@ -94,15 +102,38 @@ func requestMacPermission() {
 	permMu.Unlock()
 
 	go func() {
-		const script = `display dialog "Pantheon Fleet needs permission to access files on this Mac. Grant Full Disk Access to your terminal (Terminal / iTerm), then retry the request." with title "Pantheon Fleet" buttons {"Later", "Open Settings"} default button "Open Settings"`
-		out, err := exec.Command("osascript", "-e", script).Output()
-		if err != nil {
-			return // no GUI session, or the user dismissed it
-		}
-		if strings.Contains(string(out), "Open Settings") {
-			_ = exec.Command("open", "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles").Run()
+		for _, dir := range protectedDirsInvolved(output) {
+			if f, err := os.Open(dir); err == nil {
+				_, _ = f.Readdirnames(1) // the read is what trips TCC → native prompt
+				_ = f.Close()
+			}
 		}
 	}()
+}
+
+// protectedDirsInvolved returns the TCC-protected folders named in the denial
+// output (so we prompt for exactly what was blocked), or the common trio when the
+// path isn't recognisable.
+func protectedDirsInvolved(output string) []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	common := []string{
+		filepath.Join(home, "Downloads"),
+		filepath.Join(home, "Documents"),
+		filepath.Join(home, "Desktop"),
+	}
+	var hit []string
+	for _, d := range common {
+		if strings.Contains(output, d) {
+			hit = append(hit, d)
+		}
+	}
+	if len(hit) > 0 {
+		return hit
+	}
+	return common
 }
 
 func envSlice(m map[string]string) []string {
