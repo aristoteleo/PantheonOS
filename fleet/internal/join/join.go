@@ -7,7 +7,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -16,6 +18,11 @@ import (
 )
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
+
+// ErrRevoked means the Controller has revoked this node: its identity is on the
+// fleet's revocation list, so /token refuses to re-mint a credential. The runner
+// treats this as terminal — it stops instead of retrying forever.
+var ErrRevoked = errors.New("node revoked by the fleet owner")
 
 // Join calls the Controller's /join (with a key or a single-use join token, plus
 // the node's public key) and returns the assignment (fleet, nats url, short-lived
@@ -67,7 +74,11 @@ func Refresh(ctx context.Context, controllerURL string, tr proto.TokenRequest) (
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return out, fmt.Errorf("controller token failed: %s", resp.Status)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		if resp.StatusCode == http.StatusUnauthorized && strings.Contains(strings.ToLower(string(b)), "revoked") {
+			return out, ErrRevoked
+		}
+		return out, fmt.Errorf("controller token failed: %s: %s", resp.Status, strings.TrimSpace(string(b)))
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return out, err

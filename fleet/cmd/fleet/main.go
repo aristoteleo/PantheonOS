@@ -10,6 +10,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -134,7 +135,28 @@ func cmdUp(args []string) {
 		Version:    version,
 	}
 
-	natsOpts := []nats.Option{nats.Name("fleet-runner/" + nodeID)}
+	// A kick from the NATS ErrorHandler tells the refresh loop to check /token
+	// right away (instead of waiting for its scheduled tick), so a revoked node
+	// figures out it's been kicked and quits promptly instead of reconnecting
+	// forever.
+	kick := make(chan struct{}, 1)
+	natsOpts := []nats.Option{
+		nats.Name("fleet-runner/" + nodeID),
+		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
+			if err == nil {
+				return
+			}
+			fmt.Printf("%v\n", err) // the nats error already carries a "nats:" prefix
+			// "authentication revoked" / "authorization violation" is what a
+			// server-side revocation looks like from the client side.
+			if s := err.Error(); strings.Contains(s, "revoked") || strings.Contains(s, "uthorization violation") {
+				select {
+				case kick <- struct{}{}:
+				default:
+				}
+			}
+		}),
+	}
 	if credsPath != "" {
 		// Scoped creds: replies/requests use a per-fleet inbox prefix so the
 		// _INBOX namespace is isolated per fleet too (matches the JWT scope).
@@ -173,7 +195,7 @@ func cmdUp(args []string) {
 	// expiry), so a legit node stays online while a leaked cred dies fast.
 	// See docs/fleet-security-model.md.
 	if credsPath != "" && *controllerURL != "" && refreshToken != "" {
-		go refreshCredsLoop(ctx, *controllerURL, *fleetID, refreshToken, nodePub, nodeKey, credsPath)
+		go refreshCredsLoop(ctx, stop, kick, *controllerURL, *fleetID, refreshToken, nodePub, nodeKey, credsPath)
 	}
 
 	<-ctx.Done()
@@ -186,7 +208,7 @@ func cmdUp(args []string) {
 // refreshCredsLoop re-mints the node's short-lived credential before it expires
 // and rewrites credsPath. The NATS client picks up the new creds on its next
 // (re)connect. See docs/fleet-security-model.md.
-func refreshCredsLoop(ctx context.Context, controllerURL, fleetID, refreshToken, nodePub string, nodeKey ed25519.PrivateKey, credsPath string) {
+func refreshCredsLoop(ctx context.Context, stop context.CancelFunc, kick <-chan struct{}, controllerURL, fleetID, refreshToken, nodePub string, nodeKey ed25519.PrivateKey, credsPath string) {
 	// Renew at ~75% of the access TTL so a valid cred is always on disk. A small
 	// absolute floor avoids pathologically tight loops; it must stay well below
 	// the TTL (a 1-minute floor would exceed a short TTL and refresh too late).
@@ -196,24 +218,44 @@ func refreshCredsLoop(ctx context.Context, controllerURL, fleetID, refreshToken,
 	}
 	t := time.NewTicker(interval)
 	defer t.Stop()
+	// refresh swaps the refresh token for a fresh credential. It returns false only
+	// when the node has been revoked — the loop then stops the whole runner so it
+	// doesn't sit there reconnecting against creds that will never be accepted.
+	refresh := func() (keepGoing bool) {
+		// Prove possession of the node key over a fresh challenge, then swap the
+		// refresh token for a new short-lived credential (no API key).
+		ts := time.Now().Unix()
+		sig := node.Sign(nodeKey, token.PoPChallenge(nodePub, fleetID, ts))
+		out, err := join.Refresh(ctx, controllerURL, proto.TokenRequest{
+			RefreshToken: refreshToken, TS: ts, Sig: sig,
+		})
+		if errors.Is(err, join.ErrRevoked) {
+			fmt.Print("\n\x1b[33m✗ This node has been revoked from the fleet by its owner — shutting down.\x1b[0m\n" +
+				"  Its credentials no longer work and it can't rejoin with this identity.\n" +
+				"  To rejoin, get a fresh command from the Cluster panel (\"Add another node\").\n")
+			stop() // unblocks <-ctx.Done() in run() → clean shutdown ("leaving fleet…")
+			return false
+		}
+		if err != nil {
+			fmt.Printf("cred refresh failed (will retry): %v\n", err)
+			return true
+		}
+		if err := os.WriteFile(credsPath, []byte(out.Creds), 0o600); err != nil {
+			fmt.Printf("cred refresh write failed: %v\n", err)
+		}
+		return true
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
-			// Prove possession of the node key over a fresh challenge, then swap
-			// the refresh token for a new short-lived credential (no API key).
-			ts := time.Now().Unix()
-			sig := node.Sign(nodeKey, token.PoPChallenge(nodePub, fleetID, ts))
-			out, err := join.Refresh(ctx, controllerURL, proto.TokenRequest{
-				RefreshToken: refreshToken, TS: ts, Sig: sig,
-			})
-			if err != nil {
-				fmt.Printf("cred refresh failed (will retry): %v\n", err)
-				continue
+		case <-kick: // a NATS auth error — check now instead of waiting for the tick
+			if !refresh() {
+				return
 			}
-			if err := os.WriteFile(credsPath, []byte(out.Creds), 0o600); err != nil {
-				fmt.Printf("cred refresh write failed: %v\n", err)
+		case <-t.C:
+			if !refresh() {
+				return
 			}
 		}
 	}
