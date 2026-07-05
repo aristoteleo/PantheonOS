@@ -123,6 +123,7 @@ func main() {
 			return
 		}
 		var fid string
+		viaJoinToken := false
 		switch {
 		case strings.TrimSpace(req.JoinToken) != "":
 			// Single-use join token (preferred): verify signature + expiry, then
@@ -137,6 +138,7 @@ func main() {
 				return
 			}
 			fid = jp.FleetID
+			viaJoinToken = true // an owner-minted grant: may reinstate a revoked node
 		case strings.TrimSpace(req.Key) != "":
 			if *hubURL != "" {
 				vfid, ok, err := validateViaHub(*hubURL, *hubToken, req.Key)
@@ -165,9 +167,18 @@ func main() {
 		// kicked node that still holds the API key would just re-join and mint a
 		// fresh credential — the account-level kick only drops the live connection,
 		// so this is what actually keeps it out.
+		//
+		// A valid single-use join token is the exception: only the fleet owner can
+		// mint one, so presenting it is an explicit re-authorization — reinstate the
+		// node and let it back in (this is how you bring back a node you revoked). A
+		// bare --key re-join of a revoked node stays refused.
 		if req.NodePub != "" && revoked.isRevoked(req.NodePub) {
-			http.Error(w, "node revoked", http.StatusUnauthorized)
-			return
+			if !viaJoinToken {
+				http.Error(w, "node revoked", http.StatusUnauthorized)
+				return
+			}
+			revoked.unrevoke(req.NodePub)
+			log.Printf("[join] reinstated revoked node %q (fleet %s) via join token", req.NodeID, fid)
 		}
 		resp := proto.JoinResponse{
 			FleetID: fid,
@@ -597,6 +608,24 @@ func (r *revokedSet) revoke(nodePub string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.set[nodePub] = true
+	r.persistLocked()
+}
+
+// unrevoke reinstates a node (removes it from the revocation list). Used when
+// the fleet owner re-authorizes a previously-kicked node with a fresh join
+// token. No-op if the node isn't revoked.
+func (r *revokedSet) unrevoke(nodePub string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.set[nodePub] {
+		return
+	}
+	delete(r.set, nodePub)
+	r.persistLocked()
+}
+
+// persistLocked writes the set to disk; caller must hold r.mu.
+func (r *revokedSet) persistLocked() {
 	list := make([]string, 0, len(r.set))
 	for p := range r.set {
 		list = append(list, p)
