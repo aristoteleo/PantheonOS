@@ -3623,6 +3623,47 @@ class ChatRoom(ToolSet):
             logger.error(f"Error listing available models: {e}")
             return {"success": False, "message": str(e)}
 
+    async def _ensure_fleet_session_key(self) -> None:
+        """Publish a session-derived ``FLEET_KEY`` (and start refreshing it) the
+        first time a fleet tool runs, when the backend is logged in and no static
+        ``pbk_`` key is set — so the local backend needn't hold a static bearer key.
+        A no-op when a static key is configured (back-compat) or already handled."""
+        if getattr(self, "_fleet_session_started", False):
+            return
+        self._fleet_session_started = True
+        try:
+            import asyncio
+
+            from .fleet_session import fetch_fleet_session_key, use_session_cred
+
+            if not use_session_cred():
+                return  # static key present — nothing to fetch/refresh
+            _key, ttl = await fetch_fleet_session_key()
+            if _key and ttl > 0:
+                self._fleet_session_task = asyncio.create_task(
+                    self._fleet_session_refresh_loop(ttl)
+                )
+        except Exception as e:  # never block a fleet tool on the session-cred path
+            logger.warning(f"[fleet-session] ensure failed: {e}")
+
+    async def _fleet_session_refresh_loop(self, ttl: int) -> None:
+        """Re-fetch the session fleet key before it expires (~85% of its TTL)."""
+        import asyncio
+
+        from .fleet_session import fetch_fleet_session_key
+
+        while True:
+            try:
+                await asyncio.sleep(max(60, int(ttl * 0.85)))
+                _key, new_ttl = await fetch_fleet_session_key()
+                if new_ttl > 0:
+                    ttl = new_ttl
+            except asyncio.CancelledError:
+                return
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[fleet-session] refresh failed (will retry): {e}")
+                await asyncio.sleep(60)
+
     @tool
     async def list_fleet_nodes(self) -> dict:
         """List the user's Fleet compute nodes for the web Cluster panel.
@@ -3637,6 +3678,7 @@ class ChatRoom(ToolSet):
         """
         import os
 
+        await self._ensure_fleet_session_key()
         controller_url = os.environ.get("FLEET_CONTROLLER_URL", "")
         install_url = os.environ.get("FLEET_INSTALL_URL", "")
         if not (controller_url or os.environ.get("FLEET_NATS_URL")):
@@ -3699,6 +3741,7 @@ class ChatRoom(ToolSet):
         import shutil
         import subprocess
 
+        await self._ensure_fleet_session_key()
         controller = os.environ.get("FLEET_CONTROLLER_URL", "")
         key = os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY") or ""
         if not (controller and key):
@@ -3796,6 +3839,7 @@ class ChatRoom(ToolSet):
 
         import httpx
 
+        await self._ensure_fleet_session_key()
         controller = os.environ.get("FLEET_CONTROLLER_URL", "")
         key = os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY") or ""
         if not (controller and key):
@@ -3830,6 +3874,7 @@ class ChatRoom(ToolSet):
 
         import httpx
 
+        await self._ensure_fleet_session_key()
         controller = os.environ.get("FLEET_CONTROLLER_URL", "")
         key = os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY") or ""
         if not (controller and key):
