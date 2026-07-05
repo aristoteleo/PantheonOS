@@ -94,7 +94,7 @@ func cmdUp(args []string) {
 	var credsPath, refreshToken string
 	if *controllerURL != "" {
 		asg, err := join.Join(ctx, *controllerURL, proto.JoinRequest{
-			Key: *key, JoinToken: *joinToken, NodePub: nodePub,
+			Key: *key, JoinToken: *joinToken, NodePub: nodePub, NodeID: nodeID,
 		})
 		must(err)
 		*natsURL, *fleetID = asg.NatsURL, asg.FleetID

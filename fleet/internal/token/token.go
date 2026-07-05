@@ -19,8 +19,9 @@ import (
 // identity here — the private key never leaves the node.
 type Payload struct {
 	FleetID string `json:"fleet_id"`
-	NodePub string `json:"node_pub"` // base64(std) Ed25519 public key of the node
-	Exp     int64  `json:"exp"`      // unix seconds
+	NodePub string `json:"node_pub"`          // base64(std) Ed25519 public key of the node
+	NodeID  string `json:"node_id,omitempty"` // narrow-scope target; empty = legacy broad creds
+	Exp     int64  `json:"exp"`               // unix seconds
 }
 
 // popSkew bounds how stale a proof-of-possession challenge may be.

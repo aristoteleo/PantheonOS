@@ -161,6 +161,11 @@ type JoinRequest struct {
 	// into the returned refresh token so only the holder of the matching private
 	// key can later refresh (proof-of-possession). See docs/fleet-security-model.md.
 	NodePub string `json:"node_pub,omitempty"`
+	// NodeID is this node's stable id. When present the Controller mints a NARROW
+	// per-node credential (scoped to fleet.<fid>.node.<NodeID>.cmd + its own
+	// registry key) instead of the broad agent credential, so a compromised node
+	// cannot command its peers. Absent for the Agent, which needs broad access.
+	NodeID string `json:"node_id,omitempty"`
 }
 
 // JoinTokenRequest asks the Controller to mint a single-use join token. In P0

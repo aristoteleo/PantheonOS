@@ -162,7 +162,15 @@ func main() {
 			Relays:  relays,
 		}
 		if authority != nil {
-			creds, err := authority.MintFleetUser(fid)
+			// A node (sends node_id) gets a NARROW per-node credential that cannot
+			// command its peers; the agent/commander (no node_id) gets the broad one.
+			var creds []byte
+			var err error
+			if req.NodeID != "" {
+				creds, err = authority.MintFleetNode(fid, req.NodeID)
+			} else {
+				creds, err = authority.MintFleetUser(fid)
+			}
 			if err != nil {
 				http.Error(w, "mint credentials: "+err.Error(), http.StatusInternalServerError)
 				return
@@ -175,6 +183,7 @@ func main() {
 			rt, err := token.Sign(refreshPriv, token.Payload{
 				FleetID: fid,
 				NodePub: req.NodePub,
+				NodeID:  req.NodeID, // carried so /token re-mints the same narrow scope
 				Exp:     time.Now().Add(refreshTTL).Unix(),
 			})
 			if err != nil {
@@ -218,7 +227,14 @@ func main() {
 			http.Error(w, "node revoked", http.StatusUnauthorized)
 			return
 		}
-		creds, err := authority.MintFleetUser(p.FleetID)
+		// Re-mint at the SAME scope the join used: a node (node_id in the refresh
+		// token) stays narrow; a legacy token without one falls back to broad.
+		var creds []byte
+		if p.NodeID != "" {
+			creds, err = authority.MintFleetNode(p.FleetID, p.NodeID)
+		} else {
+			creds, err = authority.MintFleetUser(p.FleetID)
+		}
 		if err != nil {
 			http.Error(w, "mint credentials: "+err.Error(), http.StatusInternalServerError)
 			return

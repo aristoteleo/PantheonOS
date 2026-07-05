@@ -168,6 +168,56 @@ func (a *Authority) MintFleetUser(fid string) ([]byte, error) {
 	return jwt.FormatUserConfig(userJWT, useed)
 }
 
+// MintFleetNode issues a .creds for ONE Node in fid, scoped to only that node's
+// own subjects: it may serve its own cmd subject, report transfer progress, reply
+// over the per-fleet inbox, write ONLY its own registry record, and read peers'
+// records (for transfer lookup). It CANNOT command other nodes, read their cmd
+// subjects, overwrite their registry entries, or purge/delete the bucket — so a
+// compromised Node cannot move laterally. The Agent keeps the broad MintFleetUser
+// creds (it must be able to command every node); nodes get this narrow one.
+func (a *Authority) MintFleetNode(fid, nodeID string) ([]byte, error) {
+	ukp, err := nkeys.CreateUser()
+	if err != nil {
+		return nil, err
+	}
+	upub, err := ukp.PublicKey()
+	if err != nil {
+		return nil, err
+	}
+	useed, err := ukp.Seed()
+	if err != nil {
+		return nil, err
+	}
+
+	uc := jwt.NewUserClaims(upub)
+	uc.Name = "fleet-" + fid + "-node-" + nodeID
+	uc.Expires = time.Now().Add(AccessTTL).Unix()
+	s := func(f string) string { return fmt.Sprintf(f, fid) }
+	uc.Permissions.Pub.Allow = jwt.StringList{
+		"fleet." + fid + ".transfer.*.progress",     // progress for transfers it sources
+		"_INBOX_" + fid + ".>",                       // reply to cmd requests + JS API requests
+		"$KV.FLEET_" + fid + "_NODES." + nodeID,      // write ONLY its own registry record
+		"$JS.API.INFO",
+		s("$JS.API.STREAM.CREATE.KV_FLEET_%s_NODES"), // registry.Open CreateOrUpdate
+		s("$JS.API.STREAM.UPDATE.KV_FLEET_%s_NODES"),
+		s("$JS.API.STREAM.INFO.KV_FLEET_%s_NODES"),   // bind / status
+		s("$JS.API.DIRECT.GET.KV_FLEET_%s_NODES"),    // read a peer record (bare)
+		s("$JS.API.DIRECT.GET.KV_FLEET_%s_NODES.>"),  // read a peer record (by key)
+		// Deliberately NOT granted: fleet.<fid>.node.*.cmd (command peers),
+		// $KV.FLEET_<fid>_NODES.> (write peers' records),
+		// $JS.API.STREAM.PURGE/DELETE.KV_... (wipe the bucket).
+	}
+	uc.Permissions.Sub.Allow = jwt.StringList{
+		"_INBOX_" + fid + ".>",                  // replies + JS API responses
+		"fleet." + fid + ".node." + nodeID + ".cmd", // ONLY its own cmd subject
+	}
+	userJWT, err := uc.Encode(a.accKP) // signed by the FLEET account
+	if err != nil {
+		return nil, err
+	}
+	return jwt.FormatUserConfig(userJWT, useed)
+}
+
 // AccountPubKey is the stable FLEET account id (handy for diagnostics).
 func (a *Authority) AccountPubKey() string { return a.accPub }
 
