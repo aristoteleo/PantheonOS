@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -32,6 +33,7 @@ import (
 
 	"github.com/aristoteleo/pantheon-fleet/internal/auth"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
+	"github.com/aristoteleo/pantheon-fleet/internal/relaygeo"
 	"github.com/aristoteleo/pantheon-fleet/internal/token"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
@@ -39,6 +41,30 @@ import (
 )
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
+
+// clientIP is the joining Node's public IP — X-Forwarded-For (set by the TLS
+// reverse proxy in front of the Controller) first, then the direct RemoteAddr.
+// nil if unparseable, in which case relaygeo leaves the relay order untouched.
+func clientIP(r *http.Request) net.IP {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			xff = xff[:i] // the first entry is the original client
+		}
+		if ip := net.ParseIP(strings.TrimSpace(xff)); ip != nil {
+			return ip
+		}
+	}
+	if xr := strings.TrimSpace(r.Header.Get("X-Real-IP")); xr != "" {
+		if ip := net.ParseIP(xr); ip != nil {
+			return ip
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	return net.ParseIP(host)
+}
 
 func main() {
 	addr := flag.String("addr", ":8099", "HTTP listen address")
@@ -202,7 +228,9 @@ func main() {
 		resp := proto.JoinResponse{
 			FleetID: fid,
 			NatsURL: *natsURL,
-			Relays:  relays,
+			// Hand the Node its nearest relays first — AutoRelay reserves on the
+			// first couple, so this keeps e.g. an Asia node off a US relay.
+			Relays: relaygeo.SortRelaysForIP(relays, clientIP(r)),
 		}
 		if authority != nil {
 			// A node (sends node_id) gets a NARROW per-node credential that cannot
