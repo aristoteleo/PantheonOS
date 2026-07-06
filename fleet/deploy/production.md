@@ -205,3 +205,57 @@ Prod rollout (coordinate the shared prod hub with its owner — order matters):
 Caveat found during design: the local backend's `store_auth.json` may be a seed
 login (`store-seed`) whose `user_id` ≠ the real user, which would mint a JWT for
 the wrong fleet — confirm the backend's session identity before step 4.
+
+### Prod cutover checklist — state VERIFIED 2026-07-06 (HELD, pending BAKEZQ + a window)
+
+Read-only assessment of prod on 2026-07-06 (this is a full hub version jump, NOT a
+config flip like staging):
+
+- **prod hub** (`pantheon.aristoteleo.com`) runs an OLD image `sha256:a9e8c474…`;
+  the whole fleet + platform-keys API is absent — `/api/fleet/credential`,
+  `/api/fleet/nodes`, `/api/platform-keys/validate` all return **404**. So step 1
+  is a real image jump to current master.
+- **hub env delta prod↔staging = EXACTLY 2 vars**: staging has `FLEET_CONTROLLER_URL`
+  + `FLEET_CONTROLLER_SERVICE_TOKEN`; prod has neither. All other ~48 vars (incl.
+  `PANTHEON_SECRET_KEY`, the JWT signing key `/credential` needs) are identical →
+  the jump's fleet config surface is just these two, inert until the endpoints are hit.
+- **prod controller** (`fleet.aristoteleo.com` = 24.199.99.134, droplet `581354476`):
+  `--allowed-keys-file` only; **no `--hub-url`, no `--hub-token`**; NATS already TLS.
+  11 node registrations persisted (nodepubs.json, incl. offline — not all live).
+- **hub DB**: `init_db()` runs `create_all` on boot = additive (creates missing
+  tables, never alters existing). Column changes live in hand-applied
+  `migrations/*.sql`, NOT auto-run — so the jump is largely reversible except any
+  SQL you apply in step 0.
+
+**Target image:** pin the EXACT digest staging has already validated
+(`sha256:66c270be…` as of 2026-07-06) via `kubectl set image` — do NOT bare-restart
+on the shared `:latest` tag (prod+staging share `pantheon-hub:latest` at DIFFERENT
+digests; a naive restart could pull an unintended build). Re-confirm the digest at
+cutover.
+
+Order (each step reversible unless noted):
+
+0. **Pre-req — DB schema (BAKEZQ / DB owner):** confirm prod DB has what the target
+   image expects. `create_all` makes brand-new tables (e.g. platform_keys) on boot,
+   but column-adds to existing tables need the pending `migrations/*.sql` since prod's
+   last deploy (`add_data_shares`, `add_per_app_chatrooms`, `add_user_preferred_region`,
+   …). A missing column = runtime 500s. This is the main not-cleanly-reversible gate
+   (applied SQL stays) — review first. Quick check: `SELECT to_regclass('platform_keys');`
+1. **prod hub env** — add `FLEET_CONTROLLER_URL=https://fleet.aristoteleo.com` and
+   `FLEET_CONTROLLER_SERVICE_TOKEN=<new prod SVCTOKEN>`. Rollback: remove them.
+2. **prod hub image** — `kubectl --context do-sfo3-pantheon-sfo -n pantheon set image
+   deploy/pantheon-hub pantheon-hub=…/pantheon-hub@sha256:66c270be…`. Rollback:
+   `kubectl rollout undo deploy/pantheon-hub` (prior digest `a9e8c474`). Verify:
+   `/api/fleet/nodes` no longer 404.
+3. **prod controller** — drop-in `--hub-url https://pantheon.aristoteleo.com
+   --hub-token <same prod SVCTOKEN>` (KEEP `--allowed-keys-file` as fallback), then
+   `systemctl daemon-reload && systemctl restart fleet-controller`. Reversible: delete
+   the drop-in + restart. Drop-in body prepared at `deploy/dropins/prod-hub-url.conf`.
+4. **backend/session** — the web sandbox already mints session creds; once the
+   controller hub-validates, session JWTs resolve to the user-derived fleet.
+5. **re-join nodes** — the Mac + any keeper node must re-join (fresh join-token from
+   the now-live panel) to land in the user-derived fleet; old key-derived
+   registrations are a different fleet id.
+
+**SVCTOKEN:** generate a FRESH random secret at cutover, set identically on hub
+`FLEET_CONTROLLER_SERVICE_TOKEN` and controller `--hub-token`. Never reuse staging's.
