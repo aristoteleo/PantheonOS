@@ -61,11 +61,14 @@ if [ "$os" = "darwin" ]; then
 	echo "pantheon-fleet: installed $app"
 	[ -n "${FLEET_INSTALL_ONLY:-}" ] && exit 0
 	pkill -f "Fleet.app/Contents/MacOS/fleet" 2>/dev/null || true
-	echo "pantheon-fleet: launching Fleet.app — click Allow when macOS asks for folder access"
-	echo "pantheon-fleet: it runs in the BACKGROUND (no window). Watch it in the Cluster panel."
-	echo "pantheon-fleet:   status:  pgrep -f Fleet.app"
-	echo "pantheon-fleet:   stop:    pkill -f Fleet.app"
-	exec open "$app" --args up "$@"
+	# The native folder prompt only appears for an `open`-launched .app, so first
+	# prime the grant via LaunchServices (-W waits until you answer the prompt).
+	# The grant then sticks to the signed .app identity — so we run the node in the
+	# FOREGROUND: live output, and Ctrl-C stops it, same as every other platform.
+	echo "pantheon-fleet: requesting folder access — click Allow on the macOS prompt(s)…"
+	open -W "$app" --args prime 2>/dev/null || true
+	echo "pantheon-fleet: starting node (Ctrl-C to leave the fleet)"
+	exec "$app/Contents/MacOS/fleet" up "$@"
 fi
 
 bin="fleet-${os}-${arch}"

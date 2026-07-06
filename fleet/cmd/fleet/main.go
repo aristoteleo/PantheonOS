@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -41,11 +42,36 @@ func main() {
 	switch os.Args[1] {
 	case "up":
 		cmdUp(os.Args[2:])
+	case "prime":
+		cmdPrime()
 	case "version", "--version", "-v":
 		fmt.Println("pantheon-fleet runner", version)
 	default:
 		usage()
 		os.Exit(2)
+	}
+}
+
+// cmdPrime is the macOS folder-permission primer. Launched via `open` (so it runs
+// as a LaunchServices-registered app), it reads the TCC-protected user folders,
+// which pops the native "'Fleet' wants to access your Downloads folder" prompts.
+// Once the user clicks Allow the grant sticks to the signed .app identity, so a
+// later FOREGROUND `fleet up` (run directly, with live output + Ctrl-C) has access
+// too — giving the same terminal experience as Linux. On later runs the folders
+// are already granted, so this returns instantly. No-op off macOS. See install.sh.
+func cmdPrime() {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	for _, sub := range []string{"Downloads", "Documents", "Desktop"} {
+		if f, err := os.Open(filepath.Join(home, sub)); err == nil {
+			_, _ = f.Readdirnames(1) // the read trips TCC → native prompt (blocks on it)
+			_ = f.Close()
+		}
 	}
 }
 
