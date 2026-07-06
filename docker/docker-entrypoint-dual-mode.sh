@@ -311,6 +311,17 @@ EOF
         SYNC_FLAG="--sync-templates"
     fi
 
+    # Pantheon-Fleet: when this sandbox is wired to a fleet, join it as a Node in
+    # the background so the agent can transfer files to/from it over the data plane
+    # via a single transfer() interface (dst_node="local" resolves to this node).
+    if [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v fleet >/dev/null 2>&1; then
+        echo "[fleet] joining fleet as node sandbox-${ID_HASH} ..."
+        mkdir -p /tmp/fleet-node
+        fleet up --controller "${FLEET_CONTROLLER_URL}" --key "${FLEET_KEY}" \
+            --name "sandbox-${ID_HASH}" --state-dir /tmp/fleet-node \
+            > /tmp/fleet-node.log 2>&1 &
+    fi
+
     # Execute the command with ID_HASH parameter
     if [ $# -eq 0 ]; then
         # No arguments provided, use default command with ID_HASH

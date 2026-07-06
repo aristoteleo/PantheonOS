@@ -338,6 +338,15 @@ RUN (curl -L --retry 3 --retry-delay 5 --max-time 60 \
     rm -f /tmp/pandoc-crossref.tar.xz) || \
     echo "Warning: pandoc-crossref download failed, skipping (can be installed at runtime)"
 
+# Pantheon-Fleet node binary — when a sandbox is wired to a fleet (FLEET_CONTROLLER_URL
+# set), the entrypoint runs `fleet up` so the sandbox joins the user's fleet as a Node.
+# The agent can then transfer files to/from it over the data plane via a single
+# transfer() interface (no size branching, no control-plane fallback).
+RUN (curl -L --retry 3 --retry-delay 5 --max-time 60 \
+    https://github.com/aristoteleo/PantheonOS/releases/download/fleet-v0.1.0-alpha/fleet-linux-amd64 \
+    -o /usr/local/bin/fleet && chmod +x /usr/local/bin/fleet) || \
+    echo "Warning: fleet node binary download failed (fleet transfers unavailable)"
+
 # Layer F — Workspace directory (stable)
 RUN mkdir -p /workspace
 

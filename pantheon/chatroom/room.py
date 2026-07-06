@@ -3623,6 +3623,281 @@ class ChatRoom(ToolSet):
             logger.error(f"Error listing available models: {e}")
             return {"success": False, "message": str(e)}
 
+    async def _ensure_fleet_session_key(self) -> None:
+        """Publish a session-derived ``FLEET_KEY`` (and start refreshing it) the
+        first time a fleet tool runs, when the backend is logged in and no static
+        ``pbk_`` key is set — so the local backend needn't hold a static bearer key.
+        A no-op when a static key is configured (back-compat) or already handled."""
+        if getattr(self, "_fleet_session_started", False):
+            return
+        self._fleet_session_started = True
+        try:
+            import asyncio
+
+            from .fleet_session import fetch_fleet_session_key, use_session_cred
+
+            if not use_session_cred():
+                return  # static key present — nothing to fetch/refresh
+            _key, ttl = await fetch_fleet_session_key()
+            if _key and ttl > 0:
+                self._fleet_session_task = asyncio.create_task(
+                    self._fleet_session_refresh_loop(ttl)
+                )
+        except Exception as e:  # never block a fleet tool on the session-cred path
+            logger.warning(f"[fleet-session] ensure failed: {e}")
+
+    async def _fleet_session_refresh_loop(self, ttl: int) -> None:
+        """Re-fetch the session fleet key before it expires (~85% of its TTL)."""
+        import asyncio
+
+        from .fleet_session import fetch_fleet_session_key
+
+        while True:
+            try:
+                await asyncio.sleep(max(60, int(ttl * 0.85)))
+                _key, new_ttl = await fetch_fleet_session_key()
+                if new_ttl > 0:
+                    ttl = new_ttl
+            except asyncio.CancelledError:
+                return
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[fleet-session] refresh failed (will retry): {e}")
+                await asyncio.sleep(60)
+
+    @tool
+    async def list_fleet_nodes(self) -> dict:
+        """List the user's Fleet compute nodes for the web Cluster panel.
+
+        In hub mode the panel calls the hub's ``/api/fleet/nodes``; in LOCAL mode
+        there is no hub, so it invokes this over the chatroom connection instead.
+        Reads the fleet registry via the FleetToolSet (creds resolved from
+        ``FLEET_CONTROLLER_URL`` / ``FLEET_KEY`` in the environment) and returns
+        the same flat node shape the hub serves, plus the controller url + join
+        key so the add-node command is copy-paste ready. The node that IS this
+        machine is marked ``is_self``.
+        """
+        import os
+
+        await self._ensure_fleet_session_key()
+        controller_url = os.environ.get("FLEET_CONTROLLER_URL", "")
+        install_url = os.environ.get("FLEET_INSTALL_URL", "")
+        if not (controller_url or os.environ.get("FLEET_NATS_URL")):
+            return {
+                "success": True,
+                "count": 0,
+                "nodes": [],
+                "controller_url": "",
+                "note": "No fleet configured on this backend.",
+            }
+        try:
+            from pantheon.toolsets.fleet import FleetToolSet
+
+            ts = getattr(self, "_fleet_ts", None)
+            if ts is None:
+                ts = FleetToolSet()
+                await ts.run_setup()  # connect + start the refresh loop so its
+                # short-lived creds stay fresh (else _read_nodes returns [] after
+                # the credential expires and the panel shows 0 nodes)
+                self._fleet_ts = ts
+            raw = await ts._read_nodes()
+            self_id = await ts._resolve_local_node(raw)
+            nodes = []
+            for n in raw:
+                s = FleetToolSet._summarize(n)
+                if self_id and s.get("node_id") == self_id:
+                    s["is_self"] = True
+                nodes.append(s)
+            return {
+                "success": True,
+                "count": len(nodes),
+                "nodes": nodes,
+                "self_node_id": self_id,
+                "controller_url": controller_url,
+                "install_url": install_url,
+                # The key PREFIX (not the secret) lets the panel identify the fleet
+                # key in local mode without the platform-keys API. The FULL key still
+                # never leaves the backend — it grants command execution on the nodes.
+                "key_prefix": (
+                    os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY") or ""
+                )[:12],
+                "fleet_id": getattr(ts, "_fleet_id", "") or "",
+            }
+        except Exception as e:
+            logger.error(f"list_fleet_nodes failed: {e}")
+            return {"success": False, "count": 0, "nodes": [], "error": str(e)}
+
+    @tool
+    async def fleet_up_local(self) -> dict:
+        """Auto-join THIS machine to the fleet as a node (local mode).
+
+        When the user is logged in and fleet is configured, the web Cluster panel
+        calls this so the local machine joins the fleet as a data-transfer node
+        without the user running the install/join command by hand. Idempotent: if
+        this machine is already registered, or a `fleet up` is already running, it
+        does nothing. In a sandbox the entrypoint already does this, so it's a
+        no-op there.
+        """
+        import os
+        import shutil
+        import subprocess
+
+        await self._ensure_fleet_session_key()
+        controller = os.environ.get("FLEET_CONTROLLER_URL", "")
+        key = os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY") or ""
+        if not (controller and key):
+            return {"success": False, "message": "Fleet not configured on this backend."}
+
+        # Already registered as a node? Nothing to do.
+        try:
+            from pantheon.toolsets.fleet import FleetToolSet
+
+            ts = getattr(self, "_fleet_ts", None)
+            if ts is None:
+                ts = FleetToolSet()
+                await ts.run_setup()  # keep its creds fresh (shared _fleet_ts)
+                self._fleet_ts = ts
+            if await ts._resolve_local_node():
+                return {"success": True, "already_joined": True,
+                        "message": "This machine is already in the fleet."}
+        except Exception:  # noqa: BLE001 — registry read is best-effort here
+            pass
+
+        # A `fleet up` already running for this machine? Don't spawn a second.
+        try:
+            r = subprocess.run(
+                ["pgrep", "-f", "fleet up --controller"],
+                capture_output=True, text=True, timeout=3,
+            )
+            if r.stdout.strip():
+                return {"success": True, "already_running": True,
+                        "message": "fleet up is already running."}
+        except Exception:  # noqa: BLE001 — pgrep may be absent; fall through
+            pass
+
+        fleet_bin = shutil.which("fleet") or os.path.expanduser("~/.local/bin/fleet")
+        if not (fleet_bin and os.path.exists(fleet_bin)):
+            return {"success": False,
+                    "message": "fleet binary not found — run the install command once."}
+
+        # Detached so the node keeps serving tasks/transfers after this call.
+        try:
+            log = open("/tmp/pantheon-fleet-up.log", "ab")  # noqa: SIM115
+            subprocess.Popen(
+                [fleet_bin, "up", "--controller", controller, "--key", key],
+                stdout=log, stderr=log, stdin=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"fleet_up_local failed to spawn: {e}")
+            return {"success": False, "message": f"failed to start fleet up: {e}"}
+        return {"success": True, "spawned": True,
+                "message": "Joining this machine to the fleet…"}
+
+    @tool
+    async def fleet_down_local(self) -> dict:
+        """Leave the fleet from THIS machine — stop the local `fleet up` node.
+
+        Symmetric to fleet_up_local: the web Cluster panel / auth flow calls this
+        when the user signs out (local mode) so the machine stops being a fleet
+        node once fleet access is no longer authorized. SIGTERM lets `fleet up`
+        deregister cleanly. Idempotent: a no-op if nothing is running.
+        """
+        import os
+        import signal
+        import subprocess
+
+        try:
+            r = subprocess.run(
+                ["pgrep", "-f", "fleet up --controller"],
+                capture_output=True, text=True, timeout=3,
+            )
+            pids = [p for p in r.stdout.split() if p.strip()]
+        except Exception:  # noqa: BLE001 — pgrep absent → nothing we can stop
+            pids = []
+        if not pids:
+            return {"success": True, "stopped": 0, "message": "No local fleet node was running."}
+        stopped = 0
+        for pid in pids:
+            try:
+                os.kill(int(pid), signal.SIGTERM)  # graceful leave (deregisters)
+                stopped += 1
+            except Exception:  # noqa: BLE001
+                pass
+        return {"success": True, "stopped": stopped,
+                "message": f"Left the fleet ({stopped} node process stopped)."}
+
+    @tool
+    async def fleet_mint_join_token(self) -> dict:
+        """Mint a single-use, short-lived join token to add ONE machine (local mode).
+
+        The web Cluster panel calls this for the "add another machine" command so
+        the displayed command carries a one-time token — safe to copy, screenshare,
+        or log — instead of the reusable fleet key. The token works once and expires
+        within minutes; a stolen token can add at most a single node before it dies.
+        """
+        import os
+
+        import httpx
+
+        await self._ensure_fleet_session_key()
+        controller = os.environ.get("FLEET_CONTROLLER_URL", "")
+        key = os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY") or ""
+        if not (controller and key):
+            return {"success": False, "message": "Fleet not configured on this backend."}
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.post(
+                    f"{controller.rstrip('/')}/join-tokens", json={"key": key}
+                )
+            if r.status_code != 200:
+                return {"success": False,
+                        "message": f"controller {r.status_code}: {r.text[:200]}"}
+            data = r.json()
+            return {"success": True,
+                    "join_token": data.get("join_token"),
+                    "expires_at": data.get("expires_at"),
+                    "controller": controller}
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"fleet_mint_join_token failed: {e}")
+            return {"success": False, "message": f"mint join token failed: {e}"}
+
+    @tool
+    async def fleet_revoke_node(self, node_id: str) -> dict:
+        """Revoke a node from the fleet (local mode) — the Cluster panel Revoke button.
+
+        Adds the node to the Controller's revocation list so it can no longer refresh
+        its short-lived credential; the node drops off within the credential TTL.
+        Authorized by the fleet key (which the fleet owner holds), so no admin/service
+        token is needed. A revoked node must rejoin with a fresh identity.
+        """
+        import os
+
+        import httpx
+
+        await self._ensure_fleet_session_key()
+        controller = os.environ.get("FLEET_CONTROLLER_URL", "")
+        key = os.environ.get("FLEET_KEY") or os.environ.get("PANTHEON_API_KEY") or ""
+        if not (controller and key):
+            return {"success": False, "message": "Fleet not configured on this backend."}
+        if not node_id:
+            return {"success": False, "message": "node_id required."}
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.post(
+                    f"{controller.rstrip('/')}/revoke",
+                    json={"key": key, "node_id": node_id},
+                )
+            if r.status_code != 200:
+                return {"success": False,
+                        "message": f"controller {r.status_code}: {r.text[:200]}"}
+            data = r.json()
+            return {"success": True, "node_id": node_id,
+                    "node_pub": data.get("node_pub", ""),
+                    "kicked": bool(data.get("kicked", False))}
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"fleet_revoke_node failed: {e}")
+            return {"success": False, "message": f"revoke failed: {e}"}
+
     @tool
     async def set_agent_model(
         self,
