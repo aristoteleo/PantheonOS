@@ -38,6 +38,33 @@ case "$arch" in
 		;;
 esac
 
+# macOS: ship + LAUNCH a proper .app bundle. macOS only shows the native folder
+# prompt ("'Fleet' wants to access your Downloads folder") for a LaunchServices-
+# registered app opened via `open` — a bare CLI binary, even signed, can't trigger
+# it. So on Darwin we install Fleet.app and `open` it (one click to Allow, no Full
+# Disk Access setup). Linux keeps the bare binary below.
+if [ "$os" = "darwin" ]; then
+	app_zip="Fleet-${arch}.app.zip"
+	app_dir="${FLEET_APP_DIR:-$HOME/Applications}"
+	app="$app_dir/Fleet.app"
+	mkdir -p "$app_dir"
+	echo "pantheon-fleet: downloading ${BASE_URL}/${app_zip}"
+	tmp="$(mktemp)"
+	curl -fsSL "${BASE_URL}/${app_zip}" -o "${tmp}"
+	rm -rf "$app"
+	ditto -x -k "${tmp}" "$app_dir" # preserves the bundle + code signature
+	rm -f "${tmp}"
+	# Register the bundle (so its Info.plist usage descriptions drive the prompt),
+	# and drop a CLI shim on PATH for convenience.
+	/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app" >/dev/null 2>&1 || true
+	ln -sf "$app/Contents/MacOS/fleet" "$DEST" 2>/dev/null || true
+	echo "pantheon-fleet: installed $app"
+	[ -n "${FLEET_INSTALL_ONLY:-}" ] && exit 0
+	pkill -f "Fleet.app/Contents/MacOS/fleet" 2>/dev/null || true
+	echo "pantheon-fleet: launching Fleet.app — click Allow when macOS asks for folder access"
+	exec open "$app" --args up "$@"
+fi
+
 bin="fleet-${os}-${arch}"
 echo "pantheon-fleet: downloading ${BASE_URL}/${bin} -> ${DEST}"
 tmp="$(mktemp)"

@@ -5,7 +5,13 @@
     <key>CFBundleIdentifier</key><string>org.pantheonos.fleet</string>
     <key>CFBundleName</key><string>Pantheon Fleet</string>
     <key>CFBundleExecutable</key><string>fleet</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleVersion</key><string>0.1.0</string>
     <key>CFBundleShortVersionString</key><string>0.1.0</string>
+    <!-- Background agent: no Dock icon. Launched via LaunchServices (`open`) so the
+         native folder-access prompt appears on first file access — a bare CLI
+         binary can't trigger it; only a registered .app can. -->
+    <key>LSUIElement</key><true/>
     <key>NSDownloadsFolderUsageDescription</key><string>Pantheon Fleet runs agent tasks that may read or write files in your Downloads folder.</string>
     <key>NSDocumentsFolderUsageDescription</key><string>Pantheon Fleet runs agent tasks that may read or write files in your Documents folder.</string>
     <key>NSDesktopFolderUsageDescription</key><string>Pantheon Fleet runs agent tasks that may read or write files on your Desktop.</string>
