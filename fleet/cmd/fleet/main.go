@@ -98,7 +98,7 @@ func cmdUp(args []string) {
 	fleetID := fs.String("fleet", "", "fleet id (dev: bypass the Controller)")
 	relaysCSV := fs.String("relays", "", "comma-separated relay multiaddrs")
 	p2pPort := fs.Int("p2p-port", 0, "fixed UDP/QUIC port for the data plane (0 = random)")
-	forceRelay := fs.Bool("force-relay", false, "force this Node to reserve a relay slot (strict-NAT nodes)")
+	forceRelay := fs.Bool("force-relay", true, "reserve a relay slot so peers on other networks can reach this node (default on; direct addrs are still advertised — pass --force-relay=false only for a node with a stable public address)")
 	noDataplane := fs.Bool("no-dataplane", false, "control plane only (no libp2p / Transfers)")
 	stateDir := fs.String("state-dir", defaultStateDir(), "where the stable node id is kept (set per-node to run several on one host)")
 	_ = fs.Parse(args)
