@@ -62,6 +62,9 @@ if [ "$os" = "darwin" ]; then
 	[ -n "${FLEET_INSTALL_ONLY:-}" ] && exit 0
 	pkill -f "Fleet.app/Contents/MacOS/fleet" 2>/dev/null || true
 	echo "pantheon-fleet: launching Fleet.app — click Allow when macOS asks for folder access"
+	echo "pantheon-fleet: it runs in the BACKGROUND (no window). Watch it in the Cluster panel."
+	echo "pantheon-fleet:   status:  pgrep -f Fleet.app"
+	echo "pantheon-fleet:   stop:    pkill -f Fleet.app"
 	exec open "$app" --args up "$@"
 fi
 
