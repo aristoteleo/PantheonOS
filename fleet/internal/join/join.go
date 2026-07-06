@@ -44,6 +44,12 @@ func Join(ctx context.Context, controllerURL string, jr proto.JoinRequest) (prot
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		// Surface the controller's reason (e.g. "join token already used",
+		// "node revoked") — a bare "403 Forbidden" leaves the user guessing.
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		if msg := strings.TrimSpace(string(b)); msg != "" {
+			return out, fmt.Errorf("controller join failed: %s: %s", resp.Status, msg)
+		}
 		return out, fmt.Errorf("controller join failed: %s", resp.Status)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
