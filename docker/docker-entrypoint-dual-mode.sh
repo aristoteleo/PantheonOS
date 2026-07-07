@@ -197,6 +197,26 @@ else
     # ========== HUB MODE (original logic) ==========
     echo "[HUB MODE] Starting as agent pod for Pantheon Hub"
 
+    # Structural "default workspace" layout — GATED during rollout via
+    # PANTHEON_DEFAULT_WORKSPACE so a build is a no-op until the hub opts in.
+    # When enabled: the Volume (/workspace) becomes the user's HOME so ~/.pantheon
+    # (projects.json, .env, settings, oauth) persists, and the Volume root is a
+    # CONTAINER for many independent workspaces (default = default_workspace).
+    # Off = legacy layout (HOME=/root, single workspace at the Volume root).
+    DW_ENABLED="${PANTHEON_DEFAULT_WORKSPACE:-false}"
+    if [ "$DW_ENABLED" = "true" ]; then
+        export HOME=/workspace
+        # Caches must NOT land on the Volume (bloat) — redirect to ephemeral /root.
+        export XDG_CACHE_HOME=/root/.cache
+        export HF_HOME=/root/.cache/huggingface
+        export HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface
+        export TORCH_HOME=/root/.cache/torch
+        export PIP_CACHE_DIR=/root/.cache/pip
+        export UV_CACHE_DIR=/root/.cache/uv
+        export MPLCONFIGDIR=/root/.cache/matplotlib
+        mkdir -p /root/.cache
+    fi
+
     # Default ID_HASH if not provided
     ID_HASH=${ID_HASH:-"default"}
 
@@ -224,17 +244,55 @@ else
     echo "Initializing Workspace"
     echo "========================================="
 
-    # Initialize workspace structure
-    mkdir -p /workspace/.pantheon
-    echo "✓ Ensured .pantheon directory exists"
+    DEFAULT_WS=/workspace/default_workspace
 
-    # Clear stale project-level templates before forcing an explicit factory
-    # materialization. Normal startup uses runtime factory fallback and does not
-    # copy factory templates.
-    if [ "${PANTHEON_RESET_TEMPLATES}" = "true" ]; then
-        echo "Clearing stale project-level templates..."
+    if [ "$DW_ENABLED" = "true" ]; then
+        MIGRATION_MARKER=/workspace/.pantheon/.migrated_to_default_workspace
+        # One-time migration. The OLD layout used the Volume ROOT itself as the
+        # single workspace; the NEW layout makes the root a container so users can
+        # create many independent workspaces. Relocate the root's own workspace
+        # into default_workspace, preserving everything:
+        #   - loose files / non-project dirs      -> default_workspace/
+        #   - dirs that are their OWN workspace (have a .pantheon)  -> stay as siblings
+        #   - the root's .pantheon (chats/brain/memory/settings)   -> default_workspace/.pantheon
+        # A fresh /workspace/.pantheon is then the GLOBAL store (~/.pantheon).
+        if [ ! -f "$MIGRATION_MARKER" ] && [ ! -d "$DEFAULT_WS" ]; then
+            echo "Migrating Volume-root workspace into default_workspace ..."
+            mkdir -p "$DEFAULT_WS"
+            moved=0
+            for entry in /workspace/*; do   # unquoted glob: matches NON-dotfiles only
+                [ -e "$entry" ] || continue
+                base=$(basename "$entry")
+                [ "$base" = "default_workspace" ] && continue
+                if [ -d "$entry" ] && [ -d "$entry/.pantheon" ]; then continue; fi  # independent workspace
+                if mv "$entry" "$DEFAULT_WS/" 2>/dev/null; then moved=$((moved+1)); else echo "  (could not move $base)"; fi
+            done
+            if [ -d /workspace/.pantheon ]; then
+                mv /workspace/.pantheon "$DEFAULT_WS/.pantheon" 2>/dev/null || echo "  (could not move root .pantheon)"
+            fi
+            mkdir -p /workspace/.pantheon
+            touch "$MIGRATION_MARKER"
+            echo "✓ Migration complete ($moved loose item(s) moved; root .pantheon -> default_workspace)"
+        fi
+        mkdir -p /workspace/.pantheon "$DEFAULT_WS/.pantheon"
+        echo "✓ Global store /workspace/.pantheon + default workspace $DEFAULT_WS ready"
+
+        # Keep the GLOBAL factory cache fresh every boot: global mode materializes
+        # factory into ~/.pantheon (=/workspace/.pantheon, now PERSISTENT), so stale
+        # copies would shadow an image upgrade's new templates. User data
+        # (projects.json, settings, .env, oauth) is untouched.
+        echo "Refreshing global factory template cache..."
         rm -rf /workspace/.pantheon/agents /workspace/.pantheon/teams /workspace/.pantheon/prompts /workspace/.pantheon/skills /workspace/.pantheon/.factory_hashes.json
-        echo "✓ Stale templates cleared"
+        echo "✓ Factory cache cleared (re-materializes on startup)"
+    else
+        # Legacy layout: single workspace at the Volume root, ephemeral HOME.
+        mkdir -p /workspace/.pantheon
+        echo "✓ Ensured .pantheon directory exists"
+        if [ "${PANTHEON_RESET_TEMPLATES}" = "true" ]; then
+            echo "Clearing stale project-level templates..."
+            rm -rf /workspace/.pantheon/agents /workspace/.pantheon/teams /workspace/.pantheon/prompts /workspace/.pantheon/skills /workspace/.pantheon/.factory_hashes.json
+            echo "✓ Stale templates cleared"
+        fi
     fi
 
     # Create .env.example template if not exists
@@ -320,6 +378,14 @@ EOF
         fleet up --controller "${FLEET_CONTROLLER_URL}" --key "${FLEET_KEY}" \
             --name "sandbox-${ID_HASH}" --state-dir /tmp/fleet-node \
             > /tmp/fleet-node.log 2>&1 &
+    fi
+
+    # Run the endpoint IN the default workspace so work_dir (=cwd at import) makes
+    # default_workspace the active project, while HOME=/workspace keeps ~/.pantheon
+    # (global store) at the Volume root. Users create sibling workspaces under
+    # /workspace and switch to them from the UI. (Legacy layout stays in /workspace.)
+    if [ "$DW_ENABLED" = "true" ]; then
+        cd "$DEFAULT_WS" || cd /workspace
     fi
 
     # Execute the command with ID_HASH parameter
