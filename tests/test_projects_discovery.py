@@ -7,7 +7,24 @@ the work was still on disk.
 """
 from pathlib import Path
 
-from pantheon.chatroom.projects import ProjectManager, _friendly_default_name
+from pantheon.chatroom.projects import ProjectManager, _friendly_default_name, _registry_path
+
+
+def test_registry_path_persists_on_volume_in_sandbox():
+    # Sandbox: registry lives on the persistent Volume (survives restarts), keyed
+    # to the Volume ROOT even when the workspace is a subdir.
+    assert str(_registry_path("/workspace")) == "/workspace/.pantheon/projects.json"
+    assert str(_registry_path("/workspace/default_workspace")) == "/workspace/.pantheon/projects.json"
+    assert str(_registry_path("/__modal/volumes/vo-abc")) == "/__modal/volumes/vo-abc/.pantheon/projects.json"
+    assert str(_registry_path("/__modal/volumes/vo-abc/sub")) == "/__modal/volumes/vo-abc/.pantheon/projects.json"
+    # A look-alike path is NOT the Volume.
+    assert "/workspaces/" not in str(_registry_path("/workspaces/foo"))
+
+
+def test_registry_path_local_stays_global(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert str(_registry_path("/Users/me/project")).startswith(str(tmp_path))
+    assert str(_registry_path(None)).startswith(str(tmp_path))
 
 
 def test_friendly_default_name_hides_volume_id():

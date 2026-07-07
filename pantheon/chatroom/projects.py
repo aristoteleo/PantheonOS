@@ -18,7 +18,25 @@ def _global_pantheon_dir() -> Path:
     return Path.home() / ".pantheon"
 
 
-def _registry_path() -> Path:
+def _volume_root(path: str) -> Optional[str]:
+    """The persistent Modal Volume root containing ``path`` — the /workspace mount
+    or its real /__modal/volumes/<id> path — or None if ``path`` isn't on a Volume.
+    """
+    m = re.match(r"^(/workspace|/__modal/volumes/[^/]+)(?:/|$)", path or "")
+    return m.group(1) if m else None
+
+
+def _registry_path(workspace_root: Optional[str] = None) -> Path:
+    """Where the project registry (projects.json) is stored.
+
+    In a Modal sandbox ~/.pantheon sits on the EPHEMERAL container root (/root), so
+    the registry — and thus the whole PROJECTS list — is wiped on every restart.
+    Keep it on the persistent Volume instead (``<volume-root>/.pantheon/projects.json``)
+    so projects survive. Local/desktop keep the global ``~/.pantheon/projects.json``.
+    """
+    vroot = _volume_root(str(workspace_root)) if workspace_root else None
+    if vroot:
+        return Path(vroot) / ".pantheon" / "projects.json"
     return _global_pantheon_dir() / "projects.json"
 
 
@@ -73,7 +91,10 @@ class ProjectManager:
     """Manages the global project registry and active project state."""
 
     def __init__(self, active_path: Optional[str] = None):
-        self._registry_path = _registry_path()
+        resolved_ws = str(Path(active_path).resolve()) if active_path else None
+        # Registry lives on the persistent Volume in a sandbox (see _registry_path),
+        # so it must be resolved from the workspace root before _load().
+        self._registry_path = _registry_path(resolved_ws)
         self._projects: dict[str, ProjectInfo] = {}
         self._active_path: Optional[str] = None
         # The "home" project — the directory the server was started in (work_dir).
@@ -84,7 +105,7 @@ class ProjectManager:
         self._load()
 
         if active_path:
-            resolved = str(Path(active_path).resolve())
+            resolved = resolved_ws
             self._default_path = resolved
             self.register(resolved, name=_friendly_default_name(resolved))
             self.set_active(resolved)
