@@ -16,7 +16,8 @@ import (
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
 )
 
-// Run executes a Task and returns its result. shell -> bash -c; python -> python3 -c.
+// Run executes a Task and returns its result. shell -> the OS's native shell
+// (bash/sh via -c on Unix, PowerShell via -Command on Windows); python -> python -c.
 func Run(ctx context.Context, t proto.Task) proto.TaskResult {
 	res := proto.TaskResult{TaskID: t.TaskID}
 
@@ -32,7 +33,8 @@ func Run(ctx context.Context, t proto.Task) proto.TaskResult {
 	case proto.TaskPython:
 		cmd = exec.CommandContext(cctx, pythonBin(), "-c", t.Code)
 	default: // shell
-		cmd = exec.CommandContext(cctx, shellBin(), "-c", t.Code)
+		bin, args := shellInvocation(t.Code)
+		cmd = exec.CommandContext(cctx, bin, args...)
 	}
 	if t.Cwd != "" {
 		cmd.Dir = t.Cwd
@@ -144,6 +146,27 @@ func envSlice(m map[string]string) []string {
 	return out
 }
 
+// shellInvocation returns the interpreter and args to run a shell snippet on
+// THIS OS. On Windows we run it in PowerShell natively — no WSL/bash dependency:
+// pwsh (PowerShell 7+) if installed, otherwise Windows PowerShell 5.1, which
+// ships with every Windows. Elsewhere it's bash (or sh) with -c. This is why the
+// agent must send PowerShell syntax to a "windows" Node and POSIX shell to others
+// (see run_on_node's contract).
+func shellInvocation(code string) (string, []string) {
+	return shellInvocationFor(runtime.GOOS, code)
+}
+
+func shellInvocationFor(goos, code string) (string, []string) {
+	if goos == "windows" {
+		bin := "powershell"
+		if p, err := exec.LookPath("pwsh"); err == nil {
+			bin = p
+		}
+		return bin, []string{"-NoProfile", "-NonInteractive", "-Command", code}
+	}
+	return shellBin(), []string{"-c", code}
+}
+
 func shellBin() string {
 	if _, err := exec.LookPath("bash"); err == nil {
 		return "bash"
@@ -152,8 +175,16 @@ func shellBin() string {
 }
 
 func pythonBin() string {
-	if _, err := exec.LookPath("python3"); err == nil {
-		return "python3"
+	// Windows Python installs expose "python"/"py", rarely "python3"; Unix is
+	// the other way around. Try the OS-likely names first, then fall back.
+	candidates := []string{"python3", "python"}
+	if runtime.GOOS == "windows" {
+		candidates = []string{"python", "py", "python3"}
 	}
-	return "python"
+	for _, c := range candidates {
+		if _, err := exec.LookPath(c); err == nil {
+			return c
+		}
+	}
+	return candidates[0]
 }

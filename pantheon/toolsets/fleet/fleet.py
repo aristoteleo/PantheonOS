@@ -445,9 +445,18 @@ class FleetToolSet(ToolSet):
     ) -> dict:
         """Run code on a specific Node and return its result.
 
+        The Node runs ``code`` in its OS's NATIVE shell — a POSIX shell (bash/sh)
+        on Linux/macOS, and PowerShell on Windows. So MATCH your syntax to the
+        target Node's ``os`` (from fleet_list_nodes): send POSIX/bash to a
+        "linux" or "darwin" Node and PowerShell to a "windows" Node — e.g.
+        ``Get-ChildItem`` not ``ls``, ``$env:VAR`` not ``$VAR``,
+        ``Remove-Item`` not ``rm``. kind="python" runs the same source anywhere.
+
         Args:
             node_id: Target Node id (from fleet_list_nodes).
-            code: The shell command or Python source to run on the Node.
+            code: The shell command or Python source to run on the Node. For
+                kind="shell", write it in the target Node's native shell dialect
+                (POSIX shell vs. PowerShell — see above).
             kind: "shell" (default) or "python".
             timeout: Seconds before the Node aborts the task. Default 60.
 
@@ -480,6 +489,10 @@ class FleetToolSet(ToolSet):
         self, label: str, code: str, kind: str = "shell", timeout: int = 60
     ) -> dict:
         """Run the same code on every Node carrying a given label (e.g. "gpu").
+
+        For kind="shell" the code runs in each Node's native shell (PowerShell on
+        Windows, POSIX shell elsewhere) — so only fan out to a label whose Nodes
+        share an OS, or use kind="python" for a cross-OS command.
 
         Args:
             label: The label to match (a Node matches if it's in its labels list).
