@@ -1,0 +1,39 @@
+name: fleet-windows-test
+
+# On-demand proof that a Windows fleet node runs shell Tasks in NATIVE
+# PowerShell (the WSL-bash fix). Builds fleet.exe on a real Windows runner and
+# runs the internal/exec Run() path against live PowerShell.
+on:
+  workflow_dispatch:
+
+jobs:
+  exec-powershell:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: fleet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: fleet/go.mod
+          cache-dependency-path: fleet/go.sum
+
+      - name: Environment
+        shell: pwsh
+        run: |
+          go version
+          "PowerShell: $($PSVersionTable.PSVersion)"
+          "pwsh present: $([bool](Get-Command pwsh -ErrorAction SilentlyContinue))"
+
+      - name: Build fleet.exe natively
+        run: go build -o fleet.exe ./cmd/fleet
+
+      - name: Native binary runs on Windows
+        shell: pwsh
+        run: .\fleet.exe version
+
+      - name: Run exec tests against native PowerShell
+        run: go test -v -run 'TestShellInvocationFor|TestRunShellIsNativePowerShell|TestRunPythonOnWindows' ./internal/exec/
