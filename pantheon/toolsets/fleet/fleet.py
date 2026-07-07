@@ -273,12 +273,16 @@ class FleetToolSet(ToolSet):
         cap = n.get("capability", {})
         st = n.get("state", {})
         net = n.get("net", {})
+        os_name = cap.get("os")
         return {
             "node_id": n.get("node_id"),
             "name": n.get("name"),
             "labels": n.get("labels", []),
             "status": st.get("status"),
-            "os": cap.get("os"),
+            "os": os_name,
+            # The shell dialect run_on_node uses on this Node — write shell code
+            # to match: "powershell" (Windows) vs "posix" (bash/sh, Linux/macOS).
+            "shell": "powershell" if os_name == "windows" else "posix",
             "arch": cap.get("arch"),
             "cpu_cores": cap.get("cpu_cores"),
             "gpu": cap.get("gpu") or "",
@@ -445,18 +449,19 @@ class FleetToolSet(ToolSet):
     ) -> dict:
         """Run code on a specific Node and return its result.
 
-        The Node runs ``code`` in its OS's NATIVE shell — a POSIX shell (bash/sh)
-        on Linux/macOS, and PowerShell on Windows. So MATCH your syntax to the
-        target Node's ``os`` (from fleet_list_nodes): send POSIX/bash to a
-        "linux" or "darwin" Node and PowerShell to a "windows" Node — e.g.
-        ``Get-ChildItem`` not ``ls``, ``$env:VAR`` not ``$VAR``,
-        ``Remove-Item`` not ``rm``. kind="python" runs the same source anywhere.
+        For kind="shell" the Node runs ``code`` in its NATIVE shell, so write it
+        in that Node's dialect — every fleet_list_nodes summary reports which one
+        as ``shell``: "powershell" for a Windows Node (use ``Get-ChildItem`` not
+        ``ls``, ``$env:VAR`` not ``$VAR``, ``Remove-Item`` not ``rm``) or "posix"
+        for a Linux/macOS Node (bash/sh). Sending bash to a "powershell" Node (or
+        vice-versa) will error or misbehave. kind="python" runs the same source
+        on any OS — prefer it for cross-platform work.
 
         Args:
             node_id: Target Node id (from fleet_list_nodes).
             code: The shell command or Python source to run on the Node. For
-                kind="shell", write it in the target Node's native shell dialect
-                (POSIX shell vs. PowerShell — see above).
+                kind="shell", write it in the target Node's shell dialect — match
+                the Node's ``shell`` field ("powershell" vs. "posix", see above).
             kind: "shell" (default) or "python".
             timeout: Seconds before the Node aborts the task. Default 60.
 
