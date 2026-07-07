@@ -1,9 +1,31 @@
-# Global relay plan — "balanced 5" (LOCKED 2026-07-06, not yet executed)
+# Global relay plan — "balanced 5" (EXECUTED on prod 2026-07-07)
 
-A plan, not a deployment. Decision: roll out the **balanced 5-relay** layout for
-global users, on **prod**, when ready. China-specific enhancements are **deferred**
-(documented at the end). Prod is currently **untouched** — it still runs the
-pre-geo controller and only the SFO relay.
+**Status: LIVE on prod.** The balanced 5-relay layout with geo-aware ordering is
+deployed and verified (US node → US relay, EU → Frankfurt, CN/IN → Singapore, etc.).
+China-specific enhancements remain **deferred** (documented at the end).
+
+## Prod relay inventory (live)
+
+| Region | IP | DO droplet | peer id (short) | continent |
+|--------|----|-----------|-----------------|-----------|
+| US-West (SFO) | 24.199.99.134 | 581354476 (on the controller droplet) | 12D3KooWA7CQ… | NA |
+| US-East (nyc3) | 104.131.165.107 | 582822940 | 12D3KooWRCrrx1ZG… | NA |
+| Europe (fra1) | 46.101.126.75 | 582822946 | 12D3KooWS4p2JEwP… | EU |
+| SE Asia (sgp1) | 188.166.231.123 | 582822951 | 12D3KooWGDwCXqpo… | AS |
+| South Asia (blr1) | 168.144.208.203 | 582822964 | 12D3KooWC8jxvnTQ… | AS |
+
+geo-controller live on the prod controller (24.199.99.134); all 5 in its `--relays`
+(zz-hub-url.conf drop-in; backup `.bak`). 4 new droplets = **+$24/mo**. Existing prod
+nodes keep their current relay until they re-join; new/re-joined nodes get the
+geo-sorted 5. **Note:** CN + IN both currently resolve to sgp1 (continent-level can't
+rank sgp1 vs blr1 — both AS); the lat/long v2 would split them. AU/other regions with
+no same-continent relay fall back to the operator order (harmless).
+
+---
+
+### Original plan (below, for reference)
+
+Decision was: roll out the **balanced 5-relay** layout for global users, on **prod**.
 
 ## Why 5, and why these regions
 
