@@ -6,6 +6,7 @@ The global registry lives at `~/.pantheon/projects.json`.
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -19,6 +20,22 @@ def _global_pantheon_dir() -> Path:
 
 def _registry_path() -> Path:
     return _global_pantheon_dir() / "projects.json"
+
+
+# The Modal Volume root — either the /workspace mount or its real
+# /__modal/volumes/<volume-id> path. Its basename is a random volume id, so the
+# default project would otherwise show as gibberish (e.g. "vo-cEm8TSQpvrl…").
+_VOLUME_ROOT_RE = re.compile(r"^(?:/workspace|/__modal/volumes/[^/]+)/?$")
+
+
+def _friendly_default_name(path: str) -> str:
+    """Name for the default (workspace-root) project.
+
+    In a Modal sandbox the workspace root IS the Volume mount, whose basename is
+    an opaque volume id — show "Workspace" instead. Everywhere else (local,
+    desktop, or a named default_workspace subdir) the real basename is meaningful.
+    """
+    return "Workspace" if _VOLUME_ROOT_RE.match(path) else Path(path).name
 
 
 class ProjectInfo:
@@ -69,8 +86,42 @@ class ProjectManager:
         if active_path:
             resolved = str(Path(active_path).resolve())
             self._default_path = resolved
-            self.register(resolved)
+            self.register(resolved, name=_friendly_default_name(resolved))
             self.set_active(resolved)
+            # Recover projects whose registry entry was lost but whose directory
+            # survived (e.g. the registry used to live on ephemeral ~/.pantheon in
+            # a Modal sandbox — a restart dropped every sub-project's entry while
+            # the dirs persisted on the Volume). Re-register any sibling/child dir
+            # that carries a `.pantheon/` marker so it reappears in the UI.
+            self._discover_orphans(resolved)
+
+    def _discover_orphans(self, workspace_root: str) -> None:
+        """Re-register on-disk projects missing from the registry.
+
+        Scans the workspace root and its immediate children for directories that
+        carry a ``.pantheon/`` marker (i.e. were used as a project) and registers
+        any not already known. Idempotent and best-effort — never raises.
+        """
+        try:
+            root = Path(workspace_root)
+            if not root.is_dir():
+                return
+            candidates = [root]
+            try:
+                candidates += sorted(c for c in root.iterdir() if c.is_dir())
+            except OSError:
+                pass
+            for d in candidates:
+                # A dir is a "project" iff it has a .pantheon/ marker. Skip hidden
+                # dirs (.pantheon itself, .cache, …) — never treat them as projects.
+                if d.name.startswith(".") or not (d / ".pantheon").is_dir():
+                    continue
+                resolved = str(d.resolve())
+                if resolved not in self._projects:
+                    self.register(resolved)
+                    logger.info(f"[Projects] Re-discovered orphaned project: {resolved}")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[Projects] orphan discovery failed: {e}")
 
     def _load(self):
         if self._registry_path.exists():
