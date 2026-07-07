@@ -7,7 +7,23 @@ the work was still on disk.
 """
 from pathlib import Path
 
-from pantheon.chatroom.projects import ProjectManager, _friendly_default_name, _registry_path
+from pantheon.chatroom.projects import (
+    ProjectManager,
+    _friendly_default_name,
+    _registry_path,
+    _volume_root,
+)
+
+
+def test_volume_root_derivation():
+    # The Volume root that contains a path (independent workspaces are its children).
+    assert _volume_root("/workspace") == "/workspace"
+    assert _volume_root("/workspace/default_workspace") == "/workspace"
+    assert _volume_root("/workspace/other_ws/sub") == "/workspace"
+    assert _volume_root("/__modal/volumes/vo-abc/default_workspace") == "/__modal/volumes/vo-abc"
+    # Not on a Volume → None (local/desktop).
+    assert _volume_root("/Users/me/project") is None
+    assert _volume_root("/workspaces/foo") is None  # look-alike, not the mount
 
 
 def test_registry_path_persists_on_volume_in_sandbox():

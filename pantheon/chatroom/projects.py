@@ -117,30 +117,28 @@ class ProjectManager:
             self._discover_orphans(resolved)
 
     def _discover_orphans(self, workspace_root: str) -> None:
-        """Re-register on-disk projects missing from the registry.
+        """Re-register on-disk workspaces missing from the registry.
 
-        Scans the workspace root and its immediate children for directories that
-        carry a ``.pantheon/`` marker (i.e. were used as a project) and registers
-        any not already known. Idempotent and best-effort — never raises.
+        Independent workspaces are the immediate CHILDREN of the Volume root
+        (siblings of default_workspace) — not children of the active workspace —
+        so scan the Volume root (derived from ``workspace_root``) and register any
+        child dir that carries a ``.pantheon/`` marker but isn't known yet. The
+        container root itself and hidden dirs (.pantheon, .cache, …) are never
+        treated as workspaces. Idempotent, best-effort, never raises.
         """
         try:
-            root = Path(workspace_root)
-            if not root.is_dir():
+            scan_root = Path(_volume_root(workspace_root) or workspace_root)
+            if not scan_root.is_dir():
                 return
-            candidates = [root]
-            try:
-                candidates += sorted(c for c in root.iterdir() if c.is_dir())
-            except OSError:
-                pass
-            for d in candidates:
-                # A dir is a "project" iff it has a .pantheon/ marker. Skip hidden
-                # dirs (.pantheon itself, .cache, …) — never treat them as projects.
-                if d.name.startswith(".") or not (d / ".pantheon").is_dir():
+            for d in sorted(scan_root.iterdir()):
+                if not d.is_dir() or d.name.startswith("."):
+                    continue
+                if not (d / ".pantheon").is_dir():
                     continue
                 resolved = str(d.resolve())
                 if resolved not in self._projects:
                     self.register(resolved)
-                    logger.info(f"[Projects] Re-discovered orphaned project: {resolved}")
+                    logger.info(f"[Projects] Re-discovered orphaned workspace: {resolved}")
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[Projects] orphan discovery failed: {e}")
 
