@@ -247,32 +247,32 @@ else
     DEFAULT_WS=/workspace/default_workspace
 
     if [ "$DW_ENABLED" = "true" ]; then
-        MIGRATION_MARKER=/workspace/.pantheon/.migrated_to_default_workspace
-        # One-time migration. The OLD layout used the Volume ROOT itself as the
-        # single workspace; the NEW layout makes the root a container so users can
-        # create many independent workspaces. Relocate the root's own workspace
-        # into default_workspace, preserving everything:
-        #   - loose files / non-project dirs      -> default_workspace/
-        #   - dirs that are their OWN workspace (have a .pantheon)  -> stay as siblings
-        #   - the root's .pantheon (chats/brain/memory/settings)   -> default_workspace/.pantheon
-        # A fresh /workspace/.pantheon is then the GLOBAL store (~/.pantheon).
-        if [ ! -f "$MIGRATION_MARKER" ] && [ ! -d "$DEFAULT_WS" ]; then
-            echo "Migrating Volume-root workspace into default_workspace ..."
+        MIGRATION_MARKER=/workspace/.pantheon/.migrated_to_default_workspace_v2
+        # One-time migration (v2). The OLD layout used the Volume ROOT itself as the
+        # single workspace; the NEW layout makes the root a pure CONTAINER. Move the
+        # ENTIRE root workspace into default_workspace — loose files AND existing
+        # project dirs — so default_workspace holds all your prior work, and the
+        # root has only default_workspace + the global .pantheon (+ future SIBLING
+        # workspaces you create). v2 also corrects an earlier build that wrongly
+        # left project dirs at the root as siblings; it is guarded only by the
+        # marker (not by default_workspace existing) so it re-runs to fix a v1 layout.
+        if [ ! -f "$MIGRATION_MARKER" ]; then
+            echo "Migrating Volume-root content into default_workspace (v2) ..."
             mkdir -p "$DEFAULT_WS"
             moved=0
             for entry in /workspace/*; do   # unquoted glob: matches NON-dotfiles only
                 [ -e "$entry" ] || continue
-                base=$(basename "$entry")
-                [ "$base" = "default_workspace" ] && continue
-                if [ -d "$entry" ] && [ -d "$entry/.pantheon" ]; then continue; fi  # independent workspace
-                if mv "$entry" "$DEFAULT_WS/" 2>/dev/null; then moved=$((moved+1)); else echo "  (could not move $base)"; fi
+                [ "$(basename "$entry")" = "default_workspace" ] && continue
+                if mv "$entry" "$DEFAULT_WS/" 2>/dev/null; then moved=$((moved+1)); else echo "  (could not move $(basename "$entry"))"; fi
             done
-            if [ -d /workspace/.pantheon ]; then
+            # The old root .pantheon (chats/brain/memory) becomes the default
+            # workspace's — unless it already has one (a prior v1 migration moved it).
+            if [ -d /workspace/.pantheon ] && [ ! -d "$DEFAULT_WS/.pantheon" ]; then
                 mv /workspace/.pantheon "$DEFAULT_WS/.pantheon" 2>/dev/null || echo "  (could not move root .pantheon)"
             fi
             mkdir -p /workspace/.pantheon
             touch "$MIGRATION_MARKER"
-            echo "✓ Migration complete ($moved loose item(s) moved; root .pantheon -> default_workspace)"
+            echo "✓ Migration v2 complete ($moved item(s) now under default_workspace)"
         fi
         mkdir -p /workspace/.pantheon "$DEFAULT_WS/.pantheon"
         echo "✓ Global store /workspace/.pantheon + default workspace $DEFAULT_WS ready"

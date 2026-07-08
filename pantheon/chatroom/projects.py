@@ -117,28 +117,36 @@ class ProjectManager:
             self._discover_orphans(resolved)
 
     def _discover_orphans(self, workspace_root: str) -> None:
-        """Re-register on-disk workspaces missing from the registry.
+        """Re-register on-disk projects/workspaces missing from the registry.
 
-        Independent workspaces are the immediate CHILDREN of the Volume root
-        (siblings of default_workspace) — not children of the active workspace —
-        so scan the Volume root (derived from ``workspace_root``) and register any
-        child dir that carries a ``.pantheon/`` marker but isn't known yet. The
-        container root itself and hidden dirs (.pantheon, .cache, …) are never
-        treated as workspaces. Idempotent, best-effort, never raises.
+        Scans TWO levels for dirs carrying a ``.pantheon/`` marker: the Volume
+        ROOT's children (default_workspace + any sibling workspaces) AND the active
+        workspace's children (projects that live under default_workspace). Registers
+        any not already known. Container roots and hidden dirs (.pantheon, .cache,
+        …) are never treated as projects. Idempotent, best-effort, never raises.
         """
         try:
-            scan_root = Path(_volume_root(workspace_root) or workspace_root)
-            if not scan_root.is_dir():
-                return
-            for d in sorted(scan_root.iterdir()):
-                if not d.is_dir() or d.name.startswith("."):
+            roots: list[str] = []
+            vroot = _volume_root(workspace_root)
+            if vroot:
+                roots.append(vroot)                 # default_workspace + siblings
+            if workspace_root not in roots:
+                roots.append(workspace_root)         # projects under the active workspace
+            scanned: set[str] = set()
+            for r in roots:
+                rp = Path(r)
+                if str(rp) in scanned or not rp.is_dir():
                     continue
-                if not (d / ".pantheon").is_dir():
-                    continue
-                resolved = str(d.resolve())
-                if resolved not in self._projects:
-                    self.register(resolved)
-                    logger.info(f"[Projects] Re-discovered orphaned workspace: {resolved}")
+                scanned.add(str(rp))
+                for d in sorted(rp.iterdir()):
+                    if not d.is_dir() or d.name.startswith("."):
+                        continue
+                    if not (d / ".pantheon").is_dir():
+                        continue
+                    resolved = str(d.resolve())
+                    if resolved not in self._projects:
+                        self.register(resolved)
+                        logger.info(f"[Projects] Re-discovered project: {resolved}")
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[Projects] orphan discovery failed: {e}")
 
