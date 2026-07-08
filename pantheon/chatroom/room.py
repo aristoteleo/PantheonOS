@@ -1124,9 +1124,33 @@ class ChatRoom(ToolSet):
             return {"success": False, "message": f"Template setup failed: {str(e)}"}
 
     @tool
-    async def get_endpoint(self) -> dict:
-        """Get the endpoint service info."""
+    async def get_endpoint(self, session_id: str | None = None) -> dict:
+        """Get the endpoint service info.
+
+        When ``session_id`` is given, resolve the PER-PROJECT endpoint that chat
+        (or, for a draft, the active project) uses — the same routing
+        ``proxy_toolset`` and the file tree use — so the file data-channel targets
+        the active project's files instead of the home endpoint's. Without it (or
+        for home), return the default/home endpoint.
+        """
         try:
+            # Route the data-channel to the active project's endpoint when known,
+            # so file reads resolve against the SAME project the tree lists from.
+            # The UI's '__global__' / '' sentinel means "no chat" → resolve the
+            # ACTIVE project (not a memory lookup that would fall back to home).
+            try:
+                sid = None if session_id in (None, "", "__global__") else session_id
+                proj_sid = await self._resolve_endpoint_for_chat(sid)
+                if proj_sid:
+                    return {
+                        "success": True,
+                        "service_name": "endpoint",
+                        "service_id": proj_sid,
+                        "ready": True,
+                        "status": "ready",
+                    }
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"[multi-project] get_endpoint resolve for {session_id}: {e}")
             if self._endpoint_embed:
                 # Embed mode: directly access endpoint properties
                 endpoint = await self._get_endpoint_service()
