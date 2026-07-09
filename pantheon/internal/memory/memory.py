@@ -444,11 +444,11 @@ class Memory:
                 self._messages.pop()
                 continue
             if last_message["role"] == "user":
-                logger.debug(
-                    f"Popping user message: {last_message}, len={len(self._messages)}"
-                )
-                self._messages.pop()
-                continue
+                # Keep a trailing user message. A stop/interrupt must not make the
+                # user's own input vanish (common now that stop can land during the
+                # reasoning phase, before any response), and revert needs the message
+                # present to look it up and restore its text to the input.
+                break
             if last_message.get("content") is None:
                 logger.debug(
                     f"Popping message: {last_message}, len={len(self._messages)}"
