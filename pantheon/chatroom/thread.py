@@ -88,6 +88,10 @@ class Thread:
         self.run_hook_timeout = run_hook_timeout
         self.hook_retry_times = hook_retry_times
         self._stop_flag = False
+        # Set by room.chat() when this thread's run AND all its post-run memory
+        # writes are done. revert_to_message awaits it so a revert can't race the
+        # run and delete before the run's (late) writes land.
+        self._done = asyncio.Event()
         # Queue for user messages that arrive while this thread is running.
         # The agent loop drains it at turn boundaries (message queue feature);
         # leftovers after the run are flushed by room.chat().

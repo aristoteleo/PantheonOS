@@ -2139,6 +2139,9 @@ class Agent:
         IDLE_THINK_ONLY_CAP = 12           # absolute backstop for distinct idle loops
 
         while len(history) - init_len < max_turns:
+            # Honour a stop requested between turns, before spending another LLM call.
+            if check_stop is not None and check_stop(None):
+                raise StopRunning()
             # Pull in any user messages queued mid-run before this turn (steering)
             await _drain_steer_messages()
 
@@ -2171,7 +2174,12 @@ class Agent:
                 }
                 history_for_llm = list(history_for_llm) + [notif_msg]
 
-            message = await self._acompletion_with_models(
+            # Run the LLM call as a task so a stop that arrives DURING it — especially
+            # the pre-first-token wait, where the per-chunk check_stop can't fire —
+            # aborts the in-flight request within ~0.1s instead of waiting for the
+            # first token. During streaming the per-chunk check_stop still fires first;
+            # here we just observe the task finishing (possibly with StopRunning).
+            _llm_task = asyncio.create_task(self._acompletion_with_models(
                 history_for_llm,
                 tool_use,
                 Response,
@@ -2179,7 +2187,19 @@ class Agent:
                 allow_transfer,
                 model=model,
                 context_variables=context_variables,
-            )
+            ))
+            while True:
+                _done_set, _ = await asyncio.wait({_llm_task}, timeout=0.1)
+                if _llm_task in _done_set:
+                    break
+                if check_stop is not None and check_stop(None):
+                    _llm_task.cancel()
+                    try:
+                        await _llm_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                    raise StopRunning()
+            message = _llm_task.result()
 
             if Response is not None:
                 content = message.get("content")

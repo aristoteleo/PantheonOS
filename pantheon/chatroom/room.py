@@ -2656,18 +2656,22 @@ class ChatRoom(ToolSet):
             - reverted_content: Content of the deleted user message (if applicable)
         """
         try:
-            # If a turn is still running for this chat, stop it FIRST. Otherwise the
-            # run keeps writing after we delete, and its late output (e.g. a "Thinking"
-            # step) re-appears above the user's next message. thread.stop() is awaited,
-            # so the run has actually halted before we touch memory — no race.
+            # If a turn is still running for this chat, stop it and WAIT for it to
+            # fully finish (all its memory writes included) before trimming. Otherwise
+            # the run races the delete and its late output (e.g. a "Thinking" step)
+            # re-appears above the user's next message. The stop is near-instant — the
+            # in-flight LLM call is aborted (see _run_stream) — so this wait is short.
             thread = self.threads.get(chat_id)
             if thread is not None:
+                await thread.stop()
                 try:
-                    await thread.stop()
-                finally:
-                    self.threads.pop(chat_id, None)
+                    await asyncio.wait_for(thread._done.wait(), timeout=20.0)
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        f"[revert] chat {chat_id} did not stop within 20s; trimming anyway"
+                    )
 
-            # Read-only: reverting message, no need to fix
+            # Read-only: reverting message, no need to fix (run has stopped above)
             memory = await run_func(self.memory_manager.get_memory, chat_id)
 
             # Find the index of the message with the given ID
@@ -3283,6 +3287,10 @@ class ChatRoom(ToolSet):
                     logger.error(f"Failed to save memory on cleanup: {e}")
 
             await asyncio.shield(_cleanup_persistent_state())
+
+            # Signal that this run — and all its (post-run) memory writes — are
+            # done, so a concurrent revert_to_message can safely trim afterwards.
+            thread._done.set()
 
     @tool
     async def stop_chat(self, chat_id: str):

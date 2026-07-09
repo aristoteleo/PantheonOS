@@ -456,9 +456,21 @@ class Memory:
                 self._messages.pop()
                 continue
             if last_message["role"] == "assistant":
-                if last_message["tool_calls"]:
+                # Drop a trailing reasoning-only / empty partial (the model was
+                # mid-thought — no real content and no tool calls) so a stopped or
+                # reverted turn doesn't leave a dangling "Thinking" bubble.
+                has_content = bool(
+                    last_message.get("content")
+                    and str(last_message.get("content")).strip()
+                )
+                if not has_content and not last_message.get("tool_calls"):
+                    logger.debug(
+                        f"Popping reasoning-only partial: len={len(self._messages)}"
+                    )
+                    self._messages.pop()
+                    continue
+                if last_message.get("tool_calls"):
                     last_message["tool_calls"] = None
-            if last_message["role"] == "assistant":
                 break
             if last_message["role"] == "tool":
                 break
