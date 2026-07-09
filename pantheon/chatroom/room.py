@@ -2656,9 +2656,20 @@ class ChatRoom(ToolSet):
             - reverted_content: Content of the deleted user message (if applicable)
         """
         try:
+            # If a turn is still running for this chat, stop it FIRST. Otherwise the
+            # run keeps writing after we delete, and its late output (e.g. a "Thinking"
+            # step) re-appears above the user's next message. thread.stop() is awaited,
+            # so the run has actually halted before we touch memory — no race.
+            thread = self.threads.get(chat_id)
+            if thread is not None:
+                try:
+                    await thread.stop()
+                finally:
+                    self.threads.pop(chat_id, None)
+
             # Read-only: reverting message, no need to fix
             memory = await run_func(self.memory_manager.get_memory, chat_id)
-            
+
             # Find the index of the message with the given ID
             message_index = None
             reverted_message = None
