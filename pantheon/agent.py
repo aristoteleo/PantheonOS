@@ -2023,6 +2023,20 @@ class Agent:
 
         history = expand_image_references_for_llm(history)
 
+        # Vision fallback: when the run model can't see images, replace embedded
+        # image blocks in USER messages with a text description produced by a
+        # vision-capable model (mirrors observe_images' sub-agent path). No-op for
+        # vision models / image-free history. Fail-open — never break the main run.
+        try:
+            from .utils.vision_downgrade import downgrade_blind_user_images
+
+            _primary_model = get_current_run_model() or (
+                self.models[0] if self.models else None
+            )
+            history = await downgrade_blind_user_images(history, _primary_model)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"vision downgrade skipped: {e}")
+
         tool_timeout = tool_timeout or self.tool_timeout
 
         # Use instructions directly - all prompt composition happens at template parsing time
