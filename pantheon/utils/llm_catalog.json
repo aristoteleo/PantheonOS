@@ -18,6 +18,54 @@
         ]
       },
       "models": {
+        "gpt-5.6-sol": {
+          "max_input_tokens": 1050000,
+          "max_output_tokens": 128000,
+          "input_cost_per_million": 5.0,
+          "output_cost_per_million": 30.0,
+          "supports_vision": true,
+          "supports_function_calling": true,
+          "supports_response_schema": true,
+          "supports_reasoning": true,
+          "supports_audio_input": false,
+          "supports_audio_output": false,
+          "supports_web_search": false,
+          "supports_pdf_input": true,
+          "supports_computer_use": false,
+          "supports_assistant_prefill": false
+        },
+        "gpt-5.6-terra": {
+          "max_input_tokens": 1050000,
+          "max_output_tokens": 128000,
+          "input_cost_per_million": 2.5,
+          "output_cost_per_million": 15.0,
+          "supports_vision": true,
+          "supports_function_calling": true,
+          "supports_response_schema": true,
+          "supports_reasoning": true,
+          "supports_audio_input": false,
+          "supports_audio_output": false,
+          "supports_web_search": false,
+          "supports_pdf_input": true,
+          "supports_computer_use": false,
+          "supports_assistant_prefill": false
+        },
+        "gpt-5.6-luna": {
+          "max_input_tokens": 1050000,
+          "max_output_tokens": 128000,
+          "input_cost_per_million": 1.0,
+          "output_cost_per_million": 6.0,
+          "supports_vision": true,
+          "supports_function_calling": true,
+          "supports_response_schema": true,
+          "supports_reasoning": true,
+          "supports_audio_input": false,
+          "supports_audio_output": false,
+          "supports_web_search": false,
+          "supports_pdf_input": true,
+          "supports_computer_use": false,
+          "supports_assistant_prefill": false
+        },
         "gpt-5.5": {
           "max_input_tokens": 1000000,
           "max_output_tokens": 64000,
@@ -647,6 +695,22 @@
       "openai_compatible": true,
       "chat_output_token_param": "max_tokens",
       "models": {
+        "glm-5.2": {
+          "max_input_tokens": 1048576,
+          "max_output_tokens": 131072,
+          "input_cost_per_million": 1.4,
+          "output_cost_per_million": 4.4,
+          "supports_vision": true,
+          "supports_function_calling": true,
+          "supports_response_schema": true,
+          "supports_reasoning": true,
+          "supports_audio_input": false,
+          "supports_audio_output": false,
+          "supports_web_search": true,
+          "supports_pdf_input": false,
+          "supports_computer_use": false,
+          "supports_assistant_prefill": false
+        },
         "glm-5.1": {
           "max_input_tokens": 200000,
           "max_output_tokens": 128000,
@@ -1277,6 +1341,22 @@
       "openai_compatible": true,
       "chat_output_token_param": "max_tokens",
       "models": {
+        "x-ai/grok-4.5": {
+          "max_input_tokens": 500000,
+          "max_output_tokens": 32768,
+          "input_cost_per_million": 2.0,
+          "output_cost_per_million": 6.0,
+          "supports_vision": true,
+          "supports_function_calling": true,
+          "supports_response_schema": true,
+          "supports_reasoning": true,
+          "supports_audio_input": false,
+          "supports_audio_output": false,
+          "supports_web_search": false,
+          "supports_pdf_input": true,
+          "supports_computer_use": false,
+          "supports_assistant_prefill": false
+        },
         "qwen/qwen3.7-max": {
           "max_input_tokens": 1000000,
           "max_output_tokens": 65536,
@@ -1757,6 +1837,36 @@
       "auth_mode": "oauth",
       "responses_output_token_param": "max_output_tokens",
       "models": {
+        "gpt-5.6-sol": {
+          "max_input_tokens": 1050000,
+          "max_output_tokens": 128000,
+          "input_cost_per_million": 5.0,
+          "output_cost_per_million": 30.0,
+          "supports_vision": true,
+          "supports_function_calling": true,
+          "supports_response_schema": true,
+          "supports_reasoning": true
+        },
+        "gpt-5.6-terra": {
+          "max_input_tokens": 1050000,
+          "max_output_tokens": 128000,
+          "input_cost_per_million": 2.5,
+          "output_cost_per_million": 15.0,
+          "supports_vision": true,
+          "supports_function_calling": true,
+          "supports_response_schema": true,
+          "supports_reasoning": true
+        },
+        "gpt-5.6-luna": {
+          "max_input_tokens": 1050000,
+          "max_output_tokens": 128000,
+          "input_cost_per_million": 1.0,
+          "output_cost_per_million": 6.0,
+          "supports_vision": true,
+          "supports_function_calling": true,
+          "supports_response_schema": true,
+          "supports_reasoning": true
+        },
         "gpt-5.5": {
           "max_input_tokens": 1000000,
           "max_output_tokens": 64000,

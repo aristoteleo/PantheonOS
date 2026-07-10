@@ -164,10 +164,11 @@ DEFAULT_PROVIDER_MODELS = {
     # OpenAI: GPT-5.5/5.4 series
     # https://platform.openai.com/docs/models
     "openai": {
-        "high": ["openai/gpt-5.5", "openai/gpt-5.4", "openai/gpt-5.2"],
-        "normal": ["openai/gpt-5.5", "openai/gpt-5.4", "openai/gpt-5.2-codex", "openai/gpt-5.2", "openai/gpt-5"],
-        "low": ["openai/gpt-5.4-mini", "openai/gpt-5.4-nano", "openai/gpt-5-mini", "openai/gpt-5-nano"],
+        "high": ["openai/gpt-5.6-sol", "openai/gpt-5.5", "openai/gpt-5.4", "openai/gpt-5.2"],
+        "normal": ["openai/gpt-5.6-terra", "openai/gpt-5.5", "openai/gpt-5.4", "openai/gpt-5.2-codex", "openai/gpt-5.2", "openai/gpt-5"],
+        "low": ["openai/gpt-5.6-luna", "openai/gpt-5.4-mini", "openai/gpt-5.4-nano", "openai/gpt-5-mini", "openai/gpt-5-nano"],
     },
+
     # Anthropic: Claude 4.6 series
     # https://docs.anthropic.com/en/docs/about-claude/models/overview
     "anthropic": {
@@ -203,8 +204,8 @@ DEFAULT_PROVIDER_MODELS = {
     # Z.ai (Zhipu): GLM-4.6/4.5 series
     # https://open.bigmodel.cn/
     "zai": {
-        "high": ["zai/glm-5", "zai/glm-4.6", "zai/glm-4.5", "zai/glm-4.5v"],
-        "normal": ["zai/glm-5", "zai/glm-4.6", "zai/glm-4.5", "zai/glm-4.5v"],
+        "high": ["zai/glm-5.2", "zai/glm-5.1", "zai/glm-5", "zai/glm-4.6", "zai/glm-4.5", "zai/glm-4.5v"],
+        "normal": ["zai/glm-5.2", "zai/glm-5.1", "zai/glm-5", "zai/glm-4.6", "zai/glm-4.5", "zai/glm-4.5v"],
         "low": ["zai/glm-4.5-air", "zai/glm-4.5-flash"],
     },
     # DeepSeek: V4 series (1M context, dual thinking/non-thinking modes)
@@ -270,14 +271,14 @@ DEFAULT_PROVIDER_MODELS = {
     },
     # Codex: OpenAI via ChatGPT OAuth (free with ChatGPT Plus)
     "codex": {
-        "high": ["codex/gpt-5.5", "codex/gpt-5.4", "codex/gpt-5.2-codex"],
-        "normal": ["codex/gpt-5.4-mini", "codex/gpt-5"],
-        "low": ["codex/gpt-5.4-mini", "codex/o4-mini"],
+        "high": ["codex/gpt-5.6-sol", "codex/gpt-5.5", "codex/gpt-5.4", "codex/gpt-5.2-codex"],
+        "normal": ["codex/gpt-5.6-terra", "codex/gpt-5.4-mini", "codex/gpt-5"],
+        "low": ["codex/gpt-5.6-luna", "codex/gpt-5.4-mini", "codex/o4-mini"],
     },
     # OpenRouter: Multi-provider aggregator
     # https://openrouter.ai/models
     "openrouter": {
-        "high": ["openrouter/qwen/qwen3.7-max", "openrouter/x-ai/grok-4.3", "openrouter/anthropic/claude-sonnet-4-6"],
+        "high": ["openrouter/x-ai/grok-4.5", "openrouter/qwen/qwen3.7-max", "openrouter/x-ai/grok-4.3", "openrouter/anthropic/claude-sonnet-4-6"],
         "normal": ["openrouter/google/gemini-3.5-flash", "openrouter/mistralai/mistral-medium-3-5", "openrouter/google/gemini-2.5-flash"],
         "low": ["openrouter/openai/gpt-oss-120b", "openrouter/meta-llama/llama-3.3-70b-instruct"],
     },
