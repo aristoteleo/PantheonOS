@@ -1701,6 +1701,118 @@ class ChatRoom(ToolSet):
         }
 
     @tool
+    async def fork_chat(
+        self,
+        source_chat_id: str,
+        fork_at_message_id: str,
+        new_chat_name: str | None = None,
+    ) -> dict:
+        """Fork a chat at a message node into a new, independent chat.
+
+        The new chat (new id) is a copy of source_chat_id's history up to
+        fork_at_message_id. If that message is a USER message the copy stops BEFORE
+        it and the message is returned (the caller puts its text in the input box, so
+        the user re-asks in the new branch); otherwise the copy INCLUDES it (continue
+        from there). Project / team template / chat config are copied so the fork
+        opens in the same context.
+
+        Args:
+            source_chat_id: The chat to fork from.
+            fork_at_message_id: The message id to fork at.
+            new_chat_name: Optional name (defaults to "<source> (fork)").
+
+        Returns:
+            {success, chat_id, chat_name, is_user_node, reverted_message?}
+        """
+        import copy as _copy
+        import uuid as _uuid
+        try:
+            source = await run_func(self.memory_manager.get_memory, source_chat_id)
+
+            index = None
+            is_user_node = False
+            reverted_message = None
+            if fork_at_message_id:
+                for i, msg in enumerate(source._messages):
+                    if msg.get("id") == fork_at_message_id:
+                        index = i
+                        is_user_node = msg.get("role") == "user"
+                        if is_user_node:
+                            reverted_message = _copy.deepcopy(msg)
+                        break
+                if index is None:
+                    return {"success": False, "message": f"Message '{fork_at_message_id}' not found"}
+            elif source._messages:
+                # No message id → fork at the LAST message (sidebar "fork this chat").
+                index = len(source._messages) - 1
+                is_user_node = source._messages[index].get("role") == "user"
+                if is_user_node:
+                    reverted_message = _copy.deepcopy(source._messages[index])
+            else:
+                return {"success": False, "message": "Chat has no messages to fork"}
+
+            # user node → copy up to BEFORE it (re-ask); other → include it (continue).
+            end = index if is_user_node else index + 1
+
+            # A fork must never end on an assistant message that still has unresolved
+            # tool_calls. Forking from a task/execution card lands on the last
+            # tool-call assistant message, whose tool RESULTS are the following
+            # role="tool" messages. Slicing right after the tool_calls would leave a
+            # dangling call and the next LLM turn in the branch would error on the
+            # unmatched tool_call. Extend past any immediately-following tool-result
+            # messages so the tool_call/result pairing stays intact.
+            if not is_user_node and 0 < end <= len(source._messages):
+                last = source._messages[end - 1]
+                if last.get("role") == "assistant" and last.get("tool_calls"):
+                    while end < len(source._messages) and source._messages[end].get("role") == "tool":
+                        end += 1
+
+            sliced = _copy.deepcopy(source._messages[:end])
+            for m in sliced:
+                m["id"] = str(_uuid.uuid4())  # fresh message ids; only content is shared
+
+            name = new_chat_name or f"{source.name} (fork)"
+
+            # Create the fork in the SAME store as the source so it lands in the same
+            # project, then copy the context metadata over.
+            memory = None
+            if hasattr(self.memory_manager, "new_memory_in"):
+                try:
+                    src_dir = self.memory_manager.mgr_for_chat(source_chat_id).path
+                    memory = await run_func(self.memory_manager.new_memory_in, src_dir, name)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"[fork] new_memory_in failed ({e}); using default store")
+            if memory is None:
+                memory = await run_func(self.memory_manager.new_memory, name)
+
+            for key in ("project", "chat_config", "team_template"):
+                if key in source.extra_data:
+                    memory.set_metadata(key, _copy.deepcopy(source.extra_data[key]))
+            memory.set_metadata("last_activity_date", datetime.now().isoformat())
+
+            if sliced:
+                memory.add_messages(sliced)
+            await run_func(self.memory_manager.save_one, memory.id)
+
+            logger.info(
+                f"Forked chat {source_chat_id} @ {fork_at_message_id} -> {memory.id} "
+                f"({len(sliced)} msgs, user_node={is_user_node})"
+            )
+            result = {
+                "success": True,
+                "message": "Chat forked successfully",
+                "chat_id": memory.id,
+                "chat_name": memory.name,
+                "is_user_node": is_user_node,
+            }
+            if reverted_message is not None:
+                result["reverted_message"] = reverted_message
+            return result
+        except Exception as e:
+            logger.error(f"Error forking chat {source_chat_id}: {e}")
+            return {"success": False, "message": str(e)}
+
+    @tool
     async def delete_chat(self, chat_id: str):
         """Delete a chat.
 
