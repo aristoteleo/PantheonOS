@@ -57,6 +57,36 @@ def _content_to_anthropic_tool_result(content: Any) -> Any:
     return blocks if blocks else ""
 
 
+def _normalize_user_content(content: Any) -> Any:
+    """Translate a user message's OpenAI-style content into Anthropic-native blocks.
+
+    Anthropic rejects raw ``image_url`` blocks in user content (400: "Input tag
+    'image_url' ... does not match any of the expected tags"), so convert them to
+    ``{type: 'image', source: ...}``. Plain strings and image-free content pass
+    through unchanged. Mirrors ``_content_to_anthropic_tool_result`` but keeps a
+    block LIST (user turns may legitimately mix text + images).
+    """
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return content
+    if not has_image_content(content):
+        return content
+
+    text, inline_images, http_urls = split_text_and_images(content)
+    blocks: list[dict] = []
+    if text:
+        blocks.append({"type": "text", "text": text})
+    for mime, data in inline_images:
+        blocks.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": mime, "data": data},
+        })
+    for url in http_urls:
+        blocks.append({"type": "image", "source": {"type": "url", "url": url}})
+    return blocks if blocks else content
+
+
 def _wrap_anthropic_error(e: Exception) -> Exception:
     """Convert anthropic SDK exceptions to unified exception types."""
     try:
@@ -157,13 +187,17 @@ def _convert_messages_to_anthropic(messages: list[dict]) -> tuple[str | list | N
                     if isinstance(content, str):
                         result_content.append({"type": "text", "text": content})
                     elif isinstance(content, list):
-                        result_content.extend(content)
+                        normalized = _normalize_user_content(content)
+                        if isinstance(normalized, list):
+                            result_content.extend(normalized)
+                        else:
+                            result_content.append({"type": "text", "text": str(normalized)})
                 converted.append({"role": "user", "content": result_content})
                 pending_tool_results = []
             elif _msg_has_content(content):
                 # Skip a bare/empty user turn (e.g. an approval action with no
                 # text) — an empty user message is rejected by the API.
-                converted.append({"role": "user", "content": content})
+                converted.append({"role": "user", "content": _normalize_user_content(content)})
             continue
 
         if role == "assistant":
