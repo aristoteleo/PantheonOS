@@ -486,6 +486,21 @@ class ModelSelector:
                 return {"high": prefixed, "normal": prefixed, "low": prefixed}
             return {}
 
+        # OpenRouter: featured tiers derived from the live /models catalog (fetched
+        # into an in-process cache by list_available_models). Falls back to the
+        # static DEFAULT_PROVIDER_MODELS until the first fetch. User config still
+        # overrides.
+        if provider == "openrouter":
+            try:
+                from .openrouter_catalog import is_loaded, featured_by_tier
+
+                if is_loaded():
+                    featured = featured_by_tier()
+                    user_config = self.settings.get("models.provider_models.openrouter", {})
+                    return {**featured, **user_config} if user_config else featured
+            except Exception:  # noqa: BLE001
+                pass
+
         # Try user configuration first
         user_config = self.settings.get(f"models.provider_models.{provider}", {})
 

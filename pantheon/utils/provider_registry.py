@@ -153,6 +153,18 @@ def get_model_info(model: str) -> dict:
             info["output_cost_per_token"] = info.get("output_cost_per_million", 5.0) / 1_000_000
         return info
 
+    # OpenRouter: any of its ~346 models is classified from the live /models API
+    # (fetched into an in-process cache) — use that before the generic defaults.
+    if provider_key == "openrouter":
+        try:
+            from .openrouter_catalog import get_model_info as _or_model_info
+
+            or_info = _or_model_info(model_name)
+            if or_info:
+                return {**_DEFAULT_MODEL_INFO, **or_info}
+        except Exception:  # noqa: BLE001
+            pass
+
     logger.debug(f"Model '{model}' not found in catalog, using defaults")
     info = dict(_DEFAULT_MODEL_INFO)
     info["input_cost_per_token"] = info["input_cost_per_million"] / 1_000_000

@@ -3768,15 +3768,58 @@ class ChatRoom(ToolSet):
         """
         try:
             from pantheon.utils.model_selector import get_model_selector, refresh_ollama_cache
+            from pantheon.utils import openrouter_catalog
 
             asyncio.create_task(refresh_ollama_cache())
             selector = get_model_selector()
             selector._available_providers = None
             selector._detected_provider = None
-            return selector.list_available_models()
+            # Refresh the OpenRouter catalog (public /models) so its featured tiers
+            # + per-model classification are ready. TTL-cached, so only the first
+            # call per hour actually fetches; guarded so it never fails the RPC.
+            mode = openrouter_catalog.platform_model_mode()
+            try:
+                if mode == "openrouter" or "openrouter" in selector._get_available_providers():
+                    await openrouter_catalog.ensure_fresh()
+            except Exception as _or_e:  # noqa: BLE001
+                logger.warning(f"openrouter catalog refresh skipped: {_or_e}")
+            resp = selector.list_available_models()
+            # Platform view: when the deployment routes the platform budget through
+            # OpenRouter (PLATFORM_MODEL_MODE=openrouter), expose its models as
+            # familiar VENDOR groups (Anthropic/OpenAI/Gemini/…) so the picker can
+            # present them like separate providers. The frontend switches to this
+            # view when the user has the platform budget ON; BYOK still uses
+            # models_by_provider (the user's own keys).
+            resp["platform_model_mode"] = mode
+            if mode == "openrouter" and openrouter_catalog.is_loaded():
+                resp["platform_models_by_provider"] = openrouter_catalog.by_vendor()
+            return resp
         except Exception as e:
             logger.error(f"Error listing available models: {e}")
             return {"success": False, "message": str(e)}
+
+    @tool
+    async def search_openrouter_models(self, query: str = "", limit: int = 40) -> dict:
+        """Search the full OpenRouter model catalog (fetched from the public
+        /models API) so the UI can pin any of the ~346 models beyond the featured
+        tiers.
+
+        Args:
+            query: Substring to match against the model id / display name (empty = all).
+            limit: Max rows to return.
+
+        Returns:
+            {success, results: [{model, name, tier, vision, reasoning, tools,
+             input_cost_per_million, output_cost_per_million, context}, ...]}
+        """
+        try:
+            from pantheon.utils import openrouter_catalog
+
+            await openrouter_catalog.ensure_fresh()
+            return {"success": True, "results": openrouter_catalog.search(query, limit)}
+        except Exception as e:
+            logger.error(f"Error searching OpenRouter models: {e}")
+            return {"success": False, "message": str(e), "results": []}
 
     async def _ensure_fleet_session_key(self) -> None:
         """Publish a session-derived ``FLEET_KEY`` (and start refreshing it) the
