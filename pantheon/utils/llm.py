@@ -881,6 +881,20 @@ async def acompletion(
                 f"quality tier should not resolve to this."
             )
 
+    # OpenRouter routed through the LiteLLM proxy needs its full
+    # "openrouter/<vendor>/<model>" id so the proxy's openrouter/* group matches.
+    # find_provider_for_model stripped the "openrouter/" prefix — correct ONLY for a
+    # direct BYOK call to openrouter.ai (whose API wants "<vendor>/<model>"), wrong for
+    # the proxy, which otherwise misreads "<vendor>/" as a provider ("no healthy
+    # deployments for grok-4.5"). Restore the prefix whenever we're proxying: platform
+    # budget force-proxy, OR hub mode where OpenRouter's own key is the proxy-mode
+    # sentinel (get_provider_api_key → None) and the call falls back to LLM_API_BASE.
+    if provider_key == "openrouter" and model.startswith("openrouter/"):
+        from .llm_providers import is_force_proxy_enabled
+
+        if is_force_proxy_enabled() or not get_provider_api_key("openrouter"):
+            effective_model = model
+
     adapter = get_adapter(sdk_type)
 
     # ========== Prepare adapter kwargs ==========
