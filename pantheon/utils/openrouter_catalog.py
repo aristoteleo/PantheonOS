@@ -154,31 +154,53 @@ def _ensure_loaded_sync() -> None:
         logger.warning(f"[openrouter_catalog] sync refresh failed: {e}")
 
 
+# Bare-model-name prefix → OpenRouter vendor. Lets bare ids route WITHOUT the live catalog
+# (the agent runs in the endpoint process, where the sync catalog fetch has proven flaky —
+# so relying on it left a bare "grok-4.5" the proxy couldn't place). Deterministic + offline.
+_BARE_PREFIX_TO_VENDOR = {
+    "grok": "x-ai", "kimi": "moonshotai", "glm": "z-ai", "deepseek": "deepseek",
+    "qwen": "qwen", "qwq": "qwen", "gemma": "google", "llama": "meta-llama",
+    "mistral": "mistralai", "mixtral": "mistralai", "codestral": "mistralai",
+    "command": "cohere", "phi": "microsoft", "nova": "amazon", "sonar": "perplexity",
+}
+# Vendors that live ONLY on OpenRouter (no proxy-native route), so "<vendor>/<model>" can be
+# namespaced to openrouter/ without a catalog-membership check.
+_OR_ONLY_VENDORS = frozenset({
+    "x-ai", "moonshotai", "z-ai", "deepseek", "qwen", "meta-llama", "mistralai",
+    "cohere", "microsoft", "amazon", "perplexity", "nvidia", "google",
+})
+
+
 def canonical_openrouter_id(model: str) -> str | None:
     """Canonicalize a model to the full ``openrouter/<vendor>/<model>`` id the LiteLLM
-    proxy's ``openrouter/*`` group needs — used in platform mode where EVERY model routes
-    through OpenRouter (unified billing). Accepts:
-      • already-namespaced ``openrouter/...``            → returned unchanged
-      • a ``<vendor>/<model>`` id (``anthropic/claude-sonnet-5``, ``x-ai/grok-4.5``)
-        → ``openrouter/<vendor>/<model>`` ONLY if OpenRouter actually serves it
-      • a bare name (``grok-4.5``)                       → vendor resolved via the catalog
-    Returns None when OpenRouter doesn't have the model (naming mismatch like our
-    ``claude-opus-4-8`` vs OpenRouter's ``claude-opus-4.8``, or a native-only release) so
-    the caller falls back to the model's native route instead of 404-ing at the proxy."""
+    proxy's ``openrouter/*`` group needs — platform mode routes EVERY model through OpenRouter
+    (unified billing). Accepts:
+      • already-namespaced ``openrouter/...``            → unchanged
+      • ``<vendor>/<model>`` (``x-ai/grok-4.5``)         → ``openrouter/<vendor>/<model>``
+        (OpenRouter-only vendors go straight through; anthropic/openai check the catalog for
+        the dash-vs-dot naming mismatch so a native-only release falls back to its own route)
+      • a bare name (``grok-4.5``)                       → vendor via catalog, else prefix map
+    Returns None only when the vendor can't be determined (→ caller keeps the native route)."""
     if not model or not isinstance(model, str):
         return None
     if model.startswith("openrouter/"):
         return model
-    _ensure_loaded_sync()
     if "/" in model:
-        # <vendor>/<model> — route via OpenRouter only if it's actually in the catalog.
+        vendor = model.split("/", 1)[0].lower()
+        if vendor in _OR_ONLY_VENDORS:
+            return f"openrouter/{model}"  # OpenRouter-only vendor — no catalog needed
+        # anthropic/openai/gemini and the like: only via OpenRouter if it actually serves it
+        # (our ``claude-opus-4-8`` dash id isn't OpenRouter's ``claude-opus-4.8`` dot id).
+        _ensure_loaded_sync()
         return f"openrouter/{model}" if model in _CACHE else None
-    # Bare name — resolve the vendor from the catalog by matching the last id segment.
+    # Bare name — prefer the catalog's exact id, then fall back to the offline prefix map.
+    _ensure_loaded_sync()
     hits = [mid for mid in _CACHE if mid.rsplit("/", 1)[-1] == model]
-    if not hits:
-        return None
-    # Prefer the shortest vendor id (usually the canonical, non-fine-tuned variant).
-    return f"openrouter/{sorted(hits, key=len)[0]}"
+    if hits:
+        return f"openrouter/{sorted(hits, key=len)[0]}"
+    prefix = model.split("-", 1)[0].split(".")[0].lower()
+    vendor = _BARE_PREFIX_TO_VENDOR.get(prefix)
+    return f"openrouter/{vendor}/{model}" if vendor else None
 
 
 def featured_by_tier(per_tier: int = _FEATURED_PER_TIER) -> dict[str, list[str]]:
