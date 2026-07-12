@@ -284,6 +284,17 @@ DEFAULT_PROVIDER_MODELS = {
     },
 }
 
+# Platform-OpenRouter quality tiers. In PLATFORM_MODEL_MODE=openrouter, tags (high/normal/
+# low) + the default resolve to THESE Claude ids (routed via OpenRouter for unified billing)
+# rather than featured_by_tier()'s newest-first picks — the platform is tuned for Claude
+# (prompt caching, prompts), so the default must stay Claude, just billed through OpenRouter.
+# OpenRouter uses dot naming (claude-opus-4.8), unlike our native dash ids (claude-opus-4-8).
+PLATFORM_OPENROUTER_TIERS = {
+    "high": ["openrouter/anthropic/claude-opus-4.8", "openrouter/anthropic/claude-opus-4.7"],
+    "normal": ["openrouter/anthropic/claude-sonnet-5", "openrouter/anthropic/claude-sonnet-4.6"],
+    "low": ["openrouter/anthropic/claude-haiku-4.5"],
+}
+
 # Capability tags map to catalog supports_* fields
 CAPABILITY_MAP = {
     "vision": "supports_vision",
@@ -502,6 +513,19 @@ class ModelSelector:
         # static DEFAULT_PROVIDER_MODELS until the first fetch. User config still
         # overrides.
         if provider == "openrouter":
+            # Platform-OpenRouter mode: quality tiers + default resolve to the Claude-centric
+            # PLATFORM_OPENROUTER_TIERS (the platform's tuned default, via OpenRouter), NOT
+            # the picker's diverse featured list. (The platform picker uses by_vendor, not
+            # this, so it's unaffected.) BYOK openrouter keeps the featured tiers below.
+            import os
+
+            if os.getenv("PLATFORM_MODEL_MODE", "").strip().lower() == "openrouter":
+                user_config = self.settings.get("models.provider_models.openrouter", {})
+                return (
+                    {**PLATFORM_OPENROUTER_TIERS, **user_config}
+                    if user_config
+                    else dict(PLATFORM_OPENROUTER_TIERS)
+                )
             try:
                 from .openrouter_catalog import is_loaded, featured_by_tier
 
