@@ -133,6 +133,59 @@ def get_model_info(model_id: str) -> dict | None:
     return {k: v for k, v in info.items() if not k.startswith("_")}
 
 
+def _ensure_loaded_sync() -> None:
+    """Best-effort SYNC load when the async cache is empty (e.g. a fresh process that
+    hasn't served list_available_models yet). Fetches once, TTL-guarded. Used by
+    canonical_openrouter_id from the synchronous provider-detection path."""
+    global _FETCHED_AT
+    if _CACHE and (time.monotonic() - _FETCHED_AT) < _TTL_SECONDS:
+        return
+    try:
+        with httpx.Client(timeout=httpx.Timeout(10.0)) as client:
+            resp = client.get(_MODELS_URL, headers={"Accept": "application/json"})
+        resp.raise_for_status()
+        parsed = _parse(resp.json())
+        if parsed:
+            _CACHE.clear()
+            _CACHE.update(parsed)
+            _FETCHED_AT = time.monotonic()
+            logger.info(f"[openrouter_catalog] sync-cached {len(parsed)} models")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[openrouter_catalog] sync refresh failed: {e}")
+
+
+# Vendors the platform proxy serves with its OWN keys (native routes), so a bare model
+# that resolves to one of these must NOT be re-routed through OpenRouter.
+_NATIVE_VENDORS = frozenset({"anthropic", "openai", "google"})
+
+
+def canonical_openrouter_id(model: str) -> str | None:
+    """Canonicalize a model to the full ``openrouter/<vendor>/<model>`` id the LiteLLM
+    proxy's ``openrouter/*`` group needs. Accepts:
+      • already-namespaced ``openrouter/...``            → returned unchanged
+      • a ``<vendor>/<model>`` id (``x-ai/grok-4.5``)    → ``openrouter/<vendor>/<model>``
+      • a bare name (``grok-4.5``)                       → vendor resolved via the catalog
+    Bare names that resolve to a NATIVE vendor (anthropic/openai/google) return None so
+    they keep their dedicated proxy route. Returns None when unresolvable."""
+    if not model or not isinstance(model, str):
+        return None
+    if model.startswith("openrouter/"):
+        return model
+    if "/" in model:
+        return f"openrouter/{model}"
+    # Bare name — resolve the vendor from the catalog by matching the last id segment.
+    _ensure_loaded_sync()
+    hits = [
+        mid for mid in _CACHE
+        if mid.rsplit("/", 1)[-1] == model
+        and mid.split("/", 1)[0].lower() not in _NATIVE_VENDORS
+    ]
+    if not hits:
+        return None
+    # Prefer the shortest vendor id (usually the canonical, non-fine-tuned variant).
+    return f"openrouter/{sorted(hits, key=len)[0]}"
+
+
 def featured_by_tier(per_tier: int = _FEATURED_PER_TIER) -> dict[str, list[str]]:
     """Curated dropdown default: notable-vendor models grouped by cost tier, newest
     first, capped per tier. Returns ``openrouter/<id>`` strings. Empty until fetched."""

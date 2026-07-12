@@ -83,6 +83,33 @@ def get_provider_base_env(
 # ============ Provider Detection ============
 
 
+def _canonicalize_platform_model(model: str) -> str:
+    """In platform-OpenRouter mode (proxying), rewrite a non-native vendor model to its
+    full ``openrouter/<vendor>/<model>`` id BEFORE provider detection runs. Otherwise the
+    logic below either strips the vendor to a bare model (for a vendor that happens to be
+    an openai-compatible catalog provider, e.g. deepseek/qwen) or leaves a bare name the
+    proxy can only place with an OpenRouter vendor prefix — both yield "no healthy
+    deployments for <bare>". Native providers (openai/anthropic/gemini), already-openrouter
+    ids, and non-platform/non-proxy contexts are left untouched."""
+    import os
+
+    if not isinstance(model, str) or not model.strip():
+        return model
+    if os.getenv("PLATFORM_MODEL_MODE", "").strip().lower() != "openrouter":
+        return model
+    if not (is_force_proxy_enabled() or os.getenv("LLM_API_BASE")):
+        return model
+    first = model.split("/", 1)[0].lower() if "/" in model else ""
+    if first in ("openrouter", "openai", "anthropic", "gemini"):
+        return model
+    try:
+        from .openrouter_catalog import canonical_openrouter_id
+
+        return canonical_openrouter_id(model) or model
+    except Exception:  # noqa: BLE001
+        return model
+
+
 def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
     """Detect provider from model string.
 
@@ -97,6 +124,7 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
     Returns:
         ProviderConfig with detected provider and model name
     """
+    model = _canonicalize_platform_model(model)
     base_url = None
     api_key = None
     provider_type = None
