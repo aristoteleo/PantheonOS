@@ -303,6 +303,19 @@ class Endpoint(FileTransferToolSet):
         """
         import time as _time
 
+        # Pre-load the OpenRouter catalog in THIS process. Agents run their LLM calls here,
+        # and platform-openrouter routing (canonical_openrouter_id) resolves a bare model
+        # (e.g. "grok-4.5" → "openrouter/x-ai/grok-4.5") via the catalog. list_available_models
+        # only warms the catalog in the ROOM process, so without this the endpoint sends a bare
+        # id the proxy can't place ("no healthy deployments for grok-4.5"). Best-effort.
+        try:
+            if os.environ.get("PLATFORM_MODEL_MODE", "").strip().lower() == "openrouter":
+                from pantheon.utils.openrouter_catalog import ensure_fresh as _or_ensure
+
+                await _or_ensure()
+        except Exception as _e:  # noqa: BLE001
+            logger.info(f"[WARMUP] openrouter catalog preload skipped: {_e}")
+
         try:
             model = os.environ.get("LLM_WARMUP_MODEL")
             if model and model.strip().lower() in {"0", "false", "off", "none", "disabled"}:
