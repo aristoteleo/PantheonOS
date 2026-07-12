@@ -881,19 +881,31 @@ async def acompletion(
                 f"quality tier should not resolve to this."
             )
 
-    # OpenRouter routed through the LiteLLM proxy needs its full
-    # "openrouter/<vendor>/<model>" id so the proxy's openrouter/* group matches.
-    # find_provider_for_model stripped the "openrouter/" prefix — correct ONLY for a
-    # direct BYOK call to openrouter.ai (whose API wants "<vendor>/<model>"), wrong for
-    # the proxy, which otherwise misreads "<vendor>/" as a provider ("no healthy
-    # deployments for grok-4.5"). Restore the prefix whenever we're proxying: platform
-    # budget force-proxy, OR hub mode where OpenRouter's own key is the proxy-mode
-    # sentinel (get_provider_api_key → None) and the call falls back to LLM_API_BASE.
-    if provider_key == "openrouter" and model.startswith("openrouter/"):
+    # Platform-OpenRouter routing through the LiteLLM proxy. When a deployment fronts the
+    # budget with OpenRouter (PLATFORM_MODEL_MODE=openrouter) and we're proxying, the proxy
+    # serves vendor models ONLY via its "openrouter/*" group, so the model must arrive as
+    # "openrouter/<vendor>/<model>". Two shapes reach here having lost that routing prefix,
+    # leaving a bare model the proxy can't place ("no healthy deployments for grok-4.5"):
+    #   • "openrouter/x-ai/grok-4.5" (3-seg, vendor picker) — find_provider_for_model split
+    #     on the first "/", so provider_key="openrouter" and effective_model is the stripped
+    #     "x-ai/grok-4.5". Send the full original id.
+    #   • "x-ai/grok-4.5" (2-seg — e.g. a saved/pinned id) — provider_key is the vendor
+    #     ("x-ai") and effective_model is the bare "grok-4.5". Prepend "openrouter/".
+    # Untouched: BYOK-direct OpenRouter (real key + force-proxy off → not proxying → keeps
+    # the stripped id that openrouter.ai's own API wants) and proxy-native providers
+    # (openai/anthropic/gemini keep their dedicated proxy routes).
+    if provider_key not in ("openai", "anthropic", "gemini"):
         from .llm_providers import is_force_proxy_enabled
 
-        if is_force_proxy_enabled() or not get_provider_api_key("openrouter"):
-            effective_model = model
+        _proxying = is_force_proxy_enabled() or not get_provider_api_key(provider_key)
+        if _proxying:
+            if model.startswith("openrouter/"):
+                effective_model = model
+            else:
+                import os as _os
+
+                if _os.getenv("PLATFORM_MODEL_MODE", "").strip().lower() == "openrouter":
+                    effective_model = f"openrouter/{model}"
 
     adapter = get_adapter(sdk_type)
 
