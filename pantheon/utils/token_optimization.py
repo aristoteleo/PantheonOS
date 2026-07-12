@@ -2316,9 +2316,16 @@ def supports_explicit_cache_control(model: str) -> bool:
     - Qwen (DashScope): same cache_control format via OpenAI-compatible endpoint
     """
     lower = model.lower()
+    # In platform-OpenRouter mode the id is "openrouter/<vendor>/<model>"; the caching
+    # capability is the underlying vendor's, so look past the openrouter/ prefix. OpenRouter
+    # passes cache_control breakpoints through to Anthropic/Qwen (verified: repeat call
+    # reports prompt_tokens_details.cached_tokens > 0).
+    if lower.startswith("openrouter/"):
+        lower = lower[len("openrouter/"):]
     return (
         any(lower.startswith(p) for p in _ANTHROPIC_MODEL_PREFIXES)
         or any(lower.startswith(p) for p in _QWEN_MODEL_PREFIXES)
+        or lower.startswith("z-ai/")  # GLM via OpenRouter uses the same cache_control format
     )
 
 

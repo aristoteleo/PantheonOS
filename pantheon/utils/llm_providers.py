@@ -83,31 +83,44 @@ def get_provider_base_env(
 # ============ Provider Detection ============
 
 
-def _canonicalize_platform_model(model: str) -> str:
-    """In platform-OpenRouter mode (proxying), rewrite a non-native vendor model to its
-    full ``openrouter/<vendor>/<model>`` id BEFORE provider detection runs. Otherwise the
-    logic below either strips the vendor to a bare model (for a vendor that happens to be
-    an openai-compatible catalog provider, e.g. deepseek/qwen) or leaves a bare name the
-    proxy can only place with an OpenRouter vendor prefix — both yield "no healthy
-    deployments for <bare>". Native providers (openai/anthropic/gemini), already-openrouter
-    ids, and non-platform/non-proxy contexts are left untouched."""
+def _platform_openrouter_config(
+    model: str, relaxed_schema: bool
+) -> Optional[ProviderConfig]:
+    """Platform-OpenRouter mode: route EVERY model (incl. anthropic/openai/gemini) through
+    OpenRouter for unified billing. Returns a config that forces the OpenAI-compatible path
+    with the full ``openrouter/<vendor>/<model>`` id, so the LiteLLM proxy's ``openrouter/*``
+    group serves it (and OpenRouter fronts one key for all vendors) — bypassing the native
+    anthropic/gemini adapters. Returns None (→ fall through to normal per-provider detection)
+    when: not in platform-openrouter mode, not proxying, or the model isn't on OpenRouter
+    (naming mismatch / native-only release → keeps its native route instead of 404-ing).
+
+    Prompt caching still works: the agent injects Anthropic-style cache_control breakpoints
+    (supports_explicit_cache_control), the OpenAI adapter passes them through, and OpenRouter
+    forwards them to the vendor — verified end-to-end (repeat call → cached_tokens > 0)."""
     import os
 
     if not isinstance(model, str) or not model.strip():
-        return model
+        return None
     if os.getenv("PLATFORM_MODEL_MODE", "").strip().lower() != "openrouter":
-        return model
+        return None
     if not (is_force_proxy_enabled() or os.getenv("LLM_API_BASE")):
-        return model
-    first = model.split("/", 1)[0].lower() if "/" in model else ""
-    if first in ("openrouter", "openai", "anthropic", "gemini"):
-        return model
+        return None
     try:
         from .openrouter_catalog import canonical_openrouter_id
 
-        return canonical_openrouter_id(model) or model
+        canon = canonical_openrouter_id(model)
     except Exception:  # noqa: BLE001
-        return model
+        canon = None
+    if not canon:
+        return None
+    return ProviderConfig(
+        provider_type=ProviderType.OPENAI,
+        model_name=canon,  # full "openrouter/<vendor>/<model>"; base_url/api_key resolve
+        base_url=None,     # to the platform proxy (LLM_API_BASE) + virtual key downstream
+        api_key=None,
+        relaxed_schema=relaxed_schema,
+        responses_required_models={},
+    )
 
 
 def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
@@ -124,7 +137,9 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
     Returns:
         ProviderConfig with detected provider and model name
     """
-    model = _canonicalize_platform_model(model)
+    _plat = _platform_openrouter_config(model, relaxed_schema)
+    if _plat is not None:
+        return _plat
     base_url = None
     api_key = None
     provider_type = None

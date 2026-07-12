@@ -154,32 +154,27 @@ def _ensure_loaded_sync() -> None:
         logger.warning(f"[openrouter_catalog] sync refresh failed: {e}")
 
 
-# Vendors the platform proxy serves with its OWN keys (native routes), so a bare model
-# that resolves to one of these must NOT be re-routed through OpenRouter.
-_NATIVE_VENDORS = frozenset({"anthropic", "openai", "google"})
-
-
 def canonical_openrouter_id(model: str) -> str | None:
     """Canonicalize a model to the full ``openrouter/<vendor>/<model>`` id the LiteLLM
-    proxy's ``openrouter/*`` group needs. Accepts:
+    proxy's ``openrouter/*`` group needs — used in platform mode where EVERY model routes
+    through OpenRouter (unified billing). Accepts:
       • already-namespaced ``openrouter/...``            → returned unchanged
-      • a ``<vendor>/<model>`` id (``x-ai/grok-4.5``)    → ``openrouter/<vendor>/<model>``
+      • a ``<vendor>/<model>`` id (``anthropic/claude-sonnet-5``, ``x-ai/grok-4.5``)
+        → ``openrouter/<vendor>/<model>`` ONLY if OpenRouter actually serves it
       • a bare name (``grok-4.5``)                       → vendor resolved via the catalog
-    Bare names that resolve to a NATIVE vendor (anthropic/openai/google) return None so
-    they keep their dedicated proxy route. Returns None when unresolvable."""
+    Returns None when OpenRouter doesn't have the model (naming mismatch like our
+    ``claude-opus-4-8`` vs OpenRouter's ``claude-opus-4.8``, or a native-only release) so
+    the caller falls back to the model's native route instead of 404-ing at the proxy."""
     if not model or not isinstance(model, str):
         return None
     if model.startswith("openrouter/"):
         return model
-    if "/" in model:
-        return f"openrouter/{model}"
-    # Bare name — resolve the vendor from the catalog by matching the last id segment.
     _ensure_loaded_sync()
-    hits = [
-        mid for mid in _CACHE
-        if mid.rsplit("/", 1)[-1] == model
-        and mid.split("/", 1)[0].lower() not in _NATIVE_VENDORS
-    ]
+    if "/" in model:
+        # <vendor>/<model> — route via OpenRouter only if it's actually in the catalog.
+        return f"openrouter/{model}" if model in _CACHE else None
+    # Bare name — resolve the vendor from the catalog by matching the last id segment.
+    hits = [mid for mid in _CACHE if mid.rsplit("/", 1)[-1] == model]
     if not hits:
         return None
     # Prefer the shortest vendor id (usually the canonical, non-fine-tuned variant).
