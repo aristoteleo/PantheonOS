@@ -434,6 +434,17 @@ class ModelSelector:
         Returns:
             Provider name if found, None otherwise
         """
+        # Platform-OpenRouter mode: front EVERY tier/default through OpenRouter for unified
+        # billing, so quality tags ("high"/"normal"/"low") resolve to openrouter/<vendor>/
+        # <model> ids instead of the native anthropic tiers. Overrides the priority list
+        # (and any cached pick) whenever OpenRouter is available.
+        import os
+
+        if os.getenv("PLATFORM_MODEL_MODE", "").strip().lower() == "openrouter":
+            if "openrouter" in self._effective_providers():
+                self._detected_provider = "openrouter"
+                return "openrouter"
+
         if self._detected_provider is not None:
             return self._detected_provider
 
