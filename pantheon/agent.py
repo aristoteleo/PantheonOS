@@ -596,10 +596,24 @@ class Agent:
         max_tool_content_length: int | None = None,
         description: str | None = None,
     ):
-        # Parse +think suffix before any processing
+        # Parse +think suffix before any processing. Handle BOTH the string form and the
+        # LIST (fallback-chain) form — teams build agents with a model list, and a bare
+        # list branch left "+think:high" glued onto the id, so provider detection saw an
+        # unknown model ("z-ai/glm-5.2+think:high") and the proxy got a bare "glm-5.2".
         thinking_level: str | None = None
         if isinstance(model, str):
             model, thinking_level = _parse_thinking_suffix(model)
+        elif isinstance(model, list):
+            cleaned: list = []
+            for _m in model:
+                if isinstance(_m, str):
+                    _clean, _think = _parse_thinking_suffix(_m)
+                    if _think and thinking_level is None:
+                        thinking_level = _think
+                    cleaned.append(_clean)
+                else:
+                    cleaned.append(_m)
+            model = cleaned
 
         model = _normalize_model_spec(model)
         self.id = uuid4()

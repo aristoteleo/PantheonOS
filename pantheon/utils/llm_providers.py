@@ -105,10 +105,17 @@ def _platform_openrouter_config(
         return None
     if not (is_force_proxy_enabled() or os.getenv("LLM_API_BASE")):
         return None
+    # Strip a trailing +think[:level] — it's a model_params concern, not part of the id.
+    # Leaving it glued on makes canonical_openrouter_id miss the catalog entry, which drops
+    # us back to native detection and a bare model the proxy can't place. Defense in depth:
+    # Agent.__init__ now strips it for list-form models too, but any other path is covered here.
+    import re
+
+    core = re.sub(r"\+think(?::\w+)?$", "", model)
     try:
         from .openrouter_catalog import canonical_openrouter_id
 
-        canon = canonical_openrouter_id(model)
+        canon = canonical_openrouter_id(core)
     except Exception:  # noqa: BLE001
         canon = None
     if not canon:
