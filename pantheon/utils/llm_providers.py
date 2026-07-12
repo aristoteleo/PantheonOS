@@ -113,16 +113,11 @@ def _platform_openrouter_config(
 
     core = re.sub(r"\+think(?::\w+)?$", "", model)
     try:
-        from .openrouter_catalog import canonical_openrouter_id, is_loaded
+        from .openrouter_catalog import canonical_openrouter_id
 
-        _was_loaded = is_loaded()
         canon = canonical_openrouter_id(core)
-    except Exception as _e:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         canon = None
-        _was_loaded = None
-    logger.warning(
-        f"[PLAT-OR] model={model!r} core={core!r} catalog_loaded={_was_loaded} canon={canon!r}"
-    )
     if not canon:
         return None
     return ProviderConfig(
