@@ -283,10 +283,11 @@ _VENDOR_TO_PROVIDER = {
 }
 
 
-def by_vendor(per_vendor: int = 12) -> dict[str, list[str]]:
+def by_vendor(per_vendor: int = 16) -> dict[str, list[str]]:
     """Group OpenRouter models by vendor -> provider key for the platform picker
     view. Returns {provider_key: ['openrouter/<vendor>/<model>', ...]} (routed via
-    OpenRouter), newest first, capped per vendor, noise-filtered. Empty until fetched."""
+    OpenRouter), newest first, capped per vendor, noise-filtered. Empty until fetched.
+    Final ordering + the openai/codex '-pro' hide are applied by reorder_and_filter()."""
     _NOISE = ("-image", "-audio", "-tts", "-realtime", ":free", "-online", ":extended")
     buckets: dict[str, list[tuple[int, str]]] = {}
     for mid, info in _CACHE.items():
@@ -298,6 +299,65 @@ def by_vendor(per_vendor: int = 12) -> dict[str, list[str]]:
     for pkey, items in buckets.items():
         items.sort(key=lambda t: t[0], reverse=True)
         out[pkey] = [f"openrouter/{mid}" for _, mid in items[:per_vendor]]
+    return out
+
+
+# Providers whose '-pro' variants are hidden from the picker (per product decision:
+# they're the priciest, least-used tier). Applied by provider key AND vendor segment.
+_HIDE_PRO_PROVIDERS = ("openai", "codex")
+_DAY_SECONDS = 86400
+
+
+def _catalog_key(model_id: str) -> str:
+    """Strip a leading 'openrouter/' so an id from either picker view maps to the catalog
+    key (`<vendor>/<model>`). Direct-mode ids like 'openai/gpt-5.6' pass through unchanged."""
+    return model_id[len("openrouter/") :] if model_id.startswith("openrouter/") else model_id
+
+
+def _picker_sort_key(model_id: str) -> tuple:
+    """Sort key: NEWEST first (created bucketed to the day so a same-day release batch groups
+    together), then CHEAPEST first within a day (output then input cost). Models the catalog
+    doesn't carry get created=0 (oldest) + high cost, so they sink to the bottom in a stable
+    way (unknown → last, order otherwise preserved)."""
+    info = _CACHE.get(_catalog_key(model_id)) or {}
+    created = int(info.get("_created", 0) or 0)
+    out_cost = info.get("output_cost_per_million")
+    in_cost = info.get("input_cost_per_million")
+    out_cost = out_cost if out_cost is not None else 1e12
+    in_cost = in_cost if in_cost is not None else 1e12
+    return (-(created // _DAY_SECONDS), out_cost, in_cost)
+
+
+def _is_hidden_pro(pkey: str, model_id: str) -> bool:
+    """True for an openai/codex model whose base name ends in '-pro'. Checks BOTH the group
+    key (direct mode has an 'openai'/'codex' provider group) and the id's vendor segment (the
+    openrouter view groups codex under 'openai'), so it catches the variant in either mode."""
+    base = model_id.rsplit("/", 1)[-1].lower()
+    if not base.endswith("-pro"):
+        return False
+    key = _catalog_key(model_id)
+    vendor = key.split("/", 1)[0].lower() if "/" in key else ""
+    return str(pkey).lower() in _HIDE_PRO_PROVIDERS or vendor in _HIDE_PRO_PROVIDERS
+
+
+def reorder_and_filter(groups: dict[str, list[str]]) -> dict[str, list[str]]:
+    """Shared post-processing for BOTH picker views — the direct ``models_by_provider`` AND
+    the openrouter ``by_vendor`` view — so ordering/visibility match in every mode:
+      • hide openai/codex ``-pro`` variants, then
+      • sort each group newest-first with a cheapest-first tie-break within a release day.
+    Unknown-vendor groups are only re-sorted (their ids just sort last if not in the catalog).
+    Best-effort: an empty catalog makes the sort a stable no-op, but the ``-pro`` hide (pure
+    string check) still applies."""
+    if not isinstance(groups, dict):
+        return groups
+    out: dict[str, list[str]] = {}
+    for pkey, models in groups.items():
+        if not isinstance(models, list):
+            out[pkey] = models
+            continue
+        kept = [m for m in models if isinstance(m, str) and not _is_hidden_pro(pkey, m)]
+        kept.sort(key=_picker_sort_key)
+        out[pkey] = kept
     return out
 
 

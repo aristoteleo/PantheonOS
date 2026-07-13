@@ -3778,9 +3778,11 @@ class ChatRoom(ToolSet):
             # + per-model classification are ready. TTL-cached, so only the first
             # call per hour actually fetches; guarded so it never fails the RPC.
             mode = openrouter_catalog.platform_model_mode()
+            # Refresh unconditionally (TTL-guarded, best-effort): the catalog's created +
+            # cost data drives the picker's newest-first / cheapest-tie-break ordering in
+            # BOTH modes, not just openrouter mode.
             try:
-                if mode == "openrouter" or "openrouter" in selector._get_available_providers():
-                    await openrouter_catalog.ensure_fresh()
+                await openrouter_catalog.ensure_fresh()
             except Exception as _or_e:  # noqa: BLE001
                 logger.warning(f"openrouter catalog refresh skipped: {_or_e}")
             resp = selector.list_available_models()
@@ -3793,6 +3795,19 @@ class ChatRoom(ToolSet):
             resp["platform_model_mode"] = mode
             if mode == "openrouter" and openrouter_catalog.is_loaded():
                 resp["platform_models_by_provider"] = openrouter_catalog.by_vendor()
+            # Consistent picker ordering + hide openai/codex '-pro' variants, applied to
+            # BOTH the direct (models_by_provider) and openrouter (by_vendor) views.
+            try:
+                if isinstance(resp.get("models_by_provider"), dict):
+                    resp["models_by_provider"] = openrouter_catalog.reorder_and_filter(
+                        resp["models_by_provider"]
+                    )
+                if isinstance(resp.get("platform_models_by_provider"), dict):
+                    resp["platform_models_by_provider"] = openrouter_catalog.reorder_and_filter(
+                        resp["platform_models_by_provider"]
+                    )
+            except Exception as _reorder_e:  # noqa: BLE001
+                logger.warning(f"picker reorder/filter skipped: {_reorder_e}")
             return resp
         except Exception as e:
             logger.error(f"Error listing available models: {e}")
