@@ -12,6 +12,7 @@ degrade gracefully).
 """
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
@@ -51,6 +52,25 @@ def _tier_for(out_cost_per_million: float) -> str:
     return "low"
 
 
+# Canonical low→high effort order for the UI. OpenRouter reports supported_efforts
+# high→low and calls the off value "none"; we normalize to this ascending order and
+# treat "none" as the UI's "Off".
+_EFFORT_ORDER = ("none", "low", "medium", "high", "xhigh", "max")
+
+
+def _canon_efforts(supported: list, mandatory: bool) -> list[str]:
+    """OpenRouter reasoning.supported_efforts + mandatory -> the effort values the toggle
+    should offer, in ascending order. Drops 'none' when reasoning is mandatory (e.g. grok);
+    adds 'none' when reasoning is optional but OpenRouter didn't list it (e.g. Claude)."""
+    s = {str(e).lower() for e in (supported or [])}
+    out = [e for e in _EFFORT_ORDER if e in s]
+    if mandatory:
+        out = [e for e in out if e != "none"]
+    elif out and "none" not in out:
+        out = ["none"] + out
+    return out
+
+
 def _derive(entry: dict) -> dict | None:
     """One OpenRouter /models entry -> catalog-style metadata (+ _-prefixed extras)."""
     model_id = entry.get("id")
@@ -61,6 +81,7 @@ def _derive(entry: dict) -> dict | None:
     params = entry.get("supported_parameters") or []
     pricing = entry.get("pricing") or {}
     top = entry.get("top_provider") or {}
+    reasoning = entry.get("reasoning") or {}
 
     in_cost_m = _to_float(pricing.get("prompt")) * 1_000_000
     out_cost_m = _to_float(pricing.get("completion")) * 1_000_000
@@ -87,6 +108,11 @@ def _derive(entry: dict) -> dict | None:
         "_created": int(entry.get("created") or 0),
         "_vendor": model_id.split("/", 1)[0] if "/" in model_id else "",
         "_tier": _tier_for(out_cost_m),
+        # Real reasoning-effort ladder for THIS model (drives the UI's effort toggle).
+        "_effort_levels": _canon_efforts(
+            reasoning.get("supported_efforts"), bool(reasoning.get("mandatory", False))
+        ),
+        "_effort_default": reasoning.get("default_effort"),
     }
 
 
@@ -167,6 +193,17 @@ def get_model_card(model_id: str) -> dict | None:
             "audio_input": info.get("supports_audio_input", False),
         },
     }
+
+
+def effort_levels(model_id: str) -> dict | None:
+    """The real reasoning-effort ladder for a model, or None if it doesn't reason / isn't in
+    the catalog: ``{'efforts': ['none','low','medium','high','xhigh','max'], 'default': 'medium'}``
+    ('none' is the UI's Off). Vendor-alias/prefix tolerant (codex/…, openrouter/…, bare id)."""
+    info = _catalog_info(model_id)
+    levels = info.get("_effort_levels") or []
+    if not levels:
+        return None
+    return {"efforts": list(levels), "default": info.get("_effort_default")}
 
 
 def _ensure_loaded_sync() -> None:
@@ -308,10 +345,46 @@ _HIDE_PRO_PROVIDERS = ("openai", "codex")
 _DAY_SECONDS = 86400
 
 
+# Our provider/vendor -> the OpenRouter catalog's vendor, when they differ. E.g. the 'codex'
+# provider serves OpenAI models (ids like 'codex/gpt-5.6-sol'), which the catalog carries
+# under 'openai/…'; 'gemini'/'gemini-cli' map to the catalog's 'google/…'. Re-homes them for
+# cost/created/effort lookups.
+_VENDOR_ALIASES = {"codex": "openai", "gemini-cli": "google", "gemini": "google"}
+
+
 def _catalog_key(model_id: str) -> str:
     """Strip a leading 'openrouter/' so an id from either picker view maps to the catalog
     key (`<vendor>/<model>`). Direct-mode ids like 'openai/gpt-5.6' pass through unchanged."""
     return model_id[len("openrouter/") :] if model_id.startswith("openrouter/") else model_id
+
+
+def _catalog_info(model_id: str) -> dict:
+    """Catalog metadata for a picker id, tolerant of id shape and vendor aliases: try the id
+    as-is (minus 'openrouter/'), then re-home a known vendor alias (e.g. 'codex/gpt-5.6-sol'
+    -> 'openai/gpt-5.6-sol') so aliased providers sort/price like their real vendor."""
+    def _try(k: str) -> dict | None:
+        h = _CACHE.get(k)
+        if h:
+            return h
+        if "/" in k:
+            v, b = k.split("/", 1)
+            a = _VENDOR_ALIASES.get(v.lower())
+            if a:
+                return _CACHE.get(f"{a}/{b}")
+        return None
+
+    key = _catalog_key(model_id)
+    hit = _try(key)
+    if hit:
+        return hit
+    # dash-vs-dot: our internal ids version with dashes (claude-opus-4-8), the catalog uses
+    # dots (claude-opus-4.8). Convert digit-digit dashes and retry.
+    dotted = re.sub(r"(\d)-(\d)", r"\1.\2", key)
+    if dotted != key:
+        hit = _try(dotted)
+        if hit:
+            return hit
+    return {}
 
 
 def _picker_sort_key(model_id: str) -> tuple:
@@ -319,7 +392,7 @@ def _picker_sort_key(model_id: str) -> tuple:
     together), then CHEAPEST first within a day (output then input cost). Models the catalog
     doesn't carry get created=0 (oldest) + high cost, so they sink to the bottom in a stable
     way (unknown → last, order otherwise preserved)."""
-    info = _CACHE.get(_catalog_key(model_id)) or {}
+    info = _catalog_info(model_id)
     created = int(info.get("_created", 0) or 0)
     out_cost = info.get("output_cost_per_million")
     in_cost = info.get("input_cost_per_million")

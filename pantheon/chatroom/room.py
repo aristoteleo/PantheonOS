@@ -3808,6 +3808,38 @@ class ChatRoom(ToolSet):
                     )
             except Exception as _reorder_e:  # noqa: BLE001
                 logger.warning(f"picker reorder/filter skipped: {_reorder_e}")
+            # Per-model reasoning-effort ladders (drive the UI's effort toggle) — the real
+            # supported levels per model from the OpenRouter catalog (e.g. gpt-5.6 →
+            # none/low/medium/high/xhigh/max; grok-4.5 → low/medium/high, reasoning mandatory).
+            try:
+                efforts: dict[str, dict] = {}
+                for _grp in (resp.get("models_by_provider"), resp.get("platform_models_by_provider")):
+                    if isinstance(_grp, dict):
+                        for _models in _grp.values():
+                            for _m in _models or []:
+                                if _m not in efforts:
+                                    _lv = openrouter_catalog.effort_levels(_m)
+                                    if _lv:
+                                        efforts[_m] = _lv
+                # Resolve each quality TAG (high/normal/low) to the concrete model it maps to,
+                # so the picker can (a) show that model on hover and (b) surface the effort
+                # toggle for the default selection (shown as "normal").
+                tag_models: dict[str, str] = {}
+                for _tag in ("high", "normal", "low"):
+                    try:
+                        _chain = selector.resolve_model(_tag)
+                        if _chain:
+                            tag_models[_tag] = _chain[0]
+                            if _tag not in efforts:
+                                _lv = openrouter_catalog.effort_levels(_chain[0])
+                                if _lv:
+                                    efforts[_tag] = _lv
+                    except Exception:  # noqa: BLE001
+                        pass
+                resp["reasoning_efforts"] = efforts
+                resp["tag_models"] = tag_models
+            except Exception as _eff_e:  # noqa: BLE001
+                logger.warning(f"reasoning_efforts build skipped: {_eff_e}")
             return resp
         except Exception as e:
             logger.error(f"Error listing available models: {e}")

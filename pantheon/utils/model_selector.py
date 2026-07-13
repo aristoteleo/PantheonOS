@@ -273,7 +273,7 @@ DEFAULT_PROVIDER_MODELS = {
     "codex": {
         "high": ["codex/gpt-5.6-sol", "codex/gpt-5.5", "codex/gpt-5.4", "codex/gpt-5.2-codex"],
         "normal": ["codex/gpt-5.6-terra", "codex/gpt-5.4-mini", "codex/gpt-5"],
-        "low": ["codex/gpt-5.6-luna", "codex/gpt-5.4-mini", "codex/o4-mini"],
+        "low": ["codex/gpt-5.6-luna", "codex/gpt-5.4-mini"],
     },
     # OpenRouter: Multi-provider aggregator
     # https://openrouter.ai/models
