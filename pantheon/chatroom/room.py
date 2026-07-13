@@ -2494,6 +2494,46 @@ class ChatRoom(ToolSet):
         return {"success": True, "project": info.to_dict()}
 
     @tool
+    async def set_active_project_for_chat(self, chat_id: str) -> dict:
+        """Make the active project FOLLOW a chat.
+
+        Restoring/opening a chat should put the file panel, project selector, and
+        chat list into THAT chat's workspace. On a fresh page load the UI restores
+        the chat named in the URL, but the backend's active project has reset to
+        the default — so a chat that lives in another workspace is shown while the
+        file panel + selector stay stranded on the default project (the mismatch
+        this fixes). Resolves cross-project chats too: a chat you're viewing may
+        not appear in the active project's own chat list, so the frontend can't
+        resolve its workspace itself — the backend does it here via the same
+        routing that already sends the chat's tools/files to the right project.
+
+        A home/legacy chat (no project of its own) — or one already in the active
+        project — leaves the active project unchanged (``switched: False``).
+        Mirrors ``set_active_project`` but keyed by chat id instead of a path.
+        """
+        if not chat_id:
+            return {"success": False, "switched": False}
+        try:
+            pdir = await self._project_dir_for_chat(chat_id)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[multi-project] set_active_project_for_chat resolve {chat_id}: {e}")
+            return {"success": False, "switched": False, "message": str(e)}
+        # No own project, or it resolves to home → the default project is already
+        # the sensible place to be; don't disturb it.
+        if not pdir or self._is_home_dir(pdir):
+            return {"success": True, "switched": False}
+        # Already active → skip the memory-store reroute (a no-op switch).
+        try:
+            active = self.project_manager.active_project
+            if active and active.path and Path(active.path).resolve() == Path(pdir).resolve():
+                return {"success": True, "switched": False, "project": active.to_dict()}
+        except Exception:  # noqa: BLE001
+            pass
+        res = await self.set_active_project(pdir)
+        res["switched"] = bool(res.get("success"))
+        return res
+
+    @tool
     async def switch_project(self, path: str) -> dict:
         """Switch the active project to a different directory.
 
