@@ -328,6 +328,12 @@ class ConversationState:
 
     def should_remind_think(self) -> bool:
         """判断是否应该提醒使用 think tool"""
+        # Think tool is retired (native model reasoning replaces it) — never nag to use a
+        # tool the agent no longer has. Lazy import avoids a startup import cycle.
+        from pantheon.internal.think_plugin import THINK_TOOL_RETIRED
+        if THINK_TOOL_RETIRED:
+            return False
+
         # 策略 1: 固定阈值
         if self.tools_since_think >= self.think_reminder_threshold:
             return True

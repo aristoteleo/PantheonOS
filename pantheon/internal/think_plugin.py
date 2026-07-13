@@ -10,6 +10,13 @@ if TYPE_CHECKING:
     from pantheon.team.pantheon import PantheonTeam
 
 
+# The scratchpad `think` tool is RETIRED — native model reasoning (effort tiers) replaces it.
+# This code-level guard keeps it off for EVERY agent, even ones with a frozen
+# think_system.enabled:true or a template that still declares "- think" (existing sandboxes
+# freeze both). To bring the tool back: set this False AND set think_system.enabled in settings.
+THINK_TOOL_RETIRED = True
+
+
 THINK_PROMPT = """
 ## Think Tool Usage
 
@@ -40,7 +47,7 @@ class ThinkPlugin(TeamPlugin):
     """Inject think tool/prompt only into leader when leader declares think."""
 
     async def get_toolsets(self, team: "PantheonTeam") -> list[tuple[Any, list[str] | None]]:
-        if not team.team_agents:
+        if THINK_TOOL_RETIRED or not team.team_agents:
             return []
 
         primary = team.team_agents[0]
@@ -52,7 +59,7 @@ class ThinkPlugin(TeamPlugin):
         return []
 
     async def on_team_created(self, team: "PantheonTeam") -> None:
-        if not team.team_agents:
+        if THINK_TOOL_RETIRED or not team.team_agents:
             return
 
         primary = team.team_agents[0]

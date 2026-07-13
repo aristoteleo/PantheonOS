@@ -256,9 +256,12 @@
         "retry_after_messages": 10
     },
     // ===== Think System Configuration =====
-    // Leader-only think tool/prompt injection via ThinkPlugin
+    // Leader-only think tool/prompt injection via ThinkPlugin. RETIRED by default —
+    // native model reasoning (effort tiers) replaces the scratchpad think tool. Even if this
+    // is left/frozen at true, the code-level THINK_TOOL_RETIRED guard in think_plugin.py keeps
+    // it off; flip both to bring it back.
     "think_system": {
-        "enabled": true
+        "enabled": false
     },
     // ===== Task System Configuration =====
     // Modal workflow tools (task_boundary, notify_user) for structured agent tasks
