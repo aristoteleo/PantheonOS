@@ -71,11 +71,12 @@ def _parse_thinking_suffix(model_str: str) -> tuple[str, str | None]:
 
     Args:
         model_str: Model name or tag, optionally ending with ``+think`` or
-            ``+think:low``/``+think:medium``/``+think:high``.
+            ``+think:<level>`` where level is any real reasoning-effort tier
+            (``none``/``minimal``/``low``/``medium``/``high``/``xhigh``/``max``).
 
     Returns:
-        (clean_model_str, thinking_level) where *thinking_level* is
-        ``"low"``, ``"medium"``, ``"high"``, or ``None``.
+        (clean_model_str, thinking_level) where *thinking_level* is the level
+        string (e.g. ``"high"``, ``"xhigh"``, ``"max"``) or ``None``.
     """
     import re
 
@@ -83,7 +84,8 @@ def _parse_thinking_suffix(model_str: str) -> tuple[str, str | None]:
     if not match:
         return model_str, None
     level = match.group(1) or "high"
-    if level not in ("low", "medium", "high"):
+    # Keep in sync with the picker's effort ladders (openrouter reasoning.supported_efforts).
+    if level not in ("none", "minimal", "low", "medium", "high", "xhigh", "max"):
         return model_str, None
     return model_str[: match.start()], level
 
@@ -1943,6 +1945,28 @@ class Agent:
 
         if not models:
             raise RuntimeError(f"No model is available. models: {models}")
+
+        # Defensively normalize: a quality TAG and/or a +think effort can reach us unresolved
+        # (e.g. a draft chat's "normal+think:xhigh" applied without going through
+        # set_agent_model), which the LLM would reject as a bogus model id. Strip +think (its
+        # effort → model_params) and resolve a tag to its concrete fallback chain.
+        _norm: list = []
+        _eff: str | None = None
+        for _m in models:
+            if isinstance(_m, str):
+                _clean, _think = _parse_thinking_suffix(_m)
+                if _think and _eff is None:
+                    _eff = _think
+                if _is_model_tag(_clean):
+                    _norm.extend(_resolve_model_tag(_clean))
+                else:
+                    _norm.append(_clean)
+            else:
+                _norm.append(_m)
+        if _norm:
+            models = _norm
+        if _eff:
+            self.model_params.setdefault("thinking", _eff)
 
         model_error_count = 0
         last_error = None
