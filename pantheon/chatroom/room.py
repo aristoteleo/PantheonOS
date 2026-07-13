@@ -3821,6 +3821,72 @@ class ChatRoom(ToolSet):
             logger.error(f"Error searching OpenRouter models: {e}")
             return {"success": False, "message": str(e), "results": []}
 
+    @tool
+    async def get_model_details(self, model: str) -> dict:
+        """Detail card for the model picker's ⓘ info dialog: price (per 1M in/out), input
+        modalities, context window, and release date. Sourced from the OpenRouter catalog
+        first (full data in platform-openrouter mode); falls back to litellm's static
+        cost/context map for a direct-mode id the catalog doesn't carry.
+
+        Args:
+            model: The model id shown in the picker (e.g. "openrouter/x-ai/grok-4.5",
+                   "x-ai/grok-4.5", or a bare "gpt-5.6").
+
+        Returns:
+            {success, source: "openrouter"|"litellm"|None, info: {model, name, vendor,
+             tier, input_cost_per_million, output_cost_per_million, max_input_tokens,
+             max_output_tokens, created, modalities:{image,pdf,audio},
+             capabilities:{vision,tools,reasoning,web_search,pdf_input,audio_input}}}
+        """
+        try:
+            from pantheon.utils import openrouter_catalog
+
+            try:
+                await openrouter_catalog.ensure_fresh()
+            except Exception:  # noqa: BLE001
+                pass
+            card = openrouter_catalog.get_model_card(model)
+            if card:
+                return {"success": True, "source": "openrouter", "info": card}
+            # Direct-mode fallback: litellm's static model cost/capability map.
+            try:
+                import litellm
+
+                mi = litellm.get_model_info(model) or {}
+            except Exception:  # noqa: BLE001
+                mi = {}
+            if mi:
+                info = {
+                    "model": model,
+                    "name": model,
+                    "vendor": mi.get("litellm_provider", ""),
+                    "tier": "normal",
+                    "input_cost_per_million": (mi.get("input_cost_per_token") or 0.0) * 1_000_000,
+                    "output_cost_per_million": (mi.get("output_cost_per_token") or 0.0) * 1_000_000,
+                    "max_input_tokens": mi.get("max_input_tokens") or 0,
+                    "max_output_tokens": mi.get("max_output_tokens") or 0,
+                    "created": 0,
+                    "modalities": {
+                        "image": bool(mi.get("supports_vision")),
+                        "pdf": bool(mi.get("supports_pdf_input")),
+                        "audio": bool(mi.get("supports_audio_input")),
+                    },
+                    "capabilities": {
+                        "vision": bool(mi.get("supports_vision")),
+                        "tools": bool(mi.get("supports_function_calling")),
+                        "reasoning": bool(mi.get("supports_reasoning")),
+                        "web_search": bool(mi.get("supports_web_search")),
+                        "pdf_input": bool(mi.get("supports_pdf_input")),
+                        "audio_input": bool(mi.get("supports_audio_input")),
+                    },
+                }
+                return {"success": True, "source": "litellm", "info": info}
+            # Nothing known — minimal card so the dialog can show "info unavailable".
+            return {"success": True, "source": None, "info": {"model": model, "name": model}}
+        except Exception as e:
+            logger.error(f"Error getting model details for {model}: {e}")
+            return {"success": False, "message": str(e)}
+
     async def _ensure_fleet_session_key(self) -> None:
         """Publish a session-derived ``FLEET_KEY`` (and start refreshing it) the
         first time a fleet tool runs, when the backend is logged in and no static

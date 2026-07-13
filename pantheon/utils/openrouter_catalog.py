@@ -133,6 +133,42 @@ def get_model_info(model_id: str) -> dict | None:
     return {k: v for k, v in info.items() if not k.startswith("_")}
 
 
+def get_model_card(model_id: str) -> dict | None:
+    """Display card for the picker's info dialog — price, modalities, context, release —
+    normalized into the shape the frontend renders. Accepts a bare (``x-ai/grok-4.5``) or
+    ``openrouter/``-prefixed id. Returns None when the catalog doesn't have it (→ caller
+    falls back to litellm's static cost map for a direct-mode model)."""
+    mid = model_id[len("openrouter/") :] if model_id.startswith("openrouter/") else model_id
+    _ensure_loaded_sync()
+    info = _CACHE.get(mid)
+    if not info:
+        return None
+    return {
+        "model": f"openrouter/{mid}",
+        "name": info.get("_name", mid),
+        "vendor": info.get("_vendor", ""),
+        "tier": info.get("_tier", "normal"),
+        "input_cost_per_million": info.get("input_cost_per_million", 0.0),
+        "output_cost_per_million": info.get("output_cost_per_million", 0.0),
+        "max_input_tokens": info.get("max_input_tokens", 0),
+        "max_output_tokens": info.get("max_output_tokens", 0),
+        "created": info.get("_created", 0),  # unix ts — the "released" date
+        "modalities": {  # input modalities present (text is always in)
+            "image": info.get("supports_vision", False),
+            "pdf": info.get("supports_pdf_input", False),
+            "audio": info.get("supports_audio_input", False),
+        },
+        "capabilities": {
+            "vision": info.get("supports_vision", False),
+            "tools": info.get("supports_function_calling", False),
+            "reasoning": info.get("supports_reasoning", False),
+            "web_search": info.get("supports_web_search", False),
+            "pdf_input": info.get("supports_pdf_input", False),
+            "audio_input": info.get("supports_audio_input", False),
+        },
+    }
+
+
 def _ensure_loaded_sync() -> None:
     """Best-effort SYNC load when the async cache is empty (e.g. a fresh process that
     hasn't served list_available_models yet). Fetches once, TTL-guarded. Used by
