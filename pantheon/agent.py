@@ -90,6 +90,54 @@ def _parse_thinking_suffix(model_str: str) -> tuple[str, str | None]:
     return model_str[: match.start()], level
 
 
+def _parse_tool_arguments(raw: str) -> dict:
+    """Best-effort parse of an LLM tool_call's ``arguments`` JSON into a params dict.
+
+    Weaker models (notably glm) emit tool args with unescaped control chars in a big string
+    value (a notebook cell's multi-line code), unescaped inner quotes, trailing junk, or a
+    truncated close — a strict ``json.loads`` then drops an otherwise-good call ("Failed to
+    parse tool arguments" → the model gives up on notebooks). Try progressively lenient
+    strategies; raise only when all fail."""
+    if raw is None:
+        return {}
+    s = str(raw)
+    if not s.strip():
+        return {}
+    # 1. Strict.
+    try:
+        v = json.loads(s)
+        return v if isinstance(v, dict) else {}
+    except Exception:
+        pass
+    # 2. Lenient (control chars allowed in strings) + take the first complete object, which
+    #    also drops any trailing junk after it.
+    try:
+        v, _end = json.JSONDecoder(strict=False).raw_decode(s.lstrip())
+        if isinstance(v, dict):
+            return v
+    except Exception:
+        pass
+    # 3. Truncated close — append the likely missing terminators.
+    t = s.rstrip()
+    for suffix in ("}", '"}', '"}}', "]}", '"]}'):
+        try:
+            v = json.loads(t + suffix, strict=False)
+            if isinstance(v, dict):
+                return v
+        except Exception:
+            pass
+    # 4. Full repair for the hard cases (unescaped inner quotes). Optional dep — lazy import.
+    try:
+        from json_repair import repair_json
+
+        v = json.loads(repair_json(s))
+        if isinstance(v, dict):
+            return v
+    except Exception:
+        pass
+    raise ValueError("could not parse tool_call arguments as a JSON object")
+
+
 def _is_model_tag(model_str: str) -> bool:
     """Check if a string is a model tag vs a model name.
 
@@ -1333,12 +1381,10 @@ class Agent:
             tool_call_id = call["id"]
             start_time = time.time()
 
-            # Try to parse arguments
+            # Try to parse arguments (robust to weaker models' malformed tool-call JSON —
+            # e.g. glm's unescaped quotes/newlines in a notebook cell's multi-line code).
             try:
-                args_str = call["function"]["arguments"]
-                if not args_str.endswith("}"):
-                    args_str = args_str + "}"
-                params = json.loads(call["function"]["arguments"]) or {}
+                params = _parse_tool_arguments(call["function"]["arguments"]) or {}
                 parse_error = None
             except Exception as e:
                 logger.warning(f"Failed to parse arguments for tool '{func_name}': {e}")

@@ -2469,6 +2469,15 @@ wheels = [
 ]
 
 [[package]]
+name = "json-repair"
+version = "0.61.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f0/f5/68b92610453eae5087a05a6f4123f0477dc2f3e84250c2d7de05552fa12a/json_repair-0.61.4.tar.gz", hash = "sha256:d78c212c1d72606bee30a7886820c9d6f7dbd659883dc2397304735a59f7bf86", size = 51069, upload-time = "2026-07-12T16:51:11.036Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f2/be/5b65e61de2c820e6e24837311249a98465d9b100db8da89f65068ad9e799/json_repair-0.61.4-py3-none-any.whl", hash = "sha256:1056d5468a6d4e8bb4498b3244f996c795e2d457fbb30465d71249d3ef7b481a", size = 49604, upload-time = "2026-07-12T16:51:09.735Z" },
+]
+
+[[package]]
 name = "jsonref"
 version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4268,6 +4277,7 @@ dependencies = [
     { name = "httpx" },
     { name = "ipykernel" },
     { name = "jedi" },
+    { name = "json-repair" },
     { name = "jupyter-client" },
     { name = "lancedb" },
     { name = "lark-oapi" },
@@ -4362,6 +4372,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "ipykernel", specifier = ">=6.25.0" },
     { name = "jedi", specifier = ">=0.19.0" },
+    { name = "json-repair", specifier = ">=0.30.0" },
     { name = "jupyter-client", specifier = ">=8.0.0" },
     { name = "lancedb", specifier = ">=0.20.0" },
     { name = "lark-oapi" },
