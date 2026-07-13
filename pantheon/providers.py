@@ -8,6 +8,7 @@ This module provides implementations for different tool sources:
 
 import asyncio
 import json
+import os
 from threading import Lock
 from typing import Any, Callable, Optional
 
@@ -22,6 +23,17 @@ from .utils.log import logger
 # Constants for special parameters
 _CTX_VARS_NAME = "context_variables"
 _SKIP_PARAMS = [_CTX_VARS_NAME, "_call_agent"]
+
+# Bound the MCP client session (connect + RPC) so a cold or unreachable MCP
+# server degrades to a TimeoutError instead of wedging the caller forever.
+# `list_tools()` is awaited while assembling the tool list for the FIRST LLM
+# turn (Agent.get_tools_for_llm), so an unbounded stall there hangs the entire
+# turn — the "cold-start hang". On timeout, list_tools raises and the caller's
+# per-provider try/except skips that provider (the turn proceeds without its
+# tools, then retries once the MCP is warm); call_tool raises so the agent
+# surfaces a tool error instead of blocking. Both are env-tunable.
+_MCP_LIST_TOOLS_TIMEOUT = float(os.getenv("PANTHEON_MCP_LIST_TIMEOUT_S", "30"))
+_MCP_CALL_TOOL_TIMEOUT = float(os.getenv("PANTHEON_MCP_CALL_TIMEOUT_S", "120"))
 
 
 class MCPProvider(ToolProvider):
@@ -230,7 +242,11 @@ class MCPProvider(ToolProvider):
         if not self._client:
             await self.initialize()
 
-        try:
+        async def _fetch_tools() -> list[ToolInfo]:
+            # `async with self._client` establishes the session (connects to the
+            # gateway); it and list_tools() are network I/O that can stall on a
+            # cold/unreachable MCP — the asyncio.wait_for below bounds the whole
+            # thing so it cannot wedge the caller forever.
             async with self._client:
                 tools_response = await self._client.list_tools()
 
@@ -239,7 +255,7 @@ class MCPProvider(ToolProvider):
                     # Apply filter if specified
                     if self.filter_prefix and not tool.name.startswith(f"{self.filter_prefix}_"):
                         continue
-                    
+
                     params = tool.inputSchema if hasattr(tool, "inputSchema") else {}
 
                     function_schema = {
@@ -249,23 +265,36 @@ class MCPProvider(ToolProvider):
                         "parameters": params,
                     }
 
-                    tool_info = ToolInfo(
-                        name=tool.name,
-                        description=tool.description,
-                        inputSchema=function_schema,
+                    tool_infos.append(
+                        ToolInfo(
+                            name=tool.name,
+                            description=tool.description,
+                            inputSchema=function_schema,
+                        )
                     )
-                    tool_infos.append(tool_info)
-
-                # Update cache with timestamp
-                self._tools_cache = tool_infos
-                self._cache_time = now
-                prefix_info = f" (filtered by '{self.filter_prefix}')" if self.filter_prefix else ""
-                logger.debug(
-                    f"MCPProvider '{self.uri}': cached {len(tool_infos)} tools{prefix_info}"
-                )
-
                 return tool_infos
 
+        try:
+            tool_infos = await asyncio.wait_for(
+                _fetch_tools(), timeout=_MCP_LIST_TOOLS_TIMEOUT
+            )
+
+            # Update cache with timestamp
+            self._tools_cache = tool_infos
+            self._cache_time = now
+            prefix_info = f" (filtered by '{self.filter_prefix}')" if self.filter_prefix else ""
+            logger.debug(
+                f"MCPProvider '{self.uri}': cached {len(tool_infos)} tools{prefix_info}"
+            )
+
+            return tool_infos
+
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"MCPProvider '{self.uri}': list_tools timed out after "
+                f"{_MCP_LIST_TOOLS_TIMEOUT}s (cold/unreachable MCP) — skipping this round"
+            )
+            raise
         except Exception as e:
             logger.error(f"Failed to list tools from MCP server '{self.uri}': {e}")
             raise
@@ -275,10 +304,10 @@ class MCPProvider(ToolProvider):
         if not self._client:
             await self.initialize()
 
-        try:
-            logger.debug(f"Calling MCP tool '{name}' on '{self.uri}'")
-
-            # Use async with to establish connection for this operation
+        async def _invoke() -> Any:
+            # `async with self._client` establishes the session for this call;
+            # it and call_tool() are network I/O bounded by the asyncio.wait_for
+            # below, so a cold/slow MCP tool cannot wedge the turn.
             async with self._client:
                 result = await self._client.call_tool(name, args)
 
@@ -332,6 +361,15 @@ class MCPProvider(ToolProvider):
                 )
                 return result
 
+        try:
+            logger.debug(f"Calling MCP tool '{name}' on '{self.uri}'")
+            return await asyncio.wait_for(_invoke(), timeout=_MCP_CALL_TOOL_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"MCPProvider '{self.uri}': call_tool '{name}' timed out after "
+                f"{_MCP_CALL_TOOL_TIMEOUT}s"
+            )
+            raise
         except Exception as e:
             logger.error(f"Failed to call MCP tool '{name}': {e}")
             raise
