@@ -284,15 +284,16 @@ DEFAULT_PROVIDER_MODELS = {
     },
 }
 
-# Platform-OpenRouter quality tiers. In PLATFORM_MODEL_MODE=openrouter, tags (high/normal/
-# low) + the default resolve to THESE Claude ids (routed via OpenRouter for unified billing)
-# rather than featured_by_tier()'s newest-first picks — the platform is tuned for Claude
-# (prompt caching, prompts), so the default must stay Claude, just billed through OpenRouter.
-# OpenRouter uses dot naming (claude-opus-4.8), unlike our native dash ids (claude-opus-4-8).
+# Platform-OpenRouter quality tiers. In PLATFORM_MODEL_MODE=openrouter, tags (high/normal/low)
+# + the default resolve to THESE ids (routed via OpenRouter for unified billing) rather than
+# featured_by_tier()'s newest-first picks. Cost-tuned: normal/low use cheaper non-Claude models
+# (glm-5.2 ~$0.93/$3, deepseek-v4-flash ~$0.09/$0.18 vs sonnet-5 ~$2/$10); high stays Claude
+# (sonnet-5). Each tier keeps a same-family fallback + a reliable Claude last resort so a single
+# vendor outage doesn't break the default. OpenRouter uses dot naming (claude-sonnet-4.6).
 PLATFORM_OPENROUTER_TIERS = {
-    "high": ["openrouter/anthropic/claude-opus-4.8", "openrouter/anthropic/claude-opus-4.7"],
-    "normal": ["openrouter/anthropic/claude-sonnet-5", "openrouter/anthropic/claude-sonnet-4.6"],
-    "low": ["openrouter/anthropic/claude-haiku-4.5"],
+    "high": ["openrouter/anthropic/claude-sonnet-5", "openrouter/anthropic/claude-sonnet-4.6"],
+    "normal": ["openrouter/z-ai/glm-5.2", "openrouter/z-ai/glm-5", "openrouter/anthropic/claude-sonnet-4.6"],
+    "low": ["openrouter/deepseek/deepseek-v4-flash", "openrouter/deepseek/deepseek-v4-pro", "openrouter/anthropic/claude-haiku-4.5"],
 }
 
 # Capability tags map to catalog supports_* fields
