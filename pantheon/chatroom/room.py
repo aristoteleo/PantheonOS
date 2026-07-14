@@ -2534,6 +2534,56 @@ class ChatRoom(ToolSet):
         return res
 
     @tool
+    async def get_chat_workspace(self, chat_id: str) -> dict:
+        """Read-only: resolve the workspace (project) a chat belongs to WITHOUT
+        touching any global state.
+
+        Web per-tab scoping: each browser tab scopes its OWN view (file panel +
+        chat list + selector) to the chat it shows, via the frontend's per-tab
+        windowProject — never the shared global active project — so multiple tabs
+        can work in different workspaces at once. The frontend calls this to learn
+        which workspace to scope to. Cross-project aware (a viewed chat need not be
+        in the active project's own chat list). Deliberately does NOT fall back to
+        the global active project (that would make the result depend on other tabs)
+        — a home/legacy chat with no project of its own returns ``{path: None}`` and
+        the tab keeps the default view.
+
+        Returns ``{"path": <project root> | None, "name": <display name> | None}``.
+        """
+        if not chat_id:
+            return {"path": None, "name": None}
+        pdir = None
+        # (1) the chat's explicit workspace_path.
+        try:
+            memory = await run_func(self.memory_manager.get_memory, chat_id)
+            project = memory.extra_data.get("project", {})
+            if isinstance(project, dict):
+                wpath = project.get("workspace_path")
+                if wpath and Path(wpath).is_dir() and not self._is_home_dir(wpath):
+                    pdir = str(Path(wpath).resolve())
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[multi-project] get_chat_workspace resolve {chat_id}: {e}")
+        # (2) else the project whose memory store owns the chat.
+        if pdir is None:
+            try:
+                mdir = self.memory_manager.mgr_for_chat(chat_id).path
+                cand = Path(mdir).parent.parent
+                if cand.is_dir() and not self._is_home_dir(cand):
+                    pdir = str(cand.resolve())
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"[multi-project] get_chat_workspace by memory dir {chat_id}: {e}")
+        if not pdir:
+            return {"path": None, "name": None}
+        name = None
+        try:
+            info = self.project_manager.get_project(pdir)
+            if info:
+                name = info.name
+        except Exception:  # noqa: BLE001
+            pass
+        return {"path": pdir, "name": name or Path(pdir).name}
+
+    @tool
     async def switch_project(self, path: str) -> dict:
         """Switch the active project to a different directory.
 
