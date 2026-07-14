@@ -67,6 +67,111 @@ class NotebookContext:
     rpy2_initialized: bool = False  # Runtime state: whether rpy2 extension is loaded
 
 
+# --- Lean notebook (frontend load) -------------------------------------------
+# A notebook with many/large cell outputs (matplotlib PNGs, big dataframes) grows
+# to several MB. read_notebook returns the whole thing in ONE proxy_toolset RPC,
+# and a multi-MB payload jams the NATS transport → the frontend's notebook load
+# times out and never recovers (it re-polls every 4s). So read_notebook returns a
+# LEAN notebook: any single output above _LAZY_OUTPUT_LIMIT is replaced with a
+# marker (metadata._lazy = {cell_id, output_index, size[, mime_types]}) plus a
+# short text preview; the frontend renders a placeholder and lazily fetches the
+# full output on demand via read_notebook_output. Chat message streaming was
+# already chunked; notebook document loading was the one un-chunked big-payload
+# path.
+_LAZY_OUTPUT_LIMIT = 48 * 1024      # strip an output whose JSON exceeds this (bytes)
+_LEAN_TOTAL_BUDGET = 512 * 1024     # if the lean notebook still exceeds this, strip harder
+_LAZY_PREVIEW_CHARS = 400
+
+
+def _output_json_size(out) -> int:
+    try:
+        return len(json.dumps(out, default=str))
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _strip_output(out: dict, cell_id, output_index: int, size: int) -> dict:
+    """Replace one heavy output with a lazy marker + a tiny preview, keeping a
+    structurally-valid, small output the frontend can render as a placeholder."""
+    ot = out.get("output_type")
+    meta = dict(out.get("metadata") or {})
+    lazy = {"cell_id": cell_id, "output_index": output_index, "size": size}
+    if ot in ("display_data", "execute_result"):
+        data = out.get("data") or {}
+        lazy["mime_types"] = list(data.keys())
+        meta["_lazy"] = lazy
+        tp = data.get("text/plain")
+        if isinstance(tp, list):
+            tp = "".join(str(x) for x in tp)
+        preview = tp[:_LAZY_PREVIEW_CHARS] if isinstance(tp, str) else ""
+        lean = {"output_type": ot, "metadata": meta,
+                "data": {"text/plain": preview} if preview else {}}
+        if "execution_count" in out:
+            lean["execution_count"] = out.get("execution_count")
+        return lean
+    if ot == "stream":
+        meta["_lazy"] = lazy
+        text = out.get("text")
+        if isinstance(text, list):
+            text = "".join(str(x) for x in text)
+        preview = (text or "")[:_LAZY_PREVIEW_CHARS]
+        return {"output_type": "stream", "name": out.get("name", "stdout"),
+                "text": preview, "metadata": meta}
+    if ot == "error":
+        meta["_lazy"] = lazy
+        return {"output_type": "error", "ename": out.get("ename", ""),
+                "evalue": out.get("evalue", ""),
+                "traceback": ["[large traceback — open to load]"], "metadata": meta}
+    meta["_lazy"] = lazy
+    return {"output_type": ot or "display_data", "metadata": meta, "data": {}}
+
+
+def leanify_notebook(nb) -> tuple:
+    """Return (lean_notebook_dict, stripped_count). Strips outputs whose JSON size
+    exceeds _LAZY_OUTPUT_LIMIT; if the lean notebook still exceeds
+    _LEAN_TOTAL_BUDGET, strips remaining non-trivial outputs too. Never mutates
+    `nb`. output_index is the position in the cell's ORIGINAL outputs list, so
+    read_notebook_output can resolve it 1:1."""
+    stripped = 0
+    lean = dict(nb)
+    lean_cells = []
+    for cell in nb.get("cells", []):
+        lc = dict(cell)
+        outs = cell.get("outputs")
+        if cell.get("cell_type") == "code" and outs:
+            new_outs = []
+            for oi, out in enumerate(outs):
+                sz = _output_json_size(out)
+                if sz > _LAZY_OUTPUT_LIMIT:
+                    new_outs.append(_strip_output(dict(out), cell.get("id"), oi, sz))
+                    stripped += 1
+                else:
+                    new_outs.append(out)
+            lc["outputs"] = new_outs
+        lean_cells.append(lc)
+    lean["cells"] = lean_cells
+    # Fallback: many medium outputs can still sum past the budget → strip harder.
+    try:
+        if len(json.dumps(lean, default=str)) > _LEAN_TOTAL_BUDGET:
+            for lc in lean_cells:
+                outs = lc.get("outputs")
+                if lc.get("cell_type") != "code" or not outs:
+                    continue
+                reb = []
+                for oi, out in enumerate(outs):
+                    if (out.get("metadata") or {}).get("_lazy"):
+                        reb.append(out)
+                    elif _output_json_size(out) > 2048:
+                        reb.append(_strip_output(dict(out), lc.get("id"), oi, _output_json_size(out)))
+                        stripped += 1
+                    else:
+                        reb.append(out)
+                lc["outputs"] = reb
+    except Exception:  # noqa: BLE001
+        pass
+    return lean, stripped
+
+
 class IntegratedNotebookToolSet(ToolSet):
     """Notebook operations toolset for Jupyter notebooks."""
 
@@ -1435,9 +1540,47 @@ class IntegratedNotebookToolSet(ToolSet):
             validation=False is recommended for periodic polling to reduce latency.
             The frontend can validate on initial load with validation=True.
         """
-        return await self.notebook_contents.read_notebook(
+        result = await self.notebook_contents.read_notebook(
             notebook_path, validate=validate
         )
+        # Return a LEAN notebook: strip large cell outputs so this response stays
+        # small enough to cross NATS quickly (a multi-MB notebook otherwise times
+        # out on load and re-polls forever). The frontend renders placeholders for
+        # stripped outputs and lazily fetches each full output via
+        # read_notebook_output when the user opens it.
+        nb = result.get("notebook") if isinstance(result, dict) else None
+        if isinstance(result, dict) and result.get("success") and nb is not None:
+            try:
+                lean, stripped = leanify_notebook(nb)
+                result["notebook"] = lean
+                result["lazy_stripped"] = stripped
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"leanify_notebook failed ({notebook_path}); returning full: {e}")
+        return result
+
+    @tool
+    async def read_notebook_output(
+        self, notebook_path: str, cell_id: str, output_index: int
+    ) -> dict:
+        """Fetch ONE full cell output on demand (Frontend only).
+
+        read_notebook returns a LEAN notebook — outputs above a size limit are
+        replaced with a marker + preview so the notebook crosses NATS fast. When
+        the user opens such an output, the frontend calls this to load the single
+        full output, addressed by its cell id and its index in that cell's outputs
+        list (both carried in the marker). Not exposed to LLM agents.
+        """
+        result = await self.notebook_contents.read_notebook(notebook_path, validate=False)
+        if not isinstance(result, dict) or not result.get("success"):
+            return result if isinstance(result, dict) else {"success": False, "error": "read failed"}
+        nb = result.get("notebook") or {}
+        for cell in nb.get("cells", []):
+            if cell.get("id") == cell_id:
+                outs = cell.get("outputs") or []
+                if 0 <= output_index < len(outs):
+                    return {"success": True, "output": outs[output_index]}
+                return {"success": False, "error": f"output_index {output_index} out of range ({len(outs)} outputs)"}
+        return {"success": False, "error": f"cell {cell_id} not found"}
 
     @tool(exclude=True)
     async def list_notebooks(self) -> dict:
