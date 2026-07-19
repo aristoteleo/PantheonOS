@@ -40,7 +40,7 @@ PantheonOS is an **evolvable and privacy-preserving multi-agent framework** desi
 
 - **Evolvable** — Pantheon-Evolve module enables agents to improve algorithms and code through genetic-algorithm-driven agentic code evolution
 - **Multi-Agent Teams** — PantheonTeam, Sequential, Swarm, Mixture-of-Agents (MoA), and AgentAsTool team patterns for flexible orchestration
-- **Distributed Architecture** — NATS-based messaging for scalable, fault-tolerant deployments across machines
+- **Distributed Architecture** — NATS-based messaging for scalable, fault-tolerant deployments across machines. With [Pantheon-Fleet](https://pantheonos.stanford.edu/blog/pantheon-fleet), agents can directly control a distributed network of machines.
 - **Friendly Interfaces** — Interactive CLI (`pantheon cli`) and Chatroom UI (`pantheon ui`)
 - **[Pantheon Store](https://app.pantheonos.stanford.edu/#/store)** — A community marketplace with 1,000+ curated agents, teams, and skills for biomedical AI, installable via UI or CLI
 
