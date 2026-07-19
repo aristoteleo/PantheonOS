@@ -51,21 +51,18 @@ PantheonOS is an **evolvable and privacy-preserving multi-agent framework** desi
 | [![][online-app-shield]][online-app] | Play with our Web UI! |
 | [![][desktop-shield]][desktop-release-link] | Download the latest desktop app release. |
 | [![][store-shield]][store-link] | Browse 1,000+ agents, teams, and skills! |
-| [![][install-shield]][install-link] | From source: `pip install git+https://github.com/aristoteleo/PantheonOS.git` ([why not PyPI?](#3-installation)) |
+| [![][install-shield]][install-link] | `pip install pantheon-agents` |
 | [![][slack-shield-badge]][slack-link] | Join our Slack community! |
 | [![][discord-shield-badge]][discord-link] | Join our Discord community! |
 
 ## `3` [Installation](#3-installation)
 
-> [!WARNING]
-> **Security notice (June 2026) — install from source, not PyPI.**
-> The PyPI account that published `pantheon-agents` was compromised in the "Hades"
-> supply-chain attack, and the PyPI releases **`pantheon-agents` 0.6.1 and 0.6.2 are
-> trojanized** (a `*-setup.pth` hook downloads the Bun runtime and runs a credential
-> stealer). **Do not `pip install pantheon-agents` from PyPI.** Install from the GitHub
-> source as shown below — the source repository is clean. If you previously installed
-> 0.6.1 or 0.6.2, uninstall it immediately and rotate any credentials that were present
-> on that machine. PyPI distribution will resume once the account is restored.
+> [!NOTE]
+> **Security update — the June 2026 "Hades" incident is resolved.** The trojanized
+> `pantheon-agents` 0.6.1 and 0.6.2 releases have been removed from PyPI and the
+> account restored; current releases are clean, so install from PyPI as usual. If you
+> installed 0.6.1 or 0.6.2 during the incident, uninstall it and rotate any credentials
+> that were present on that machine.
 
 ### Desktop App
 
@@ -97,17 +94,14 @@ uv sync --extra claw       # PantheonClaw mobile gateway channels
 uv sync --extra r          # R language support (requires R installed)
 ```
 
-### Using pip (from GitHub source)
-
-> PyPI installs are temporarily disabled (see the security notice above). Install
-> directly from the clean GitHub source instead:
+### Using pip
 
 ```bash
-# Basic installation (from source)
-pip install "git+https://github.com/aristoteleo/PantheonOS.git"
+# Basic installation
+pip install pantheon-agents
 
 # With optional dependencies (e.g. RAG / vector search)
-pip install "pantheon-agents[knowledge] @ git+https://github.com/aristoteleo/PantheonOS.git"
+pip install "pantheon-agents[knowledge]"
 ```
 
 ### Development Installation

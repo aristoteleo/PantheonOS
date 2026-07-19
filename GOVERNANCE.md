@@ -46,9 +46,11 @@ Discussion, or pull request that receives no sustained objection within a
 reasonable period is accepted. Substantial or contentious changes should be
 raised in an issue or Discussion first.
 
-Code changes require review and approval by at least one maintainer other than
-the author before merging. When consensus cannot be reached, the lead
-maintainers make the final decision.
+Code changes are reviewed before merging. The project is still small, so review
+is currently carried out by the lead maintainers; we are actively recruiting
+additional maintainers so that, as the community grows, every change can be
+reviewed by someone other than its author. When consensus cannot be reached, the
+lead maintainers make the final decision.
 
 ## Agent-authored contributions
 
