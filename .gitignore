@@ -192,9 +192,13 @@ workdir**
 .notebook_sessions_metadata.json
 .pantheon_tasks.json
 
-# Ignore all markdown files in root except README.md
+# Ignore all markdown files in root except README.md and community docs
 /*.md
 !/README.md
+!/CODE_OF_CONDUCT.md
+!/CONTRIBUTING.md
+!/GOVERNANCE.md
+!/ROADMAP.md
 
 # Ignore all JSON files in root (configs, session data, etc.)
 /*.json
