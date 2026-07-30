@@ -142,7 +142,7 @@ def _is_model_tag(model_str: str) -> bool:
     """Check if a string is a model tag vs a model name.
 
     Model tags are quality/capability identifiers like "high", "normal,vision".
-    Model names are actual model identifiers like "openai/gpt-4o", "gpt-4o-mini".
+    Model names are actual model identifiers like "openai/gpt-5.4", "gpt-5.4-mini".
     A ``+think[:level]`` suffix is allowed on any tag string.
 
     Args:
@@ -744,6 +744,15 @@ class Agent:
         self._ephemeral_hooks: list = []
         # Signature: async (tool_calls: list[dict], tool_messages: list[dict], context_variables: dict) -> None
         self._tool_tracking_hooks: list = []
+        # Per-tool-call gate/decorator hooks (fire inside _handle_tool_calls, one call at a time).
+        # Pre-hook  — async (func_name: str, params: dict) -> Any|None. The FIRST hook to return a
+        #   non-None value SHORT-CIRCUITS the call: the tool is NOT executed and that value becomes
+        #   the result (used e.g. for an action budget that fails a tool when exhausted).
+        # Post-hook — async (func_name: str, params: dict, result: Any) -> Any|None. Runs only when
+        #   the call was NOT short-circuited; a non-None return REPLACES the result (used e.g. to
+        #   append the remaining-budget countdown to each tool result). Applied in order.
+        self._pre_tool_hooks: list = []
+        self._post_tool_hooks: list = []
 
     def _register_bg_tools(self) -> None:
         """Register background task management tools."""
@@ -1402,8 +1411,24 @@ class Agent:
                 run_in_bg = False
             from .background import _bg_output_buffer
 
+            # Pre-tool hooks: a hook may SHORT-CIRCUIT the call (e.g. an exhausted action
+            # budget) by returning a non-None value that becomes the tool result without
+            # ever executing the tool. First non-None wins.
+            short_circuit = None
+            for _pre in self._pre_tool_hooks:
+                try:
+                    _sc = await _pre(func_name, params)
+                except Exception as e:  # a misbehaving hook must never break tool dispatch
+                    logger.warning(f"pre_tool_hook error for '{func_name}': {e}")
+                    _sc = None
+                if _sc is not None:
+                    short_circuit = _sc
+                    break
+
             # Handle parse error or execute tool
-            if parse_error:
+            if short_circuit is not None:
+                result = short_circuit
+            elif parse_error:
                 # Treat as execution failure
                 truncated = call["function"]["arguments"][:200]
                 if len(call["function"]["arguments"]) > 200:
@@ -1544,6 +1569,19 @@ class Agent:
 
             end_timestamp = time.time()
             execution_duration = end_timestamp - start_time
+
+            # Post-tool hooks: decorate the result of an EXECUTED tool (skipped when the call was
+            # short-circuited, or on transfer results). Used e.g. to append a remaining-budget
+            # countdown so the agent stays aware of how many actions it has left.
+            if short_circuit is None and not isinstance(result, (Agent, RemoteAgent)):
+                for _post in self._post_tool_hooks:
+                    try:
+                        _new = await _post(func_name, params, result)
+                    except Exception as e:
+                        logger.warning(f"post_tool_hook error for '{func_name}': {e}")
+                        _new = None
+                    if _new is not None:
+                        result = _new
 
             # P1: Move timestamp fields to _metadata (except top-level timestamp for compatibility)
             tool_message = {
@@ -2734,6 +2772,7 @@ class Agent:
         model: str | list[str] | None = None,
         allow_transfer: bool = True,
         execution_context_id: str | None = None,
+        max_turns: int | float = float("inf"),
     ) -> AgentResponse | AgentTransfer:
         """Run the agent.
 
@@ -2843,6 +2882,7 @@ class Agent:
                 model=model,
                 allow_transfer=allow_transfer,
                 execution_context_id=exec_context.execution_context_id,
+                max_turns=max_turns,
             )
         except StopRunning as e:
             logger.info("StopRunning")

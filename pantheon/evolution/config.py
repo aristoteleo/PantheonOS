@@ -65,6 +65,57 @@ class EvolutionConfig:
     temperature: float = 0.7  # LLM temperature for mutation
     max_retries: int = 3  # Retries for failed mutations
     mutation_timeout: int = 120  # Timeout for LLM mutation call (seconds)
+    # Single-agent mutation: replace the analyzer+mutator (+summarizer) pipeline with ONE
+    # full-capability coding agent (a one-agent PantheonTeam) that edits a workspace, verifies
+    # with run_evaluator, and commits via submit() (result + summary), like a git commit.
+    single_agent_mutation: bool = True
+    # Sandbox mutation: run each mutation (agent + tools + eval) in an ISOLATED Modal sandbox —
+    # no host filesystem access, and trivially parallel (one sandbox per mutation). Overrides
+    # single_agent_mutation when True.
+    sandbox_mutation: bool = False
+    sandbox_image: str = "nanguage/pantheon-agents:latest"
+    # Inject MAP-Elites inspirations (elites sampled from OTHER niches) into the mutation as
+    # read-only reference code, so the agent can borrow/combine ideas across cells — not just
+    # follow its own lineage. Off = classic single-parent mutation. Sandbox path only.
+    sandbox_inspirations: bool = False
+    # Override the mutation agent's system prompt (persona/task framing). None = the default
+    # algorithm-designer prompt. Set this to retarget the same evolution machinery at a
+    # non-code genome (e.g. gene-panel design: "you are a panel designer, edit panel.txt").
+    mutation_system_prompt: Optional[str] = None
+    # Give the mutation agent a web_search tool (DuckDuckGo) so it can research the domain itself
+    # (e.g. find marker genes / pathways) instead of being handed the answer. Single-agent path.
+    mutation_web_search: bool = False
+    # Cap how many times the mutation agent may call run_evaluator per mutation. None = unlimited.
+    # Once hit, run_evaluator refuses and tells the agent to submit; the best VERIFIED version seen
+    # is auto-submitted if the agent doesn't. Bounds slow mutations without losing exploration.
+    # NOTE: this is a SOFT limit — the agent can still self-score in python. For a HARD cap on the
+    # agent's total rounds (unbypassable), use max_mutation_turns.
+    max_evaluations_per_mutation: Optional[int] = None
+    # HARD cap on the number of LLM turns (reasoning+tool rounds) the mutation agent may take, per
+    # mutation. None = unlimited. Unlike the eval cap, this counts EVERY turn (python/shell too), so
+    # the agent cannot bypass it. The best verified version is auto-committed when the turns run out.
+    max_mutation_turns: Optional[int] = None
+    # Warm-start: name of a data file (inside the genome) that carries the best solution the code
+    # PRODUCED, so the next generation can load and polish it instead of re-deriving it from scratch.
+    # When set, the framework persists the evaluator's returned "_state" into this file on each child
+    # (after the code diff is computed, so the blob never pollutes the diff). None disables warm-start.
+    # Only meaningful when the code RUNS an optimizer to produce a numerical solution (e.g. circle
+    # packing); for problems whose artifact IS the genome (e.g. a gene panel) leave it None.
+    warm_start_file: Optional[str] = None
+    # Use ABSOLUTE fitness instead of min-max normalizing each metric against the archive's observed
+    # range. Default False keeps the adaptive normalization (good when metrics live on unknown/wildly
+    # different scales). Set True when the evaluator's score is already a meaningful absolute value in
+    # ~[0,1+] (e.g. combined_score = sum_radii / target): fitness then equals the raw score, so the
+    # champion is NOT pinned to 1.0 and "good vs slightly-better" keeps a real selection gradient —
+    # and a score above 1.0 (beating the target) still counts, since absolute fitness is not clamped.
+    fitness_absolute: bool = False
+    # HARD cap on the number of ACTION tool calls (python/shell/run_evaluator/web_search/file ops —
+    # everything EXCEPT submit) the mutation agent may make per mutation. None = unlimited. Every
+    # tool result carries a "N actions left" countdown so the agent self-paces; once the budget is
+    # spent, further tool calls FAIL with an instruction to submit, while submit() stays available at
+    # all times. Preferred over max_mutation_turns: the signal is in-band (a tool failure the agent
+    # must react to) and the agent always keeps the ability to finalize its own best work via submit.
+    max_tool_calls_per_mutation: Optional[int] = None
 
     # === Analyzer Parameters ===
     use_analyzer: bool = True  # Enable analyzer agent before mutator
@@ -180,6 +231,17 @@ class EvolutionConfig:
             "temperature": self.temperature,
             "max_retries": self.max_retries,
             "mutation_timeout": self.mutation_timeout,
+            "single_agent_mutation": self.single_agent_mutation,
+            "sandbox_mutation": self.sandbox_mutation,
+            "sandbox_image": self.sandbox_image,
+            "sandbox_inspirations": self.sandbox_inspirations,
+            "mutation_system_prompt": self.mutation_system_prompt,
+            "mutation_web_search": self.mutation_web_search,
+            "max_evaluations_per_mutation": self.max_evaluations_per_mutation,
+            "max_mutation_turns": self.max_mutation_turns,
+            "max_tool_calls_per_mutation": self.max_tool_calls_per_mutation,
+            "fitness_absolute": self.fitness_absolute,
+            "warm_start_file": self.warm_start_file,
             "use_analyzer": self.use_analyzer,
             "analyzer_model": self.analyzer_model,
             "analyzer_timeout": self.analyzer_timeout,
@@ -239,6 +301,17 @@ class EvolutionConfig:
             "temperature",
             "max_retries",
             "mutation_timeout",
+            "single_agent_mutation",
+            "sandbox_mutation",
+            "sandbox_image",
+            "sandbox_inspirations",
+            "mutation_system_prompt",
+            "mutation_web_search",
+            "max_evaluations_per_mutation",
+            "max_mutation_turns",
+            "max_tool_calls_per_mutation",
+            "fitness_absolute",
+            "warm_start_file",
             "use_analyzer",
             "analyzer_model",
             "analyzer_timeout",

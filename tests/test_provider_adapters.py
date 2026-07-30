@@ -72,10 +72,18 @@ class TestProviderRegistry:
         assert info["max_input_tokens"] == 1_000_000
         assert info["supports_vision"] is True
 
-    def test_get_model_info_openai_gpt_4o_mini(self):
-        info = get_model_info("gpt-4o-mini")
-        assert info["max_input_tokens"] == 128_000
-        assert info["max_output_tokens"] == 16_384
+    def test_get_model_info_openai_bare_name(self):
+        """A bare (provider-less) OpenAI id still resolves against the catalog."""
+        info = get_model_info("gpt-5.4-mini")
+        assert info["max_input_tokens"] == 1_000_000
+        assert info["max_output_tokens"] == 64_000
+
+    def test_get_model_info_dotted_version_alias(self):
+        """Vendors publish 'claude-opus-4.8'; the catalog keys it 'claude-opus-4-8'.
+        The dot form must not fall through to the generic price defaults."""
+        info = get_model_info("anthropic/claude-opus-4.8")
+        assert info["input_cost_per_million"] == 5.0
+        assert info["output_cost_per_million"] == 25.0
 
     def test_get_model_info_unknown_returns_defaults(self):
         info = get_model_info("fake/nonexistent-model")
@@ -86,8 +94,13 @@ class TestProviderRegistry:
         assert abs(cost - 2.8) < 0.01
 
     def test_models_by_provider(self):
+        # Asserted as a property, not an exact count: the catalog gains/retires models
+        # continuously, and a hardcoded length goes red on every catalog refresh
+        # (this test sat broken for two months for exactly that reason).
         models = models_by_provider("anthropic")
-        assert len(models) == 7
+        assert models, "anthropic provider should expose models"
+        assert all(m.startswith("anthropic/") for m in models)
+        assert "anthropic/claude-opus-4-8" in models
 
     def test_models_by_provider_qwen(self):
         models = models_by_provider("qwen")

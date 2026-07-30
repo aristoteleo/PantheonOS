@@ -52,7 +52,7 @@ class CompressionPlugin(TeamPlugin):
                    "use the active agent's model at compression time" — keeps
                    the compressor on the same provider/quota as the chat,
                    which is the expected behavior for most users. Power users
-                   can pin a specific model (e.g. "openai/gpt-4o-mini") for
+                   can pin a specific model (e.g. "openai/gpt-5.4-mini") for
                    cost or context-window reasons.
         """
         self.config = config

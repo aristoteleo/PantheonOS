@@ -615,7 +615,7 @@ class ModelSelector:
         """Check if a model supports a specific capability.
 
         Args:
-            model: Model name (e.g., "openai/gpt-4o")
+            model: Model name (e.g., "openai/gpt-5.4")
             capability: Capability tag (e.g., "vision", "reasoning")
 
         Returns:

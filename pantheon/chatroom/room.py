@@ -4347,7 +4347,7 @@ class ChatRoom(ToolSet):
         Args:
             chat_id: The chat ID.
             agent_name: The name of the agent to update.
-            model: Model name (e.g., "openai/gpt-4o") or tag (e.g., "high", "normal,vision").
+            model: Model name (e.g., "openai/gpt-5.4") or tag (e.g., "high", "normal,vision").
             validate: If True, verify that the provider has a valid API key.
 
         Returns:

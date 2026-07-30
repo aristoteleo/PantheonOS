@@ -6,7 +6,7 @@
     //
     // host: Gateway hostname for external access (default: "localhost")
     // port: Gateway listening port (default: 3100). If occupied, will auto-find next available.
-    // sampling_model: Model for MCP sampling requests (e.g., "gpt-4o-mini")
+    // sampling_model: Model for MCP sampling requests (e.g., "gpt-5.4-mini")
     // cache_ttl: Tool list cache TTL in seconds (default: 60)
     "host": "localhost",
     "port": 3100,

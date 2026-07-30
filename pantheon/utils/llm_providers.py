@@ -41,6 +41,11 @@ class ProviderConfig:
     api_key: Optional[str] = None
     relaxed_schema: bool = False
     responses_required_models: dict[str, Any] = field(default_factory=dict)
+    # False when the catalog declares the endpoint has no /v1/responses. The runtime
+    # probe alone is not enough: an endpoint that answers with an HTML 404 page can be
+    # misclassified upstream (e.g. as a rate limit) and retried, so the fallback path
+    # that records the probe result never runs.
+    supports_responses_api: bool = True
 
 
 # OpenAI-compatible providers that need custom base_url.
@@ -151,6 +156,7 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
     api_key = None
     provider_type = None
     responses_required_models: dict[str, Any] | None = None
+    supports_responses = True
 
     if "/" in model:
         provider_str, model_name = model.split("/", 1)
@@ -184,6 +190,7 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
                 responses_required_models = catalog_config.get(
                     "responses_required_models"
                 )
+                supports_responses = catalog_config.get("supports_responses_api", True)
         # Check if it's explicitly openai provider
         if provider_lower == "openai":
             provider_type = ProviderType.OPENAI
@@ -226,6 +233,7 @@ def detect_provider(model: str, relaxed_schema: bool) -> ProviderConfig:
         api_key=api_key or None,
         relaxed_schema=relaxed_schema,
         responses_required_models=responses_required_models or {},
+        supports_responses_api=supports_responses,
     )
 
 
@@ -284,6 +292,11 @@ def should_use_responses_api(config: ProviderConfig) -> bool:
     if config.provider_type != ProviderType.OPENAI:
         return False
     if "codex/" in config.model_name.lower():
+        return False
+    if not config.supports_responses_api:
+        # Catalog says this endpoint has no /v1/responses (e.g. OpenRouter, which
+        # answers the probe with an HTML 404 page). Skip it statically instead of
+        # discovering it at runtime.
         return False
     if is_responses_api_model(config):
         return True

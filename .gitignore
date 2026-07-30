@@ -260,3 +260,6 @@ liveview_outputs/
 # accidental .env backups (use ~/.pantheon/.env as canonical)
 *.env.bak
 .env.env.bak
+
+# derived gene-symbol caches for the panel examples (see make_candidates.py)
+examples/evolution_panel_*/candidates.txt
