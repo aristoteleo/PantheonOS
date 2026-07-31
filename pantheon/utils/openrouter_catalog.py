@@ -233,6 +233,16 @@ def _load_fallback() -> bool:
     return False
 
 
+def _is_permanent(exc: Exception) -> bool:
+    """True for a status that says "this source doesn't serve it" — retrying can only
+    waste round-trips on the cold path. Matters most for a Hub that hasn't been deployed
+    with the mirror yet: it 404s, and we should fall through to OpenRouter immediately.
+    429/408 are excluded — those DO clear on a retry."""
+    resp = getattr(exc, "response", None)
+    code = getattr(resp, "status_code", None)
+    return isinstance(code, int) and 400 <= code < 500 and code not in (408, 429)
+
+
 async def _fetch_async(name: str, url: str) -> dict | None:
     """One source, with backoff retries (see _RETRY_BACKOFF). Returns the raw payload."""
     last: Exception | None = None
@@ -247,6 +257,9 @@ async def _fetch_async(name: str, url: str) -> dict | None:
         except Exception as e:  # noqa: BLE001
             last = e
             logger.debug(f"[openrouter_catalog] {name} attempt {attempt} failed: {e}")
+            if _is_permanent(e):
+                logger.debug(f"[openrouter_catalog] {name} won't serve this — not retrying")
+                break
     logger.warning(f"[openrouter_catalog] {name} unreachable: {last}")
     return None
 

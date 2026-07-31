@@ -183,6 +183,52 @@ def test_hub_failure_falls_through_to_openrouter(monkeypatch):
     assert oc.catalog_status()["source"] == "openrouter"
 
 
+def test_a_404_source_is_not_retried(monkeypatch):
+    """A Hub that predates the mirror endpoint 404s. Retrying it just burns round-trips
+    on the cold path — fall through to OpenRouter at once. (429/408 still retry.)"""
+    monkeypatch.setenv("PANTHEON_HUB_URL", "https://hub.example.com")
+
+    def behaviour(url):
+        if "hub.example.com" in url:
+            raise httpx.HTTPStatusError(
+                "404", request=httpx.Request("GET", url),
+                response=httpx.Response(404, request=httpx.Request("GET", url)),
+            )
+        return PAYLOAD
+
+    client, calls = _client_factory(behaviour)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(httpx, "AsyncClient", client)
+        asyncio.run(oc.ensure_fresh())
+
+    hub_calls = [u for u in calls if "hub.example.com" in u]
+    assert len(hub_calls) == 1, "a 404 must not be retried"
+    assert oc.catalog_status()["source"] == "openrouter"
+
+
+def test_a_429_source_is_still_retried(monkeypatch):
+    monkeypatch.setenv("PANTHEON_HUB_URL", "https://hub.example.com")
+    state = {"n": 0}
+
+    def behaviour(url):
+        if "hub.example.com" in url:
+            state["n"] += 1
+            if state["n"] < 2:
+                raise httpx.HTTPStatusError(
+                    "429", request=httpx.Request("GET", url),
+                    response=httpx.Response(429, request=httpx.Request("GET", url)),
+                )
+        return PAYLOAD
+
+    client, _ = _client_factory(behaviour)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(httpx, "AsyncClient", client)
+        asyncio.run(oc.ensure_fresh())
+
+    assert state["n"] == 2
+    assert oc.catalog_status()["source"] == "hub"
+
+
 def test_a_live_cache_is_not_refetched_within_the_ttl():
     client, calls = _client_factory(lambda url: PAYLOAD)
     with pytest.MonkeyPatch.context() as mp:
