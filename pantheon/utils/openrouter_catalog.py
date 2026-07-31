@@ -9,11 +9,23 @@ derived catalog in-process with a TTL; ``ensure_fresh()`` (async) does the fetch
 ``get_model_info()`` / ``featured_by_tier()`` / ``all_model_ids()`` read it
 synchronously (returning empty/None until the first successful fetch, so callers
 degrade gracefully).
+
+Resilience — a fresh sandbox's FIRST outbound connection routinely fails (egress not
+up yet; the endpoint warmup retries 8 times for exactly this). A single-attempt fetch
+therefore left the cache empty, and the picker silently rendered the BYOK default list
+(4 models) as if that were the answer. So: try the Hub's warm mirror, then OpenRouter
+direct, each with backoff; if the network yields nothing, fall back to the last good
+payload on disk, then to the snapshot baked into the image. The cache ends up populated
+either way, and ``catalog_status()`` tells callers whether it's live or a fallback.
 """
 from __future__ import annotations
 
+import asyncio
+import json
+import os
 import re
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -22,10 +34,32 @@ from .log import logger
 
 _MODELS_URL = "https://openrouter.ai/api/v1/models"
 _TTL_SECONDS = 3600  # refresh at most hourly
+# While serving a fallback (disk/snapshot) we retry the network this often rather than
+# on every call — the picker opens far more frequently than hourly.
+_STALE_RETRY_SECONDS = 60
+# Extra attempts per source. The cold-egress failure is a FAST failure (DNS/refused),
+# so these cost ~nothing in the case they exist for; a genuinely hanging upstream is
+# bounded by the timeout and then falls through to the disk/snapshot layer.
+_RETRY_BACKOFF = (0.5, 1.5)
+_FETCH_TIMEOUT = 10.0
+# The sync path runs inside model routing — keep it short and let the local fallback
+# (already loaded by then) carry the call rather than blocking on a slow upstream.
+_SYNC_TIMEOUT = 5.0
 
 # openrouter id (e.g. "openai/gpt-5.6") -> derived metadata dict (+ _-prefixed extras)
 _CACHE: dict[str, dict] = {}
-_FETCHED_AT: float = 0.0
+_FETCHED_AT: float = 0.0    # monotonic stamp of the last LIVE (network) load; 0 = fallback
+_ATTEMPTED_AT: float = 0.0  # monotonic stamp of the last network attempt (throttle)
+_SOURCE: str = ""           # "hub" | "openrouter" | "disk" | "snapshot" | ""
+
+# Last good payload — a restarted sandbox on a persistent volume starts warm.
+_DISK_CACHE = Path(
+    os.environ.get("PANTHEON_CATALOG_CACHE")
+    or (Path.home() / ".pantheon" / "openrouter_catalog.json")
+)
+# Baked into the image (scripts/refresh_catalog_snapshot.py) — the floor, so even a
+# brand-new sandbox with no disk cache and no egress still shows a real model list.
+_SNAPSHOT = Path(__file__).resolve().parent.parent / "data" / "openrouter_catalog.json"
 
 # Vendors surfaced in the picker's DEFAULT (featured) tiers. The full fetched list
 # is always searchable; this just keeps the dropdown mainstream.
@@ -126,28 +160,131 @@ def _parse(payload: dict) -> dict[str, dict]:
     return out
 
 
-async def ensure_fresh(force: bool = False) -> None:
-    """Fetch + cache the OpenRouter model list if stale (public endpoint, no key).
-    Best-effort — a failure leaves the previous cache (or empty) in place."""
-    global _FETCHED_AT
-    if not force and _CACHE and (time.monotonic() - _FETCHED_AT) < _TTL_SECONDS:
-        return
+def _install(payload: dict, source: str, *, live: bool) -> int:
+    """Parse a raw ``{"data": [...]}`` payload into the cache. Returns the model count;
+    0 means nothing usable was in it and the previous cache is left untouched."""
+    global _FETCHED_AT, _SOURCE
+    parsed = _parse(payload)
+    if not parsed:
+        return 0
+    _CACHE.clear()
+    _CACHE.update(parsed)
+    _SOURCE = source
+    # Only a live fetch satisfies the TTL. A fallback load leaves _FETCHED_AT at 0 so we
+    # keep trying the network (throttled by _STALE_RETRY_SECONDS) instead of settling.
+    _FETCHED_AT = time.monotonic() if live else 0.0
+    return len(parsed)
+
+
+def _sources() -> list[tuple[str, str]]:
+    """(name, url) to try in order. The Hub mirrors this catalog from a long-lived
+    process, so it's warm exactly when a fresh sandbox's own egress isn't."""
+    out: list[tuple[str, str]] = []
+    hub = (os.environ.get("PANTHEON_HUB_URL") or "").strip().rstrip("/")
+    if hub:
+        out.append(("hub", f"{hub}/api/model-catalog"))
+    out.append(("openrouter", _MODELS_URL))
+    return out
+
+
+def _should_attempt(force: bool) -> bool:
+    """Network-attempt gate: a live cache is good for the TTL; a fallback cache (or no
+    cache at all) retries every _STALE_RETRY_SECONDS rather than on every call."""
+    if force:
+        return True
+    now = time.monotonic()
+    if _CACHE and _FETCHED_AT and (now - _FETCHED_AT) < _TTL_SECONDS:
+        return False
+    return not _ATTEMPTED_AT or (now - _ATTEMPTED_AT) >= _STALE_RETRY_SECONDS
+
+
+def _save_disk(payload: dict) -> None:
+    """Persist the RAW payload (not the derived form, so a later _derive() change
+    re-derives rather than reading stale fields). Atomic: a torn file would poison
+    every subsequent cold start."""
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
-            resp = await client.get(_MODELS_URL, headers={"Accept": "application/json"})
-        resp.raise_for_status()
-        parsed = _parse(resp.json())
-        if parsed:
-            _CACHE.clear()
-            _CACHE.update(parsed)
-            _FETCHED_AT = time.monotonic()
-            logger.info(f"[openrouter_catalog] cached {len(parsed)} models")
+        _DISK_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _DISK_CACHE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload))
+        tmp.replace(_DISK_CACHE)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"[openrouter_catalog] refresh failed: {e}")
+        logger.debug(f"[openrouter_catalog] disk cache write skipped: {e}")
+
+
+def _load_fallback() -> bool:
+    """Disk (last good payload), then the image snapshot. Only reached when the network
+    gave us nothing AND the cache is empty — a stale real list beats the BYOK-shaped
+    wrong list the picker used to fall back to."""
+    for name, path in (("disk", _DISK_CACHE), ("snapshot", _SNAPSHOT)):
+        try:
+            if not path.is_file():
+                continue
+            payload = json.loads(path.read_text())
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[openrouter_catalog] {name} fallback unreadable: {e}")
+            continue
+        n = _install(payload, name, live=False)
+        if n:
+            logger.warning(
+                f"[openrouter_catalog] network unavailable — serving {n} models "
+                f"from the {name} fallback"
+            )
+            return True
+    return False
+
+
+async def _fetch_async(name: str, url: str) -> dict | None:
+    """One source, with backoff retries (see _RETRY_BACKOFF). Returns the raw payload."""
+    last: Exception | None = None
+    for attempt, delay in enumerate((0.0,) + _RETRY_BACKOFF, start=1):
+        if delay:
+            await asyncio.sleep(delay)
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(_FETCH_TIMEOUT)) as client:
+                resp = await client.get(url, headers={"Accept": "application/json"})
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:  # noqa: BLE001
+            last = e
+            logger.debug(f"[openrouter_catalog] {name} attempt {attempt} failed: {e}")
+    logger.warning(f"[openrouter_catalog] {name} unreachable: {last}")
+    return None
+
+
+async def ensure_fresh(force: bool = False) -> None:
+    """Load the catalog if stale: Hub mirror → OpenRouter direct → disk → image snapshot.
+    Best-effort and never raises, but unlike a bare fetch it leaves the cache POPULATED
+    from a fallback rather than empty — callers should not have to treat "no catalog" as
+    a normal outcome. Use catalog_status() when liveness matters."""
+    global _ATTEMPTED_AT
+    if not _should_attempt(force):
+        return
+    _ATTEMPTED_AT = time.monotonic()
+    for name, url in _sources():
+        payload = await _fetch_async(name, url)
+        if payload and _install(payload, name, live=True):
+            logger.info(f"[openrouter_catalog] cached {len(_CACHE)} models from {name}")
+            _save_disk(payload)
+            return
+    if not _CACHE:
+        _load_fallback()
 
 
 def is_loaded() -> bool:
     return bool(_CACHE)
+
+
+def catalog_status() -> dict:
+    """What the picker needs in order to choose between rendering the list, showing a
+    retry, or flagging staleness. ``ready``: we have models at all. ``live``: they came
+    from the network within this TTL (as opposed to a disk/snapshot fallback)."""
+    return {
+        "ready": bool(_CACHE),
+        "live": bool(_CACHE) and bool(_FETCHED_AT),
+        "source": _SOURCE,
+        "model_count": len(_CACHE),
+        "age_seconds": (time.monotonic() - _FETCHED_AT) if _FETCHED_AT else None,
+    }
 
 
 def get_model_info(model_id: str) -> dict | None:
@@ -207,24 +344,30 @@ def effort_levels(model_id: str) -> dict | None:
 
 
 def _ensure_loaded_sync() -> None:
-    """Best-effort SYNC load when the async cache is empty (e.g. a fresh process that
-    hasn't served list_available_models yet). Fetches once, TTL-guarded. Used by
-    canonical_openrouter_id from the synchronous provider-detection path."""
-    global _FETCHED_AT
-    if _CACHE and (time.monotonic() - _FETCHED_AT) < _TTL_SECONDS:
+    """Best-effort SYNC load when the cache is empty (a fresh process that hasn't served
+    list_available_models yet). Used by canonical_openrouter_id on the synchronous
+    provider-detection path — i.e. INSIDE model routing, so it stays cheap: the local
+    fallback loads first (a file read, instant, and already enough to route with) and the
+    network gets one short attempt per source. ensure_fresh() is what keeps it live."""
+    global _ATTEMPTED_AT
+    if not _CACHE:
+        _load_fallback()
+    if not _should_attempt(False):
         return
-    try:
-        with httpx.Client(timeout=httpx.Timeout(10.0)) as client:
-            resp = client.get(_MODELS_URL, headers={"Accept": "application/json"})
-        resp.raise_for_status()
-        parsed = _parse(resp.json())
-        if parsed:
-            _CACHE.clear()
-            _CACHE.update(parsed)
-            _FETCHED_AT = time.monotonic()
-            logger.info(f"[openrouter_catalog] sync-cached {len(parsed)} models")
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"[openrouter_catalog] sync refresh failed: {e}")
+    _ATTEMPTED_AT = time.monotonic()
+    for name, url in _sources():
+        try:
+            with httpx.Client(timeout=httpx.Timeout(_SYNC_TIMEOUT)) as client:
+                resp = client.get(url, headers={"Accept": "application/json"})
+            resp.raise_for_status()
+            payload = resp.json()
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[openrouter_catalog] sync {name} failed: {e}")
+            continue
+        if _install(payload, name, live=True):
+            logger.info(f"[openrouter_catalog] sync-cached {len(_CACHE)} models from {name}")
+            _save_disk(payload)
+            return
 
 
 # Bare-model-name prefix → OpenRouter vendor. Lets bare ids route WITHOUT the live catalog
@@ -470,6 +613,7 @@ def platform_model_mode() -> str:
 __all__ = [
     "ensure_fresh",
     "is_loaded",
+    "catalog_status",
     "get_model_info",
     "featured_by_tier",
     "by_vendor",
