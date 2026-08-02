@@ -160,6 +160,11 @@ dev = [
 packages = {find = {where = ["."], exclude = ["tests*", "examples*", "tmp*", "try*", "docs*"]}}
 
 [tool.setuptools.package-data]
+"pantheon" = [
+    # Offline OpenRouter catalog snapshot — the picker's last-resort fallback when a
+    # cold sandbox can't reach the network (scripts/refresh_catalog_snapshot.py).
+    "data/*.json",
+]
 "pantheon.factory" = [
     "templates/**/*.md",
     "templates/**/*.json",

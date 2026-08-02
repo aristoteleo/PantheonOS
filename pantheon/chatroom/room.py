@@ -545,9 +545,35 @@ class ChatRoom(ToolSet):
         task = asyncio.create_task(self._ensure_plugins())
         self._background_tasks.add(task)
 
+        # Warm the OpenRouter catalog in THIS process. list_available_models (the picker's
+        # RPC) is served here, and it used to be the thing that first fetched the catalog —
+        # so the very first picker open on a fresh sandbox raced the cold-egress window and,
+        # on a miss, rendered the BYOK default list instead of the platform's models. The
+        # endpoint process already preloads for its own routing (endpoint/core.py); this is
+        # the room-side counterpart. Background + best-effort: setup must not wait on it.
+        task = asyncio.create_task(self._warm_model_catalog())
+        self._background_tasks.add(task)
+
         # Register activity callback for _ping responses (used by Hub idle cleanup)
         if hasattr(self, 'worker') and self.worker and hasattr(self.worker, 'set_activity_callback'):
             self.worker.set_activity_callback(self._get_activity_status)
+
+    async def _warm_model_catalog(self) -> None:
+        """Preload the OpenRouter catalog so the picker's first open is served from cache.
+        Unconditional (not gated on platform mode): the catalog's created/cost data drives
+        picker ordering in BOTH modes. Never raises — a failed warmup just means
+        list_available_models fetches on demand, with the fallback layers behind it."""
+        try:
+            from pantheon.utils import openrouter_catalog
+
+            await openrouter_catalog.ensure_fresh()
+            st = openrouter_catalog.catalog_status()
+            logger.info(
+                f"ChatRoom: model catalog warm ({st['model_count']} models, "
+                f"source={st['source'] or 'none'}, live={st['live']})"
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"ChatRoom: model catalog warmup skipped: {e}")
 
     @staticmethod
     def _walk_workspace_bytes(root: str) -> int:
@@ -3883,7 +3909,16 @@ class ChatRoom(ToolSet):
             # view when the user has the platform budget ON; BYOK still uses
             # models_by_provider (the user's own keys).
             resp["platform_model_mode"] = mode
-            if mode == "openrouter" and openrouter_catalog.is_loaded():
+            # Report the catalog's state explicitly. Without this the frontend could only
+            # infer it from "mode=openrouter + no groups", which is indistinguishable from
+            # plain BYOK — so a failed fetch silently rendered the user's own-key list as
+            # if it were the platform's. Now the picker can show a retry instead of a lie,
+            # and flag a stale (disk/snapshot) list rather than passing it off as live.
+            _cat = openrouter_catalog.catalog_status()
+            resp["platform_catalog_ready"] = bool(_cat["ready"])
+            resp["platform_catalog_live"] = bool(_cat["live"])
+            resp["platform_catalog_source"] = _cat["source"]
+            if mode == "openrouter" and _cat["ready"]:
                 resp["platform_models_by_provider"] = openrouter_catalog.by_vendor()
             # Consistent picker ordering + hide openai/codex '-pro' variants, applied to
             # BOTH the direct (models_by_provider) and openrouter (by_vendor) views.
