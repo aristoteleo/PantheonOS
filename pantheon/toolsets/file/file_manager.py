@@ -16,6 +16,42 @@ from pantheon.utils.log import logger
 from .apply_patch import execute_patch_operations
 from .grep_glob import grep_search, glob_search
 
+# Hard ceiling on how much text read_file will pull off disk in one call,
+# in characters (the file is opened in text mode). Nothing larger can be
+# returned in a single reply anyway — the caller must page with
+# start_line/end_line, or stream via open_file_for_read + read_chunk_at.
+# See _read_lines_bounded for why this exists.
+MAX_READ_CHARS = 8 * 1024 * 1024
+
+
+def _read_lines_bounded(
+    path: Path, max_chars: int
+) -> tuple[list[str], int, bool]:
+    """Read at most `max_chars` of `path` as text, split into lines.
+
+    This replaces a plain ``f.readlines()``, which read the *entire* file into
+    memory before any of read_file's line/char limits were applied. A 100 MB
+    file therefore became a single multi-hundred-megabyte string — and because
+    NUL bytes are valid UTF-8, even binaries decoded cleanly instead of failing
+    fast. Done on the event loop thread, that was enough to stop the agent
+    answering NATS ``_ping``, so the Hub declared it dead and recycled the
+    sandbox (observed on staging 2026-08-04).
+
+    Returns (lines, total_lines, truncated_by_size). When truncated_by_size is
+    True the file was cut at `max_chars`, so total_lines is a lower bound and
+    the last line may be partial.
+
+    Runs synchronously; call it via asyncio.to_thread so file I/O and UTF-8
+    decoding stay off the event loop.
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        data = f.read(max_chars)
+        # One extra char tells us whether anything was left behind, without
+        # pulling in the rest of the file.
+        truncated_by_size = f.read(1) != ""
+    lines = data.splitlines(keepends=True)
+    return lines, len(lines), truncated_by_size
+
 
 def _replace_in_content(
     content: str,
@@ -811,10 +847,37 @@ class FileManagerToolSet(FileManagerToolSetBase):
             return {"success": False, "error": "Path is not a file"}
 
         try:
-            with open(target_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
+            # Bounded + off-thread: never pull an unbounded amount off disk,
+            # and never do the read or the UTF-8 decode on the event loop.
+            # (See _read_lines_bounded — an unbounded readlines() here is what
+            # let a single large file stop the agent answering health checks.)
+            lines, total_lines, truncated_by_size = await asyncio.to_thread(
+                _read_lines_bounded, target_path, MAX_READ_CHARS
+            )
 
-            total_lines = len(lines)
+            if truncated_by_size:
+                # Too big to serve in one reply. Return the prefix we already
+                # have rather than a bare error, so callers reading the head of
+                # a big log still get something useful.
+                from pantheon.settings import get_settings
+                char_limit = (
+                    max_chars if max_chars is not None
+                    else get_settings().max_file_read_chars
+                )
+                content = "".join(lines)[:char_limit]
+                return {
+                    "success": True,
+                    "content": content,
+                    "total_lines": total_lines,
+                    "format": target_path.suffix.lower(),
+                    "truncated": True,
+                    "hint": (
+                        f"⚠️ File is too large to return in one reply; "
+                        f"showing the first {len(content):,} chars of its first "
+                        f"{total_lines:,}+ lines. Page with start_line/end_line, "
+                        f"or stream it with open_file_for_read + read_chunk_at."
+                    ),
+                }
 
             # Empty file - return early
             if total_lines == 0:
