@@ -614,3 +614,77 @@ async def test_max_tokens_live_openai():
     assert isinstance(message, dict)
     content = message.get("content", "")
     assert len(content) > 0, "Expected non-empty response"
+
+
+# --- read_file must stay bounded (staging incident 2026-08-04) -------------
+#
+# read_file used to do a plain f.readlines(), pulling the whole file into memory
+# before any line/char limit applied. A 100 MB file became one huge string on
+# the event loop thread; the agent stopped answering NATS _ping and the Hub
+# recycled the sandbox. These pin the two properties that prevent that:
+# the read is bounded, and it happens off the event loop.
+
+from pantheon.toolsets.file.file_manager import (  # noqa: E402
+    MAX_READ_CHARS,
+    _read_lines_bounded,
+)
+
+
+def test_read_lines_bounded_stops_at_the_ceiling(tmp_path):
+    """A file past the ceiling is cut, and reports that it was cut."""
+    big = tmp_path / "big.txt"
+    big.write_text("x" * (MAX_READ_CHARS + 5000))
+
+    lines, total_lines, truncated = _read_lines_bounded(big, MAX_READ_CHARS)
+
+    assert truncated is True
+    assert sum(len(x) for x in lines) == MAX_READ_CHARS
+    assert total_lines >= 1
+
+
+def test_read_lines_bounded_reads_small_files_whole(tmp_path):
+    small = tmp_path / "small.txt"
+    small.write_text("a\nb\nc\n")
+
+    lines, total_lines, truncated = _read_lines_bounded(small, MAX_READ_CHARS)
+
+    assert truncated is False
+    assert total_lines == 3
+    assert "".join(lines) == "a\nb\nc\n"
+
+
+def test_read_lines_bounded_keeps_line_endings(tmp_path):
+    """read_file joins these back together, so endings must survive."""
+    f = tmp_path / "e.txt"
+    f.write_text("one\ntwo\n")
+
+    lines, _, _ = _read_lines_bounded(f, MAX_READ_CHARS)
+
+    assert lines == ["one\n", "two\n"]
+
+
+async def test_read_file_truncates_a_huge_file_instead_of_hanging(temp_toolset):
+    """The whole point: a file far past the ceiling returns promptly, marked
+    truncated, rather than materialising in full."""
+    root = temp_toolset._get_root()
+    huge = root / "huge.txt"
+    huge.write_text("y" * (MAX_READ_CHARS + 100_000))
+
+    result = await temp_toolset.read_file("huge.txt")
+
+    assert result["success"] is True
+    assert result["truncated"] is True
+    assert len(result["content"]) < MAX_READ_CHARS
+    assert "too large" in result["hint"]
+
+
+async def test_read_file_still_returns_small_files_untruncated(temp_toolset):
+    root = temp_toolset._get_root()
+    (root / "ok.txt").write_text("hello\nworld\n")
+
+    result = await temp_toolset.read_file("ok.txt")
+
+    assert result["success"] is True
+    assert result["truncated"] is False
+    assert result["content"] == "hello\nworld\n"
+    assert result["total_lines"] == 2
