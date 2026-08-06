@@ -46,12 +46,15 @@ class EvolutionVisualizer:
         visualizer.generate_html("report.html")
     """
 
-    def __init__(self, database: EvolutionDatabase, objective: str = ""):
+    def __init__(self, database: Any, objective: str = ""):
         """
-        Initialize visualizer with a loaded database.
+        Initialize visualizer with a loaded run.
 
         Args:
-            database: Loaded EvolutionDatabase
+            database: an `EvolutionDatabase`, or a `core.report_view.RunView` presenting a run
+                that the new loop produced. Only a handful of attributes are used -- programs,
+                config, metric_ranges, best_program_id, archive and the two counters -- so either
+                shape works.
             objective: Optimization objective description
         """
         self.database = database
@@ -76,6 +79,15 @@ class EvolutionVisualizer:
         Returns:
             EvolutionVisualizer instance
         """
+        # Two on-disk formats now: the old `EvolutionDatabase.save()` layout, and the
+        # store.json / method.json a `core.loop.evolve` run writes. Sniff rather than ask, so a
+        # caller pointing at a results directory does not have to know which loop produced it.
+        from .core.report_view import is_new_format, load_view
+
+        if is_new_format(db_path):
+            view = load_view(db_path)
+            return cls(view, objective=view.objective)
+
         database = EvolutionDatabase.load(db_path)
 
         # Load objective from evolution_state.json if available

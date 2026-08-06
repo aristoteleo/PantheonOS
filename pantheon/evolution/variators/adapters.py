@@ -1,0 +1,90 @@
+"""Bridges to the evaluation machinery that already exists.
+
+`HybridEvaluator` and `FunctionEvaluator` take a `Program` and return an `EvaluationResult`. The
+new loop deals in `Individual` and `Measurement`. Rather than rewrite working evaluation code --
+subprocess isolation, timeouts, cascades, LLM feedback -- these adapters translate at the edge.
+
+Two shapes are needed, not one:
+  - `measure(ind)`         for the loop, which measures individuals
+  - `evaluate_files(files)` for the variator's `run_evaluator` tool, which measures a directory
+                            mid-mutation for something that is not yet an individual
+"""
+from __future__ import annotations
+
+import time
+import uuid
+from typing import Any, Dict, Optional
+
+from ..core.genome import CodeGenome
+from ..core.individual import Individual
+from ..core.method import EvolveContext
+from ..core.work import Measurement
+
+
+class ProgramEvaluatorAdapter:
+    """Wraps a `HybridEvaluator` / `FunctionEvaluator` so it can serve both callers."""
+
+    kind = "code"
+
+    def __init__(self, inner: Any, kind: str = "code"):
+        self.inner = inner
+        self.kind = kind
+        self.last_state: Any = None
+        """The evaluator's produced solution, when it returns one. Read by the variator to persist
+        a warm-start file into the child's genome."""
+
+    async def evaluate_files(self, files: Dict[str, str]) -> Dict[str, Any]:
+        from ..program import CodebaseSnapshot, Program
+
+        res = await self.inner.evaluate(Program(
+            id=f"_probe{uuid.uuid4().hex[:6]}",
+            snapshot=CodebaseSnapshot(files=dict(files)),
+            generation=0,
+        ))
+        state = getattr(res, "state", None)
+        if state is not None:
+            self.last_state = state
+        return {
+            "success": bool(getattr(res, "success", False)),
+            "metrics": dict(getattr(res, "metrics", {}) or {}),
+            "artifacts": dict(getattr(res, "artifacts", {}) or {}),
+            "error": getattr(res, "error", None),
+        }
+
+    async def measure(self, ctx: EvolveContext, ind: Individual,
+                      fidelity: str = "full") -> Measurement:
+        t0 = time.time()
+        genome = ind.genome
+        files = genome.files if isinstance(genome, CodeGenome) else {"main.py": genome.render()}
+        out = await self.evaluate_files(files)
+        return Measurement(
+            individual_id=ind.id,
+            metrics=out["metrics"],
+            artifacts=out["artifacts"],
+            fidelity=fidelity,
+            ok=out["success"],
+            duration=time.time() - t0,
+        )
+
+
+class CodeEvaluator(ProgramEvaluatorAdapter):
+    """The common case: an `evaluate(workspace_path) -> dict` script, run in a subprocess.
+
+    `llm_weight` defaults to 0 here, unlike `HybridEvaluator`'s own default. The LLM feedback pass
+    is a second model call per evaluation, and under the new design the method owns ranking, so a
+    caller who wants an LLM opinion asks for it explicitly rather than paying for it by accident.
+    """
+
+    def __init__(self, evaluator_code: str, *, timeout: int = 600,
+                 workspace_path: Optional[str] = None, kind: str = "code",
+                 llm_weight: float = 0.0, max_parallel: int = 4):
+        from ..evaluator import HybridEvaluator
+
+        super().__init__(HybridEvaluator(
+            evaluator_code=evaluator_code,
+            function_weight=1.0 - llm_weight,
+            llm_weight=llm_weight,
+            max_parallel=max_parallel,
+            timeout=timeout,
+            workspace_base=workspace_path,
+        ), kind=kind)

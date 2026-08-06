@@ -1,3 +1,4 @@
 results*/
 __pycache__/
 *.pyc
+warm_start.json    # run artefact: the evaluator writes the produced solution here
