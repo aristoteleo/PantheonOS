@@ -293,3 +293,18 @@ class SimpleTES(BaseMethod):
         that were in flight when the checkpoint was taken -- their children will never arrive."""
         self.chains = [[i for i in c if i in ctx.store] for c in self.chains]
         self.open.clear()
+
+    # ---- the operator this algorithm is defined with ---------------------
+
+    def default_variator(self, *, model: str = "high", timeout: float = 600,
+                         target_file: Optional[str] = None, **kw):
+        """A single completion producing k candidates -- no tools, no workspace, no self-scoring.
+
+        This is half of what SimpleTES is. Swapping in an agent that can run the evaluator before
+        it commits changes the algorithm, not just its speed, so the method names its own operator
+        instead of accepting whatever the caller wired up.
+        """
+        from ..variators.completion import CompletionVariator
+
+        return CompletionVariator(model=model, timeout=timeout, target_file=target_file,
+                                  score_key=self.score_key)

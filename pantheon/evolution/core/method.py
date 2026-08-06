@@ -113,6 +113,20 @@ class EvolveMethod(Protocol):
         method's archive is derived state and the store is the record."""
         ...
 
+    def default_variator(self, **kw) -> Optional["Variator"]:
+        """The operator this algorithm is defined with.
+
+        Not a preference -- an identity. SimpleTES is a chain policy AND a single completion that
+        cannot run anything; giving it a coding agent that verifies its own edits before
+        submitting produces better numbers and is no longer SimpleTES. A method that ships without
+        naming its operator lets the caller silently change what the algorithm is.
+
+        `evolve()` uses this when no variator is passed. Passing one explicitly is for controlled
+        experiments -- holding the operator fixed to compare two search policies -- and should be
+        a deliberate act, not the default path.
+        """
+        ...
+
 
 @runtime_checkable
 class Variator(Protocol):
@@ -157,6 +171,9 @@ class BaseMethod:
         return None
 
     def reconcile(self, ctx: EvolveContext) -> None:
+        return None
+
+    def default_variator(self, **kw):
         return None
 
     def context_for(self, ctx: EvolveContext, item: Create) -> PromptContext:

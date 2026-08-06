@@ -75,7 +75,8 @@ def build_method(name: str, seed: int):
 async def main(a) -> None:
     from pantheon.evolution.core import Budget, CodeGenome
     from pantheon.evolution.core.loop import evolve
-    from pantheon.evolution.variators import AgentVariator, CodeEvaluator
+    from pantheon.evolution.variators import (
+        AgentVariator, CodeEvaluator, CompletionVariator)
 
     out = Path(a.output or (HERE / f"results_v2_{a.method}"))
     out.mkdir(parents=True, exist_ok=True)
@@ -85,15 +86,25 @@ async def main(a) -> None:
         timeout=a.eval_timeout,
         workspace_path=str(out / "_eval"),
     )
-    variator = AgentVariator(
-        evaluator=evaluator,
-        model=a.model,
-        max_tool_calls=a.tool_budget,
-        timeout=a.mutation_timeout,
-        warm_start_file="warm_start.json",
-        workspace_root=str(out / "_mut"),
-        score_key="combined_score",
-    )
+    # The operator belongs to the algorithm, so ask the method rather than deciding here:
+    # SimpleTES is a chain policy AND a single completion that cannot run anything, and giving it
+    # an agent that verifies its own edits first would score better while no longer being
+    # SimpleTES. `--variator` overrides that on purpose, which is how one operator can be held
+    # fixed to compare two search policies -- and it is a deliberate act, not the default.
+    if a.variator == "completion":
+        variator = CompletionVariator(model=a.model, target_file="sequence.py",
+                                      timeout=a.mutation_timeout)
+    elif a.variator == "agent":
+        variator = AgentVariator(
+            evaluator=evaluator, model=a.model, max_tool_calls=a.tool_budget,
+            timeout=a.mutation_timeout, warm_start_file="warm_start.json",
+            workspace_root=str(out / "_mut"), score_key="combined_score")
+    else:
+        variator = method.default_variator(
+            evaluator=evaluator, model=a.model, timeout=a.mutation_timeout,
+            max_tool_calls=a.tool_budget, warm_start_file="warm_start.json",
+            workspace_root=str(out / "_mut"), target_file="sequence.py")
+    kind = type(variator).__name__
     method = build_method(a.method, a.seed)
     seed_genome = CodeGenome(files={
         "sequence.py": (HERE / "sequence.py").read_text(),
@@ -104,7 +115,7 @@ async def main(a) -> None:
     })
 
     print("=" * 74)
-    print(f"Erdos minimum-overlap | method={method.name} | model={a.model}")
+    print(f"Erdos minimum-overlap | method={method.name} | variator={kind} | model={a.model}")
     print(f"budget={a.iterations} work items | concurrency={a.workers} | seed={a.seed}")
     print("=" * 74, flush=True)
 
@@ -150,7 +161,7 @@ async def main(a) -> None:
             (out / f"best_{Path(path).name}").write_text(content)
     json.dump(
         {
-            "method": method.name, "model": a.model, "seed": a.seed,
+            "method": method.name, "variator": kind, "model": a.model, "seed": a.seed,
             "items_run": res.items_run, "failures": res.failures,
             "individuals": len(res.store), "best_combined_score": best_score,
             "best_psi": 1 - best_score, "seconds": res.seconds,
@@ -168,6 +179,8 @@ if __name__ == "__main__":
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--workers", type=int, default=2)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--variator", default=None, choices=["agent", "completion"],
+                   help="override the operator the method declares (for controlled comparisons)")
     p.add_argument("--tool-budget", type=int, default=14)
     p.add_argument("--eval-timeout", type=int, default=300)
     p.add_argument("--mutation-timeout", type=int, default=1800)

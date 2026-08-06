@@ -136,7 +136,7 @@ async def _run_remeasure(
 
 async def evolve(
     method: EvolveMethod,
-    variator: Variator,
+    variator: Optional[Variator],
     evaluators: Dict[str, Evaluator],
     seeds: Sequence[Genome],
     *,
@@ -162,6 +162,14 @@ async def evolve(
     loop this replaces. A resume whose budget is already spent does nothing and says so, rather
     than exiting quietly as though it had worked.
     """
+    if variator is None:
+        variator = method.default_variator()
+        if variator is None:
+            raise ValueError(
+                f"{getattr(method, 'name', method)!r} declares no default_variator() and none was "
+                "passed. A method's operator is part of what the algorithm is, so it has to come "
+                "from somewhere explicit."
+            )
     t0 = time.time()
     store = store if store is not None else Store()
     resumed = False

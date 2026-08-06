@@ -251,3 +251,64 @@ class TestTheAbstractionItself:
         assert ind.metrics("cheap")["combined_score"] == 0.4
         assert ind.metrics("full")["combined_score"] == 0.9
         assert ind.metrics()["combined_score"] == 0.9      # latest wins by default
+
+
+class TestTheOperatorBelongsToTheAlgorithm:
+    """An algorithm is its search policy AND the operator it mutates with.
+
+    SimpleTES generates with one completion that cannot run anything and never sees a score;
+    Pantheon-Evolve's MAP-Elites uses a coding agent that verifies its edit before submitting. Run
+    SimpleTES's policy on the agent and it scores better and is no longer SimpleTES. So the method
+    names its own operator, and a caller who wants to swap it has to say so.
+    """
+
+    def test_each_method_declares_the_operator_it_is_defined_with(self):
+        from pantheon.evolution.methods import MapElitesIslands, SimpleTES
+        from pantheon.evolution.variators import (
+            AgentVariator, CompletionVariator, SandboxVariator)
+
+        assert isinstance(SimpleTES().default_variator(model="m"), CompletionVariator)
+        assert isinstance(MapElitesIslands().default_variator(model="m"), AgentVariator)
+        assert isinstance(MapElitesIslands().default_variator(model="m", sandbox=True),
+                          SandboxVariator)
+
+    def test_the_loop_uses_the_methods_operator_when_none_is_passed(self):
+        from pantheon.evolution.core import Budget
+        from pantheon.evolution.core.loop import evolve
+        from pantheon.evolution.methods import SimpleTES
+
+        used = {}
+
+        class Recording:
+            async def create(self, ctx, item):
+                used["called"] = True
+                return []
+
+        m = SimpleTES(num_chains=1, k_candidates=1)
+        m.default_variator = lambda **kw: Recording()          # type: ignore[assignment]
+        asyncio.run(evolve(method=m, variator=None, evaluators={"code": ValueEvaluator()},
+                           seeds=[seed(0)], budget=Budget(max_items=1), concurrency=1))
+        assert used.get("called"), "the loop should have asked the method for its operator"
+
+    def test_a_method_with_no_operator_refuses_to_run_rather_than_guessing(self):
+        from pantheon.evolution.core import Budget
+        from pantheon.evolution.core.loop import evolve
+        from pantheon.evolution.core.method import BaseMethod
+
+        class Nameless(BaseMethod):
+            name = "nameless"
+
+            async def ask(self, ctx, n):
+                return []
+
+            async def on_measured(self, ctx, ind, m):
+                return None
+
+            def rank(self, ctx, kind="code"):
+                from pantheon.evolution.core import Ranking
+                return Ranking()
+
+        with pytest.raises(ValueError, match="default_variator"):
+            asyncio.run(evolve(method=Nameless(), variator=None,
+                               evaluators={"code": ValueEvaluator()}, seeds=[seed(0)],
+                               budget=Budget(max_items=1)))

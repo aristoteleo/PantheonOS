@@ -1,0 +1,207 @@
+"""Mutation as a single completion: one prompt in, k whole programs out.
+
+This is a different operator from `AgentVariator`, not a cheaper configuration of it. The agent
+gets a workspace, a shell, a python interpreter and `run_evaluator`, so it can try an edit, measure
+it, and iterate before committing -- it arrives having already verified its own work. This one gets
+a prompt and returns text. Nothing is executed while it writes, it cannot see a score, and whatever
+it emits is measured once by the loop.
+
+It exists because that is what SimpleTES does -- `completion(model, messages, n=k)`, then a code
+block pulled out of each choice -- and running its selection policy on top of an agentic operator
+would not be running SimpleTES. Comparing search policies only means something when the operator
+underneath them is held fixed, and holding it fixed at "full coding agent" quietly changes what is
+being compared.
+
+`n=k` is one request with k completions rather than k requests, which is also SimpleTES's cost
+profile: the prompt is paid for once. Providers that ignore `n` return a single choice, and the
+shortfall is reported as a failure the way any other missing candidate is.
+"""
+from __future__ import annotations
+
+import os
+import re
+import time
+from typing import Any, Dict, List, Optional
+
+from pantheon.utils.log import logger
+
+from ..core.genome import CodeGenome
+from ..core.method import EvolveContext
+from ..core.work import Create, Produced
+
+FENCE = re.compile(r"```(?:[a-zA-Z0-9_+-]*)\n(.*?)```", re.S)
+
+DEFAULT_SYSTEM = (
+    "You are an expert algorithm designer. You will be shown a program and an objective. "
+    "Reply with ONE complete, runnable replacement for the program, in a single fenced code "
+    "block. No commentary outside the block, no diffs, no ellipses -- the block is written to "
+    "disk verbatim and run as-is, so it must be the whole file."
+)
+
+
+def extract_code(text: str) -> Optional[str]:
+    """The last fenced block, or the whole reply if it is bare code.
+
+    Last rather than first: models often restate the original before giving the revision, and
+    taking the first block silently re-submits the parent -- which scores identically and looks
+    like a mutation that achieved nothing.
+    """
+    blocks = FENCE.findall(text or "")
+    if blocks:
+        return blocks[-1].strip() + "\n"
+    stripped = (text or "").strip()
+    if stripped.startswith(("import ", "from ", "def ", "class ", "#", '"""')):
+        return stripped + "\n"
+    return None
+
+
+class CompletionVariator:
+    """One prompt, `n=k` completions, one code block from each."""
+
+    def __init__(
+        self,
+        *,
+        model: str = "high",
+        system_prompt: Optional[str] = None,
+        target_file: Optional[str] = None,
+        temperature: float = 1.0,
+        max_tokens: Optional[int] = None,
+        timeout: float = 600,
+        score_key: str = "combined_score",
+        max_parent_chars: int = 24000,
+    ):
+        self.model = model
+        self.system_prompt = system_prompt or DEFAULT_SYSTEM
+        self.target_file = target_file
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.timeout = timeout
+        self.score_key = score_key
+        self.max_parent_chars = max_parent_chars
+
+    # ---- prompt ----------------------------------------------------------
+
+    def _file_to_evolve(self, files: Dict[str, str]) -> str:
+        if self.target_file and self.target_file in files:
+            return self.target_file
+        for pref in ("main.py", "solution.py", "program.py"):
+            if pref in files:
+                return pref
+        py = sorted(p for p in files if p.endswith(".py"))
+        return py[0] if py else next(iter(files), "main.py")
+
+    def build_prompt(self, ctx: EvolveContext, item: Create, path: str,
+                     content: str) -> str:
+        c = item.context
+        parts = [c.instruction or ctx.objective or "Improve the program."]
+        parent = c.parents[0] if c.parents else None
+        if parent is not None:
+            m = {k: v for k, v in parent.metrics().items() if k != "fitness_weights"}
+            score = m.get(self.score_key)
+            parts.append(f"\n## Current program `{path}`"
+                         + (f" ({self.score_key} = {score})" if score is not None else ""))
+        else:
+            parts.append(f"\n## Current program `{path}`")
+        body = content if len(content) <= self.max_parent_chars else (
+            content[: self.max_parent_chars] + "\n# ... truncated ...\n")
+        parts.append(f"```python\n{body}```")
+        if c.history:
+            parts.append(f"\n## What earlier attempts scored\n{c.history}")
+        if c.inspirations:
+            lines = []
+            for i in c.inspirations[:3]:
+                s = i.metrics().get(self.score_key)
+                summary = i.meta.get("summary", "")
+                lines.append(f"- #{i.order}: {self.score_key}="
+                             f"{s if s is not None else '?'} {summary}".rstrip())
+            parts.append("\n## Other attempts in this run\n" + "\n".join(lines))
+        if c.failures:
+            worst = sorted(c.failures.items(), key=lambda kv: -kv[1])[:5]
+            parts.append("\n## Recurring failures to avoid\n" +
+                         "\n".join(f"- {k} (x{int(v)})" for k, v in worst))
+        parts.append(f"\nReply with the complete new `{path}` in one fenced code block.")
+        return "\n".join(parts)
+
+    # ---- the call --------------------------------------------------------
+
+    async def _complete(self, prompt: str, k: int) -> List[str]:
+        """One request, k completions. Returns the raw texts."""
+        from openai import AsyncOpenAI
+
+        from pantheon.utils.llm_providers import detect_provider
+
+        cfg = detect_provider(self.model, False)
+        client = AsyncOpenAI(
+            api_key=cfg.api_key or os.environ.get("OPENAI_API_KEY"),
+            base_url=cfg.base_url or os.environ.get("OPENAI_API_BASE") or None,
+            timeout=self.timeout,
+        )
+        kwargs: Dict[str, Any] = {"model": cfg.model_name,
+                                  "messages": [{"role": "system", "content": self.system_prompt},
+                                               {"role": "user", "content": prompt}]}
+        if k > 1:
+            kwargs["n"] = k
+        if self.temperature is not None:
+            kwargs["temperature"] = self.temperature
+        if self.max_tokens:
+            kwargs["max_tokens"] = self.max_tokens
+        resp = await client.chat.completions.create(**kwargs)
+        return [(ch.message.content or "") for ch in (resp.choices or [])]
+
+    async def create(self, ctx: EvolveContext, item: Create) -> List[Produced]:
+        parent = item.context.parents[0] if item.context.parents else (
+            ctx.store.get(item.parent_ids[0]) if item.parent_ids else None)
+        if parent is None or not isinstance(parent.genome, CodeGenome):
+            logger.warning("CompletionVariator needs a CodeGenome parent; got %r",
+                           type(getattr(parent, "genome", None)))
+            return []
+
+        files = dict(parent.genome.files)
+        path = self._file_to_evolve(files)
+        prompt = self.build_prompt(ctx, item, path, files.get(path, ""))
+
+        t0 = time.time()
+        try:
+            texts = await self._complete(prompt, item.k)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[{item.id}] completion failed: {type(e).__name__}: {e}")
+            return []
+        if len(texts) < item.k:
+            # providers vary on whether they honour n; fill the rest with extra requests rather
+            # than letting the method see a shortfall that is really a provider quirk
+            import asyncio
+
+            extra = await asyncio.gather(
+                *(self._complete(prompt, 1) for _ in range(item.k - len(texts))),
+                return_exceptions=True)
+            for r in extra:
+                if isinstance(r, list):
+                    texts.extend(r)
+
+        out: List[Produced] = []
+        for i, text in enumerate(texts[: item.k]):
+            code = extract_code(text)
+            if not code:
+                logger.warning(f"[{item.id}#{i}] no code block in the reply")
+                continue
+            child = dict(files)
+            child[path] = code
+            out.append(Produced(
+                genome=CodeGenome(files=child),
+                item_id=item.id,
+                batch_id=item.batch_id,
+                parent_ids=list(item.parent_ids),
+                anchor_id=item.anchor_id,
+                meta={"summary": _first_line(text), "candidate": i,
+                      "mutation_seconds": time.time() - t0},
+            ))
+        return out
+
+
+def _first_line(text: str) -> str:
+    """A one-line description from whatever the model said outside the code block."""
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if s and not s.startswith("```"):
+            return s[:200]
+    return ""
