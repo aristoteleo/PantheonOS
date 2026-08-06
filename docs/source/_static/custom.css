@@ -455,6 +455,29 @@ html[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
     }
 }
 
+/* ===== Tutorial Video Cards ===== */
+.tutorial-card {
+    transition: all 0.2s ease !important;
+}
+
+.tutorial-card:hover {
+    transform: translateY(-3px) !important;
+    box-shadow: var(--shadow-lg) !important;
+    border-color: var(--primary) !important;
+}
+
+.tutorial-card .sd-card-body {
+    padding: 0.75rem !important;
+}
+
+.tutorial-card .sd-card-title {
+    font-size: 0.9rem !important;
+    font-weight: 600 !important;
+    line-height: 1.4 !important;
+    letter-spacing: -0.01em !important;
+    margin-bottom: 0.75rem !important;
+}
+
 /* ===== Misc ===== */
 html { scroll-behavior: smooth; }
 

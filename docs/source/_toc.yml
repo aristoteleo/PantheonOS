@@ -33,6 +33,8 @@ chapters:
     - file: interfaces/api/team
     - file: interfaces/api/toolsets
     - file: interfaces/api/advanced
+  - title: Web/Desktop App Tutorials
+    file: interfaces/tutorials
 
 # Configuration (Shared Foundation)
 - file: configuration/index
