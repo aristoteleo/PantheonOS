@@ -12,9 +12,11 @@ would not be running SimpleTES. Comparing search policies only means something w
 underneath them is held fixed, and holding it fixed at "full coding agent" quietly changes what is
 being compared.
 
-`n=k` is one request with k completions rather than k requests, which is also SimpleTES's cost
-profile: the prompt is paid for once. Providers that ignore `n` return a single choice, and the
-shortfall is reported as a failure the way any other missing candidate is.
+`n=k` asks for one request with k completions, which is SimpleTES's cost profile -- the prompt is
+paid for once. **Measured caveat: OpenRouter ignores `n` and returns a single choice**, so behind
+that gateway the top-up below turns one batch into k sequential requests and the prompt is paid
+for k times. The search behaves identically; only the cost does not, which matters when the point
+of a comparison is cost per candidate.
 """
 from __future__ import annotations
 

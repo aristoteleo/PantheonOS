@@ -45,7 +45,18 @@ own.
 
 
 def build_method(name: str, seed: int):
-    from pantheon.evolution.methods import MapElitesIslands, SimpleTES
+    from pantheon.evolution.methods import (
+        IdeaCodeAlternating, MapElitesIslands, SimpleTES)
+
+    if name == "idea_code":
+        # k_ideas=1: one proposal per request. At 3 the whole idea round was filled by a single
+        # work item, so a run produced far more approaches than it could ever implement and each
+        # got exactly one attempt -- proposals are not the scarce resource, implementations are.
+        # A round is now 3 idea items + 2 kept ideas x 3 implementations = 9 items.
+        return IdeaCodeAlternating(
+            ideas_per_round=3, code_per_idea=3, ideas_kept=2,
+            k_ideas=1, k_code=1, seed=seed,
+        )
 
     if name == "map_elites":
         return MapElitesIslands(
@@ -86,6 +97,8 @@ async def main(a) -> None:
         timeout=a.eval_timeout,
         workspace_path=str(out / "_eval"),
     )
+    method = build_method(a.method, a.seed)
+
     # The operator belongs to the algorithm, so ask the method rather than deciding here:
     # SimpleTES is a chain policy AND a single completion that cannot run anything, and giving it
     # an agent that verifies its own edits first would score better while no longer being
@@ -105,7 +118,6 @@ async def main(a) -> None:
             max_tool_calls=a.tool_budget, warm_start_file="warm_start.json",
             workspace_root=str(out / "_mut"), target_file="sequence.py")
     kind = type(variator).__name__
-    method = build_method(a.method, a.seed)
     seed_genome = CodeGenome(files={
         "sequence.py": (HERE / "sequence.py").read_text(),
         # part of the genome so the evaluator sees it: the framework refreshes it with the best
@@ -122,7 +134,14 @@ async def main(a) -> None:
     t0 = time.time()
     history = []
 
+    fails: dict = {}
+
     def on_event(kind: str, data: dict) -> None:
+        if kind == "failed":
+            key = f'{data.get("stage")}: {data.get("reason")}'
+            fails[key] = fails.get(key, 0) + 1
+            print(f"  [fail] {key}", flush=True)
+            return
         if kind != "measured":
             return
         s = data.get("metrics", {}).get("combined_score")
@@ -133,15 +152,24 @@ async def main(a) -> None:
         print(f"  [{len(history):>3}] {time.time()-t0:6.0f}s  score={s:.6f}  "
               f"best={best:.6f}  Psi={1 - best:.6f}", flush=True)
 
+    evaluators = {"code": evaluator}
+    if method.name == "idea_code_alternating":
+        from pantheon.evolution.variators import IdeaJudge
+
+        evaluators["idea"] = IdeaJudge(model=a.model, objective=OBJECTIVE)
+
     res = await evolve(
         method=method,
         variator=variator,
-        evaluators={"code": evaluator},
+        evaluators=evaluators,
         seeds=[seed_genome],
         objective=OBJECTIVE,
         budget=Budget(max_items=a.iterations),
         concurrency=a.workers,
         on_event=on_event,
+        checkpoint_path=str(out),
+        checkpoint_every=2,
+        resume=a.resume,
     )
 
     best = res.best
@@ -149,11 +177,22 @@ async def main(a) -> None:
     print("\n" + "=" * 74)
     print(f"method            {method.name}")
     print(f"work items        {res.items_run}   failures {res.failures}")
+    for k, n in sorted(fails.items(), key=lambda kv: -kv[1]):
+        print(f"    {n:>3}  {k}")
     print(f"individuals       {len(res.store)}")
     print(f"best combined     {best_score:.6f}    -> Psi = {1 - best_score:.6f}")
     print(f"wall clock        {res.seconds:.0f}s")
     if hasattr(method, "coverage"):
         print(f"grid coverage     {method.coverage():.1%}")
+    if hasattr(method, "prior_vs_realised"):
+        from pantheon.evolution.core.method import Budget as _B, EvolveContext as _C
+
+        rows = method.prior_vs_realised(_C(store=res.store, budget=_B()))
+        print(f"\nideas             {len(rows)}   (judged prior vs what its code measured)")
+        for r in sorted(rows, key=lambda r: -(r["realised"] or -1))[:8]:
+            got = f'{r["realised"]:.4f}' if r["realised"] is not None else "never built"
+            print(f'  prior {r["prior"]:.2f} -> {got:>11}  ({r["implementations"]} impl)  '
+                  f'{r["text"][:60]}')
     print("=" * 74)
 
     if best is not None and hasattr(best.genome, "files"):
@@ -174,7 +213,8 @@ async def main(a) -> None:
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--method", default="map_elites", choices=["map_elites", "simpletes"])
+    p.add_argument("--method", default="map_elites",
+                   choices=["map_elites", "simpletes", "idea_code"])
     p.add_argument("--iterations", type=int, default=12, help="work items, i.e. LLM mutations")
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--workers", type=int, default=2)
@@ -185,6 +225,7 @@ if __name__ == "__main__":
     p.add_argument("--eval-timeout", type=int, default=300)
     p.add_argument("--mutation-timeout", type=int, default=1800)
     p.add_argument("--output", default=None)
+    p.add_argument("--resume", action="store_true")
     args = p.parse_args()
     # `find_dotenv` searches upward from the script, so running out of a git worktree finds the
     # repo's .env and stops -- never reaching ~/.pantheon/.env, where the OpenRouter key lives.
