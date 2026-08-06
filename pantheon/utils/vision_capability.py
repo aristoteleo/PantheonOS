@@ -41,7 +41,7 @@ def supports_tool_result_image(model: str | None) -> bool:
     """Return True when the provider can accept image content in tool messages.
 
     Args:
-        model: Model string (e.g. "anthropic/claude-sonnet-4-6", "gpt-4o",
+        model: Model string (e.g. "anthropic/claude-sonnet-4-6", "gpt-5.4",
                "gemini/gemini-2.5-pro"). None → False (conservative).
 
     Returns:

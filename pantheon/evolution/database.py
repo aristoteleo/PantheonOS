@@ -259,6 +259,21 @@ class EvolutionDatabase:
         Returns:
             True if any range changed, False otherwise
         """
+        # Absolute-fitness mode: pin every metric's normalization range to a fixed [0, 1] and never
+        # widen it. Since normalization is (value - min) / (max - min) = value, fitness then equals
+        # the raw evaluator score instead of a min-max value relative to the archive — so the champion
+        # is not pinned to 1.0 and a score above 1.0 (beating the target) still increases fitness
+        # (the range branch does not clamp). Seed once per metric.
+        if getattr(self.config, "fitness_absolute", False):
+            changed = False
+            for metric_name, value in metrics.items():
+                if not isinstance(value, (int, float)) or metric_name == 'error':
+                    continue
+                if metric_name not in self.metric_ranges:
+                    self.metric_ranges[metric_name] = (0.0, 1.0)
+                    changed = True
+            return changed
+
         changed = False
         for metric_name, value in metrics.items():
             # Skip non-numeric values and error field

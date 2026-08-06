@@ -33,9 +33,29 @@ consensus scoring, biological completion, and benchmarking.
 **Skill folder**: [gene_panel_selection/](./gene_panel_selection/)
 
 **When to use**:
-- Designing a gene panel for spatial transcriptomics
+- Designing a gene panel for spatial transcriptomics in a **static / terminal** system
 - Benchmarking existing panels (ARI/NMI/Silhouette + UMAP)
 - **IMPORTANT**: When doing gene panel selection, **strictly** follow this workflow
+
+---
+
+## Developmental Gene Panel Design
+
+Panel design for **developing / dynamic** systems (embryonic organs, differentiation, regeneration),
+where terminal cell types are end-products of earlier lineage programs. Uses TWO references — the
+target (usually late) stage for cell-state resolution, and an independent EARLIER-stage reference
+mined by trajectory/pseudotime ranking for developmental regulators — under an explicit budget split.
+
+**Skill folder**: [developmental_gene_panel/](./developmental_gene_panel/)
+
+**When to use** (use this INSTEAD of `gene_panel_selection`):
+- The tissue is embryonic / differentiating / regenerating, or the user cares about **lineage origin
+  and regulators**, not only terminal cell-type classification
+- The assay is at a late stage but the biology is a trajectory
+- **Why it matters**: developmental regulators are frequently NOT recoverable from the target stage —
+  in a benchmarked case study six unbiased methods (cell-type DE, DPT pseudotime Pearson/Spearman,
+  cross-stage ANOVA, global marker rank) all ranked a known CHD regulator in the top 0.6–1.8% on an
+  early reference and failed (top 3–79%) on the target stage; literature lookup also failed
 
 ---
 

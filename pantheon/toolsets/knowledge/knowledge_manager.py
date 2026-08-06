@@ -89,8 +89,12 @@ class KnowledgeToolSet(ToolSet):
                 from pantheon.utils.llm_providers import get_openai_effective_config
 
                 api_base, api_key = get_openai_effective_config()
+                # This path builds a llama_index OpenAI client, so it needs a concrete
+                # OpenAI-compatible id (a tier tag would not resolve here). Configurable
+                # via knowledge.metadata.model; the default tracks the current mainline
+                # small model rather than pinning a retired one.
                 llm_kwargs = {
-                    "model": "gpt-4o-mini",
+                    "model": metadata_config.get("model") or "gpt-5.4-mini",
                     "temperature": 0.1,
                     "api_key": api_key,
                 }

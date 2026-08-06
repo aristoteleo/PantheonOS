@@ -31,6 +31,11 @@ class EvaluationResult:
     llm_feedback: str = ""
     error: Optional[str] = None
     execution_time: float = 0.0
+    # Opt-in warm-start channel: the solution the evaluated code PRODUCED (e.g. the best
+    # centers/radii), returned by the user evaluator under the "_state" key. The framework can
+    # persist this alongside the code so the next generation warm-starts instead of re-deriving it
+    # from scratch. Not a metric, not shown to the agent — carried as data.
+    state: Optional[Dict[str, Any]] = None
 
 
 class HybridEvaluator:
@@ -176,12 +181,25 @@ class HybridEvaluator:
                     artifacts["evaluation_error"] = func_result["error"]
                 if "stderr" in func_result:
                     artifacts["stderr"] = func_result["stderr"]
+                # Preserve string diagnostics the evaluator returned (e.g. invalid_reason,
+                # messages) so the agent's run_evaluator self-verify can see WHY it scored as it did.
+                for _k, _v in func_result.items():
+                    if _k not in ("error", "stderr", "fitness_weights") and isinstance(_v, str) and _v:
+                        artifacts[_k] = _v
+
+                # Warm-start state: the produced solution the evaluator optionally returns under
+                # "_state" (a dict, so it is naturally excluded from numeric metrics and string
+                # artifacts above). Carried as data for the framework to persist for the next gen.
+                state = func_result.get("_state")
+                if not isinstance(state, dict):
+                    state = None
 
                 return EvaluationResult(
                     success=True,
                     metrics=metrics,
                     artifacts=artifacts,
                     llm_feedback=llm_result.get("summary", ""),
+                    state=state,
                 )
 
             except Exception as e:

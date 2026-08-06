@@ -241,7 +241,7 @@
         // LLM model for compression. "auto" (default) follows the active agent's
         // model — keeps the compressor on the same provider and quota as your
         // chat. To pin a specific model regardless of the active agent, set a
-        // tier ("high"/"normal"/"low") or a model id (e.g. "openai/gpt-4o-mini").
+        // tier ("high"/"normal"/"low") or a model id (e.g. "openai/gpt-5.4-mini").
         "compression_model": "auto",
         // Trigger compression when token usage reaches this percentage (0.0-1.0)
         // TEST MODE: set to 0 to compress based on message count (min_messages_for_compression)
@@ -292,7 +292,7 @@
         // Set to "auto" to follow the active agent's model so internal memory
         // tasks (extractor / session-note / flush / dream / selector) stay on
         // the same provider/quota as your chat. You can also pin to "high",
-        // "normal", or a specific model id (e.g. "openai/gpt-4o-mini").
+        // "normal", or a specific model id (e.g. "openai/gpt-5.4-mini").
         "selection_model": "low",
         // Retrieval limits for memories and recent chats
         "selection_max_memories": 15, // Max memories to select per query

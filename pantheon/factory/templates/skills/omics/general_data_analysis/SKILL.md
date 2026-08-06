@@ -35,3 +35,15 @@ Multi-core CPU, GPU acceleration, and memory optimization strategies for
 large-scale data analysis.
 
 **Skill file**: [parallel_computing.md](./parallel_computing.md)
+
+### HPC Data Transfer via SSH
+
+Transfer data to/from HPC clusters with interactive authentication
+(password + Duo/MFA) using pexpect and SSH ControlMaster.
+
+**Skill file**: [hpc_data_transfer.md](./hpc_data_transfer.md)
+
+**When to use**:
+- Downloading data from Stanford Sherlock or similar HPC clusters
+- Need to handle Duo two-factor authentication programmatically
+- Bulk data transfer with rsync over persistent SSH connections

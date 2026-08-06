@@ -2422,7 +2422,7 @@ class Repl(ReplUI):
         )
         self.console.print()
         self.console.print("  [dim]Usage: /model <model_name> or /model <tag>[/dim]")
-        self.console.print("  [dim]Examples: /model openai/gpt-4o, /model high, /model normal,vision[/dim]")
+        self.console.print("  [dim]Examples: /model openai/gpt-5.4, /model high, /model normal,vision[/dim]")
         self.console.print()
 
     async def _set_current_agent_model(self, model: str):

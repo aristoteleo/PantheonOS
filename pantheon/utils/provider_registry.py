@@ -83,6 +83,17 @@ def find_provider_for_model(model: str) -> tuple[str, str, dict]:
 
     # 1. Explicit prefix
     prefix, model_name = _parse_model_string(model)
+    # PATCH (BYOK direct-OpenRouter): when OPENAI_API_BASE points at OpenRouter, route EVERY
+    # model through the OpenAI-compatible adapter with an OpenRouter <vendor>/<model> id.
+    import os as _os
+    if "openrouter" in _os.environ.get("OPENAI_API_BASE", "").lower():
+        if prefix in ("openai", "openrouter"):
+            _or_id = model_name
+        elif prefix:
+            _or_id = f"{prefix}/{model_name}"
+        else:
+            _or_id = model_name
+        return "openai", _or_id, providers.get("openai", {})
     if prefix and prefix in providers:
         return prefix, model_name, providers[prefix]
     if prefix and prefix in _PROVIDER_ALIASES:
@@ -115,7 +126,7 @@ def get_output_token_param(model: str, api_mode: str = "chat") -> str | None:
     """Return the provider/model-specific output token parameter name.
 
     Args:
-        model: Model string, e.g. ``openai/gpt-5.4`` or ``gpt-4o-mini``.
+        model: Model string, e.g. ``openai/gpt-5.4`` or ``gpt-5.4-mini``.
         api_mode: ``chat`` for chat/completions style APIs, ``responses`` for
             OpenAI Responses-style APIs.
     """
@@ -143,6 +154,14 @@ def get_model_info(model: str) -> dict:
     """
     provider_key, model_name, provider_config = find_provider_for_model(model)
     models = provider_config.get("models", {})
+
+    # Vendors are inconsistent about version separators: OpenRouter publishes
+    # "claude-opus-4.8" while the catalog keys it "claude-opus-4-8". Without this
+    # fallback the dotted form misses and falls through to the generic price defaults.
+    if model_name not in models and "." in model_name:
+        _dashed = model_name.replace(".", "-")
+        if _dashed in models:
+            model_name = _dashed
 
     if model_name in models:
         info = {**_DEFAULT_MODEL_INFO, **models[model_name]}

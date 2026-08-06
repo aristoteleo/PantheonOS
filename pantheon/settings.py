@@ -358,7 +358,7 @@ class Settings:
         return {
             "enable": compression.get("enable", False),  # Disabled by default
             # None / "" / "auto" → use active agent's model at run time.
-            # Set to a specific model id (e.g. "openai/gpt-4o-mini") or a tier
+            # Set to a specific model id (e.g. "openai/gpt-5.4-mini") or a tier
             # ("high"/"normal"/"low") to pin compression to a specific model
             # regardless of which agent is currently chatting.
             "compression_model": compression.get("compression_model"),

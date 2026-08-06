@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import random
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -31,6 +33,21 @@ from .prompt_builder import (
 )
 from .result import EvolutionResult, IterationResult
 from .utils.diff import parse_diff, apply_diff
+
+
+MUTATION_AGENT_SYSTEM_PROMPT = """You are an expert algorithm designer, working in a real workspace as one step of an evolutionary search. Your job is to DISCOVER AND IMPLEMENT A BETTER ALGORITHM for the objective — not to hand the problem to an off-the-shelf solver.
+
+Each assignment gives you a codebase in your working directory and an objective. You:
+1. Read the current code and understand WHY it scores what it does — what is actually limiting it.
+2. Invent a genuinely better approach and IMPLEMENT IT YOURSELF. Reason about the structure of the problem and try a different algorithmic idea, not just a small tweak.
+3. VERIFY with the run_evaluator tool that your change actually improves the metrics; keep only what helps. Higher fitness is better. Experiment freely — edit files, run code, measure.
+4. When your best verified version is on disk, call submit(summary=...) to COMMIT it — like a git commit. Nothing is recorded until you submit. The summary is 1-3 sentences: the algorithmic idea you used, whether it worked, and the measured metric change.
+
+Rules:
+- Write the CORE problem-solving logic YOURSELF. Do NOT call a general-purpose solver or optimizer to do the work for you — e.g. scipy.optimize / minimize / linprog, cvxpy, OR-tools, sklearn optimizers, or networkx graph algorithms that solve the objective for you. Basic array math (numpy) is fine as a building block, but the search / optimization / decision logic that drives the score must be your own code and your own idea.
+- Validity is ENFORCED by the evaluator: an invalid result (constraint violations, wrong output shape, etc.) scores 0 no matter how good its raw objective looks. run_evaluator reports validity and, when invalid, a 'feedback' message explaining WHY — read it, fix the cause, and re-check. NEVER submit an invalid solution.
+- Robustness first: ALWAYS leave on disk a valid solution at least as good as the one you started from. If an ambitious idea fails or throws, fall back to the best working version you have — never submit something worse or broken.
+- Make concrete, correct edits. Call submit exactly once, at the end."""
 
 
 def think(thought: str) -> str:
@@ -230,6 +247,18 @@ class EvolutionTeam:
         self._analyzer = analyzer
         self._critic = critic
         self._python_toolset = None  # Python interpreter for analyzer (lazy-initialized)
+        # Single-agent mutation: one full-capability coding agent (one-agent PantheonTeam)
+        # that edits a workspace and commits via submit(). Built once, reused; run per
+        # iteration with a fresh Memory (stateless across iterations).
+        self._mut_team = None
+        self._mut_agent = None
+        self._mut_workdir = None
+        self._mut_eval_count = 0      # run_evaluator calls in the current mutation
+        self._mut_best = None         # best VERIFIED version seen this mutation (auto-commit fallback)
+        self._mut_turn_count = 0      # LLM turns taken this mutation (for the graceful wind-down)
+        self._mut_tool_calls_used = 0 # ACTION tool calls used this mutation (max_tool_calls_per_mutation)
+        self._mut_parent_files: Dict[str, str] = {}
+        self._mut_submitted = None
         self._summarizer = None
 
         # State
@@ -257,6 +286,531 @@ class EvolutionTeam:
             except ImportError:
                 raise RuntimeError("Pantheon Agent not available for mutation")
         return self._mutator
+
+    async def _ensure_mutation_agent(self):
+        """One full-capability coding agent (a one-agent PantheonTeam) that edits a workspace
+        and commits via submit(). Replaces the analyzer+mutator(+summarizer) pipeline. Built
+        once and reused; run per iteration with a fresh Memory so context does not accumulate."""
+        if self._mut_team is not None:
+            return self._mut_team
+
+        from pantheon.agent import Agent
+        from pantheon.internal.compression.plugin import CompressionPlugin
+        from pantheon.team.pantheon import PantheonTeam
+        from pantheon.toolsets.file import FileManagerToolSet
+        from pantheon.toolsets.python import PythonInterpreterToolSet
+        from pantheon.toolsets.shell import ShellToolSet
+
+        base = self.config.workspace_path or tempfile.mkdtemp(prefix="evo_mut_")
+        wt = Path(base) / "_mutation_wt"
+        wt.mkdir(parents=True, exist_ok=True)
+        self._mut_workdir = wt
+
+        def _current_files() -> Dict[str, str]:
+            # Read back the STABLE (parent) file set; scratch files the agent created are ignored.
+            files = {}
+            for path, original in self._mut_parent_files.items():
+                fp = wt / path
+                files[path] = fp.read_text(encoding="utf-8", errors="replace") if fp.exists() else original
+            return files
+
+        async def submit(summary: str) -> str:
+            """Commit your best version together with a short summary — like a git commit.
+            Reads the current files in your working directory as the result and records them
+            plus your summary into the program database. Call this exactly ONCE, when you are
+            done. The summary is 1-3 sentences: what you changed, whether it worked, and the
+            measured metric change."""
+            self._mut_submitted = {"files": _current_files(), "summary": (summary or "").strip()}
+            return "Submitted. Your result and summary are recorded."
+
+        async def run_evaluator() -> dict:
+            """Run the objective's evaluator on the CURRENT code in your working directory and
+            return its metrics. Higher fitness is better. If the solution is INVALID it scores 0
+            and the 'feedback' field explains WHY (e.g. which constraint is violated) — fix that
+            before submitting. Always verify your edits helped before you submit."""
+            budget = self.config.max_evaluations_per_mutation
+            if budget is not None and self._mut_eval_count >= budget:
+                return {"success": False, "metrics": {}, "error":
+                        f"Evaluation budget exhausted ({self._mut_eval_count}/{budget} used). No more "
+                        "run_evaluator calls this mutation — call submit() with your best version NOW."}
+            self._mut_eval_count += 1
+            evaluator = await self._ensure_evaluator()
+            files = _current_files()
+            res = await evaluator.evaluate(
+                Program(id="_probe", snapshot=CodebaseSnapshot(files=files), generation=0))
+            # remember the best VERIFIED version so it can be auto-committed if the agent never submits
+            score = float((res.metrics or {}).get("combined_score", 0.0) or 0.0)
+            if res.success and (self._mut_best is None or score > self._mut_best["score"]):
+                self._mut_best = {"files": files, "score": score,
+                                  "summary": f"(auto-committed best of {self._mut_eval_count} verified "
+                                             f"attempts; combined_score {score:.4f})"}
+            out = {"success": res.success, "metrics": res.metrics, "error": res.error}
+            feedback = {k: v for k, v in (res.artifacts or {}).items()
+                        if k not in ("llm_feedback", "issues", "suggestions") and v}
+            if feedback:
+                out["feedback"] = feedback
+            if budget is not None:
+                out["evaluations_left"] = budget - self._mut_eval_count
+            return out
+
+        def _find_program(ref: str):
+            """Resolve a program reference (#order, order, or id / id-prefix) to a Program."""
+            ref = str(ref).strip().lstrip("#")
+            progs = self.database.programs
+            if ref in progs:                       # exact id
+                return progs[ref]
+            if ref.isdigit():                      # order number (as shown in the history as #N)
+                order = int(ref)
+                for p in progs.values():
+                    if p.order == order:
+                        return p
+            for pid, p in progs.items():           # id prefix
+                if pid.startswith(ref):
+                    return p
+            return None
+
+        async def inspect_program(ref: str) -> dict:
+            """Look up the FULL record of an earlier program in this run's archive by its
+            reference (the #N number shown in the evolution-history / population sections, or a
+            program id). Use this to study a promising or high-scoring earlier attempt in detail —
+            the compact history only shows a one-line summary; this returns the COMPLETE mutation
+            summary, the full code, and the measured metrics, so you can learn from what actually
+            worked and adapt it. This is read-only reference material; it does not change your work."""
+            p = _find_program(ref)
+            if p is None:
+                return {"found": False, "error": f"No program matches '{ref}'. Use the #N number "
+                        "or id from the history/population sections."}
+            m = p.metrics or {}
+            return {
+                "found": True, "id": p.id, "order": p.order, "generation": p.generation,
+                "combined_score": m.get("combined_score"), "sum_radii": m.get("sum_radii"),
+                "metrics": {k: v for k, v in m.items() if k != "fitness_weights"},
+                "summary": p.mutation_summary or "(no summary)",
+                "files": dict(p.snapshot.files),
+            }
+
+        agent_tools = [think, run_evaluator, submit, inspect_program]
+        if self.config.mutation_web_search:
+            def web_search(query: str, max_results: int = 6) -> str:
+                """Search the web (DuckDuckGo) to research the domain — e.g. marker genes, pathways,
+                cell-type biology. Returns result titles, snippets and URLs."""
+                try:
+                    from ddgs import DDGS
+                    rs = list(DDGS().text(query, max_results=max_results))
+                    return "\n".join(
+                        f"- {r.get('title', '')}: {(r.get('body') or '')[:220]} ({r.get('href', '')})"
+                        for r in rs) or "(no results)"
+                except Exception as e:  # noqa: BLE001
+                    return f"web_search error: {type(e).__name__}: {e}"
+            agent_tools.append(web_search)
+
+        agent = Agent(name="code-evolver",
+                      instructions=self.config.mutation_system_prompt or MUTATION_AGENT_SYSTEM_PROMPT,
+                      model=self.config.mutator_model, tools=agent_tools,
+                      use_memory=True)
+        await agent.toolset(FileManagerToolSet("evo-fm", str(wt)))
+        await agent.toolset(PythonInterpreterToolSet(name="evo-py", workdir=str(wt)))
+        await agent.toolset(ShellToolSet("evo-sh", workdir=str(wt)))
+
+        # Action budget: charge every tool call EXCEPT submit against a per-mutation quota, surface a
+        # live countdown on each result, and once spent make further tool calls FAIL (submit stays
+        # open). This replaces the turn-based wind-down with an in-band signal the agent must react to
+        # and always leaves it able to finalize its own best work via submit().
+        def _is_submit(func_name: str) -> bool:
+            return func_name.split("__")[-1] == "submit"
+
+        async def _budget_pre_hook(func_name, params):
+            budget = self.config.max_tool_calls_per_mutation
+            if not budget or _is_submit(func_name):
+                return None
+            if self._mut_tool_calls_used >= budget:
+                logger.info(f"[action-budget] BLOCKED {func_name} — "
+                            f"{self._mut_tool_calls_used}/{budget} used, forcing submit")
+                return (f"⛔ Action budget exhausted: {self._mut_tool_calls_used}/{budget} tool calls "
+                        f"used, so '{func_name.split('__')[-1]}' was NOT run. Your only remaining "
+                        "action is submit() — call submit(summary=...) NOW with the best VALID version "
+                        "already on disk. Do not attempt other tools; they will keep failing.")
+            self._mut_tool_calls_used += 1
+            return None
+
+        async def _budget_post_hook(func_name, params, result):
+            budget = self.config.max_tool_calls_per_mutation
+            if not budget or _is_submit(func_name):
+                return None
+            left = budget - self._mut_tool_calls_used
+            warn = ("  ⚠ almost out — make sure a VALID improvement is on disk, then submit()."
+                    if left <= max(2, budget // 4) else "")
+            note = f"\n\n[action budget: {left}/{budget} tool calls left before only submit() works.{warn}]"
+            if isinstance(result, str):
+                return result + note
+            if isinstance(result, dict):
+                result = dict(result)
+                result["actions_left"] = left
+                return result
+            return None
+
+        agent._pre_tool_hooks.append(_budget_pre_hook)
+        agent._post_tool_hooks.append(_budget_post_hook)
+
+        # Graceful wind-down (legacy, turn-based): only used when the action budget is NOT set.
+        # Warns the agent as it nears its turn budget so it can finalize on its own terms. Fires each
+        # turn (ephemeral, not persisted). The hard max_turns + auto-commit-best are the safety net.
+        async def _winddown_hook(history, ctx):
+            budget = self.config.max_mutation_turns
+            if not budget or self.config.max_tool_calls_per_mutation:
+                return []
+            self._mut_turn_count += 1
+            left = budget - self._mut_turn_count
+            if left <= 3:
+                logger.info(f"[wind-down] turn {self._mut_turn_count}/{budget} — {left} left, "
+                            "nudging agent to submit")
+            if left <= 0:
+                return [{"role": "user", "content":
+                         "⏳ FINAL turn — do not explore further. Call submit() with the best VALID "
+                         "version you have RIGHT NOW (or fix it minimally and submit)."}]
+            if left <= 3:
+                return [{"role": "user", "content":
+                         f"⏳ Only {left} turn(s) left in this mutation. Stop exploring — make sure a "
+                         "VALID improvement is on disk and call submit() soon. A small verified gain "
+                         "submitted now beats being cut off with nothing."}]
+            return []
+        agent._ephemeral_hooks.append(_winddown_hook)
+
+        self._mut_agent = agent
+        self._mut_team = PantheonTeam(agents=[agent], plugins=[CompressionPlugin(
+            {"enable": True, "threshold": 0.8, "preserve_recent_messages": 5})])
+        return self._mut_team
+
+    def _build_single_agent_prompt(self, parent: Program, iteration: int,
+                                    inspirations: Optional[List[Program]] = None) -> str:
+        wd = str(self._mut_workdir)
+        parts = [f"Iteration {iteration + 1}. Objective:", self.objective, "",
+                 f"Your working directory is: {wd}",
+                 "The files to improve are there. IMPORTANT: your python interpreter's current "
+                 f"directory may NOT be this one, so read/write files with ABSOLUTE paths under "
+                 f"{wd} (e.g. open('{wd}/panel.txt', 'w')). The evaluator reads the files from "
+                 f"{wd}, so edits written elsewhere will NOT be scored."]
+        if self.config.warm_start_file:
+            parts += [f"WARM START: '{self.config.warm_start_file}' in your working directory holds the "
+                      "best solution PRODUCED by the parent (as data, e.g. the best coordinates). The "
+                      "framework manages this file automatically — do NOT edit it by hand. Your code "
+                      "SHOULD load it if present and refine from it (a short polish of an already-good "
+                      "solution beats re-deriving one from scratch), falling back to a full search when "
+                      "it is empty/absent. After each evaluation the framework refreshes it with the "
+                      "new best, so improvements accumulate across generations."]
+        history = self.prompt_builder.build_evolution_history_section(
+            sibling_summaries=self.database.get_sibling_summaries(parent.id),
+            ancestor_summaries=self.database.get_ancestor_summaries(parent.id),
+            parent_order=parent.order or 0,
+            max_siblings=self.config.evolution_history_max_siblings,
+            max_ancestors=self.config.evolution_history_max_ancestors,
+            max_chars=self.config.evolution_history_max_chars,
+        )
+        if history:
+            parts += ["", "What earlier attempts in this lineage tried "
+                      "(learn from these, then improve or do something different):", history,
+                      "The summaries above are one-liners. To see the FULL summary + complete code "
+                      "of any node, call inspect_program(#N) with its #number."]
+        # Lateral inspiration: concise pointers to strong programs from OTHER lineages (diverse
+        # MAP-Elites elites). The agent pulls their full code on demand via inspect_program.
+        insp_lines = []
+        for ins in (inspirations or []):
+            if ins.id == parent.id:
+                continue
+            cs = (ins.metrics or {}).get("combined_score")
+            score = f"{cs:.3f}" if isinstance(cs, (int, float)) else "?"
+            head = (ins.mutation_summary or "").splitlines()[0][:70] if ins.mutation_summary else "(no summary)"
+            insp_lines.append(f"- #{ins.order} (score {score}): \"{head}\"")
+        if insp_lines:
+            parts += ["", "Other strong approaches elsewhere in the population (DIFFERENT lineages — "
+                      "consider borrowing their ideas). Call inspect_program(#N) to read one's full "
+                      "code/summary:", *insp_lines]
+        artifacts = parent.artifacts or {}
+        feedback = artifacts.get("llm_feedback") or artifacts.get("evaluation_error")
+        if feedback:
+            parts += ["", "Notes from the last evaluation:", str(feedback)[:1000]]
+        parts += ["", "Edit the files, verify with run_evaluator, then call submit(summary=...) "
+                  "to commit your best version. Nothing is recorded until you submit."]
+        eval_budget = self.config.max_evaluations_per_mutation
+        if eval_budget is not None:
+            parts += [f"EVALUATION BUDGET: you may call run_evaluator at most {eval_budget} time(s) this "
+                      "mutation — spend them wisely (make a substantial, considered change before each "
+                      "check) and submit your best."]
+        tool_budget = self.config.max_tool_calls_per_mutation
+        if tool_budget is not None:
+            parts += [f"ACTION BUDGET: you have {tool_budget} tool calls for this mutation (every "
+                      "python / shell / run_evaluator / web_search / file call counts — submit() does "
+                      "NOT). Each tool result shows how many you have left. When the budget hits 0, "
+                      "every tool EXCEPT submit() will FAIL, so plan to have a VALID improvement on "
+                      "disk and call submit() before then. submit() is always available — a small "
+                      "verified gain submitted in time beats spending the whole budget and being "
+                      "forced to submit whatever happens to be on disk."]
+        elif self.config.max_mutation_turns is not None:
+            turn_budget = self.config.max_mutation_turns
+            parts += [f"TURN BUDGET: you have about {turn_budget} action-turns for this mutation. You "
+                      "will be WARNED a few turns before the end — when warned, stop exploring, make sure "
+                      "a VALID improvement is on disk, and submit(). Plan to leave the panel/code in a "
+                      "submittable state well before then; a small verified gain beats being cut off."]
+        return "\n".join(parts)
+
+    async def _run_iteration_single_agent(self, iteration: int, max_iterations: int = 0,
+                                          worker_id: Optional[int] = None) -> IterationResult:
+        """One evolution iteration using a single full-capability coding agent that edits a
+        workspace and commits via submit() (analyzer + mutator + summarizer collapsed into one)."""
+        from pantheon.internal.memory import Memory
+
+        iter_start = time.time()
+        log_prefix = f"[Worker {worker_id}]" if worker_id is not None else f"[{iteration + 1}/{max_iterations}]"
+        logger.info(f"{log_prefix} Starting iteration (single-agent)...")
+
+        parent, inspirations = await self.database.sample_async(
+            num_inspirations=self.config.num_inspirations)
+        parent_score = parent.fitness_score(
+            self.config.feature_dimensions, self.database.metric_ranges,
+            self.config.function_weight, self.config.llm_weight)
+
+        team = await self._ensure_mutation_agent()
+        self._mut_parent_files = dict(parent.snapshot.files)
+        self._mut_submitted = None
+        self._mut_eval_count = 0      # reset the per-mutation eval budget + best-seen + turn counter
+        self._mut_best = None
+        self._mut_turn_count = 0
+        self._mut_tool_calls_used = 0
+        parent.snapshot.to_workspace(str(self._mut_workdir))  # fresh workspace = parent code
+
+        prompt = self._build_single_agent_prompt(parent, iteration, inspirations)
+        memory = Memory(name=f"evo-mut-{worker_id}-{iteration}")  # fresh -> stateless per iteration
+
+        mutation_start = time.time()
+        err = None
+        iteration_cost = 0.0
+        try:
+            # Hard ceiling on Agent.run's max_turns — which counts HISTORY MESSAGES, not tool
+            # rounds (each tool round adds ~2: an assistant tool_call + its tool result). This is
+            # only a last-resort net; the action budget is meant to be the real limiter, so it must
+            # sit ABOVE what the budget itself consumes (~2 messages per allowed tool call) plus a
+            # few post-exhaustion "you must submit now" rounds. Otherwise the tail bounds nothing.
+            if self.config.max_tool_calls_per_mutation:
+                hard_turns = 2 * self.config.max_tool_calls_per_mutation + 12
+            elif self.config.max_mutation_turns:
+                hard_turns = self.config.max_mutation_turns + 2
+            else:
+                hard_turns = float("inf")
+            resp = await asyncio.wait_for(
+                team.run(prompt, memory=memory, max_turns=hard_turns),
+                timeout=self.config.mutation_timeout)
+            iteration_cost = extract_cost_from_response(resp)
+        except asyncio.TimeoutError:
+            logger.warning(f"{log_prefix} Mutation agent timeout")
+            err = "mutation_timeout"
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"{log_prefix} Mutation agent failed: {e}")
+            err = f"mutation_failed: {str(e)[:120]}"
+        mutation_time = time.time() - mutation_start
+
+        # Salvage step 1: the agent ended without submitting AND never verified anything, but it may
+        # still have EDITED the workspace (a common failure mode: it explores in python, tweaks the
+        # files, then stops without a final run_evaluator/submit). Do one last evaluation of whatever
+        # is on disk so that work isn't discarded — if it scores, it becomes the best-seen version.
+        if not self._mut_submitted and self._mut_best is None:
+            try:
+                final_files = {}
+                for path, original in self._mut_parent_files.items():
+                    fp = self._mut_workdir / path
+                    final_files[path] = (fp.read_text(encoding="utf-8", errors="replace")
+                                         if fp.exists() else original)
+                if final_files != self._mut_parent_files:  # only if the agent actually changed something
+                    evaluator = await self._ensure_evaluator()
+                    res = await evaluator.evaluate(Program(
+                        id="_final", snapshot=CodebaseSnapshot(files=final_files), generation=0))
+                    if res.success:
+                        score = float((res.metrics or {}).get("combined_score", 0.0) or 0.0)
+                        self._mut_best = {"files": final_files, "score": score,
+                                          "summary": f"(auto-evaluated final on-disk edit the agent "
+                                                     f"left unverified; combined_score {score:.4f})"}
+                        logger.info(f"{log_prefix} Final on-disk edit evaluated (combined_score "
+                                    f"{score:.4f}) — salvaging the agent's unsubmitted work")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"{log_prefix} Final on-disk salvage eval failed: {e}")
+
+        # Salvage step 2: if the agent never called submit (timed out, errored, hit the eval budget, or
+        # just forgot), commit the BEST verified version it reached so exploration is not thrown away.
+        if not self._mut_submitted and self._mut_best:
+            self._mut_submitted = {"files": self._mut_best["files"], "summary": self._mut_best["summary"]}
+            logger.info(f"{log_prefix} Auto-committed best of {self._mut_eval_count} verified attempts "
+                        f"(agent did not submit: {err or 'no submit'})")
+
+        if not self._mut_submitted:
+            logger.warning(f"{log_prefix} No child this iteration ({err or 'no_submit'})")
+            return IterationResult(
+                iteration=iteration, parent_id=parent.id, child_id=parent.id,
+                parent_score=parent_score, child_score=parent_score, improvement=0, accepted=False,
+                mutation_time=mutation_time, evaluation_time=0,
+                total_time=time.time() - iter_start, error=err or "no_submit", llm_cost=iteration_cost)
+
+        child_snapshot = CodebaseSnapshot(files=self._mut_submitted["files"])
+        summary = self._mut_submitted["summary"]
+        diff_from_parent = child_snapshot.diff_from(parent.snapshot)
+        logger.info(f"{log_prefix} Mutation: {mutation_time:.1f}s (${iteration_cost:.4f}) — submitted")
+
+        child = Program(
+            id=str(uuid.uuid4())[:8], snapshot=child_snapshot, diff_from_parent=diff_from_parent,
+            parent_id=parent.id, generation=parent.generation + 1, mutation_summary=summary)
+
+        eval_start = time.time()
+        evaluator = await self._ensure_evaluator()
+        eval_result = await evaluator.evaluate(child)
+        eval_time = time.time() - eval_start
+        child.metrics = eval_result.metrics
+        child.artifacts = eval_result.artifacts
+        child.llm_feedback = eval_result.llm_feedback
+        # Warm-start persistence: if the evaluator returned the produced solution, store it as the
+        # child's warm_start.json (a data file in the genome) so the NEXT generation loads and
+        # polishes it instead of re-deriving from scratch. Done AFTER diff_from_parent is computed
+        # (line above) so the large solution blob never shows up in the code diff. It is the
+        # evaluator-produced, verified solution — not something the agent claimed.
+        if eval_result.state is not None and self.config.warm_start_file:
+            try:
+                child.snapshot.files[self.config.warm_start_file] = json.dumps(eval_result.state)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"{log_prefix} Could not persist warm-start state: {e}")
+        if child.metrics.get("fitness_weights"):
+            self.database._update_metric_ranges(child.metrics)
+
+        child_score = child.fitness_score(
+            self.config.feature_dimensions, self.database.metric_ranges,
+            self.config.function_weight, self.config.llm_weight)
+        improvement = child_score - parent_score
+        child.fitness_delta, child.metrics_delta = compute_deltas(
+            parent, child, self.config.feature_dimensions, self.database.metric_ranges,
+            self.config.function_weight, self.config.llm_weight)
+
+        accepted = await self.database.add_async(child)
+        total_time = time.time() - iter_start
+        result_str = "✓ Improved" if improvement > 0 else "✗ No improvement"
+        logger.info(f"{log_prefix} Result: {result_str} ({improvement:+.4f}) "
+                    f"{'(accepted)' if accepted else '(rejected)'} [{total_time:.1f}s]")
+
+        return IterationResult(
+            iteration=iteration, parent_id=parent.id, child_id=child.id,
+            parent_score=parent_score, child_score=child_score, improvement=improvement,
+            accepted=accepted, mutation_time=mutation_time, evaluation_time=eval_time,
+            total_time=total_time, llm_cost=iteration_cost)
+
+    def _sandbox_provider_env(self) -> Dict[str, str]:
+        """LLM provider keys (+ base-url overrides) to forward into the sandbox — only those
+        present in the host env. OPENAI_API_BASE lets us route an OpenAI-compatible provider at
+        OpenRouter (e.g. Anthropic models via ``openai/anthropic/claude-*``, which sidesteps the
+        image's native-Anthropic adapter mis-routing OpenRouter ids to the website)."""
+        keys = ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "OPENAI_API_BASE", "OPENAI_BASE_URL",
+                "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "TOGETHER_API_KEY",
+                "DEEPSEEK_API_KEY")
+        return {k: os.environ[k] for k in keys if os.environ.get(k)}
+
+    def _build_sandbox_objective(self, parent: Program, iteration: int) -> str:
+        parts = [self.objective]
+        history = self.prompt_builder.build_evolution_history_section(
+            sibling_summaries=self.database.get_sibling_summaries(parent.id),
+            ancestor_summaries=self.database.get_ancestor_summaries(parent.id),
+            parent_order=parent.order or 0,
+            max_siblings=self.config.evolution_history_max_siblings,
+            max_ancestors=self.config.evolution_history_max_ancestors,
+            max_chars=self.config.evolution_history_max_chars,
+        )
+        if history:
+            parts += ["", "What earlier attempts in this lineage tried "
+                      "(learn from these, then improve or do something different):", history]
+        return "\n".join(parts)
+
+    def _build_sandbox_inspirations(self, inspirations: List[Program]) -> List[dict]:
+        """Turn sampled MAP-Elites elites (other niches) into reference payloads for the sandbox."""
+        payload = []
+        for ins in inspirations:
+            if not ins.snapshot.files:
+                continue
+            score = ins.fitness_score(
+                self.config.feature_dimensions, self.database.metric_ranges,
+                self.config.function_weight, self.config.llm_weight)
+            payload.append({
+                "files": dict(ins.snapshot.files),
+                "score": round(score, 4),
+                "summary": ins.mutation_summary or "",
+            })
+        return payload
+
+    async def _run_iteration_sandbox(self, iteration: int, max_iterations: int = 0,
+                                     worker_id: Optional[int] = None) -> IterationResult:
+        """One iteration where the mutation (agent + tools + eval) runs in an ISOLATED Modal
+        sandbox — no host filesystem access. The sandbox worker evaluates the child too, so we
+        never run evolved code on the host; its metrics feed QD directly."""
+        from pantheon.evolution.sandbox import run_mutation_in_sandbox
+
+        iter_start = time.time()
+        log_prefix = f"[Worker {worker_id}]" if worker_id is not None else f"[{iteration + 1}/{max_iterations}]"
+        logger.info(f"{log_prefix} Starting iteration (sandbox)...")
+
+        parent, inspirations = await self.database.sample_async(
+            num_inspirations=self.config.num_inspirations)
+        parent_score = parent.fitness_score(
+            self.config.feature_dimensions, self.database.metric_ranges,
+            self.config.function_weight, self.config.llm_weight)
+        insp_payload = (self._build_sandbox_inspirations(inspirations)
+                        if self.config.sandbox_inspirations else None)
+
+        mut_start = time.time()
+        try:
+            result = await run_mutation_in_sandbox(
+                dict(parent.snapshot.files), self.evaluator_code,
+                self._build_sandbox_objective(parent, iteration),
+                self.config.mutation_system_prompt or MUTATION_AGENT_SYSTEM_PROMPT,
+                model=self.config.mutator_model, provider_env=self._sandbox_provider_env(),
+                inspirations=insp_payload,
+                image_ref=self.config.sandbox_image, timeout=self.config.mutation_timeout,
+                tags={"evo_iter": str(iteration),
+                      "worker": str(worker_id if worker_id is not None else 0)})
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"{log_prefix} Sandbox mutation failed: {e}")
+            return IterationResult(
+                iteration=iteration, parent_id=parent.id, child_id=parent.id,
+                parent_score=parent_score, child_score=parent_score, improvement=0, accepted=False,
+                total_time=time.time() - iter_start, error=f"sandbox_failed: {str(e)[:120]}")
+        mutation_time = time.time() - mut_start
+
+        if not result.get("ok") or not result.get("submitted"):
+            reason = result.get("error") or ("no_submit" if result.get("ok") else "sandbox_error")
+            logger.warning(f"{log_prefix} No child from sandbox ({reason})")
+            return IterationResult(
+                iteration=iteration, parent_id=parent.id, child_id=parent.id,
+                parent_score=parent_score, child_score=parent_score, improvement=0, accepted=False,
+                mutation_time=mutation_time, total_time=time.time() - iter_start, error=reason)
+
+        child_snapshot = CodebaseSnapshot(files=result["child_files"])
+        diff_from_parent = child_snapshot.diff_from(parent.snapshot)
+        child = Program(id=str(uuid.uuid4())[:8], snapshot=child_snapshot,
+                        diff_from_parent=diff_from_parent, parent_id=parent.id,
+                        generation=parent.generation + 1, mutation_summary=result.get("summary", ""))
+        # metrics come from the sandbox worker's eval — evolved code never runs on the host
+        child.metrics = result.get("metrics", {}) or {}
+        if child.metrics.get("fitness_weights"):
+            self.database._update_metric_ranges(child.metrics)
+
+        child_score = child.fitness_score(
+            self.config.feature_dimensions, self.database.metric_ranges,
+            self.config.function_weight, self.config.llm_weight)
+        improvement = child_score - parent_score
+        child.fitness_delta, child.metrics_delta = compute_deltas(
+            parent, child, self.config.feature_dimensions, self.database.metric_ranges,
+            self.config.function_weight, self.config.llm_weight)
+        accepted = await self.database.add_async(child)
+        total_time = time.time() - iter_start
+        result_str = "✓ Improved" if improvement > 0 else "✗ No improvement"
+        logger.info(f"{log_prefix} Result: {result_str} ({improvement:+.4f}) "
+                    f"{'(accepted)' if accepted else '(rejected)'} [{total_time:.1f}s] "
+                    f"sandbox={result.get('sandbox')}")
+        return IterationResult(
+            iteration=iteration, parent_id=parent.id, child_id=child.id,
+            parent_score=parent_score, child_score=child_score, improvement=improvement,
+            accepted=accepted, mutation_time=mutation_time, total_time=total_time)
 
     async def _create_analyzer(self, generation: int):
         """
@@ -783,7 +1337,12 @@ class EvolutionTeam:
             # Sequential evolution (original behavior)
             for iteration in range(start_iteration, max_iterations):
                 try:
-                    iter_result = await self._run_iteration(iteration, max_iterations)
+                    if self.config.sandbox_mutation:
+                        iter_result = await self._run_iteration_sandbox(iteration, max_iterations)
+                    elif self.config.single_agent_mutation:
+                        iter_result = await self._run_iteration_single_agent(iteration, max_iterations)
+                    else:
+                        iter_result = await self._run_iteration(iteration, max_iterations)
                     result.iteration_results.append(iter_result)
 
                     # Track scores
@@ -1259,7 +1818,12 @@ class EvolutionTeam:
             logger.info(f"[Worker {worker_id}] Starting iteration {iteration + 1}/{max_iterations}")
 
             try:
-                iter_result = await self._run_iteration(iteration, max_iterations, worker_id=worker_id)
+                if self.config.sandbox_mutation:
+                    iter_result = await self._run_iteration_sandbox(iteration, max_iterations, worker_id=worker_id)
+                elif self.config.single_agent_mutation:
+                    iter_result = await self._run_iteration_single_agent(iteration, max_iterations, worker_id=worker_id)
+                else:
+                    iter_result = await self._run_iteration(iteration, max_iterations, worker_id=worker_id)
                 await result_queue.put(iter_result)
             except Exception as e:
                 logger.error(f"[Worker {worker_id}] Iteration {iteration} failed: {e}")

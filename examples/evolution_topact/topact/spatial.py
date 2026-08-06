@@ -254,7 +254,7 @@ class ExpressionGrid:
 
     def expression_vec(self, coords: npt.NDArray) -> sparse.spmatrix:
         flattened = self._flatten_coords_vec(coords)
-        return self.matrix[flattened].sum(axis=0)
+        return self.matrix.take(flattened.astype(int), axis=0).sum(axis=0)
 
     def square_nbhd(self,
                     i: int,

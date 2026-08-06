@@ -69,7 +69,11 @@ class LearningRuntime:
         if self.config.get("extract_enabled", False):
             self.extractor = SkillExtractor(
                 self.store,
-                model=self.config.get("extract_model", "gpt-4o-mini"),
+                # "low" is a tier tag — the model selector resolves it against the
+                # session's configured providers. A hardcoded id here would pin a
+                # retired model (and ignore OpenRouter mode). `or` not `.get(k, d)`:
+                # the settings template ships extract_model=null, which .get() returns.
+                model=self.config.get("extract_model") or "low",
                 nudge_interval=self.config.get("extract_nudge_interval", 5),
             )
             logger.info(f"LearningRuntime initialized with auto-extraction: skills_dir={skills_dir}")

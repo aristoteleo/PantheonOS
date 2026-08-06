@@ -302,8 +302,16 @@ def catalog_status() -> dict:
 
 def get_model_info(model_id: str) -> dict | None:
     """Derived metadata for an OpenRouter model id (e.g. 'openai/gpt-5.6'), or None
-    if the catalog hasn't been fetched / the id is unknown. Strips _-extras."""
-    info = _CACHE.get(model_id)
+    if the id is unknown. Strips _-extras.
+
+    Loads the catalog on a cold cache (same as get_model_card). Without this, a fresh
+    process — every evolution / CLI run — got None here and silently fell through to
+    the generic $1/$5-per-M defaults, under-reporting Opus-class cost by 5x."""
+    mid = model_id[len("openrouter/") :] if model_id.startswith("openrouter/") else model_id
+    info = _CACHE.get(mid)
+    if not info:
+        _ensure_loaded_sync()
+        info = _CACHE.get(mid)
     if not info:
         return None
     return {k: v for k, v in info.items() if not k.startswith("_")}

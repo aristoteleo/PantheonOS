@@ -1501,7 +1501,8 @@
           "supports_computer_use": false,
           "supports_assistant_prefill": false
         }
-      }
+      },
+      "supports_responses_api": false
     },
     "mistral": {
       "display_name": "Mistral AI",
