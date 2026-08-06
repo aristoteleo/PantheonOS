@@ -99,7 +99,7 @@ async def run(iterations, output_dir, model, workers, verbose, resume):
     from pantheon.evolution import EvolutionConfig, EvolutionTeam
     from pantheon.evolution.program import CodebaseSnapshot
 
-    if model.startswith("openai/") and os.environ.get("OPENROUTER_API_KEY"):
+    if model.startswith(("openai/", "openrouter/")) and os.environ.get("OPENROUTER_API_KEY"):
         os.environ["OPENAI_API_KEY"] = os.environ["OPENROUTER_API_KEY"]
         os.environ["OPENAI_API_BASE"] = "https://openrouter.ai/api/v1"
 
