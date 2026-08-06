@@ -91,11 +91,13 @@ UI ── revoke node N ─► platform ── POST /revoke ─► controller
 ```
 node_id
 node.key        # Ed25519 private key, 0600, NEVER leaves
-refresh.token   # 0600
-access.creds    # 0600, short-lived, rewritten by the refresh loop
+fleet-state.json # assignment + refresh token, 0600
+fleet.creds      # 0600, short-lived, rewritten by the refresh loop
 ```
-- `fleet up --join-token <tok>` the first time; afterwards plain `fleet up`
-  refreshes with the stored refresh_token + node.key (no token needed again).
+- `fleet up --join-token <tok>` the first time; the assignment and refresh token
+  are persisted before the NATS connection. Afterwards plain `fleet up` refreshes
+  with the stored refresh_token + node.key (no token needed again), including
+  after a transient initial NATS failure.
 - Background **refresh loop**: renew at 50–75% of TTL; a 401 from `/token` means
   the refresh was revoked → re-join required.
 

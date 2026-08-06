@@ -79,10 +79,11 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `pantheon-fleet runner
 
 Usage:
-  fleet up   --key <key> [--name <name>] [--labels a,b] [--workdir <dir>]
-                          [--nats <url>] [--fleet <id>] [--no-dataplane]
+  fleet up   [--controller <url> --join-token <token>] [--name <name>]
+                          [--labels a,b] [--workdir <dir>] [--no-dataplane]
   fleet version
 
+After the first Controller join, plain fleet up resumes from the local state.
 In Phase 1 (dev) you can bypass the Controller with --nats <url> and --fleet <id>.`)
 }
 
@@ -116,10 +117,19 @@ func cmdUp(args []string) {
 
 	relays := splitCSV(*relaysCSV)
 
-	// Resolve the Fleet from the API key via the Controller. Dev mode bypasses
-	// it with --nats + --fleet.
+	// Resolve the Fleet from a fresh join, persisted state, or dev arguments.
 	var credsPath, refreshToken string
-	if *controllerURL != "" {
+	var savedState fleetState
+	var hasSavedState bool
+	freshJoin := *controllerURL != "" && (*key != "" || *joinToken != "")
+	devMode := *controllerURL == "" && *natsURL != "" && *fleetID != ""
+	if !freshJoin && !devMode {
+		var err error
+		savedState, hasSavedState, err = loadFleetState(*stateDir)
+		must(err)
+	}
+	var persistedState fleetState
+	if freshJoin {
 		asg, err := join.Join(ctx, *controllerURL, proto.JoinRequest{
 			Key: *key, JoinToken: *joinToken, NodePub: nodePub, NodeID: nodeID,
 		})
@@ -131,12 +141,53 @@ func cmdUp(args []string) {
 		}
 		if asg.Creds != "" {
 			credsPath = filepath.Join(*stateDir, "fleet.creds")
-			must(os.WriteFile(credsPath, []byte(asg.Creds), 0o600))
+			must(writePrivateFile(credsPath, []byte(asg.Creds)))
+		}
+		if refreshToken != "" {
+			persistedState = fleetState{
+				ControllerURL: *controllerURL,
+				FleetID:       *fleetID,
+				NatsURL:       *natsURL,
+				Relays:        append([]string(nil), relays...),
+				RefreshToken:  refreshToken,
+			}
+			must(saveFleetState(*stateDir, persistedState))
 		}
 		fmt.Printf("controller: key %s -> fleet %q via %s (auth=%v)\n", redact(*key), *fleetID, *natsURL, credsPath != "")
+	} else if *natsURL != "" || *fleetID != "" {
+		// Dev mode: both values are supplied directly and no persisted Controller
+		// assignment or credentials are needed.
+	} else if hasSavedState {
+		if *controllerURL != "" && *controllerURL != savedState.ControllerURL {
+			fatal("--controller %q does not match the saved Controller %q", *controllerURL, savedState.ControllerURL)
+		}
+		*controllerURL = savedState.ControllerURL
+		*natsURL = savedState.NatsURL
+		*fleetID = savedState.FleetID
+		refreshToken = savedState.RefreshToken
+		persistedState = savedState
+		if len(relays) == 0 {
+			relays = append([]string(nil), savedState.Relays...)
+		}
+		credsPath = filepath.Join(*stateDir, "fleet.creds")
+		// Refresh before opening NATS: the cached access credential may have
+		// expired while the node was stopped, but the node-bound refresh token
+		// remains valid.
+		ts := time.Now().Unix()
+		sig := node.Sign(nodeKey, token.PoPChallenge(nodePub, *fleetID, ts))
+		fresh, err := join.Refresh(ctx, *controllerURL, proto.TokenRequest{
+			RefreshToken: refreshToken, TS: ts, Sig: sig,
+		})
+		must(err)
+		must(writePrivateFile(credsPath, []byte(fresh.Creds)))
+		if fresh.RefreshToken != "" {
+			persistedState, err = persistFleetStateRefreshToken(*stateDir, persistedState, fresh.RefreshToken)
+			must(err)
+			refreshToken = fresh.RefreshToken
+		}
 	}
 	if *natsURL == "" || *fleetID == "" {
-		fatal("need --controller <url> --key <key>, or dev --nats <url> --fleet <id>")
+		fatal("need --controller <url> --key <key> or --join-token <token>, dev --nats <url> --fleet <id>, or a prior successful join")
 	}
 
 	// Data plane (libp2p) — advertise its addresses in the Node record.
@@ -221,7 +272,16 @@ func cmdUp(args []string) {
 	// expiry), so a legit node stays online while a leaked cred dies fast.
 	// See docs/fleet-security-model.md.
 	if credsPath != "" && *controllerURL != "" && refreshToken != "" {
-		go refreshCredsLoop(ctx, stop, kick, *controllerURL, *fleetID, refreshToken, nodePub, nodeKey, credsPath)
+		if persistedState.RefreshToken == "" {
+			persistedState = fleetState{
+				ControllerURL: *controllerURL,
+				FleetID:       *fleetID,
+				NatsURL:       *natsURL,
+				Relays:        append([]string(nil), relays...),
+				RefreshToken:  refreshToken,
+			}
+		}
+		go refreshCredsLoop(ctx, stop, kick, *controllerURL, *fleetID, refreshToken, nodePub, nodeKey, credsPath, *stateDir, persistedState)
 	}
 
 	<-ctx.Done()
@@ -234,7 +294,7 @@ func cmdUp(args []string) {
 // refreshCredsLoop re-mints the node's short-lived credential before it expires
 // and rewrites credsPath. The NATS client picks up the new creds on its next
 // (re)connect. See docs/fleet-security-model.md.
-func refreshCredsLoop(ctx context.Context, stop context.CancelFunc, kick <-chan struct{}, controllerURL, fleetID, refreshToken, nodePub string, nodeKey ed25519.PrivateKey, credsPath string) {
+func refreshCredsLoop(ctx context.Context, stop context.CancelFunc, kick <-chan struct{}, controllerURL, fleetID, refreshToken, nodePub string, nodeKey ed25519.PrivateKey, credsPath, stateDir string, persistedState fleetState) {
 	// Renew at ~75% of the access TTL so a valid cred is always on disk. A small
 	// absolute floor avoids pathologically tight loops; it must stay well below
 	// the TTL (a 1-minute floor would exceed a short TTL and refresh too late).
@@ -266,8 +326,16 @@ func refreshCredsLoop(ctx context.Context, stop context.CancelFunc, kick <-chan 
 			fmt.Printf("cred refresh failed (will retry): %v\n", err)
 			return true
 		}
-		if err := os.WriteFile(credsPath, []byte(out.Creds), 0o600); err != nil {
+		if err := writePrivateFile(credsPath, []byte(out.Creds)); err != nil {
 			fmt.Printf("cred refresh write failed: %v\n", err)
+		}
+		if out.RefreshToken != "" {
+			var err error
+			persistedState, err = persistFleetStateRefreshToken(stateDir, persistedState, out.RefreshToken)
+			refreshToken = out.RefreshToken
+			if err != nil {
+				fmt.Printf("fleet state refresh write failed: %v\n", err)
+			}
 		}
 		return true
 	}
