@@ -258,10 +258,10 @@ jobs:
             esac
           fi
 
-      # Keep a Fleet-specific moving alias separate from GitHub's generic
-      # releases/latest (which belongs to another Pantheon product). A manual
-      # rerun of an existing tag must not move this alias backwards unless the
-      # operator explicitly selects update_latest in workflow_dispatch.
+      # Keep a Fleet-specific stable asset URL separate from GitHub's generic
+      # releases/latest (which belongs to another Pantheon product). The alias
+      # tag is created once; later promotions replace the release assets. This
+      # avoids force-moving a ref, which GitHub blocks for GITHUB_TOKEN.
       - name: Update Fleet latest alias
         if: github.event_name == 'push' || inputs.update_latest
         env:
@@ -269,22 +269,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          alias_ref="refs/tags/fleet-latest"
-          alias_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq '.sha')"
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/fleet-latest" >/dev/null 2>&1; then
-            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/fleet-latest" \
-              -f sha="$alias_sha" -F force=true >/dev/null
-          else
-            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
-              -f ref="$alias_ref" -f sha="$alias_sha" >/dev/null
-          fi
-
-          alias_notes="Fleet installer alias for ${RELEASE_TAG}. The versioned release remains the immutable rollback target."
+          alias_notes="Fleet installer assets currently mirror ${RELEASE_TAG}. The versioned release remains the immutable rollback target."
           if gh release view fleet-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload fleet-latest dist/* --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit fleet-latest --repo "$GITHUB_REPOSITORY" \
               --title "Pantheon-Fleet latest" --notes "$alias_notes" --prerelease
           else
+            alias_target="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq '.sha')"
             gh release create fleet-latest dist/* --repo "$GITHUB_REPOSITORY" \
-              --title "Pantheon-Fleet latest" --notes "$alias_notes" --prerelease
+              --target "$alias_target" --title "Pantheon-Fleet latest" \
+              --notes "$alias_notes" --prerelease
           fi
