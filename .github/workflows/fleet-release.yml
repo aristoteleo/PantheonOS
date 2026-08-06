@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       update_latest:
-        description: 'Move fleet-latest to this tag (use once to bootstrap or intentionally promote)'
+        description: 'Refresh the existing fleet-latest assets from this tag'
         required: false
         default: false
         type: boolean
@@ -260,8 +260,8 @@ jobs:
 
       # Keep a Fleet-specific stable asset URL separate from GitHub's generic
       # releases/latest (which belongs to another Pantheon product). The alias
-      # tag is created once; later promotions replace the release assets. This
-      # avoids force-moving a ref, which GitHub blocks for GITHUB_TOKEN.
+      # tag is bootstrapped once by a maintainer; later promotions replace the
+      # release assets. GITHUB_TOKEN cannot create the initial Release here.
       - name: Update Fleet latest alias
         if: github.event_name == 'push' || inputs.update_latest
         env:
@@ -270,13 +270,10 @@ jobs:
         run: |
           set -euo pipefail
           alias_notes="Fleet installer assets currently mirror ${RELEASE_TAG}. The versioned release remains the immutable rollback target."
-          if gh release view fleet-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload fleet-latest dist/* --repo "$GITHUB_REPOSITORY" --clobber
-            gh release edit fleet-latest --repo "$GITHUB_REPOSITORY" \
-              --title "Pantheon-Fleet latest" --notes "$alias_notes" --prerelease
-          else
-            alias_target="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq '.sha')"
-            gh release create fleet-latest dist/* --repo "$GITHUB_REPOSITORY" \
-              --target "$alias_target" --title "Pantheon-Fleet latest" \
-              --notes "$alias_notes" --prerelease
+          if ! gh release view fleet-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "fleet-latest is not bootstrapped; create the initial Release once with a maintainer token before enabling promotions." >&2
+            exit 1
           fi
+          gh release upload fleet-latest dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit fleet-latest --repo "$GITHUB_REPOSITORY" \
+            --title "Pantheon-Fleet latest" --notes "$alias_notes" --prerelease
