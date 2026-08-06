@@ -4116,7 +4116,10 @@ class ChatRoom(ToolSet):
 
         await self._ensure_fleet_session_key()
         controller_url = os.environ.get("FLEET_CONTROLLER_URL", "")
-        install_url = os.environ.get("FLEET_INSTALL_URL", "")
+        install_url = os.environ.get(
+            "FLEET_INSTALL_URL",
+            "https://github.com/aristoteleo/PantheonOS/releases/download/fleet-latest/install.sh",
+        )
         if not (controller_url or os.environ.get("FLEET_NATS_URL")):
             return {
                 "success": True,
