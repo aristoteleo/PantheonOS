@@ -188,7 +188,7 @@ func cmdUp(args []string) {
 		// _INBOX namespace is isolated per fleet too (matches the JWT scope).
 		natsOpts = append(natsOpts, nats.UserCredentials(credsPath), nats.CustomInboxPrefix("_INBOX_"+*fleetID))
 	}
-	nc, err := nats.Connect(*natsURL, natsOpts...)
+	nc, err := connectFleetNATS(ctx, *natsURL, natsOpts)
 	must(err)
 	defer nc.Drain() //nolint:errcheck
 
