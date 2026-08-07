@@ -424,14 +424,27 @@ class FileManagerToolSetBase(ToolSet):
             }
 
         if not recursive:
-            files = list(target_path.glob("*"))
-            entries = []
-            for file in files:
-                if file.name in self.black_list:
-                    continue
-                entry = _build_file_entry(file)
-                if entry is not None:
-                    entries.append(entry)
+            def _scan() -> list[dict]:
+                entries = []
+                for file in target_path.glob("*"):
+                    if file.name in self.black_list:
+                        continue
+                    entry = _build_file_entry(file)
+                    if entry is not None:
+                        entries.append(entry)
+                return entries
+
+            # Off the event loop, for the same reason read_file already is.
+            #
+            # A workspace is a network-backed Modal Volume: a glob plus an
+            # lstat per entry is a synchronous round trip per entry, and on a
+            # cold volume cache that is seconds, not milliseconds. Run on the
+            # loop it stops the whole agent — every other request queues behind
+            # it, whoever made them. Measured from a desktop opening on a fresh
+            # sandbox: read_file 3.3 s, set_data_endpoint 3.3 s, and a pty
+            # keystroke 4.3 s, when writing a few bytes to a pty master cannot
+            # take four seconds and did not — it was waiting for this.
+            entries = await asyncio.to_thread(_scan)
             return {
                 "success": True,
                 "files": entries,
@@ -478,7 +491,10 @@ class FileManagerToolSetBase(ToolSet):
             if not target_path.exists():
                 return {"success": False, "error": "Target directory does not exist"}
 
-            return {"success": True, "tree": _list_tree(target_path, 0)}
+            # Recursion walks far more of the volume than the flat case, so this
+            # is the one that most needs to be off the loop.
+            tree = await asyncio.to_thread(_list_tree, target_path, 0)
+            return {"success": True, "tree": tree}
 
     @tool(exclude=True)
     async def create_directory(self, sub_dir: str | list[str]) -> dict:
