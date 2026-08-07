@@ -180,7 +180,20 @@ class OpenAIAdapter(BaseAdapter):
         # Merge extra kwargs (reasoning_effort, temperature, etc.)
         call_kwargs.update(kwargs)
 
-        retry_count = num_retries
+        # `num_retries` counts retries, so the number of attempts is at least
+        # one. Looping `while retry_count > 0` made num_retries=0 mean "do not
+        # call at all": the body never ran, no request was ever sent, and the
+        # fall-through below raised APIConnectionError — an error that names
+        # the network, from code that never touched it.
+        #
+        # Measured against a healthy proxy from inside a sandbox:
+        #     num_retries=0 -> APIConnectionError in    1 ms   (never called)
+        #     num_retries=1 -> OK               in 3875 ms
+        #     num_retries=3 -> OK               in 2407 ms
+        #
+        # One millisecond is the tell. max(1, ...) leaves every other caller's
+        # attempt count exactly as it was.
+        retry_count = max(1, num_retries)
         while retry_count > 0:
             try:
                 stream_start_time = time.time()
@@ -260,8 +273,12 @@ class OpenAIAdapter(BaseAdapter):
                 else:
                     raise wrapped from e
 
-        # Should not reach here, but just in case
-        raise APIConnectionError(f"Failed after {num_retries} retries")
+        # Unreachable: the loop above always runs at least once and either
+        # returns or raises. Kept as a guard, but no longer able to masquerade
+        # as a connection failure that never happened.
+        raise APIConnectionError(
+            f"request loop exited without attempting a call (num_retries={num_retries})"
+        )
 
     async def acompletion_responses(
         self,
