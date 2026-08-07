@@ -506,21 +506,27 @@ class FileManagerToolSetBase(ToolSet):
         Returns:
             dict: Success status. For batch operations, includes results for each path.
         """
+        # mkdir on a network-backed Volume is a round trip, and on a cold cache
+        # a slow one. On the loop it stops the agent; see the note in
+        # list_files. This one is on the critical path: a desktop ensures its
+        # Desktop/ directory exists the moment it connects.
         if isinstance(sub_dir, str):
             new_dir = self._resolve_path(sub_dir)
-            new_dir.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(new_dir.mkdir, parents=True, exist_ok=True)
             return {"success": True}
 
         # Batch operation
-        results = []
-        for path in sub_dir:
-            try:
-                new_dir = self._resolve_path(path)
-                new_dir.mkdir(parents=True, exist_ok=True)
-                results.append({"path": path, "success": True})
-            except Exception as exc:
-                results.append({"path": path, "success": False, "error": str(exc)})
+        def _mkdirs() -> list[dict]:
+            results = []
+            for path in sub_dir:
+                try:
+                    self._resolve_path(path).mkdir(parents=True, exist_ok=True)
+                    results.append({"path": path, "success": True})
+                except Exception as exc:
+                    results.append({"path": path, "success": False, "error": str(exc)})
+            return results
 
+        results = await asyncio.to_thread(_mkdirs)
         all_success = all(r["success"] for r in results)
         return {"success": all_success, "results": results}
 
@@ -561,10 +567,13 @@ class FileManagerToolSetBase(ToolSet):
                     "error": str(exc),
                 }
 
+        # rmtree over a directory on the Volume is a round trip per entry.
         if isinstance(path, str):
-            return _delete_single_path(path)
+            return await asyncio.to_thread(_delete_single_path, path)
 
-        results = [_delete_single_path(p) for p in path]
+        results = await asyncio.to_thread(
+            lambda: [_delete_single_path(p) for p in path]
+        )
         all_success = all(r["success"] for r in results)
         return {"success": all_success, "results": results}
 
@@ -584,8 +593,12 @@ class FileManagerToolSetBase(ToolSet):
             return {"success": False, "error": "Old path does not exist"}
         new_path = self._resolve_path(new_path)
         # Ensure parent directory exists before moving
-        new_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(old_path, new_path)
+        def _move() -> None:
+            new_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(old_path, new_path)
+
+        # A rename across the Volume can copy; either way it is not instant.
+        await asyncio.to_thread(_move)
         return {"success": True}
 
 
@@ -1072,8 +1085,12 @@ class FileManagerToolSet(FileManagerToolSetBase):
                     "reason": "file_not_found",
                 }
             try:
-                with open(target_path, "a", encoding="utf-8") as f:
-                    f.write(content)
+                # Off the loop, like the rest of this toolset's Volume IO.
+                def _append() -> None:
+                    with open(target_path, "a", encoding="utf-8") as f:
+                        f.write(content)
+
+                await asyncio.to_thread(_append)
                 return {"success": True, "appended_chars": len(content)}
             except Exception as exc:
                 logger.error(f"write_file(append) failed for {file_path}: {exc}")
@@ -1087,9 +1104,14 @@ class FileManagerToolSet(FileManagerToolSetBase):
             }
 
         try:
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(target_path, "w", encoding="utf-8") as f:
-                f.write(content)
+            # A mkdir plus a write is two round trips on a cold Volume, and the
+            # desktop does this at connect to persist its layout.
+            def _write() -> None:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(target_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+
+            await asyncio.to_thread(_write)
             return {"success": True, "overwritten": overwrite}
         except Exception as exc:
             logger.error(f"write_file failed for {file_path}: {exc}")
@@ -1134,23 +1156,30 @@ class FileManagerToolSet(FileManagerToolSetBase):
             return {"success": False, "error": "Path is not a file"}
 
         try:
-            with open(target_path, "r", encoding="utf-8") as f:
-                content = f.read()
+            # Read, edit and write in one hop off the loop, so an edit to a
+            # large file on a cold Volume does not stall the agent.
+            def _edit():
+                with open(target_path, "r", encoding="utf-8") as f:
+                    content = f.read()
 
-            new_content, replacements, error = _replace_in_content(
-                content,
-                old_string,
-                new_string,
-                replace_all=replace_all,
-                start_line=start_line,
-                end_line=end_line,
-            )
+                new_content, replacements, error = _replace_in_content(
+                    content,
+                    old_string,
+                    new_string,
+                    replace_all=replace_all,
+                    start_line=start_line,
+                    end_line=end_line,
+                )
+                if error:
+                    return None, 0, error
 
+                with open(target_path, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                return new_content, replacements, None
+
+            _, replacements, error = await asyncio.to_thread(_edit)
             if error:
                 return {"success": False, "error": error}
-
-            with open(target_path, "w", encoding="utf-8") as f:
-                f.write(new_content)
 
             return {"success": True, "replacements": replacements}
 
