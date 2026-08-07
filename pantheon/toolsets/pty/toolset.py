@@ -50,6 +50,13 @@ SHELL_CANDIDATES = ("/bin/bash", "/usr/bin/bash", "/bin/zsh", "/bin/sh")
 # A session with no reader and no writer eventually costs the pod a process.
 IDLE_REAP_SECONDS = 60 * 60
 
+# How long pty_open waits for the shell's first output — the prompt — so it can
+# return it rather than publishing it to a stream nobody is subscribed to yet.
+# It stops early the moment the shell goes quiet, so this is a ceiling, not a
+# cost: a bash prompt is typically ready well inside it.
+PROMPT_GRACE_SECONDS = 0.25
+PROMPT_POLL_SECONDS = 0.01
+
 
 def _pick_shell() -> str:
     for candidate in SHELL_CANDIDATES:
@@ -249,8 +256,10 @@ class PtyToolSet(ToolSet):
             shell: Shell to run. Defaults to bash where present.
 
         Returns:
-            dict with success, session_id, and stream_id — the NATS stream to
-            subscribe to for output.
+            dict with success, session_id, stream_id — the NATS stream to
+            subscribe to for output — and initial_output, base64 bytes the
+            shell produced before the caller could possibly have subscribed.
+            Write those to the terminal first, then attach to the stream.
         """
         self._reap_idle()
 
@@ -306,13 +315,63 @@ class PtyToolSet(ToolSet):
         )
         self._sessions[session_id] = session
         self._attach_reader(session)
+
+        # Hand back what the shell has already said.
+        #
+        # A caller cannot subscribe to the stream until it knows the stream id,
+        # which it only learns from this return value — so its subscription is
+        # always at least one round trip late, and the shell draws its prompt
+        # within milliseconds of the pty existing. NATS core pub/sub has no
+        # replay, so that prompt is published to nobody and lost: verified
+        # against a real pod, a caller subscribing the instant pty_open
+        # returned still received zero bytes, and the terminal came up blank
+        # with a shell running perfectly well behind it.
+        #
+        # The pump does not start until this has drained the queue, so nothing
+        # is duplicated and nothing is reordered — everything up to here comes
+        # back in `initial_output`, everything after goes on the stream.
+        # `shell.new_shell` returns its first output the same way.
+        initial = await self._drain_initial(session)
+
         session.reader_task = asyncio.create_task(self._pump(session))
 
         logger.info(
             "pty: opened {} ({} {}x{}) in {}",
             session_id, shell_path, cols, rows, target_cwd,
         )
-        return {"success": True, **session.snapshot()}
+        return {
+            "success": True,
+            "initial_output": base64.b64encode(initial).decode(),
+            **session.snapshot(),
+        }
+
+    async def _drain_initial(self, session: PtySession) -> bytes:
+        """Whatever the shell writes in its first moments, before the pump runs.
+
+        Bounded twice: it stops as soon as the shell goes quiet, and never
+        waits longer than PROMPT_GRACE_SECONDS in total, so a shell that says
+        nothing costs one short sleep rather than a stalled open.
+        """
+        deadline = time.monotonic() + PROMPT_GRACE_SECONDS
+        parts: list[bytes] = []
+        while time.monotonic() < deadline:
+            await asyncio.sleep(PROMPT_POLL_SECONDS)
+            if session.outbox.empty():
+                # Something already arrived and the shell has gone quiet: a
+                # prompt is drawn in one go, so there is no reason to keep
+                # waiting out the grace period.
+                if parts:
+                    break
+                continue
+            while not session.outbox.empty():
+                chunk = session.outbox.get_nowait()
+                if chunk is None:
+                    # The shell exited immediately. Put the sentinel back so
+                    # the pump still reports the exit.
+                    session.outbox.put_nowait(None)
+                    return b"".join(parts)
+                parts.append(chunk)
+        return b"".join(parts)
 
     @tool(exclude=True)
     async def pty_write(self, session_id: str, data: str) -> dict:
