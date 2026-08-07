@@ -23,11 +23,17 @@ from pathlib import Path
 from loguru import logger
 
 from pantheon.internal.memory import MemoryManager
+import time as _time
 
 
 def project_memory_dir(project_path: str | Path) -> str:
     """The memory dir for a project directory: ``<project>/.pantheon/memory``."""
     return str(Path(project_path).resolve() / ".pantheon" / "memory")
+
+
+
+#: How long an id with no memory file is remembered as having none.
+_MISS_TTL_SECONDS = 30.0
 
 
 class ProjectRoutedMemoryManager:
@@ -37,17 +43,28 @@ class ProjectRoutedMemoryManager:
         self._use_jsonl = use_jsonl
         self._managers: dict[str, MemoryManager] = {}
         self._chat_dir: dict[str, str] = {}
+        #: ids with no memory file, and when we last looked. See _dir_for_chat.
+        self._chat_miss: dict[str, float] = {}
         self._search_dirs: list[str] = []
         self._mgr(self._home_dir)  # eagerly create home
 
     # ---- manager cache ----------------------------------------------------
     def _mgr(self, d: str | Path) -> MemoryManager:
+        # Fast path on the string as given. resolve() is realpath(), and on a
+        # network-backed workspace that is a round trip — paid on every call,
+        # for a directory that has not moved since the last one.
+        raw = str(d)
+        m = self._managers.get(raw)
+        if m is not None:
+            return m
+
         key = str(Path(d).resolve())
         m = self._managers.get(key)
         if m is None:
             Path(key).mkdir(parents=True, exist_ok=True)
             m = MemoryManager(key, use_jsonl=self._use_jsonl)
             self._managers[key] = m
+        self._managers[raw] = m      # alias, so the next call skips resolve()
         return m
 
     # ---- active / search dirs --------------------------------------------
@@ -80,11 +97,38 @@ class ProjectRoutedMemoryManager:
         cached = self._chat_dir.get(chat_id)
         if cached and self._exists_in(chat_id, cached):
             return cached
+
+        # Remember the misses too, briefly.
+        #
+        # A hit was cached and a miss was not, so any id with no memory file
+        # re-ran the whole search on every call: one _exists_in per candidate
+        # directory, three stat()s each, and on a network-backed workspace
+        # every one of those is a round trip — on the event loop.
+        #
+        # Ids with no memory file are not the rare case. `ChatRoom.proxy_toolset`
+        # routes on `args["session_id"]`, and toolsets use that name for their
+        # own sessions: a pty session id arrives here on every keystroke and
+        # never matches anything. Measured from inside a sandbox, `pty_write`
+        # (which carries one) against `pty_list` (which does not) on the same
+        # toolset and the same path: 72 ms versus 62 ms typically, and
+        # 1519 ms versus 63 ms when the search went wide.
+        #
+        # Short-lived, because a brand-new chat's file appears once it is
+        # first saved, and the answer for an unknown id — the active project —
+        # is what this returns anyway.
+        now = _time.monotonic()
+        missed_at = self._chat_miss.get(chat_id)
+        if missed_at is not None and now - missed_at < _MISS_TTL_SECONDS:
+            return self._active_dir
+
         for cand in [self._active_dir, self._home_dir, *self._search_dirs]:
             if self._exists_in(chat_id, cand):
                 self._chat_dir[chat_id] = cand
+                self._chat_miss.pop(chat_id, None)
                 return cand
+
         # Unknown (brand-new chat not yet on disk) → active project.
+        self._chat_miss[chat_id] = now
         return self._active_dir
 
     def mgr_for_chat(self, chat_id: str) -> MemoryManager:
