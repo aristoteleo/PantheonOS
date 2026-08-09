@@ -64,6 +64,16 @@ def _is_internal_notification(message: list[dict]) -> bool:
     return False
 
 
+# How long after boot to leave the workspace disk walk alone.
+#
+# The first `_ping` from a desktop arrives seconds after the agent answers,
+# when the volume's FUSE cache is empty and every stat is a network round trip.
+# Walking then is both the most expensive the walk will ever be and the worst
+# possible moment: the user is opening windows and typing into a terminal.
+# Nothing waits on a disk-usage figure, so it can start after the rush.
+_DISK_WALK_QUIET_SECONDS = 120.0
+
+
 class ChatRoom(ToolSet):
     """
     ChatRoom is a service that allows user to interact with a team of agents.
@@ -100,6 +110,12 @@ class ChatRoom(ToolSet):
     ):
         # Initialize ToolSet (will handle worker creation in run())
         super().__init__(name=name, **kwargs)
+
+        # When this process started, for work that should keep out of the way
+        # while a sandbox is still finding its feet. See _DISK_WALK_QUIET_SECONDS.
+        import time as _t_boot
+
+        self._started_monotonic = _t_boot.monotonic()
 
         # ChatRoom specific initialization (before endpoint setup for workspace_path default)
         # Convert to absolute path BEFORE Endpoint creation (Endpoint does os.chdir)
@@ -575,20 +591,47 @@ class ChatRoom(ToolSet):
         except Exception as e:  # noqa: BLE001
             logger.warning(f"ChatRoom: model catalog warmup skipped: {e}")
 
+    # The walk yields the GIL every this many entries, for this long. 200/1 ms
+    # costs a few percent of walk time on a tree of a few thousand files and
+    # takes the thread from monopolising a core to sharing one.
+    _WALK_YIELD_EVERY = 200
+    _WALK_YIELD_SECONDS = 0.001
+
     @staticmethod
     def _walk_workspace_bytes(root: str) -> int:
-        """Sum file sizes under `root`. Runs in a daemon thread (NOT the event
-        loop) because on Modal FUSE volumes this is thousands of slow stat()
-        round-trips. os.scandir/stat release the GIL during the syscall, so
-        the event loop keeps serving NATS RPCs while this runs."""
+        """Sum file sizes under `root`. Runs in a daemon thread, and yields.
+
+        The thread was added so the walk would not block the event loop, on the
+        reasoning that os.scandir/stat release the GIL during the syscall. That
+        holds for the syscalls; it does not hold for the walk. Sampled with
+        py-spy on a sandbox 30 seconds old, this thread was at **96% CPU** —
+        the per-entry Python work (iteration, path building, the stack) runs
+        with the GIL held, and on a two-core sandbox the event loop then has to
+        contend for it. A `_ping`, which is answered by the RPC framework and
+        touches no toolset, took **1674 ms** during that window against a
+        68 ms median once things settled.
+
+        So the walk now yields: a short sleep every so many entries, which
+        hands the GIL to the event loop and caps this thread's share. The walk
+        takes marginally longer and stops being felt, which is the right trade
+        for a disk-usage figure nobody is waiting on.
+        """
         import os
+        import time as _t
+
         used = 0
+        seen = 0
         stack = [root]
         while stack:
             cur = stack.pop()
             try:
                 with os.scandir(cur) as it:
                     for entry in it:
+                        seen += 1
+                        # Sleeping — not just `pass` — is what actually releases
+                        # the GIL to a waiting thread.
+                        if seen % ChatRoom._WALK_YIELD_EVERY == 0:
+                            _t.sleep(ChatRoom._WALK_YIELD_SECONDS)
                         try:
                             if entry.is_symlink():
                                 continue
@@ -691,7 +734,19 @@ class ChatRoom(ToolSet):
                     # read_chunk_at — stalling file downloads. So refresh the
                     # cache in a detached daemon thread and only ever READ the
                     # cached value here. A single-flight flag prevents pile-up.
-                    if (cached is None or now - cached[1] > 300.0) and not getattr(self, "_disk_walk_running", False):
+                    # Not during the sandbox's opening minutes. The first
+                    # `_ping` a desktop sends arrives seconds after boot, when
+                    # the FUSE cache is empty and every stat is a round trip —
+                    # so the very first walk is both the most expensive one and
+                    # the one that lands while the user is opening windows and
+                    # typing. Nothing waits on a disk figure; it can start
+                    # after the rush.
+                    too_young = (now - getattr(self, "_started_monotonic", now)) < _DISK_WALK_QUIET_SECONDS
+                    if (
+                        not too_young
+                        and (cached is None or now - cached[1] > 300.0)
+                        and not getattr(self, "_disk_walk_running", False)
+                    ):
                         self._disk_walk_running = True
 
                         def _refresh_disk_used():
