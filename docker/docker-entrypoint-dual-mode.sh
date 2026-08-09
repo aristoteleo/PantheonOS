@@ -6,6 +6,18 @@ echo "Pantheon Docker Container"
 echo "Mode: ${PANTHEON_MODE:-hub}"
 echo "========================================="
 
+# Point pip, npm, R and apt at the Volume, so software a user installs is still
+# there after the sandbox is recreated. Sourced (not run) so the exports reach
+# the agent and every pty it spawns; see docker/pantheon-userspace.sh.
+#
+# Guarded on both sides: an older image may not carry the script, and a failure
+# inside it must cost the user a package manager, never their sandbox — `set -e`
+# is suspended for the whole of an `||` list, including the sourced body.
+if [ -f /usr/local/bin/pantheon-userspace.sh ]; then
+    . /usr/local/bin/pantheon-userspace.sh || echo "[userspace] skipped (non-fatal)"
+    echo "  User prefix: ${PANTHEON_USER_PREFIX:-unset}"
+fi
+
 # ========== MODE DETECTION ==========
 if [ "${PANTHEON_MODE}" = "standalone" ]; then
     echo "[STANDALONE MODE] Starting with auto-start-nats and auto-ui"

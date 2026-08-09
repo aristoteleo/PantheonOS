@@ -1,0 +1,107 @@
+#!/bin/bash
+# `apt install X` — but installed onto the Volume, so it is still there tomorrow.
+#
+# Real apt writes to /usr, which belongs to the image, so anything installed
+# that way is erased the next time the sandbox is recreated. This intercepts
+# ONLY `install` and does the same job against the persistent prefix instead:
+# fetch the .deb and its dependencies, unpack them under $PANTHEON_USER_PREFIX,
+# and let the PATH/LD_LIBRARY_PATH set by pantheon-userspace.sh find them.
+#
+# Everything else — update, search, show, list, remove, policy — is handed to
+# the real apt untouched, because those either read state or are already
+# correct. Set PANTHEON_APT_PASSTHROUGH=1 to disable interception entirely.
+#
+# Dependencies already present in the image are skipped by apt itself, which is
+# right: the image will still provide them after a rebuild. Only what the image
+# lacks is fetched, so the Volume holds the difference and nothing more.
+
+set -euo pipefail
+
+# Passthrough goes to whichever of the two the caller actually typed; the
+# fetching below always uses apt-get, whose CLI is the stable one ("apt does
+# not have a stable CLI interface" is apt's own warning about itself).
+REAL="/usr/bin/${0##*/}"
+[ -x "$REAL" ] || REAL="/usr/bin/apt-get"
+APTGET="/usr/bin/apt-get"
+
+PREFIX="${PANTHEON_USER_PREFIX:-${WORKSPACE:-/workspace}/.local}"
+CACHE="$PREFIX/aptcache"
+ROOT="$PREFIX/opt"
+
+# apt's own privilege-dropping cannot stat the Volume the way it expects, and
+# its lock files must live somewhere writable, so both are pointed at the
+# prefix. These options only affect where apt reads and writes, not what it
+# resolves — dependency solving is still apt's.
+APT_OPTS=(-o "Dir::Cache=$CACHE"
+          -o "Dir::State::lists=$CACHE/lists"
+          -o "Debug::NoLocking=1"
+          -o "APT::Sandbox::User=root"
+          -o "APT::Get::Assume-Yes=true")
+
+passthrough() { exec "$REAL" "$@"; }
+
+[ "${PANTHEON_APT_PASSTHROUGH:-0}" = "1" ] && passthrough "$@"
+
+# Find the subcommand — the first bare word, so global flags before it are fine
+# — and drop it, keeping the flags and package names that follow.
+verb=""
+rest=()
+for a in "$@"; do
+    if [ -z "$verb" ]; then
+        case "$a" in -*) rest+=("$a") ;; *) verb="$a" ;; esac
+    else
+        rest+=("$a")
+    fi
+done
+
+case "$verb" in
+    install|reinstall) ;;
+    *) passthrough "$@" ;;
+esac
+
+mkdir -p "$CACHE/archives/partial" "$CACHE/lists/partial" "$ROOT"
+
+# Package lists live on the Volume too, so this cost is paid once rather than
+# on every boot. They do go stale — a mirror rotates and the recorded URLs
+# 404 — which is what the retry below is for.
+if [ -z "$(ls -A "$CACHE/lists" 2>/dev/null | grep -v partial || true)" ]; then
+    echo "[pantheon] fetching package lists (first time on this workspace)..."
+    "$APTGET" "${APT_OPTS[@]}" update -qq || true
+fi
+
+echo "[pantheon] installing into $ROOT (persists across sandbox restarts)"
+
+# --download-only: apt resolves and fetches, but never touches /usr. Unpacking
+# is ours to do, below.
+if ! "$APTGET" "${APT_OPTS[@]}" install --download-only -qq "${rest[@]}" 2>&1 | sed 's/^/[apt] /'; then
+    echo "[pantheon] retrying with refreshed package lists..."
+    "$APTGET" "${APT_OPTS[@]}" update -qq || true
+    "$APTGET" "${APT_OPTS[@]}" install --download-only -qq "${rest[@]}" 2>&1 | sed 's/^/[apt] /'
+fi
+
+shopt -s nullglob
+debs=("$CACHE"/archives/*.deb)
+if [ ${#debs[@]} -eq 0 ]; then
+    echo "[pantheon] nothing new to unpack — already provided by the base image."
+    exit 0
+fi
+
+# dpkg -x unpacks the archive without consulting or updating the dpkg database,
+# which is what makes this work without root and without owning /usr. The
+# trade-off is that maintainer scripts do not run, so a package whose setup is
+# more than "put these files here" (a system service, a user account) will not
+# be fully configured. Command-line tools and libraries — which is what people
+# install here — are exactly the case this does handle.
+count=0
+for d in "${debs[@]}"; do
+    dpkg -x "$d" "$ROOT" 2>/dev/null && count=$((count + 1))
+done
+rm -f "${debs[@]}"
+
+echo "[pantheon] ✓ unpacked $count package(s)"
+for p in "${rest[@]}"; do
+    case "$p" in -*) continue ;; esac
+    if [ -x "$ROOT/usr/bin/$p" ]; then
+        echo "[pantheon]   $p → $ROOT/usr/bin/$p"
+    fi
+done

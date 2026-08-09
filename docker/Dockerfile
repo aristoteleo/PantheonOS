@@ -385,6 +385,20 @@ COPY --from=builder /app /app
 RUN chmod +x /app/docker/docker-entrypoint-dual-mode.sh && \
     cp /app/docker/docker-entrypoint-dual-mode.sh /usr/local/bin/docker-entrypoint.sh
 
+# Root the package managers in the Volume, so what a user installs outlives the
+# container — see docker/pantheon-userspace.sh for what and why.
+#
+# The apt shim goes in /usr/local/bin, which every default PATH searches before
+# /usr/bin, and is installed HERE rather than earlier on purpose: every
+# apt-get above is a build step that must reach the real apt, and this layer is
+# after all of them.
+RUN cp /app/docker/pantheon-userspace.sh /usr/local/bin/pantheon-userspace.sh && \
+    chmod +x /usr/local/bin/pantheon-userspace.sh && \
+    cp /app/docker/pantheon-apt /usr/local/bin/apt && \
+    ln -sf /usr/local/bin/apt /usr/local/bin/apt-get && \
+    chmod +x /usr/local/bin/apt && \
+    printf '. /usr/local/bin/pantheon-userspace.sh\n' > /etc/profile.d/99-pantheon-userspace.sh
+
 # Set default working directory
 WORKDIR /workspace
 
