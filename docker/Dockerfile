@@ -196,6 +196,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxshmfence1 \
     # Fonts for better rendering (removed emoji fonts to save ~20MB)
     fonts-liberation \
+    # Interactive shell tools. The sandbox now serves a real terminal (the pty
+    # toolset), and a terminal without an editor or a pager is not one: `vim`
+    # was "command not found", so was `less`, and installing them by hand does
+    # not survive — apt writes to /usr, which is the image, while only the
+    # Volume persists. Belongs here, where every sandbox gets it. ~35 MB.
+    vim \
+    less \
+    nano \
+    tree \
+    htop \
+    jq \
+    unzip \
+    zip \
+    procps \
+    file \
     # Paper writing and scientific figure dependencies
     pandoc \
     # qpdf: linearize (web-optimize) compiled PDFs so the viewer can render
