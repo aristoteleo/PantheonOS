@@ -380,6 +380,49 @@ EOF
             > /tmp/fleet-node.log 2>&1 &
     fi
 
+    # ── User setup hook ───────────────────────────────────────────────────
+    #
+    # Everything a user installs with apt lands in /usr, which is the image,
+    # not the Volume — so it is gone the next time the sandbox is recreated,
+    # and sandboxes are recreated often: on restart, after an idle reclaim,
+    # and on every agent-image update. "I installed vim yesterday and today it
+    # is missing" is the whole shape of the problem.
+    #
+    # The persistent half of the filesystem cannot hold binaries in system
+    # paths, but it can hold the *instructions* for putting them back. This
+    # runs one script the user owns, from the Volume, on every boot — so the
+    # environment is declared rather than accumulated, which also means it
+    # survives an image update instead of being erased by one.
+    #
+    #   <Volume>/.pantheon/on-start.sh
+    #
+    # Keyed off the Volume, NOT off HOME. Under the default_workspace layout
+    # HOME *is* the Volume, but in the legacy layout HOME is /root, which is
+    # ephemeral — a hook stored there would vanish with the container it was
+    # meant to outlive, which is the exact bug this fixes. (Checked on a live
+    # staging sandbox: HOME=/root, and the Volume is elsewhere.)
+    #
+    # Deliberately: not fatal, so a broken line cannot cost the user their
+    # sandbox; bounded, so an accidental `read` cannot hang the boot forever;
+    # and logged where both the user and support can find it.
+    # WORKSPACE only gets its default in the standalone branch above, so it
+    # may be unset here; /workspace is the Volume mount in both hub layouts.
+    VOLUME_ROOT="${WORKSPACE:-/workspace}"
+    SETUP_HOOK="${VOLUME_ROOT}/.pantheon/on-start.sh"
+    if [ -f "$SETUP_HOOK" ]; then
+        SETUP_LOG=/tmp/pantheon-on-start.log
+        echo "[setup] running $SETUP_HOOK (log: $SETUP_LOG) ..."
+        if timeout "${PANTHEON_SETUP_TIMEOUT:-300}" bash "$SETUP_HOOK" > "$SETUP_LOG" 2>&1; then
+            echo "[setup] ✓ finished"
+        else
+            rc=$?
+            [ $rc -eq 124 ] && echo "[setup] ✗ timed out; continuing without it" \
+                            || echo "[setup] ✗ exited $rc; continuing without it"
+            tail -n 20 "$SETUP_LOG" 2>/dev/null | sed 's/^/[setup]   /'
+        fi
+        cp "$SETUP_LOG" "${VOLUME_ROOT}/.pantheon/on-start.log" 2>/dev/null || true
+    fi
+
     # Run the endpoint IN the default workspace so work_dir (=cwd at import) makes
     # default_workspace the active project, while HOME=/workspace keeps ~/.pantheon
     # (global store) at the Volume root. Users create sibling workspaces under
