@@ -126,22 +126,22 @@ if [ -x "$PANTHEON_BASELINE_ENV/bin/python" ]; then
     _pantheon_prepend_path "$PANTHEON_BASELINE_ENV/bin"
     export PATH
 
-    # The baseline's shared libraries, or borrowing its packages does not work.
+    # The baseline's shared libraries — but NOT on this process's
+    # LD_LIBRARY_PATH.
     #
-    # A conda package is not self-contained: numpy's .so links against
-    # libmkl_gnu_thread.so.3 and friends in ITS OWN env's lib/, on the
-    # assumption the env is activated as a unit. Imported from the personal
-    # env's python through the .pth, the module is found and its libraries are
-    # not — `import scvi` died on exactly that.
+    # Borrowing the baseline's packages needs them: a conda package is not
+    # self-contained, numpy's .so links against libmkl_gnu_thread.so.3 in its
+    # own env's lib/, and `import scvi` from the personal env died on exactly
+    # that. Exporting it here fixed the import and broke the sandbox: the
+    # entrypoint sources this file before exec'ing the agent, so the agent —
+    # a /venv Python — also got conda's libssl and libcrypto ahead of its own,
+    # and never completed the NATS handshake. The Hub sat at
+    # phase=nats-handshake until it gave up.
     #
-    # This is where pip and conda differ, and where I generalised from the
-    # wrong evidence: a manylinux wheel vendors its libraries inside the wheel,
-    # so /venv's packages import from any Python with a matching ABI. Verifying
-    # that direction said nothing about this one.
-    #
-    # Measured after: numpy 2.4.6, scanpy 1.12.3, scvi 1.5.0.post1 and torch
-    # 2.13.0 all import from the personal env. scvi and torch were failing.
-    export LD_LIBRARY_PATH="$PANTHEON_BASELINE_ENV/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    # So the path is published for whoever needs it, and applied only by what
+    # runs in that environment. pantheon-analysis-env puts it in the personal
+    # env's activation script, where it reaches that python and nothing else.
+    export PANTHEON_BASELINE_LIB="$PANTHEON_BASELINE_ENV/lib"
 fi
 _ANALYSIS_DIR="$MAMBA_ROOT_PREFIX/envs/$PANTHEON_ANALYSIS_ENV"
 

@@ -163,6 +163,29 @@ if [ -n "$SITE" ] && [ -d "$SITE" ]; then
     fi
 fi
 
+# The baseline's shared libraries, scoped to this environment only.
+#
+# The packages borrowed through the .pth above are conda builds, and a conda
+# build is not self-contained: numpy's .so links against libmkl_gnu_thread.so.3
+# in the env it came from. Without this, `import scvi` fails there.
+#
+# It goes in activate.d rather than in the shell profile because putting it on
+# the whole process's LD_LIBRARY_PATH broke the sandbox: the entrypoint sources
+# that profile before exec'ing the agent, so a /venv Python got conda's libssl
+# and libcrypto ahead of its own and never completed the NATS handshake. Here
+# it reaches this environment's python and nothing else.
+if [ -n "${PANTHEON_BASELINE_LIB:-}" ] && [ -d "$PANTHEON_BASELINE_LIB" ]; then
+    mkdir -p "$ENV_DIR/etc/conda/activate.d" "$ENV_DIR/etc/conda/deactivate.d"
+    cat > "$ENV_DIR/etc/conda/activate.d/zzz-pantheon-baseline.sh" <<ACT
+export PANTHEON_SAVED_LD_LIBRARY_PATH="\${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="$PANTHEON_BASELINE_LIB\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+ACT
+    cat > "$ENV_DIR/etc/conda/deactivate.d/zzz-pantheon-baseline.sh" <<DEACT
+export LD_LIBRARY_PATH="\${PANTHEON_SAVED_LD_LIBRARY_PATH:-}"
+unset PANTHEON_SAVED_LD_LIBRARY_PATH
+DEACT
+fi
+
 # A kernelspec, so the notebook toolset can reach this env too.
 #
 # That toolset already crosses interpreters properly — AsyncKernelManager takes
