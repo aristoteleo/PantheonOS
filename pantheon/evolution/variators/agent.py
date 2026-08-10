@@ -483,9 +483,15 @@ class AgentVariator:
             batch_id=item.batch_id,
             parent_ids=list(item.parent_ids),
             anchor_id=item.anchor_id,
+            # `tool_calls` and `rejects` are recorded because the interesting question about a
+            # mutation is usually whether it ran out of room. Infeasible submissions tracked the
+            # evaluator count almost perfectly across three arms -- 1.11 evals/program went with
+            # 18.9% infeasible, 2.25 with 6.3% -- and without the budget actually consumed there
+            # is no way to tell a cap that bound from an agent that stopped early.
             meta={"summary": sess.submitted["summary"], "cost": sess.cost,
                   "mutation_seconds": time.time() - t0, "evals": sess.evals,
-                  "candidate": candidate},
+                  "tool_calls": sess.tool_calls, "budget": self.max_tool_calls,
+                  "rejects": sess.rejects, "candidate": candidate},
         )
 
     async def _salvage(self, sess: _Session, err: Optional[str]) -> None:

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import sys
@@ -186,6 +187,11 @@ async def main(a) -> None:
                 "warm_start": bool(getattr(_op, "warm_start_file", None)),
                 "instruction_suffix": bool(getattr(_op, "instruction_suffix", "")),
                 "max_submit_retries": getattr(_op, "max_submit_retries", None)}
+    # Hashed and recorded. An agent wrote an evolved `sequence.py` back into this source
+    # directory during one run -- its tools are not confined to the workspace -- and while every
+    # run so far happened to read the file before that, nothing would have said so. A seed that
+    # changes underneath a comparison changes what is being compared.
+    seed_sha = hashlib.sha256((HERE / "sequence.py").read_bytes()).hexdigest()[:12]
     seed_genome = CodeGenome(files={
         "sequence.py": (HERE / "sequence.py").read_text(),
         # part of the genome so the evaluator sees it: the framework refreshes it with the best
@@ -201,6 +207,7 @@ async def main(a) -> None:
           f"judge={judge_label} | model={a.model}")
     print(f"budget={a.iterations} work items | concurrency={a.workers} | seed={a.seed}")
     print(f"operator {operator}")
+    print(f"seed sha  {seed_sha}")
     print("=" * 74, flush=True)
 
     t0 = time.time()
@@ -298,6 +305,7 @@ async def main(a) -> None:
         {
             "method": method.name, "variator": kind, "judge": judge_label, "norm": a.norm, "verify_note": bool(a.verify_note),
             "operator": operator,
+            "seed_sha": seed_sha,
             "model": a.model, "seed": a.seed,
             "items_run": res.items_run, "failures": res.failures,
             "individuals": len(res.store), "best_combined_score": best_score,
@@ -319,7 +327,11 @@ if __name__ == "__main__":
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--variator", default=None, choices=["agent", "completion"],
                    help="override the operator the method declares (for controlled comparisons)")
-    p.add_argument("--tool-budget", type=int, default=14)
+    p.add_argument("--tool-budget", type=int, default=28,
+                   help="action budget per mutation. Raised from 14 on measurement: at 14 the "
+                        "agents spent a mean 23 of 28 available calls and 12-15 mutations per arm "
+                        "hit the ceiling, and 11.9%% of submitted programs violated the problem's "
+                        "constraints. At 28 that fell to 2.5%% (p=0.001) and one arm reached zero")
     p.add_argument("--eval-timeout", type=int, default=300)
     p.add_argument("--mutation-timeout", type=int, default=1800)
     p.add_argument("--output", default=None)

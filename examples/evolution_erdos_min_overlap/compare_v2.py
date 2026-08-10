@@ -60,7 +60,8 @@ def one(arm: str, seed: int, a) -> dict:
     cmd = [PY, "-u", str(HERE / "run_v2.py"), *ARMS[arm],
            "--iterations", str(a.iterations), "--workers", str(a.workers),
            "--seed", str(seed), "--model", a.model,
-           "--no-warm-start", "--output", str(out)]
+           "--no-warm-start", "--output", str(out),
+           "--tool-budget", str(a.tool_budget)]
     t0 = time.time()
     print(f"[start] {arm} seed={seed}  -> {log.name}", flush=True)
     with open(log, "w") as fh:
@@ -131,6 +132,10 @@ if __name__ == "__main__":
     p.add_argument("--parallel", type=int, default=2, help="runs in flight at once")
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--output", default="results_compare")
+    p.add_argument("--tool-budget", type=int, default=28,
+                   help="action budget per mutation, held equal across arms. Feasibility tracked "
+                        "this closely: at 1.11 evaluator calls per program 18.9% of submissions "
+                        "violated the constraints, at 2.25 only 6.3% did")
     p.add_argument("--force", action="store_true",
                    help="re-run arms that already have a summary.json")
     main(p.parse_args())
