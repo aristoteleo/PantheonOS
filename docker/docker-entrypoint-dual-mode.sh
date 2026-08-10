@@ -461,6 +461,20 @@ EOF
         cd "$DEFAULT_WS" || cd /workspace
     fi
 
+    # Which interpreter is about to run the agent, and what it thinks it is.
+    #
+    # A baseline image had the agent crash on import with "failed to parse
+    # CPython sys.version: '3.12.13 | packaged by conda-forge | ...'" —
+    # cloudpickle cannot read conda's version string — so something was
+    # selecting conda's python over the runtime venv. Reproducing it outside a
+    # real sandbox failed: in the image alone, PANTHEON_RUNTIME_PYTHON resolves
+    # correctly. This prints the answer where the failure actually happens.
+    RUNPY="${PANTHEON_RUNTIME_PYTHON:-python}"
+    echo "[launch] interpreter : $RUNPY -> $(command -v "$RUNPY" 2>/dev/null || echo '(not on PATH)')"
+    echo "[launch] sys.version : $("$RUNPY" -c 'import sys; print(sys.version.replace(chr(10)," "))' 2>&1 | head -1)"
+    echo "[launch] sys.prefix  : $("$RUNPY" -c 'import sys; print(sys.prefix)' 2>&1 | head -1)"
+    echo "[launch] PATH head   : $(echo "$PATH" | cut -c1-120)"
+
     # Execute the command with ID_HASH parameter
     if [ $# -eq 0 ]; then
         # No arguments provided, use default command with ID_HASH
