@@ -267,19 +267,32 @@ try:
         result = {{"function_score": float(result) if result else 0.0}}
 except Exception as e:
     result = {{"error": str(e), "function_score": 0.0}}
+
+# Handed back through stdout rather than by naming a variable for the caller
+# to fetch: the interpreter now runs on a Jupyter kernel, where a value comes
+# home by being printed. A marker keeps it separable from anything the
+# evaluator itself prints.
+import json as __json
+print("__PANTHEON_EVAL__" + __json.dumps(result, default=str))
 '''
         try:
             response = await asyncio.wait_for(
-                interpreter.run_python_code(eval_code, result_var_name="result"),
+                interpreter.run_python_code(eval_code),
                 timeout=self.timeout,
             )
 
             if response.get("success"):
-                result = response.get("result", {})
-                if isinstance(result, dict):
-                    return result
-                else:
-                    return {"function_score": float(result) if result else 0.0}
+                marker = "__PANTHEON_EVAL__"
+                for line in reversed((response.get("stdout") or "").splitlines()):
+                    if line.startswith(marker):
+                        try:
+                            return json.loads(line[len(marker):])
+                        except ValueError:
+                            break
+                return {
+                    "error": "evaluator produced no result",
+                    "function_score": 0.0,
+                }
             else:
                 error = response.get("stderr", "") or response.get("error", "Unknown error")
                 return {"error": error, "function_score": 0.0}
