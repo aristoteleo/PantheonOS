@@ -125,7 +125,7 @@ dependencies:
       # compile, and failed inside a build backend with no indication of which
       # package it was building. Refusing source distributions turns that into
       # "no wheel for X", which names the culprit.
-      - --only-binary=:all:
+      - "--only-binary=:all:"
       - gget
       - omicverse
       - liana

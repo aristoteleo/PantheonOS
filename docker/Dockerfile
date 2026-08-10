@@ -418,6 +418,8 @@ COPY docker/analysis-envs /opt/pantheon/analysis-envs
 # numba. Both shipped, and were only found by running the image. This turns
 # that into a build failure.
 RUN for f in /opt/pantheon/analysis-envs/*.yml; do \
+        python -c "import sys,yaml; yaml.safe_load(open(sys.argv[1]))" "$f" \
+            || { echo "FAIL: $f is not valid YAML"; exit 1; }; \
         name="$(basename "$f" .yml)"; \
         echo "building baseline env: $name"; \
         MAMBA_ROOT_PREFIX=/opt/pantheon/mamba \
