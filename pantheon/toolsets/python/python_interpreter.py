@@ -176,6 +176,10 @@ class PythonInterpreterToolSet(ToolSet):
             }
         # ─────────────────────────────────────────────────────────────────
 
+        # Defined for both branches: the crash-recovery path below has to know
+        # whether there is a session mapping to repair, and an explicit
+        # interpreter_id means there is not.
+        session_key = None
         if interpreter_id:
              p_id = interpreter_id
         else:
@@ -226,7 +230,7 @@ class PythonInterpreterToolSet(ToolSet):
 
             if is_process_failure:
                 logger.warning(
-                    f"Python interpreter crashed (client_id: {client_id}), restarting..."
+                    f"Python interpreter crashed (session: {session_key}), restarting..."
                 )
                 logger.debug(f"Crash details: {error_type}: {error_str[:200]}")
 
@@ -241,17 +245,18 @@ class PythonInterpreterToolSet(ToolSet):
                                 del self.interpreters[p_id]
                             if p_id in self.jobs:
                                 del self.jobs[p_id]
-                            # Clear the client mapping
-                            if client_id in self.clientid_to_interpreterid:
-                                del self.clientid_to_interpreterid[client_id]
+                            # Clear the session mapping
+                            if session_key in self.clientid_to_interpreterid:
+                                del self.clientid_to_interpreterid[session_key]
                         except:
                             pass  # Ignore cleanup errors
 
                 # Create new interpreter and retry
                 create_resp = await self.new_interpreter()
                 p_id = create_resp["interpreter_id"]
-                self.clientid_to_interpreterid[client_id] = p_id
-                logger.info(f"Python interpreter restarted (client_id: {client_id})")
+                if session_key is not None:
+                    self.clientid_to_interpreterid[session_key] = p_id
+                logger.info(f"Python interpreter restarted (session: {session_key})")
 
                 try:
                     res = await self.run_code_in_interpreter(

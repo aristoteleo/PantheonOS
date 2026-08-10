@@ -50,6 +50,16 @@ if [ ! -x "$ENV_DIR/bin/python" ]; then
         echo "[analysis-env] creation failed; the sandbox keeps using /venv"
         exit 0
     }
+elif [ ! -x "$ENV_DIR/bin/pip" ]; then
+    # A python with no pip is an interrupted build, not a finished env — a
+    # sandbox reclaimed while micromamba was still unpacking leaves exactly
+    # this. `create` will not touch a prefix that already exists, so the repair
+    # has to be `install` into it.
+    echo "[analysis-env] '$ENV_NAME' looks half-built; repairing"
+    micromamba install -y -q -n "$ENV_NAME" -c conda-forge "python=$PYVER" pip >/dev/null 2>&1 || {
+        echo "[analysis-env] repair failed; the sandbox keeps using /venv"
+        exit 0
+    }
 fi
 
 # Written every run, not just at creation: an agent-image update moves the
@@ -85,9 +95,17 @@ fi
 # Checked rather than assumed — a half-built env that cannot import the runtime
 # would break every interpreter the agent opens, and failing here (leaving the
 # sandbox on /venv) is much cheaper than failing there.
+# The marker is what pantheon-userspace.sh gates on, and it is written ONLY
+# here, after the env has proved it can start and import the runtime. An
+# interrupted build leaves a python that cannot even find `encodings` —
+# observed, not imagined — and testing for an executable file would have put
+# that broken interpreter first on the user's PATH, which is worse than having
+# no env at all.
 if "$ENV_DIR/bin/python" -c 'import pantheon' >/dev/null 2>&1; then
+    touch "$ENV_DIR/.pantheon-ready"
     echo "[analysis-env] ✓ $ENV_NAME ready ($ENV_DIR)"
 else
+    rm -f "$ENV_DIR/.pantheon-ready"
     echo "[analysis-env] ✗ $ENV_NAME cannot import the runtime; leaving it unused"
     exit 1
 fi

@@ -32,24 +32,52 @@ def _analysis_interpreter():
     `spawn.get_executable()` nor any environment variable — patching that, the
     documented-looking seam, changes nothing on Linux.
 
-    Held only across the constructor, which is where loky reads it, so the
-    agent's own idea of its interpreter is restored before any of its code runs
-    with it. The env must be bridged back to the runtime's site-packages
-    (pantheon-analysis-env writes that .pth): loky unpickles the job function in
-    the child, so an interpreter that cannot import `pantheon` cannot start.
+    Held across pool creation only — see _spawn_executor for what "creation"
+    has to include — so the agent's own idea of its interpreter is restored
+    before any of its code runs with it. The env must be bridged back to the
+    runtime's site-packages (pantheon-analysis-env writes that .pth): loky
+    unpickles the job function in the child, so an interpreter that cannot
+    import `pantheon` cannot start.
     """
     exe = os.environ.get("PANTHEON_ANALYSIS_PYTHON")
     # Unset is the ordinary case, and a stale path after an image change must
     # not take every interpreter down with it — fall through to the runtime.
     if not exe or not os.path.isfile(exe):
-        yield
+        yield False
         return
     original = sys.executable
     sys.executable = exe
     try:
-        yield
+        yield True
     finally:
         sys.executable = original
+
+
+def _spawn_executor(*args, **kwargs):
+    """Build a worker pool, in the analysis env when one is configured.
+
+    loky starts its workers LAZILY — the constructor allocates nothing, and the
+    first process is forked only when work arrives. Holding the interpreter
+    swap across the constructor alone therefore did nothing at all: by the time
+    a worker actually spawned, sys.executable had been put back, and the child
+    came up in the runtime venv. Measured both ways in a sandbox — patch across
+    the constructor gave `sys.prefix == /venv`, forcing the workers up inside
+    the same window gave the analysis env.
+
+    `_ensure_executor_running` is loky's private name for "start them now", so
+    it is called defensively: if a future version drops it, this degrades to
+    interpreters running in the runtime, which is what happens today anyway.
+    """
+    with _analysis_interpreter() as swapped:
+        executor = ProcessPoolExecutor(*args, **kwargs)
+        if swapped:
+            ensure = getattr(executor, "_ensure_executor_running", None)
+            if ensure is not None:
+                try:
+                    ensure()
+                except Exception:  # noqa: BLE001 - never fail a job over this
+                    pass
+    return executor
 
 
 class ProcessJob(Job):
@@ -92,8 +120,7 @@ class ProcessJob(Job):
         func = functools.partial(self.func, *self.args, **self.kwargs)
         if iscoroutinefunction(func):
             func = functools.partial(run_async_func, func)
-        with _analysis_interpreter():
-            self._executor = ProcessPoolExecutor(1)
+        self._executor = _spawn_executor(1)
         loop = asyncio.get_running_loop()
         fut = loop.run_in_executor(self._executor, func)
         result = await fut
@@ -102,9 +129,8 @@ class ProcessJob(Job):
     async def run_generator(self):
         """Run job as a generator."""
         func = functools.partial(self.func, *self.args, **self.kwargs)
-        with _analysis_interpreter():
-            self._executor = ProcessPoolExecutor(
-                1, initializer=_gen_initializer, initargs=(func,))
+        self._executor = _spawn_executor(
+            1, initializer=_gen_initializer, initargs=(func,))
         result = create_generator_wrapper(self)
         return result
 

@@ -19,12 +19,19 @@ if [ -f /usr/local/bin/pantheon-userspace.sh ]; then
     echo "  Analysis env:  ${PANTHEON_ANALYSIS_PYTHON:-not built yet}"
 fi
 
-# Build the analysis env if this workspace has not got one. In the BACKGROUND,
-# and deliberately so: it costs ~20 s of network the first time and nothing
-# ever after, and startup latency is the one thing users feel every session.
-# Until it exists the sandbox simply runs on /venv with the flat prefix, which
-# is a working sandbox; the next boot picks the env up.
-if [ -x /usr/local/bin/pantheon-analysis-env ] && [ -z "${PANTHEON_ANALYSIS_PYTHON:-}" ]; then
+# Build or repair the analysis env. In the BACKGROUND, and deliberately so: it
+# costs ~20 s of network the first time and almost nothing after, and startup
+# latency is the one thing users feel every session. Until the env is ready the
+# sandbox runs on /venv with the flat prefix, which is a working sandbox.
+#
+# EVERY boot, not only when the env is missing. Skipping it once the env exists
+# was wrong twice over: an env whose creation was interrupted — a sandbox
+# reclaimed mid-build — would keep its python and therefore never be repaired,
+# and the kernelspec that lets the notebook toolset reach the env is written
+# into the image, which is ephemeral, so it has to be re-registered each boot
+# or jupyter silently loses the env after every rebuild. The script is
+# idempotent and returns in well under a second when there is nothing to do.
+if [ -x /usr/local/bin/pantheon-analysis-env ]; then
     ( /usr/local/bin/pantheon-analysis-env > /tmp/pantheon-analysis-env.log 2>&1 || true ) &
 fi
 

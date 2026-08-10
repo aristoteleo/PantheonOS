@@ -100,7 +100,11 @@ fi
 export PANTHEON_ANALYSIS_ENV="${PANTHEON_ANALYSIS_ENV:-analysis}"
 _ANALYSIS_DIR="$MAMBA_ROOT_PREFIX/envs/$PANTHEON_ANALYSIS_ENV"
 
-if [ -x "$_ANALYSIS_DIR/bin/python" ]; then
+# The marker, not the presence of a python binary: an interrupted build leaves
+# an interpreter that cannot import `encodings` and dies on startup, and
+# putting that first on PATH would be worse than having no env. Only
+# pantheon-analysis-env writes it, and only after the env has proved it starts.
+if [ -f "$_ANALYSIS_DIR/.pantheon-ready" ] && [ -x "$_ANALYSIS_DIR/bin/python" ]; then
     # `python` and `pip` mean the analysis env — for the person at the terminal
     # and for anything the agent shells out to, which is the point: work lands
     # where it persists and where it cannot reach the runtime.
