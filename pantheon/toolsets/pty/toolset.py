@@ -67,15 +67,15 @@ PROMPT_POLL_SECONDS = 0.01
 # "a terminal was opened", which is the actual occasion.
 #
 # ANSI colour with an explicit reset, and no assumption about width beyond the
-# 62 columns the art occupies.
+# 58 columns the art occupies.
 _BANNER = """\
 \x1b[38;5;110m
-   ___             _   _
-  / _ \\ __ _ _ __ | |_| |__   ___  ___  _ __
- / /_)/ _` | '_ \\| __| '_ \\ / _ \\/ _ \\| '_ \\
-/ ___/ (_| | | | | |_| | | |  __/ (_) | | | |
-\\/    \\__,_|_| |_|\\__|_| |_|\\___|\\___/|_| |_|
-\x1b[0m\x1b[38;5;66m         a workspace that remembers what you install\x1b[0m
+   ___             _   _                       ___  ____
+  / _ \\ __ _ _ __ | |_| |__   ___  ___  _ __  / _ \\/ ___|
+ / /_)/ _` | '_ \\| __| '_ \\ / _ \\/ _ \\| '_ \\ | | | \\___ \\
+/ ___/ (_| | | | | |_| | | |  __/ (_) | | | || |_| |___) |
+\\/    \\__,_|_| |_|\\__|_| |_|\\___|\\___/|_| |_| \\___/|____/
+\x1b[0m\x1b[38;5;66m  an agent operating system for data science\x1b[0m
 
 """
 
