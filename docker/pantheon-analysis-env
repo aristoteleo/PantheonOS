@@ -44,6 +44,7 @@ ENV_DIR="$MAMBA_ROOT_PREFIX/envs/$ENV_NAME"
 # The set is overridable so a workspace that never touches R can drop it:
 # PANTHEON_ANALYSIS_PACKAGES="pip" costs ~40 s less and a few hundred MB.
 EXTRA_PKGS="${PANTHEON_ANALYSIS_PACKAGES:-pip r-base r-irkernel}"
+PKG_MARKER="$ENV_DIR/.pantheon-packages"
 
 command -v micromamba >/dev/null 2>&1 || { echo "[analysis-env] micromamba not present; skipping"; exit 0; }
 
@@ -99,6 +100,21 @@ elif [ ! -x "$ENV_DIR/bin/pip" ]; then
         echo "[analysis-env] repair failed; the sandbox keeps using /venv"
         exit 0
     }
+fi
+
+# Bring an EXISTING env up to date. Adding a package to the list above only
+# affected freshly created envs, so a workspace that already had one never got
+# R: `micromamba create` had been skipped, and nothing else installed it. The
+# set the env was built with is recorded, and any change to it is reconciled —
+# which is also what makes PANTHEON_ANALYSIS_PACKAGES take effect on a
+# workspace that already exists rather than only on a brand new one.
+if [ "$(cat "$PKG_MARKER" 2>/dev/null)" != "$EXTRA_PKGS" ]; then
+    echo "[analysis-env] updating '$ENV_NAME' packages: $EXTRA_PKGS"
+    if micromamba install -y -q -n "$ENV_NAME" -c conda-forge $EXTRA_PKGS >/dev/null 2>&1; then
+        printf '%s\n' "$EXTRA_PKGS" > "$PKG_MARKER"
+    else
+        echo "[analysis-env] could not install: $EXTRA_PKGS (keeping what is there)"
+    fi
 fi
 
 # Written every run, not just at creation: an agent-image update moves the
