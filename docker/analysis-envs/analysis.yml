@@ -130,6 +130,13 @@ dependencies:
       # an image with no toolchain, taking three builds to identify because
       # the failure came from inside a build backend that never named them.
       - "--only-binary=dask-image,cython"
+      # scib has no conda package anywhere. decoupler comes from pip because
+      # conda-forge still carries the 1.x line, whose numba code will not
+      # compile against a modern numba; 2.2.0 is a rewrite and imports against
+      # this environment's numpy and numba. Both were lost in an earlier edit
+      # of this block, and the import check is what noticed.
+      - scib
+      - decoupler>=2.2
       - gget
       - omicverse
       - liana
