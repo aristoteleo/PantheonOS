@@ -125,6 +125,23 @@ export PANTHEON_BASELINE_ENV="${PANTHEON_BASELINE_ENV:-/opt/pantheon/envs/analys
 if [ -x "$PANTHEON_BASELINE_ENV/bin/python" ]; then
     _pantheon_prepend_path "$PANTHEON_BASELINE_ENV/bin"
     export PATH
+
+    # The baseline's shared libraries, or borrowing its packages does not work.
+    #
+    # A conda package is not self-contained: numpy's .so links against
+    # libmkl_gnu_thread.so.3 and friends in ITS OWN env's lib/, on the
+    # assumption the env is activated as a unit. Imported from the personal
+    # env's python through the .pth, the module is found and its libraries are
+    # not — `import scvi` died on exactly that.
+    #
+    # This is where pip and conda differ, and where I generalised from the
+    # wrong evidence: a manylinux wheel vendors its libraries inside the wheel,
+    # so /venv's packages import from any Python with a matching ABI. Verifying
+    # that direction said nothing about this one.
+    #
+    # Measured after: numpy 2.4.6, scanpy 1.12.3, scvi 1.5.0.post1 and torch
+    # 2.13.0 all import from the personal env. scvi and torch were failing.
+    export LD_LIBRARY_PATH="$PANTHEON_BASELINE_ENV/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 _ANALYSIS_DIR="$MAMBA_ROOT_PREFIX/envs/$PANTHEON_ANALYSIS_ENV"
 
