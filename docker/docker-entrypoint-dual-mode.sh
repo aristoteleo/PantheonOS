@@ -474,6 +474,17 @@ EOF
     echo "[launch] sys.version : $("$RUNPY" -c 'import sys; print(sys.version.replace(chr(10)," "))' 2>&1 | head -1)"
     echo "[launch] sys.prefix  : $("$RUNPY" -c 'import sys; print(sys.prefix)' 2>&1 | head -1)"
     echo "[launch] PATH head   : $(echo "$PATH" | cut -c1-120)"
+    # Everything that can make a binary load a different libpython. Three
+    # guesses at which one it was — a stale activate.d hook, LD_LIBRARY_PATH,
+    # the activation itself — were all wrong, each disproved only after a
+    # rebuild. The interpreter reports conda's sys.version, which lives in
+    # libpython, so one of these is pointing it somewhere else; this prints
+    # them at the moment it happens instead of guessing again.
+    echo "[launch] LD_LIBRARY  : ${LD_LIBRARY_PATH:-unset}"
+    echo "[launch] PYTHONHOME  : ${PYTHONHOME:-unset}"
+    echo "[launch] PYTHONPATH  : ${PYTHONPATH:-unset}"
+    echo "[launch] CONDA_PREFIX: ${CONDA_PREFIX:-unset}"
+    echo "[launch] libpython   : $(ldd "$(readlink -f "${PANTHEON_RUNTIME_PYTHON:-python}")" 2>/dev/null | grep -i libpython | head -1)"
 
     # Execute the command with ID_HASH parameter
     if [ $# -eq 0 ]; then
