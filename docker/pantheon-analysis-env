@@ -54,6 +54,29 @@ BASELINE="${PANTHEON_BASELINE_ENV:-/opt/pantheon/envs/analysis}"
 EXTRA_PKGS="${PANTHEON_ANALYSIS_PACKAGES:-pip}"
 PKG_MARKER="$ENV_DIR/.pantheon-packages"
 
+# Channels, written once and kept. `micromamba create -c conda-forge` applies
+# that channel to THAT COMMAND ONLY — it is not remembered — so a later
+# `conda install samtools` searched nothing but the defaults and answered
+# "samtools does not exist (perhaps a typo or a missing channel)". For a
+# workspace whose users install bioinformatics tools, that is most of what
+# they will reach for: samtools, bwa, STAR, salmon and the rest live on
+# bioconda.
+#
+# Written at the root prefix, so it covers every environment here, including
+# ones the user creates themselves. Not overwritten if it already exists —
+# a workspace that has set its own channel order keeps it.
+CONDARC="${MAMBA_ROOT_PREFIX:-$PREFIX/micromamba}/.condarc"
+if [ ! -f "$CONDARC" ]; then
+    mkdir -p "$(dirname "$CONDARC")"
+    cat > "$CONDARC" <<'RC'
+# Written by pantheon-analysis-env on first boot. Yours to edit.
+channels:
+  - conda-forge
+  - bioconda
+channel_priority: strict
+RC
+fi
+
 command -v micromamba >/dev/null 2>&1 || { echo "[analysis-env] micromamba not present; skipping"; exit 0; }
 
 # The CPython minor version to match. Taken from the BASELINE when there is
