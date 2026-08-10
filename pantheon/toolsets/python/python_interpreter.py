@@ -186,8 +186,15 @@ class PythonInterpreterToolSet(ToolSet):
                 elif kind == "execute_result":
                     result = data.get("text/plain")
 
+        # A traceback in the outputs means the code failed, whatever the
+        # transport thought: the kernel delivered the message successfully, but
+        # the cell did not run. The previous implementation raised here; a
+        # returned failure is better for a tool an agent calls, because the
+        # agent sees the traceback instead of a tool error.
+        failed = any(o.get("output_type") == "error" for o in kernel_reply.get("outputs") or [])
+
         res: dict = {
-            "success": kernel_reply.get("success", False),
+            "success": bool(kernel_reply.get("success", False)) and not failed,
             "result": result,
             "stdout": "".join(stdout_parts),
             "stderr": "".join(stderr_parts),
