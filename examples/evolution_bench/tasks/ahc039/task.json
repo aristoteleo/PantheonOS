@@ -1,0 +1,10 @@
+{
+  "evolve": "solution.cpp",
+  "env": {
+    "AHC_CASE_WORKERS": "4",
+    "AHC_DOCKER_TIMEOUT": "900"
+  },
+  "eval_timeout": 1200,
+  "note": "AHC_CASE_WORKERS is per evaluation; with --workers 2 that is 8 emulated processes at once, which is what this machine tolerates. Raising both multiplies.",
+  "inner_fidelity": "low"
+}

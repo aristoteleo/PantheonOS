@@ -13,6 +13,7 @@ comparable with theirs.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -34,9 +35,30 @@ def load(task: str):
     return ns["evaluate"]
 
 
-@pytest.mark.parametrize("task", sorted(SEED_SCORES))
+ALL_TASKS = sorted(p.name for p in TASKS.iterdir() if (p / "evaluator.py").exists())
+
+
+@pytest.mark.parametrize("task", ALL_TASKS)
 def test_evaluator_survives_being_exec_d_without_a_file(task):
+    """Every task, including the ones whose scoring needs Docker.
+
+    This caught the same mistake twice. First an unguarded `if __name__ == "__main__":` self-test,
+    then `HERE = Path(__file__).parent` at module scope -- which fails even earlier, before
+    `evaluate` is defined, and is reported as the evolved program failing to evaluate. Anything an
+    evaluator needs from beside itself has to arrive by environment.
+    """
     assert callable(load(task)), f"{task}: evaluator did not define evaluate()"
+
+
+def test_a_task_that_evolves_a_non_python_file_declares_it():
+    """`run_bench` seeds the genome with the file named in task.json. Without one it assumes
+    `solution.py`, which for a C++ task would seed the run with nothing."""
+    for task in ALL_TASKS:
+        cfg_path = TASKS / task / "task.json"
+        cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+        evolved = cfg.get("evolve", "solution.py")
+        assert (TASKS / task / evolved).exists(), (
+            f"{task}: task.json names {evolved!r} but that file is not there")
 
 
 @pytest.mark.parametrize("task,expected", sorted(SEED_SCORES.items()))

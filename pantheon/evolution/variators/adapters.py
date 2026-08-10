@@ -33,12 +33,26 @@ class ProgramEvaluatorAdapter:
         """The evaluator's produced solution, when it returns one. Read by the variator to persist
         a warm-start file into the child's genome."""
 
-    async def evaluate_files(self, files: Dict[str, str]) -> Dict[str, Any]:
+    FIDELITY_MARKER = ".fidelity"
+    """How a fidelity request reaches an evaluator that only takes a workspace path.
+
+    Written into the workspace for this call and read back by evaluators that offer more than one
+    fidelity. A marker file rather than an environment variable because several mutations evaluate
+    concurrently in one process, and a shared env var would let one agent's cheap reading be
+    recorded as another's authoritative score. An evaluator that ignores the file gets its normal
+    behaviour, which is what every existing task does.
+    """
+
+    async def evaluate_files(self, files: Dict[str, str],
+                             fidelity: str = "full") -> Dict[str, Any]:
         from ..program import CodebaseSnapshot, Program
 
+        payload = dict(files)
+        if fidelity and fidelity != "full":
+            payload[self.FIDELITY_MARKER] = fidelity
         res = await self.inner.evaluate(Program(
             id=f"_probe{uuid.uuid4().hex[:6]}",
-            snapshot=CodebaseSnapshot(files=dict(files)),
+            snapshot=CodebaseSnapshot(files=payload),
             generation=0,
         ))
         state = getattr(res, "state", None)

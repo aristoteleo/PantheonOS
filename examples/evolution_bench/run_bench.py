@@ -5,7 +5,7 @@
 objective, the metric. Adding a second problem by copying it would give two files that drift, so
 this one takes the problem as data:
 
-    tasks/<name>/solution.py    the program that gets evolved; exposes run_code()
+    tasks/<name>/task.json      optional: which file is evolved (default solution.py) and env
     tasks/<name>/evaluator.py   evaluate(workspace_path) -> {combined_score, validity, ...}
     tasks/<name>/objective.md   what the agent is told
 
@@ -63,15 +63,31 @@ async def main(a) -> None:
     if not task_dir.is_dir():
         raise SystemExit(f"no task {a.task!r} in {TASKS} "
                          f"(have: {', '.join(sorted(p.name for p in TASKS.iterdir()))})")
+    # A task says which file it evolves. Hardcoding `solution.py` was fine while every task was
+    # Python; AHC039 evolves C++, and a runner that assumes the extension silently seeds the run
+    # with an empty genome.
+    cfg = {}
+    if (task_dir / "task.json").exists():
+        cfg = json.loads((task_dir / "task.json").read_text())
+    evolve_file = cfg.get("evolve", "solution.py")
+    for k, v in (cfg.get("env") or {}).items():
+        os.environ.setdefault(k, str(v))
+    # An evaluator is exec()d, not imported, so it cannot locate its own directory from __file__.
+    # Anything it needs from beside itself -- cached inputs, a helper script, a data file -- has to
+    # be told to it.
+    os.environ["AHC_TASK_DIR"] = str(task_dir)
+    os.environ["TASK_DIR"] = str(task_dir)
+
     objective = (task_dir / "objective.md").read_text()
-    seed_src = (task_dir / "solution.py").read_text()
+    seed_src = (task_dir / evolve_file).read_text()
     seed_sha = hashlib.sha256(seed_src.encode()).hexdigest()[:12]
 
     out = Path(a.output or (HERE / "results" / f"{a.task}_{a.method}_s{a.seed}")).resolve()
     out.mkdir(parents=True, exist_ok=True)
 
     evaluator = CodeEvaluator(evaluator_code=(task_dir / "evaluator.py").read_text(),
-                              timeout=a.eval_timeout, workspace_path=str(out / "_eval"))
+                              timeout=a.eval_timeout or cfg.get("eval_timeout", 400),
+                              workspace_path=str(out / "_eval"))
 
     judge = None
     if a.method == "annealed":
@@ -85,18 +101,22 @@ async def main(a) -> None:
     variator = method.default_variator(
         evaluator=evaluator, model=a.model, timeout=a.mutation_timeout,
         max_tool_calls=a.tool_budget, workspace_root=str(out / "_mut"),
-        target_file="solution.py")
+        target_file=evolve_file,
+        inner_fidelity=a.inner_fidelity or cfg.get("inner_fidelity", "full"))
     if a.code_variator and hasattr(variator, "code"):
         variator.code = (
             AgentVariator(evaluator=evaluator, model=a.model, max_tool_calls=a.tool_budget,
                           timeout=a.mutation_timeout, workspace_root=str(out / "_mut"),
-                          score_key="combined_score")
+                          score_key="combined_score",
+                          inner_fidelity=a.inner_fidelity
+                          or cfg.get("inner_fidelity", "full"))
             if a.code_variator == "agent"
-            else CompletionVariator(model=a.model, target_file="solution.py",
+            else CompletionVariator(model=a.model, target_file=evolve_file,
                                     timeout=a.mutation_timeout))
 
     _op = getattr(variator, "code", variator)
     operator = {"class": type(_op).__name__,
+                "inner_fidelity": getattr(_op, "inner_fidelity", None),
                 "max_tool_calls": getattr(_op, "max_tool_calls", None),
                 "max_evaluations": getattr(_op, "max_evaluations", None),
                 "max_submit_retries": getattr(_op, "max_submit_retries", None)}
@@ -105,7 +125,7 @@ async def main(a) -> None:
     print(f"{a.task} | method={method.name} | "
           f"variator={type(variator).__name__}({type(_op).__name__}) | model={a.model}")
     print(f"budget={a.iterations} items | workers={a.workers} | seed={a.seed} | "
-          f"seed_sha={seed_sha}")
+          f"evolving {evolve_file} | seed_sha={seed_sha}")
     print(f"operator {operator}")
     print("=" * 78, flush=True)
 
@@ -131,7 +151,7 @@ async def main(a) -> None:
 
     res = await evolve(method=method, variator=variator,
                        evaluators={"code": evaluator, **({"idea": judge} if judge else {})},
-                       seeds=[CodeGenome(files={"solution.py": seed_src})],
+                       seeds=[CodeGenome(files={evolve_file: seed_src})],
                        objective=objective, budget=Budget(max_items=a.iterations),
                        concurrency=a.workers, on_event=on_event,
                        checkpoint_path=str(out), checkpoint_every=2, resume=a.resume)
@@ -149,7 +169,7 @@ async def main(a) -> None:
     if best is not None and hasattr(best.genome, "files"):
         for path, content in best.genome.files.items():
             (out / f"best_{Path(path).name}").write_text(content)
-    json.dump({"task": a.task, "method": method.name, "model": a.model, "seed": a.seed,
+    json.dump({"task": a.task, "evolve": evolve_file, "method": method.name, "model": a.model, "seed": a.seed,
                "operator": operator, "seed_sha": seed_sha,
                "items_run": res.items_run, "failures": res.failures,
                "best_combined_score": best_score, "seed_combined_score": seed_score,
@@ -169,8 +189,12 @@ if __name__ == "__main__":
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--tool-budget", type=int, default=28)
     p.add_argument("--code-variator", default=None, choices=["agent", "completion"])
-    p.add_argument("--eval-timeout", type=int, default=400)
+    p.add_argument("--eval-timeout", type=int, default=None,
+                   help="per-evaluation cap; defaults to the task's own setting")
     p.add_argument("--mutation-timeout", type=int, default=1800)
+    p.add_argument("--inner-fidelity", default=None,
+                   help="fidelity for the agent's own run_evaluator calls, when the task offers "
+                        "more than one. What gets RECORDED is always measured at full fidelity")
     p.add_argument("--norm", default="minmax", choices=["minmax", "absolute"])
     p.add_argument("--judge-state", default=None)
     p.add_argument("--judge-n-min", type=int, default=5)

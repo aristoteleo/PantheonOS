@@ -122,6 +122,7 @@ class AgentVariator:
         warm_start_file: Optional[str] = None,
         score_key: str = "combined_score",
         valid_key: str = "validity",
+        inner_fidelity: str = "full",
         max_submit_retries: int = 2,
         instruction_suffix: str = "",
     ):
@@ -137,6 +138,16 @@ class AgentVariator:
         self.warm_start_file = warm_start_file
         self.score_key = score_key
         self.valid_key = valid_key
+        self.inner_fidelity = inner_fidelity
+        """Fidelity for the agent's own `run_evaluator` calls, as distinct from the one that
+        decides what is recorded.
+
+        A cheap reading is worth having when the authoritative one is slow: AHC039 scores 150 cases
+        three times over, 124s, and an agent calling it four times spends eight minutes per
+        mutation on measurement alone. A 30-case reading answers "did that help?" in ten seconds
+        and lands within 0.4% of the full score. `submit` and the salvage path always measure at
+        full fidelity, so a cheap number can never become the recorded one.
+        """
         """The metric that says a solution satisfies the problem's constraints.
 
         Kept separate from `score_key` because the two answer different questions and the
@@ -152,6 +163,14 @@ class AgentVariator:
         A harness-level knob, so a prompt can be varied without editing an algorithm -- which is
         the only way to attribute a change to the prompt rather than to the search.
         """
+
+    async def _evaluate(self, files, fidelity: str):
+        """Measure, asking for a fidelity where the evaluator understands them."""
+        try:
+            return await self.evaluator.evaluate_files(files, fidelity=fidelity)
+        except TypeError:
+            # an evaluator from before fidelities existed
+            return await self.evaluator.evaluate_files(files)
 
     # ---- feasibility ------------------------------------------------------
 
@@ -252,7 +271,7 @@ class AgentVariator:
             is 1-3 sentences: what you changed, whether it worked, and the measured metric
             change."""
             files = sess.current_files()
-            res = await self.evaluator.evaluate_files(files)
+            res = await self._evaluate(files, "full")
             ok, why = self._feasible(res)
             if ok:
                 self._remember_best(sess, files, res)
@@ -292,7 +311,7 @@ class AgentVariator:
                         "run_evaluator calls this mutation — call submit() with your best version NOW."}
             sess.evals += 1
             files = sess.current_files()
-            res = await self.evaluator.evaluate_files(files)
+            res = await self._evaluate(files, self.inner_fidelity)
             self._remember_best(sess, files, res)
             out = {"success": res.get("success"), "metrics": res.get("metrics"),
                    "error": res.get("error")}
@@ -504,7 +523,7 @@ class AgentVariator:
             try:
                 final = sess.current_files()
                 if final != sess.parent_files:
-                    res = await self.evaluator.evaluate_files(final)
+                    res = await self._evaluate(final, "full")
                     # `success` means the evaluator did not crash, which an invalid solution also
                     # manages: it comes back success=True, validity=0, score 0. Salvaging on that
                     # committed abandoned half-edits as children -- 44% of the programs this path
