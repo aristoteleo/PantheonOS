@@ -66,15 +66,29 @@ PKG_MARKER="$ENV_DIR/.pantheon-packages"
 # ones the user creates themselves. Not overwritten if it already exists —
 # a workspace that has set its own channel order keeps it.
 CONDARC="${MAMBA_ROOT_PREFIX:-$PREFIX/micromamba}/.condarc"
+mkdir -p "$(dirname "$CONDARC")"
 if [ ! -f "$CONDARC" ]; then
-    mkdir -p "$(dirname "$CONDARC")"
     cat > "$CONDARC" <<'RC'
-# Written by pantheon-analysis-env on first boot. Yours to edit.
+# Written by pantheon-analysis-env. Yours to edit — the channels below are
+# added if missing, but the file and any order you set are left alone.
 channels:
   - conda-forge
   - bioconda
 channel_priority: strict
 RC
+    echo "[analysis-env] wrote $CONDARC (conda-forge + bioconda)"
+else
+    # Reconciled, not just created. A workspace that already existed when this
+    # was introduced would otherwise never get bioconda — the same shape as the
+    # package set and the bridge, both of which had to learn this the hard way.
+    # Appended rather than rewritten, so a channel order the user chose stays.
+    for ch in conda-forge bioconda; do
+        grep -qE "^[[:space:]]*-[[:space:]]*$ch[[:space:]]*$" "$CONDARC" || {
+            grep -q "^channels:" "$CONDARC" || printf 'channels:\n' >> "$CONDARC"
+            printf '  - %s\n' "$ch" >> "$CONDARC"
+            echo "[analysis-env] added channel $ch to $CONDARC"
+        }
+    done
 fi
 
 command -v micromamba >/dev/null 2>&1 || { echo "[analysis-env] micromamba not present; skipping"; exit 0; }
