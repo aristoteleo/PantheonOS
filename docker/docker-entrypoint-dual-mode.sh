@@ -124,7 +124,7 @@ EOF
 
     # Start command: use pantheon ui instead of pantheon.chatroom
     # Run in background with tee to display logs and capture to file
-    python -m pantheon ui \
+    "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon ui \
         --workspace_path="${WORKSPACE}" \
         --auto-start-nats \
         --auto-ui="${FRONTEND_URL}" \
@@ -456,10 +456,10 @@ EOF
     # Execute the command with ID_HASH parameter
     if [ $# -eq 0 ]; then
         # No arguments provided, use default command with ID_HASH
-        exec python -m pantheon.chatroom --id_hash="${ID_HASH}" ${SYNC_FLAG}
+        exec "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.chatroom --id_hash="${ID_HASH}" ${SYNC_FLAG}
     else
         # Arguments provided, pass them to pantheon.chatroom with ID_HASH
         # This ensures ID_HASH is always used for stable service_id generation
-        exec python -m pantheon.chatroom --id_hash="${ID_HASH}" ${SYNC_FLAG} "$@"
+        exec "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.chatroom --id_hash="${ID_HASH}" ${SYNC_FLAG} "$@"
     fi
 fi

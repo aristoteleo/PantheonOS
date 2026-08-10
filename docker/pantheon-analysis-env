@@ -26,6 +26,11 @@
 
 set -u
 
+# Everything below installs INTO the env, so a --target inherited from the
+# fallback configuration would divert it straight back out again. Cleared once,
+# here, rather than remembered at each call site.
+unset PIP_TARGET
+
 PREFIX="${PANTHEON_USER_PREFIX:-${WORKSPACE:-/workspace}/.local}"
 export MAMBA_ROOT_PREFIX="${MAMBA_ROOT_PREFIX:-$PREFIX/micromamba}"
 ENV_NAME="${PANTHEON_ANALYSIS_ENV:-analysis}"
@@ -34,9 +39,9 @@ ENV_DIR="$MAMBA_ROOT_PREFIX/envs/$ENV_NAME"
 command -v micromamba >/dev/null 2>&1 || { echo "[analysis-env] micromamba not present; skipping"; exit 0; }
 
 # The version to match, asked of the runtime rather than assumed.
-PYVER="$(/venv/bin/python -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null \
+PYVER="$("${PANTHEON_RUNTIME_PYTHON:-/venv/bin/python}" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null \
          || python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
-RUNTIME_SITE="$(/venv/bin/python -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null \
+RUNTIME_SITE="$("${PANTHEON_RUNTIME_PYTHON:-/venv/bin/python}" -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null \
                 || python3 -c 'import site; print(site.getsitepackages()[0])')"
 
 if [ ! -x "$ENV_DIR/bin/python" ]; then
@@ -70,10 +75,10 @@ fi
 # ipykernel lands in the env rather than being diverted to the flat prefix.
 if [ ! -f "$ENV_DIR/bin/ipython" ] && [ ! -d "$ENV_DIR/lib/python$PYVER/site-packages/ipykernel" ]; then
     echo "[analysis-env] adding ipykernel"
-    PIP_TARGET= "$ENV_DIR/bin/pip" install -q ipykernel >/dev/null 2>&1 || true
+    "$ENV_DIR/bin/pip" install -q ipykernel >/dev/null 2>&1 || true
 fi
 if [ -d "$ENV_DIR/lib/python$PYVER/site-packages/ipykernel" ]; then
-    PIP_TARGET= "$ENV_DIR/bin/python" -m ipykernel install --prefix=/usr/local \
+    "$ENV_DIR/bin/python" -m ipykernel install --prefix=/usr/local \
         --name "$ENV_NAME" --display-name "Python ($ENV_NAME)" >/dev/null 2>&1 || true
 fi
 

@@ -27,6 +27,15 @@
 PANTHEON_USER_PREFIX="${PANTHEON_USER_PREFIX:-${WORKSPACE:-/workspace}/.local}"
 export PANTHEON_USER_PREFIX
 
+# Captured BEFORE anything below touches PATH, and it has to be: the analysis
+# env goes on the front of PATH further down, which would otherwise make bare
+# `python` mean the env — and the entrypoint launches the agent with bare
+# `python`. The agent would then be running on the very environment the user is
+# free to upgrade and break, which is the exact arrangement all of this exists
+# to prevent. Everything that must run on the runtime uses this name instead.
+PANTHEON_RUNTIME_PYTHON="${PANTHEON_RUNTIME_PYTHON:-$(command -v python || command -v python3)}"
+export PANTHEON_RUNTIME_PYTHON
+
 mkdir -p "$PANTHEON_USER_PREFIX"/{bin,pylibs,Rlib,opt,aptcache/archives/partial,aptcache/lists/partial} 2>/dev/null
 
 # ---------------------------------------------------------------- executables
