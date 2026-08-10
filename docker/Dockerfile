@@ -410,11 +410,24 @@ RUN (curl -Ls --retry 3 --retry-delay 5 --max-time 120 \
 # Only the yml files are copied, and BEFORE /app, so editing agent code does
 # not rebuild several gigabytes — only editing a package list does.
 COPY docker/analysis-envs /opt/pantheon/analysis-envs
+# Each file names the modules that must import, on a `# verify:` line, and the
+# build fails if one does not. The solver proving a set of packages CAN be
+# installed together is not the same as them working together: squidpy and
+# decoupler both solved cleanly into the main environment and then failed on
+# import — one on a private anndata name that no longer exists, one inside
+# numba. Both shipped, and were only found by running the image. This turns
+# that into a build failure.
 RUN for f in /opt/pantheon/analysis-envs/*.yml; do \
         name="$(basename "$f" .yml)"; \
         echo "building baseline env: $name"; \
         MAMBA_ROOT_PREFIX=/opt/pantheon/mamba \
         micromamba create -y -p "/opt/pantheon/envs/$name" -f "$f" || exit 1; \
+        mods="$(sed -n 's/^# verify: *//p' "$f")"; \
+        for m in $mods; do \
+            "/opt/pantheon/envs/$name/bin/python" -c "import $m" \
+                || { echo "FAIL: $name cannot import $m"; exit 1; }; \
+        done; \
+        echo "  verified: $mods"; \
     done \
     && MAMBA_ROOT_PREFIX=/opt/pantheon/mamba micromamba clean -a -y -q \
     && find /opt/pantheon/envs -name '*.pyc' -delete \

@@ -14,6 +14,7 @@
 # main environment as files (loom, csv), which is how pySCENIC is used anyway.
 
 name: pyscenic
+# verify: pyscenic numpy pandas loompy anndata
 channels:
   - conda-forge
   - bioconda

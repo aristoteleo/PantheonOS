@@ -1,0 +1,22 @@
+# decoupler, which fails to compile under the main environment's numba.
+#
+# The error is numba's ("Failed in nopython mode pipeline"), but numba itself
+# is fine there — 0.66.0 compiles a plain njit against numpy 2.4.6, checked —
+# so this is decoupler's own code meeting a numba it was not written for, not
+# a numpy version to pin globally.
+#
+# An environment of its own lets it have the numba it wants without deciding
+# the numba everything else gets.
+
+name: decoupler
+# verify: decoupler numba numpy
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - ipykernel
+  - numba<0.62
+  - numpy<2.2
+  - anndata
+  - decoupler

@@ -1,0 +1,21 @@
+# squidpy, which needs an anndata the rest of the stack has moved past.
+#
+# It imports `SparseCSCView` from anndata._core.views — a private name that
+# newer anndata no longer has. In the main environment the solve succeeded and
+# the import did not, which is the failure this file exists to avoid: an
+# environment where squidpy works, and nothing else has to be held back for it.
+#
+# Reachable the same way every environment here is: by kernelspec name, or
+# `conda run -n squidpy`.
+
+name: squidpy
+# verify: squidpy anndata scanpy
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - ipykernel
+  - anndata<0.11
+  - scanpy
+  - squidpy
