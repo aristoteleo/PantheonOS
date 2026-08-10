@@ -75,13 +75,31 @@ channels:
   - conda-forge
   - bioconda
 channel_priority: strict
+# Where environments are found, in order. The Volume comes first because it is
+# the writable one — `conda create` lands there and therefore persists — and
+# the image's read-only baselines come after, so `conda env list` shows them
+# and `conda activate` can reach them. Without this second entry the baselines
+# exist on disk and nothing can see them.
+envs_dirs:
+  - PREFIX_ENVS
+  - /opt/pantheon/envs
 RC
-    echo "[analysis-env] wrote $CONDARC (conda-forge + bioconda)"
+    sed -i "s|PREFIX_ENVS|${MAMBA_ROOT_PREFIX:-$PREFIX/micromamba}/envs|" "$CONDARC"
+    echo "[analysis-env] wrote $CONDARC (conda-forge + bioconda, baselines visible)"
 else
     # Reconciled, not just created. A workspace that already existed when this
     # was introduced would otherwise never get bioconda — the same shape as the
     # package set and the bridge, both of which had to learn this the hard way.
     # Appended rather than rewritten, so a channel order the user chose stays.
+    # The baselines are new; a .condarc written before they existed does not
+    # list them, and then they are invisible however correctly they were built.
+    if ! grep -q "^envs_dirs:" "$CONDARC"; then
+        printf 'envs_dirs:\n  - %s/envs\n  - /opt/pantheon/envs\n' "${MAMBA_ROOT_PREFIX:-$PREFIX/micromamba}" >> "$CONDARC"
+        echo "[analysis-env] added envs_dirs so the image baselines are visible"
+    elif ! grep -q "/opt/pantheon/envs" "$CONDARC"; then
+        sed -i "/^envs_dirs:/a\\  - /opt/pantheon/envs" "$CONDARC"
+        echo "[analysis-env] added the baseline env dir"
+    fi
     for ch in conda-forge bioconda; do
         grep -qE "^[[:space:]]*-[[:space:]]*$ch[[:space:]]*$" "$CONDARC" || {
             grep -q "^channels:" "$CONDARC" || printf 'channels:\n' >> "$CONDARC"
