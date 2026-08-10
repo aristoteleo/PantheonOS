@@ -392,6 +392,21 @@ RUN chmod +x /app/docker/docker-entrypoint-dual-mode.sh && \
 # /usr/bin, and is installed HERE rather than earlier on purpose: every
 # apt-get above is a build step that must reach the real apt, and this layer is
 # after all of them.
+# The `pantheon` command itself, which the image never had.
+#
+# pyproject declares `pantheon = "pantheon.__main__:main"`, but the build runs
+# `uv sync --no-install-project` — deliberately, so that changing agent code
+# does not reinstall every dependency — and a console script is only written
+# when the project is installed. So /venv/bin/pantheon did not exist, and a
+# user opening a terminal in their own workspace could not run the CLI at all.
+#
+# A wrapper rather than installing the project, which would give up the layer
+# caching the flag exists to protect. /app is already on PYTHONPATH, so the
+# module is importable exactly as the console script would have made it.
+RUN printf '#!/bin/sh\nexec "${PANTHEON_RUNTIME_PYTHON:-/venv/bin/python}" -m pantheon "$@"\n' \
+        > /usr/local/bin/pantheon && \
+    chmod +x /usr/local/bin/pantheon
+
 RUN cp /app/docker/pantheon-userspace.sh /usr/local/bin/pantheon-userspace.sh && \
     chmod +x /usr/local/bin/pantheon-userspace.sh && \
     cp /app/docker/pantheon-apt /usr/local/bin/apt && \
