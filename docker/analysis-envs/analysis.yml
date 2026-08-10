@@ -25,9 +25,11 @@ name: analysis
 # Every module here is imported at build time; the build fails if one does not.
 # The solver checking that a set of packages CAN be installed together is not
 # the same as them working together — squidpy and decoupler both solved
-# cleanly into this environment and then failed on import, which is how they
-# came to have files of their own.
-# verify: decoupler numpy scipy pandas anndata scanpy muon scvi scvelo harmonypy scrublet spatialdata snapatac2 scirpy rpy2 scib sklearn skimage cv2 tifffile matplotlib seaborn dask polars
+# cleanly into this environment and then failed on import. Both turned out to
+# be conda-forge carrying an old build rather than a real conflict, and both
+# are installed from pip below; the check is what stopped either from shipping
+# a second time.
+# verify: squidpy decoupler numpy scipy pandas anndata scanpy muon scvi scvelo harmonypy scrublet spatialdata snapatac2 scirpy rpy2 scib sklearn skimage cv2 tifffile matplotlib seaborn dask polars
 channels:
   - conda-forge
   - bioconda
@@ -124,6 +126,13 @@ dependencies:
       # environment's numpy 2.4.6 and numba 0.66.0; verified before writing
       # this line.
       - decoupler>=2.2
+      # squidpy for the same reason, and it was misdiagnosed twice before
+      # this line: the SparseCSCView error looked like squidpy needing an
+      # older anndata, so it got `anndata<0.11` and an environment of its own
+      # — which dragged scanpy back too and broke on a different missing
+      # symbol. It needs a NEWER squidpy. 1.8.3 from pip imports against this
+      # environment's anndata 0.13.2; conda-forge's build is what was old.
+      - squidpy>=1.8.3
       - gget
       - omicverse
       - liana
