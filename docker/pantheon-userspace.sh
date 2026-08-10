@@ -130,30 +130,20 @@ if [ -f "$_ANALYSIS_DIR/.pantheon-ready" ] && [ -x "$_ANALYSIS_DIR/bin/python" ]
     _pantheon_prepend_path "$_ANALYSIS_DIR/bin"
     export PATH
 
-    # Actually activate it, for an interactive shell. The PATH entry above is
-    # enough to make python/pip/R resolve correctly, and that is what the agent
-    # and every script need — but a person at a terminal reasonably expects
-    # `conda env list` to mark the env active and the prompt to say so, and
-    # neither happens without a real activation (CONDA_PREFIX, CONDA_DEFAULT_ENV
-    # and the rest are what those read).
+    # Activate it properly, so `conda env list` marks it and the prompt says
+    # which env you are in — those read CONDA_PREFIX and CONDA_DEFAULT_ENV,
+    # which the PATH entry above does not set.
     #
-    # Interactive only: activation rewrites PATH and defines shell state, which
-    # is unwanted noise in the entrypoint and in every `bash -c` the agent runs.
-    # Guarded against re-activation because this file is sourced by each new
-    # interactive shell.
-    case "$-" in
-        *i*)
-            if [ "${CONDA_DEFAULT_ENV:-}" != "$PANTHEON_ANALYSIS_ENV" ] \
-               && command -v micromamba >/dev/null 2>&1; then
-                micromamba activate "$PANTHEON_ANALYSIS_ENV" 2>/dev/null || true
-            fi
-            ;;
-    esac
-
-    # Read by PantheonOS to spawn its Python interpreters here rather than in
-    # /venv. Absent or unreadable, it falls back to the runtime, so a broken
-    # env costs analysis isolation and never the sandbox.
-    export PANTHEON_ANALYSIS_PYTHON="$_ANALYSIS_DIR/bin/python"
+    # ONCE, and inherited from there. Activation reads the env's metadata off
+    # the Volume, which is network-backed: measured at ~520 ms a time, and
+    # doing it per interactive shell put that on every terminal a person
+    # opened. The entrypoint sources this before the agent starts, so the
+    # agent, every pty and every `bash -c` inherit the result, and the guard
+    # below turns each of those into a no-op.
+    if [ "${CONDA_DEFAULT_ENV:-}" != "$PANTHEON_ANALYSIS_ENV" ] \
+       && command -v micromamba >/dev/null 2>&1; then
+        micromamba activate "$PANTHEON_ANALYSIS_ENV" 2>/dev/null || true
+    fi
 
     # PIP_TARGET is deliberately NOT set in this case. The env is already on
     # the Volume, so its own site-packages is the persistent place, and a
