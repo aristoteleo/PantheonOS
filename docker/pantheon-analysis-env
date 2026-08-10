@@ -157,6 +157,25 @@ else
     echo "[analysis-env] no ipykernel; notebook will not see $ENV_NAME"
 fi
 
+# A CRAN mirror, which conda's R does not come with. Debian's r-base ships
+# /etc/R/Rprofile.site carrying one, so `install.packages("XML")` just worked
+# before; conda's build has no site profile at all, and the same call answers
+# "trying to use CRAN without setting a mirror" — a regression created by
+# moving R here, not by anything the user did.
+if [ -d "$ENV_DIR/lib/R/etc" ] && [ ! -f "$ENV_DIR/lib/R/etc/Rprofile.site" ]; then
+    cat > "$ENV_DIR/lib/R/etc/Rprofile.site" <<'RPROFILE'
+# Written by pantheon-analysis-env. conda's r-base ships no site profile, so
+# without this every install.packages() call has to name a mirror.
+local({
+    r <- getOption("repos")
+    if (is.null(r[["CRAN"]]) || r[["CRAN"]] == "@CRAN@") {
+        r["CRAN"] <- "https://cloud.r-project.org"
+        options(repos = r)
+    }
+})
+RPROFILE
+fi
+
 # The R kernel, registered the same way and for the same reason: a kernelspec
 # is all it takes for the notebook toolset to reach another interpreter, and
 # this one happens not to be Python. Written into the ephemeral image, so like
