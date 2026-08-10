@@ -58,6 +58,39 @@ PROMPT_GRACE_SECONDS = 0.25
 PROMPT_POLL_SECONDS = 0.01
 
 
+# The banner a terminal opens with.
+#
+# Prepended to `initial_output` rather than printed by the shell, and that is
+# the whole design: /etc/bash.bashrc runs for EVERY interactive bash, including
+# the `bash -i -c ...` the agent runs to execute a command, so a banner there
+# would prepend itself to the output of other people's commands. This fires on
+# "a terminal was opened", which is the actual occasion.
+#
+# ANSI colour with an explicit reset, and no assumption about width beyond the
+# 58 columns the art occupies.
+_BANNER = """\
+\x1b[38;5;110m
+   ___             _   _                       ___  ____
+  / _ \\ __ _ _ __ | |_| |__   ___  ___  _ __  / _ \\/ ___|
+ / /_)/ _` | '_ \\| __| '_ \\ / _ \\/ _ \\| '_ \\ | | | \\___ \\
+/ ___/ (_| | | | | |_| | | |  __/ (_) | | | || |_| |___) |
+\\/    \\__,_|_| |_|\\__|_| |_|\\___|\\___/|_| |_| \\___/|____/
+\x1b[0m\x1b[38;5;66m  an agent operating system for data science\x1b[0m
+
+"""
+
+
+def _banner() -> bytes:
+    """Bytes to show before the shell's first prompt.
+
+    Set PANTHEON_PTY_BANNER=0 for a terminal that opens with nothing, which is
+    what a script driving one wants.
+    """
+    if os.environ.get("PANTHEON_PTY_BANNER") == "0":
+        return b""
+    return _BANNER.replace("\n", "\r\n").encode()
+
+
 def _pick_shell() -> str:
     for candidate in SHELL_CANDIDATES:
         if os.path.exists(candidate):
@@ -331,7 +364,7 @@ class PtyToolSet(ToolSet):
         # is duplicated and nothing is reordered — everything up to here comes
         # back in `initial_output`, everything after goes on the stream.
         # `shell.new_shell` returns its first output the same way.
-        initial = await self._drain_initial(session)
+        initial = _banner() + await self._drain_initial(session)
 
         session.reader_task = asyncio.create_task(self._pump(session))
 
