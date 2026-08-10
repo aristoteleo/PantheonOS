@@ -20,12 +20,28 @@
 #   install.packages("jsonlite")→ /workspace/.local/Rlib         SURVIVED
 #   apt install samtools        → /workspace/.local/opt          SURVIVED
 #
-# Sourced by the entrypoint (so the agent and every pty it spawns inherit it)
-# and installed into /etc/profile.d (so a login shell that rebuilds PATH from
-# scratch still gets it).
+# Sourced by the entrypoint (so the agent and every pty it spawns inherit it),
+# by /etc/bash.bashrc (which is what an INTERACTIVE shell reads — the pty runs
+# `bash -i`, which never reads /etc/profile.d, so without this the terminal
+# only ever sees the environment as it was at boot), and by /etc/profile.d for
+# login shells.
+#
+# Re-sourcing therefore happens constantly and must be harmless. It is also the
+# point: the analysis env is built in the background AFTER boot, so the shell
+# that re-evaluates this is the one that finds it, without waiting for a
+# restart. Every PATH entry is added only if it is not already there.
 
 PANTHEON_USER_PREFIX="${PANTHEON_USER_PREFIX:-${WORKSPACE:-/workspace}/.local}"
 export PANTHEON_USER_PREFIX
+
+# Prepend, but only once. This file is sourced repeatedly — every interactive
+# shell re-reads it — and a plain PATH="$new:$PATH" would grow without bound.
+_pantheon_prepend_path() {
+    case ":$PATH:" in
+        *":$1:"*) ;;
+        *) PATH="$1:$PATH" ;;
+    esac
+}
 
 # Captured BEFORE anything below touches PATH, and it has to be: the analysis
 # env goes on the front of PATH further down, which would otherwise make bare
@@ -42,7 +58,10 @@ mkdir -p "$PANTHEON_USER_PREFIX"/{bin,pylibs,Rlib,opt,aptcache/archives/partial,
 # Two roots: `bin` for things that install a binary directly (npm, cargo, go,
 # and pip's console scripts), `opt` for the unpacked-.deb tree, which keeps the
 # distribution's own /usr/bin layout.
-export PATH="$PANTHEON_USER_PREFIX/bin:$PANTHEON_USER_PREFIX/opt/usr/bin:$PANTHEON_USER_PREFIX/opt/bin:$PATH"
+_pantheon_prepend_path "$PANTHEON_USER_PREFIX/opt/bin"
+_pantheon_prepend_path "$PANTHEON_USER_PREFIX/opt/usr/bin"
+_pantheon_prepend_path "$PANTHEON_USER_PREFIX/bin"
+export PATH
 
 # A .deb's shared objects are not in the loader's search path, so a binary
 # unpacked from one finds its libraries only if we say where they are.
@@ -108,7 +127,8 @@ if [ -f "$_ANALYSIS_DIR/.pantheon-ready" ] && [ -x "$_ANALYSIS_DIR/bin/python" ]
     # `python` and `pip` mean the analysis env — for the person at the terminal
     # and for anything the agent shells out to, which is the point: work lands
     # where it persists and where it cannot reach the runtime.
-    export PATH="$_ANALYSIS_DIR/bin:$PATH"
+    _pantheon_prepend_path "$_ANALYSIS_DIR/bin"
+    export PATH
 
     # Read by PantheonOS to spawn its Python interpreters here rather than in
     # /venv. Absent or unreadable, it falls back to the runtime, so a broken
@@ -147,7 +167,17 @@ export npm_config_prefix="$PANTHEON_USER_PREFIX"
 export NODE_PATH="$PANTHEON_USER_PREFIX/lib/node_modules${NODE_PATH:+:$NODE_PATH}"
 
 # ---------------------------------------------------------------------- R
-export R_LIBS_USER="$PANTHEON_USER_PREFIX/Rlib"
+# Per-environment, NOT one shared library directory. Once the analysis env
+# provides R, `R` means conda's build, and a package compiled against Debian's
+# R will not load in it — sharing one R_LIBS_USER between the two is a silent
+# way to break packages that used to work. Kept outside the env so that
+# rebuilding the env does not take the installed R packages with it.
+if [ -n "${PANTHEON_ANALYSIS_PYTHON:-}" ]; then
+    export R_LIBS_USER="$PANTHEON_USER_PREFIX/Rlib/$PANTHEON_ANALYSIS_ENV"
+else
+    export R_LIBS_USER="$PANTHEON_USER_PREFIX/Rlib/system"
+fi
+mkdir -p "$R_LIBS_USER" 2>/dev/null
 
 # ------------------------------------------------------------- rust / go
 # The binary persists; the build and module caches deliberately do not. They are

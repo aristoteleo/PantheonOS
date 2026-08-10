@@ -36,6 +36,15 @@ export MAMBA_ROOT_PREFIX="${MAMBA_ROOT_PREFIX:-$PREFIX/micromamba}"
 ENV_NAME="${PANTHEON_ANALYSIS_ENV:-analysis}"
 ENV_DIR="$MAMBA_ROOT_PREFIX/envs/$ENV_NAME"
 
+# R lives here too, not in the image. Debian's R can only install a package by
+# compiling it, so anything with a C dependency fails on missing headers and
+# `apt install libxml2-dev` does not help — R's configure does not look in the
+# unpacked-.deb prefix. conda-forge ships those same packages already built.
+#
+# The set is overridable so a workspace that never touches R can drop it:
+# PANTHEON_ANALYSIS_PACKAGES="pip" costs ~40 s less and a few hundred MB.
+EXTRA_PKGS="${PANTHEON_ANALYSIS_PACKAGES:-pip r-base r-irkernel}"
+
 command -v micromamba >/dev/null 2>&1 || { echo "[analysis-env] micromamba not present; skipping"; exit 0; }
 
 # The version to match, asked of the runtime rather than assumed.
@@ -77,7 +86,7 @@ if [ "$env_usable" != true ]; then
     else
         echo "[analysis-env] creating '$ENV_NAME' (python $PYVER) — first time on this workspace"
     fi
-    micromamba create -y -q -n "$ENV_NAME" -c conda-forge "python=$PYVER" pip >/dev/null 2>&1 || {
+    micromamba create -y -q -n "$ENV_NAME" -c conda-forge "python=$PYVER" $EXTRA_PKGS >/dev/null 2>&1 || {
         echo "[analysis-env] creation failed; the sandbox keeps using /venv"
         exit 0
     }
@@ -86,7 +95,7 @@ elif [ ! -x "$ENV_DIR/bin/pip" ]; then
     # early — worth repairing in place, since the expensive part is already on
     # disk. `create` will not touch an existing prefix, so this is `install`.
     echo "[analysis-env] '$ENV_NAME' has no pip; repairing in place"
-    micromamba install -y -q -n "$ENV_NAME" -c conda-forge pip >/dev/null 2>&1 || {
+    micromamba install -y -q -n "$ENV_NAME" -c conda-forge $EXTRA_PKGS >/dev/null 2>&1 || {
         echo "[analysis-env] repair failed; the sandbox keeps using /venv"
         exit 0
     }
@@ -130,6 +139,16 @@ if "$ENV_DIR/bin/python" -c 'import ipykernel' >/dev/null 2>&1; then
         || echo "[analysis-env] kernelspec registration failed; notebook will not see $ENV_NAME"
 else
     echo "[analysis-env] no ipykernel; notebook will not see $ENV_NAME"
+fi
+
+# The R kernel, registered the same way and for the same reason: a kernelspec
+# is all it takes for the notebook toolset to reach another interpreter, and
+# this one happens not to be Python. Written into the ephemeral image, so like
+# the Python spec it is re-registered on every boot.
+if [ -x "$ENV_DIR/bin/R" ] && [ -d "$ENV_DIR/lib/R/library/IRkernel" ]; then
+    "$ENV_DIR/bin/R" --quiet --no-save -e \
+        "IRkernel::installspec(name='ir-$ENV_NAME', displayname='R ($ENV_NAME)', prefix='/usr/local')" \
+        >/dev/null 2>&1 || echo "[analysis-env] R kernelspec registration failed"
 fi
 
 # Checked rather than assumed — a half-built env that cannot import the runtime

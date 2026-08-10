@@ -397,7 +397,9 @@ RUN cp /app/docker/pantheon-userspace.sh /usr/local/bin/pantheon-userspace.sh &&
     cp /app/docker/pantheon-apt /usr/local/bin/apt && \
     ln -sf /usr/local/bin/apt /usr/local/bin/apt-get && \
     chmod +x /usr/local/bin/apt && \
-    printf '. /usr/local/bin/pantheon-userspace.sh\n' > /etc/profile.d/99-pantheon-userspace.sh
+    printf '. /usr/local/bin/pantheon-userspace.sh\n' > /etc/profile.d/99-pantheon-userspace.sh && \
+    printf '\n# Pantheon: root the package managers in the Volume (see the script).\n[ -f /usr/local/bin/pantheon-userspace.sh ] && . /usr/local/bin/pantheon-userspace.sh\n' \
+        >> /etc/bash.bashrc
 
 # micromamba — one static binary, ~5MB, no Python of its own. It is here for
 # the case the four package managers above genuinely cannot serve: R and
