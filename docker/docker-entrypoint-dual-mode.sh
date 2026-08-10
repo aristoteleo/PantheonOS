@@ -15,7 +15,17 @@ echo "========================================="
 # is suspended for the whole of an `||` list, including the sourced body.
 if [ -f /usr/local/bin/pantheon-userspace.sh ]; then
     . /usr/local/bin/pantheon-userspace.sh || echo "[userspace] skipped (non-fatal)"
-    echo "  User prefix: ${PANTHEON_USER_PREFIX:-unset}"
+    echo "  User prefix:   ${PANTHEON_USER_PREFIX:-unset}"
+    echo "  Analysis env:  ${PANTHEON_ANALYSIS_PYTHON:-not built yet}"
+fi
+
+# Build the analysis env if this workspace has not got one. In the BACKGROUND,
+# and deliberately so: it costs ~20 s of network the first time and nothing
+# ever after, and startup latency is the one thing users feel every session.
+# Until it exists the sandbox simply runs on /venv with the flat prefix, which
+# is a working sandbox; the next boot picks the env up.
+if [ -x /usr/local/bin/pantheon-analysis-env ] && [ -z "${PANTHEON_ANALYSIS_PYTHON:-}" ]; then
+    ( /usr/local/bin/pantheon-analysis-env > /tmp/pantheon-analysis-env.log 2>&1 || true ) &
 fi
 
 # ========== MODE DETECTION ==========

@@ -1,5 +1,8 @@
 import asyncio
 import functools
+import os
+import sys
+from contextlib import contextmanager
 from inspect import iscoroutinefunction
 
 import loky.process_executor
@@ -11,6 +14,42 @@ from .base import Job
 from .utils import (
     _gen_initializer, create_generator_wrapper, run_async_func
 )
+
+
+@contextmanager
+def _analysis_interpreter():
+    """Spawn workers from the analysis env rather than the agent's runtime.
+
+    The runtime venv is what keeps the agent alive; user analysis should not be
+    installing into it. PANTHEON_ANALYSIS_PYTHON names a conda env on the
+    persistent Volume to run the work in instead, so a package upgrade lands
+    somewhere it can only break the analysis, and two projects with
+    incompatible pins can have an env each.
+
+    It has to be done by moving `sys.executable`, because on POSIX loky builds
+    the child command line from it directly (`cmd_python = [sys.executable]` in
+    backend/popen_loky_posix.py) and consults neither its own
+    `spawn.get_executable()` nor any environment variable — patching that, the
+    documented-looking seam, changes nothing on Linux.
+
+    Held only across the constructor, which is where loky reads it, so the
+    agent's own idea of its interpreter is restored before any of its code runs
+    with it. The env must be bridged back to the runtime's site-packages
+    (pantheon-analysis-env writes that .pth): loky unpickles the job function in
+    the child, so an interpreter that cannot import `pantheon` cannot start.
+    """
+    exe = os.environ.get("PANTHEON_ANALYSIS_PYTHON")
+    # Unset is the ordinary case, and a stale path after an image change must
+    # not take every interpreter down with it — fall through to the runtime.
+    if not exe or not os.path.isfile(exe):
+        yield
+        return
+    original = sys.executable
+    sys.executable = exe
+    try:
+        yield
+    finally:
+        sys.executable = original
 
 
 class ProcessJob(Job):
@@ -53,7 +92,8 @@ class ProcessJob(Job):
         func = functools.partial(self.func, *self.args, **self.kwargs)
         if iscoroutinefunction(func):
             func = functools.partial(run_async_func, func)
-        self._executor = ProcessPoolExecutor(1)
+        with _analysis_interpreter():
+            self._executor = ProcessPoolExecutor(1)
         loop = asyncio.get_running_loop()
         fut = loop.run_in_executor(self._executor, func)
         result = await fut
@@ -62,8 +102,9 @@ class ProcessJob(Job):
     async def run_generator(self):
         """Run job as a generator."""
         func = functools.partial(self.func, *self.args, **self.kwargs)
-        self._executor = ProcessPoolExecutor(
-            1, initializer=_gen_initializer, initargs=(func,))
+        with _analysis_interpreter():
+            self._executor = ProcessPoolExecutor(
+                1, initializer=_gen_initializer, initargs=(func,))
         result = create_generator_wrapper(self)
         return result
 

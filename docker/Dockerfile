@@ -415,6 +415,17 @@ RUN (curl -Ls --retry 3 --retry-delay 5 --max-time 120 \
      chmod +x /usr/local/bin/micromamba) || \
     echo "Warning: micromamba download failed, skipping (installable at runtime)"
 
+# `conda` and `mamba` name the same thing here — the names everyone already
+# types, and there is no second implementation to confuse them with. These are
+# for non-interactive callers (scripts, the agent's shell tool); interactive
+# shells additionally get functions from pantheon-userspace.sh, because
+# `activate` has to run in the caller's shell and a subprocess cannot do it.
+RUN printf '#!/bin/sh\nexec micromamba "$@"\n' > /usr/local/bin/conda && \
+    printf '#!/bin/sh\nexec micromamba "$@"\n' > /usr/local/bin/mamba && \
+    chmod +x /usr/local/bin/conda /usr/local/bin/mamba && \
+    cp /app/docker/pantheon-analysis-env /usr/local/bin/pantheon-analysis-env && \
+    chmod +x /usr/local/bin/pantheon-analysis-env
+
 # Set default working directory
 WORKDIR /workspace
 

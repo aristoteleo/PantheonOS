@@ -1,0 +1,88 @@
+#!/bin/bash
+# Build the default analysis environment on the Volume.
+#
+# /venv is the agent's runtime and should stay small enough to reason about:
+# what PantheonOS itself needs, nothing else. Analysis packages — scanpy,
+# Seurat, whatever a project needs — belong somewhere separate, so that
+# upgrading one cannot take the sandbox down with it, and so that two projects
+# with incompatible pins can each have their own.
+#
+# That separate place is a conda env on the Volume, which means it persists for
+# the same reason everything else in <prefix> does.
+#
+# The env is bridged back to /venv with a .pth, for two reasons. loky spawns
+# each interpreter as a fresh process and unpickles the job function there, so
+# the interpreter cannot start at all unless `pantheon` is importable from it.
+# And it means the analysis env only has to carry what the analysis needs — the
+# runtime's own packages are visible without being duplicated.
+#
+# Bridging works because the env pins the SAME CPython minor version as /venv,
+# so the C ABI matches and /venv's compiled wheels import cleanly. Verified in
+# a sandbox: pantheon, pydantic 2.12.5, numpy 2.4.2, pandas 3.0.5 all import
+# from a conda-forge python 3.12.13. That pin is not decoration — an env built
+# on a different minor version would fail on the first compiled import.
+#
+# Idempotent: safe to run on every boot, does nothing once the env is there.
+
+set -u
+
+PREFIX="${PANTHEON_USER_PREFIX:-${WORKSPACE:-/workspace}/.local}"
+export MAMBA_ROOT_PREFIX="${MAMBA_ROOT_PREFIX:-$PREFIX/micromamba}"
+ENV_NAME="${PANTHEON_ANALYSIS_ENV:-analysis}"
+ENV_DIR="$MAMBA_ROOT_PREFIX/envs/$ENV_NAME"
+
+command -v micromamba >/dev/null 2>&1 || { echo "[analysis-env] micromamba not present; skipping"; exit 0; }
+
+# The version to match, asked of the runtime rather than assumed.
+PYVER="$(/venv/bin/python -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null \
+         || python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+RUNTIME_SITE="$(/venv/bin/python -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null \
+                || python3 -c 'import site; print(site.getsitepackages()[0])')"
+
+if [ ! -x "$ENV_DIR/bin/python" ]; then
+    echo "[analysis-env] creating '$ENV_NAME' (python $PYVER) — first time on this workspace"
+    micromamba create -y -q -n "$ENV_NAME" -c conda-forge "python=$PYVER" pip >/dev/null 2>&1 || {
+        echo "[analysis-env] creation failed; the sandbox keeps using /venv"
+        exit 0
+    }
+fi
+
+# Written every run, not just at creation: an agent-image update moves the
+# runtime's site-packages, and a bridge pointing at the old one would leave the
+# env unable to import pantheon — which is to say unable to run anything.
+SITE="$("$ENV_DIR/bin/python" -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null)"
+if [ -n "$SITE" ] && [ -d "$SITE" ] && [ -n "$RUNTIME_SITE" ]; then
+    # Last in sort order, so the env's own packages are found first: what the
+    # user installed wins, and the runtime is the fallback beneath it.
+    printf '%s\n' "$RUNTIME_SITE" > "$SITE/zzz-pantheon-runtime.pth"
+fi
+
+# A kernelspec, so the notebook toolset can reach this env too.
+#
+# That toolset already crosses interpreters properly — AsyncKernelManager takes
+# a kernel_name and jupyter resolves it to whatever python the spec names — so
+# registering one here is all it takes, and a second env registers a second
+# spec. No patching involved, unlike the interpreter toolset.
+#
+# --prefix=/usr/local rather than the default: kernelspecs are cheap to write
+# and belong to the image, and writing them per-boot keeps them pointing at
+# whatever the env currently is. PIP_TARGET is cleared for the install so that
+# ipykernel lands in the env rather than being diverted to the flat prefix.
+if [ ! -f "$ENV_DIR/bin/ipython" ] && [ ! -d "$ENV_DIR/lib/python$PYVER/site-packages/ipykernel" ]; then
+    echo "[analysis-env] adding ipykernel"
+    PIP_TARGET= "$ENV_DIR/bin/pip" install -q ipykernel >/dev/null 2>&1 || true
+fi
+if [ -d "$ENV_DIR/lib/python$PYVER/site-packages/ipykernel" ]; then
+    PIP_TARGET= "$ENV_DIR/bin/python" -m ipykernel install --prefix=/usr/local \
+        --name "$ENV_NAME" --display-name "Python ($ENV_NAME)" >/dev/null 2>&1 || true
+fi
+
+# Checked rather than assumed — a half-built env that cannot import the runtime
+# would break every interpreter the agent opens, and failing here (leaving the
+# sandbox on /venv) is much cheaper than failing there.
+if "$ENV_DIR/bin/python" -c 'import pantheon' >/dev/null 2>&1; then
+    echo "[analysis-env] ✓ $ENV_NAME ready ($ENV_DIR)"
+else
+    echo "[analysis-env] ✗ $ENV_NAME cannot import the runtime; leaving it unused"
+    exit 1
+fi
