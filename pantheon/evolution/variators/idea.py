@@ -226,3 +226,37 @@ def _parse_judgement(text: str) -> tuple:
         except ValueError:
             pass
     return 0.5, text[:300]
+
+
+class NullJudge:
+    """A judge that carries no information, for ablating the real one.
+
+    Two nulls, and they are not the same:
+
+      `random`   scores uniformly at random, so which unimplemented idea gets built first is a
+                 coin toss
+      `constant` gives every idea the same score, so ties break by proposal order and the search
+                 implements ideas first-come-first-served
+
+    Both remove the judge's signal; only `random` also removes the ordering. Running against both
+    separates "the judge knows something" from "any consistent ordering beats a shuffled one",
+    which a single null would conflate.
+    """
+
+    kind = "idea"
+
+    def __init__(self, mode: str = "random", value: float = 0.5, seed: int = 0):
+        import random as _r
+
+        if mode not in ("random", "constant"):
+            raise ValueError(f"mode must be 'random' or 'constant', got {mode!r}")
+        self.mode = mode
+        self.value = value
+        self.rng = _r.Random(seed)
+
+    async def measure(self, ctx: EvolveContext, ind: Individual,
+                      fidelity: str = "full") -> Measurement:
+        score = self.rng.random() if self.mode == "random" else self.value
+        return Measurement(individual_id=ind.id, fidelity=fidelity, ok=True,
+                           metrics={"idea_score": score},
+                           artifacts={"judge": f"null:{self.mode}"})

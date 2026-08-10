@@ -99,6 +99,9 @@ def save_run(
             "measurements": [_measurement_to_dict(m) for m in ind.measurements],
         })
 
+    # `run.json` is the checkpoint's own metadata and is rewritten on every save. A caller that
+    # also wants to drop a run summary in this directory must not name it `run.json` -- the two
+    # silently overwrite each other and whichever writes last decides whether the run can resume.
     _atomic(out / "store.json", {"version": 1, "individuals": individuals})
     _atomic(out / "method.json", {"name": getattr(method, "name", "?"),
                                   "state": _jsonable(method.state_dict())})
