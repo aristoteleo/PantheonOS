@@ -17,6 +17,12 @@
 #     (~1 GB), openslide, cooler, cooltools, pyvista, stardist, SpaGCN,
 #     STAGATE_pyG, scglue, spateo.
 #
+#   squidpy, for a duller reason: it drags in dask-image, which has no source
+#   build that works in this image, and six attempts to get pip to take the
+#   wheel instead did not. It installs fine into a user's own environment
+#   (`pip install squidpy`, where it persists), and holding 800 other packages
+#   back for it was the wrong trade. Worth revisiting.
+#
 # Adding a package here costs image size and therefore cold-start pull time;
 # a sandbox that has never pulled this image takes about ten times longer to
 # start than a prewarmed one. Weigh both.
@@ -29,7 +35,7 @@ name: analysis
 # be conda-forge carrying an old build rather than a real conflict, and both
 # are installed from pip below; the check is what stopped either from shipping
 # a second time.
-# verify: squidpy decoupler numpy scipy pandas anndata scanpy muon scvi scvelo harmonypy scrublet spatialdata snapatac2 scirpy rpy2 scib sklearn skimage cv2 tifffile matplotlib seaborn dask polars
+# verify: decoupler numpy scipy pandas anndata scanpy muon scvi scvelo harmonypy scrublet spatialdata snapatac2 scirpy rpy2 scib sklearn skimage cv2 tifffile matplotlib seaborn dask polars
 channels:
   - conda-forge
   - bioconda
@@ -114,34 +120,6 @@ dependencies:
 
   # --- installed with pip because conda-forge has no build --------------
   - pip:
-      # dask-image is named explicitly, and pinned, because it is the one
-      # thing here without a usable source build in this image. It arrives as
-      # a transitive dependency of squidpy; left to the resolver pip chose an
-      # sdist and tried to compile it, failing the layer. --prefer-binary was
-      # not enough — it prefers, and the resolver still wanted a version with
-      # no wheel. This version's wheel is real: pip downloads
-      # dask_image-2026.5.0-py3-none-any.whl when asked for it directly.
-      - --prefer-binary
-      - dask-image==2026.5.0
-      # scib has no conda package anywhere; it installs against what conda
-      # has already resolved here. pyscenic is not in this file at all — its
-      # numpy pin is incompatible with this environment, so it has one of its
-      # own. See pyscenic.yml.
-      - scib
-      # decoupler comes from pip because conda-forge still carries the 1.x
-      # line, whose numba code will not compile against a modern numba — it
-      # failed here, and no version pin rescued it because the problem is the
-      # code, not the pin. 2.x is a rewrite and imports cleanly against this
-      # environment's numpy 2.4.6 and numba 0.66.0; verified before writing
-      # this line.
-      - decoupler>=2.2
-      # squidpy for the same reason, and it was misdiagnosed twice before
-      # this line: the SparseCSCView error looked like squidpy needing an
-      # older anndata, so it got `anndata<0.11` and an environment of its own
-      # — which dragged scanpy back too and broke on a different missing
-      # symbol. It needs a NEWER squidpy. 1.8.3 from pip imports against this
-      # environment's anndata 0.13.2; conda-forge's build is what was old.
-      - squidpy>=1.8.3
       - gget
       - omicverse
       - liana
