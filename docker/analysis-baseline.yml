@@ -67,9 +67,7 @@ dependencies:
   # --- heavier, but each is used by several skills ---------------------
   - pytorch-cpu          # scvi-tools needs it; the CUDA build is ~5 GB
   - scvi-tools
-  - pyscenic
   - snapatac2
-  - scib
   - scirpy
   - spatialdata
   - tiledbsoma-py
@@ -110,6 +108,12 @@ dependencies:
 
   # --- installed with pip because conda-forge has no build --------------
   - pip:
+      # conda cannot take these two: pyscenic pins numpy==1.23.5, which would
+      # drag the whole environment back and break scanpy and scvi-tools with
+      # it, and scib has no conda package at all. pip installs them against
+      # what is already here instead of re-solving the world.
+      - pyscenic
+      - scib
       - gget
       - omicverse
       - liana
