@@ -167,8 +167,47 @@ def main():
     from pantheon.repl.__main__ import start as cli
     from pantheon.chatroom.start import start_services as ui
     from pantheon.store.cli import StoreCLI
+
+    def login(username: str = None, password: str = None, hub: str = None):
+        """Sign in to a Pantheon platform and use its LLM budget.
+
+        The desktop and web apps already work this way; this brings the CLI in
+        line, so you are not paying for a second API key to reach models the
+        platform already pays for. Your password is not stored — only the token
+        it returns, in ~/.pantheon/credentials.json, readable by you alone.
+
+        Args:
+            username: Your platform username. Prompted if omitted.
+            password: Prompted (without echo) if omitted, which is the point.
+            hub: Platform URL. Defaults to $PANTHEON_HUB_URL, then the public one.
+        """
+        import getpass
+        from pantheon.cli.platform_auth import login as _login
+        username = username or input("Username: ")
+        password = password or getpass.getpass("Password: ")
+        try:
+            rec = _login(username, password, hub)
+        except RuntimeError as e:
+            print(e)
+            return 1
+        print(f"Signed in to {rec['hub']} as {rec['username']}.")
+        print("The CLI will use your platform budget from now on.")
+
+    def logout():
+        """Forget the stored platform credentials on this machine."""
+        from pantheon.cli.platform_auth import logout as _logout
+        print("Signed out." if _logout() else "Was not signed in.")
+
+    def whoami():
+        """Show whether this machine is signed in to a platform."""
+        from pantheon.cli.platform_auth import status
+        print(status())
+
     fire.Fire(
         {
+            "login": login,
+            "logout": logout,
+            "whoami": whoami,
             "cli": cli,
             "ui": ui,
             "setup": setup,
