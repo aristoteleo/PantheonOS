@@ -21,7 +21,7 @@
 # a sandbox that has never pulled this image takes about ten times longer to
 # start than a prewarmed one. Weigh both.
 
-name: baseline
+name: analysis
 channels:
   - conda-forge
   - bioconda
@@ -108,11 +108,10 @@ dependencies:
 
   # --- installed with pip because conda-forge has no build --------------
   - pip:
-      # conda cannot take these two: pyscenic pins numpy==1.23.5, which would
-      # drag the whole environment back and break scanpy and scvi-tools with
-      # it, and scib has no conda package at all. pip installs them against
-      # what is already here instead of re-solving the world.
-      - pyscenic
+      # scib has no conda package anywhere; it installs against what conda
+      # has already resolved here. pyscenic is not in this file at all — its
+      # numpy pin is incompatible with this environment, so it has one of its
+      # own. See pyscenic.yml.
       - scib
       - gget
       - omicverse

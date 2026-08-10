@@ -1,0 +1,27 @@
+# pySCENIC, which cannot live with the others.
+#
+# It requires numpy==1.23.5. In the main environment that pin wins the solve
+# and drags scanpy, scvi-tools and everything else built against a modern
+# numpy back with it — so the solve either fails outright or succeeds into
+# something quietly broken.
+#
+# An environment of its own is the honest answer: pySCENIC gets the numpy it
+# was built against, nothing else is dragged anywhere, and it is reachable the
+# same way every other environment here is — by kernelspec name, or by
+# `conda run -n pyscenic`.
+#
+# Regulon inference is a step, not a session: work moves between here and the
+# main environment as files (loom, csv), which is how pySCENIC is used anyway.
+
+name: pyscenic
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - pip
+  - pyscenic
+  - ipykernel        # so it shows up as a kernel like the rest
+  - pandas
+  - loompy
+  - anndata

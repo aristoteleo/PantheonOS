@@ -394,24 +394,31 @@ RUN (curl -Ls --retry 3 --retry-delay 5 --max-time 120 \
      chmod +x /usr/local/bin/micromamba) || \
     echo "Warning: micromamba download failed, skipping (installable at runtime)"
 
-# Layer G2 — the analysis baseline (~several GB, changes rarely)
+# Layer G2 — the analysis baselines (~several GB, change rarely)
 #
 # The stack the built-in skills actually import, installed once here instead of
 # per workspace at runtime. A user's own environment lives on the Volume and
-# inherits from this one, so what they install persists while this does not
-# have to be downloaded again for every sandbox.
+# inherits from these, so what they install persists while these do not have to
+# be downloaded again for every sandbox.
 #
-# Only the yml is copied, and it is copied BEFORE /app, so editing agent code
-# does not rebuild several gigabytes — only editing the package list does.
-COPY docker/analysis-baseline.yml /opt/pantheon/analysis-baseline.yml
-RUN --mount=type=cache,target=/opt/pantheon/pkgs \
-    MAMBA_ROOT_PREFIX=/opt/pantheon/mamba \
-    micromamba create -y -q -p /opt/pantheon/envs/baseline \
-        -f /opt/pantheon/analysis-baseline.yml \
+# SEVERAL environments, not one, because some packages cannot share: pySCENIC
+# requires numpy==1.23.5, and in one environment that pin wins the solve and
+# drags scanpy and scvi-tools back with it. Each file here is internally
+# consistent and reachable by kernelspec name, which is how the notebook
+# toolset selects an interpreter anyway.
+#
+# Only the yml files are copied, and BEFORE /app, so editing agent code does
+# not rebuild several gigabytes — only editing a package list does.
+COPY docker/analysis-envs /opt/pantheon/analysis-envs
+RUN for f in /opt/pantheon/analysis-envs/*.yml; do \
+        name="$(basename "$f" .yml)"; \
+        echo "building baseline env: $name"; \
+        MAMBA_ROOT_PREFIX=/opt/pantheon/mamba \
+        micromamba create -y -p "/opt/pantheon/envs/$name" -f "$f" || exit 1; \
+    done \
     && MAMBA_ROOT_PREFIX=/opt/pantheon/mamba micromamba clean -a -y -q \
-    && find /opt/pantheon/envs/baseline -name '*.pyc' -delete \
-    && rm -rf /opt/pantheon/envs/baseline/share/doc \
-              /opt/pantheon/envs/baseline/share/man
+    && find /opt/pantheon/envs -name '*.pyc' -delete \
+    && rm -rf /opt/pantheon/envs/*/share/doc /opt/pantheon/envs/*/share/man
 
 COPY --from=builder /app /app
 
