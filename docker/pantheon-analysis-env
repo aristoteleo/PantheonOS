@@ -200,28 +200,19 @@ if [ -n "$SITE" ] && [ -d "$SITE" ]; then
     fi
 fi
 
-# The baseline's shared libraries, scoped to this environment only.
+# Remove an activation hook an earlier version of this script wrote.
 #
-# The packages borrowed through the .pth above are conda builds, and a conda
-# build is not self-contained: numpy's .so links against libmkl_gnu_thread.so.3
-# in the env it came from. Without this, `import scvi` fails there.
+# It put the baseline's lib on LD_LIBRARY_PATH so the borrowed conda packages
+# could find libmkl. That directory also holds libpython3.12.so.1.0, and the
+# entrypoint activates this environment before exec'ing the agent — so the
+# SYSTEM python loaded conda's libpython, reported conda's sys.version, and
+# cloudpickle died parsing it before the agent could start. rc=1, every time.
 #
-# It goes in activate.d rather than in the shell profile because putting it on
-# the whole process's LD_LIBRARY_PATH broke the sandbox: the entrypoint sources
-# that profile before exec'ing the agent, so a /venv Python got conda's libssl
-# and libcrypto ahead of its own and never completed the NATS handshake. Here
-# it reaches this environment's python and nothing else.
-if [ -n "${PANTHEON_BASELINE_LIB:-}" ] && [ -d "$PANTHEON_BASELINE_LIB" ]; then
-    mkdir -p "$ENV_DIR/etc/conda/activate.d" "$ENV_DIR/etc/conda/deactivate.d"
-    cat > "$ENV_DIR/etc/conda/activate.d/zzz-pantheon-baseline.sh" <<ACT
-export PANTHEON_SAVED_LD_LIBRARY_PATH="\${LD_LIBRARY_PATH:-}"
-export LD_LIBRARY_PATH="$PANTHEON_BASELINE_LIB\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
-ACT
-    cat > "$ENV_DIR/etc/conda/deactivate.d/zzz-pantheon-baseline.sh" <<DEACT
-export LD_LIBRARY_PATH="\${PANTHEON_SAVED_LD_LIBRARY_PATH:-}"
-unset PANTHEON_SAVED_LD_LIBRARY_PATH
-DEACT
-fi
+# Deleting the code was not enough: the hook is a file on the Volume, and it
+# kept running long after the lines that wrote it were gone. Anything this
+# script has ever written, it has to be willing to take back.
+rm -f "$ENV_DIR/etc/conda/activate.d/zzz-pantheon-baseline.sh" \
+      "$ENV_DIR/etc/conda/deactivate.d/zzz-pantheon-baseline.sh" 2>/dev/null
 
 # A kernelspec, so the notebook toolset can reach this env too.
 #
@@ -249,6 +240,23 @@ if "$ENV_DIR/bin/python" -c 'import ipykernel' >/dev/null 2>&1; then
     "$ENV_DIR/bin/python" -m ipykernel install --prefix=/usr/local \
         --name "$ENV_NAME" --display-name "Python ($ENV_NAME)" >/dev/null 2>&1 \
         || echo "[analysis-env] kernelspec registration failed; notebook will not see $ENV_NAME"
+
+    # The baseline's libraries go to the KERNEL, and stop there.
+    #
+    # The borrowed packages need them — numpy's .so wants libmkl_gnu_thread.so.3
+    # from the env it came from. A kernelspec carries its own env dict, which
+    # reaches the kernel process and nothing else, so the agent never sees a
+    # directory that also contains libpython3.12.so.1.0.
+    KSPEC="/usr/local/share/jupyter/kernels/$ENV_NAME/kernel.json"
+    if [ -f "$KSPEC" ] && [ -n "${PANTHEON_BASELINE_LIB:-}" ]; then
+        "$ENV_DIR/bin/python" - "$KSPEC" "$PANTHEON_BASELINE_LIB" <<'PY' || true
+import json, sys
+path, lib = sys.argv[1], sys.argv[2]
+spec = json.load(open(path))
+spec.setdefault("env", {})["LD_LIBRARY_PATH"] = lib + ":${LD_LIBRARY_PATH}"
+json.dump(spec, open(path, "w"), indent=1)
+PY
+    fi
 else
     echo "[analysis-env] no ipykernel; notebook will not see $ENV_NAME"
 fi
