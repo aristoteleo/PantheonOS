@@ -1,10 +1,11 @@
 {
   "evolve": "solution.cpp",
+  "inner_fidelity": "low",
   "env": {
-    "AHC_CASE_WORKERS": "4",
+    "AHC_CASE_WORKERS": "8",
+    "AHC_EVAL_RUNS": "1",
     "AHC_DOCKER_TIMEOUT": "900"
   },
-  "eval_timeout": 1200,
-  "note": "AHC_CASE_WORKERS is per evaluation; with --workers 2 that is 8 emulated processes at once, which is what this machine tolerates. Raising both multiplies.",
-  "inner_fidelity": "low"
+  "eval_timeout": 600,
+  "note": "Measured on 18 cores (6 performance + 12 efficiency). 150 cases at 2s with 8 case workers is ~50s. The 3 repeats this started with cost 3x for nothing: their spread was 0.0018 against improvement steps of 0.01-0.1, so averaging bought precision nobody needed. The 2s limit is the contest's own and is left alone -- cutting it to 0.5s buys 2.7x but drops the seed 5.7% and would reorder algorithms that spend the budget differently, which is exactly the comparison this benchmark exists to make."
 }
