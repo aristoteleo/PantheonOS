@@ -385,6 +385,49 @@ COPY --from=builder /app /app
 RUN chmod +x /app/docker/docker-entrypoint-dual-mode.sh && \
     cp /app/docker/docker-entrypoint-dual-mode.sh /usr/local/bin/docker-entrypoint.sh
 
+# Root the package managers in the Volume, so what a user installs outlives the
+# container — see docker/pantheon-userspace.sh for what and why.
+#
+# The apt shim goes in /usr/local/bin, which every default PATH searches before
+# /usr/bin, and is installed HERE rather than earlier on purpose: every
+# apt-get above is a build step that must reach the real apt, and this layer is
+# after all of them.
+RUN cp /app/docker/pantheon-userspace.sh /usr/local/bin/pantheon-userspace.sh && \
+    chmod +x /usr/local/bin/pantheon-userspace.sh && \
+    cp /app/docker/pantheon-apt /usr/local/bin/apt && \
+    ln -sf /usr/local/bin/apt /usr/local/bin/apt-get && \
+    chmod +x /usr/local/bin/apt && \
+    printf '. /usr/local/bin/pantheon-userspace.sh\n' > /etc/profile.d/99-pantheon-userspace.sh && \
+    printf '\n# Pantheon: root the package managers in the Volume (see the script).\n[ -f /usr/local/bin/pantheon-userspace.sh ] && . /usr/local/bin/pantheon-userspace.sh\n' \
+        >> /etc/bash.bashrc
+
+# micromamba — one static binary, ~5MB, no Python of its own. It is here for
+# the case the four package managers above genuinely cannot serve: R and
+# Bioconductor packages that Debian would have to compile from source, and
+# bioconda's command-line tools. Envs land on the Volume (MAMBA_ROOT_PREFIX in
+# pantheon-userspace.sh) so they persist like everything else.
+#
+# Version pinned rather than :latest, the same way monolith and tectonic are
+# above, so a rebuild does not silently change the tool. Non-fatal: a sandbox
+# that boots without it is still a working sandbox.
+RUN (curl -Ls --retry 3 --retry-delay 5 --max-time 120 \
+     https://micro.mamba.pm/api/micromamba/linux-64/2.9.0 \
+     | tar -xj -C /tmp bin/micromamba && \
+     mv /tmp/bin/micromamba /usr/local/bin/micromamba && \
+     chmod +x /usr/local/bin/micromamba) || \
+    echo "Warning: micromamba download failed, skipping (installable at runtime)"
+
+# `conda` and `mamba` name the same thing here — the names everyone already
+# types, and there is no second implementation to confuse them with. These are
+# for non-interactive callers (scripts, the agent's shell tool); interactive
+# shells additionally get functions from pantheon-userspace.sh, because
+# `activate` has to run in the caller's shell and a subprocess cannot do it.
+RUN printf '#!/bin/sh\nexec micromamba "$@"\n' > /usr/local/bin/conda && \
+    printf '#!/bin/sh\nexec micromamba "$@"\n' > /usr/local/bin/mamba && \
+    chmod +x /usr/local/bin/conda /usr/local/bin/mamba && \
+    cp /app/docker/pantheon-analysis-env /usr/local/bin/pantheon-analysis-env && \
+    chmod +x /usr/local/bin/pantheon-analysis-env
+
 # Set default working directory
 WORKDIR /workspace
 

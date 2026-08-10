@@ -6,6 +6,36 @@ echo "Pantheon Docker Container"
 echo "Mode: ${PANTHEON_MODE:-hub}"
 echo "========================================="
 
+# Point pip, npm, R and apt at the Volume, so software a user installs is still
+# there after the sandbox is recreated. Sourced (not run) so the exports reach
+# the agent and every pty it spawns; see docker/pantheon-userspace.sh.
+#
+# Guarded on both sides: an older image may not carry the script, and a failure
+# inside it must cost the user a package manager, never their sandbox — `set -e`
+# is suspended for the whole of an `||` list, including the sourced body.
+if [ -f /usr/local/bin/pantheon-userspace.sh ]; then
+    . /usr/local/bin/pantheon-userspace.sh || echo "[userspace] skipped (non-fatal)"
+    echo "  User prefix:   ${PANTHEON_USER_PREFIX:-unset}"
+    echo "  Analysis env:  ${PANTHEON_ANALYSIS_PYTHON:-not built yet}"
+fi
+
+# Build or repair the analysis env. In the BACKGROUND, and deliberately so: it
+# costs ~20 s of network the first time and almost nothing after, and startup
+# latency is the one thing users feel every session. Until the env is ready the
+# sandbox runs on /venv with the flat prefix, which is a working sandbox.
+#
+# EVERY boot, not only when the env is missing. Skipping it once the env exists
+# was wrong twice over: an env whose creation was interrupted — a sandbox
+# reclaimed mid-build — would keep its python and therefore never be repaired,
+# and the kernelspec that lets the notebook toolset reach the env is written
+# into the image, which is ephemeral, so it has to be re-registered each boot
+# or jupyter silently loses the env after every rebuild. The script is
+# idempotent and takes ~2 s when there is nothing to do (measured), against a
+# first build of ~20 s.
+if [ -x /usr/local/bin/pantheon-analysis-env ]; then
+    ( /usr/local/bin/pantheon-analysis-env > /tmp/pantheon-analysis-env.log 2>&1 || true ) &
+fi
+
 # ========== MODE DETECTION ==========
 if [ "${PANTHEON_MODE}" = "standalone" ]; then
     echo "[STANDALONE MODE] Starting with auto-start-nats and auto-ui"
@@ -102,7 +132,7 @@ EOF
 
     # Start command: use pantheon ui instead of pantheon.chatroom
     # Run in background with tee to display logs and capture to file
-    python -m pantheon ui \
+    "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon ui \
         --workspace_path="${WORKSPACE}" \
         --auto-start-nats \
         --auto-ui="${FRONTEND_URL}" \
@@ -434,10 +464,10 @@ EOF
     # Execute the command with ID_HASH parameter
     if [ $# -eq 0 ]; then
         # No arguments provided, use default command with ID_HASH
-        exec python -m pantheon.chatroom --id_hash="${ID_HASH}" ${SYNC_FLAG}
+        exec "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.chatroom --id_hash="${ID_HASH}" ${SYNC_FLAG}
     else
         # Arguments provided, pass them to pantheon.chatroom with ID_HASH
         # This ensures ID_HASH is always used for stable service_id generation
-        exec python -m pantheon.chatroom --id_hash="${ID_HASH}" ${SYNC_FLAG} "$@"
+        exec "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.chatroom --id_hash="${ID_HASH}" ${SYNC_FLAG} "$@"
     fi
 fi

@@ -1,0 +1,241 @@
+#!/bin/bash
+# Build the default analysis environment on the Volume.
+#
+# /venv is the agent's runtime and should stay small enough to reason about:
+# what PantheonOS itself needs, nothing else. Analysis packages — scanpy,
+# Seurat, whatever a project needs — belong somewhere separate, so that
+# upgrading one cannot take the sandbox down with it, and so that two projects
+# with incompatible pins can each have their own.
+#
+# That separate place is a conda env on the Volume, which means it persists for
+# the same reason everything else in <prefix> does.
+#
+# The env is bridged back to /venv with a .pth, for two reasons. loky spawns
+# each interpreter as a fresh process and unpickles the job function there, so
+# the interpreter cannot start at all unless `pantheon` is importable from it.
+# And it means the analysis env only has to carry what the analysis needs — the
+# runtime's own packages are visible without being duplicated.
+#
+# Bridging works because the env pins the SAME CPython minor version as /venv,
+# so the C ABI matches and /venv's compiled wheels import cleanly. Verified in
+# a sandbox: pantheon, pydantic 2.12.5, numpy 2.4.2, pandas 3.0.5 all import
+# from a conda-forge python 3.12.13. That pin is not decoration — an env built
+# on a different minor version would fail on the first compiled import.
+#
+# Idempotent: safe to run on every boot, does nothing once the env is there.
+
+set -u
+
+# Everything below installs INTO the env, so a --target inherited from the
+# fallback configuration would divert it straight back out again. Cleared once,
+# here, rather than remembered at each call site.
+unset PIP_TARGET
+
+PREFIX="${PANTHEON_USER_PREFIX:-${WORKSPACE:-/workspace}/.local}"
+export MAMBA_ROOT_PREFIX="${MAMBA_ROOT_PREFIX:-$PREFIX/micromamba}"
+ENV_NAME="${PANTHEON_ANALYSIS_ENV:-analysis}"
+ENV_DIR="$MAMBA_ROOT_PREFIX/envs/$ENV_NAME"
+
+# R lives here too, not in the image. Debian's R can only install a package by
+# compiling it, so anything with a C dependency fails on missing headers and
+# `apt install libxml2-dev` does not help — R's configure does not look in the
+# unpacked-.deb prefix. conda-forge ships those same packages already built.
+#
+# The set is overridable so a workspace that never touches R can drop it:
+# PANTHEON_ANALYSIS_PACKAGES="pip" costs ~40 s less and a few hundred MB.
+# The baseline the personal environment inherits from: the analysis stack, in
+# the image, the same for everyone and free at runtime. The personal env holds
+# only what this user added.
+BASELINE="${PANTHEON_BASELINE_ENV:-/opt/pantheon/envs/analysis}"
+
+# What the personal environment itself is built with. Deliberately thin — R and
+# the analysis stack come from the baseline, so this is only enough to have an
+# environment at all. It is what makes first boot ~70 s instead of minutes.
+EXTRA_PKGS="${PANTHEON_ANALYSIS_PACKAGES:-pip}"
+PKG_MARKER="$ENV_DIR/.pantheon-packages"
+
+command -v micromamba >/dev/null 2>&1 || { echo "[analysis-env] micromamba not present; skipping"; exit 0; }
+
+# The CPython minor version to match. Taken from the BASELINE when there is
+# one, because that is the larger body of compiled packages being borrowed —
+# a mismatch there fails on the first `import scanpy`, not on something
+# obscure. Falls back to the runtime when no baseline is present.
+if [ -x "$BASELINE/bin/python" ]; then
+    PYVER="$("$BASELINE/bin/python" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+    BASELINE_SITE="$("$BASELINE/bin/python" -c 'import site; print(site.getsitepackages()[0])')"
+else
+    PYVER="$("${PANTHEON_RUNTIME_PYTHON:-/venv/bin/python}" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null \
+             || python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+    BASELINE_SITE=""
+fi
+RUNTIME_SITE="$("${PANTHEON_RUNTIME_PYTHON:-/venv/bin/python}" -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null \
+                || python3 -c 'import site; print(site.getsitepackages()[0])')"
+
+# One builder at a time. The entrypoint starts this on every boot and it can
+# also be run by hand; two micromamba processes unpacking into one prefix is
+# how a half-built env gets made in the first place.
+LOCK="$MAMBA_ROOT_PREFIX/.$ENV_NAME.lock"
+mkdir -p "$MAMBA_ROOT_PREFIX"
+if command -v flock >/dev/null 2>&1; then
+    exec 9>"$LOCK"
+    flock -n 9 || { echo "[analysis-env] another build is already running; leaving it to that one"; exit 0; }
+fi
+
+# "Does the interpreter actually start" — not "is there a file called python".
+# An interrupted unpack leaves a binary that dies with "No module named
+# 'encodings'" before it can run a single line, and that is the state this has
+# to recognise. `-c ''` is the cheapest possible proof that it works.
+env_usable=false
+if [ -x "$ENV_DIR/bin/python" ] && "$ENV_DIR/bin/python" -c '' >/dev/null 2>&1; then
+    env_usable=true
+fi
+
+if [ "$env_usable" != true ]; then
+    if [ -e "$ENV_DIR" ]; then
+        # Moved aside rather than deleted, and then deleted in the background.
+        # `create` refuses a prefix that already exists, so the directory has to
+        # go before the rebuild — but the Volume is network-backed and removing
+        # ~11k files takes long enough that a sandbox can be reclaimed in the
+        # middle of it, which is exactly how this state was reached. A rename is
+        # atomic and instant; the rebuild starts immediately.
+        echo "[analysis-env] '$ENV_NAME' is unusable (interrupted build); rebuilding"
+        BROKEN="$ENV_DIR.broken.$$"
+        mv "$ENV_DIR" "$BROKEN" 2>/dev/null && ( rm -rf "$BROKEN" >/dev/null 2>&1 & )
+    else
+        echo "[analysis-env] creating '$ENV_NAME' (python $PYVER) — first time on this workspace"
+    fi
+    micromamba create -y -q -n "$ENV_NAME" -c conda-forge "python=$PYVER" $EXTRA_PKGS >/dev/null 2>&1 || {
+        echo "[analysis-env] creation failed; the sandbox keeps using /venv"
+        exit 0
+    }
+elif [ ! -x "$ENV_DIR/bin/pip" ]; then
+    # A working python with no pip is a build that stopped late rather than
+    # early — worth repairing in place, since the expensive part is already on
+    # disk. `create` will not touch an existing prefix, so this is `install`.
+    echo "[analysis-env] '$ENV_NAME' has no pip; repairing in place"
+    micromamba install -y -q -n "$ENV_NAME" -c conda-forge $EXTRA_PKGS >/dev/null 2>&1 || {
+        echo "[analysis-env] repair failed; the sandbox keeps using /venv"
+        exit 0
+    }
+fi
+
+# Bring an EXISTING env up to date. Adding a package to the list above only
+# affected freshly created envs, so a workspace that already had one never got
+# R: `micromamba create` had been skipped, and nothing else installed it. The
+# set the env was built with is recorded, and any change to it is reconciled —
+# which is also what makes PANTHEON_ANALYSIS_PACKAGES take effect on a
+# workspace that already exists rather than only on a brand new one.
+if [ "$(cat "$PKG_MARKER" 2>/dev/null)" != "$EXTRA_PKGS" ]; then
+    echo "[analysis-env] updating '$ENV_NAME' packages: $EXTRA_PKGS"
+    if micromamba install -y -q -n "$ENV_NAME" -c conda-forge $EXTRA_PKGS >/dev/null 2>&1; then
+        printf '%s\n' "$EXTRA_PKGS" > "$PKG_MARKER"
+    else
+        echo "[analysis-env] could not install: $EXTRA_PKGS (keeping what is there)"
+    fi
+fi
+
+# Written every run, not just at creation: an agent-image update moves the
+# runtime's site-packages, and a bridge pointing at the old one would leave the
+# env unable to import pantheon — which is to say unable to run anything.
+SITE="$("$ENV_DIR/bin/python" -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null)"
+if [ -n "$SITE" ] && [ -d "$SITE" ]; then
+    # Two fallbacks, in this order, both AFTER the env's own site-packages:
+    # the baseline for the analysis stack, then the runtime so `pantheon`
+    # itself is importable. What the user installed is found first, which is
+    # what makes `pip install scanpy==x` in the personal env take effect over
+    # the baseline's copy.
+    #
+    # Rewritten on every run, and compared against what it should be. An
+    # env built by an older image bridges somewhere else entirely — to /venv
+    # only, before there was a baseline — and its readiness marker says
+    # nothing about that: the marker means "this env works", not "this env
+    # was built the way the current image builds them". That distinction cost
+    # a verification round: the env was reused, the bridge was never rewritten,
+    # and `import scvi` failed while everything reported healthy.
+    BRIDGE="$SITE/zzz-pantheon-runtime.pth"
+    WANT=""
+    [ -n "$BASELINE_SITE" ] && [ -d "$BASELINE_SITE" ] && WANT="$BASELINE_SITE"
+    [ -n "$RUNTIME_SITE" ] && [ -d "$RUNTIME_SITE" ] && WANT="$WANT${WANT:+
+}$RUNTIME_SITE"
+    if [ "$(cat "$BRIDGE" 2>/dev/null)" != "$WANT" ]; then
+        echo "[analysis-env] rewiring the bridge to $BASELINE"
+        printf '%s\n' "$WANT" > "$BRIDGE"
+    fi
+fi
+
+# A kernelspec, so the notebook toolset can reach this env too.
+#
+# That toolset already crosses interpreters properly — AsyncKernelManager takes
+# a kernel_name and jupyter resolves it to whatever python the spec names — so
+# registering one here is all it takes, and a second env registers a second
+# spec. No patching involved, unlike the interpreter toolset.
+#
+# --prefix=/usr/local rather than the default: kernelspecs are cheap to write
+# and belong to the image, and writing them per-boot keeps them pointing at
+# whatever the env currently is. PIP_TARGET is cleared for the install so that
+# ipykernel lands in the env rather than being diverted to the flat prefix.
+# Asked as "can this interpreter import ipykernel", NOT as "is ipykernel in
+# this env's site-packages". The bridge means the runtime's copy is importable
+# from here, so the env usually needs none of its own — and testing for the
+# directory got that exactly backwards: pip reported ipykernel already
+# satisfied (correctly, via the bridge), installed nothing, the directory test
+# stayed false, and the kernelspec was never written. The spec names the env's
+# python either way, which is the part that matters.
+if ! "$ENV_DIR/bin/python" -c 'import ipykernel' >/dev/null 2>&1; then
+    echo "[analysis-env] adding ipykernel"
+    "$ENV_DIR/bin/pip" install -q ipykernel >/dev/null 2>&1 || true
+fi
+if "$ENV_DIR/bin/python" -c 'import ipykernel' >/dev/null 2>&1; then
+    "$ENV_DIR/bin/python" -m ipykernel install --prefix=/usr/local \
+        --name "$ENV_NAME" --display-name "Python ($ENV_NAME)" >/dev/null 2>&1 \
+        || echo "[analysis-env] kernelspec registration failed; notebook will not see $ENV_NAME"
+else
+    echo "[analysis-env] no ipykernel; notebook will not see $ENV_NAME"
+fi
+
+# A CRAN mirror, which conda's R does not come with. Debian's r-base ships
+# /etc/R/Rprofile.site carrying one, so `install.packages("XML")` just worked
+# before; conda's build has no site profile at all, and the same call answers
+# "trying to use CRAN without setting a mirror" — a regression created by
+# moving R here, not by anything the user did.
+if [ -d "$ENV_DIR/lib/R/etc" ] && [ ! -f "$ENV_DIR/lib/R/etc/Rprofile.site" ]; then
+    cat > "$ENV_DIR/lib/R/etc/Rprofile.site" <<'RPROFILE'
+# Written by pantheon-analysis-env. conda's r-base ships no site profile, so
+# without this every install.packages() call has to name a mirror.
+local({
+    r <- getOption("repos")
+    if (is.null(r[["CRAN"]]) || r[["CRAN"]] == "@CRAN@") {
+        r["CRAN"] <- "https://cloud.r-project.org"
+        options(repos = r)
+    }
+})
+RPROFILE
+fi
+
+# The R kernel, registered the same way and for the same reason: a kernelspec
+# is all it takes for the notebook toolset to reach another interpreter, and
+# this one happens not to be Python. Written into the ephemeral image, so like
+# the Python spec it is re-registered on every boot.
+if [ -x "$ENV_DIR/bin/R" ] && [ -d "$ENV_DIR/lib/R/library/IRkernel" ]; then
+    "$ENV_DIR/bin/R" --quiet --no-save -e \
+        "IRkernel::installspec(name='ir-$ENV_NAME', displayname='R ($ENV_NAME)', prefix='/usr/local')" \
+        >/dev/null 2>&1 || echo "[analysis-env] R kernelspec registration failed"
+fi
+
+# Checked rather than assumed — a half-built env that cannot import the runtime
+# would break every interpreter the agent opens, and failing here (leaving the
+# sandbox on /venv) is much cheaper than failing there.
+# The marker is what pantheon-userspace.sh gates on, and it is written ONLY
+# here, after the env has proved it can start and import the runtime. An
+# interrupted build leaves a python that cannot even find `encodings` —
+# observed, not imagined — and testing for an executable file would have put
+# that broken interpreter first on the user's PATH, which is worse than having
+# no env at all.
+if "$ENV_DIR/bin/python" -c 'import pantheon' >/dev/null 2>&1; then
+    touch "$ENV_DIR/.pantheon-ready"
+    echo "[analysis-env] ✓ $ENV_NAME ready ($ENV_DIR)"
+else
+    rm -f "$ENV_DIR/.pantheon-ready"
+    echo "[analysis-env] ✗ $ENV_NAME cannot import the runtime; leaving it unused"
+    exit 1
+fi
