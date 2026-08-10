@@ -120,12 +120,16 @@ dependencies:
 
   # --- installed with pip because conda-forge has no build --------------
   - pip:
-      # Wheels only. Every package listed below has one — checked individually
-      # — but resolved together pip picked a combination that needed to
-      # compile, and failed inside a build backend with no indication of which
-      # package it was building. Refusing source distributions turns that into
-      # "no wheel for X", which names the culprit.
-      - "--only-binary=:all:"
+      # No source distribution for the two that need a compiler, and only
+      # those two. Blanket --only-binary=:all: was too blunt: it also refused
+      # docrep, a pure-Python dependency of decoupler whose sdist costs
+      # nothing to build, so decoupler did not install at all and the import
+      # check caught the old conda copy left behind.
+      #
+      # dask-image and cython are the ones that actually tried to compile in
+      # an image with no toolchain, taking three builds to identify because
+      # the failure came from inside a build backend that never named them.
+      - "--only-binary=dask-image,cython"
       - gget
       - omicverse
       - liana
