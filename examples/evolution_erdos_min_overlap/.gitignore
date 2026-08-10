@@ -1,4 +1,7 @@
 results*/
 __pycache__/
 *.pyc
-warm_start.json    # run artefact: the evaluator writes the produced solution here
+# run artefact: the evaluator writes the produced solution here. The comment has to be on its own
+# line -- `#` only starts a comment at the start of a line, so a trailing one became part of the
+# pattern and this rule silently matched nothing.
+warm_start.json

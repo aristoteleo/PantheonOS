@@ -44,9 +44,16 @@ own.
 """
 
 
-def build_method(name: str, seed: int):
+def build_method(name: str, seed: int, judge=None, norm: str = "minmax"):
     from pantheon.evolution.methods import (
-        IdeaCodeAlternating, MapElitesIslands, SimpleTES)
+        AnnealedIdeaCode, IdeaCodeAlternating, MapElitesIslands, SimpleTES)
+
+    if name == "annealed":
+        # No `ideas_kept`: selection is a Boltzmann sample whose temperature anneals, so ideas are
+        # deprioritised rather than cut. The seven schedule parameters are the library defaults on
+        # purpose -- tuning them on the problem the method is then scored on would make the score
+        # meaningless.
+        return AnnealedIdeaCode(judge=judge, norm=norm, seed=seed)
 
     if name == "idea_code":
         # k_ideas=1: one proposal per request. At 3 the whole idea round was filled by a single
@@ -89,7 +96,11 @@ async def main(a) -> None:
     from pantheon.evolution.variators import (
         AgentVariator, CodeEvaluator, CompletionVariator)
 
-    out = Path(a.output or (HERE / f"results_v2_{a.method}"))
+    # Resolved, not as given. The evaluator runs each program in a subprocess with its own working
+    # directory, so a relative --output makes the workspace path unresolvable there and every
+    # evaluation dies with FileNotFoundError -- including the seed's, which then silently zeroes
+    # the whole run.
+    out = Path(a.output or (HERE / f"results_v2_{a.method}")).resolve()
     out.mkdir(parents=True, exist_ok=True)
 
     evaluator = CodeEvaluator(
@@ -97,27 +108,59 @@ async def main(a) -> None:
         timeout=a.eval_timeout,
         workspace_path=str(out / "_eval"),
     )
-    method = build_method(a.method, a.seed)
+    judge = None
+    if a.method == "annealed":
+        from pantheon.evolution.variators import LearnedIdeaJudge
+
+        judge = LearnedIdeaJudge(model=a.model, objective=OBJECTIVE,
+                                 n_min=a.judge_n_min, prior_sigma=a.prior_sigma)
+        # One run labels roughly ten ideas, which is not a training set. The file is what lets the
+        # judge accumulate across runs; without it "learned" is a description of the code, not of
+        # anything that happens.
+        if a.judge_state:
+            judge.load(a.judge_state)
+    method = build_method(a.method, a.seed, judge=judge, norm=a.norm)
 
     # The operator belongs to the algorithm, so ask the method rather than deciding here:
     # SimpleTES is a chain policy AND a single completion that cannot run anything, and giving it
     # an agent that verifies its own edits first would score better while no longer being
     # SimpleTES. `--variator` overrides that on purpose, which is how one operator can be held
     # fixed to compare two search policies -- and it is a deliberate act, not the default.
+    # Warm start hands each child its parent's best solution vector. It has been measured to cause
+    # a sticky-champion collapse on this problem -- the best Erdos result on record (Psi 0.380909)
+    # was produced with it OFF -- so it is a confound that has to be held fixed across arms, not
+    # left to whatever each method's default happens to be.
+    warm = None if a.no_warm_start else "warm_start.json"
     if a.variator == "completion":
         variator = CompletionVariator(model=a.model, target_file="sequence.py",
                                       timeout=a.mutation_timeout)
     elif a.variator == "agent":
         variator = AgentVariator(
             evaluator=evaluator, model=a.model, max_tool_calls=a.tool_budget,
-            timeout=a.mutation_timeout, warm_start_file="warm_start.json",
+            timeout=a.mutation_timeout, warm_start_file=warm,
             workspace_root=str(out / "_mut"), score_key="combined_score")
     else:
         variator = method.default_variator(
             evaluator=evaluator, model=a.model, timeout=a.mutation_timeout,
-            max_tool_calls=a.tool_budget, warm_start_file="warm_start.json",
+            max_tool_calls=a.tool_budget, warm_start_file=warm,
             workspace_root=str(out / "_mut"), target_file="sequence.py")
+
+    # A two-population method routes by kind, so its operator is really two operators. Replacing
+    # only the code half is what lets one search policy be compared against another with the
+    # thing that writes the programs held fixed -- which is the only way a difference in score can
+    # be attributed to the policy rather than to the coder.
+    if a.code_variator and hasattr(variator, "code"):
+        if a.code_variator == "agent":
+            variator.code = AgentVariator(
+                evaluator=evaluator, model=a.model, max_tool_calls=a.tool_budget,
+                timeout=a.mutation_timeout, warm_start_file=warm,
+                workspace_root=str(out / "_mut"), score_key="combined_score")
+        else:
+            variator.code = CompletionVariator(model=a.model, target_file="sequence.py",
+                                               timeout=a.mutation_timeout)
     kind = type(variator).__name__
+    if hasattr(variator, "code"):
+        kind += f"({type(variator.code).__name__})"
     seed_genome = CodeGenome(files={
         "sequence.py": (HERE / "sequence.py").read_text(),
         # part of the genome so the evaluator sees it: the framework refreshes it with the best
@@ -126,8 +169,11 @@ async def main(a) -> None:
         "warm_start.json": "{}",
     })
 
+    judge_label = (f"learned(n={len(judge.cal)},norm={a.norm})" if judge is not None
+                   else (a.judge if method.name == "idea_code_alternating" else "none"))
     print("=" * 74)
-    print(f"Erdos minimum-overlap | method={method.name} | variator={kind} | model={a.model}")
+    print(f"Erdos minimum-overlap | method={method.name} | variator={kind} | "
+          f"judge={judge_label} | model={a.model}")
     print(f"budget={a.iterations} work items | concurrency={a.workers} | seed={a.seed}")
     print("=" * 74, flush=True)
 
@@ -153,10 +199,17 @@ async def main(a) -> None:
               f"best={best:.6f}  Psi={1 - best:.6f}", flush=True)
 
     evaluators = {"code": evaluator}
+    if judge is not None:
+        evaluators["idea"] = judge
     if method.name == "idea_code_alternating":
-        from pantheon.evolution.variators import IdeaJudge
+        from pantheon.evolution.variators import IdeaJudge, NullJudge
 
-        evaluators["idea"] = IdeaJudge(model=a.model, objective=OBJECTIVE)
+        # `--judge random|constant` ablates the LLM judge. It only orders ideas that have never
+        # been implemented -- a measured score supersedes it the moment one exists -- so the
+        # ablation asks a narrow question: is that first ordering worth a model call per idea?
+        evaluators["idea"] = (
+            IdeaJudge(model=a.model, objective=OBJECTIVE) if a.judge == "llm"
+            else NullJudge(mode=a.judge, seed=a.seed))
 
     res = await evolve(
         method=method,
@@ -188,11 +241,28 @@ async def main(a) -> None:
         from pantheon.evolution.core.method import Budget as _B, EvolveContext as _C
 
         rows = method.prior_vs_realised(_C(store=res.store, budget=_B()))
-        print(f"\nideas             {len(rows)}   (judged prior vs what its code measured)")
-        for r in sorted(rows, key=lambda r: -(r["realised"] or -1))[:8]:
-            got = f'{r["realised"]:.4f}' if r["realised"] is not None else "never built"
-            print(f'  prior {r["prior"]:.2f} -> {got:>11}  ({r["implementations"]} impl)  '
-                  f'{r["text"][:60]}')
+        print(f"\nideas             {len(rows)}   (what the judge predicted vs what was measured)")
+        if rows and "predicted" in rows[0]:
+            # The annealed method predicts a GAIN on the objective's scale, so the two columns are
+            # directly subtractable -- which is the whole point of the redesign.
+            for r in sorted(rows, key=lambda r: -(r["realised_best"] or -1))[:8]:
+                print(f'  predicted {r["predicted"]:+.4f} -> measured {r["realised_first"]:+.4f} '
+                      f'(best {r["realised_best"]:+.4f}, {r["implementations"]} impl)  '
+                      f'{r["summary"][:52]}')
+            err = [abs(r["predicted"] - r["realised_first"]) for r in rows
+                   if r["realised_first"] is not None]
+            if err:
+                print(f'  mean |predicted - measured|  {sum(err)/len(err):.4f}   n={len(err)}')
+        else:
+            for r in sorted(rows, key=lambda r: -(r["realised"] or -1))[:8]:
+                got = f'{r["realised"]:.4f}' if r["realised"] is not None else "never built"
+                print(f'  prior {r["prior"]:.2f} -> {got:>11}  ({r["implementations"]} impl)  '
+                      f'{r["text"][:60]}')
+    if judge is not None:
+        print(f"\njudge             {judge.report()}")
+        if a.judge_state:
+            judge.save(a.judge_state)
+            print(f"                  saved {len(judge.cal)} observations -> {a.judge_state}")
     print("=" * 74)
 
     if best is not None and hasattr(best.genome, "files"):
@@ -200,21 +270,22 @@ async def main(a) -> None:
             (out / f"best_{Path(path).name}").write_text(content)
     json.dump(
         {
-            "method": method.name, "variator": kind, "model": a.model, "seed": a.seed,
+            "method": method.name, "variator": kind, "judge": judge_label, "norm": a.norm,
+            "model": a.model, "seed": a.seed,
             "items_run": res.items_run, "failures": res.failures,
             "individuals": len(res.store), "best_combined_score": best_score,
             "best_psi": 1 - best_score, "seconds": res.seconds,
             "history": history, "method_state_keys": sorted(res.method_state),
         },
-        open(out / "run.json", "w"), indent=1,
+        open(out / "summary.json", "w"), indent=1,
     )
-    print(f"-> {out}/run.json")
+    print(f"-> {out}/summary.json")
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--method", default="map_elites",
-                   choices=["map_elites", "simpletes", "idea_code"])
+                   choices=["map_elites", "simpletes", "idea_code", "annealed"])
     p.add_argument("--iterations", type=int, default=12, help="work items, i.e. LLM mutations")
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--workers", type=int, default=2)
@@ -225,6 +296,28 @@ if __name__ == "__main__":
     p.add_argument("--eval-timeout", type=int, default=300)
     p.add_argument("--mutation-timeout", type=int, default=1800)
     p.add_argument("--output", default=None)
+    p.add_argument("--judge", default="llm", choices=["llm", "random", "constant"],
+                   help="idea-level evaluator; the nulls ablate it")
+    p.add_argument("--code-variator", default=None, choices=["agent", "completion"],
+                   help="replace only the code half of a two-population method, so two search "
+                        "policies can be compared with the coder held fixed")
+    p.add_argument("--no-warm-start", action="store_true",
+                   help="do not seed each child with its parent's best solution vector; measured "
+                        "to cause a sticky-champion collapse on plateau-prone problems")
+    p.add_argument("--norm", default="minmax", choices=["minmax", "absolute"],
+                   help="annealed: candidate normalisation before the softmax. minmax is the "
+                        "published schedule and degenerates with few candidates; absolute uses "
+                        "an observed score scale instead")
+    p.add_argument("--judge-state", default=None,
+                   help="annealed: JSON file the judge's training set is loaded from and saved "
+                        "to, so calibration accumulates across runs instead of restarting at "
+                        "~10 labelled ideas every time")
+    p.add_argument("--judge-n-min", type=int, default=5,
+                   help="annealed: observations required before the calibration stops being the "
+                        "identity")
+    p.add_argument("--prior-sigma", type=float, default=0.15,
+                   help="annealed: uncertainty assigned to an unbuilt idea before any residuals "
+                        "have been measured")
     p.add_argument("--resume", action="store_true")
     args = p.parse_args()
     # `find_dotenv` searches upward from the script, so running out of a git worktree finds the
