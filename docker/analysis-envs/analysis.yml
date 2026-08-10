@@ -114,6 +114,11 @@ dependencies:
 
   # --- installed with pip because conda-forge has no build --------------
   - pip:
+      # Prefer a wheel over a source distribution. Without this pip picked an
+      # sdist for dask-image — a transitive dependency of squidpy — and tried
+      # to build it in an image that has no toolchain for it, failing the whole
+      # layer. A wheel for it exists; pip simply was not choosing it.
+      - --prefer-binary
       # scib has no conda package anywhere; it installs against what conda
       # has already resolved here. pyscenic is not in this file at all — its
       # numpy pin is incompatible with this environment, so it has one of its
