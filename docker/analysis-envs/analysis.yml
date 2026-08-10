@@ -114,11 +114,15 @@ dependencies:
 
   # --- installed with pip because conda-forge has no build --------------
   - pip:
-      # Prefer a wheel over a source distribution. Without this pip picked an
-      # sdist for dask-image — a transitive dependency of squidpy — and tried
-      # to build it in an image that has no toolchain for it, failing the whole
-      # layer. A wheel for it exists; pip simply was not choosing it.
+      # dask-image is named explicitly, and pinned, because it is the one
+      # thing here without a usable source build in this image. It arrives as
+      # a transitive dependency of squidpy; left to the resolver pip chose an
+      # sdist and tried to compile it, failing the layer. --prefer-binary was
+      # not enough — it prefers, and the resolver still wanted a version with
+      # no wheel. This version's wheel is real: pip downloads
+      # dask_image-2026.5.0-py3-none-any.whl when asked for it directly.
       - --prefer-binary
+      - dask-image==2026.5.0
       # scib has no conda package anywhere; it installs against what conda
       # has already resolved here. pyscenic is not in this file at all — its
       # numpy pin is incompatible with this environment, so it has one of its
