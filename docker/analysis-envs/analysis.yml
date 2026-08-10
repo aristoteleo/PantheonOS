@@ -27,7 +27,7 @@ name: analysis
 # the same as them working together — squidpy and decoupler both solved
 # cleanly into this environment and then failed on import, which is how they
 # came to have files of their own.
-# verify: numpy scipy pandas anndata scanpy muon scvi scvelo harmonypy scrublet spatialdata snapatac2 scirpy rpy2 scib sklearn skimage cv2 tifffile matplotlib seaborn dask polars
+# verify: decoupler numpy scipy pandas anndata scanpy muon scvi scvelo harmonypy scrublet spatialdata snapatac2 scirpy rpy2 scib sklearn skimage cv2 tifffile matplotlib seaborn dask polars
 channels:
   - conda-forge
   - bioconda
@@ -117,6 +117,13 @@ dependencies:
       # numpy pin is incompatible with this environment, so it has one of its
       # own. See pyscenic.yml.
       - scib
+      # decoupler comes from pip because conda-forge still carries the 1.x
+      # line, whose numba code will not compile against a modern numba — it
+      # failed here, and no version pin rescued it because the problem is the
+      # code, not the pin. 2.x is a rewrite and imports cleanly against this
+      # environment's numpy 2.4.6 and numba 0.66.0; verified before writing
+      # this line.
+      - decoupler>=2.2
       - gget
       - omicverse
       - liana
