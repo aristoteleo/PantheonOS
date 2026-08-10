@@ -30,7 +30,8 @@ fi
 # and the kernelspec that lets the notebook toolset reach the env is written
 # into the image, which is ephemeral, so it has to be re-registered each boot
 # or jupyter silently loses the env after every rebuild. The script is
-# idempotent and returns in well under a second when there is nothing to do.
+# idempotent and takes ~2 s when there is nothing to do (measured), against a
+# first build of ~20 s.
 if [ -x /usr/local/bin/pantheon-analysis-env ]; then
     ( /usr/local/bin/pantheon-analysis-env > /tmp/pantheon-analysis-env.log 2>&1 || true ) &
 fi
