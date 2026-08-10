@@ -1,16 +1,39 @@
-import os
-import io
-import ast
-import asyncio
+"""Python execution, on a Jupyter kernel.
+
+This used to drive its own interpreter: a generator running inside a loky
+worker, fed code over a pipe, with stdout and stderr redirected around each
+`exec`. That worked, but it meant owning a small execution engine — process
+lifecycle, crash recovery, output capture, figure capture — and none of it was
+Pantheon's problem to solve. A Jupyter kernel is the same thing, specified,
+and the repo already had a toolset that drives one properly.
+
+What the change buys, beyond less code to own:
+
+  Other interpreters, for free. A kernel is chosen by kernelspec name, and
+  jupyter resolves that to whatever Python the spec points at — so code can run
+  in a conda env on the Volume instead of the agent's runtime venv, and a
+  second env is just a second spec. The previous design could only be pointed
+  at another interpreter by moving `sys.executable` at the moment loky forked
+  its worker, which is as fragile as it sounds.
+
+  Figures, natively. matplotlib's inline backend already publishes PNGs as
+  display_data. The old code monkeypatched `plt.show` to write a file, stashed
+  the path in a global, then fetched that global with a second round trip and
+  read the file back. All of that is now one field of a message the kernel
+  already sends.
+
+`result_var_name` is gone. Getting a value out was a second execution against
+a magic variable name; an agent that wants a value can print it, or leave the
+expression on the last line, which is what `execute_result` is for.
+"""
+
 import base64
-import json
-import traceback
-from contextlib import redirect_stdout, redirect_stderr
+import os
+import uuid
 from pathlib import Path
 
-from executor.engine import Engine, ProcessJob
-
 from pantheon.toolset import tool, ToolSet
+from pantheon.toolsets.notebook.jupyter_kernel import JupyterKernelToolSet
 from pantheon.internal.package_runtime.context import build_context_env
 from pantheon.utils.log import logger
 
@@ -19,446 +42,323 @@ class PythonInterpreterError(Exception):
     pass
 
 
-def exec_with_echo(code, env=None):
-    """Execute code with echo."""
-    if env is None:
-        env = {}
-    tree = ast.parse(code)
-    for node in tree.body:
-        if isinstance(node, ast.Expr):
-            expr_code = compile(ast.Expression(node.value), "<string>", "eval")
-            result = eval(expr_code, env)
-            if result is not None:
-                print(result)
-        else:
-            exec(compile(ast.Module([node], []), "<string>", "exec"), env)
-
-
+# Only what the kernel does not already do. The inline backend publishes
+# figures on its own, so there is no plt.show to intercept; nest_asyncio is
+# still wanted because package APIs call asyncio.run() inside a running loop.
 DEFAULT_INIT_CODE = """
-# Enable nested asyncio for packages API async methods (e.g., asyncio.run() in event loop)
 try:
     import nest_asyncio
     nest_asyncio.apply()
 except ImportError:
-    pass  # nest_asyncio not available
+    pass
 
 try:
-    import matplotlib; matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    import os
-    import uuid
-
-    GLOBAL_FIG_PATH = None
-    GLOBAL_FIG_DIR = ".matplotlib_figs"
-
-    original_show = plt.show
-
-    def __custom_plt_show(*args, **kwargs):
-        global GLOBAL_FIG_PATH
-        fig = plt.gcf()
-        if not fig.get_axes():
-            print("No active figure to save.")
-            plt.close(fig)
-            return
-
-        fig_uuid = str(uuid.uuid4())
-        os.makedirs(GLOBAL_FIG_DIR, exist_ok=True)
-        GLOBAL_FIG_PATH = os.path.join(GLOBAL_FIG_DIR, fig_uuid + ".png")
-        fig.savefig(GLOBAL_FIG_PATH, format='png')
-        plt.close(fig)
-
-    __plt_show = plt.show
-    plt.show = __custom_plt_show
-except Exception as e:
-    print(f"Error in matplotlib initialization: {e}")
+    get_ipython().run_line_magic('matplotlib', 'inline')
+except Exception:
+    pass
 """
+
+# Where a figure is written for callers that want a path rather than bytes.
+# The kernel hands over the PNG itself; this is only kept because the previous
+# implementation returned it and things downstream read it.
+FIG_DIR = ".matplotlib_figs"
 
 
 class PythonInterpreterToolSet(ToolSet):
-    """Python interpreter toolset with automatic code validation.
-    For running Python code in an interpreter with built-in validation.
+    """Run Python in a Jupyter kernel, one session per chat.
 
     Args:
         name: The name of the toolset.
-        workdir: The working directory for the interpreter.
-        engine: The engine to use for the interpreter.
-        init_code: The code to run before the interpreter starts.
-        **kwargs: Additional keyword arguments.
+        workdir: Working directory for the kernel.
+        engine: Unused. Kept so existing constructor calls do not break.
+        init_code: Code run once when a session is created.
+        kernel_spec: Kernelspec to run in. Defaults to the analysis env when
+            one is registered, otherwise the runtime's own kernel.
     """
 
     def __init__(
         self,
         name: str,
         workdir: str | None = None,
-        engine: Engine | None = None,
+        engine=None,
         init_code: str | None = DEFAULT_INIT_CODE,
         shared_executor=None,
+        kernel_spec: str | None = None,
         **kwargs,
     ):
         super().__init__(name, **kwargs)
-        self.interpreters = {}
-        self.jobs = {}
-        self._engine = engine
-        self.engine = None
-        self.shared_executor = shared_executor
-        self.clientid_to_interpreterid = {}
         self.workdir = Path(workdir).expanduser().resolve() if workdir else Path.cwd()
         self.init_code = init_code
+        self._kernel_spec_override = kernel_spec
+        self.kernels = JupyterKernelToolSet(f"{name}_kernel", str(self.workdir), **kwargs)
+        # Session per chat, not per connection: `client_id` is stable across
+        # chats, so keying by it gave two simultaneous conversations one
+        # namespace. Kept under the old attribute name because callers reach
+        # into it.
+        self.clientid_to_interpreterid: dict[str, str] = {}
         self._bootstrapped: set[str] = set()
 
-    def _init_engine(self):
-        if self.engine is None:
-            if self._engine is None:
-                self.engine = Engine()
-            else:
-                self.engine = self._engine
+    # ------------------------------------------------------------------ setup
 
-    def _current_context_dict(self) -> dict:
-        return dict(self.get_context() or {})
+    def _resolve_kernel_spec(self) -> str:
+        """Which kernel to start.
 
-    async def _inject_runtime_context(self, interpreter_id: str):
-        # build_context_env() now automatically optimizes environment size
-        effective_workdir = self._get_effective_workdir() or str(self.workdir)
-        env = build_context_env(
-            workdir=effective_workdir,
-            context_variables=self._current_context_dict(),
-            base_env=os.environ.copy(),  # Inherit all env vars including R_HOME, LD_LIBRARY_PATH, etc.
-            optimize=True,  # Enable automatic optimization
-        )
-        if not env:
+        The analysis env registers a spec named after itself
+        (pantheon-analysis-env does this on every boot). Preferring it is what
+        keeps user packages out of the runtime venv. If it is not registered —
+        the env is still building, or was never built — the runtime's own
+        kernel is correct, not an error.
+        """
+        if self._kernel_spec_override:
+            return self._kernel_spec_override
+        wanted = os.environ.get("PANTHEON_ANALYSIS_ENV")
+        if wanted:
+            try:
+                from jupyter_client.kernelspec import KernelSpecManager
+
+                if wanted in KernelSpecManager().get_all_specs():
+                    return wanted
+            except Exception:  # noqa: BLE001 - a missing spec is not a failure
+                pass
+        return "python3"
+
+    def _effective_workdir(self) -> str:
+        return self._get_effective_workdir() or str(self.workdir)
+
+    async def _inject_runtime_context(self, session_id: str):
+        """Push the workspace's environment into the kernel.
+
+        Once per session. The old implementation did it before every single
+        execution, which cost a full round trip per call to re-send values that
+        had not changed.
+        """
+        if session_id in self._bootstrapped:
             return
-        env_literal = json.dumps(env)
-        await self.__run_code_in_interpreter(
-            f"import os; os.environ.update({env_literal})",
-            interpreter_id,
+        env = build_context_env(
+            workdir=self._effective_workdir(),
+            context_variables=dict(self.get_context() or {}),
+            base_env=os.environ.copy(),
+            optimize=True,
         )
+        if env:
+            import json
+
+            await self.kernels.execute_request(
+                f"import os; os.environ.update({json.dumps(env)})",
+                session_id,
+                silent=True,
+                store_history=False,
+            )
+        if self.init_code:
+            await self.kernels.execute_request(
+                self.init_code, session_id, silent=True, store_history=False
+            )
+        self._bootstrapped.add(session_id)
+
+    # ------------------------------------------------------------- conversion
+
+    def _to_result(self, kernel_reply: dict) -> dict:
+        """Turn a kernel's outputs into what this tool has always returned.
+
+        nbformat output types map onto the old shape directly: `stream` is
+        stdout/stderr, `error` is a traceback on stderr, `execute_result` is
+        the value of a trailing expression, and image data becomes the same
+        base64 field the UI already renders.
+        """
+        stdout_parts: list[str] = []
+        stderr_parts: list[str] = []
+        result = None
+        images: list[str] = []
+
+        for out in kernel_reply.get("outputs") or []:
+            kind = out.get("output_type")
+            if kind == "stream":
+                (stderr_parts if out.get("name") == "stderr" else stdout_parts).append(
+                    out.get("text", "")
+                )
+            elif kind == "error":
+                stderr_parts.append("\n".join(out.get("traceback") or [out.get("evalue", "")]))
+            elif kind in ("execute_result", "display_data"):
+                data = out.get("data") or {}
+                png = data.get("image/png")
+                if png:
+                    images.append(png)
+                elif kind == "execute_result":
+                    result = data.get("text/plain")
+
+        # A traceback in the outputs means the code failed, whatever the
+        # transport thought: the kernel delivered the message successfully, but
+        # the cell did not run. The previous implementation raised here; a
+        # returned failure is better for a tool an agent calls, because the
+        # agent sees the traceback instead of a tool error.
+        failed = any(o.get("output_type") == "error" for o in kernel_reply.get("outputs") or [])
+
+        res: dict = {
+            "success": bool(kernel_reply.get("success", False)) and not failed,
+            "result": result,
+            "stdout": "".join(stdout_parts),
+            "stderr": "".join(stderr_parts),
+        }
+        if kernel_reply.get("error"):
+            res["stderr"] = (res["stderr"] + "\n" + str(kernel_reply["error"])).strip()
+
+        if images:
+            # `hidden_to_model` because an image is for the person, not for the
+            # model's context window — the same contract as before.
+            res["base64_uri"] = [f"data:image/png;base64,{img}" for img in images]
+            res["hidden_to_model"] = ["base64_uri"]
+            path = self._store_figure(images[-1])
+            if path:
+                res["fig_storage_path"] = path
+        return res
+
+    def _store_figure(self, png_base64: str) -> str | None:
+        """Write a figure next to the work, for callers that want a path."""
+        try:
+            rel_dir = Path(self._effective_workdir()) / FIG_DIR
+            rel_dir.mkdir(parents=True, exist_ok=True)
+            name = f"{uuid.uuid4()}.png"
+            (rel_dir / name).write_bytes(base64.b64decode(png_base64))
+            return os.path.join(FIG_DIR, name)
+        except Exception as e:  # noqa: BLE001 - a figure on disk is a nicety
+            logger.debug(f"could not store figure: {e}")
+            return None
+
+    # ------------------------------------------------------------------ tools
+
+    async def _session_for_current_chat(self) -> str:
+        context = dict(self.get_context() or {})
+        key = context.get("chat_id") or context.get("client_id") or "default"
+        session_id = self.clientid_to_interpreterid.get(key)
+        if session_id and session_id in self.kernels.sessions:
+            return session_id
+        created = await self.new_interpreter()
+        if not created.get("success"):
+            raise PythonInterpreterError(created.get("error", "could not start a kernel"))
+        session_id = created["interpreter_id"]
+        self.clientid_to_interpreterid[key] = session_id
+        return session_id
 
     @tool
-    async def run_python_code(
-        self,
-        code: str,
-        interpreter_id: str | None = None,
-        result_var_name: str | None = None,
-    ):
+    async def run_python_code(self, code: str, interpreter_id: str | None = None):
         """Run Python code and return the result.
 
-        This tool automatically manages a Python interpreter session for you.
-        Variables and state are preserved between calls in the same session.
+        This tool automatically manages a Python session for you. Variables and
+        state are preserved between calls in the same session.
+
+        To get a value back, print it or leave it as the last expression.
 
         Args:
             code: The Python code to run.
-            result_var_name: Optional. The name of the variable to return the value of.
-                If not provided, the tool returns the captured stdout/stderr.
-            interpreter_id: Optional. The specific interpreter ID to run the code in.
-                If not provided, the tool uses the default interpreter for the current context.
-                Only configure this parameter if you need to manage multiple independent interpreter sessions.
+            interpreter_id: Optional. A specific session to run in. Only set
+                this if you are deliberately keeping several independent
+                sessions; otherwise the session for the current chat is used.
 
         Returns:
-            dict: The execution result with the following structure:
-            {
-                "success": bool,        # True if execution was successful
-                "result": Any | None,   # The value of `result_var_name` if specified
-                "stdout": str,          # Captured standard output
-                "stderr": str,          # Captured standard error
-            }
+            dict: {"success": bool, "result": str | None, "stdout": str, "stderr": str}
         """
-        if self.shared_executor is not None:
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: self.shared_executor.execute(code),
-            )
-            return {
-                "success": result.get("error") is None,
-                "result": result.get("result"),
-                "stdout": result.get("output", ""),
-                "stderr": result.get("error", "") or "",
-            }
-        # ─────────────────────────────────────────────────────────────────
-
-        # Defined for both branches: the crash-recovery path below has to know
-        # whether there is a session mapping to repair, and an explicit
-        # interpreter_id means there is not.
-        session_key = None
-        if interpreter_id:
-             p_id = interpreter_id
-        else:
-            context_dict = dict(self.get_context() or {})
-            # Key the interpreter PER CHAT. `client_id` is the UI connection id
-            # (stable across chats), so keying by it made two simultaneous
-            # chats share one Python process — and therefore one variable
-            # namespace. `chat_id` isolates per conversation; fall back to
-            # client_id then "default" only when chat_id is absent.
-            session_key = (
-                context_dict.get("chat_id")
-                or context_dict.get("client_id")
-                or "default"
-            )
-            p_id = self.clientid_to_interpreterid.get(session_key)
-            if (p_id is None) or (p_id not in self.interpreters):
-                create_resp = await self.new_interpreter()
-                p_id = create_resp["interpreter_id"]
-                self.clientid_to_interpreterid[session_key] = p_id
-
-        await self._inject_runtime_context(p_id)
-
-        # Execute code with automatic recovery on process failure
-        try:
-            res = await self.run_code_in_interpreter(code, p_id, result_var_name)
-        except Exception as e:
-            # Handle BrokenProcessPool and other process failures
-            error_str = str(e)
-            error_type = type(e).__name__
-
-            # Check for various process failure indicators
-            is_process_failure = (
-                "BrokenProcessPool" in error_str
-                or "ProcessPool" in error_str
-                or "loky.process_executor.BrokenProcessPool" in error_str
-                or "TerminatedWorkerError" in error_type
-                or "TerminatedWorkerError" in error_str
-                or "SIGSEGV" in error_str
-                or "segmentation fault" in error_str.lower()
-                or "worker" in error_str.lower()
-                and "terminated" in error_str.lower()
-                or "un-serialize" in error_str
-                or "picklable" in error_str
-                or "KeyboardInterrupt" in error_str
-                or error_type == "BrokenProcessPool"
-                or p_id not in self.interpreters
-            )
-
-            if is_process_failure:
-                logger.warning(
-                    f"Python interpreter crashed (session: {session_key}), restarting..."
-                )
-                logger.debug(f"Crash details: {error_type}: {error_str[:200]}")
-
-                # Clean up broken interpreter more thoroughly
-                if p_id in self.interpreters:
-                    try:
-                        await self.delete_interpreter(p_id)
-                    except:
-                        # Force cleanup if normal deletion fails
-                        try:
-                            if p_id in self.interpreters:
-                                del self.interpreters[p_id]
-                            if p_id in self.jobs:
-                                del self.jobs[p_id]
-                            # Clear the session mapping
-                            if session_key in self.clientid_to_interpreterid:
-                                del self.clientid_to_interpreterid[session_key]
-                        except:
-                            pass  # Ignore cleanup errors
-
-                # Create new interpreter and retry
-                create_resp = await self.new_interpreter()
-                p_id = create_resp["interpreter_id"]
-                if session_key is not None:
-                    self.clientid_to_interpreterid[session_key] = p_id
-                logger.info(f"Python interpreter restarted (session: {session_key})")
-
-                try:
-                    res = await self.run_code_in_interpreter(
-                        code, p_id, result_var_name
-                    )
-                    logger.info("Code execution successful after interpreter restart")
-                    # Add a note to the result that interpreter was restarted
-                    res["interpreter_restarted"] = True
-                    res["restart_reason"] = f"{error_type}: {error_str[:100]}..."
-                except Exception as retry_error:
-                    logger.error(
-                        f"Code execution failed even after interpreter restart: {retry_error}"
-                    )
-                    # Return a more user-friendly error message
-                    return {
-                        "success": False,
-                        "result": None,
-                        "stdout": "",
-                        "stderr": f"Python interpreter crashed and restart failed.\nOriginal error: {error_type}\nRetry error: {str(retry_error)[:200]}...\n\nTry using /restart command to fully reset the Python environment.",
-                        "interpreter_crashed": True,
-                    }
-            else:
-                # Re-raise non-process-related exceptions
-                raise e
-
-        res.setdefault("success", True)
-        return res
-
-    async def __run_code_in_interpreter(
-        self,
-        code: str,
-        interpreter_id: str,
-        result_var_name: str | None = None,
-    ) -> dict:
-        if interpreter_id not in self.interpreters:
-            raise ValueError(f"Interpreter {interpreter_id} not found")
-        # logger.info(f"[DEBUG] Running code in interpreter {interpreter_id}")
-        g = self.interpreters[interpreter_id]
-        result, stdout, stderr = await g.asend((code, result_var_name))
-        if isinstance(result, PythonInterpreterError):
-            raise result
-        return {
-            "result": result,
-            "stdout": stdout,
-            "stderr": stderr,
-        }
+        session_id = interpreter_id or await self._session_for_current_chat()
+        return await self.run_code_in_interpreter(code, session_id)
 
     @tool(exclude=True)
-    async def run_code_in_interpreter(
-        self,
-        code: str,
-        interpreter_id: str,
-        result_var_name: str | None = None,
-    ) -> dict:
-        """Run code in an interpreter.
+    async def run_code_in_interpreter(self, code: str, interpreter_id: str) -> dict:
+        """Run code in a specific session.
 
         Args:
             code: The code to run.
-            interpreter_id: The id of the interpreter to run the code in.
-            result_var_name: The name of the variable you want to get the result from.
-                If not needed, set to None. Default is None.
-
-        Returns:
-            A dictionary with the result, stdout, and stderr.
+            interpreter_id: The session to run it in.
         """
         await self._inject_runtime_context(interpreter_id)
+        reply = await self.kernels.execute_request(code, interpreter_id)
 
-        code = "GLOBAL_FIG_PATH = None\n" + code
-        res = await self.__run_code_in_interpreter(
-            code, interpreter_id, result_var_name
-        )
-        res2 = await self.__run_code_in_interpreter(
-            "None", interpreter_id, "GLOBAL_FIG_PATH"
-        )
-        fig_path = res2["result"]
-        if fig_path is not None:
-            res["fig_storage_path"] = fig_path
-            open_path = fig_path
-            effective_wd = self._get_effective_workdir() or (str(self.workdir) if self.workdir else None)
-            if effective_wd:
-                open_path = os.path.join(effective_wd, fig_path)
-            with open(open_path, "rb") as f:
-                base64_img = base64.b64encode(f.read()).decode("utf-8")
-            base64_uri = f"data:image/png;base64,{base64_img}"
-            res["base64_uri"] = [base64_uri]
-            res["hidden_to_model"] = ["base64_uri"]
+        # A dead kernel is reported rather than raised, and the mapping is
+        # cleared so the next call starts a fresh one. The previous
+        # implementation tried to restart in place and referred to a variable
+        # that no longer existed, so the recovery path raised NameError and the
+        # session stayed broken for good.
+        if not reply.get("success") and "not found" in str(reply.get("error", "")).lower():
+            self._forget(interpreter_id)
 
-        res["success"] = True
-        return res
+        return self._to_result(reply)
+
+    def _forget(self, session_id: str):
+        self._bootstrapped.discard(session_id)
+        for key, value in list(self.clientid_to_interpreterid.items()):
+            if value == session_id:
+                del self.clientid_to_interpreterid[key]
 
     @tool(exclude=True)
     async def new_interpreter(self) -> dict:
-        """Create a new Python interpreter and return its id.
-        You can use `run_code_in_interpreter` to run code in the interpreter,
-        by providing the interpreter id."""
-        self._init_engine()
-
-        async def interpreter():
-            __res = None
-            __stdout = io.StringIO()
-            __stderr = io.StringIO()
-            while True:
-                code, var_name = yield __res, __stdout.getvalue(), __stderr.getvalue()
-                __stdout.seek(0)
-                __stdout.truncate(0)
-                __stderr.seek(0)
-                __stderr.truncate(0)
-                try:
-                    with redirect_stdout(__stdout), redirect_stderr(__stderr):
-                        exec_with_echo(code, globals())
-                except Exception:
-                    traceback_str = traceback.format_exc()
-                    __res = PythonInterpreterError(traceback_str)
-                    continue
-                if var_name is None:
-                    __res = None
-                else:
-                    __res = globals().get(var_name)
-
-        job = ProcessJob(interpreter)
-        await self.engine.submit_async(job)
-        await job.wait_until_status("running")
-        self.jobs[job.id] = job
-        g = job.result()
-        await g.asend(None)  # Initialize the generator
-        self.interpreters[job.id] = g
-        effective_workdir = self._get_effective_workdir() or str(self.workdir) if self.workdir else None
-        if effective_workdir is not None:
-            # Use repr() to properly escape backslashes on Windows
-            await self.run_code_in_interpreter(
-                f"import os; os.chdir({repr(effective_workdir)})", job.id
-            )
-        if self.init_code is not None:
-            await self.run_code_in_interpreter(self.init_code, job.id)
-        return {"success": True, "interpreter_id": job.id}
+        """Start a new Python session and return its id."""
+        spec = self._resolve_kernel_spec()
+        created = await self.kernels.create_session(
+            kernel_spec=spec, cwd=self._effective_workdir()
+        )
+        if not created.get("success"):
+            return {"success": False, "error": created.get("error")}
+        session_id = created.get("session_id") or created.get("kernel_session_id")
+        logger.info(f"Python session {session_id} started on kernelspec '{spec}'")
+        return {"success": True, "interpreter_id": session_id, "kernel_spec": spec}
 
     @tool(exclude=True)
     async def delete_interpreter(self, interpreter_id: str) -> dict:
-        """Delete an interpreter.
+        """Delete a session.
 
         Args:
-            interpreter_id: The id of the interpreter to delete.
+            interpreter_id: The id of the session to delete.
         """
-        if interpreter_id not in self.interpreters:
-            return {
-                "success": False,
-                "error": f"Interpreter {interpreter_id} not found",
-            }
-        job = self.jobs[interpreter_id]
-        await job.cancel()
-        del self.interpreters[interpreter_id]
-        del self.jobs[interpreter_id]
-        self.engine.jobs.remove(job)
-        self._bootstrapped.discard(interpreter_id)
+        result = await self.kernels.shutdown_session(interpreter_id)
+        self._forget(interpreter_id)
+        if not result.get("success"):
+            return {"success": False, "error": result.get("error")}
         return {"success": True, "interpreter_id": interpreter_id}
 
     @tool(exclude=True)
     async def list_interpreters(self) -> dict:
-        """List all interpreters."""
-        interpreters = [
-            {
-                "id": interpreter_id,
-                "status": job.status,
-            }
-            for interpreter_id, job in self.jobs.items()
-        ]
-        return {"success": True, "interpreters": interpreters}
+        """List all sessions."""
+        listed = await self.kernels.list_sessions()
+        sessions = listed.get("sessions") or []
+        return {
+            "success": True,
+            "interpreters": [
+                {
+                    "id": s.get("session_id") or s.get("kernel_session_id"),
+                    "status": s.get("status", "running"),
+                }
+                for s in sessions
+            ],
+        }
+
     @tool
     async def manage_interpreters(
         self,
         operation: str,
         interpreter_id: str | None = None,
     ) -> dict:
-        """Manage Python interpreters.
+        """Manage Python sessions.
 
         Args:
-            operation: The operation to perform. choose from "create", "list", "delete".
-            interpreter_id: The id of the interpreter to delete. Required for "delete" operation.
+            operation: One of "create", "list", "delete".
+            interpreter_id: The session to delete. Required for "delete".
         """
         if operation == "create":
             return await self.new_interpreter()
-        elif operation == "list":
+        if operation == "list":
             return await self.list_interpreters()
-        elif operation == "delete":
+        if operation == "delete":
             if interpreter_id is None:
                 return {
                     "success": False,
                     "error": "interpreter_id is required for delete operation",
                 }
             return await self.delete_interpreter(interpreter_id)
-        else:
-            return {
-                "success": False,
-                "error": f"Unknown operation: {operation}",
-            }
-
+        return {"success": False, "error": f"Unknown operation: {operation}"}
 
     async def run_setup(self):
         """Setup the toolset before running it."""
+        await self.kernels.run_setup()
         logger.warning(
             "This ToolSet is not secure, it can be used to execute arbitrary code."
             " Please be careful when using it."
             " Highly recommend using it in a controlled environment like a docker container."
         )
-
