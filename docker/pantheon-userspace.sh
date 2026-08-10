@@ -71,6 +71,41 @@ export NODE_PATH="$PANTHEON_USER_PREFIX/lib/node_modules${NODE_PATH:+:$NODE_PATH
 # ---------------------------------------------------------------------- R
 export R_LIBS_USER="$PANTHEON_USER_PREFIX/Rlib"
 
+# ------------------------------------------------------------- conda-forge
+# The one thing the four above cannot do. Debian's `install.packages()` builds
+# R packages from source, so anything with a C dependency needs headers that
+# are not there — and the natural fix does not work either:
+#
+#   install.packages("XML")   → installation had non-zero exit status
+#   apt install libxml2-dev   → unpacked into <prefix>/opt   (the shim works)
+#   install.packages("XML")   → STILL fails; R's configure does not look there
+#
+# conda-forge ships that same package already built. Measured here: 39 s and
+# `library(XML)` works, against "cannot be installed at all". Bioconda gets the
+# same treatment for command-line tools — samtools in 5 s, and a newer build
+# than Debian carries (1.24 vs 1.16.1).
+#
+# Envs live on the Volume, so they persist for the same reason everything else
+# here does. Deliberately NOT activated by default: the agent's own interpreter
+# stays /venv, and an env on the PATH of every shell would quietly shadow it.
+export MAMBA_ROOT_PREFIX="$PANTHEON_USER_PREFIX/micromamba"
+
+# The package cache stays on the Volume, unlike the pip/HF/torch caches the
+# entrypoint sends to ephemeral /root. Those are throwaway; this one is the
+# working set that makes a second env cheap to build, and micromamba copies
+# rather than hardlinks out of it (verified: nlink=1), so the env does not
+# depend on it afterwards. Point MAMBA_PKGS_DIRS elsewhere to change that.
+export MAMBA_PKGS_DIRS="${MAMBA_PKGS_DIRS:-$MAMBA_ROOT_PREFIX/pkgs}"
+
+# `micromamba activate` is a shell function, not the binary — without the hook
+# the terminal answers "run 'micromamba shell init' first" and the env cannot
+# be entered at all. Non-fatal on both counts: the binary may be missing (its
+# download in the Dockerfile is best-effort) and a bad eval must not take the
+# boot with it.
+if command -v micromamba >/dev/null 2>&1; then
+    eval "$(micromamba shell hook -s posix 2>/dev/null)" || true
+fi
+
 # ------------------------------------------------------------- rust / go
 # The binary persists; the build and module caches deliberately do not. They are
 # large, they are write-heavy, and the Volume is network-backed — the same

@@ -399,6 +399,22 @@ RUN cp /app/docker/pantheon-userspace.sh /usr/local/bin/pantheon-userspace.sh &&
     chmod +x /usr/local/bin/apt && \
     printf '. /usr/local/bin/pantheon-userspace.sh\n' > /etc/profile.d/99-pantheon-userspace.sh
 
+# micromamba — one static binary, ~5MB, no Python of its own. It is here for
+# the case the four package managers above genuinely cannot serve: R and
+# Bioconductor packages that Debian would have to compile from source, and
+# bioconda's command-line tools. Envs land on the Volume (MAMBA_ROOT_PREFIX in
+# pantheon-userspace.sh) so they persist like everything else.
+#
+# Version pinned rather than :latest, the same way monolith and tectonic are
+# above, so a rebuild does not silently change the tool. Non-fatal: a sandbox
+# that boots without it is still a working sandbox.
+RUN (curl -Ls --retry 3 --retry-delay 5 --max-time 120 \
+     https://micro.mamba.pm/api/micromamba/linux-64/2.9.0 \
+     | tar -xj -C /tmp bin/micromamba && \
+     mv /tmp/bin/micromamba /usr/local/bin/micromamba && \
+     chmod +x /usr/local/bin/micromamba) || \
+    echo "Warning: micromamba download failed, skipping (installable at runtime)"
+
 # Set default working directory
 WORKDIR /workspace
 
