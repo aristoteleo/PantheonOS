@@ -123,11 +123,30 @@ def logout() -> bool:
 
 
 def platform_llm_env() -> dict[str, str]:
-    """LLM settings from the signed-in platform, or an empty dict.
+    """LLM settings for whatever context this is running in.
 
-    Empty rather than raising: not being signed in is the ordinary state for
-    someone using their own API key, and it should cost them nothing.
+    Inside a sandbox there is nothing to sign in to: the Hub already injected
+    the user's platform key and proxy address when it created the sandbox, and
+    the chatroom is running on them. Asking someone to log in again, on a
+    machine that is already authenticated as them, to obtain a key that is
+    already sitting in the environment, would be a worse experience than not
+    having the feature.
+
+    So the environment wins, and `pantheon login` is for the other case — a
+    laptop, where nothing has been injected.
+
+    Empty when neither applies: using your own API key is an ordinary choice
+    and should cost nothing.
     """
+    injected = os.getenv("LLM_API_KEY")
+    injected_base = os.getenv("LLM_API_BASE")
+    if injected and injected_base:
+        return {
+            "OPENAI_API_KEY": injected,
+            "OPENAI_BASE_URL": injected_base,
+            "LITELLM_BASE_URL": injected_base,
+        }
+
     creds = load_credentials()
     if not creds or not creds.get("api_key"):
         return {}
@@ -138,8 +157,21 @@ def platform_llm_env() -> dict[str, str]:
     }
 
 
+def where_credentials_came_from() -> str:
+    """Which of the two contexts supplied the credentials, for `whoami`."""
+    if os.getenv("LLM_API_KEY") and os.getenv("LLM_API_BASE"):
+        return "sandbox"
+    return "login" if load_credentials() else "none"
+
+
 def status() -> str:
     """One line describing whether this machine is signed in."""
+    source = where_credentials_came_from()
+    if source == "sandbox":
+        return (
+            "Using this workspace's platform budget "
+            f"({os.getenv('LLM_API_BASE')}). No sign-in needed here."
+        )
     creds = load_credentials()
     if not creds:
         return "Not signed in. Run `pantheon login` to use a platform budget."
