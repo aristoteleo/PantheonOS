@@ -43,14 +43,31 @@ ENV_DIR="$MAMBA_ROOT_PREFIX/envs/$ENV_NAME"
 #
 # The set is overridable so a workspace that never touches R can drop it:
 # PANTHEON_ANALYSIS_PACKAGES="pip" costs ~40 s less and a few hundred MB.
-EXTRA_PKGS="${PANTHEON_ANALYSIS_PACKAGES:-pip r-base r-irkernel}"
+# The baseline the personal environment inherits from: the analysis stack, in
+# the image, the same for everyone and free at runtime. The personal env holds
+# only what this user added.
+BASELINE="${PANTHEON_BASELINE_ENV:-/opt/pantheon/envs/analysis}"
+
+# What the personal environment itself is built with. Deliberately thin — R and
+# the analysis stack come from the baseline, so this is only enough to have an
+# environment at all. It is what makes first boot ~70 s instead of minutes.
+EXTRA_PKGS="${PANTHEON_ANALYSIS_PACKAGES:-pip}"
 PKG_MARKER="$ENV_DIR/.pantheon-packages"
 
 command -v micromamba >/dev/null 2>&1 || { echo "[analysis-env] micromamba not present; skipping"; exit 0; }
 
-# The version to match, asked of the runtime rather than assumed.
-PYVER="$("${PANTHEON_RUNTIME_PYTHON:-/venv/bin/python}" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null \
-         || python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+# The CPython minor version to match. Taken from the BASELINE when there is
+# one, because that is the larger body of compiled packages being borrowed —
+# a mismatch there fails on the first `import scanpy`, not on something
+# obscure. Falls back to the runtime when no baseline is present.
+if [ -x "$BASELINE/bin/python" ]; then
+    PYVER="$("$BASELINE/bin/python" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+    BASELINE_SITE="$("$BASELINE/bin/python" -c 'import site; print(site.getsitepackages()[0])')"
+else
+    PYVER="$("${PANTHEON_RUNTIME_PYTHON:-/venv/bin/python}" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null \
+             || python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+    BASELINE_SITE=""
+fi
 RUNTIME_SITE="$("${PANTHEON_RUNTIME_PYTHON:-/venv/bin/python}" -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null \
                 || python3 -c 'import site; print(site.getsitepackages()[0])')"
 
@@ -121,10 +138,17 @@ fi
 # runtime's site-packages, and a bridge pointing at the old one would leave the
 # env unable to import pantheon — which is to say unable to run anything.
 SITE="$("$ENV_DIR/bin/python" -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null)"
-if [ -n "$SITE" ] && [ -d "$SITE" ] && [ -n "$RUNTIME_SITE" ]; then
-    # Last in sort order, so the env's own packages are found first: what the
-    # user installed wins, and the runtime is the fallback beneath it.
-    printf '%s\n' "$RUNTIME_SITE" > "$SITE/zzz-pantheon-runtime.pth"
+if [ -n "$SITE" ] && [ -d "$SITE" ]; then
+    # Two fallbacks, in this order, both AFTER the env's own site-packages:
+    # the baseline for the analysis stack, then the runtime so `pantheon`
+    # itself is importable. What the user installed is found first, which is
+    # what makes `pip install scanpy==x` in the personal env actually take
+    # effect over the baseline's copy.
+    : > "$SITE/zzz-pantheon-runtime.pth"
+    [ -n "$BASELINE_SITE" ] && [ -d "$BASELINE_SITE" ] \
+        && printf '%s\n' "$BASELINE_SITE" >> "$SITE/zzz-pantheon-runtime.pth"
+    [ -n "$RUNTIME_SITE" ] && [ -d "$RUNTIME_SITE" ] \
+        && printf '%s\n' "$RUNTIME_SITE" >> "$SITE/zzz-pantheon-runtime.pth"
 fi
 
 # A kernelspec, so the notebook toolset can reach this env too.

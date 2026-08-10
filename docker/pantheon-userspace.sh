@@ -117,6 +117,15 @@ fi
 # that upgrading scanpy cannot take the sandbox down with it and two projects
 # with incompatible pins can have an env each. See pantheon-analysis-env.
 export PANTHEON_ANALYSIS_ENV="${PANTHEON_ANALYSIS_ENV:-analysis}"
+
+# The read-only stack in the image that the personal environment inherits from.
+# Its bin goes on PATH BEHIND the personal env's, so anything the user installs
+# shadows the baseline copy rather than the other way round.
+export PANTHEON_BASELINE_ENV="${PANTHEON_BASELINE_ENV:-/opt/pantheon/envs/analysis}"
+if [ -x "$PANTHEON_BASELINE_ENV/bin/python" ]; then
+    _pantheon_prepend_path "$PANTHEON_BASELINE_ENV/bin"
+    export PATH
+fi
 _ANALYSIS_DIR="$MAMBA_ROOT_PREFIX/envs/$PANTHEON_ANALYSIS_ENV"
 
 # The marker, not the presence of a python binary: an interrupted build leaves
@@ -188,6 +197,15 @@ else
     export R_LIBS_USER="$PANTHEON_USER_PREFIX/Rlib/system"
 fi
 mkdir -p "$R_LIBS_USER" 2>/dev/null
+
+# R's own search path has to reach the baseline too, or Seurat and the
+# Bioconductor packages in the image are invisible from the personal
+# environment — the same inheritance the .pth gives Python, for R.
+# R_LIBS is searched after R_LIBS_USER, so a package the user installs still
+# wins over the image's copy.
+if [ -d "$PANTHEON_BASELINE_ENV/lib/R/library" ]; then
+    export R_LIBS="$PANTHEON_BASELINE_ENV/lib/R/library${R_LIBS:+:$R_LIBS}"
+fi
 
 # ------------------------------------------------------------- rust / go
 # The binary persists; the build and module caches deliberately do not. They are
