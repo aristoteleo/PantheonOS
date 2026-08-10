@@ -378,6 +378,41 @@ RUN mkdir -p /workspace
 # By placing it after all heavy layers (Playwright, MCP, CLI tools),
 # code-only changes only invalidate this layer and the entrypoint layer below.
 # Result: Code changes rebuild only ~10MB instead of ~500-750MB.
+# micromamba — one static binary, ~5MB, no Python of its own. It is here for
+# the case the four package managers above genuinely cannot serve: R and
+# Bioconductor packages that Debian would have to compile from source, and
+# bioconda's command-line tools. Envs land on the Volume (MAMBA_ROOT_PREFIX in
+# pantheon-userspace.sh) so they persist like everything else.
+#
+# Version pinned rather than :latest, the same way monolith and tectonic are
+# above, so a rebuild does not silently change the tool. Non-fatal: a sandbox
+# that boots without it is still a working sandbox.
+RUN (curl -Ls --retry 3 --retry-delay 5 --max-time 120 \
+     https://micro.mamba.pm/api/micromamba/linux-64/2.9.0 \
+     | tar -xj -C /tmp bin/micromamba && \
+     mv /tmp/bin/micromamba /usr/local/bin/micromamba && \
+     chmod +x /usr/local/bin/micromamba) || \
+    echo "Warning: micromamba download failed, skipping (installable at runtime)"
+
+# Layer G2 — the analysis baseline (~several GB, changes rarely)
+#
+# The stack the built-in skills actually import, installed once here instead of
+# per workspace at runtime. A user's own environment lives on the Volume and
+# inherits from this one, so what they install persists while this does not
+# have to be downloaded again for every sandbox.
+#
+# Only the yml is copied, and it is copied BEFORE /app, so editing agent code
+# does not rebuild several gigabytes — only editing the package list does.
+COPY docker/analysis-baseline.yml /opt/pantheon/analysis-baseline.yml
+RUN --mount=type=cache,target=/opt/pantheon/pkgs \
+    MAMBA_ROOT_PREFIX=/opt/pantheon/mamba \
+    micromamba create -y -q -p /opt/pantheon/envs/baseline \
+        -f /opt/pantheon/analysis-baseline.yml \
+    && MAMBA_ROOT_PREFIX=/opt/pantheon/mamba micromamba clean -a -y -q \
+    && find /opt/pantheon/envs/baseline -name '*.pyc' -delete \
+    && rm -rf /opt/pantheon/envs/baseline/share/doc \
+              /opt/pantheon/envs/baseline/share/man
+
 COPY --from=builder /app /app
 
 # Layer H — Entrypoint setup (depends on /app)
@@ -401,21 +436,6 @@ RUN cp /app/docker/pantheon-userspace.sh /usr/local/bin/pantheon-userspace.sh &&
     printf '\n# Pantheon: root the package managers in the Volume (see the script).\n[ -f /usr/local/bin/pantheon-userspace.sh ] && . /usr/local/bin/pantheon-userspace.sh\n' \
         >> /etc/bash.bashrc
 
-# micromamba — one static binary, ~5MB, no Python of its own. It is here for
-# the case the four package managers above genuinely cannot serve: R and
-# Bioconductor packages that Debian would have to compile from source, and
-# bioconda's command-line tools. Envs land on the Volume (MAMBA_ROOT_PREFIX in
-# pantheon-userspace.sh) so they persist like everything else.
-#
-# Version pinned rather than :latest, the same way monolith and tectonic are
-# above, so a rebuild does not silently change the tool. Non-fatal: a sandbox
-# that boots without it is still a working sandbox.
-RUN (curl -Ls --retry 3 --retry-delay 5 --max-time 120 \
-     https://micro.mamba.pm/api/micromamba/linux-64/2.9.0 \
-     | tar -xj -C /tmp bin/micromamba && \
-     mv /tmp/bin/micromamba /usr/local/bin/micromamba && \
-     chmod +x /usr/local/bin/micromamba) || \
-    echo "Warning: micromamba download failed, skipping (installable at runtime)"
 
 # `conda` and `mamba` name the same thing here — the names everyone already
 # types, and there is no second implementation to confuse them with. These are

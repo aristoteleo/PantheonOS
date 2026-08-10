@@ -1,0 +1,117 @@
+# The analysis stack, preinstalled in the image.
+#
+# This is the BASELINE: it lives in the image, is the same for everyone, and
+# costs nothing at runtime. A user's own environment sits on the Volume and
+# inherits from this one, so `conda install`, `pip install` and
+# `install.packages()` all persist while the heavy shared stack does not have
+# to be downloaded per workspace.
+#
+# The list came from what the built-in skills and agents actually import,
+# counted across pantheon/factory/templates — scanpy appears 81 times, numpy
+# 67, matplotlib 56 — rather than from a guess at what people might want.
+#
+# Deliberately NOT here, because each is large and narrow, and any of them
+# installs into a user's own environment in one command and stays there:
+#   pytorch with CUDA (~5 GB, and these sandboxes have no GPU — pytorch-cpu
+#     is here instead), rapids-singlecell (GPU), BSgenome.Hsapiens.UCSC.hg38
+#     (~1 GB), openslide, cooler, cooltools, pyvista, stardist, SpaGCN,
+#     STAGATE_pyG, scglue, spateo.
+#
+# Adding a package here costs image size and therefore cold-start pull time;
+# a sandbox that has never pulled this image takes about ten times longer to
+# start than a prewarmed one. Weigh both.
+
+name: baseline
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  # --- python and the numeric core -------------------------------------
+  - python=3.12
+  - pip
+  - numpy
+  - scipy
+  - pandas
+  - polars
+  - dask
+  - scikit-learn
+  - scikit-image
+  - statsmodels
+  - numba
+  - h5py
+  - zarr
+  - requests
+  - tqdm
+
+  # --- plotting --------------------------------------------------------
+  - matplotlib-base
+  - seaborn
+  - plotly
+
+  # --- single cell, the core of what the skills do ---------------------
+  - anndata
+  - scanpy
+  - muon
+  - mudata
+  - squidpy
+  - scvelo
+  - scrublet
+  - harmonypy
+  - decoupler
+  - scanorama
+  - leidenalg
+  - louvain
+  - igraph
+  - pynndescent
+
+  # --- heavier, but each is used by several skills ---------------------
+  - pytorch-cpu          # scvi-tools needs it; the CUDA build is ~5 GB
+  - scvi-tools
+  - pyscenic
+  - snapatac2
+  - scib
+  - scirpy
+  - spatialdata
+  - tiledbsoma-py
+  - cellxgene-census
+
+  # --- imaging ---------------------------------------------------------
+  - tifffile
+  - imagecodecs
+  - opencv
+
+  # --- notebook plumbing ------------------------------------------------
+  - ipykernel
+  - jupyter_client
+  - nest-asyncio
+
+  # --- R, and the bridge between the two --------------------------------
+  - r-base=4.4
+  - r-irkernel
+  - rpy2
+  - anndata2ri
+  - r-seurat
+  - r-seuratobject
+  - r-matrix
+  - r-dplyr
+  - r-ggplot2
+  - r-soupx
+  - bioconductor-singlecellexperiment
+  - bioconductor-scater
+  - bioconductor-scran
+  - bioconductor-scuttle
+  - bioconductor-scdblfinder
+  - bioconductor-zellkonverter
+  - bioconductor-limma
+  - bioconductor-edger
+  - bioconductor-deseq2
+  - bioconductor-mast
+  - bioconductor-complexheatmap
+
+  # --- installed with pip because conda-forge has no build --------------
+  - pip:
+      - gget
+      - omicverse
+      - liana
+      - palantir
+      - tangram-sc
