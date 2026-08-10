@@ -53,7 +53,7 @@ def one(arm: str, seed: int, a) -> dict:
         row = {"arm": arm, "seed": seed, "rc": 0, "seconds": s.get("seconds", 0.0)}
         row.update({k: s.get(k) for k in
                     ("best_psi", "best_combined_score", "items_run", "failures",
-                     "individuals", "variator")})
+                     "individuals", "variator", "operator")})
         return row
     out.mkdir(parents=True, exist_ok=True)
     log = out.with_suffix(".log")
@@ -72,7 +72,7 @@ def one(arm: str, seed: int, a) -> dict:
         s = json.loads(sm.read_text())
         row.update({k: s.get(k) for k in
                     ("best_psi", "best_combined_score", "items_run", "failures",
-                     "individuals", "variator")})
+                     "individuals", "variator", "operator")})
     print(f"[done ] {arm} seed={seed}  rc={rc}  {dt/60:.1f}min  "
           f"psi={row.get('best_psi')}", flush=True)
     return row
@@ -86,6 +86,25 @@ def main(a) -> None:
         rows = list(pool.map(lambda j: one(j[0], j[1], a), jobs))
 
     (HERE / a.output / "compare.json").write_text(json.dumps(rows, indent=1))
+
+    # Refuse to present a comparison whose arms were not given the same operator allowance. The
+    # first version of this experiment ran one arm with an unlimited action budget and the other
+    # two on 14, because a method's `default_variator` dropped the knob; the resulting difference
+    # in feasibility and wall clock looked like a search result and was a budget result. Checked
+    # rather than trusted, because that failure was invisible in every number the run printed.
+    ops = {}
+    for r in rows:
+        op = r.get("operator")
+        if op:
+            ops.setdefault(json.dumps(op, sort_keys=True), []).append(f"{r['arm']}_s{r['seed']}")
+    if len(ops) > 1:
+        print("\n" + "!" * 70)
+        print("ARMS ARE NOT COMPARABLE -- their operators were given different allowances:")
+        for cfg, who in ops.items():
+            print(f"  {', '.join(who)}\n    {cfg}")
+        print("Fix the mismatch and re-run; the numbers below do not isolate the policy.")
+        print("!" * 70)
+
     print("\n" + "=" * 70)
     print(f"{'arm':12} {'seed':>4} {'Psi':>10} {'items':>6} {'fail':>5} {'min':>6}")
     for r in sorted(rows, key=lambda r: (r["arm"], r["seed"])):

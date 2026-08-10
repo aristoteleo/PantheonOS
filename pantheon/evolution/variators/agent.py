@@ -12,10 +12,18 @@ the same directory and write to the same submission slot, so one agent's files c
 underneath it by another's parent. Here every call gets its own `_Session` and its own directory,
 and nothing mutation-specific is stored on the variator.
 
-The salvage behaviour is kept exactly as it was, because it is load-bearing: agents routinely edit
-the workspace and then stop without calling submit, and throwing that work away wastes the whole
-iteration. Two fallbacks, in order -- evaluate whatever is on disk, then commit the best verified
-version seen during the mutation.
+Salvage is still load-bearing -- agents routinely edit the workspace and then stop without calling
+submit, and throwing that work away wastes the whole iteration -- but it now insists on the same
+thing `submit` does. Two fallbacks, in order: evaluate whatever is on disk, then commit the best
+verified version seen during the mutation, and take neither unless it is FEASIBLE.
+
+That last word was missing everywhere, and it was expensive. `success` from the evaluator means it
+ran without crashing, which an invalid solution also manages -- it returns `success=True`,
+`validity=0`, score 0. Three places here read `success` and got a broken program: the best-so-far
+tracker, the on-disk salvage, and `submit`, which checked nothing at all and simply snapshotted the
+directory. Measured across eight runs: 38 of 213 committed programs violated the constraints, and
+more than half of those came from agents that HAD run the evaluator -- they verified one version,
+edited again, and submitted the edit unchecked. Nothing was there to stop them.
 """
 from __future__ import annotations
 
@@ -26,7 +34,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from pantheon.utils.log import logger
 
@@ -76,9 +84,14 @@ class _Session:
     parent_files: Dict[str, str]
     submitted: Optional[Dict[str, Any]] = None
     best: Optional[Dict[str, Any]] = None
+    """The best VERIFIED-FEASIBLE version this session produced: the file snapshot from whichever
+    `run_evaluator` call scored highest while satisfying the constraints. `None` means the agent
+    never ran the evaluator, or never got a valid result out of it -- and either way there is
+    nothing to fall back on."""
     evals: int = 0
     tool_calls: int = 0
     turns: int = 0
+    rejects: int = 0
     cost: float = 0.0
 
     def current_files(self) -> Dict[str, str]:
@@ -108,6 +121,9 @@ class AgentVariator:
         web_search: bool = False,
         warm_start_file: Optional[str] = None,
         score_key: str = "combined_score",
+        valid_key: str = "validity",
+        max_submit_retries: int = 2,
+        instruction_suffix: str = "",
     ):
         self.evaluator = evaluator
         self.model = model
@@ -120,12 +136,62 @@ class AgentVariator:
         self.web_search = web_search
         self.warm_start_file = warm_start_file
         self.score_key = score_key
+        self.valid_key = valid_key
+        """The metric that says a solution satisfies the problem's constraints.
+
+        Kept separate from `score_key` because the two answer different questions and the
+        evaluator reports a violated constraint as `success=True, validity=0, score=0`. Reading
+        that zero as a score -- rather than as "there is no score" -- is a single confusion that
+        had crept into four separate places: selection, the judge's training set, the history
+        shown to the agent, and this operator's own commit path.
+        """
+        self.max_submit_retries = max_submit_retries
+        self.instruction_suffix = instruction_suffix
+        """Text appended to whatever instruction the method produced.
+
+        A harness-level knob, so a prompt can be varied without editing an algorithm -- which is
+        the only way to attribute a change to the prompt rather than to the search.
+        """
+
+    # ---- feasibility ------------------------------------------------------
+
+    def _feasible(self, res: Dict[str, Any]) -> Tuple[bool, str]:
+        """Did the evaluator return a solution that actually satisfies the constraints?
+
+        Returns `(ok, why_not)`. `success` alone is not enough -- it only says the evaluator ran.
+        """
+        if not res.get("success"):
+            return False, str(res.get("error") or "the evaluator could not run it")[:300]
+        v = (res.get("metrics") or {}).get(self.valid_key)
+        if v is not None and v <= 0:
+            art = res.get("artifacts") or {}
+            why = art.get("feedback") or art.get("error") or art.get("reason")
+            return False, str(why or f"{self.valid_key}=0, constraints violated")[:300]
+        return True, ""
+
+    def _remember_best(self, sess: _Session, files: Dict[str, str],
+                       res: Dict[str, Any]) -> None:
+        """Keep this version if it is feasible and the best so far."""
+        ok, _ = self._feasible(res)
+        if not ok:
+            return
+        score = float((res.get("metrics") or {}).get(self.score_key, 0.0) or 0.0)
+        if sess.best is None or score > sess.best["score"]:
+            sess.best = {"files": dict(files), "score": score,
+                         "summary": f"(auto-committed best of {sess.evals} verified attempts; "
+                                    f"{self.score_key} {score:.4f})"}
 
     # ---- prompt ----------------------------------------------------------
 
     def build_prompt(self, ctx: EvolveContext, item: Create) -> str:
         c = item.context
         parts = [c.instruction or ctx.objective or "Improve the program."]
+        if self.instruction_suffix:
+            # Appended to the method's instruction rather than folded into the system prompt,
+            # because the two are not interchangeable: the system prompt already forbids invalid
+            # submissions and three arms that all read it produced infeasible programs at 5.6%,
+            # 12% and 35%. Whatever this buys, it buys by sitting next to the task.
+            parts.append(self.instruction_suffix)
         parent = c.parents[0] if c.parents else None
         if parent is not None:
             m = {k: v for k, v in parent.metrics().items() if k != "fitness_weights"}
@@ -181,11 +247,38 @@ class AgentVariator:
 
         async def submit(summary: str) -> str:
             """Commit your best version together with a short summary — like a git commit. Reads
-            the current files in your working directory as the result. Call this exactly ONCE,
-            when you are done. The summary is 1-3 sentences: what you changed, whether it worked,
-            and the measured metric change."""
-            sess.submitted = {"files": sess.current_files(), "summary": (summary or "").strip()}
-            return "Submitted. Your result and summary are recorded."
+            the current files in your working directory as the result and CHECKS them: an invalid
+            solution is rejected and you get to fix it. Call this when you are done. The summary
+            is 1-3 sentences: what you changed, whether it worked, and the measured metric
+            change."""
+            files = sess.current_files()
+            res = await self.evaluator.evaluate_files(files)
+            ok, why = self._feasible(res)
+            if ok:
+                self._remember_best(sess, files, res)
+                sess.submitted = {"files": files, "summary": (summary or "").strip()}
+                return "Submitted. Your result and summary are recorded."
+
+            # Measured: 34 of 204 deliberate submissions were infeasible, and more than half of
+            # those came from agents that HAD run the evaluator -- they checked one version, edited
+            # again, and submitted the edit unchecked. Nothing stopped them, because submit()
+            # simply snapshotted the directory. Checking here closes the loop the agent already
+            # has, which is why it costs a rejection rather than a rule.
+            sess.rejects += 1
+            if sess.rejects < self.max_submit_retries:
+                return (f"⛔ NOT submitted — the current files are not a valid solution: {why}\n"
+                        f"Fix the cause and call submit() again "
+                        f"({self.max_submit_retries - sess.rejects} attempt(s) left). "
+                        f"submit() costs no action budget.")
+            if sess.best is not None:
+                sess.submitted = {"files": sess.best["files"], "summary": sess.best["summary"]}
+                return ("⛔ Still invalid. Your best VERIFIED version was submitted instead of the "
+                        "current files.")
+            # Nothing valid was ever produced. Record it anyway -- the method's own feasibility
+            # rule ignores it, and a visible failed attempt is better than a silent gap.
+            sess.submitted = {"files": files,
+                              "summary": f"(invalid after {sess.rejects} attempts: {why})"}
+            return "⛔ Still invalid, and nothing valid was ever verified. Recorded as a failure."
 
         async def run_evaluator() -> dict:
             """Run the objective's evaluator on the CURRENT code in your working directory and
@@ -200,11 +293,7 @@ class AgentVariator:
             sess.evals += 1
             files = sess.current_files()
             res = await self.evaluator.evaluate_files(files)
-            score = float((res.get("metrics") or {}).get(self.score_key, 0.0) or 0.0)
-            if res.get("success") and (sess.best is None or score > sess.best["score"]):
-                sess.best = {"files": files, "score": score,
-                             "summary": f"(auto-committed best of {sess.evals} verified attempts; "
-                                        f"{self.score_key} {score:.4f})"}
+            self._remember_best(sess, files, res)
             out = {"success": res.get("success"), "metrics": res.get("metrics"),
                    "error": res.get("error")}
             feedback = {k: v for k, v in (res.get("artifacts") or {}).items()
@@ -410,11 +499,11 @@ class AgentVariator:
                 final = sess.current_files()
                 if final != sess.parent_files:
                     res = await self.evaluator.evaluate_files(final)
-                    if res.get("success"):
-                        score = float((res.get("metrics") or {}).get(self.score_key, 0.0) or 0.0)
-                        sess.best = {"files": final, "score": score,
-                                     "summary": f"(auto-evaluated final on-disk edit the agent left "
-                                                f"unverified; {self.score_key} {score:.4f})"}
+                    # `success` means the evaluator did not crash, which an invalid solution also
+                    # manages: it comes back success=True, validity=0, score 0. Salvaging on that
+                    # committed abandoned half-edits as children -- 44% of the programs this path
+                    # produced were infeasible, against 17% for deliberate submissions.
+                    self._remember_best(sess, final, res)
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"final on-disk salvage failed: {e}")
         if not sess.submitted and sess.best:

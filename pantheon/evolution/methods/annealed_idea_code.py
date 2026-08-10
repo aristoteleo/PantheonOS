@@ -518,10 +518,18 @@ class AnnealedIdeaCode(BaseMethod):
                 timeout=int(timeout)))
         from ..variators.agent import AgentVariator
 
+        # Every operator knob the caller passed has to be forwarded, not the subset this method
+        # happens to think about. Dropping `max_tool_calls` here gave this method's agent an
+        # unlimited action budget while every other arm ran on 14, and the comparison that came out
+        # of it read as a policy result when it was a budget result.
         return IdeaCodeVariator(idea_variator=idea, code_variator=AgentVariator(
             evaluator=evaluator, model=model, timeout=timeout, score_key=self.score_key,
             max_evaluations=kw.get("max_evaluations"),
-            workspace_root=kw.get("workspace_root")))
+            max_tool_calls=kw.get("max_tool_calls"),
+            max_turns=kw.get("max_turns"),
+            warm_start_file=kw.get("warm_start_file"),
+            workspace_root=kw.get("workspace_root"),
+            instruction_suffix=kw.get("instruction_suffix", "")))
 
     # ---- persistence ------------------------------------------------------
 

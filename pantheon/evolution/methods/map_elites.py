@@ -366,9 +366,12 @@ class MapElitesIslands(BaseMethod):
 
         return AgentVariator(evaluator=evaluator, model=model,
                              max_tool_calls=kw.get("max_tool_calls"),
+                             max_evaluations=kw.get("max_evaluations"),
+                             max_turns=kw.get("max_turns"),
                              timeout=kw.get("timeout", 1800),
                              warm_start_file=kw.get("warm_start_file"),
-                             workspace_root=kw.get("workspace_root"))
+                             workspace_root=kw.get("workspace_root"),
+                             instruction_suffix=kw.get("instruction_suffix", ""))
 
     def reconcile(self, ctx: EvolveContext) -> None:
         """Drop grid entries for individuals the restored store does not have, then rebuild the

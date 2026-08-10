@@ -44,6 +44,10 @@ own.
 """
 
 
+VERIFY_NOTE = ("Verify the program runs and satisfies the problem's constraints before "
+               "submitting it.")
+
+
 def build_method(name: str, seed: int, judge=None, norm: str = "minmax"):
     from pantheon.evolution.methods import (
         AnnealedIdeaCode, IdeaCodeAlternating, MapElitesIslands, SimpleTES)
@@ -131,6 +135,11 @@ async def main(a) -> None:
     # was produced with it OFF -- so it is a confound that has to be held fixed across arms, not
     # left to whatever each method's default happens to be.
     warm = None if a.no_warm_start else "warm_start.json"
+    # One sentence, toggled, so its effect can be measured rather than assumed. Three arms sharing
+    # one coding agent submitted infeasible programs at 5.6%, 12% and 35% (p=0.00015 between the
+    # extremes); the only arm that carried this sentence was the lowest, and the only arm without
+    # any "implement this approach" pressure sat in the middle.
+    suffix = VERIFY_NOTE if a.verify_note else ""
     if a.variator == "completion":
         variator = CompletionVariator(model=a.model, target_file="sequence.py",
                                       timeout=a.mutation_timeout)
@@ -138,12 +147,14 @@ async def main(a) -> None:
         variator = AgentVariator(
             evaluator=evaluator, model=a.model, max_tool_calls=a.tool_budget,
             timeout=a.mutation_timeout, warm_start_file=warm,
-            workspace_root=str(out / "_mut"), score_key="combined_score")
+            workspace_root=str(out / "_mut"), score_key="combined_score",
+            instruction_suffix=suffix)
     else:
         variator = method.default_variator(
             evaluator=evaluator, model=a.model, timeout=a.mutation_timeout,
             max_tool_calls=a.tool_budget, warm_start_file=warm,
-            workspace_root=str(out / "_mut"), target_file="sequence.py")
+            workspace_root=str(out / "_mut"), target_file="sequence.py",
+            instruction_suffix=suffix)
 
     # A two-population method routes by kind, so its operator is really two operators. Replacing
     # only the code half is what lets one search policy be compared against another with the
@@ -154,13 +165,27 @@ async def main(a) -> None:
             variator.code = AgentVariator(
                 evaluator=evaluator, model=a.model, max_tool_calls=a.tool_budget,
                 timeout=a.mutation_timeout, warm_start_file=warm,
-                workspace_root=str(out / "_mut"), score_key="combined_score")
+                workspace_root=str(out / "_mut"), score_key="combined_score",
+                instruction_suffix=suffix)
         else:
             variator.code = CompletionVariator(model=a.model, target_file="sequence.py",
                                                timeout=a.mutation_timeout)
     kind = type(variator).__name__
     if hasattr(variator, "code"):
         kind += f"({type(variator.code).__name__})"
+
+    # The operator's resolved budget, recorded rather than assumed. A method's `default_variator`
+    # silently dropped `max_tool_calls` once, so one arm ran unlimited while the others ran on 14
+    # and the difference read as a policy result. Written into the summary so a comparison can
+    # refuse to compare arms whose operators were not given the same allowance.
+    _op = getattr(variator, "code", variator)
+    operator = {"class": type(_op).__name__,
+                "max_tool_calls": getattr(_op, "max_tool_calls", None),
+                "max_evaluations": getattr(_op, "max_evaluations", None),
+                "max_turns": getattr(_op, "max_turns", None),
+                "warm_start": bool(getattr(_op, "warm_start_file", None)),
+                "instruction_suffix": bool(getattr(_op, "instruction_suffix", "")),
+                "max_submit_retries": getattr(_op, "max_submit_retries", None)}
     seed_genome = CodeGenome(files={
         "sequence.py": (HERE / "sequence.py").read_text(),
         # part of the genome so the evaluator sees it: the framework refreshes it with the best
@@ -175,6 +200,7 @@ async def main(a) -> None:
     print(f"Erdos minimum-overlap | method={method.name} | variator={kind} | "
           f"judge={judge_label} | model={a.model}")
     print(f"budget={a.iterations} work items | concurrency={a.workers} | seed={a.seed}")
+    print(f"operator {operator}")
     print("=" * 74, flush=True)
 
     t0 = time.time()
@@ -270,7 +296,8 @@ async def main(a) -> None:
             (out / f"best_{Path(path).name}").write_text(content)
     json.dump(
         {
-            "method": method.name, "variator": kind, "judge": judge_label, "norm": a.norm,
+            "method": method.name, "variator": kind, "judge": judge_label, "norm": a.norm, "verify_note": bool(a.verify_note),
+            "operator": operator,
             "model": a.model, "seed": a.seed,
             "items_run": res.items_run, "failures": res.failures,
             "individuals": len(res.store), "best_combined_score": best_score,
@@ -301,6 +328,9 @@ if __name__ == "__main__":
     p.add_argument("--code-variator", default=None, choices=["agent", "completion"],
                    help="replace only the code half of a two-population method, so two search "
                         "policies can be compared with the coder held fixed")
+    p.add_argument("--verify-note", action="store_true",
+                   help="append a one-sentence reminder to check feasibility before submitting, "
+                        "to the method's instruction rather than the system prompt")
     p.add_argument("--no-warm-start", action="store_true",
                    help="do not seed each child with its parent's best solution vector; measured "
                         "to cause a sticky-champion collapse on plateau-prone problems")

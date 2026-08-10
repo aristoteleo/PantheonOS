@@ -312,3 +312,42 @@ class TestTheOperatorBelongsToTheAlgorithm:
             asyncio.run(evolve(method=Nameless(), variator=None,
                                evaluators={"code": ValueEvaluator()}, seeds=[seed(0)],
                                budget=Budget(max_items=1)))
+
+
+# --------------------------------------------------- operator knob forwarding ---
+def _agent_of(variator):
+    """The AgentVariator a method built, whether directly or behind a router."""
+    from pantheon.evolution.variators.agent import AgentVariator
+
+    if isinstance(variator, AgentVariator):
+        return variator
+    inner = getattr(variator, "code", None)
+    return inner if isinstance(inner, AgentVariator) else None
+
+
+def test_default_variator_forwards_every_operator_knob():
+    """A method must hand the caller's operator budget to the operator it builds.
+
+    `AnnealedIdeaCode.default_variator` dropped `max_tool_calls`, so its agent ran with an
+    unlimited action budget while every other arm in a comparison ran on 14. The resulting
+    difference in feasibility and wall clock read as a property of the search policy and was
+    nothing of the kind. A method may choose WHICH operator it is defined with; it does not get to
+    quietly change how much that operator may spend.
+    """
+    from pantheon.evolution.methods import AnnealedIdeaCode, MapElitesIslands
+
+    kw = dict(evaluator=object(), model="m", timeout=1234,
+              max_tool_calls=14, max_evaluations=5, max_turns=9,
+              warm_start_file="warm.json", workspace_root="/tmp/ws",
+              target_file="sequence.py")
+    checked = 0
+    for method in (AnnealedIdeaCode(), MapElitesIslands(feature_dimensions=["complexity"])):
+        agent = _agent_of(method.default_variator(**kw))
+        if agent is None:
+            continue                       # this method is not defined with an agent
+        checked += 1
+        name = type(method).__name__
+        assert agent.max_tool_calls == 14, f"{name} dropped max_tool_calls"
+        assert agent.max_evaluations == 5, f"{name} dropped max_evaluations"
+        assert agent.workspace_root == "/tmp/ws", f"{name} dropped workspace_root"
+    assert checked >= 2, "expected at least two agent-defined methods to check"
