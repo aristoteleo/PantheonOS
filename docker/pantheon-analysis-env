@@ -142,13 +142,25 @@ if [ -n "$SITE" ] && [ -d "$SITE" ]; then
     # Two fallbacks, in this order, both AFTER the env's own site-packages:
     # the baseline for the analysis stack, then the runtime so `pantheon`
     # itself is importable. What the user installed is found first, which is
-    # what makes `pip install scanpy==x` in the personal env actually take
-    # effect over the baseline's copy.
-    : > "$SITE/zzz-pantheon-runtime.pth"
-    [ -n "$BASELINE_SITE" ] && [ -d "$BASELINE_SITE" ] \
-        && printf '%s\n' "$BASELINE_SITE" >> "$SITE/zzz-pantheon-runtime.pth"
-    [ -n "$RUNTIME_SITE" ] && [ -d "$RUNTIME_SITE" ] \
-        && printf '%s\n' "$RUNTIME_SITE" >> "$SITE/zzz-pantheon-runtime.pth"
+    # what makes `pip install scanpy==x` in the personal env take effect over
+    # the baseline's copy.
+    #
+    # Rewritten on every run, and compared against what it should be. An
+    # env built by an older image bridges somewhere else entirely — to /venv
+    # only, before there was a baseline — and its readiness marker says
+    # nothing about that: the marker means "this env works", not "this env
+    # was built the way the current image builds them". That distinction cost
+    # a verification round: the env was reused, the bridge was never rewritten,
+    # and `import scvi` failed while everything reported healthy.
+    BRIDGE="$SITE/zzz-pantheon-runtime.pth"
+    WANT=""
+    [ -n "$BASELINE_SITE" ] && [ -d "$BASELINE_SITE" ] && WANT="$BASELINE_SITE"
+    [ -n "$RUNTIME_SITE" ] && [ -d "$RUNTIME_SITE" ] && WANT="$WANT${WANT:+
+}$RUNTIME_SITE"
+    if [ "$(cat "$BRIDGE" 2>/dev/null)" != "$WANT" ]; then
+        echo "[analysis-env] rewiring the bridge to $BASELINE"
+        printf '%s\n' "$WANT" > "$BRIDGE"
+    fi
 fi
 
 # A kernelspec, so the notebook toolset can reach this env too.
