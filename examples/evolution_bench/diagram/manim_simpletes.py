@@ -13,16 +13,20 @@ The scores are invented. Everything about who gets picked, how many, and what co
 from __future__ import annotations
 
 import numpy as np
-from manim import (BLACK, DOWN, LEFT, RIGHT, UP, Arrow, Axes, Circle, Create, CurvedArrow, Dot,
-                   FadeIn, FadeOut, Flash, Indicate, LaggedStart, ManimColor, MovingCameraScene,
+from manim import (DOWN, LEFT, RIGHT, UP, ApplyFunction, Arrow, Axes, Circle, Create, CurvedArrow,
+                   Dot, FadeIn, FadeOut, Indicate, LaggedStart, ManimColor, MovingCameraScene,
                    RoundedRectangle, Text, VGroup, Write, config, interpolate_color)
 
 from sim_simpletes import EVENTS, K, drew_phrase
 
 config.background_color = ManimColor("#ffffff")
-FONT = "Helvetica Neue"
-"""Pango's default here is a serif, which reads as a paper figure rather than a diagram. Set it
-once; `Text` silently falls back if the family is missing, so this costs nothing on another box."""
+FONT = "PT Sans"
+"""Pango's default here is a serif, which reads as a paper figure rather than a diagram.
+
+PT Sans over Helvetica Neue and Avenir Next because manimpango sets both of those with noticeably
+loose tracking at these sizes -- body lines come out airy and gappy, and the score labels inside
+the nodes lose their fit. `Text` falls back silently if the family is missing.
+"""
 
 INK = ManimColor("#1f2328")
 SUB = ManimColor("#57606a")
@@ -34,12 +38,16 @@ GREEN = ManimColor("#1a7f37")
 BLUE = ManimColor("#0969da")
 LOW, HIGH = ManimColor("#deebf7"), ManimColor("#216eb4")
 
-X0, XSTEP = -5.35, 1.62
+X0, XSTEP = -5.3, 1.66
 """Eight nodes have to fit the frame with room to the left for the chain labels, because act three
 shows all three chains at once and a label that lands at x < -7.11 is simply not rendered."""
 BAND_Y = [2.05, 0.0, -2.05]
-NODE_R = 0.23
-SQ, FAN_DY, FAN_DX, GATE_DX = 0.36, 0.52, 0.98, 0.52
+NODE_R = 0.21
+SQ, FAN_DY, FAN_DX, GATE_DX = 0.34, 0.50, 1.02, 0.58
+"""Spacing is set by what has to fit BETWEEN two trunk nodes: the prompt dot, the fan, and an
+arrowhead at each end that is not sitting on top of a node. The first pass put the prompt 0.29
+from the previous node's edge with a 0.2-long arrowhead pointing at it, so every arrival overlapped
+the node it was arriving next to."""
 FULL_W = config.frame_width
 
 
@@ -88,58 +96,128 @@ def cand_mob(score: float, at: np.ndarray, won: bool, lit: bool) -> VGroup:
     return VGroup(box, label)
 
 
-def arc(a: np.ndarray, b: np.ndarray, color, width=2.0, angle=-0.55) -> CurvedArrow:
-    return CurvedArrow(a, b, angle=angle, color=color, stroke_width=width,
-                       tip_length=0.11)
+def _shrink(a, b, buff_a: float, buff_b: float):
+    """Pull the endpoints in along the chord.
+
+    `CurvedArrow` has no `buff`, so it runs centre to centre: the tail starts inside the source
+    node and the head lands on top of the target. Trimming by each end's radius is what keeps an
+    arrow next to a node instead of through it.
+    """
+    a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
+    d = b - a
+    n = float(np.linalg.norm(d))
+    if n < 1e-6:
+        return a, b
+    u = d / n
+    return a + u * buff_a, b - u * buff_b
 
 
-def framing(chain: int, first: int, last: int, pad: float = 1.5):
+def arc(a, b, color, width=2.0, angle=-0.55, buff_a=0.0, buff_b=0.0) -> CurvedArrow:
+    a, b = _shrink(a, b, buff_a, buff_b)
+    return CurvedArrow(a, b, angle=angle, color=color, stroke_width=width, tip_length=0.085)
+
+
+def spoke(a, b, color, width=1.8) -> Arrow:
+    """Prompt to one candidate. Trimmed asymmetrically: clear of the prompt dot, clear of the box."""
+    a, b = _shrink(a, b, 0.09, 0.235)
+    return Arrow(a, b, buff=0.0, stroke_width=width, tip_length=0.075, color=color)
+
+
+def fit(mob, limit: float):
+    """Text set at a fixed font_size will happily run off both edges of the frame."""
+    if mob.width > limit:
+        mob.scale(limit / mob.width)
+    return mob
+
+
+def framing(chain: int, first: int, last: int, pad: float = 1.5, min_h: float = 0.0):
     """Centre the camera on the span actually being drawn.
 
     Aiming it at the newest node instead leaves the step half off one edge and empty canvas on the
     other, because a step reaches back from the seed to the fan, not forward from the node.
+
+    `min_h` buys vertical room. The frame's height follows from its width, so a close-up on one
+    step is not only narrow but SHORT, and a caption placed against the bottom edge lands on the
+    lowest candidate of the fan. Widening is the only way to make room underneath.
     """
     lo = X0 + first * XSTEP - NODE_R
     hi = X0 + last * XSTEP + NODE_R
-    return np.array([(lo + hi) / 2, BAND_Y[chain], 0.0]), (hi - lo) + pad
+    w = max((hi - lo) + pad, min_h * FULL_W / config.frame_height)
+    return np.array([(lo + hi) / 2, BAND_Y[chain], 0.0]), w
+
+
+def _fade_stroke_and_tips(o: float):
+    """Dim an arrow without filling it in.
+
+    Two traps in one place. `set_opacity` sets fill as well as stroke, and an arc is an OPEN curve,
+    so giving it fill paints the lens between it and its chord -- four parent arcs dimmed that way
+    turn the step into an orange smear. But stroke alone leaves the ARROWHEADS at full strength,
+    because a tip is a filled polygon, so a faded run still has solid orange heads scattered along
+    it. Dim the stroke everywhere, and the fill only where there already was some.
+    """
+    def f(m):
+        m.set_stroke(opacity=o)
+        for sub in m.family_members_with_points():
+            if sub.get_fill_opacity() > 0:
+                sub.set_fill(opacity=o)
+        return m
+    return f
 
 
 def dim(pairs, o: float = 0.3):
-    """Fade finished work into the background.
+    """Fade finished work into the background."""
+    return [ApplyFunction(_fade_stroke_and_tips(o), mob) if kind == "stroke"
+            else mob.animate.set_opacity(o)
+            for mob, kind in pairs]
 
-    `set_opacity` sets fill as well as stroke, and an arc is an OPEN curve -- giving it fill paints
-    the lens between it and its chord. Four parent arcs dimmed that way turn the step into an
-    orange smear. Arcs get stroke only; anything with a real interior gets both.
+
+def para(text: str, size: float, color, weight="NORMAL") -> VGroup:
+    """Multi-line text whose lines are actually centred on each other.
+
+    A `Text` with newlines left-aligns its lines inside one mobject, so a two-line caption centred
+    on the frame still hangs a ragged edge off a centred first line. `Paragraph` centres them but
+    inserts a gap after the first character of a line -- "They are peers" comes out "T hey are
+    peers". One Text per line, arranged, avoids both.
     """
-    out = []
-    for mob, kind in pairs:
-        out.append(mob.animate.set_stroke(opacity=o) if kind == "stroke"
-                   else mob.animate.set_opacity(o))
-    return out
+    lines = VGroup(*[Text(ln, font=FONT, font_size=size, color=color, weight=weight)
+                     for ln in text.split("\n")])
+    return lines.arrange(DOWN, buff=size * 0.0042)
 
 
 class SimpleTESRun(MovingCameraScene):
 
     # ---- text that stays the same apparent size however far the camera is ----
-    def cap(self, text: str, size: float = 26, color=SUB, weight="NORMAL") -> Text:
-        t = Text(text, font=FONT, font_size=size, color=color, weight=weight)
-        return t.scale(self.camera.frame.width / FULL_W)
+    def cap(self, text: str, size: float = 26, color=SUB, weight="NORMAL"):
+        t = para(text, size, color, weight=weight) if "\n" in text else \
+            Text(text, font=FONT, font_size=size, color=color, weight=weight)
+        t.scale(self.zoom)
+        return fit(t, self.camera.frame.width - 0.8)
+
+    @property
+    def zoom(self) -> float:
+        """How much the camera magnifies. Stroke widths and text both have to be divided by it,
+        or a close-up renders 3x-thick rings around 3x-large labels."""
+        return self.camera.frame.width / FULL_W
+
+    def sw(self, base: float) -> float:
+        return base * self.zoom
 
     def construct(self):
         self.dim_later: list = []
         self.chain_of = {c: [ev for ev in EVENTS if ev["chain"] == c] for c in range(3)}
 
-        title = Text("SimpleTES", font=FONT, font_size=44, color=INK, weight="BOLD").to_edge(UP, buff=0.45)
-        sub = Text("every selected node is a parent — one prompt fans out into k candidates, "
-                   "and one of them continues the chain",
-                   font=FONT, font_size=21, color=SUB).next_to(title, DOWN, buff=0.22)
+        title = Text("SimpleTES", font=FONT, font_size=54, color=INK, weight="BOLD")
+        sub = para("every selected node is a parent — one prompt fans out into k candidates,\n"
+                   "and one of them continues the chain", 27, SUB)
+        card = VGroup(title, sub).arrange(DOWN, buff=0.45)
+        fit(card, FULL_W - 2.4).move_to([0, 0.4, 0])
         self.play(Write(title), FadeIn(sub, shift=UP * 0.15), run_time=1.4)
-        self.wait(0.8)
+        self.wait(1.0)
 
         seeds = {}
         for c in range(3):
             seeds[c] = node_mob(EVENTS[0]["chains"][c][0].score, trunk_pos(0, BAND_Y[c]))
-        at, w = framing(0, 0, 1, pad=1.9)
+        at, w = framing(0, 0, 1, pad=1.9, min_h=3.4)
         self.play(FadeOut(title), FadeOut(sub), FadeIn(seeds[0]),
                   self.camera.frame.animate.move_to(at).set(width=w), run_time=1.6)
 
@@ -150,93 +228,101 @@ class SimpleTESRun(MovingCameraScene):
 
     # ---------------------------------------------------------------- act 1 --
     def act_one(self):
-        """Two steps, slowly, with every part named as it appears."""
-        band = BAND_Y[0]
+        """First what one step IS, then where its parents come from.
+
+        Those cannot be the same step. A chain's first step has only the seed to build on, so
+        narrating "every selected node is a parent" over it shows a single parent and proves
+        nothing. The chain needs a ranking before the selection is worth watching.
+        """
         evs = self.chain_of[0]
 
         lab = self.cap("chain 1  ·  one of three", 24, MUTED)
-        lab.next_to(self.built[0][0], UP, buff=0.3)
+        lab.next_to(self.built[0][0], UP, buff=0.4)
         self.play(FadeIn(lab), run_time=0.6)
+        self.wait(1.0)
+        self.play(FadeOut(lab), run_time=0.4)
 
-        for idx, ev in enumerate(evs[:2]):
-            order = idx + 1
-            if idx == 1:
-                at, w = framing(0, 0, order, pad=1.9)
-                self.play(FadeOut(lab),
-                          self.camera.frame.animate.move_to(at).set(width=w), run_time=1.2)
-            self.one_step(ev, 0, order, narrate=idx == 0, slow=True)
+        self.one_step(evs[0], 0, 1, beats=("fan", "commit"), slow=True)
 
-    def one_step(self, ev, chain: int, order: int, *, narrate=False, slow=False):
+        at, w = framing(0, 0, 3, pad=1.6, min_h=3.4)
+        self.play(self.camera.frame.animate.move_to(at).set(width=w), run_time=1.1)
+        for idx, ev in enumerate(evs[1:3], start=2):
+            self.one_step(ev, 0, idx)
+
+        at, w = framing(0, 0, 4, pad=1.6, min_h=3.4)
+        self.play(self.camera.frame.animate.move_to(at).set(width=w), run_time=1.1)
+        self.one_step(evs[3], 0, 4, beats=("select", "parents"), slow=True)
+
+    def one_step(self, ev, chain: int, order: int, *, beats=(), slow=False):
         band = BAND_Y[chain]
         gate, rt = gate_pos(order, band), 0.9 if slow else 0.28
+        held = [None]
+
+        def say(key: str, text: str, *, top=False, hold=1.7):
+            if key not in beats:
+                return
+            c = self.cap(text, 25, INK)
+            c.next_to(self.camera.frame.get_top() if top else self.camera.frame.get_bottom(),
+                      DOWN if top else UP, buff=0.32)
+            gone = [FadeOut(held[0])] if held[0] is not None else []
+            self.play(FadeIn(c), *gone, run_time=0.6)
+            held[0] = c
+            self.wait(hold)
 
         # 1. the selector picks. Every selected node is a parent -- there is no distinguished one.
         picked = [self.built[chain][o][0] for o, _ in ev["picked"]]
-        self.play(*[p.animate.set_stroke(ORANGE, width=4.0) for p in picked],
+        self.play(*[p.animate.set_stroke(ORANGE, width=self.sw(3.4)) for p in picked],
                   *dim(self.dim_later), run_time=rt)
         self.dim_later = []
-        if narrate:
-            n = len(ev["picked"])
-            c1 = self.cap(f"the selector draws {n} nodes from this chain's ranking —\n"
-                          f"{drew_phrase(ev['labels'])}", 25, INK)
-            c1.next_to(self.camera.frame.get_top(), DOWN, buff=0.35)
-            self.play(FadeIn(c1), run_time=0.7)
-            self.wait(1.5)
+        n = len(ev["picked"])
+        say("select", f"the selector draws {n} node{'' if n == 1 else 's'} from this chain's "
+                      f"ranking —\n{drew_phrase(ev['labels'])}", top=True)
 
         # 2. they all feed ONE prompt
-        arcs = VGroup(*[arc(self.built[chain][o][0].get_center(), gate + LEFT * 0.12, ORANGE,
-                            2.0 if slow else 1.6,
-                            angle=-0.55 if o < order - 1 else -0.001)
+        arcs = VGroup(*[arc(trunk_pos(o, band), gate, ORANGE, self.sw(2.4),
+                            angle=-0.55 if o < order - 1 else -0.001,
+                            buff_a=NODE_R + 0.03, buff_b=0.13)
                         for o, _ in ev["picked"]])
-        dot = Dot(gate, radius=0.06, color=ORANGE)
+        dot = Dot(gate, radius=0.055, color=ORANGE)
         self.play(LaggedStart(*[Create(a) for a in arcs], lag_ratio=0.18 if slow else 0.05),
                   run_time=rt * 1.3)
         self.play(FadeIn(dot, scale=0.4), run_time=rt * 0.5)
-        if narrate:
-            c2 = self.cap("all of them are parents — the prompt asks for a NEW program,\n"
-                          "not an edit of any one of them", 25, INK)
-            c2.next_to(self.camera.frame.get_bottom(), UP, buff=0.35)
-            self.play(FadeOut(c1), FadeIn(c2), run_time=0.7)
-            self.wait(1.6)
+        say("parents", "all of them are parents — the prompt asks for a NEW program,\n"
+                       "not an edit of any one of them")
 
         # 3. one call, k candidates, drawn as peers
         fan = VGroup(*[cand_mob(s, cand_pos(order, j, band), j == ev["win"], True)
                        for j, s in enumerate(ev["cands"])])
-        spokes = VGroup(*[Arrow(gate, cand_pos(order, j, band) + LEFT * SQ / 2,
-                                buff=0.04, stroke_width=1.8, tip_length=0.09, color=BLUE)
+        spokes = VGroup(*[spoke(gate, cand_pos(order, j, band), BLUE, self.sw(2.0))
                           for j in range(K)])
         self.play(LaggedStart(*[Create(s) for s in spokes], lag_ratio=0.12),
                   LaggedStart(*[FadeIn(f, scale=0.5) for f in fan], lag_ratio=0.12),
                   run_time=rt * 1.6)
-        if narrate:
-            c3 = self.cap(f"ONE call produces all {K} of them — that is the cost profile.\n"
-                          "They are peers; none is the parent's revision.", 25, INK)
-            c3.next_to(self.camera.frame.get_bottom(), UP, buff=0.35)
-            self.play(FadeOut(c2), FadeIn(c3), run_time=0.7)
-            self.wait(1.8)
+        say("fan", f"ONE call produces all {K} of them — that is the cost profile.\n"
+                   "They are peers; none of them is the parent's revision.", hold=1.9)
 
         # 4. best of k joins the chain -- and it commits even when it is worse
         win = ev["win"]
-        self.play(Flash(fan[win].get_center(), color=GREEN, line_length=0.12,
-                        flash_radius=0.28, num_lines=10), run_time=rt * 0.8)
-        node = node_mob(ev["winner"], trunk_pos(order, band), GREEN, 3.2)
-        link = arc(cand_pos(order, win, band) + RIGHT * SQ / 2, trunk_pos(order, band),
-                   GREEN, 2.4, angle=0.35 * (win - 1) or -0.001)
+        # Indicate, not Flash: a flash draws its rays at a fixed radius, and around a box this
+        # small they land well clear of it as loose green dashes belonging to nothing.
+        self.play(Indicate(fan[win], color=GREEN, scale_factor=1.22), run_time=rt * 0.9)
+        node = node_mob(ev["winner"], trunk_pos(order, band), GREEN, self.sw(3.0))
+        link = arc(cand_pos(order, win, band), trunk_pos(order, band), GREEN, self.sw(2.6),
+                   angle=0.32 * (win - 1) or -0.001,
+                   buff_a=SQ * 0.62, buff_b=NODE_R + 0.03)
         self.play(Create(link), FadeIn(node, scale=0.6), run_time=rt * 1.2)
-        if narrate:
-            c4 = self.cap(
-                f"best of k = {ev['winner']:.2f} continues the chain."
-                + ("" if ev["improved"] else
-                   f"\nIt is below its best parent ({ev['anchor']:.2f}) and it still commits — "
-                   "a chain\nrecords what was tried, it is not a ratchet."), 25, INK)
-            c4.next_to(self.camera.frame.get_bottom(), UP, buff=0.35)
-            self.play(FadeOut(c3), FadeIn(c4), run_time=0.7)
-            self.wait(2.2)
-            self.play(FadeOut(c4), run_time=0.5)
+        say("commit",
+            f"best of k = {ev['winner']:.2f} continues the chain — the other {K - 1} were "
+            "measured\nand kept, but no later prompt will see them."
+            + ("" if ev["improved"] else
+               f"\nThis one is below its best parent ({ev['anchor']:.2f}) and it still commits."),
+            hold=2.4)
+        if held[0] is not None:
+            self.play(FadeOut(held[0]), run_time=0.45)
 
         self.built[chain][order] = node
-        self.play(*[p.animate.set_stroke(EDGE, width=2.0) for p in picked],
-                  node[0].animate.set_stroke(EDGE, width=2.0), run_time=rt * 0.5)
+        self.play(*[p.animate.set_stroke(EDGE, width=self.sw(2.0)) for p in picked],
+                  node[0].animate.set_stroke(EDGE, width=self.sw(2.0)), run_time=rt * 0.5)
         self.dim_later = [(arcs, "stroke"), (link, "stroke"), (dot, "all"), (spokes, "all"),
                           (fan, "all")]
 
@@ -244,22 +330,17 @@ class SimpleTESRun(MovingCameraScene):
     def act_two(self):
         """The rest of chain 1 at speed, so the DAG accumulates and the arcs reach further back."""
         evs = self.chain_of[0]
-        at, w = framing(0, 0, 5, pad=1.4)
+        at, w = framing(0, 0, len(evs), pad=1.3)
         self.play(self.camera.frame.animate.move_to(at).set(width=w), run_time=1.4)
 
-        note = self.cap("the arcs reach back further as the chain gets longer —\n"
-                        "most parents come from the top of the ranking, some from the tail",
+        note = self.cap("now the chain has a ranking, so the draw can be choosy —\n"
+                        "mostly from the top of it, sometimes reaching into the tail",
                         24, SUB)
-        note.next_to(self.camera.frame.get_bottom(), UP, buff=0.3)
+        note.next_to(self.camera.frame.get_bottom(), UP, buff=0.35)
         self.play(FadeIn(note), run_time=0.6)
 
-        for idx, ev in enumerate(evs[2:], start=3):
-            if idx == 6:
-                at, w = framing(0, 0, len(evs), pad=1.4)
-                self.play(self.camera.frame.animate.move_to(at).set(width=w),
-                          note.animate.scale(w / self.camera.frame.width).move_to(
-                              at + DOWN * 1.55), run_time=0.9)
-            self.one_step(ev, 0, idx, slow=False)
+        for idx, ev in enumerate(evs[4:], start=5):
+            self.one_step(ev, 0, idx)
         self.play(FadeOut(note), run_time=0.5)
 
     # ---------------------------------------------------------------- act 3 --
@@ -286,10 +367,10 @@ class SimpleTESRun(MovingCameraScene):
                      for idx, ev in enumerate(self.chain_of[c], start=1)]
             self.play(LaggedStart(*[FadeIn(g) for g in batch], lag_ratio=0.22), run_time=2.6)
 
-        note = Text("Chains do not compete. Each gets an equal share of the budget and they are "
+        note = para("Chains do not compete. Each gets an equal share of the budget and they are "
                     "served in turn;\nthe selection happens inside one chain, over its own nodes.",
-                    font=FONT, font_size=21, color=INK, line_spacing=0.85)
-        note.move_to([0, -3.35, 0])
+                    23, INK)
+        fit(note, FULL_W - 2.0).move_to([0, -3.35, 0])
         self.play(FadeIn(note), run_time=0.8)
         self.wait(2.4)
 
@@ -305,15 +386,16 @@ class SimpleTESRun(MovingCameraScene):
         gate = gate_pos(order, band)
         g = VGroup()
         for o, _ in ev["picked"]:
-            g.add(arc(trunk_pos(o, band), gate + LEFT * 0.12, MUTED, 1.2,
-                      angle=-0.55 if o < order - 1 else -0.001).set_stroke(opacity=0.4))
+            g.add(arc(trunk_pos(o, band), gate, MUTED, 1.2,
+                      angle=-0.55 if o < order - 1 else -0.001,
+                      buff_a=NODE_R + 0.03, buff_b=0.13).set_stroke(opacity=0.4))
         for j, s in enumerate(ev["cands"]):
             at = cand_pos(order, j, band)
-            g.add(Arrow(gate, at + LEFT * SQ / 2, buff=0.04, stroke_width=1.2, tip_length=0.07,
-                        color=MUTED).set_opacity(0.4))
-            g.add(cand_mob(s, at, j == ev["win"], False).set_opacity(0.75))
-        g.add(arc(cand_pos(order, ev["win"], band) + RIGHT * SQ / 2, trunk_pos(order, band),
-                  MUTED, 1.4, angle=0.35 * (ev["win"] - 1) or -0.001).set_stroke(opacity=0.5))
+            g.add(spoke(gate, at, MUTED, 1.2).set_opacity(0.4))
+            g.add(cand_mob(s, at, j == ev["win"], False).set_opacity(0.8))
+        g.add(arc(cand_pos(order, ev["win"], band), trunk_pos(order, band), MUTED, 1.4,
+                  angle=0.32 * (ev["win"] - 1) or -0.001,
+                  buff_a=SQ * 0.62, buff_b=NODE_R + 0.03).set_stroke(opacity=0.5))
         node = node_mob(ev["winner"], trunk_pos(order, band))
         g.add(node)
         self.built[chain][order] = node
@@ -336,8 +418,9 @@ class SimpleTESRun(MovingCameraScene):
                       .next_to(ax.c2p(v, 0.3), DOWN, buff=0.18))
         ticks.add(Text("step", font=FONT, font_size=17, color=MUTED)
                   .next_to(ax.c2p(22, 0.3), DOWN, buff=0.18))
-        head = Text("every candidate that was measured, and the best so far",
-                    font=FONT, font_size=26, color=INK).next_to(ax, UP, buff=0.55)
+        head = fit(Text("every candidate that was measured, and the best so far",
+                        font=FONT, font_size=28, color=INK), FULL_W - 2.0)
+        head.next_to(ax, UP, buff=0.55)
         dots = VGroup(*[Dot(ax.c2p(ev["step"] + 1, s), radius=0.045, color=BLUE).set_opacity(0.55)
                         for ev in EVENTS for s in ev["cands"]])
         line = ax.plot_line_graph([ev["step"] + 1 for ev in EVENTS],
@@ -349,9 +432,8 @@ class SimpleTESRun(MovingCameraScene):
         self.play(Create(line), run_time=1.8)
 
         best = max(ev["best"] for ev in EVENTS)
-        tag = Text("The line only goes up, and on its own it suggests steady progress. The cloud "
+        tag = para("The line only goes up, and on its own it suggests steady progress. The cloud "
                    "underneath is\nhow much of the budget went into candidates worse than what "
-                   f"already existed — the run ended at {best:.2f}.",
-                   font=FONT, font_size=19, color=SUB, line_spacing=0.85)
-        tag.move_to([0, -3.25, 0])
+                   f"already existed — the run ended at {best:.2f}.", 21, SUB)
+        fit(tag, FULL_W - 2.0).move_to([0, -3.25, 0])
         self.play(FadeIn(tag), Indicate(line, color=ORANGE, scale_factor=1.02), run_time=1.4)
