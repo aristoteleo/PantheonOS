@@ -516,20 +516,16 @@ class AnnealedIdeaCode(BaseMethod):
             return IdeaCodeVariator(idea_variator=idea, code_variator=SandboxVariator(
                 evaluator_code=kw.get("evaluator_code", ""), model=model,
                 timeout=int(timeout)))
-        from ..variators.agent import AgentVariator
+        from ..variators.agent import AgentVariator, agent_kwargs
 
-        # Every operator knob the caller passed has to be forwarded, not the subset this method
-        # happens to think about. Dropping `max_tool_calls` here gave this method's agent an
-        # unlimited action budget while every other arm ran on 14, and the comparison that came out
-        # of it read as a policy result when it was a budget result.
+        # Forwarded from the operator's signature rather than a list maintained here. Naming the
+        # knobs one by one lost `max_tool_calls` once -- this method's agent then ran on an
+        # unlimited action budget while every other arm ran on 14, and the comparison read as a
+        # policy result when it was a budget result -- and later lost `inner_fidelity` and
+        # `trace_path` the same way, silently.
         return IdeaCodeVariator(idea_variator=idea, code_variator=AgentVariator(
-            evaluator=evaluator, model=model, timeout=timeout, score_key=self.score_key,
-            max_evaluations=kw.get("max_evaluations"),
-            max_tool_calls=kw.get("max_tool_calls"),
-            max_turns=kw.get("max_turns"),
-            warm_start_file=kw.get("warm_start_file"),
-            workspace_root=kw.get("workspace_root"),
-            instruction_suffix=kw.get("instruction_suffix", "")))
+            evaluator=evaluator, **{"model": model, "timeout": timeout,
+                                    "score_key": self.score_key, **agent_kwargs(kw)}))
 
     # ---- persistence ------------------------------------------------------
 

@@ -59,6 +59,25 @@ Rules:
 - Make concrete, correct edits. Call submit exactly once, at the end."""
 
 
+def agent_kwargs(kw: Dict[str, Any]) -> Dict[str, Any]:
+    """Every `AgentVariator` knob present in `kw`, taken from its signature.
+
+    A method's `default_variator` used to name the knobs it forwarded, one by one. That is a list
+    someone has to remember to extend, and twice nobody did: `max_tool_calls` went missing and one
+    arm of a comparison ran on an unlimited action budget while the others ran on 14, and later
+    `inner_fidelity` and `trace_path` were dropped the same way -- a cheap-measurement setting that
+    silently never applied, and a trace file that was never written. Neither failure was visible in
+    any number the run printed.
+
+    Reading the signature means a new operator parameter reaches every method without anyone
+    editing anything.
+    """
+    import inspect
+
+    accepted = set(inspect.signature(AgentVariator.__init__).parameters) - {"self", "evaluator"}
+    return {k: v for k, v in kw.items() if k in accepted and v is not None}
+
+
 def extract_cost(response: Any) -> float:
     """Cost in USD for one agent run.
 
@@ -125,6 +144,7 @@ class AgentVariator:
         inner_fidelity: str = "full",
         max_submit_retries: int = 2,
         instruction_suffix: str = "",
+        trace_path: Optional[str] = None,
     ):
         self.evaluator = evaluator
         self.model = model
@@ -158,6 +178,15 @@ class AgentVariator:
         """
         self.max_submit_retries = max_submit_retries
         self.instruction_suffix = instruction_suffix
+        self.trace_path = trace_path
+        """Where to append a record of every tool call and what it did to the workspace.
+
+        Off by default -- it costs a hash of the workspace per call. Turned on to answer a
+        question the stored genomes could not: 6 of 35 mutations on a 924-line C++ file committed
+        something that would not compile (a header block gone, control characters at the top,
+        `#include <set> d_se ||`), and the genome shows the wreckage without showing which call
+        produced it.
+        """
         """Text appended to whatever instruction the method produced.
 
         A harness-level knob, so a prompt can be varied without editing an algorithm -- which is
@@ -353,8 +382,56 @@ class AgentVariator:
         await agent.toolset(PythonInterpreterToolSet(name=f"evo-py-{id(sess)}", workdir=str(wt)))
         await agent.toolset(ShellToolSet(f"evo-sh-{id(sess)}", workdir=str(wt)))
         self._attach_budget(agent, sess)
+        if self.trace_path:
+            self._attach_trace(agent, sess)
         return PantheonTeam(agents=[agent], plugins=[CompressionPlugin(
             {"enable": True, "threshold": 0.8, "preserve_recent_messages": 5})])
+
+    def _attach_trace(self, agent, sess: _Session) -> None:
+        """Record each tool call together with the state of the workspace afterwards.
+
+        The file digest is the point. A tool that reports success while leaving a broken file
+        behind is invisible in its own return value, so the trace carries what the workspace
+        actually looks like after every call and the first bad line is attributable to one call.
+        """
+        import hashlib
+
+        def snapshot():
+            out = {}
+            for path in sorted(sess.parent_files):
+                fp = sess.workdir / path
+                if not fp.exists():
+                    out[path] = {"missing": True}
+                    continue
+                b = fp.read_bytes()
+                head = b[:60].decode("utf-8", "replace")
+                out[path] = {"sha": hashlib.sha256(b).hexdigest()[:10], "bytes": len(b),
+                             "lines": b.count(b"\n") + 1, "head": head}
+            return out
+
+        def write(rec):
+            try:
+                with open(self.trace_path, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(rec, default=str) + "\n")
+            except OSError:
+                pass
+
+        async def pre(func_name, params):
+            write({"sess": id(sess), "phase": "pre", "tool": func_name.split("__")[-1],
+                   "args": {k: (v[:600] if isinstance(v, str) else v)
+                            for k, v in (params or {}).items()},
+                   "files": snapshot(), "at": time.time()})
+            return None
+
+        async def post(func_name, params, result):
+            write({"sess": id(sess), "phase": "post", "tool": func_name.split("__")[-1],
+                   "result": (result if isinstance(result, (dict, int, float, bool))
+                              else str(result)[:600]),
+                   "files": snapshot(), "at": time.time()})
+            return None
+
+        agent._pre_tool_hooks.append(pre)
+        agent._post_tool_hooks.append(post)
 
     def _attach_budget(self, agent, sess: _Session) -> None:
         """Charge every tool call except submit against a quota, show the countdown on each

@@ -102,7 +102,8 @@ async def main(a) -> None:
         evaluator=evaluator, model=a.model, timeout=a.mutation_timeout,
         max_tool_calls=a.tool_budget, workspace_root=str(out / "_mut"),
         target_file=evolve_file,
-        inner_fidelity=a.inner_fidelity or cfg.get("inner_fidelity", "full"))
+        inner_fidelity=a.inner_fidelity or cfg.get("inner_fidelity", "full"),
+        trace_path=(str(out / "trace.jsonl") if a.trace else None))
     if a.code_variator and hasattr(variator, "code"):
         variator.code = (
             AgentVariator(evaluator=evaluator, model=a.model, max_tool_calls=a.tool_budget,
@@ -192,6 +193,10 @@ if __name__ == "__main__":
     p.add_argument("--eval-timeout", type=int, default=None,
                    help="per-evaluation cap; defaults to the task's own setting")
     p.add_argument("--mutation-timeout", type=int, default=1800)
+    p.add_argument("--trace", action="store_true",
+                   help="record every tool call and the workspace digest after it, to "
+                        "trace/jsonl. Answers which call broke a file, which the stored genome "
+                        "cannot")
     p.add_argument("--inner-fidelity", default=None,
                    help="fidelity for the agent's own run_evaluator calls, when the task offers "
                         "more than one. What gets RECORDED is always measured at full fidelity")

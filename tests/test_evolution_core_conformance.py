@@ -326,28 +326,52 @@ def _agent_of(variator):
 
 
 def test_default_variator_forwards_every_operator_knob():
-    """A method must hand the caller's operator budget to the operator it builds.
+    """A method must hand the caller's operator settings to the operator it builds.
 
-    `AnnealedIdeaCode.default_variator` dropped `max_tool_calls`, so its agent ran with an
-    unlimited action budget while every other arm in a comparison ran on 14. The resulting
-    difference in feasibility and wall clock read as a property of the search policy and was
-    nothing of the kind. A method may choose WHICH operator it is defined with; it does not get to
-    quietly change how much that operator may spend.
+    Enumerating the knobs here is what let this fail twice. `AnnealedIdeaCode.default_variator`
+    dropped `max_tool_calls`, so its agent ran with an unlimited action budget while every other
+    arm of a comparison ran on 14 -- the difference in feasibility and wall clock read as a
+    property of the search policy and was nothing of the kind. Later `inner_fidelity` and
+    `trace_path` went the same way: a cheap-measurement setting that silently never applied, and a
+    trace file that was never written.
+
+    So this test does not name knobs either. It reads `AgentVariator`'s signature, passes a
+    distinctive value for every parameter it accepts, and checks each one arrives. A new operator
+    parameter is covered the moment it exists.
     """
-    from pantheon.evolution.methods import AnnealedIdeaCode, MapElitesIslands
+    import inspect
 
-    kw = dict(evaluator=object(), model="m", timeout=1234,
-              max_tool_calls=14, max_evaluations=5, max_turns=9,
-              warm_start_file="warm.json", workspace_root="/tmp/ws",
-              target_file="sequence.py")
+    from pantheon.evolution.methods import AnnealedIdeaCode, MapElitesIslands
+    from pantheon.evolution.variators.agent import AgentVariator
+
+    params = inspect.signature(AgentVariator.__init__).parameters
+    probes, expected = {}, {}
+    for name, p in params.items():
+        if name in ("self", "evaluator", "model", "system_prompt", "score_key"):
+            continue                       # supplied by the method itself, not forwarded
+        ann = p.annotation
+        val = {int: 7, float: 3.5, bool: True}.get(
+            ann, "low" if name == "inner_fidelity" else f"probe-{name}")
+        if "int" in str(ann):
+            val = 7
+        elif "float" in str(ann):
+            val = 3.5
+        elif "bool" in str(ann):
+            val = True
+        probes[name] = val
+        expected[name] = val
+
+    kw = dict(evaluator=object(), model="m", target_file="solution.py", **probes)
     checked = 0
     for method in (AnnealedIdeaCode(), MapElitesIslands(feature_dimensions=["complexity"])):
-        agent = _agent_of(method.default_variator(**kw))
-        if agent is None:
-            continue                       # this method is not defined with an agent
+        built = method.default_variator(**kw)
+        agent = built if isinstance(built, AgentVariator) else getattr(built, "code", None)
+        if not isinstance(agent, AgentVariator):
+            continue
         checked += 1
         name = type(method).__name__
-        assert agent.max_tool_calls == 14, f"{name} dropped max_tool_calls"
-        assert agent.max_evaluations == 5, f"{name} dropped max_evaluations"
-        assert agent.workspace_root == "/tmp/ws", f"{name} dropped workspace_root"
+        for knob, want in expected.items():
+            assert getattr(agent, knob) == want, (
+                f"{name} did not forward {knob!r}: operator has "
+                f"{getattr(agent, knob)!r}, caller passed {want!r}")
     assert checked >= 2, "expected at least two agent-defined methods to check"
