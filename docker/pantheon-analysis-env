@@ -232,31 +232,32 @@ fi
 rm -f "$ENV_DIR/etc/conda/activate.d/zzz-pantheon-baseline.sh" \
       "$ENV_DIR/etc/conda/deactivate.d/zzz-pantheon-baseline.sh" 2>/dev/null
 
-# Link the libraries the borrowed packages need into THIS env's lib.
+# Link only the libraries that are actually missing, found by asking.
 #
-# The packages bridged in with the .pth are conda builds and are not
-# self-contained — numpy's .so wants libmkl_gnu_thread.so.3 from the prefix it
-# was built in. Putting that prefix on LD_LIBRARY_PATH was tried twice and
-# broke something both times: the agent's python loaded conda's libpython
-# (cloudpickle then killed the sandbox), and htop loaded conda's libncursesw
-# and segfaulted. The directory holds a second copy of half the system's
-# libraries, and making it globally visible is not survivable.
+# The borrowed packages are conda builds and are not self-contained: numpy's
+# .so wants libmkl_gnu_thread.so.3 from the prefix it was built in. Exposing
+# that whole prefix broke things twice — the agent's python loaded conda's
+# libpython, htop loaded conda's ncurses — so the previous attempt linked
+# everything except a denylist instead. That linked 1360 libraries and htop
+# still crashed, because a denylist only excludes what you already know hurt.
 #
-# Linking only what is missing puts those libraries where this environment's
-# python already looks, and nowhere else. Anything the env already has — its
-# own libpython, its own ncurses — is left alone, which is the whole point.
+# So nothing is linked on a guess. Each borrowed package is imported, the
+# loader says which library it could not find, and only that one is linked.
+# A library the system already provides is never touched, which is the
+# property the two previous attempts could not give.
 if [ -d "${PANTHEON_BASELINE_LIB:-}" ] && [ -d "$ENV_DIR/lib" ]; then
     linked=0
-    for so in "$PANTHEON_BASELINE_LIB"/lib*.so*; do
-        [ -e "$so" ] || continue
-        base="$(basename "$so")"
-        case "$base" in
-            libpython*|libncurses*|libtinfo*|libreadline*|libc.*|libstdc++*|libgcc*) continue ;;
-        esac
-        [ -e "$ENV_DIR/lib/$base" ] && continue
-        ln -s "$so" "$ENV_DIR/lib/$base" 2>/dev/null && linked=$((linked+1))
+    for attempt in 1 2 3 4 5 6 7 8; do
+        missing="$("$ENV_DIR/bin/python" -c 'import scanpy, scvi, torch' 2>&1 \
+                   | sed -n 's/.*\(lib[A-Za-z0-9_.+-]*\.so[0-9.]*\): cannot open.*/\1/p' | head -1)"
+        [ -z "$missing" ] && break
+        if [ -e "$PANTHEON_BASELINE_LIB/$missing" ] && [ ! -e "$ENV_DIR/lib/$missing" ]; then
+            ln -s "$PANTHEON_BASELINE_LIB/$missing" "$ENV_DIR/lib/$missing" && linked=$((linked+1))
+        else
+            break
+        fi
     done
-    [ "$linked" -gt 0 ] && echo "[analysis-env] linked $linked baseline libraries into $ENV_NAME"
+    [ "$linked" -gt 0 ] && echo "[analysis-env] linked $linked missing libraries into $ENV_NAME"
 fi
 
 # A kernelspec, so the notebook toolset can reach this env too.
