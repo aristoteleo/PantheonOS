@@ -4,3 +4,4 @@ __pycache__/
 cache/
 *.gif
 *.mp4
+.manim/
