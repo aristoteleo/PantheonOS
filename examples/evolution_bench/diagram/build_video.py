@@ -27,9 +27,9 @@ sys.path.insert(0, HERE)
 
 FPS = 30
 
-MANIM_SCENES = [("evolution_02_simpletes", "manim_simpletes.py", "SimpleTESRun")]
+MANIM_SCENES = [("evolution_01_map_elites", "manim_mapelites.py", "MapElitesRun"),
+                ("evolution_02_simpletes", "manim_simpletes.py", "SimpleTESRun")]
 MPL_RUNS = [("evolution_00_loop", "scene_loop", True),
-            ("evolution_01_map_elites", "run_mapelites", False),
             ("evolution_03_annealed_idea_code", "run_annealed", False)]
 
 
