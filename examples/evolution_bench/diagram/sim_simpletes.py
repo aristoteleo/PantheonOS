@@ -1,10 +1,15 @@
 """A SimpleTES run, simulated -- shared by every renderer.
 
-The selection is done by the real `Selector`, imported rather than paraphrased, so an animation
+The selection is done by the real selector, imported rather than paraphrased, so an animation
 cannot drift from the implementation the way the first one did. That one drew a chain-level bandit:
 three chains competing on `u = score + exploration bonus`, attention swinging to whichever chain
 was behind. No such thing exists. Chains are independent searches with equal shares of the budget,
 served round-robin; the selector runs INSIDE one chain, over its nodes.
+
+`puct` rather than the default `balance` because it is the one worth watching: its rule is
+arithmetic on numbers the animation can put on screen, so the picks can be shown being DERIVED
+rather than just landing. `balance` draws from three bands by rolling a die, which explains itself
+in a sentence and shows nothing.
 
 Only the scores are invented. Everything about who gets picked, how many, and what commits comes
 from the method.
@@ -16,13 +21,14 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import List
 
-from pantheon.evolution.methods.simpletes import Selector
+from pantheon.evolution.methods.simpletes import PUCTSelector
 
 CHAINS = 3
 K = 3
 N_PARENTS = 4          # num_inspirations
 STEPS = 21
 KEY = "combined_score"
+C_PUCT = 1.0
 CEILINGS = [0.75, 0.66, 0.70]      # each line of attack has its own limit
 SEED_SCORE = 0.40
 
@@ -48,18 +54,9 @@ class Node:
                     self.win)
 
 
-def tiers(size: int):
-    """The bands `Selector.pick` draws from, so each pick can be labelled by where it landed.
-
-    A label for the node's stratum, not for the roll that produced it -- which is the part worth
-    seeing anyway: whether this prompt is built entirely out of the leaders or reaches further down.
-    """
-    return max(1, int(size * 0.2)), max(1, int(size * 0.1)), max(2, int(size * 0.6))
-
-
 def simulate(seed: int = 7):
     rng = random.Random(seed)
-    sel = Selector()                                   # the default: balance
+    sel = PUCTSelector(c=C_PUCT)
     chains = [[Node(id=f"c{c}n0", score=SEED_SCORE, order=0)] for c in range(CHAINS)]
     base_share, extra = divmod(STEPS, CHAINS)
     budget = {c: base_share + (1 if c < extra else 0) for c in range(CHAINS)}
@@ -72,21 +69,14 @@ def simulate(seed: int = 7):
         spent[c] += 1
 
         ranked = sorted(chains[c], key=lambda n: -n.score)      # `_chain_nodes`: best first
-        picked = sel.pick(ranked, min(N_PARENTS, len(ranked)), rng, KEY)
 
-        rank_of = {n.id: i for i, n in enumerate(ranked)}
-        elite_end, mid_start, mid_end = tiers(len(ranked))
-        labels = []
-        for j, p in enumerate(picked):
-            r = rank_of[p.id]
-            if j == 0:
-                labels.append("incumbent")
-            elif r < elite_end:
-                labels.append("elite")
-            elif mid_start <= r < mid_end:
-                labels.append("middle")
-            else:
-                labels.append("tail")
+        # Ask the selector for its own arithmetic rather than recomputing it here, so the bars the
+        # animation draws are the numbers the picks were actually made from.
+        seen = sel.visits.get(c, {})
+        ranking = [(n.order, q, seen.get(n.id, 0), bonus)
+                   for n, (q, bonus) in zip(ranked, sel.terms(ranked, KEY, c))]
+
+        picked = sel.pick(ranked, min(N_PARENTS, len(ranked)), rng, KEY, c)
 
         # One prompt, k candidates, synthesised from every parent. The best reference sets the
         # level; gains shrink as a chain approaches its own ceiling, and the noise is what makes
@@ -103,23 +93,20 @@ def simulate(seed: int = 7):
         chains[c].append(node)
         best = max(best, node.score)
 
+        # Upstream counts a visit when a batch COMES BACK, and backpropagates its best score to
+        # every parent it was built from. Doing it at selection time would mark a node explored
+        # before its batch had reported anything.
+        sel.on_commit(c, [p.id for p in picked], cands[win])
+
         events.append({
             "step": step, "chain": c, "picked": [(p.order, p.score) for p in picked],
-            "labels": labels, "anchor": anchor, "cands": cands, "win": win,
+            "ranking": ranking,
+            "anchor": anchor, "cands": cands, "win": win,
             "winner": node.score, "improved": node.score > anchor, "best": best,
             "spent": dict(spent), "budget": dict(budget),
             "chains": [[n.copy() for n in ch] for ch in chains],
         })
     return events
-
-
-def drew_phrase(labels) -> str:
-    """"the incumbent, 2 from the middle, 1 from the tail"."""
-    tally: dict = {}
-    for lab in labels:
-        tally[lab] = tally.get(lab, 0) + 1
-    return ", ".join("the incumbent" if k == "incumbent" else f"{v} from the {k}"
-                     for k, v in tally.items())
 
 
 EVENTS = simulate()

@@ -213,12 +213,117 @@ def test_state_round_trips():
     assert clone.failures[1] == {"oops": 2.0}
 
 
-@pytest.mark.parametrize("name,cls", [("puct", PUCTSelector), ("rpucg", RPUCGSelector)])
-def test_the_tree_selectors_bump_visits_for_everything_they_pick(name, cls):
+# -------------------------------------------------------------- puct ---
+# `Q(s) + c * scale * P(s) * sqrt(1+T) / (1+n(s))` -- policies/puct.py. The first port used
+# `q + c * sqrt(log(T+1) / (1+n))`, which is a different algorithm: no scale, no prior, no
+# backpropagated Q, and visits shared across chains and counted at the wrong moment.
+
+def descending(store, scores, tag="a"):
+    """A chain, best first.
+
+    `tag` because `Store.add` deduplicates by genome content and returns the EXISTING individual --
+    two chains built with the same labels are silently the same five objects, and a test comparing
+    them compares one chain with itself.
+    """
+    return [node(store, v, f"{tag}{i}") for i, v in enumerate(sorted(scores, reverse=True))]
+
+
+def test_the_exploration_term_is_scaled_to_the_chains_score_range():
+    """`scale = r_max - r_min`.
+
+    Without it the bonus is in raw units while Q is a score in [0,1]. On a chain whose scores span
+    0.02 the unscaled bonus is tens of times the differences it is perturbing, every node's u is
+    dominated by its visit count, and the policy degenerates into round-robin.
+    """
     s = Store()
-    chain = [node(s, 0.5 + 0.01 * i, f"n{i}") for i in range(6)]
+    wide = descending(s, [0.9, 0.7, 0.5, 0.3, 0.1], "w")
+    narrow = descending(s, [0.52, 0.515, 0.51, 0.505, 0.5], "n")
+    sel = PUCTSelector(c=1.0)
+    wide_bonus = [b for _, b in sel.terms(wide, "combined_score", 0)]
+    narrow_bonus = [b for _, b in sel.terms(narrow, "combined_score", 0)]
+    assert wide_bonus[0] == pytest.approx(0.8 * narrow_bonus[0] / 0.02, rel=1e-6), (
+        "the bonus should scale linearly with the chain's score range")
+    assert max(narrow_bonus) < 0.02, (
+        "on a narrow chain the bonus must stay comparable to the score differences")
+
+
+def test_the_prior_falls_off_with_rank():
+    """`P(s) = (n - rank) / (n(n+1)/2)` -- the exploration budget is not split evenly."""
+    s = Store()
+    chain = descending(s, [0.9, 0.8, 0.7, 0.6])
+    terms = PUCTSelector(c=1.0).terms(chain, "combined_score", 0)
+    bonuses = [b for _, b in terms]
+    assert bonuses == sorted(bonuses, reverse=True)
+    assert bonuses[0] == pytest.approx(4 * bonuses[3], rel=1e-6), "priors are 4/10 ... 1/10"
+
+
+def test_q_takes_the_best_score_any_child_reached():
+    """`Q(s) = max(R(s), max_child_reward[s])`.
+
+    A node that scored poorly but whose batch produced the run's best program is worth returning
+    to. Reading only the node's own score throws that away.
+    """
+    s = Store()
+    chain = descending(s, [0.9, 0.4])
+    sel = PUCTSelector(c=0.0)                       # bonus off, so u is exactly Q
+    assert [q for q, _ in sel.terms(chain, "combined_score", 0)] == [0.9, 0.4]
+    sel.on_commit(0, [chain[1].id], best_score=0.95)
+    assert [q for q, _ in sel.terms(chain, "combined_score", 0)] == [0.9, 0.95]
+
+
+def test_visits_land_on_commit_and_stay_inside_their_chain():
+    """`_finalize_hook_locked` bumps the parents of a batch that has come back.
+
+    Counting at selection marks a node explored before its batch has reported anything, and one
+    dict shared across chains lets one chain's history suppress another's.
+    """
+    s = Store()
+    chain = descending(s, [0.9, 0.8, 0.7])
+    sel = PUCTSelector()
+    picked = sel.pick(chain, 2, random.Random(0), "combined_score", 0)
+    assert sel.visits == {}, "selection alone must not count as a visit"
+
+    sel.on_commit(0, [p.id for p in picked], best_score=0.95)
+    assert sel.visits[0] == {p.id: 1 for p in picked}
+    assert sel.expansions[0] == 1
+    assert 1 not in sel.visits, "chain 1 must not inherit chain 0's counts"
+
+    before = [b for _, b in sel.terms(chain, "combined_score", 0)]
+    sel.on_commit(0, [picked[0].id], best_score=0.5)
+    after = [b for _, b in sel.terms(chain, "combined_score", 0)]
+    i = chain.index(picked[0])
+    assert after[i] < before[i], "a node that was just used should lose exploration bonus"
+
+
+def test_the_method_reports_commits_to_its_selector():
+    """The counts are useless if nothing ever calls the hook."""
+    s = Store()
+    m = SimpleTES(num_chains=1, k_candidates=2, selector="puct", seed=0)
+    c = ctx_with(s)
+    seeds = [node(s, 0.4, "seed"), node(s, 0.6, "b")]
+    asyncio.run(m.start(c, seeds))
+    items = asyncio.run(m.ask(c, 1))
+    it = items[0]
+    for score in (0.7, 0.5):
+        child = s.add(Individual(genome=TextGenome(text=f"cand {score}", kind="code"),
+                                     kind="code"))
+        child.measurements.append(Measurement(individual_id=child.id, batch_id=it.batch_id,
+                                              metrics={"combined_score": score}))
+        asyncio.run(m.on_measured(c, child, child.measurements[-1]))
+    sel = m.selector
+    assert sel.expansions.get(0) == 1
+    assert set(sel.visits.get(0, {})) == set(it.parent_ids)
+    assert all(v == 0.7 for v in sel.max_child[0].values()), "best of the batch backpropagates"
+
+
+@pytest.mark.parametrize("cls", [PUCTSelector, RPUCGSelector])
+def test_selector_state_round_trips(cls):
+    import json
+
+    s = Store()
+    chain = descending(s, [0.9, 0.8])
     sel = cls()
-    picked = sel.pick(chain, 3, random.Random(0), "combined_score")
-    assert len(picked) == 3
-    assert all(sel.visits[p.id] == 1 for p in picked)
-    assert sum(sel.visits.values()) == 3, "only the selected nodes are visited"
+    sel.on_commit(0, [chain[0].id], best_score=0.93)
+    clone = cls()
+    clone.load_state_dict(json.loads(json.dumps(sel.state_dict())))
+    assert clone.terms(chain, "combined_score", 0) == sel.terms(chain, "combined_score", 0)

@@ -5,29 +5,29 @@
 Four acts, because twenty-one identical steps explain nothing.
 
   1. what one step IS, with the camera close enough to read it
-  2. how the parents are CHOSEN -- the chain laid out as the ranking the selector actually sees,
-     the three bands it draws from, one real draw replayed against them, and then the other two
-     selectors, because the rule is a component and swapping it is the point
+  2. how the parents are CHOSEN -- each node's score and its use count turned into a bar, the four
+     tallest taken, and then the other two selectors, because the rule is a component and swapping
+     it is the point
   3. the rest of that chain at speed, so the DAG accumulates and the arcs reach further back
   4. the whole run replayed with all three chains advancing in the same beat, the fitness curve
      growing as their measurements land
 
 Act 2 exists because every other act shows the draw only as an outcome -- four nodes light up. The
 rule behind it is the one thing a viewer cannot infer from watching, and it is the lever the whole
-family of algorithms turns: `balance`, `puct` and `rpucg` differ in nothing else.
+family of algorithms turns: `puct`, `balance` and `rpucg` differ in nothing else.
 
 The scores are invented. Everything about who gets picked, how many, and what commits comes from
-`sim_simpletes`, which calls the real `Selector`.
+`sim_simpletes`, which calls the real selector.
 """
 from __future__ import annotations
 
 import numpy as np
 from manim import (DOWN, LEFT, ORIGIN, RIGHT, UP, ApplyFunction, Arrow, Axes, Circle, Create,
                    CurvedArrow, Dot, FadeIn, FadeOut, Indicate, LaggedStart, Line, ManimColor,
-                   MovingCameraScene, RoundedRectangle, Text, Transform, VGroup, Write, config,
-                   interpolate_color)
+                   MovingCameraScene, Rectangle, RoundedRectangle, Text, Transform, VGroup, Write,
+                   config, interpolate_color)
 
-from sim_simpletes import EVENTS, K, drew_phrase, tiers
+from sim_simpletes import EVENTS, K
 
 config.background_color = ManimColor("#ffffff")
 FONT = "Helvetica Neue"
@@ -296,113 +296,151 @@ class SimpleTESRun(MovingCameraScene):
         """
         evs = self.chain_of[0]
 
-        lab = self.cap("chain 1  ·  one of three", 24, MUTED)
-        lab.next_to(self.built[0][0], UP, buff=0.4)
+        # Say what a "prompt" costs the first time the counter appears. The fan beat below explains
+        # that one call returns all k candidates, but the counter is on screen before it.
+        lab = self.cap("chain 1  ·  one of three\n"
+                       f"its share of the run is {self.chip_total} prompts, and one prompt is one "
+                       "model call", 24, MUTED)
+        lab.next_to(self.built[0][0], UP, buff=0.42)
         self.chip = self.chip_at(0, self.camera.frame.get_center(), self.camera.frame.width)
         self.play(FadeIn(lab), FadeIn(self.chip), run_time=0.6)
-        self.wait(1.2)
+        self.wait(2.2)
         self.play(FadeOut(lab), run_time=0.4)
 
         self.one_step(evs[0], 0, 1, beats=("fan", "commit"), slow=True)
 
-        self.move_camera(*framing(0, 0, 4, pad=1.6, min_h=3.4), run_time=1.1)
-        for idx, ev in enumerate(evs[1:4], start=2):
+        # Five steps before the selection is explained, because the draw only becomes interesting
+        # once the chain is longer than the number of parents a prompt takes: until then every
+        # node is selected every time and there is no decision to look at.
+        self.move_camera(*framing(0, 0, 5, pad=1.6, min_h=3.4), run_time=1.1)
+        for idx, ev in enumerate(evs[1:5], start=2):
             self.one_step(ev, 0, idx)
 
     # ------------------------------------------------------- the selection --
     def act_selection(self):
-        """How the parents are chosen -- `Selector.pick`, laid out.
+        """How the parents are chosen -- PUCT, with the arithmetic on screen.
 
         Every other act shows the draw as an outcome: four nodes light up. The rule behind it is
         the one thing a viewer cannot infer from watching, and it is the lever the whole family of
-        algorithms turns, so it gets its own act with the ranking made explicit.
+        algorithms turns, so it gets its own act.
 
-        The chain is real and so are the picks: this is step 5's actual draw, replayed against the
-        ranking it was drawn from.
+        PUCT rather than the default `balance` because its rule is arithmetic on two numbers the
+        chain already carries -- a node's score and how many times it has been used -- so the picks
+        can be shown being DERIVED. `balance` rolls a die against three bands: one sentence to
+        state, nothing to watch.
+
+        The chain is real, the visit counts are real, and so are the picks: this is step 6's actual
+        draw, replayed against the numbers it was made from. Step 6 rather than an earlier one
+        because a chain shorter than the parent count has every node selected every time.
         """
-        ev = self.chain_of[0][4]
-        pre = ev["chains"][0][:-1]                       # the chain as the selector saw it
-        ranked = sorted(pre, key=lambda n: -n.score)
-        n = len(ranked)
-        elite_end, mid_start, mid_end = tiers(n)
-        rank_of = {nd.order: i for i, nd in enumerate(ranked)}
+        ev = self.chain_of[0][5]
+        ranking = ev["ranking"]                          # (order, score, visits, bonus), best first
+        n = len(ranking)
+        picked_orders = {o for o, _ in ev["picked"]}
+        slot_of = {o: i for i, (o, _, _, _) in enumerate(ranking)}
 
         # Everything below the chain has to fit between it and the bottom edge: the heading, the
-        # ranking, three brackets and a two-line rule. The frame is 8 units tall and the chain
-        # takes the top 2.6 of them, so the budget is tight and worth writing down.
+        # formula, the ranking, a bar per node and a closing line. The frame is 8 units tall and
+        # the chain takes the top 2.6 of them, so the budget is tight and worth writing down.
         self.play(self.camera.frame.animate.move_to([0, 0.1, 0]).set(width=FULL_W),
                   FadeOut(self.chip), run_time=1.3)
         head = txt("how the parents are chosen", 31, INK)
-        head.move_to([0, 1.05, 0])
+        head.move_to([0, 1.08, 0])
         self.play(FadeIn(head), run_time=0.7)
 
-        SPACING, ROW_Y = 1.32, -0.45
+        SPACING, ROW_Y, BASE_Y, BAR_H = 1.32, -0.35, -2.92, 1.35
 
         def slot(i):
             return (i - (n - 1) / 2) * SPACING
 
-        row = VGroup()
-        for i, nd in enumerate(ranked):
-            m = node_mob(nd.score, ORIGIN).scale(1.55).move_to([slot(i), ROW_Y, 0])
-            row.add(m)
-        sortnote = txt("the chain, sorted by score — best first", 21, SUB).move_to([0, 0.42, 0])
-        self.play(LaggedStart(*[FadeIn(m, shift=DOWN * 0.25) for m in row], lag_ratio=0.12),
-                  FadeIn(sortnote), run_time=1.6)
-        self.wait(1.0)
+        row, seen_labels = VGroup(), VGroup()
+        for i, (order, q, visits, _) in enumerate(ranking):
+            row.add(node_mob(q, ORIGIN).scale(1.5).move_to([slot(i), ROW_Y, 0]))
+            seen_labels.add(txt(f"used {visits}×", 17, MUTED).move_to([slot(i), -0.98, 0]))
+        # Name the number before showing it. These circles carry each node's VALUE, which is not
+        # the score the same node shows on the chain above -- a node whose children did well is
+        # worth more than it scored, and a viewer who has just watched the chain will read the
+        # circles as scores unless told otherwise.
+        sortnote = txt("each node's value — its own score, or the best any of its children reached",
+                       21, SUB).move_to([0, 0.48, 0])
+        self.play(LaggedStart(*[FadeIn(m, shift=DOWN * 0.25) for m in row], lag_ratio=0.11),
+                  FadeIn(sortnote), run_time=1.5)
+        self.play(FadeIn(seen_labels), run_time=0.7)
+        self.wait(1.4)
 
-        def band(lo: int, hi: int, y: float, label: str, color):
-            """A bracket under ranks [lo, hi)."""
-            x0, x1 = slot(lo) - 0.36, slot(hi - 1) + 0.36
-            g = VGroup(Line([x0, y, 0], [x1, y, 0], color=color, stroke_width=3),
-                       Line([x0, y, 0], [x0, y + 0.13, 0], color=color, stroke_width=3),
-                       Line([x1, y, 0], [x1, y + 0.13, 0], color=color, stroke_width=3))
-            g.add(txt(label, 19, color).next_to(g, DOWN, buff=0.1))
-            return g
+        # The rule, colour-coded to the bars it is about to draw. Spaces cannot do the spacing:
+        # Pango trims them at the ends of a run, so "u  =  " sets as "u =" and the pieces collide.
+        formula = VGroup(txt("u  =", 27, INK), txt("value", 27, BLUE), txt("+", 27, INK),
+                         txt("c · range · prior · √(1+T) / (1 + used)", 27, ORANGE))
+        formula.arrange(RIGHT, buff=0.17).move_to([0, 0.48, 0])
+        fit(formula, FULL_W - 2.0)
+        self.play(FadeOut(sortnote), FadeIn(formula), run_time=0.8)
+        self.wait(1.8)
 
-        bands = VGroup(band(0, elite_end, -1.20, "the elite head", GREEN),
-                       band(mid_start, mid_end, -1.95, "the middle", BLUE),
-                       band(0, n, -2.70, "anywhere at all", MUTED))
-        self.play(LaggedStart(*[FadeIn(b) for b in bands], lag_ratio=0.3), run_time=1.5)
-        rule = para("the best node is always in; each of the others is drawn from the elite head\n"
-                    "70% of the time, the middle 20%, and anywhere at all the remaining 10%.",
-                    21, INK)
-        fit(rule, FULL_W - 2.4).move_to([0, -3.42, 0])
-        self.play(FadeIn(rule), run_time=0.7)
-        self.wait(2.6)
+        scale = BAR_H / max(s + b for _, s, _, b in ranking)
+        bars, tops = VGroup(), VGroup()
+        for i, (order, score, _, bonus) in enumerate(ranking):
+            q = Rectangle(width=0.62, height=score * scale, stroke_width=0,
+                          fill_color=BLUE, fill_opacity=0.85)
+            q.move_to([slot(i), BASE_Y + score * scale / 2, 0])
+            e = Rectangle(width=0.62, height=bonus * scale, stroke_width=0,
+                          fill_color=ORANGE, fill_opacity=0.85)
+            e.move_to([slot(i), BASE_Y + score * scale + bonus * scale / 2, 0])
+            bars.add(VGroup(q, e))
+            tops.add(txt(f"{score + bonus:.2f}", 19, INK)
+                     .move_to([slot(i), BASE_Y + (score + bonus) * scale + 0.2, 0]))
+        axis = Line([slot(0) - 0.55, BASE_Y, 0], [slot(n - 1) + 0.55, BASE_Y, 0],
+                    color=EDGE, stroke_width=2)
 
-        # the actual draw
-        self.play(FadeOut(rule), run_time=0.4)
-        phrase = {"elite": "drawn from the elite head", "middle": "drawn from the middle",
-                  "tail": "drawn from the tail"}
-        for j, (order, _) in enumerate(ev["picked"]):
-            i = rank_of[order]
-            tag = txt("always in — the incumbent" if j == 0 else phrase[ev["labels"][j]],
-                      23, ORANGE).move_to([0, -3.42, 0])
-            self.play(FadeIn(tag), Indicate(row[i], color=ORANGE, scale_factor=1.18),
-                      row[i][0].animate.set_stroke(ORANGE, width=4.0), run_time=0.85)
-            self.wait(0.75)
-            self.play(FadeOut(tag), run_time=0.3)
+        self.play(FadeIn(axis), LaggedStart(*[FadeIn(b[0]) for b in bars], lag_ratio=0.1),
+                  run_time=1.2)
+        self.play(LaggedStart(*[FadeIn(b[1]) for b in bars], lag_ratio=0.1),
+                  LaggedStart(*[FadeIn(t) for t in tops], lag_ratio=0.1), run_time=1.2)
+        # Say what the bars actually show, which on a chain this short is not what a reader of the
+        # formula would guess: a node's value is its own score OR the best any of its children
+        # reached, whichever is higher, and nearly all of these were parents of the batch that set
+        # the record -- so the blue is almost flat and the orange decides.
+        why = para("Almost all of these were parents of the batch that set the record, so their "
+                   "values are nearly flat.\nThe decision falls to the bonus — and the bonus "
+                   "shrinks every time a node gets used.", 21, INK)
+        fit(why, FULL_W - 2.0).move_to([0, -3.42, 0])
+        self.play(FadeIn(why), run_time=0.7)
+        self.wait(3.4)
 
-        done = para(f"{len(ev['picked'])} nodes, and every one of them is a parent of what comes "
+        # the actual draw: the n highest u, no dice involved
+        self.play(FadeOut(why), run_time=0.4)
+        tag = txt(f"the {len(picked_orders)} highest u are the parents", 24, ORANGE)
+        tag.move_to([0, -3.45, 0])
+        lifts = []
+        for order in picked_orders:
+            i = slot_of[order]
+            lifts += [row[i][0].animate.set_stroke(ORANGE, width=4.0),
+                      bars[i].animate.set_stroke(ORANGE, width=2.5)]
+        self.play(FadeIn(tag), *lifts,
+                  *[Indicate(row[slot_of[o]], color=ORANGE, scale_factor=1.15)
+                    for o in picked_orders], run_time=1.1)
+        self.wait(2.0)
+
+        done = para(f"{len(picked_orders)} nodes, and every one of them is a parent of what comes "
                     "next —\nnot one base program with the rest as decoration.", 23, INK)
-        fit(done, FULL_W - 2.4).move_to([0, -3.42, 0])
-        self.play(FadeIn(done), run_time=0.7)
+        fit(done, FULL_W - 2.4).move_to([0, -3.45, 0])
+        self.play(FadeOut(tag), FadeIn(done), run_time=0.7)
         self.wait(2.4)
 
-        # The rule above is ONE selector. Swapping it is the axis SimpleTES varies to get six
-        # algorithms out of one engine, and it is where PUCT lives -- which is invisible if the
-        # act only ever shows the default.
-        self.play(FadeOut(sortnote), FadeOut(row), FadeOut(bands), FadeOut(done), FadeOut(head),
+        # PUCT is ONE selector. Swapping it is the axis SimpleTES varies to get six algorithms out
+        # of one engine, and that is invisible if the act only ever shows one of them.
+        self.play(FadeOut(sortnote), FadeOut(formula), FadeOut(row), FadeOut(seen_labels),
+                  FadeOut(bars), FadeOut(tops), FadeOut(axis), FadeOut(done), FadeOut(head),
                   run_time=0.8)
         head2 = txt("that rule is a component, and swapping it is the point", 28, INK)
         head2.move_to([0, 0.92, 0])
         self.play(FadeIn(head2), run_time=0.6)
 
-        picks = [("balance", "the stratified draw just shown — the default, and what this run uses",
+        picks = [("puct", "the score-plus-bonus rule just shown — what this run uses", BLUE),
+                 ("balance", "no arithmetic: keep the best, then roll for each of the others —\n"
+                             "70% from the elite head, 20% from the middle, 10% from anywhere",
                   GREEN),
-                 ("puct", "u = score + c · √( ln N / (1 + visits) )\n"
-                          "a node the search keeps returning to loses its exploration bonus", BLUE),
-                 ("rpucg", "the same, with every node's value discounted by its depth", MUTED)]
+                 ("rpucg", "puct again, with every node's value discounted by its depth", MUTED)]
         rows = VGroup()
         for name, desc, col in picks:
             rows.add(VGroup(txt(name, 26, col, weight="BOLD"), para(desc, 20, SUB))
@@ -438,9 +476,6 @@ class SimpleTESRun(MovingCameraScene):
         self.play(*[p.animate.set_stroke(ORANGE, width=self.sw(3.4)) for p in picked],
                   *dim(self.dim_later), run_time=rt)
         self.dim_later = []
-        n = len(ev["picked"])
-        say("select", f"the selector draws {n} node{'' if n == 1 else 's'} from this chain's "
-                      f"ranking —\n{drew_phrase(ev['labels'])}", top=True)
 
         # 2. they all feed ONE prompt
         arcs = VGroup(*[arc(trunk_pos(o, band), gate, ORANGE, self.sw(2.4),
@@ -505,15 +540,15 @@ class SimpleTESRun(MovingCameraScene):
         self.play(self.camera.frame.animate.move_to(at).set(width=w), FadeIn(self.chip),
                   run_time=1.4)
 
-        # Step 5 is the draw the previous act just took apart, so it runs first and gets to say
+        # Step 6 is the draw the previous act just took apart, so it runs first and gets to say
         # what the parent set is FOR. The rest go at speed.
-        self.one_step(evs[4], 0, 5, beats=("parents",), slow=True)
+        self.one_step(evs[5], 0, 6, beats=("parents",), slow=True)
 
         note = self.cap("every selected node is a parent — one prompt fans out into k candidates,\n"
                         "and one of them continues the chain", 24, SUB)
         note.next_to(self.camera.frame.get_bottom(), UP, buff=0.35)
         self.play(FadeIn(note), run_time=0.6)
-        for idx, ev in enumerate(evs[5:], start=6):
+        for idx, ev in enumerate(evs[6:], start=7):
             self.one_step(ev, 0, idx)
 
         # The share is spent, so this chain is done -- while the run is not.

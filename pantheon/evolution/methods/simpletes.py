@@ -69,8 +69,17 @@ class Selector:
         self.exploration_ratio = exploration_ratio
         self.elite_ratio = elite_ratio
 
+    def on_commit(self, chain_idx: int, parent_ids: Sequence[str], best_score: float) -> None:
+        """Called once a batch has resolved. `balance` keeps no state; the tree policies do."""
+
+    def state_dict(self) -> Dict[str, Any]:
+        return {}
+
+    def load_state_dict(self, state: Dict[str, Any]) -> None:
+        pass
+
     def pick(self, chain: List[Individual], n: int, rng: random.Random,
-             key: str) -> List[Individual]:
+             key: str, chain_idx: int = 0) -> List[Individual]:
         """The best node, then a stratified draw over the rest.
 
         Three tiers rather than a shuffle: most draws come from the elite head, some from the
@@ -107,56 +116,124 @@ class Selector:
 
 
 class PUCTSelector(Selector):
-    """Tree-search scoring: exploit the node's own value, explore by visit count."""
+    """`Q(s) + c * scale * P(s) * sqrt(1+T) / (1+n(s))` -- policies/puct.py.
+
+    Four things the first version of this port dropped, each of which changes what gets picked:
+
+      - **scale**, the chain's score range `r_max - r_min`. Without it the exploration term is in
+        raw units while Q is a score in [0, 1], so on a problem whose scores span 0.3 the bonus
+        comes out several times the value it is meant to perturb and the selection degenerates into
+        round-robin over visit counts. This is the one that matters most.
+      - **P(s)**, a rank prior falling off linearly with rank, so the exploration budget is not
+        handed to the worst node in the chain on the same terms as the best.
+      - **Q(s) = max(own score, the best any child of it reached)**. A node whose children did well
+        is worth returning to even if it scored poorly itself; that is the backpropagation, and
+        without it Q is just the node's own score.
+      - visits kept **per chain** and incremented **on commit**, for the parents actually used.
+        Counting them at selection time marks a node explored before its batch has reported
+        anything, and sharing one dict across chains lets one chain's history suppress another's.
+    """
 
     name = "puct"
 
-    def __init__(self, c_puct: float = 1.4, **kw):
+    def __init__(self, c: float = 1.0, **kw):
         super().__init__(**kw)
-        self.c_puct = c_puct
-        self.visits: Dict[str, int] = {}
+        self.c = c
+        self.visits: Dict[int, Dict[str, int]] = {}
+        self.max_child: Dict[int, Dict[str, float]] = {}
+        self.expansions: Dict[int, int] = {}
 
-    def pick(self, chain, n, rng, key):
+    def terms(self, chain: List[Individual], key: str,
+              chain_idx: int) -> List[tuple]:
+        """`(Q, bonus)` per node, in the chain's own order -- which is best first.
+
+        Split rather than summed because the split is the explanation: how much of a node's
+        standing is what it scored, and how much is that nobody has tried it lately.
+        """
+        n = len(chain)
+        if not n:
+            return []
+        hi = score_of(chain[0], key) or 0.0
+        lo = score_of(chain[-1], key) or 0.0
+        scale = max(hi - lo, 1e-6)
+        rank_sum = n * (n + 1) / 2
+        visits = self.visits.get(chain_idx, {})
+        mc = self.max_child.get(chain_idx, {})
+        t = self.expansions.get(chain_idx, 0)
+
+        out = []
+        for rank, node in enumerate(chain):
+            own = score_of(node, key)
+            q = max(own if own is not None else -math.inf, mc.get(node.id, -math.inf))
+            if q == -math.inf:
+                q = 0.0
+            prior = (n - rank) / rank_sum if rank_sum else 1.0 / n
+            bonus = self.c * scale * prior * math.sqrt(1 + t) / (1 + visits.get(node.id, 0))
+            out.append((q, bonus))
+        return out
+
+    def pick(self, chain, n, rng, key, chain_idx: int = 0):
         if not chain:
             return []
-        total = max(1, sum(self.visits.get(c.id, 0) for c in chain))
+        u = [q + b for q, b in self.terms(chain, key, chain_idx)]
+        order = sorted(range(len(chain)), key=lambda i: u[i], reverse=True)[:n]
+        return [chain[i] for i in order]
 
-        def u(c: Individual) -> float:
-            q = score_of(c, key) or 0.0
-            nvis = self.visits.get(c.id, 0)
-            return q + self.c_puct * math.sqrt(math.log(total + 1) / (1 + nvis))
+    def on_commit(self, chain_idx: int, parent_ids: Sequence[str], best_score: float) -> None:
+        visits = self.visits.setdefault(chain_idx, {})
+        mc = self.max_child.setdefault(chain_idx, {})
+        for pid in parent_ids:
+            mc[pid] = max(mc.get(pid, -math.inf), best_score)
+            visits[pid] = visits.get(pid, 0) + 1
+        self.expansions[chain_idx] = self.expansions.get(chain_idx, 0) + 1
 
-        chosen = sorted(chain, key=u, reverse=True)[:n]
-        for c in chosen:
-            self.visits[c.id] = self.visits.get(c.id, 0) + 1
-        return chosen
+    def state_dict(self) -> Dict[str, Any]:
+        return {"visits": {str(k): dict(v) for k, v in self.visits.items()},
+                "max_child": {str(k): dict(v) for k, v in self.max_child.items()},
+                "expansions": {str(k): v for k, v in self.expansions.items()}}
+
+    def load_state_dict(self, state: Dict[str, Any]) -> None:
+        self.visits = {int(k): dict(v) for k, v in state.get("visits", {}).items()}
+        self.max_child = {int(k): dict(v) for k, v in state.get("max_child", {}).items()}
+        self.expansions = {int(k): int(v) for k, v in state.get("expansions", {}).items()}
 
 
 class RPUCGSelector(PUCTSelector):
-    """DAG-aware with gamma decay: a node's value is discounted by depth, so long unproductive
-    lines lose out to shallower ones with the same score."""
+    """PUCT with a depth discount on Q.
+
+    **This is an approximation of upstream's `rpucg`, not a port of it.** The real one
+    (policies/rpucg.py) does three things this does not:
+
+      - propagates `V(s) = max(raw(s), gamma * max_child V(c))` bottom-up over the whole
+        parent->child DAG, not a depth counter on the node itself
+      - normalises BOTH Q and P to percentile ranks over the global population, which is why it
+        needs no `scale` factor
+      - excludes the 1-hop neighbourhood of already-selected nodes when picking several parents,
+        to stop a batch being built out of one family
+
+    Kept because a gamma-decayed variant is still a useful third policy to have wired up, and
+    named for what it approximates. Do not read a comparison against it as a comparison against
+    SimpleTES's rpucg.
+    """
 
     name = "rpucg"
 
-    def __init__(self, c_puct: float = 1.4, gamma: float = 0.8, **kw):
-        super().__init__(c_puct, **kw)
+    def __init__(self, c: float = 1.0, gamma: float = 0.8, **kw):
+        super().__init__(c, **kw)
         self.gamma = gamma
         self.depth: Dict[str, int] = {}
 
-    def pick(self, chain, n, rng, key):
-        if not chain:
-            return []
-        total = max(1, sum(self.visits.get(c.id, 0) for c in chain))
+    def terms(self, chain, key, chain_idx):
+        base = super().terms(chain, key, chain_idx)
+        return [(q * (self.gamma ** self.depth.get(node.id, 0)), b)
+                for (q, b), node in zip(base, chain)]
 
-        def u(c: Individual) -> float:
-            q = (score_of(c, key) or 0.0) * (self.gamma ** self.depth.get(c.id, 0))
-            nvis = self.visits.get(c.id, 0)
-            return q + self.c_puct * math.sqrt(math.log(total + 1) / (1 + nvis))
+    def state_dict(self) -> Dict[str, Any]:
+        return {**super().state_dict(), "depth": dict(self.depth)}
 
-        chosen = sorted(chain, key=u, reverse=True)[:n]
-        for c in chosen:
-            self.visits[c.id] = self.visits.get(c.id, 0) + 1
-        return chosen
+    def load_state_dict(self, state: Dict[str, Any]) -> None:
+        super().load_state_dict(state)
+        self.depth = {k: int(v) for k, v in state.get("depth", {}).items()}
 
 
 SELECTORS = {s.name: s for s in (Selector, PUCTSelector, RPUCGSelector)}
@@ -272,7 +349,7 @@ class SimpleTES(BaseMethod):
             if not nodes:
                 continue
             picked = self.selector.pick(nodes, self._inspiration_count(len(nodes)),
-                                        self.rng, self.score_key)
+                                        self.rng, self.score_key, c)
             if not picked:
                 continue
             # Every selected node is a parent. Upstream sets `parent_ids = inspiration_ids` and
@@ -344,8 +421,12 @@ class SimpleTES(BaseMethod):
         if not scored:
             return
         scored.sort(reverse=True)
-        best_id = scored[0][1]
+        best_score, best_id = scored[0]
         self.chains[b.chain_idx].append(best_id)
+        # Upstream updates the tree statistics HERE, not at selection: a parent is "visited" once
+        # its batch has come back, and the batch's best score backpropagates to every parent it
+        # was built from.
+        self.selector.on_commit(b.chain_idx, b.parent_ids, best_score)
         sel = self.selector
         if isinstance(sel, RPUCGSelector):
             parent_depth = max((sel.depth.get(p, 0) for p in b.parent_ids), default=0)
@@ -371,11 +452,10 @@ class SimpleTES(BaseMethod):
             "prompt_budget": dict(self.prompt_budget),
             "next_chain": self._next_chain,
             "selector": self.selector.name,
+            # The selector owns its own state now -- it has three fields under puct and the
+            # method has no business knowing their names.
+            "selector_state": self.selector.state_dict(),
         }
-        if isinstance(self.selector, PUCTSelector):
-            st["visits"] = dict(self.selector.visits)
-        if isinstance(self.selector, RPUCGSelector):
-            st["depth"] = dict(self.selector.depth)
         return st
 
     def load_state_dict(self, state: Dict[str, Any]) -> None:
@@ -387,10 +467,7 @@ class SimpleTES(BaseMethod):
         self.prompt_count = {int(k): int(v) for k, v in state.get("prompt_count", {}).items()}
         self.prompt_budget = {int(k): int(v) for k, v in state.get("prompt_budget", {}).items()}
         self._next_chain = state.get("next_chain", 0)
-        if isinstance(self.selector, PUCTSelector):
-            self.selector.visits = dict(state.get("visits", {}))
-        if isinstance(self.selector, RPUCGSelector):
-            self.selector.depth = dict(state.get("depth", {}))
+        self.selector.load_state_dict(state.get("selector_state", {}))
 
     def reconcile(self, ctx: EvolveContext) -> None:
         """Drop chain entries whose individuals are not in the restored store, and forget batches
