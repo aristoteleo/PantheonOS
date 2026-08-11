@@ -1679,17 +1679,18 @@ class FileManagerToolSet(FileManagerToolSetBase):
         self,
         patch: str,
         file_path: str | None = None,
-        fuzzy_threshold: float = 0.5,
+        fuzzy_threshold: float = 0.0,
     ) -> dict:
         """Apply patches to files with fuzzy matching support.
 
         Automatically detects patch format (Unified Diff or V4A) and extracts file paths from headers.
         Supports single-file and multi-file patches with create/update/delete operations.
-        Uses fuzzy matching to handle whitespace and minor differences.
+        Matching is EXACT by default, and a patch either applies in full or does not touch the
+        file. If any hunk fails to match, nothing is written and the error says how many matched:
+        re-read the file and rebuild the patch against what is actually there.
 
-        Format recommendations: Use Unified Diff for most cases (industry standard). Use V4A for 
-        complex multi-file operations with explicit create/delete markers. Set fuzzy_threshold=0.8 
-        for AI-generated patches.
+        Format recommendations: Use Unified Diff for most cases (industry standard). Use V4A for
+        complex multi-file operations with explicit create/delete markers.
 
         Args:
             patch: Patch content as string, format auto-detected.
@@ -1699,8 +1700,13 @@ class FileManagerToolSet(FileManagerToolSetBase):
             file_path: Optional explicit file path (default: extracted from patch headers).
                        Can be relative to workspace or absolute.
 
-            fuzzy_threshold: Optional, matching tolerance 0.0-1.0 (default: 0.5).
-                            0.0 = exact match, 0.5 = balanced, 0.8 = tolerant for AI patches.
+            fuzzy_threshold: Optional, matching tolerance 0.0-1.0 (default: 0.0 = exact).
+                            Raise it ONLY when a patch failed and you are certain the difference is
+                            whitespace. Matching is at the character level and searches up to 1000
+                            characters away, so on a large file with repeated structure a loose
+                            threshold anchors a hunk in the wrong place and splices text mid-word --
+                            producing things like `#include <5vector>` or `const double 0.04 = 0.1`
+                            while still reporting success. Prefer re-reading the file.
 
         Returns:
             dict: {
@@ -1754,11 +1760,14 @@ class FileManagerToolSet(FileManagerToolSetBase):
             *** End Patch
             ```
 
-            # Using fuzzy_threshold parameter
-            fuzzy_threshold=0.8
+            # Loosening the match, when a patch failed and the only difference is whitespace
+            fuzzy_threshold=0.5
 
         Note:
-            Common issues: "No valid operations" = check format; "No hunks applied" = try higher fuzzy_threshold; "File does not exist" = file must exist for updates.
+            Common issues: "No valid operations" = check format; "File does not exist" = file must
+            exist for updates. "Only N of M hunks matched" = your patch does not describe the file
+            as it currently is: re-read it and rebuild the patch. Reaching for a higher
+            fuzzy_threshold instead will eventually place a hunk somewhere it does not belong.
         """
         return execute_patch_operations(
             patch=patch,

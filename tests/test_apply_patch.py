@@ -76,11 +76,14 @@ async def test_apply_patch():
         with open(file3, "w") as f:
             f.write("def foo():\n    pass\n")
 
+        # The removed line must carry the indentation it has in the file. Under exact matching
+        # a patch that says `- pass` for a line that reads `    pass` is simply a patch about a
+        # different file, and is now rejected instead of being fuzzily placed somewhere.
         v4a_patch = """*** Begin Patch
 *** Update File: codex.py
 @@ function foo @@
-- pass
-+ return 42
+-    pass
++    return 42
 *** End Patch
 """
         result = await fm.apply_patch(v4a_patch)
@@ -201,7 +204,8 @@ async def test_apply_patch():
         print(f"  Result: {result}")
         assert result["success"] is False
         assert result["files"][0]["hunks_applied"] == 0
-        assert "No hunks applied" in result["files"][0]["error"]
+        assert "0 of 1 hunks matched" in result["files"][0]["error"]
+        assert "nothing was written" in result["files"][0]["error"]
         print("  ✅ PASSED!")
 
         # Test 9: Fuzzy matching - whitespace tolerance
