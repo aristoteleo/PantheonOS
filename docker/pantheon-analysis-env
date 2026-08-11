@@ -232,6 +232,33 @@ fi
 rm -f "$ENV_DIR/etc/conda/activate.d/zzz-pantheon-baseline.sh" \
       "$ENV_DIR/etc/conda/deactivate.d/zzz-pantheon-baseline.sh" 2>/dev/null
 
+# Link the libraries the borrowed packages need into THIS env's lib.
+#
+# The packages bridged in with the .pth are conda builds and are not
+# self-contained — numpy's .so wants libmkl_gnu_thread.so.3 from the prefix it
+# was built in. Putting that prefix on LD_LIBRARY_PATH was tried twice and
+# broke something both times: the agent's python loaded conda's libpython
+# (cloudpickle then killed the sandbox), and htop loaded conda's libncursesw
+# and segfaulted. The directory holds a second copy of half the system's
+# libraries, and making it globally visible is not survivable.
+#
+# Linking only what is missing puts those libraries where this environment's
+# python already looks, and nowhere else. Anything the env already has — its
+# own libpython, its own ncurses — is left alone, which is the whole point.
+if [ -d "${PANTHEON_BASELINE_LIB:-}" ] && [ -d "$ENV_DIR/lib" ]; then
+    linked=0
+    for so in "$PANTHEON_BASELINE_LIB"/lib*.so*; do
+        [ -e "$so" ] || continue
+        base="$(basename "$so")"
+        case "$base" in
+            libpython*|libncurses*|libtinfo*|libreadline*|libc.*|libstdc++*|libgcc*) continue ;;
+        esac
+        [ -e "$ENV_DIR/lib/$base" ] && continue
+        ln -s "$so" "$ENV_DIR/lib/$base" 2>/dev/null && linked=$((linked+1))
+    done
+    [ "$linked" -gt 0 ] && echo "[analysis-env] linked $linked baseline libraries into $ENV_NAME"
+fi
+
 # A kernelspec, so the notebook toolset can reach this env too.
 #
 # That toolset already crosses interpreters properly — AsyncKernelManager takes

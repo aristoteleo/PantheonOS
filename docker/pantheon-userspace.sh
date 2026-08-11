@@ -146,23 +146,17 @@ if [ -x "$PANTHEON_BASELINE_ENV/bin/python" ]; then
     _pantheon_prepend_path "$PANTHEON_BASELINE_ENV/bin"
     export PATH
 
-    # The baseline's libraries, for INTERACTIVE shells only.
+    # The baseline's lib is published, and deliberately NOT put on any
+    # search path. Every attempt to do so broke something else: given to the
+    # agent, the system python loaded conda's libpython and cloudpickle killed
+    # the sandbox; given to interactive shells, htop loaded conda's libncursesw
+    # and segfaulted. A directory holding a whole second copy of libc's
+    # neighbours cannot be made globally visible safely.
     #
-    # Its conda packages are not self-contained — numpy's .so wants
-    # libmkl_gnu_thread.so.3 from the env it came from — so a person typing
-    # `python -c "import scvi"` needs this directory on the search path.
-    #
-    # Interactive only, and that is the whole point: the same directory holds
-    # libpython3.12.so.1.0, and when the agent got it the system python loaded
-    # conda's libpython, reported conda's sys.version, and cloudpickle died
-    # parsing it before the agent could start. The entrypoint sources this file
-    # non-interactively, so the agent never takes this branch. The kernel gets
-    # the path a third way, in its kernelspec, which reaches the kernel process
-    # and stops there.
+    # pantheon-analysis-env instead links the few libraries the borrowed
+    # packages actually need INTO the personal environment's own lib, where
+    # that python already looks and nothing else does.
     export PANTHEON_BASELINE_LIB="$PANTHEON_BASELINE_ENV/lib"
-    case "$-" in
-        *i*) export LD_LIBRARY_PATH="$PANTHEON_BASELINE_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
-    esac
 
 fi
 _ANALYSIS_DIR="$MAMBA_ROOT_PREFIX/envs/$PANTHEON_ANALYSIS_ENV"
