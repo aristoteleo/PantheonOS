@@ -6,13 +6,15 @@ Four acts, because twenty-one identical steps explain nothing.
 
   1. what one step IS, with the camera close enough to read it
   2. how the parents are CHOSEN -- the chain laid out as the ranking the selector actually sees,
-     with the three bands it draws from, and one real draw replayed against them
+     the three bands it draws from, one real draw replayed against them, and then the other two
+     selectors, because the rule is a component and swapping it is the point
   3. the rest of that chain at speed, so the DAG accumulates and the arcs reach further back
-  4. a pull-back: this was one of three independent chains, and here is what the run bought
+  4. the whole run replayed with all three chains advancing in the same beat, the fitness curve
+     growing as their measurements land
 
 Act 2 exists because every other act shows the draw only as an outcome -- four nodes light up. The
 rule behind it is the one thing a viewer cannot infer from watching, and it is the lever the whole
-family of algorithms turns.
+family of algorithms turns: `balance`, `puct` and `rpucg` differ in nothing else.
 
 The scores are invented. Everything about who gets picked, how many, and what commits comes from
 `sim_simpletes`, which calls the real `Selector`.
@@ -22,19 +24,18 @@ from __future__ import annotations
 import numpy as np
 from manim import (DOWN, LEFT, ORIGIN, RIGHT, UP, ApplyFunction, Arrow, Axes, Circle, Create,
                    CurvedArrow, Dot, FadeIn, FadeOut, Indicate, LaggedStart, Line, ManimColor,
-                   MovingCameraScene, RoundedRectangle, Text, VGroup, Write, config,
+                   MovingCameraScene, RoundedRectangle, Text, Transform, VGroup, Write, config,
                    interpolate_color)
 
 from sim_simpletes import EVENTS, K, drew_phrase, tiers
 
 config.background_color = ManimColor("#ffffff")
-FONT = "PT Sans"
+FONT = "Helvetica Neue"
 """Pango's default here is a serif, which reads as a paper figure rather than a diagram.
+`Text` falls back silently if the family is missing, so naming one costs nothing elsewhere."""
 
-PT Sans over Helvetica Neue and Avenir Next because manimpango sets both of those with noticeably
-loose tracking at these sizes -- body lines come out airy and gappy, and the score labels inside
-the nodes lose their fit. `Text` falls back silently if the family is missing.
-"""
+BASE_FS = 72
+"""Every label is built at this size and scaled down -- see `txt`."""
 
 INK = ManimColor("#1f2328")
 SUB = ManimColor("#57606a")
@@ -57,6 +58,22 @@ arrowhead at each end that is not sitting on top of a node. The first pass put t
 from the previous node's edge with a 0.2-long arrowhead pointing at it, so every arrival overlapped
 the node it was arriving next to."""
 FULL_W = config.frame_width
+
+
+def txt(s: str, size: float, color=None, weight="NORMAL") -> Text:
+    """Build the label large, then scale it down. Never set a small `font_size` directly.
+
+    Pango hints glyph advances to whole pixels at whatever size it is asked to typeset. At
+    font_size around 20 that quantisation is a sizeable fraction of a character's advance, so
+    letters inside a word come out visibly unevenly spaced -- "the elite head" gets gaps that
+    belong to no font -- and Manim then scales the resulting OUTLINE up, preserving the error
+    exactly. Typesetting at 72 makes the rounding negligible, and scaling a vector costs nothing.
+
+    This also invalidated the first font comparison: Helvetica Neue and Avenir Next were rejected
+    for "loose tracking" that was this bug, not the typeface.
+    """
+    return Text(s, font=FONT, font_size=BASE_FS, color=INK if color is None else color,
+                weight=weight).scale(size / BASE_FS)
 
 
 def score_color(s: float) -> ManimColor:
@@ -83,7 +100,7 @@ def cand_pos(order: int, j: int, band: float) -> np.ndarray:
 def _fitted(score: float, width: float, color) -> Text:
     """A score label sized to its container. `font_size` is absolute, so a label that fits the
     trunk circles here spills out of them at another radius."""
-    return Text(f"{score:.2f}", font=FONT, font_size=24, color=color).scale_to_fit_width(width)
+    return txt(f"{score:.2f}", 24, color).scale_to_fit_width(width)
 
 
 def node_mob(score: float, at: np.ndarray, ring=EDGE, width=2.0) -> VGroup:
@@ -187,8 +204,7 @@ def para(text: str, size: float, color, weight="NORMAL") -> VGroup:
     inserts a gap after the first character of a line -- "They are peers" comes out "T hey are
     peers". One Text per line, arranged, avoids both.
     """
-    lines = VGroup(*[Text(ln, font=FONT, font_size=size, color=color, weight=weight)
-                     for ln in text.split("\n")])
+    lines = VGroup(*[txt(ln, size, color, weight) for ln in text.split("\n")])
     return lines.arrange(DOWN, buff=size * 0.0042)
 
 
@@ -197,7 +213,7 @@ class SimpleTESRun(MovingCameraScene):
     # ---- text that stays the same apparent size however far the camera is ----
     def cap(self, text: str, size: float = 26, color=SUB, weight="NORMAL"):
         t = para(text, size, color, weight=weight) if "\n" in text else \
-            Text(text, font=FONT, font_size=size, color=color, weight=weight)
+            txt(text, size, color, weight)
         t.scale(self.zoom)
         return fit(t, self.camera.frame.width - 0.8)
 
@@ -210,13 +226,43 @@ class SimpleTESRun(MovingCameraScene):
     def sw(self, base: float) -> float:
         return base * self.zoom
 
+    # ---- the budget counter, pinned to the top-left of whatever the camera shows ----
+    def chip_at(self, spent: int, center, width: float) -> Text:
+        """A chain's share of the run, counting down.
+
+        Real, and upstream's: `chain_prompt_count >= prompt_budget` drops a chain out of
+        `_ready_chains`, so a chain that has spent its share stops even though the run continues.
+        Without the counter on screen the chain just quietly stops producing steps.
+
+        Positioned from an EXPLICIT centre and width so it can be moved in the same animation as
+        the camera -- reading `self.camera.frame` here would place it where the camera still is.
+        """
+        z = width / FULL_W
+        t = txt(f"chain 1   ·   {spent} / {self.chip_total} prompts spent", 24,
+                MUTED if spent >= self.chip_total else ORANGE).scale(z)
+        h = z * config.frame_height
+        return t.move_to([center[0] - width / 2 + t.width / 2 + 0.25 * z,
+                          center[1] + h / 2 - t.height / 2 - 0.25 * z, 0])
+
+    def move_camera(self, at, w, *extra, run_time=1.2):
+        anims = [self.camera.frame.animate.move_to(at).set(width=w), *extra]
+        if self.chip is not None:
+            anims.append(Transform(self.chip, self.chip_at(self.chip_spent, at, w)))
+        self.play(*anims, run_time=run_time)
+
     def construct(self):
         self.dim_later: list = []
         self.chain_of = {c: [ev for ev in EVENTS if ev["chain"] == c] for c in range(3)}
+        self.chip = None
+        self.chip_spent = 0
+        self.chip_total = len(self.chain_of[0])
 
-        title = Text("SimpleTES", font=FONT, font_size=54, color=INK, weight="BOLD")
-        sub = para("every selected node is a parent — one prompt fans out into k candidates,\n"
-                   "and one of them continues the chain", 27, SUB)
+        title = txt("SimpleTES", 54, INK, weight="BOLD")
+        # What the thing IS. The mechanism sentence that used to sit here has moved to act 3,
+        # where there is something on screen for it to describe.
+        sub = para("an evolutionary search for programs: several chains of attempts advancing in\n"
+                   "parallel, a language model as the only mutation operator, one score to sort by",
+                   27, SUB)
         card = VGroup(title, sub).arrange(DOWN, buff=0.45)
         fit(card, FULL_W - 2.4).move_to(ORIGIN)
         self.play(Write(title), FadeIn(sub, shift=UP * 0.15), run_time=1.4)
@@ -252,14 +298,14 @@ class SimpleTESRun(MovingCameraScene):
 
         lab = self.cap("chain 1  ·  one of three", 24, MUTED)
         lab.next_to(self.built[0][0], UP, buff=0.4)
-        self.play(FadeIn(lab), run_time=0.6)
-        self.wait(1.0)
+        self.chip = self.chip_at(0, self.camera.frame.get_center(), self.camera.frame.width)
+        self.play(FadeIn(lab), FadeIn(self.chip), run_time=0.6)
+        self.wait(1.2)
         self.play(FadeOut(lab), run_time=0.4)
 
         self.one_step(evs[0], 0, 1, beats=("fan", "commit"), slow=True)
 
-        at, w = framing(0, 0, 4, pad=1.6, min_h=3.4)
-        self.play(self.camera.frame.animate.move_to(at).set(width=w), run_time=1.1)
+        self.move_camera(*framing(0, 0, 4, pad=1.6, min_h=3.4), run_time=1.1)
         for idx, ev in enumerate(evs[1:4], start=2):
             self.one_step(ev, 0, idx)
 
@@ -284,8 +330,9 @@ class SimpleTESRun(MovingCameraScene):
         # Everything below the chain has to fit between it and the bottom edge: the heading, the
         # ranking, three brackets and a two-line rule. The frame is 8 units tall and the chain
         # takes the top 2.6 of them, so the budget is tight and worth writing down.
-        self.play(self.camera.frame.animate.move_to([0, 0.1, 0]).set(width=FULL_W), run_time=1.3)
-        head = Text("how the parents are chosen", font=FONT, font_size=31, color=INK)
+        self.play(self.camera.frame.animate.move_to([0, 0.1, 0]).set(width=FULL_W),
+                  FadeOut(self.chip), run_time=1.3)
+        head = txt("how the parents are chosen", 31, INK)
         head.move_to([0, 1.05, 0])
         self.play(FadeIn(head), run_time=0.7)
 
@@ -298,8 +345,7 @@ class SimpleTESRun(MovingCameraScene):
         for i, nd in enumerate(ranked):
             m = node_mob(nd.score, ORIGIN).scale(1.55).move_to([slot(i), ROW_Y, 0])
             row.add(m)
-        sortnote = Text("the chain, sorted by score — best first",
-                        font=FONT, font_size=21, color=SUB).move_to([0, 0.42, 0])
+        sortnote = txt("the chain, sorted by score — best first", 21, SUB).move_to([0, 0.42, 0])
         self.play(LaggedStart(*[FadeIn(m, shift=DOWN * 0.25) for m in row], lag_ratio=0.12),
                   FadeIn(sortnote), run_time=1.6)
         self.wait(1.0)
@@ -310,8 +356,7 @@ class SimpleTESRun(MovingCameraScene):
             g = VGroup(Line([x0, y, 0], [x1, y, 0], color=color, stroke_width=3),
                        Line([x0, y, 0], [x0, y + 0.13, 0], color=color, stroke_width=3),
                        Line([x1, y, 0], [x1, y + 0.13, 0], color=color, stroke_width=3))
-            g.add(Text(label, font=FONT, font_size=19, color=color)
-                  .next_to(g, DOWN, buff=0.1))
+            g.add(txt(label, 19, color).next_to(g, DOWN, buff=0.1))
             return g
 
         bands = VGroup(band(0, elite_end, -1.20, "the elite head", GREEN),
@@ -331,8 +376,8 @@ class SimpleTESRun(MovingCameraScene):
                   "tail": "drawn from the tail"}
         for j, (order, _) in enumerate(ev["picked"]):
             i = rank_of[order]
-            tag = Text("always in — the incumbent" if j == 0 else phrase[ev["labels"][j]],
-                       font=FONT, font_size=23, color=ORANGE).move_to([0, -3.42, 0])
+            tag = txt("always in — the incumbent" if j == 0 else phrase[ev["labels"][j]],
+                      23, ORANGE).move_to([0, -3.42, 0])
             self.play(FadeIn(tag), Indicate(row[i], color=ORANGE, scale_factor=1.18),
                       row[i][0].animate.set_stroke(ORANGE, width=4.0), run_time=0.85)
             self.wait(0.75)
@@ -343,8 +388,34 @@ class SimpleTESRun(MovingCameraScene):
         fit(done, FULL_W - 2.4).move_to([0, -3.42, 0])
         self.play(FadeIn(done), run_time=0.7)
         self.wait(2.4)
-        self.play(FadeOut(head), FadeOut(sortnote), FadeOut(row), FadeOut(bands), FadeOut(done),
-                  run_time=0.9)
+
+        # The rule above is ONE selector. Swapping it is the axis SimpleTES varies to get six
+        # algorithms out of one engine, and it is where PUCT lives -- which is invisible if the
+        # act only ever shows the default.
+        self.play(FadeOut(sortnote), FadeOut(row), FadeOut(bands), FadeOut(done), FadeOut(head),
+                  run_time=0.8)
+        head2 = txt("that rule is a component, and swapping it is the point", 28, INK)
+        head2.move_to([0, 0.92, 0])
+        self.play(FadeIn(head2), run_time=0.6)
+
+        picks = [("balance", "the stratified draw just shown — the default, and what this run uses",
+                  GREEN),
+                 ("puct", "u = score + c · √( ln N / (1 + visits) )\n"
+                          "a node the search keeps returning to loses its exploration bonus", BLUE),
+                 ("rpucg", "the same, with every node's value discounted by its depth", MUTED)]
+        rows = VGroup()
+        for name, desc, col in picks:
+            rows.add(VGroup(txt(name, 26, col, weight="BOLD"), para(desc, 20, SUB))
+                     .arrange(DOWN, buff=0.14))
+        rows.arrange(DOWN, buff=0.46).move_to([0, -1.18, 0])
+        self.play(LaggedStart(*[FadeIn(r, shift=UP * 0.12) for r in rows], lag_ratio=0.35),
+                  run_time=1.8)
+        tail = para("Same chains, same prompts, same best-of-k — only the choice of parents "
+                    "changes.\nThat is how one engine becomes a family of algorithms.", 22, INK)
+        fit(tail, FULL_W - 2.4).move_to([0, -3.4, 0])
+        self.play(FadeIn(tail), run_time=0.7)
+        self.wait(3.0)
+        self.play(FadeOut(head2), FadeOut(rows), FadeOut(tail), run_time=0.9)
 
     def one_step(self, ev, chain: int, order: int, *, beats=(), slow=False):
         band = BAND_Y[chain]
@@ -414,8 +485,14 @@ class SimpleTESRun(MovingCameraScene):
             self.play(FadeOut(held[0]), run_time=0.45)
 
         self.built[chain][order] = node
+        spend = []
+        if self.chip is not None and chain == 0:
+            self.chip_spent += 1
+            spend.append(Transform(self.chip, self.chip_at(
+                self.chip_spent, self.camera.frame.get_center(), self.camera.frame.width)))
         self.play(*[p.animate.set_stroke(EDGE, width=self.sw(2.0)) for p in picked],
-                  node[0].animate.set_stroke(EDGE, width=self.sw(2.0)), run_time=rt * 0.5)
+                  node[0].animate.set_stroke(EDGE, width=self.sw(2.0)), *spend,
+                  run_time=rt * 0.5)
         self.dim_later = [(arcs, "stroke"), (link, "stroke"), (dot, "all"), (spokes, "all"),
                           (fan, "all")]
 
@@ -424,56 +501,120 @@ class SimpleTESRun(MovingCameraScene):
         """The rest of chain 1 at speed, so the DAG accumulates and the arcs reach further back."""
         evs = self.chain_of[0]
         at, w = framing(0, 0, len(evs), pad=1.3)
-        self.play(self.camera.frame.animate.move_to(at).set(width=w), run_time=1.4)
+        self.chip = self.chip_at(self.chip_spent, at, w)
+        self.play(self.camera.frame.animate.move_to(at).set(width=w), FadeIn(self.chip),
+                  run_time=1.4)
 
         # Step 5 is the draw the previous act just took apart, so it runs first and gets to say
         # what the parent set is FOR. The rest go at speed.
         self.one_step(evs[4], 0, 5, beats=("parents",), slow=True)
 
-        note = self.cap("the arcs reach further back as the chain grows —\n"
-                        "each one is a parent of the prompt it points at", 24, SUB)
+        note = self.cap("every selected node is a parent — one prompt fans out into k candidates,\n"
+                        "and one of them continues the chain", 24, SUB)
         note.next_to(self.camera.frame.get_bottom(), UP, buff=0.35)
         self.play(FadeIn(note), run_time=0.6)
         for idx, ev in enumerate(evs[5:], start=6):
             self.one_step(ev, 0, idx)
-        self.play(FadeOut(note), run_time=0.5)
 
-    # ---------------------------------------------------------------- act 3 --
+        # The share is spent, so this chain is done -- while the run is not.
+        stop = self.cap("its share of the budget is spent, so chain 1 stops here.\n"
+                        "The run is not over: the other two still have theirs.", 24, INK)
+        stop.next_to(self.camera.frame.get_bottom(), UP, buff=0.35)
+        self.play(FadeOut(note), FadeIn(stop), Indicate(self.chip, color=MUTED, scale_factor=1.12),
+                  run_time=0.9)
+        self.wait(2.6)
+        self.play(FadeOut(stop), run_time=0.5)
+
+    # ---------------------------------------------------------------- act 4 --
     def act_three(self, seeds):
-        """Pull back: this was one of three, and here is what the whole run bought."""
-        self.play(*dim(self.dim_later),
-                  self.camera.frame.animate.move_to([0, 0.25, 0]).set(width=FULL_W),
-                  run_time=1.8)
+        """The whole run at once: three chains advancing together, the curve growing with them.
+
+        Drawing chain 2 to completion and then chain 3 showed them as three things that happened,
+        one after another. They did not: the chains are independent and run at the same time, and
+        that parallelism is half of what the algorithm is. So the stage is cleared and the run is
+        replayed round by round -- every chain takes its step in the same beat, and the fitness
+        curve extends by those three measurements as they land.
+        """
+        self.play(*[FadeOut(m) for m in self.mobjects],
+                  self.camera.frame.animate.move_to(ORIGIN).set(width=FULL_W), run_time=1.3)
         self.dim_later = []
 
-        labels = VGroup()
+        # The chains are drawn at their usual coordinates and then mapped as a block into the top
+        # of the frame, so the plot has the bottom third to itself.
+        SCALE, LIFT = 0.74, 1.35
+
+        def place(m):
+            return m.scale(SCALE, about_point=ORIGIN).shift(UP * LIFT)
+
+        def place_pt(p):
+            return np.asarray(p, dtype=float) * SCALE + np.array([0.0, LIFT, 0.0])
+
+        head = txt("three chains, advancing together", 27, INK).move_to([0, 3.66, 0])
+        stage = VGroup()
         for c in range(3):
-            t = Text(f"chain {c + 1}", font=FONT, font_size=17, color=SUB)
-            t.move_to([X0 - 1.1, BAND_Y[c] + 0.16, 0])
-            b = Text(f"{len(self.chain_of[c])} prompts", font=FONT, font_size=13, color=MUTED)
-            b.move_to([X0 - 1.1, BAND_Y[c] - 0.18, 0])
-            labels.add(VGroup(t, b))
-        self.play(FadeIn(labels[0]), run_time=0.5)
+            stage.add(place(node_mob(EVENTS[0]["chains"][c][0].score, trunk_pos(0, BAND_Y[c]))))
+            stage.add(txt(f"chain {c + 1}", 17, SUB)
+                      .move_to(place_pt([X0 - 1.15, BAND_Y[c] + 0.17, 0])))
+            stage.add(txt(f"{len(self.chain_of[c])} prompts", 13, MUTED)
+                      .move_to(place_pt([X0 - 1.15, BAND_Y[c] - 0.17, 0])))
 
-        # the other two chains, all at once
-        for c in (1, 2):
-            self.play(FadeIn(seeds[c]), FadeIn(labels[c]), run_time=0.4)
-            batch = [self.quiet_step(ev, c, idx)
-                     for idx, ev in enumerate(self.chain_of[c], start=1)]
-            self.play(LaggedStart(*[FadeIn(g) for g in batch], lag_ratio=0.22), run_time=2.6)
+        ax = Axes(x_range=[0, 22, 5], y_range=[0.3, 0.9, 0.2], x_length=8.4, y_length=2.15,
+                  tips=False,
+                  axis_config={"color": EDGE, "stroke_width": 2, "include_numbers": False})
+        ax.move_to([0, -2.45, 0])
+        ticks = VGroup()
+        for v in (0.3, 0.5, 0.7, 0.9):
+            ticks.add(txt(f"{v:.1f}", 17, MUTED).next_to(ax.c2p(0, v), LEFT, buff=0.16))
+        for v in (5, 10, 15, 20):
+            ticks.add(txt(str(v), 17, MUTED).next_to(ax.c2p(v, 0.3), DOWN, buff=0.18))
+        ticks.add(txt("step", 17, MUTED).next_to(ax.c2p(22, 0.3), DOWN, buff=0.18))
+        axis_note = txt("every candidate measured  ·  best so far", 19, MUTED)
+        axis_note.next_to(ax, UP, buff=0.16).align_to(ax, LEFT)
 
-        note = para("Chains do not compete. Each gets an equal share of the budget and they are "
-                    "served in turn;\nthe selection happens inside one chain, over its own nodes.",
-                    23, INK)
-        fit(note, FULL_W - 2.0).move_to([0, -3.35, 0])
-        self.play(FadeIn(note), run_time=0.8)
-        self.wait(2.4)
+        self.play(FadeIn(head), FadeIn(stage), Create(ax), FadeIn(ticks), FadeIn(axis_note),
+                  run_time=1.4)
 
-        # Clear the stage before the summary. Three full chains and a plot in one frame is how the
-        # first version of this looked, and the plot landed on top of chain 3.
-        self.play(*[FadeOut(m) for m in self.mobjects], run_time=1.0)
-        self.fitness()
-        self.wait(2.5)
+        pts = [ax.c2p(e["step"] + 1, e["best"]) for e in EVENTS]
+        curve = VGroup(Dot(pts[0], radius=0.05, color=ORANGE))
+        cloud = VGroup()
+        self.add(curve, cloud)
+
+        rounds = max(len(v) for v in self.chain_of.values())
+        for r in range(rounds):
+            anims = []
+            for c in range(3):
+                if r < len(self.chain_of[c]):
+                    g = place(self.quiet_step(self.chain_of[c][r], c, r + 1))
+                    stage.add(g)
+                    anims.append(FadeIn(g))
+            for i in range(3 * r, min(3 * r + 3, len(EVENTS))):
+                for s in EVENTS[i]["cands"]:
+                    d = Dot(ax.c2p(EVENTS[i]["step"] + 1, s), radius=0.045,
+                            color=BLUE).set_opacity(0.55)
+                    cloud.add(d)
+                    anims.append(FadeIn(d, scale=0.35))
+                if i:
+                    seg = Line(pts[i - 1], pts[i], color=ORANGE, stroke_width=4)
+                    curve.add(seg)
+                    anims.append(Create(seg))
+            self.play(*anims, run_time=1.15)
+
+        note = para("Chains do not compete. Each gets an equal share of the budget, and the "
+                    "selection\ninside one of them never looks at the others.", 23, INK)
+        fit(note, FULL_W - 2.0).move_to([0, 3.6, 0])
+        self.play(FadeOut(head), FadeIn(note), run_time=0.8)
+        self.wait(2.6)
+
+        plot = VGroup(ax, ticks, axis_note, cloud, curve)
+        self.play(FadeOut(stage), FadeOut(note),
+                  plot.animate.scale(1.42).move_to([0, 0.45, 0]), run_time=1.4)
+        best = max(e["best"] for e in EVENTS)
+        tag = para("The line only goes up, and on its own it suggests steady progress. The cloud "
+                   "underneath is\nhow much of the budget went into candidates worse than what "
+                   f"already existed — the run ended at {best:.2f}.", 21, SUB)
+        fit(tag, FULL_W - 2.0).move_to([0, -3.1, 0])
+        self.play(FadeIn(tag), Indicate(curve, color=ORANGE, scale_factor=1.02), run_time=1.4)
+        self.wait(3.0)
 
     def quiet_step(self, ev, chain: int, order: int) -> VGroup:
         """A whole step as one static group -- for the chains the camera is not following."""
@@ -496,39 +637,3 @@ class SimpleTESRun(MovingCameraScene):
         self.built[chain][order] = node
         return g
 
-    def fitness(self):
-        # `include_numbers` renders each tick through MathTex, so the numbers come out in LaTeX's
-        # serif while every other label on screen is Helvetica -- and the y ticks collapse on top
-        # of each other. Plain Text, placed by hand.
-        ax = Axes(x_range=[0, 22, 5], y_range=[0.3, 0.9, 0.2], x_length=8.2, y_length=3.6,
-                  tips=False,
-                  axis_config={"color": EDGE, "stroke_width": 2, "include_numbers": False})
-        ax.move_to([0, -0.35, 0])
-        ticks = VGroup()
-        for v in (0.3, 0.5, 0.7, 0.9):
-            ticks.add(Text(f"{v:.1f}", font=FONT, font_size=17, color=MUTED)
-                      .next_to(ax.c2p(0, v), LEFT, buff=0.16))
-        for v in (5, 10, 15, 20):
-            ticks.add(Text(str(v), font=FONT, font_size=17, color=MUTED)
-                      .next_to(ax.c2p(v, 0.3), DOWN, buff=0.18))
-        ticks.add(Text("step", font=FONT, font_size=17, color=MUTED)
-                  .next_to(ax.c2p(22, 0.3), DOWN, buff=0.18))
-        head = fit(Text("every candidate that was measured, and the best so far",
-                        font=FONT, font_size=28, color=INK), FULL_W - 2.0)
-        head.next_to(ax, UP, buff=0.55)
-        dots = VGroup(*[Dot(ax.c2p(ev["step"] + 1, s), radius=0.045, color=BLUE).set_opacity(0.55)
-                        for ev in EVENTS for s in ev["cands"]])
-        line = ax.plot_line_graph([ev["step"] + 1 for ev in EVENTS],
-                                  [ev["best"] for ev in EVENTS],
-                                  line_color=ORANGE, add_vertex_dots=False, stroke_width=4.5)
-        self.play(Create(ax), FadeIn(head), FadeIn(ticks), run_time=1.2)
-        self.play(LaggedStart(*[FadeIn(d, scale=0.3) for d in dots], lag_ratio=0.006),
-                  run_time=2.2)
-        self.play(Create(line), run_time=1.8)
-
-        best = max(ev["best"] for ev in EVENTS)
-        tag = para("The line only goes up, and on its own it suggests steady progress. The cloud "
-                   "underneath is\nhow much of the budget went into candidates worse than what "
-                   f"already existed — the run ended at {best:.2f}.", 21, SUB)
-        fit(tag, FULL_W - 2.0).move_to([0, -3.25, 0])
-        self.play(FadeIn(tag), Indicate(line, color=ORANGE, scale_factor=1.02), run_time=1.4)
