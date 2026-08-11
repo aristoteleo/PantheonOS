@@ -2,10 +2,17 @@
 
     manim -qm --format=mp4 manim_simpletes.py SimpleTESRun
 
-Three acts, because twenty-one identical steps explain nothing. The first walks two steps slowly
-with the camera close enough to read them; the second runs the rest of that chain at speed so the
-DAG accumulates; the third pulls back to show that this was one of three independent chains and
-what the whole run bought.
+Four acts, because twenty-one identical steps explain nothing.
+
+  1. what one step IS, with the camera close enough to read it
+  2. how the parents are CHOSEN -- the chain laid out as the ranking the selector actually sees,
+     with the three bands it draws from, and one real draw replayed against them
+  3. the rest of that chain at speed, so the DAG accumulates and the arcs reach further back
+  4. a pull-back: this was one of three independent chains, and here is what the run bought
+
+Act 2 exists because every other act shows the draw only as an outcome -- four nodes light up. The
+rule behind it is the one thing a viewer cannot infer from watching, and it is the lever the whole
+family of algorithms turns.
 
 The scores are invented. Everything about who gets picked, how many, and what commits comes from
 `sim_simpletes`, which calls the real `Selector`.
@@ -13,11 +20,12 @@ The scores are invented. Everything about who gets picked, how many, and what co
 from __future__ import annotations
 
 import numpy as np
-from manim import (DOWN, LEFT, RIGHT, UP, ApplyFunction, Arrow, Axes, Circle, Create, CurvedArrow,
-                   Dot, FadeIn, FadeOut, Indicate, LaggedStart, ManimColor, MovingCameraScene,
-                   RoundedRectangle, Text, VGroup, Write, config, interpolate_color)
+from manim import (DOWN, LEFT, ORIGIN, RIGHT, UP, ApplyFunction, Arrow, Axes, Circle, Create,
+                   CurvedArrow, Dot, FadeIn, FadeOut, Indicate, LaggedStart, Line, ManimColor,
+                   MovingCameraScene, RoundedRectangle, Text, VGroup, Write, config,
+                   interpolate_color)
 
-from sim_simpletes import EVENTS, K, drew_phrase
+from sim_simpletes import EVENTS, K, drew_phrase, tiers
 
 config.background_color = ManimColor("#ffffff")
 FONT = "PT Sans"
@@ -210,25 +218,31 @@ class SimpleTESRun(MovingCameraScene):
         sub = para("every selected node is a parent — one prompt fans out into k candidates,\n"
                    "and one of them continues the chain", 27, SUB)
         card = VGroup(title, sub).arrange(DOWN, buff=0.45)
-        fit(card, FULL_W - 2.4).move_to([0, 0.4, 0])
+        fit(card, FULL_W - 2.4).move_to(ORIGIN)
         self.play(Write(title), FadeIn(sub, shift=UP * 0.15), run_time=1.4)
-        self.wait(1.0)
+        self.wait(1.4)
 
         seeds = {}
         for c in range(3):
             seeds[c] = node_mob(EVENTS[0]["chains"][c][0].score, trunk_pos(0, BAND_Y[c]))
+
+        # Clear the card, THEN cut to where the run starts. Animating the fade and a zoom together
+        # dives into a close-up of nothing -- the title recedes into a corner of a detail shot that
+        # has not been drawn yet. With the frame empty the camera move is invisible, so it is a cut.
+        self.play(FadeOut(card), run_time=0.9)
         at, w = framing(0, 0, 1, pad=1.9, min_h=3.4)
-        self.play(FadeOut(title), FadeOut(sub), FadeIn(seeds[0]),
-                  self.camera.frame.animate.move_to(at).set(width=w), run_time=1.6)
+        self.camera.frame.move_to(at).set(width=w)
+        self.play(FadeIn(seeds[0]), run_time=0.8)
 
         self.built = {0: {0: seeds[0]}, 1: {0: seeds[1]}, 2: {0: seeds[2]}}
         self.act_one()
+        self.act_selection()
         self.act_two()
         self.act_three(seeds)
 
     # ---------------------------------------------------------------- act 1 --
     def act_one(self):
-        """First what one step IS, then where its parents come from.
+        """What one step IS. Where its parents come from is a separate act.
 
         Those cannot be the same step. A chain's first step has only the seed to build on, so
         narrating "every selected node is a parent" over it shows a single parent and proves
@@ -244,14 +258,93 @@ class SimpleTESRun(MovingCameraScene):
 
         self.one_step(evs[0], 0, 1, beats=("fan", "commit"), slow=True)
 
-        at, w = framing(0, 0, 3, pad=1.6, min_h=3.4)
-        self.play(self.camera.frame.animate.move_to(at).set(width=w), run_time=1.1)
-        for idx, ev in enumerate(evs[1:3], start=2):
-            self.one_step(ev, 0, idx)
-
         at, w = framing(0, 0, 4, pad=1.6, min_h=3.4)
         self.play(self.camera.frame.animate.move_to(at).set(width=w), run_time=1.1)
-        self.one_step(evs[3], 0, 4, beats=("select", "parents"), slow=True)
+        for idx, ev in enumerate(evs[1:4], start=2):
+            self.one_step(ev, 0, idx)
+
+    # ------------------------------------------------------- the selection --
+    def act_selection(self):
+        """How the parents are chosen -- `Selector.pick`, laid out.
+
+        Every other act shows the draw as an outcome: four nodes light up. The rule behind it is
+        the one thing a viewer cannot infer from watching, and it is the lever the whole family of
+        algorithms turns, so it gets its own act with the ranking made explicit.
+
+        The chain is real and so are the picks: this is step 5's actual draw, replayed against the
+        ranking it was drawn from.
+        """
+        ev = self.chain_of[0][4]
+        pre = ev["chains"][0][:-1]                       # the chain as the selector saw it
+        ranked = sorted(pre, key=lambda n: -n.score)
+        n = len(ranked)
+        elite_end, mid_start, mid_end = tiers(n)
+        rank_of = {nd.order: i for i, nd in enumerate(ranked)}
+
+        # Everything below the chain has to fit between it and the bottom edge: the heading, the
+        # ranking, three brackets and a two-line rule. The frame is 8 units tall and the chain
+        # takes the top 2.6 of them, so the budget is tight and worth writing down.
+        self.play(self.camera.frame.animate.move_to([0, 0.1, 0]).set(width=FULL_W), run_time=1.3)
+        head = Text("how the parents are chosen", font=FONT, font_size=31, color=INK)
+        head.move_to([0, 1.05, 0])
+        self.play(FadeIn(head), run_time=0.7)
+
+        SPACING, ROW_Y = 1.32, -0.45
+
+        def slot(i):
+            return (i - (n - 1) / 2) * SPACING
+
+        row = VGroup()
+        for i, nd in enumerate(ranked):
+            m = node_mob(nd.score, ORIGIN).scale(1.55).move_to([slot(i), ROW_Y, 0])
+            row.add(m)
+        sortnote = Text("the chain, sorted by score — best first",
+                        font=FONT, font_size=21, color=SUB).move_to([0, 0.42, 0])
+        self.play(LaggedStart(*[FadeIn(m, shift=DOWN * 0.25) for m in row], lag_ratio=0.12),
+                  FadeIn(sortnote), run_time=1.6)
+        self.wait(1.0)
+
+        def band(lo: int, hi: int, y: float, label: str, color):
+            """A bracket under ranks [lo, hi)."""
+            x0, x1 = slot(lo) - 0.36, slot(hi - 1) + 0.36
+            g = VGroup(Line([x0, y, 0], [x1, y, 0], color=color, stroke_width=3),
+                       Line([x0, y, 0], [x0, y + 0.13, 0], color=color, stroke_width=3),
+                       Line([x1, y, 0], [x1, y + 0.13, 0], color=color, stroke_width=3))
+            g.add(Text(label, font=FONT, font_size=19, color=color)
+                  .next_to(g, DOWN, buff=0.1))
+            return g
+
+        bands = VGroup(band(0, elite_end, -1.20, "the elite head", GREEN),
+                       band(mid_start, mid_end, -1.95, "the middle", BLUE),
+                       band(0, n, -2.70, "anywhere at all", MUTED))
+        self.play(LaggedStart(*[FadeIn(b) for b in bands], lag_ratio=0.3), run_time=1.5)
+        rule = para("the best node is always in; each of the others is drawn from the elite head\n"
+                    "70% of the time, the middle 20%, and anywhere at all the remaining 10%.",
+                    21, INK)
+        fit(rule, FULL_W - 2.4).move_to([0, -3.42, 0])
+        self.play(FadeIn(rule), run_time=0.7)
+        self.wait(2.6)
+
+        # the actual draw
+        self.play(FadeOut(rule), run_time=0.4)
+        phrase = {"elite": "drawn from the elite head", "middle": "drawn from the middle",
+                  "tail": "drawn from the tail"}
+        for j, (order, _) in enumerate(ev["picked"]):
+            i = rank_of[order]
+            tag = Text("always in — the incumbent" if j == 0 else phrase[ev["labels"][j]],
+                       font=FONT, font_size=23, color=ORANGE).move_to([0, -3.42, 0])
+            self.play(FadeIn(tag), Indicate(row[i], color=ORANGE, scale_factor=1.18),
+                      row[i][0].animate.set_stroke(ORANGE, width=4.0), run_time=0.85)
+            self.wait(0.75)
+            self.play(FadeOut(tag), run_time=0.3)
+
+        done = para(f"{len(ev['picked'])} nodes, and every one of them is a parent of what comes "
+                    "next —\nnot one base program with the rest as decoration.", 23, INK)
+        fit(done, FULL_W - 2.4).move_to([0, -3.42, 0])
+        self.play(FadeIn(done), run_time=0.7)
+        self.wait(2.4)
+        self.play(FadeOut(head), FadeOut(sortnote), FadeOut(row), FadeOut(bands), FadeOut(done),
+                  run_time=0.9)
 
     def one_step(self, ev, chain: int, order: int, *, beats=(), slow=False):
         band = BAND_Y[chain]
@@ -333,13 +426,15 @@ class SimpleTESRun(MovingCameraScene):
         at, w = framing(0, 0, len(evs), pad=1.3)
         self.play(self.camera.frame.animate.move_to(at).set(width=w), run_time=1.4)
 
-        note = self.cap("now the chain has a ranking, so the draw can be choosy —\n"
-                        "mostly from the top of it, sometimes reaching into the tail",
-                        24, SUB)
+        # Step 5 is the draw the previous act just took apart, so it runs first and gets to say
+        # what the parent set is FOR. The rest go at speed.
+        self.one_step(evs[4], 0, 5, beats=("parents",), slow=True)
+
+        note = self.cap("the arcs reach further back as the chain grows —\n"
+                        "each one is a parent of the prompt it points at", 24, SUB)
         note.next_to(self.camera.frame.get_bottom(), UP, buff=0.35)
         self.play(FadeIn(note), run_time=0.6)
-
-        for idx, ev in enumerate(evs[4:], start=5):
+        for idx, ev in enumerate(evs[5:], start=6):
             self.one_step(ev, 0, idx)
         self.play(FadeOut(note), run_time=0.5)
 
