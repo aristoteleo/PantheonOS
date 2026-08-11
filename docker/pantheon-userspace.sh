@@ -146,6 +146,24 @@ if [ -x "$PANTHEON_BASELINE_ENV/bin/python" ]; then
     _pantheon_prepend_path "$PANTHEON_BASELINE_ENV/bin"
     export PATH
 
+    # The baseline's libraries, for INTERACTIVE shells only.
+    #
+    # Its conda packages are not self-contained — numpy's .so wants
+    # libmkl_gnu_thread.so.3 from the env it came from — so a person typing
+    # `python -c "import scvi"` needs this directory on the search path.
+    #
+    # Interactive only, and that is the whole point: the same directory holds
+    # libpython3.12.so.1.0, and when the agent got it the system python loaded
+    # conda's libpython, reported conda's sys.version, and cloudpickle died
+    # parsing it before the agent could start. The entrypoint sources this file
+    # non-interactively, so the agent never takes this branch. The kernel gets
+    # the path a third way, in its kernelspec, which reaches the kernel process
+    # and stops there.
+    export PANTHEON_BASELINE_LIB="$PANTHEON_BASELINE_ENV/lib"
+    case "$-" in
+        *i*) export LD_LIBRARY_PATH="$PANTHEON_BASELINE_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
+    esac
+
     # The baseline's shared libraries — but NOT on this process's
     # LD_LIBRARY_PATH.
     #
