@@ -51,18 +51,21 @@ def score_ink(s: float | None) -> str:
 
 
 class Canvas:
-    def __init__(self, title="", subtitle=""):
-        self.fig = plt.figure(figsize=(W, H), dpi=DPI)
+    def __init__(self, title="", subtitle="", *, height=H, top=64.0):
+        """`height` is inches, `top` the y of the data box. Keep the two in step or the aspect
+        changes and circles come out as ellipses."""
+        self.fig = plt.figure(figsize=(W, height), dpi=DPI)
         self.fig.patch.set_facecolor(BG)
         self.ax = self.fig.add_axes([0, 0, 1, 1])
         self.ax.set_xlim(0, 100)
-        self.ax.set_ylim(0, 64)
+        self.ax.set_ylim(0, top)
         self.ax.axis("off")
         self.ax.set_facecolor(BG)
         if title:
-            self.ax.text(4, 60.0, title, color=TITLE, fontsize=20, weight="bold", va="center")
+            self.ax.text(4, top - 4.0, title, color=TITLE, fontsize=20, weight="bold",
+                         va="center")
         if subtitle:
-            self.ax.text(4, 57.2, subtitle, color=SUB, fontsize=11.5, va="center")
+            self.ax.text(4, top - 6.8, subtitle, color=SUB, fontsize=11.5, va="center")
 
     def box(self, x, y, w, h, title, sub="", *, model=False, alpha=1.0, bold=False,
             fill=None, edge=EDGE, tcol=TITLE, fs=13):
