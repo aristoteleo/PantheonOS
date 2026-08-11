@@ -141,7 +141,7 @@ export PANTHEON_ANALYSIS_ENV="${PANTHEON_ANALYSIS_ENV:-analysis}"
 # The read-only stack in the image that the personal environment inherits from.
 # Its bin goes on PATH BEHIND the personal env's, so anything the user installs
 # shadows the baseline copy rather than the other way round.
-export PANTHEON_BASELINE_ENV="${PANTHEON_BASELINE_ENV:-/opt/pantheon/envs/analysis}"
+export PANTHEON_BASELINE_ENV="${PANTHEON_BASELINE_ENV:-/opt/pantheon/envs/pantheon-base}"
 if [ -x "$PANTHEON_BASELINE_ENV/bin/python" ]; then
     _pantheon_prepend_path "$PANTHEON_BASELINE_ENV/bin"
     export PATH

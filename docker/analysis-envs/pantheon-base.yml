@@ -27,7 +27,12 @@
 # a sandbox that has never pulled this image takes about ten times longer to
 # start than a prewarmed one. Weigh both.
 
-name: analysis
+name: pantheon-base
+# Named for what it is, and NOT `analysis`: the personal environment on the
+# Volume is called that, and two environments with one name left conda unable
+# to show either by name — `conda env list` printed bare paths, and
+# `conda activate analysis` was ambiguous. This one is the read-only stack in
+# the image; yours is the one you install into.
 # Every module here is imported at build time; the build fails if one does not.
 # The solver checking that a set of packages CAN be installed together is not
 # the same as them working together — squidpy and decoupler both solved

@@ -46,7 +46,7 @@ ENV_DIR="$MAMBA_ROOT_PREFIX/envs/$ENV_NAME"
 # The baseline the personal environment inherits from: the analysis stack, in
 # the image, the same for everyone and free at runtime. The personal env holds
 # only what this user added.
-BASELINE="${PANTHEON_BASELINE_ENV:-/opt/pantheon/envs/analysis}"
+BASELINE="${PANTHEON_BASELINE_ENV:-/opt/pantheon/envs/pantheon-base}"
 
 # What the personal environment itself is built with. Deliberately thin — R and
 # the analysis stack come from the baseline, so this is only enough to have an
