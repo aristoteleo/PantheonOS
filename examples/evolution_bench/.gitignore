@@ -2,3 +2,5 @@ results*/
 __pycache__/
 *.pyc
 cache/
+*.gif
+*.mp4

@@ -96,17 +96,33 @@ class CompletionVariator:
                      content: str) -> str:
         c = item.context
         parts = [c.instruction or ctx.objective or "Improve the program."]
-        parent = c.parents[0] if c.parents else None
-        if parent is not None:
-            m = {k: v for k, v in parent.metrics().items() if k != "fitness_weights"}
-            score = m.get(self.score_key)
-            parts.append(f"\n## Current program `{path}`"
-                         + (f" ({self.score_key} = {score})" if score is not None else ""))
+
+        def _score(ind):
+            v = ind.metrics().get(self.score_key)
+            return f" ({self.score_key} = {v})" if v is not None else ""
+
+        def _body(text: str) -> str:
+            return (text if len(text) <= self.max_parent_chars
+                    else text[: self.max_parent_chars] + "\n# ... truncated ...\n")
+
+        if len(c.parents) > 1:
+            # Several parents means the method is asking for a synthesis, not an edit: the
+            # programs are peers to learn from and none of them is "the current one". SimpleTES
+            # works this way -- its selected set IS its parent set, and its prompt shows them as
+            # references before asking for a new program -- so presenting the first as the
+            # incumbent would quietly turn a recombination into a mutation.
+            parts.append(f"\n## Reference programs ({len(c.parents)} of them), best first")
+            for i, p in enumerate(c.parents):
+                src = p.genome.files.get(path) if isinstance(p.genome, CodeGenome) else None
+                parts.append(f"\n### reference {i + 1}{_score(p)}")
+                parts.append(f"```python\n{_body(src or p.genome.render())}```")
+            parts.append("\nWrite a NEW program, better than all of them. Prefer an approach none "
+                         "of them takes; combine what works where that helps.")
         else:
-            parts.append(f"\n## Current program `{path}`")
-        body = content if len(content) <= self.max_parent_chars else (
-            content[: self.max_parent_chars] + "\n# ... truncated ...\n")
-        parts.append(f"```python\n{body}```")
+            parent = c.parents[0] if c.parents else None
+            parts.append(f"\n## Current program `{path}`"
+                         + (_score(parent) if parent is not None else ""))
+            parts.append(f"```python\n{_body(content)}```")
         if c.history:
             parts.append(f"\n## What earlier attempts scored\n{c.history}")
         if c.inspirations:

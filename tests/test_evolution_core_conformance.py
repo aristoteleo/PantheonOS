@@ -128,13 +128,32 @@ class TestSimpleTESRuns:
         assert len(res.store) > len(chain), "the losing candidates are kept in the store"
 
     def test_the_committed_child_is_the_best_of_its_batch(self):
+        """Siblings are grouped by BATCH, not by parent.
+
+        A batch has several parents -- the selected set is the parent set -- and a node that was
+        selected once tends to be selected again, so `store.children(parent_ids[0])` mixes
+        candidates from different prompts together. The measurement carries the batch id, which
+        is the only thing that actually identifies one prompt's k candidates.
+        """
         m = SimpleTES(num_chains=1, k_candidates=4, seed=5)
         res = run(m, budget=4, concurrency=1)
+
+        batches: dict = {}
+        for ind in res.store:
+            for meas in ind.measurements:
+                if meas.batch_id:
+                    batches.setdefault(meas.batch_id, []).append(ind)
+                    break
+
+        checked = 0
         for cid in m.chains[0][1:]:
             child = res.store.get(cid)
-            siblings = res.store.children(child.parent_ids[0])
+            bid = next((mm.batch_id for mm in child.measurements if mm.batch_id), None)
+            siblings = batches.get(bid) or [child]
             best = max(s.metrics().get("combined_score", -1e9) for s in siblings)
             assert child.metrics()["combined_score"] == best
+            checked += 1
+        assert checked >= 1, "the run committed nothing, so nothing was verified"
 
     def test_a_batch_still_closes_when_the_model_returns_too_few(self):
         """Without `on_failed` the batch counter never reaches k and the chain stalls at the seed."""

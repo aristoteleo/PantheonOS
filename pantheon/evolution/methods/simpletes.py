@@ -2,8 +2,8 @@
 
 This exists to test the abstraction, not to vendor someone else's system. SimpleTES
 (github.com/wq-will/SimpleTES) is an independently designed search: C parallel chains, each a DAG
-of attempts; every step selects history from one chain, asks a model for K candidates from one
-prompt, evaluates them in isolation, and commits only the best to that chain. Nothing about it
+of attempts; every step samples a set of nodes from one chain, asks a model for K candidates from
+one prompt, evaluates them in isolation, and commits only the best to that chain. Nothing about it
 resembles MAP-Elites -- no bins, no islands, no elite grid -- so if it can be written here without
 touching the framework, the seam is in the right place.
 
@@ -16,6 +16,24 @@ Two things it forced into the interface, both of which were missing from the fir
 
 The selector is a separate object for the same reason it is in the original: it is the axis they
 vary to get six algorithms, and it is the part someone will want to replace.
+
+**Read against the upstream source, and corrected.** The first version of this port invented a
+distinction that is not there: it treated the first selected node as THE parent and the rest as
+"inspirations". Upstream, the selected set is the parent set --
+
+    parent_ids=list(task.inspiration_ids)                        engine/runtime.py
+    def on_child_done(self, child, parents):  # "parents: Parent nodes (inspirations)"
+
+-- and the generation prompt has no notion of a current program at all. It shows the immutable
+scaffold, then `[SAMPLED INSPIRATIONS] (n solutions sampled for detailed reference)`, and asks for
+a new block: *"Prioritize NOVEL approaches ... Combine insights from multiple solutions"*. So the
+lineage is a genuine multi-parent DAG, which is also why their value backpropagation is described
+as DAG-aware rather than tree-aware.
+
+Still not ported, deliberately: `reflection_mode` (an extra model call summarising each winner) and
+the `llm_elite` / `llm_refine_*` selectors (a second LLM pass that re-ranks a shortlist). Both add
+model calls to the SELECTION step, which is a different kind of algorithm from the three here, and
+neither is needed to test the seam.
 """
 from __future__ import annotations
 
@@ -38,23 +56,54 @@ def score_of(ind: Individual, key: str) -> Optional[float]:
 
 
 class Selector:
-    """History -> which nodes to build on. SimpleTES's Φ lever."""
+    """History -> which nodes to build the next prompt on. SimpleTES's phi lever.
+
+    `chain` arrives sorted by score, best first, which every selector here relies on.
+    """
 
     name = "balance"
 
+    def __init__(self, exploitation_ratio: float = 0.7, exploration_ratio: float = 0.2,
+                 elite_ratio: float = 0.2):
+        self.exploitation_ratio = exploitation_ratio
+        self.exploration_ratio = exploration_ratio
+        self.elite_ratio = elite_ratio
+
     def pick(self, chain: List[Individual], n: int, rng: random.Random,
              key: str) -> List[Individual]:
-        """Choose up to `n` nodes from one chain to condition the next prompt on."""
-        if not chain:
+        """The best node, then a stratified draw over the rest.
+
+        Three tiers rather than a shuffle: most draws come from the elite head, some from the
+        middle of the ranking, and a few from anywhere. A plain shuffle over "everything except
+        the best" makes the middle and the tail equally likely, which is a different search.
+        """
+        if not chain or n <= 0:
             return []
-        scored = [c for c in chain if score_of(c, key) is not None]
-        if not scored:
-            return [rng.choice(chain)]
-        # stratified: the incumbent, plus a spread over the rest
-        best = max(scored, key=lambda c: score_of(c, key))
-        rest = [c for c in scored if c.id != best.id]
-        rng.shuffle(rest)
-        return [best] + rest[: max(0, n - 1)]
+        if len(chain) <= n:
+            return list(chain)
+
+        result = [chain[0]]
+        used = {chain[0].id}
+        size = len(chain)
+        elite_end = max(1, int(size * self.elite_ratio))
+        mid_start = max(1, int(size * 0.1))
+        mid_end = max(2, int(size * 0.6))
+
+        for _ in range(n - 1):
+            roll = rng.random()
+            if roll < self.exploitation_ratio:
+                pool = chain[:elite_end]
+            elif roll < self.exploitation_ratio + self.exploration_ratio:
+                pool = chain[mid_start:mid_end] if mid_end > mid_start else chain
+            else:
+                pool = chain
+            avail = [c for c in pool if c.id not in used] or [c for c in chain if c.id not in used]
+            if not avail:
+                break
+            pick = rng.choice(avail)
+            result.append(pick)
+            used.add(pick.id)
+        return result
 
 
 class PUCTSelector(Selector):
@@ -62,7 +111,8 @@ class PUCTSelector(Selector):
 
     name = "puct"
 
-    def __init__(self, c_puct: float = 1.4):
+    def __init__(self, c_puct: float = 1.4, **kw):
+        super().__init__(**kw)
         self.c_puct = c_puct
         self.visits: Dict[str, int] = {}
 
@@ -70,12 +120,13 @@ class PUCTSelector(Selector):
         if not chain:
             return []
         total = max(1, sum(self.visits.get(c.id, 0) for c in chain))
+
         def u(c: Individual) -> float:
             q = score_of(c, key) or 0.0
             nvis = self.visits.get(c.id, 0)
             return q + self.c_puct * math.sqrt(math.log(total + 1) / (1 + nvis))
-        ranked = sorted(chain, key=u, reverse=True)
-        chosen = ranked[:n]
+
+        chosen = sorted(chain, key=u, reverse=True)[:n]
         for c in chosen:
             self.visits[c.id] = self.visits.get(c.id, 0) + 1
         return chosen
@@ -87,8 +138,8 @@ class RPUCGSelector(PUCTSelector):
 
     name = "rpucg"
 
-    def __init__(self, c_puct: float = 1.4, gamma: float = 0.9):
-        super().__init__(c_puct)
+    def __init__(self, c_puct: float = 1.4, gamma: float = 0.8, **kw):
+        super().__init__(c_puct, **kw)
         self.gamma = gamma
         self.depth: Dict[str, int] = {}
 
@@ -96,12 +147,13 @@ class RPUCGSelector(PUCTSelector):
         if not chain:
             return []
         total = max(1, sum(self.visits.get(c.id, 0) for c in chain))
+
         def u(c: Individual) -> float:
             q = (score_of(c, key) or 0.0) * (self.gamma ** self.depth.get(c.id, 0))
             nvis = self.visits.get(c.id, 0)
             return q + self.c_puct * math.sqrt(math.log(total + 1) / (1 + nvis))
-        ranked = sorted(chain, key=u, reverse=True)
-        chosen = ranked[:n]
+
+        chosen = sorted(chain, key=u, reverse=True)[:n]
         for c in chosen:
             self.visits[c.id] = self.visits.get(c.id, 0) + 1
         return chosen
@@ -130,15 +182,22 @@ class SimpleTES(BaseMethod):
         self,
         num_chains: int = 4,
         k_candidates: int = 4,
-        num_inspirations: int = 2,
+        num_inspirations: int = 5,
+        min_inspirations: Optional[int] = None,
+        max_inspirations: Optional[int] = None,
         selector: str = "balance",
         score_key: str = "combined_score",
         kind: str = "code",
+        max_generations: Optional[int] = None,
         seed: int = 0,
     ):
         self.num_chains = num_chains
         self.k = k_candidates
         self.num_inspirations = num_inspirations
+        self.min_inspirations = min_inspirations
+        self.max_inspirations = max_inspirations
+        """Upstream samples the count per batch when both are set, so successive prompts see
+        different amounts of history. Fixed at `num_inspirations` when they are not."""
         self.score_key = score_key
         self.kind = kind
         sel = SELECTORS.get(selector, Selector)
@@ -146,7 +205,12 @@ class SimpleTES(BaseMethod):
         self.rng = random.Random(seed)
         self.chains: List[List[str]] = [[] for _ in range(num_chains)]
         self.open: Dict[str, _Batch] = {}
-        self.failures: Dict[str, float] = {}
+        self.failures: List[Dict[str, float]] = [{} for _ in range(num_chains)]
+        """Per chain, not global. A pattern that keeps breaking one line of attack is not
+        evidence about a different one, and pooling them puts noise in every prompt."""
+        self.prompt_budget: Dict[int, int] = {}
+        self.prompt_count: Dict[int, int] = {i: 0 for i in range(num_chains)}
+        self.max_generations = max_generations
         self._next_chain = 0
 
     # ---- lifecycle -------------------------------------------------------
@@ -154,9 +218,37 @@ class SimpleTES(BaseMethod):
     async def start(self, ctx: EvolveContext, seeds: Sequence[Individual]) -> None:
         for c in range(self.num_chains):
             self.chains[c] = [s.id for s in seeds]
+        total = self.max_generations or (ctx.budget.max_items or 0)
+        if total:
+            # Chains get an equal share of the run and retire when it is spent, so a chain that
+            # happens to be scheduled often cannot quietly consume the whole budget.
+            #
+            # The share is counted in PROMPTS. Upstream divides a generation budget by k because
+            # its budget counts children; here one work item already is one prompt, so dividing
+            # again would retire every chain after a single batch. And the remainder is handed
+            # out rather than dropped -- with integer division the shares sum to less than the
+            # budget, the leftover items belong to no chain, and the run stops early with money
+            # unspent while claiming the budget stopped it.
+            base, extra = divmod(total, self.num_chains)
+            self.prompt_budget = {i: max(1, base + (1 if i < extra else 0))
+                                  for i in range(self.num_chains)}
 
     def _chain_nodes(self, ctx: EvolveContext, c: int) -> List[Individual]:
-        return [ctx.store.get(i) for i in self.chains[c] if ctx.store.get(i) is not None]
+        """The chain's nodes, best first. Every selector reads position 0 as the incumbent."""
+        nodes = [ctx.store.get(i) for i in self.chains[c]]
+        nodes = [n for n in nodes if n is not None]
+        return sorted(nodes, key=lambda n: score_of(n, self.score_key) or -math.inf, reverse=True)
+
+    def _inspiration_count(self, chain_len: int) -> int:
+        n = min(self.num_inspirations, chain_len)
+        if self.min_inspirations is None or self.max_inspirations is None:
+            return n
+        lo, hi = int(self.min_inspirations), int(self.max_inspirations)
+        return max(1, min(chain_len, self.rng.randint(min(lo, hi), max(lo, hi))))
+
+    def _retired(self, c: int) -> bool:
+        cap = self.prompt_budget.get(c)
+        return cap is not None and self.prompt_count.get(c, 0) >= cap
 
     # ---- the loop --------------------------------------------------------
 
@@ -174,33 +266,39 @@ class SimpleTES(BaseMethod):
                 break
             c = self._next_chain
             self._next_chain = (self._next_chain + 1) % self.num_chains
-            if c in busy:
+            if c in busy or self._retired(c):
                 continue
             nodes = self._chain_nodes(ctx, c)
-            picked = self.selector.pick(nodes, 1 + self.num_inspirations, self.rng, self.score_key)
+            if not nodes:
+                continue
+            picked = self.selector.pick(nodes, self._inspiration_count(len(nodes)),
+                                        self.rng, self.score_key)
             if not picked:
                 continue
-            parent, inspirations = picked[0], picked[1:]
+            # Every selected node is a parent. Upstream sets `parent_ids = inspiration_ids` and
+            # its prompt shows them as peer references rather than one base plus decoration --
+            # which is what makes the lineage a multi-parent DAG.
             item = Create(
                 kind=self.kind,
-                parent_ids=[parent.id],
+                parent_ids=[p.id for p in picked],
                 k=self.k,
                 context=PromptContext(
                     instruction=ctx.objective,
-                    parents=[parent],
-                    inspirations=list(inspirations),
+                    parents=list(picked),
                     history=self._history_text(ctx, c),
-                    failures=dict(self.failures),
+                    failures=dict(self.failures[c]),
                 ),
                 meta={"chain": c, "selector": self.selector.name},
             )
-            self.open[item.batch_id] = _Batch(chain_idx=c, parent_ids=[parent.id], k=self.k)
+            self.open[item.batch_id] = _Batch(chain_idx=c,
+                                              parent_ids=[p.id for p in picked], k=self.k)
+            self.prompt_count[c] = self.prompt_count.get(c, 0) + 1
             items.append(item)
             busy.add(c)
         return items
 
     def _history_text(self, ctx: EvolveContext, c: int) -> str:
-        nodes = self._chain_nodes(ctx, c)[-6:]
+        nodes = self._chain_nodes(ctx, c)[:6]
         lines = []
         for nd in nodes:
             s = score_of(nd, self.score_key)
@@ -223,7 +321,8 @@ class SimpleTES(BaseMethod):
             return
         b.done += 1
         if f.reason:
-            self.failures[f.reason] = self.failures.get(f.reason, 0.0) + 1.0
+            book = self.failures[b.chain_idx]
+            book[f.reason] = book.get(f.reason, 0.0) + 1.0
         if b.done >= b.k:
             self._commit(ctx, f.batch_id)
 
@@ -249,9 +348,7 @@ class SimpleTES(BaseMethod):
         self.chains[b.chain_idx].append(best_id)
         sel = self.selector
         if isinstance(sel, RPUCGSelector):
-            parent_depth = max(
-                (sel.depth.get(p, 0) for p in b.parent_ids), default=0
-            )
+            parent_depth = max((sel.depth.get(p, 0) for p in b.parent_ids), default=0)
             sel.depth[best_id] = parent_depth + 1
 
     # ---- reporting -------------------------------------------------------
@@ -269,7 +366,9 @@ class SimpleTES(BaseMethod):
     def state_dict(self) -> Dict[str, Any]:
         st: Dict[str, Any] = {
             "chains": [list(c) for c in self.chains],
-            "failures": dict(self.failures),
+            "failures": [dict(f) for f in self.failures],
+            "prompt_count": dict(self.prompt_count),
+            "prompt_budget": dict(self.prompt_budget),
             "next_chain": self._next_chain,
             "selector": self.selector.name,
         }
@@ -281,7 +380,12 @@ class SimpleTES(BaseMethod):
 
     def load_state_dict(self, state: Dict[str, Any]) -> None:
         self.chains = [list(c) for c in state.get("chains", self.chains)]
-        self.failures = dict(state.get("failures", {}))
+        f = state.get("failures", [])
+        if isinstance(f, dict):        # a checkpoint from before failures were per chain
+            f = [dict(f) for _ in range(self.num_chains)]
+        self.failures = [dict(x) for x in f] or [{} for _ in range(self.num_chains)]
+        self.prompt_count = {int(k): int(v) for k, v in state.get("prompt_count", {}).items()}
+        self.prompt_budget = {int(k): int(v) for k, v in state.get("prompt_budget", {}).items()}
         self._next_chain = state.get("next_chain", 0)
         if isinstance(self.selector, PUCTSelector):
             self.selector.visits = dict(state.get("visits", {}))

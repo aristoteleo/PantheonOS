@@ -91,6 +91,22 @@ def _run_once(tmp_dir: Path, n_cases: int) -> Dict[str, Any]:
     return json.loads(line)
 
 
+def _diagnosis(text: str, limit: int = 900) -> str:
+    """The part of a compiler's output that says what is wrong.
+
+    g++ prints warnings before errors, so truncating from the front hands back a list of
+    `-Wsign-compare` notices and cuts off the error that actually stopped the build. The agent gets
+    this text as its feedback: one run's mutation failed twice in a row against a message that
+    contained no error at all, which is not something it could have acted on.
+    """
+    text = text or ""
+    errors = [ln for ln in text.splitlines() if " error:" in ln or "fatal error:" in ln]
+    if errors:
+        head = "\n".join(errors[:8])
+        return head[:limit] + (" ..." if len(head) > limit else "")
+    return text[:limit] + (" ..." if len(text) > limit else "")
+
+
 def evaluate(workspace_path: str, fidelity: str = "full") -> Dict[str, Any]:
     t0 = time.time()
     # The harness has no way to pass an argument -- it hands over a workspace path and nothing
@@ -117,7 +133,7 @@ def evaluate(workspace_path: str, fidelity: str = "full") -> Dict[str, Any]:
         for _ in range(n_runs):
             r = _run_once(tmp, n_cases)
             if r.get("error"):
-                return _invalid(str(r["error"])[:400], t0)
+                return _invalid(_diagnosis(str(r["error"])), t0)
             runs.append(r)
     except subprocess.TimeoutExpired:
         return _invalid(f"docker run exceeded {DOCKER_TIMEOUT}s", t0)
