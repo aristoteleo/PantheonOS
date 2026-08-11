@@ -164,22 +164,6 @@ if [ -x "$PANTHEON_BASELINE_ENV/bin/python" ]; then
         *i*) export LD_LIBRARY_PATH="$PANTHEON_BASELINE_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
     esac
 
-    # The baseline's shared libraries — but NOT on this process's
-    # LD_LIBRARY_PATH.
-    #
-    # Borrowing the baseline's packages needs them: a conda package is not
-    # self-contained, numpy's .so links against libmkl_gnu_thread.so.3 in its
-    # own env's lib/, and `import scvi` from the personal env died on exactly
-    # that. Exporting it here fixed the import and broke the sandbox: the
-    # entrypoint sources this file before exec'ing the agent, so the agent —
-    # a /venv Python — also got conda's libssl and libcrypto ahead of its own,
-    # and never completed the NATS handshake. The Hub sat at
-    # phase=nats-handshake until it gave up.
-    #
-    # So the path is published for whoever needs it, and applied only by what
-    # runs in that environment. pantheon-analysis-env puts it in the personal
-    # env's activation script, where it reaches that python and nothing else.
-    export PANTHEON_BASELINE_LIB="$PANTHEON_BASELINE_ENV/lib"
 fi
 _ANALYSIS_DIR="$MAMBA_ROOT_PREFIX/envs/$PANTHEON_ANALYSIS_ENV"
 
