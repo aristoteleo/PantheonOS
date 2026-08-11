@@ -49,7 +49,32 @@ _pantheon_prepend_path() {
 # `python`. The agent would then be running on the very environment the user is
 # free to upgrade and break, which is the exact arrangement all of this exists
 # to prevent. Everything that must run on the runtime uses this name instead.
-PANTHEON_RUNTIME_PYTHON="${PANTHEON_RUNTIME_PYTHON:-$(command -v python || command -v python3)}"
+# The runtime venv by path, not by asking PATH — and corrected if it is wrong.
+#
+# `command -v python` finds whatever PATH happens to hold, and PATH is not
+# reliable here: /etc/profile rebuilds it for a login shell and drops the
+# /venv/bin that Docker's ENV put there. This resolved to /usr/local/bin/python
+# — the base image's interpreter, which has none of the agent's packages — and
+# `pantheon --help` died on `No module named 'fire'` with fire sitting in /venv
+# all along.
+#
+# Not guarded on "is it unset". This file is sourced repeatedly, and the first
+# sourcing may already have recorded the wrong answer; a guard that only fills
+# in a blank would preserve it forever. A value that cannot import the agent is
+# replaced.
+_pantheon_runtime_ok() {
+    [ -x "$1" ] && "$1" -c 'import fire' >/dev/null 2>&1
+}
+if ! _pantheon_runtime_ok "${PANTHEON_RUNTIME_PYTHON:-}"; then
+    for _c in "${VIRTUAL_ENV:-}/bin/python" /venv/bin/python \
+              "$(command -v python 2>/dev/null)" "$(command -v python3 2>/dev/null)"; do
+        if _pantheon_runtime_ok "$_c"; then
+            PANTHEON_RUNTIME_PYTHON="$_c"
+            break
+        fi
+    done
+    unset _c
+fi
 export PANTHEON_RUNTIME_PYTHON
 
 mkdir -p "$PANTHEON_USER_PREFIX"/{bin,pylibs,Rlib,opt,aptcache/archives/partial,aptcache/lists/partial} 2>/dev/null
