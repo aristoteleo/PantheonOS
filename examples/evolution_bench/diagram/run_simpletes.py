@@ -129,7 +129,10 @@ LO, HI = min(_ALL), max(_ALL)
 
 COL_X = [11.5, 27.0, 42.5]
 TOP_Y, DY, HALF = 49.0, 3.5, 5.0
-TIER_COLOR = {"incumbent": ORANGE, "elite": GREEN, "middle": BLUE, "tail": GREY}
+TIER_COLOR = {"incumbent": ORANGE, "elite": BLUE, "middle": BLUE, "tail": GREY}
+"""Only the LABEL takes the tier colour. The ring stays orange on all of them, matching the tree,
+because the point of the row is that all four are parents -- ringing them in four different colours
+says the opposite, and breaks the correspondence with the orange rings on the left."""
 
 
 def node_xy(chain: int, n: Node):
@@ -175,10 +178,13 @@ def frame(i: int):
             x, y = node_xy(ci, n)
             is_new = active and n is ch[-1]
             is_parent = active and n.order in parent_orders and not is_new
-            # the k-1 that were measured and did not commit, parked beside the one that did
+            # the k-1 that were measured and did not commit, parked beside the one that did.
+            # Tinted by their score rather than left hollow: they are measured programs, and an
+            # empty ring reads as an empty slot -- something the search has not filled yet.
             for j, s in enumerate(n.lost):
-                c.ax.add_patch(Circle((x + 2.1 + j * 1.15, y), 0.42, facecolor="none",
-                                      edgecolor=GREY, linewidth=0.9, alpha=0.8, zorder=2))
+                c.ax.add_patch(Circle((x + 2.2 + j * 1.2, y), 0.5, facecolor=score_fill(s),
+                                      edgecolor=GREY, linewidth=1.0,
+                                      alpha=0.85 if is_new else 0.45, zorder=2))
             c.ax.add_patch(Circle(
                 (x, y), 1.35, facecolor=score_fill(n.score),
                 edgecolor=GREEN if is_new else (ORANGE if is_parent else EDGE),
@@ -186,17 +192,25 @@ def frame(i: int):
             c.ax.text(x, y, f"{n.score:.2f}", color=score_ink(n.score), fontsize=7,
                       ha="center", va="center", zorder=4)
 
-    c.ax.add_patch(Circle((7.0, 18.6), 0.42, facecolor="none", edgecolor=GREY, linewidth=0.9,
-                          zorder=3))
-    c.note(8.6, 18.6, "the k-1 that lost — measured, kept, and never seen by a later prompt",
-           color=GREY, size=9.5)
-    c.note(6.5, 15.9, "down each column is creation order  ·  across it is score, better to the "
-                      "right", color=GREY, size=9.5)
-    c.note(6.5, 13.2, "an arrow from the left is a parent drawn from the middle or the tail of the "
-                      "ranking", color=GREY, size=9.5)
-    c.note(6.5, 9.4, "Chains do not compete. Each gets an equal share of the budget and they are "
-                     "served in turn —", color=SUB, size=10.5)
-    c.note(6.5, 6.7, "the selection happens inside one chain, over its own nodes.",
+    # A key with the marks drawn, not described. The first version named them in a line of small
+    # text at the bottom and left the orange ring -- the one that carries the whole selection story
+    # -- with no entry at all, so the picture had to be guessed at.
+    key = [(ORANGE, 1.35, "selected as a parent for this prompt  (the four on the right)"),
+           (GREEN, 1.35, "the child that just committed — best of its k"),
+           (GREY, 0.5, "a candidate that lost: measured and kept, but no later prompt sees it")]
+    for j, (col, r, text) in enumerate(key):
+        y = 20.2 - j * 2.9
+        c.ax.add_patch(Circle((7.4, y), r, facecolor=score_fill(0.62) if r > 1 else score_fill(0.5),
+                              edgecolor=col, linewidth=2.2 if r > 1 else 1.0, zorder=3))
+        c.note(9.6, y, text, color=SUB, size=9.5)
+
+    c.note(6.0, 10.2, "down each column is creation order  ·  across it is score, better to the "
+                      "right —", color=GREY, size=9.5)
+    c.note(6.0, 7.7, "so an arrow from the left is a parent drawn from the middle or the tail of "
+                     "the ranking", color=GREY, size=9.5)
+    c.note(6.0, 4.4, "Chains do not compete. Each gets an equal share of the budget and they are "
+                     "served in turn;", color=SUB, size=10.5)
+    c.note(6.0, 1.9, "the selection happens inside one chain, over its own nodes.",
            color=SUB, size=10.5)
 
     # ---- the step, on the right -----------------------------------------
@@ -208,7 +222,7 @@ def frame(i: int):
         x = 58 + j * 9.5
         lab = e["labels"][j]
         c.ax.add_patch(Circle((x, 45.6), 1.5, facecolor=score_fill(s),
-                              edgecolor=TIER_COLOR[lab], linewidth=2.2, zorder=3))
+                              edgecolor=ORANGE, linewidth=2.2, zorder=3))
         c.ax.text(x, 45.6, f"{s:.2f}", color=score_ink(s), fontsize=8,
                   ha="center", va="center", zorder=4)
         c.note(x, 42.6, lab, color=TIER_COLOR[lab], size=8.5, ha="center")
