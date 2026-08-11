@@ -82,7 +82,9 @@ class MapElitesRun(Kit, MovingCameraScene):
             v.next_to(np.array([GRID_X[i], GRID_Y + BINS * CELL / 2, 0.0]), LEFT, buff=0.22)
             self.axes_labels.add(v)
 
-        self.camera.frame.move_to([GRID_X[0] + BINS * CELL / 2, 0.55, 0]).set(width=7.6)
+        # Wide enough that the frame is TALL enough: the counter sits above the grid and the
+        # captions below it, and a frame's height follows from its width.
+        self.camera.frame.move_to([GRID_X[0] + BINS * CELL / 2, 0.55, 0]).set(width=8.4)
         self.play(FadeIn(self.grids[0]), FadeIn(self.axes_labels[:2]), run_time=1.0)
         note = self.cap("one cell per combination of descriptors — an empty grid, and one seed",
                         24, SUB)
@@ -100,17 +102,24 @@ class MapElitesRun(Kit, MovingCameraScene):
         self.act_three()
 
     # ---- drawing ---------------------------------------------------------
-    def place(self, ev, lit=False):
-        """Put the child in its cell, replacing whoever was there."""
+    def place_anim(self, ev, lit=False):
+        """The animation for putting a child in its cell, replacing whoever was there.
+
+        Returned rather than played, so a run of them can go into one `play` call. One call per
+        placement is a third of a second each, and there are fifty-odd of them.
+        """
         key = (ev["island"], ev["cell"])
         sq = occupant(ev["score"], ev["island"], ev["cell"], lit=lit)
         old = self.cells.get(key)
         if old is not None:
-            self.play(Transform(old, sq), run_time=0.4)
-        else:
-            self.cells[key] = sq
-            self.play(FadeIn(sq, scale=0.6), run_time=0.4)
-        return self.cells[key]
+            return Transform(old, sq), old
+        self.cells[key] = sq
+        return FadeIn(sq, scale=0.6), sq
+
+    def place(self, ev, lit=False):
+        anim, mob = self.place_anim(ev, lit)
+        self.play(anim, run_time=0.4)
+        return mob
 
     def child_token(self, ev, at) -> VGroup:
         return node_mob(ev["score"], at, r=0.24, ring=ORANGE, width=3.0, lo=LO, hi=HI)
@@ -172,29 +181,26 @@ class MapElitesRun(Kit, MovingCameraScene):
     # ---- act 2 -----------------------------------------------------------
     def act_two(self):
         """The rest of island 0, at speed, with the occupied count climbing."""
-        counter = None
         note = self.cap("Most of these are worse than the best already found. They are kept "
                         "anyway,\nbecause the grid asks a different question: is anything else "
                         "like this?", 23, INK)
         note.move_to([GRID_X[0] + BINS * CELL / 2, -1.3, 0])
         self.play(FadeIn(note), run_time=0.6)
 
-        shown = 0
-        for i, ev in enumerate(PLACES):
-            if i == 0 or ev["island"] != 0:
-                continue
-            if not ev["admitted"]:
-                continue
-            self.place(ev)
-            shown += 1
-            new = self.cap(f"{len(self.cells)} of {BINS * BINS} cells filled", 24, ORANGE)
-            new.move_to([GRID_X[0] + BINS * CELL / 2, BINS * CELL + 0.35, 0])
-            if counter is None:
-                counter = new
-                self.play(FadeIn(counter), run_time=0.3)
-            else:
-                self.play(Transform(counter, new), run_time=0.22)
-        self.wait(1.8)
+        todo = [e for i, e in enumerate(PLACES)
+                if i and e["island"] == 0 and e["admitted"]]
+
+        def tally():
+            t = self.cap(f"{len(self.cells)} of {BINS * BINS} cells filled", 24, ORANGE)
+            return t.move_to([GRID_X[0] + BINS * CELL / 2, GRID_Y + BINS * CELL + 0.3, 0])
+
+        counter = tally()
+        self.play(FadeIn(counter), run_time=0.3)
+        for start in range(0, len(todo), 3):
+            anims = [self.place_anim(e)[0] for e in todo[start:start + 3]]
+            self.play(LaggedStart(*anims, lag_ratio=0.4),
+                      Transform(counter, tally()), run_time=0.85)
+        self.wait(2.0)
         self.play(FadeOut(note), FadeOut(counter), run_time=0.6)
 
     # ---- act 3 -----------------------------------------------------------
@@ -209,13 +215,22 @@ class MapElitesRun(Kit, MovingCameraScene):
         self.play(FadeIn(head), FadeIn(self.grids[1]), FadeIn(self.axes_labels[2:]),
                   FadeIn(tags), run_time=1.2)
 
+        # Island 2 only ever fills through migration and through the descendants of what migrates:
+        # every seed starts on island 1 and a child inherits its parent's island, so nothing is
+        # born there until something arrives.
         rest = [e for e in EVENTS if e["kind"] == "migrate"
                 or (e["kind"] == "place" and e["island"] != 0 and e["admitted"])]
+        batch = []
         for ev in rest:
             if ev["kind"] == "place":
-                self.place(ev)
-            else:
-                self.show_migration(ev)
+                batch.append(self.place_anim(ev)[0])
+                continue
+            if batch:
+                self.play(LaggedStart(*batch, lag_ratio=0.4), run_time=0.9)
+                batch = []
+            self.show_migration(ev)
+        if batch:
+            self.play(LaggedStart(*batch, lag_ratio=0.4), run_time=0.9)
 
         self.wait(1.0)
         self.play(FadeOut(head), run_time=0.5)

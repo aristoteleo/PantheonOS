@@ -22,8 +22,8 @@ from pantheon.evolution.methods.map_elites import MapElitesIslands
 
 ISLANDS = 2
 BINS = 5
-STEPS = 26
-MIGRATE_EVERY = 9
+STEPS = 56
+MIGRATE_EVERY = 10
 SEED_XY = (0.30, 0.35)
 
 

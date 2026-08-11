@@ -28,9 +28,10 @@ sys.path.insert(0, HERE)
 FPS = 30
 
 MANIM_SCENES = [("evolution_01_map_elites", "manim_mapelites.py", "MapElitesRun"),
-                ("evolution_02_simpletes", "manim_simpletes.py", "SimpleTESRun")]
-MPL_RUNS = [("evolution_00_loop", "scene_loop", True),
-            ("evolution_03_annealed_idea_code", "run_annealed", False)]
+                ("evolution_02_simpletes", "manim_simpletes.py", "SimpleTESRun"),
+                ("evolution_03_annealed_idea_code", "manim_annealed.py",
+                 "AnnealedRun")]
+MPL_RUNS = [("evolution_00_loop", "scene_loop", True)]
 
 
 def even(frame):
