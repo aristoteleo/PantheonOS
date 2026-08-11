@@ -619,6 +619,20 @@ class ChatRoom(ToolSet):
         import os
         import time as _t
 
+        # Do not walk the package prefix. `<workspace>/.local` holds the
+        # environments a user installs into — one conda env is on the order of
+        # 11k files — and on a network-backed Volume that is tens of thousands
+        # of stat calls the event loop has to contend with. Keystroke latency
+        # went from 64 ms to 220-515 ms once the first conda env existed there,
+        # with one pty_write at 1.0 s.
+        #
+        # Yielding, added when this walk was first found blocking the loop,
+        # bounds the damage per entry; it cannot bound a number of entries that
+        # grew by two orders of magnitude. Nothing under .local is user data —
+        # it is installed packages, and a disk-usage figure that counts them
+        # tells nobody anything they wanted to know.
+        _SKIP = {".local", ".cache", ".git"}
+
         used = 0
         seen = 0
         stack = [root]
@@ -636,6 +650,8 @@ class ChatRoom(ToolSet):
                             if entry.is_symlink():
                                 continue
                             if entry.is_dir(follow_symlinks=False):
+                                if entry.name in _SKIP:
+                                    continue
                                 stack.append(entry.path)
                             else:
                                 used += entry.stat(follow_symlinks=False).st_size

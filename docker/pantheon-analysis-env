@@ -46,7 +46,7 @@ ENV_DIR="$MAMBA_ROOT_PREFIX/envs/$ENV_NAME"
 # The baseline the personal environment inherits from: the analysis stack, in
 # the image, the same for everyone and free at runtime. The personal env holds
 # only what this user added.
-BASELINE="${PANTHEON_BASELINE_ENV:-/opt/pantheon/envs/analysis}"
+BASELINE="${PANTHEON_BASELINE_ENV:-/opt/pantheon/envs/pantheon-base}"
 
 # What the personal environment itself is built with. Deliberately thin — R and
 # the analysis stack come from the baseline, so this is only enough to have an
@@ -75,13 +75,31 @@ channels:
   - conda-forge
   - bioconda
 channel_priority: strict
+# Where environments are found, in order. The Volume comes first because it is
+# the writable one — `conda create` lands there and therefore persists — and
+# the image's read-only baselines come after, so `conda env list` shows them
+# and `conda activate` can reach them. Without this second entry the baselines
+# exist on disk and nothing can see them.
+envs_dirs:
+  - PREFIX_ENVS
+  - /opt/pantheon/envs
 RC
-    echo "[analysis-env] wrote $CONDARC (conda-forge + bioconda)"
+    sed -i "s|PREFIX_ENVS|${MAMBA_ROOT_PREFIX:-$PREFIX/micromamba}/envs|" "$CONDARC"
+    echo "[analysis-env] wrote $CONDARC (conda-forge + bioconda, baselines visible)"
 else
     # Reconciled, not just created. A workspace that already existed when this
     # was introduced would otherwise never get bioconda — the same shape as the
     # package set and the bridge, both of which had to learn this the hard way.
     # Appended rather than rewritten, so a channel order the user chose stays.
+    # The baselines are new; a .condarc written before they existed does not
+    # list them, and then they are invisible however correctly they were built.
+    if ! grep -q "^envs_dirs:" "$CONDARC"; then
+        printf 'envs_dirs:\n  - %s/envs\n  - /opt/pantheon/envs\n' "${MAMBA_ROOT_PREFIX:-$PREFIX/micromamba}" >> "$CONDARC"
+        echo "[analysis-env] added envs_dirs so the image baselines are visible"
+    elif ! grep -q "/opt/pantheon/envs" "$CONDARC"; then
+        sed -i "/^envs_dirs:/a\\  - /opt/pantheon/envs" "$CONDARC"
+        echo "[analysis-env] added the baseline env dir"
+    fi
     for ch in conda-forge bioconda; do
         grep -qE "^[[:space:]]*-[[:space:]]*$ch[[:space:]]*$" "$CONDARC" || {
             grep -q "^channels:" "$CONDARC" || printf 'channels:\n' >> "$CONDARC"
@@ -200,6 +218,48 @@ if [ -n "$SITE" ] && [ -d "$SITE" ]; then
     fi
 fi
 
+# Remove an activation hook an earlier version of this script wrote.
+#
+# It put the baseline's lib on LD_LIBRARY_PATH so the borrowed conda packages
+# could find libmkl. That directory also holds libpython3.12.so.1.0, and the
+# entrypoint activates this environment before exec'ing the agent — so the
+# SYSTEM python loaded conda's libpython, reported conda's sys.version, and
+# cloudpickle died parsing it before the agent could start. rc=1, every time.
+#
+# Deleting the code was not enough: the hook is a file on the Volume, and it
+# kept running long after the lines that wrote it were gone. Anything this
+# script has ever written, it has to be willing to take back.
+rm -f "$ENV_DIR/etc/conda/activate.d/zzz-pantheon-baseline.sh" \
+      "$ENV_DIR/etc/conda/deactivate.d/zzz-pantheon-baseline.sh" 2>/dev/null
+
+# Link only the libraries that are actually missing, found by asking.
+#
+# The borrowed packages are conda builds and are not self-contained: numpy's
+# .so wants libmkl_gnu_thread.so.3 from the prefix it was built in. Exposing
+# that whole prefix broke things twice — the agent's python loaded conda's
+# libpython, htop loaded conda's ncurses — so the previous attempt linked
+# everything except a denylist instead. That linked 1360 libraries and htop
+# still crashed, because a denylist only excludes what you already know hurt.
+#
+# So nothing is linked on a guess. Each borrowed package is imported, the
+# loader says which library it could not find, and only that one is linked.
+# A library the system already provides is never touched, which is the
+# property the two previous attempts could not give.
+if [ -d "${PANTHEON_BASELINE_LIB:-}" ] && [ -d "$ENV_DIR/lib" ]; then
+    linked=0
+    for attempt in 1 2 3 4 5 6 7 8; do
+        missing="$("$ENV_DIR/bin/python" -c 'import scanpy, scvi, torch' 2>&1 \
+                   | sed -n 's/.*\(lib[A-Za-z0-9_.+-]*\.so[0-9.]*\): cannot open.*/\1/p' | head -1)"
+        [ -z "$missing" ] && break
+        if [ -e "$PANTHEON_BASELINE_LIB/$missing" ] && [ ! -e "$ENV_DIR/lib/$missing" ]; then
+            ln -s "$PANTHEON_BASELINE_LIB/$missing" "$ENV_DIR/lib/$missing" && linked=$((linked+1))
+        else
+            break
+        fi
+    done
+    [ "$linked" -gt 0 ] && echo "[analysis-env] linked $linked missing libraries into $ENV_NAME"
+fi
+
 # A kernelspec, so the notebook toolset can reach this env too.
 #
 # That toolset already crosses interpreters properly — AsyncKernelManager takes
@@ -226,6 +286,23 @@ if "$ENV_DIR/bin/python" -c 'import ipykernel' >/dev/null 2>&1; then
     "$ENV_DIR/bin/python" -m ipykernel install --prefix=/usr/local \
         --name "$ENV_NAME" --display-name "Python ($ENV_NAME)" >/dev/null 2>&1 \
         || echo "[analysis-env] kernelspec registration failed; notebook will not see $ENV_NAME"
+
+    # The baseline's libraries go to the KERNEL, and stop there.
+    #
+    # The borrowed packages need them — numpy's .so wants libmkl_gnu_thread.so.3
+    # from the env it came from. A kernelspec carries its own env dict, which
+    # reaches the kernel process and nothing else, so the agent never sees a
+    # directory that also contains libpython3.12.so.1.0.
+    KSPEC="/usr/local/share/jupyter/kernels/$ENV_NAME/kernel.json"
+    if [ -f "$KSPEC" ] && [ -n "${PANTHEON_BASELINE_LIB:-}" ]; then
+        "$ENV_DIR/bin/python" - "$KSPEC" "$PANTHEON_BASELINE_LIB" <<'PY' || true
+import json, sys
+path, lib = sys.argv[1], sys.argv[2]
+spec = json.load(open(path))
+spec.setdefault("env", {})["LD_LIBRARY_PATH"] = lib + ":${LD_LIBRARY_PATH}"
+json.dump(spec, open(path, "w"), indent=1)
+PY
+    fi
 else
     echo "[analysis-env] no ipykernel; notebook will not see $ENV_NAME"
 fi

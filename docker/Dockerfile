@@ -378,29 +378,6 @@ RUN mkdir -p /workspace
 # By placing it after all heavy layers (Playwright, MCP, CLI tools),
 # code-only changes only invalidate this layer and the entrypoint layer below.
 # Result: Code changes rebuild only ~10MB instead of ~500-750MB.
-COPY --from=builder /app /app
-
-# Layer H — Entrypoint setup (depends on /app)
-# This must come after COPY /app because it needs the entrypoint script.
-RUN chmod +x /app/docker/docker-entrypoint-dual-mode.sh && \
-    cp /app/docker/docker-entrypoint-dual-mode.sh /usr/local/bin/docker-entrypoint.sh
-
-# Root the package managers in the Volume, so what a user installs outlives the
-# container — see docker/pantheon-userspace.sh for what and why.
-#
-# The apt shim goes in /usr/local/bin, which every default PATH searches before
-# /usr/bin, and is installed HERE rather than earlier on purpose: every
-# apt-get above is a build step that must reach the real apt, and this layer is
-# after all of them.
-RUN cp /app/docker/pantheon-userspace.sh /usr/local/bin/pantheon-userspace.sh && \
-    chmod +x /usr/local/bin/pantheon-userspace.sh && \
-    cp /app/docker/pantheon-apt /usr/local/bin/apt && \
-    ln -sf /usr/local/bin/apt /usr/local/bin/apt-get && \
-    chmod +x /usr/local/bin/apt && \
-    printf '. /usr/local/bin/pantheon-userspace.sh\n' > /etc/profile.d/99-pantheon-userspace.sh && \
-    printf '\n# Pantheon: root the package managers in the Volume (see the script).\n[ -f /usr/local/bin/pantheon-userspace.sh ] && . /usr/local/bin/pantheon-userspace.sh\n' \
-        >> /etc/bash.bashrc
-
 # micromamba — one static binary, ~5MB, no Python of its own. It is here for
 # the case the four package managers above genuinely cannot serve: R and
 # Bioconductor packages that Debian would have to compile from source, and
@@ -416,6 +393,86 @@ RUN (curl -Ls --retry 3 --retry-delay 5 --max-time 120 \
      mv /tmp/bin/micromamba /usr/local/bin/micromamba && \
      chmod +x /usr/local/bin/micromamba) || \
     echo "Warning: micromamba download failed, skipping (installable at runtime)"
+
+# Layer G2 — the analysis baselines (~several GB, change rarely)
+#
+# The stack the built-in skills actually import, installed once here instead of
+# per workspace at runtime. A user's own environment lives on the Volume and
+# inherits from these, so what they install persists while these do not have to
+# be downloaded again for every sandbox.
+#
+# SEVERAL environments, not one, because some packages cannot share: pySCENIC
+# requires numpy==1.23.5, and in one environment that pin wins the solve and
+# drags scanpy and scvi-tools back with it. Each file here is internally
+# consistent and reachable by kernelspec name, which is how the notebook
+# toolset selects an interpreter anyway.
+#
+# Only the yml files are copied, and BEFORE /app, so editing agent code does
+# not rebuild several gigabytes — only editing a package list does.
+COPY docker/analysis-envs /opt/pantheon/analysis-envs
+# Each file names the modules that must import, on a `# verify:` line, and the
+# build fails if one does not. The solver proving a set of packages CAN be
+# installed together is not the same as them working together: squidpy and
+# decoupler both solved cleanly into the main environment and then failed on
+# import — one on a private anndata name that no longer exists, one inside
+# numba. Both shipped, and were only found by running the image. This turns
+# that into a build failure.
+RUN for f in /opt/pantheon/analysis-envs/*.yml; do \
+        python -c "import sys,yaml; yaml.safe_load(open(sys.argv[1]))" "$f" \
+            || { echo "FAIL: $f is not valid YAML"; exit 1; }; \
+        name="$(basename "$f" .yml)"; \
+        echo "building baseline env: $name"; \
+        MAMBA_ROOT_PREFIX=/opt/pantheon/mamba \
+        micromamba create -y -p "/opt/pantheon/envs/$name" -f "$f" || exit 1; \
+        mods="$(sed -n 's/^# verify: *//p' "$f")"; \
+        for m in $mods; do \
+            "/opt/pantheon/envs/$name/bin/python" -c "import $m" \
+                || { echo "FAIL: $name cannot import $m"; exit 1; }; \
+        done; \
+        echo "  verified: $mods"; \
+    done \
+    && MAMBA_ROOT_PREFIX=/opt/pantheon/mamba micromamba clean -a -y -q \
+    && find /opt/pantheon/envs -name '*.pyc' -delete \
+    && rm -rf /opt/pantheon/envs/*/share/doc /opt/pantheon/envs/*/share/man
+
+COPY --from=builder /app /app
+
+# Layer H — Entrypoint setup (depends on /app)
+# This must come after COPY /app because it needs the entrypoint script.
+RUN chmod +x /app/docker/docker-entrypoint-dual-mode.sh && \
+    cp /app/docker/docker-entrypoint-dual-mode.sh /usr/local/bin/docker-entrypoint.sh
+
+# Root the package managers in the Volume, so what a user installs outlives the
+# container — see docker/pantheon-userspace.sh for what and why.
+#
+# The apt shim goes in /usr/local/bin, which every default PATH searches before
+# /usr/bin, and is installed HERE rather than earlier on purpose: every
+# apt-get above is a build step that must reach the real apt, and this layer is
+# after all of them.
+# The `pantheon` command itself, which the image never had.
+#
+# pyproject declares `pantheon = "pantheon.__main__:main"`, but the build runs
+# `uv sync --no-install-project` — deliberately, so that changing agent code
+# does not reinstall every dependency — and a console script is only written
+# when the project is installed. So /venv/bin/pantheon did not exist, and a
+# user opening a terminal in their own workspace could not run the CLI at all.
+#
+# A wrapper rather than installing the project, which would give up the layer
+# caching the flag exists to protect. /app is already on PYTHONPATH, so the
+# module is importable exactly as the console script would have made it.
+RUN printf '#!/bin/sh\nexec "${PANTHEON_RUNTIME_PYTHON:-/venv/bin/python}" -m pantheon "$@"\n' \
+        > /usr/local/bin/pantheon && \
+    chmod +x /usr/local/bin/pantheon
+
+RUN cp /app/docker/pantheon-userspace.sh /usr/local/bin/pantheon-userspace.sh && \
+    chmod +x /usr/local/bin/pantheon-userspace.sh && \
+    cp /app/docker/pantheon-apt /usr/local/bin/apt && \
+    ln -sf /usr/local/bin/apt /usr/local/bin/apt-get && \
+    chmod +x /usr/local/bin/apt && \
+    printf '. /usr/local/bin/pantheon-userspace.sh\n' > /etc/profile.d/99-pantheon-userspace.sh && \
+    printf '\n# Pantheon: root the package managers in the Volume (see the script).\n[ -f /usr/local/bin/pantheon-userspace.sh ] && . /usr/local/bin/pantheon-userspace.sh\n' \
+        >> /etc/bash.bashrc
+
 
 # `conda` and `mamba` name the same thing here — the names everyone already
 # types, and there is no second implementation to confuse them with. These are

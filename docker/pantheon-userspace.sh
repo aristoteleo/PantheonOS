@@ -101,6 +101,26 @@ export MAMBA_PKGS_DIRS="${MAMBA_PKGS_DIRS:-$MAMBA_ROOT_PREFIX/pkgs}"
 # be entered at all. Non-fatal on both counts: the binary may be missing (its
 # download in the Dockerfile is best-effort) and a bad eval must not take the
 # boot with it.
+# Remove an activation hook an earlier version of this setup wrote onto the
+# Volume, BEFORE activating anything — activating is what runs it.
+#
+# The hook put the baseline's lib on LD_LIBRARY_PATH so borrowed conda
+# packages could find libmkl. That directory also holds libpython3.12.so.1.0,
+# so the system python loaded conda's libpython, reported conda's sys.version,
+# and cloudpickle died parsing it before the agent could start: rc=1, every
+# boot.
+#
+# pantheon-analysis-env also deletes it, and that was not enough — it runs in
+# the background, long after this file has been sourced, the environment
+# activated and the agent exec'd. A cleanup that only takes effect next boot
+# does not help the boot it is needed on. This is the last moment before the
+# damage is done.
+for _stale in "$PANTHEON_USER_PREFIX"/micromamba/envs/*/etc/conda/activate.d/zzz-pantheon-baseline.sh \
+              "$PANTHEON_USER_PREFIX"/micromamba/envs/*/etc/conda/deactivate.d/zzz-pantheon-baseline.sh; do
+    [ -f "$_stale" ] && rm -f "$_stale"
+done
+unset _stale
+
 if command -v micromamba >/dev/null 2>&1; then
     eval "$(micromamba shell hook -s posix 2>/dev/null)" || true
     # `conda` and `mamba` are the names in every tutorial and in muscle memory,
@@ -121,10 +141,23 @@ export PANTHEON_ANALYSIS_ENV="${PANTHEON_ANALYSIS_ENV:-analysis}"
 # The read-only stack in the image that the personal environment inherits from.
 # Its bin goes on PATH BEHIND the personal env's, so anything the user installs
 # shadows the baseline copy rather than the other way round.
-export PANTHEON_BASELINE_ENV="${PANTHEON_BASELINE_ENV:-/opt/pantheon/envs/analysis}"
+export PANTHEON_BASELINE_ENV="${PANTHEON_BASELINE_ENV:-/opt/pantheon/envs/pantheon-base}"
 if [ -x "$PANTHEON_BASELINE_ENV/bin/python" ]; then
     _pantheon_prepend_path "$PANTHEON_BASELINE_ENV/bin"
     export PATH
+
+    # The baseline's lib is published, and deliberately NOT put on any
+    # search path. Every attempt to do so broke something else: given to the
+    # agent, the system python loaded conda's libpython and cloudpickle killed
+    # the sandbox; given to interactive shells, htop loaded conda's libncursesw
+    # and segfaulted. A directory holding a whole second copy of libc's
+    # neighbours cannot be made globally visible safely.
+    #
+    # pantheon-analysis-env instead links the few libraries the borrowed
+    # packages actually need INTO the personal environment's own lib, where
+    # that python already looks and nothing else does.
+    export PANTHEON_BASELINE_LIB="$PANTHEON_BASELINE_ENV/lib"
+
 fi
 _ANALYSIS_DIR="$MAMBA_ROOT_PREFIX/envs/$PANTHEON_ANALYSIS_ENV"
 
