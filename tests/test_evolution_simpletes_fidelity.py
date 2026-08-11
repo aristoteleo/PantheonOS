@@ -327,3 +327,111 @@ def test_selector_state_round_trips(cls):
     clone = cls()
     clone.load_state_dict(json.loads(json.dumps(sel.state_dict())))
     assert clone.terms(chain, "combined_score", 0) == sel.terms(chain, "combined_score", 0)
+
+
+# ------------------------------------------------------------- rpucg ---
+# `Q + c * P * sqrt(1+T) / (1+n)` on percentile ranks, over a V propagated through the DAG --
+# policies/rpucg.py. Ours used to be PUCT with a depth counter, which is none of that.
+
+def line(store, scores, tag="v"):
+    """A descent chain: each node's parent is the one before it."""
+    out = []
+    for i, v in enumerate(scores):
+        ind = store.add(Individual(genome=TextGenome(text=f"{tag}{i}", kind="code"), kind="code",
+                                   parent_ids=[out[-1].id] if out else []))
+        ind.measurements.append(Measurement(individual_id=ind.id,
+                                            metrics={"combined_score": v}))
+        out.append(ind)
+    return out
+
+
+def test_value_propagates_up_the_dag_with_gamma():
+    """`V(s) = max(raw(s), gamma * max over children of V(c))`.
+
+    A node is worth what the best thing descended from it is worth, discounted once per generation
+    of distance. PUCT's `max_child_reward` reaches one hop and never decays; this reaches the whole
+    line, which is the difference the name is about.
+    """
+    s = Store()
+    chain = line(s, [0.10, 0.20, 0.90])          # a poor root leading to a very good descendant
+    sel = RPUCGSelector(gamma=0.5)
+    sel.observe(ctx_with(s), "combined_score")
+
+    # leaf keeps its own; parent gets 0.5*0.9; grandparent 0.5*0.45, both beating their own scores
+    assert sel._q[chain[2].id] > sel._q[chain[1].id] > sel._q[chain[0].id]
+    ranks = sorted(sel._q.values())
+    assert ranks == [0.0, 1 / 3, 2 / 3], "Q is a percentile rank in [0, 1)"
+
+    flat = RPUCGSelector(gamma=0.0)              # no propagation: V collapses to the raw score
+    flat.observe(ctx_with(s), "combined_score")
+    assert flat._q[chain[0].id] == 0.0 and flat._q[chain[2].id] == 2 / 3
+
+
+def test_q_ranks_value_while_p_ranks_the_raw_score():
+    """Both are percentile ranks, but of different things -- which is the point of having two.
+
+    A node can be valuable for what came after it and unremarkable in itself; the exploration
+    budget follows what it scored, not what its descendants did.
+    """
+    s = Store()
+    chain = line(s, [0.10, 0.95])
+    sel = RPUCGSelector(gamma=0.9)
+    sel.observe(ctx_with(s), "combined_score")
+    root = chain[0].id
+    assert sel._q[root] == 0.0 and sel._p[root] == 0.0
+    assert sel._q[root] < sel._q[chain[1].id]
+    # V(root) = 0.9*0.95 = 0.855, well above its own 0.10, but P still sees 0.10
+    assert sel._p[chain[1].id] > sel._p[root]
+
+
+def test_no_scale_factor_because_the_ranks_are_already_comparable():
+    """PUCT needs `r_max - r_min` to keep its bonus in the same units as Q. Ranks are in [0,1) by
+    construction, so rpucg has no scale term -- and a chain whose scores span 0.001 behaves the
+    same as one that spans 0.9."""
+    s1, s2 = Store(), Store()
+    wide, narrow = line(s1, [0.1, 0.5, 0.9], "w"), line(s2, [0.500, 0.501, 0.502], "n")
+    out = []
+    for store, chain in ((s1, wide), (s2, narrow)):
+        sel = RPUCGSelector()
+        sel.observe(ctx_with(store), "combined_score")
+        out.append(sel.terms(list(reversed(chain)), "combined_score", 0))
+    assert out[0] == out[1], "only the ORDER of the scores should matter, not their spread"
+
+
+def test_taking_a_node_rules_out_its_parents_and_children():
+    """The greedy loop excludes the 1-hop neighbourhood, so a prompt is not built out of one
+    family line."""
+    s = Store()
+    chain = line(s, [0.1, 0.2, 0.3, 0.4])        # 0 -> 1 -> 2 -> 3
+    sel = RPUCGSelector()
+    sel.observe(ctx_with(s), "combined_score")
+    picked = sel.pick(list(reversed(chain)), 3, random.Random(0), "combined_score", 0)
+    ids = [p.id for p in picked]
+    kin = {chain[i].id: {chain[j].id for j in (i - 1, i + 1) if 0 <= j < len(chain)}
+           for i in range(len(chain))}
+    for a in ids:
+        assert not (kin[a] & set(ids) - {a}), f"{a} was picked alongside a direct relative"
+
+
+def test_rpucg_keeps_no_max_child_reward():
+    """`_finalize_hook_locked` moves visit counts and nothing else -- the V propagation in
+    `observe` is this policy's backpropagation, and it reads the store directly."""
+    s = Store()
+    chain = line(s, [0.4, 0.6])
+    sel = RPUCGSelector()
+    sel.on_commit(0, [chain[0].id], best_score=0.99)
+    assert sel.visits[0] == {chain[0].id: 1}
+    assert sel.expansions[0] == 1
+    assert not sel.max_child.get(0), "rpucg does not track a per-node best child"
+
+
+def test_the_method_hands_the_population_to_a_selector_that_needs_it():
+    """`observe` is useless if `ask` never calls it: without it rpucg scores every node 0."""
+    s = Store()
+    chain = line(s, [0.3, 0.9])
+    m = SimpleTES(num_chains=1, k_candidates=2, selector="rpucg", seed=0)
+    c = ctx_with(s)
+    asyncio.run(m.start(c, chain))
+    asyncio.run(m.ask(c, 1))
+    assert m.selector._q, "the selector never saw the population"
+    assert set(m.selector._q) == {i.id for i in s}

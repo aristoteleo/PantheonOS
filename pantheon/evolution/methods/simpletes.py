@@ -30,6 +30,11 @@ a new block: *"Prioritize NOVEL approaches ... Combine insights from multiple so
 lineage is a genuine multi-parent DAG, which is also why their value backpropagation is described
 as DAG-aware rather than tree-aware.
 
+All three arithmetic selectors are ported: `balance` (a stratified draw), `puct` (value plus an
+exploration bonus, per chain) and `rpucg` (percentile ranks over a gamma-decayed value propagated
+through the whole DAG, with anti-inbreeding). They differ in nothing but how parents are chosen,
+which is the axis upstream varies to get its family of algorithms.
+
 Still not ported, deliberately: `reflection_mode` (an extra model call summarising each winner) and
 the `llm_elite` / `llm_refine_*` selectors (a second LLM pass that re-ranks a shortlist). Both add
 model calls to the SELECTION step, which is a different kind of algorithm from the three here, and
@@ -37,6 +42,7 @@ neither is needed to test the seam.
 """
 from __future__ import annotations
 
+import bisect
 import math
 import random
 from dataclasses import dataclass, field
@@ -68,6 +74,10 @@ class Selector:
         self.exploitation_ratio = exploitation_ratio
         self.exploration_ratio = exploration_ratio
         self.elite_ratio = elite_ratio
+
+    def observe(self, ctx: EvolveContext, score_key: str) -> None:
+        """Called once per `ask`, before any picking. A policy that scores against the whole
+        population rather than one chain computes that view here."""
 
     def on_commit(self, chain_idx: int, parent_ids: Sequence[str], best_score: float) -> None:
         """Called once a batch has resolved. `balance` keeps no state; the tree policies do."""
@@ -198,22 +208,34 @@ class PUCTSelector(Selector):
         self.expansions = {int(k): int(v) for k, v in state.get("expansions", {}).items()}
 
 
+def percentile_ranks(values: Dict[str, float]) -> Dict[str, float]:
+    """Each entry's position in [0, 1) among all of them -- `bisect_left(sorted, v) / n`."""
+    if not values:
+        return {}
+    ordered = sorted(values.values())
+    n = len(ordered)
+    return {k: bisect.bisect_left(ordered, v) / n for k, v in values.items()}
+
+
 class RPUCGSelector(PUCTSelector):
-    """PUCT with a depth discount on Q.
+    """`Q(s) + c * P(s) * sqrt(1+T) / (1+n(s))` on percentile ranks -- policies/rpucg.py.
 
-    **This is an approximation of upstream's `rpucg`, not a port of it.** The real one
-    (policies/rpucg.py) does three things this does not:
+    Three things separate it from PUCT, and none of them is a tweak:
 
-      - propagates `V(s) = max(raw(s), gamma * max_child V(c))` bottom-up over the whole
-        parent->child DAG, not a depth counter on the node itself
-      - normalises BOTH Q and P to percentile ranks over the global population, which is why it
-        needs no `scale` factor
-      - excludes the 1-hop neighbourhood of already-selected nodes when picking several parents,
-        to stop a batch being built out of one family
+      - **V, not the score.** `V(s) = max(raw(s), gamma * max over children of V(c))`, propagated
+        bottom-up through the whole parent->child DAG. A node is worth what the best thing
+        descended from it is worth, discounted once per generation of distance -- so a node three
+        steps upstream of the run's best program still carries `gamma**3` of it. PUCT's
+        `max_child_reward` only reaches one hop and never decays.
+      - **Percentile ranks.** Q and P are both a node's rank among the whole population, in [0, 1).
+        That is why there is no `scale` factor here: the units are already comparable, and the
+        exploration term cannot be swamped by a problem whose scores happen to span 0.02.
+      - **Anti-inbreeding.** Taking a node removes its parents and its children from the running,
+        so one prompt is not built out of a single family line.
 
-    Kept because a gamma-decayed variant is still a useful third policy to have wired up, and
-    named for what it approximates. Do not read a comparison against it as a comparison against
-    SimpleTES's rpucg.
+    P ranks the RAW score while Q ranks V, which is the point of having both: a node can be
+    valuable because of what came after it (high Q) while itself being unremarkable (low P), and
+    the exploration budget follows P.
     """
 
     name = "rpucg"
@@ -221,19 +243,80 @@ class RPUCGSelector(PUCTSelector):
     def __init__(self, c: float = 1.0, gamma: float = 0.8, **kw):
         super().__init__(c, **kw)
         self.gamma = gamma
-        self.depth: Dict[str, int] = {}
+        self._q: Dict[str, float] = {}
+        self._p: Dict[str, float] = {}
+        self._kin: Dict[str, set] = {}
+
+    def observe(self, ctx: EvolveContext, score_key: str) -> None:
+        """Recompute the population-wide view. Called once per `ask`.
+
+        It has to be the whole store and not the chain: V propagates along real descent edges,
+        which cross chains, and a percentile rank over five nodes is not a percentile rank.
+        """
+        pop = list(ctx.store)
+        children: Dict[str, set] = {}
+        for ind in pop:
+            for pid in ind.parent_ids:
+                children.setdefault(pid, set()).add(ind.id)
+
+        raw: Dict[str, float] = {}
+        for ind in pop:
+            s = score_of(ind, score_key)
+            raw[ind.id] = -math.inf if s is None else s
+
+        # Children before parents, so a parent's V is computed from finished values.
+        v: Dict[str, float] = {}
+        for ind in sorted(pop, key=lambda i: i.order, reverse=True):
+            kids = children.get(ind.id)
+            best = max((v.get(k, -math.inf) for k in kids), default=-math.inf) if kids else -math.inf
+            v[ind.id] = max(raw[ind.id], self.gamma * best)
+
+        self._q = percentile_ranks(v)
+        self._p = percentile_ranks(raw)
+        self._kin = {ind.id: set(ind.parent_ids) | children.get(ind.id, set()) for ind in pop}
 
     def terms(self, chain, key, chain_idx):
-        base = super().terms(chain, key, chain_idx)
-        return [(q * (self.gamma ** self.depth.get(node.id, 0)), b)
-                for (q, b), node in zip(base, chain)]
+        visits = self.visits.get(chain_idx, {})
+        t = self.expansions.get(chain_idx, 0)
+        out = []
+        for node in chain:
+            q = self._q.get(node.id, 0.0)
+            p = self._p.get(node.id, 0.0)
+            out.append((q, self.c * p * math.sqrt(1 + t) / (1 + visits.get(node.id, 0))))
+        return out
+
+    def pick(self, chain, n, rng, key, chain_idx: int = 0):
+        if not chain:
+            return []
+        u = [q + b for q, b in self.terms(chain, key, chain_idx)]
+        picked: List[Individual] = []
+        blocked: set = set()
+        for i in sorted(range(len(chain)), key=lambda i: u[i], reverse=True):
+            nd = chain[i]
+            if nd.id in blocked:
+                continue
+            picked.append(nd)
+            if len(picked) >= n:
+                break
+            blocked.add(nd.id)
+            blocked |= self._kin.get(nd.id, set())
+        return picked
+
+    def on_commit(self, chain_idx: int, parent_ids: Sequence[str], best_score: float) -> None:
+        # No `max_child_reward`: the V propagation in `observe` is this policy's backpropagation,
+        # and it reads the store directly. Only the visit counts move here.
+        visits = self.visits.setdefault(chain_idx, {})
+        for pid in parent_ids:
+            visits[pid] = visits.get(pid, 0) + 1
+        self.expansions[chain_idx] = self.expansions.get(chain_idx, 0) + 1
 
     def state_dict(self) -> Dict[str, Any]:
-        return {**super().state_dict(), "depth": dict(self.depth)}
+        # `_q`, `_p` and `_kin` are derived from the store on every `ask`, so they are not state.
+        return {**super().state_dict(), "gamma": self.gamma}
 
     def load_state_dict(self, state: Dict[str, Any]) -> None:
         super().load_state_dict(state)
-        self.depth = {k: int(v) for k, v in state.get("depth", {}).items()}
+        self.gamma = float(state.get("gamma", self.gamma))
 
 
 SELECTORS = {s.name: s for s in (Selector, PUCTSelector, RPUCGSelector)}
@@ -336,6 +419,7 @@ class SimpleTES(BaseMethod):
         nothing meaningful to condition on yet, so asking it for more work would just build on
         stale history.
         """
+        self.selector.observe(ctx, self.score_key)
         busy = {b.chain_idx for b in self.open.values()}
         items: List[Create] = []
         for _ in range(self.num_chains):
@@ -427,10 +511,6 @@ class SimpleTES(BaseMethod):
         # its batch has come back, and the batch's best score backpropagates to every parent it
         # was built from.
         self.selector.on_commit(b.chain_idx, b.parent_ids, best_score)
-        sel = self.selector
-        if isinstance(sel, RPUCGSelector):
-            parent_depth = max((sel.depth.get(p, 0) for p in b.parent_ids), default=0)
-            sel.depth[best_id] = parent_depth + 1
 
     # ---- reporting -------------------------------------------------------
 

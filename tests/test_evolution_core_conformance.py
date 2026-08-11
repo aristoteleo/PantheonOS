@@ -210,14 +210,25 @@ class TestStatePersistence:
         restored.reconcile(ctx)
         assert "does-not-exist" not in restored.chains[0]
 
-    def test_rpucg_keeps_its_depth_table_across_a_restore(self):
+    def test_rpucg_keeps_its_visit_counts_across_a_restore(self):
+        """What has to survive is the part that cannot be recomputed.
+
+        `_q`, `_p` and the kinship map are rebuilt from the store on every `ask`, so they are not
+        state. The visit counts and expansion totals are: they record how the run has already
+        spent its attention, and a resumed run that forgot them would re-explore what it had
+        already tried.
+        """
         m = SimpleTES(num_chains=1, k_candidates=2, selector="rpucg", seed=23)
         run(m, budget=4, concurrency=1)
         assert isinstance(m.selector, RPUCGSelector)
-        assert m.selector.depth, "depth should have been recorded on commit"
+        assert m.selector.visits, "visits should have been recorded on commit"
+        assert m.selector.expansions[0] > 0
+
         restored = SimpleTES(num_chains=1, k_candidates=2, selector="rpucg")
         restored.load_state_dict(m.state_dict())
-        assert restored.selector.depth == m.selector.depth
+        assert restored.selector.visits == m.selector.visits
+        assert restored.selector.expansions == m.selector.expansions
+        assert restored.selector.gamma == m.selector.gamma
 
 
 class TestTheAbstractionItself:

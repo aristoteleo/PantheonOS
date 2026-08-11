@@ -238,7 +238,7 @@ class SimpleTESRun(MovingCameraScene):
         the camera -- reading `self.camera.frame` here would place it where the camera still is.
         """
         z = width / FULL_W
-        t = txt(f"chain 1   ·   {spent} / {self.chip_total} prompts spent", 24,
+        t = txt(f"chain 1   ·   {spent} / {self.chip_total} LLM calls", 24,
                 MUTED if spent >= self.chip_total else ORANGE).scale(z)
         h = z * config.frame_height
         return t.move_to([center[0] - width / 2 + t.width / 2 + 0.25 * z,
@@ -299,8 +299,8 @@ class SimpleTESRun(MovingCameraScene):
         # Say what a "prompt" costs the first time the counter appears. The fan beat below explains
         # that one call returns all k candidates, but the counter is on screen before it.
         lab = self.cap("chain 1  ·  one of three\n"
-                       f"its share of the run is {self.chip_total} prompts, and one prompt is one "
-                       "model call", 24, MUTED)
+                       f"its share of the run is {self.chip_total} prompts —\n"
+                       "one prompt, one LLM call, k candidates back", 24, MUTED)
         lab.next_to(self.built[0][0], UP, buff=0.42)
         self.chip = self.chip_at(0, self.camera.frame.get_center(), self.camera.frame.width)
         self.play(FadeIn(lab), FadeIn(self.chip), run_time=0.6)
@@ -429,7 +429,10 @@ class SimpleTESRun(MovingCameraScene):
 
         # PUCT is ONE selector. Swapping it is the axis SimpleTES varies to get six algorithms out
         # of one engine, and that is invisible if the act only ever shows one of them.
-        self.play(FadeOut(sortnote), FadeOut(formula), FadeOut(row), FadeOut(seen_labels),
+        # NOT sortnote: it was already faded when the formula replaced it, and `FadeOut` restores
+        # a mobject's opacity when it finishes, so fading it a second time puts it back on screen
+        # at full strength for the length of the animation -- on top of the formula.
+        self.play(FadeOut(formula), FadeOut(row), FadeOut(seen_labels),
                   FadeOut(bars), FadeOut(tops), FadeOut(axis), FadeOut(done), FadeOut(head),
                   run_time=0.8)
         head2 = txt("that rule is a component, and swapping it is the point", 28, INK)
@@ -440,7 +443,9 @@ class SimpleTESRun(MovingCameraScene):
                  ("balance", "no arithmetic: keep the best, then roll for each of the others —\n"
                              "70% from the elite head, 20% from the middle, 10% from anywhere",
                   GREEN),
-                 ("rpucg", "puct again, with every node's value discounted by its depth", MUTED)]
+                 ("rpucg", "value propagated back through the whole lineage and discounted\n"
+                           "once per generation, ranked against the population, kin excluded",
+                  MUTED)]
         rows = VGroup()
         for name, desc, col in picks:
             rows.add(VGroup(txt(name, 26, col, weight="BOLD"), para(desc, 20, SUB))
@@ -590,7 +595,7 @@ class SimpleTESRun(MovingCameraScene):
             stage.add(place(node_mob(EVENTS[0]["chains"][c][0].score, trunk_pos(0, BAND_Y[c]))))
             stage.add(txt(f"chain {c + 1}", 17, SUB)
                       .move_to(place_pt([X0 - 1.15, BAND_Y[c] + 0.17, 0])))
-            stage.add(txt(f"{len(self.chain_of[c])} prompts", 13, MUTED)
+            stage.add(txt(f"{len(self.chain_of[c])} LLM calls", 13, MUTED)
                       .move_to(place_pt([X0 - 1.15, BAND_Y[c] - 0.17, 0])))
 
         ax = Axes(x_range=[0, 22, 5], y_range=[0.3, 0.9, 0.2], x_length=8.4, y_length=2.15,
