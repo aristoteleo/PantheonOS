@@ -159,11 +159,71 @@ class ErdosProblem(Kit, MovingCameraScene):
         self.say("Erdős asked: as n grows, how low can the worst crowding go, relative\n"
                  "to n? Nobody knows exactly — the bounds have narrowed for 70 years", hold=2.6)
 
-        # ---- act 4: scaling up --------------------------------------------------
-        self.say("with 2n numbers you cannot enumerate by hand. But any split is fully\n"
-                 "described by one curve: how much of each POSITION belongs to A", color=SUB)
-        xs = np.linspace(-TALLY_W / 2, TALLY_W / 2, len(H))
+        # ---- act 4: scaling up, one rung at a time ------------------------------
+        # An earlier cut jumped from four tiles straight to the 951-position curve and lost the
+        # viewer mid-morph. The ladder now adds ONE idea per rung: more numbers -> thin columns
+        # -> fractional membership -> the record. One helper draws every rung.
         y0, y1 = 1.55, 3.05
+
+        def columns(shares, sep=True) -> VGroup:
+            g = VGroup()
+            n = len(shares)
+            w = TALLY_W / n
+            for i, r in enumerate(shares):
+                x = -TALLY_W / 2 + i * w
+                if r > 0:
+                    g.add(Rectangle(width=w, height=(y1 - y0) * r, stroke_width=0,
+                                    fill_color=RED, fill_opacity=0.75)
+                          .move_to([x + w / 2, y0 + (y1 - y0) * r / 2, 0]))
+                if r < 1:
+                    g.add(Rectangle(width=w, height=(y1 - y0) * (1 - r), stroke_width=0,
+                                    fill_color=BLUE, fill_opacity=0.55)
+                          .move_to([x + w / 2, y1 - (y1 - y0) * (1 - r) / 2, 0]))
+                if sep:
+                    g.add(Line([x, y0, 0], [x, y1, 0], color=INK, stroke_width=1.0))
+            g.add(Rectangle(width=TALLY_W, height=y1 - y0, stroke_width=1.8, color=INK)
+                  .move_to([0, (y0 + y1) / 2, 0]))
+            return g
+
+        # rung 1: twelve numbers, whole membership -- the same game, a wider tally
+        twelve = [1, 1, 0, 0] * 3
+        col12 = columns(twelve)
+        lab12 = txt("more numbers, same game — each number still wholly red or wholly blue",
+                    14, SUB).next_to([0, y1, 0], UP, buff=0.12)
+        nums = VGroup(*[txt(str(i + 1), 13, MUTED)
+                        .move_to([-TALLY_W / 2 + (i + 0.5) * TALLY_W / 12, y0 - 0.22, 0])
+                        for i in range(12)])
+        self.say("now twelve numbers instead of four. Nothing else changed: pick a group\n"
+                 "for each number, tally every cross-group difference", color=SUB)
+        self.play(FadeOut(tl), FadeOut(blocks2), FadeOut(even), FadeIn(col12), FadeIn(lab12),
+                  FadeIn(nums), run_time=1.2)
+        self.wait(1.8)
+
+        # rung 2: hundreds of numbers -- a barcode, still all-or-nothing
+        rng = np.random.default_rng(4)
+        barcode = (rng.permutation(np.repeat([1.0, 0.0], 24))).tolist()
+        col48 = columns(barcode, sep=False)
+        lab48 = txt("hundreds of numbers: the strip becomes a barcode — red column, blue column",
+                    14, SUB).move_to(lab12)
+        self.say("keep going: with hundreds of numbers the tiles thin into a barcode.\n"
+                 "Still the same game", color=SUB)
+        self.play(FadeOut(col12), FadeOut(nums), FadeIn(col48),
+                  FadeOut(lab12), FadeIn(lab48), run_time=1.0)
+        self.wait(1.6)
+
+        # rung 3: fractional membership -- the height IS the share
+        coarse = [float(np.mean(H[int(i * len(H) / 24):int((i + 1) * len(H) / 24)]))
+                  for i in range(24)]
+        col24 = columns(coarse)
+        lab24 = txt("A's share of each position, as a HEIGHT — 60% red means 60% in A",
+                    14, SUB).move_to(lab12)
+        self.say("one last freedom: Erdős lets a position SPLIT its weight — say 60% into A,\n"
+                 "40% into B. The red HEIGHT of a column is its share in A", color=SUB)
+        self.play(FadeOut(col48), FadeIn(col24), FadeOut(lab48), FadeIn(lab24), run_time=1.0)
+        self.wait(2.0)
+
+        # rung 4: refine to the record
+        xs = np.linspace(-TALLY_W / 2, TALLY_W / 2, len(H))
         red_area = Polygon(*([[x, y0, 0] for x in xs]
                              + [[xs[i], y0 + (y1 - y0) * H[i], 0]
                                 for i in range(len(H) - 1, -1, -1)]),
@@ -174,13 +234,16 @@ class ErdosProblem(Kit, MovingCameraScene):
         frame = Rectangle(width=TALLY_W, height=y1 - y0, stroke_width=1.8, color=INK)
         frame.move_to([0, (y0 + y1) / 2, 0])
         strip = VGroup(red_area, blue_area, frame)
-        striplab = txt("RED = A's share of each position · our record split, 951 positions",
-                       14, SUB).next_to(frame, UP, buff=0.12)
+        striplab = txt("our record split — the same picture at 951 positions",
+                       14, SUB).move_to(lab12)
         # The integer ticks go: the record's differences span the whole +-2n range, and leaving
         # -3..+3 under the continuous profile would caption it with a falsehood.
-        self.play(Transform(tl, strip), FadeIn(striplab), FadeOut(blocks2), FadeOut(even),
-                  FadeOut(VGroup(*ax[1:-1])), run_time=1.8)
+        self.say("those columns, 951 of them, ARE our record split. This is what evolution\n"
+                 "shaped", color=SUB)
+        self.play(FadeOut(col24), FadeIn(strip), FadeOut(lab24), FadeIn(striplab),
+                  FadeOut(VGroup(*ax[1:-1])), run_time=1.2)
         self.wait(1.2)
+        tl = strip
 
         self.say("and the tally becomes a CURVE — crowding per difference, for every\n"
                  "difference at once. This is the record split's tally", color=SUB)
