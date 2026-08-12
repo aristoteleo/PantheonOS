@@ -1,0 +1,38 @@
+<div class="sidebar-quicknav">
+  <p class="sidebar-quicknav-header">Platforms</p>
+  <ul class="sidebar-quicknav-list">
+    <li class="{% if pagename.startswith('interfaces/ui') %}quicknav-active{% endif %}">
+      <a href="{{ pathto('interfaces/ui/index') }}">Web / Desktop App</a>
+    </li>
+    <li class="{% if pagename.startswith('interfaces/repl') %}quicknav-active{% endif %}">
+      <a href="{{ pathto('interfaces/repl/index') }}">CLI (REPL)</a>
+    </li>
+    <li class="{% if pagename.startswith('interfaces/api') %}quicknav-active{% endif %}">
+      <a href="{{ pathto('interfaces/api/index') }}">Python API</a>
+    </li>
+  </ul>
+
+  <p class="sidebar-quicknav-header">Functions</p>
+  <ul class="sidebar-quicknav-list">
+    <li class="{% if pagename.startswith('team') %}quicknav-active{% endif %}">
+      <a href="{{ pathto('team/index') }}">Multi-Agent Teams</a>
+    </li>
+    <li class="{% if pagename.startswith('toolsets') and not pagename.startswith('toolsets/fleet') and not pagename.startswith('toolsets/live') and not pagename.startswith('toolsets/scfm') and not pagename.startswith('toolsets/evolution') %}quicknav-active{% endif %}">
+      <a href="{{ pathto('toolsets/index') }}">Toolsets</a>
+    </li>
+    <li class="{% if pagename == 'toolsets/fleet' or pagename.startswith('interfaces/ui/fleet') %}quicknav-active{% endif %}">
+      <a href="{{ pathto('toolsets/fleet') }}">Pantheon Fleet</a>
+    </li>
+    <li class="{% if pagename == 'toolsets/live_view' or pagename.startswith('interfaces/ui/live') %}quicknav-active{% endif %}">
+      <a href="{{ pathto('toolsets/live_view') }}">Live View</a>
+    </li>
+    <li class="{% if pagename == 'advanced/evolution' or pagename == 'toolsets/evolution' %}quicknav-active{% endif %}">
+      <a href="{{ pathto('advanced/evolution') }}">Evolution</a>
+    </li>
+    <li class="{% if pagename == 'interfaces/ui/store-skills' %}quicknav-active{% endif %}">
+      <a href="{{ pathto('interfaces/ui/store-skills') }}">Store &amp; Skills</a>
+    </li>
+  </ul>
+
+  <hr class="sidebar-quicknav-divider" />
+</div>

@@ -70,14 +70,24 @@ html_theme_options = {
     "use_download_button": True,
     "path_to_docs": "docs/source",
     "repository_branch": "main",
-    "home_page_in_toc": True,
-    "show_navbar_depth": 1,  # Show 2 levels, deeper levels collapsed
+    "home_page_in_toc": False,
+    "show_navbar_depth": 2,
     "logo": {
         "image_light": "_static/pantheon.png",
         "image_dark": "_static/pantheon.png",
         "text": "Pantheon",
     },
     "navigation_with_keys": True,
+    "primary_sidebar_end": [],
+}
+
+# Custom primary sidebar: Platforms + Functions quick-nav above the TOC
+html_sidebars = {
+    "**": [
+        "navbar-logo.html",
+        "sidebar-platforms-functions.html",
+        "sbt-sidebar-nav.html",
+    ]
 }
 
 # -- Extension configuration -------------------------------------------------

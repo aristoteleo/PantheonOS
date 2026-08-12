@@ -455,6 +455,81 @@ html[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
     }
 }
 
+/* ===== Sidebar Quick-Nav (Platforms / Functions) ===== */
+.sidebar-quicknav {
+    padding: 0 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.sidebar-quicknav-header {
+    font-size: 0.68rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.09em !important;
+    text-transform: uppercase !important;
+    color: var(--text-tertiary, #888) !important;
+    margin: 1rem 0 0.35rem 0 !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+}
+
+.sidebar-quicknav-list {
+    list-style: none !important;
+    padding: 0 !important;
+    margin: 0 0 0.25rem 0 !important;
+}
+
+.sidebar-quicknav-list li {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.sidebar-quicknav-list li a {
+    display: block !important;
+    padding: 0.28rem 0.6rem !important;
+    border-radius: 5px !important;
+    font-size: 0.82rem !important;
+    font-weight: 400 !important;
+    color: var(--pst-color-text-muted, #555) !important;
+    text-decoration: none !important;
+    transition: background 0.15s, color 0.15s !important;
+    border-left: 2px solid transparent !important;
+}
+
+.sidebar-quicknav-list li a:hover {
+    background: rgba(91, 95, 199, 0.08) !important;
+    color: var(--primary, #5b5fc7) !important;
+    text-decoration: none !important;
+}
+
+.sidebar-quicknav-list li.quicknav-active a {
+    background: rgba(91, 95, 199, 0.1) !important;
+    color: var(--primary, #5b5fc7) !important;
+    font-weight: 600 !important;
+    border-left-color: var(--primary, #5b5fc7) !important;
+}
+
+.sidebar-quicknav-divider {
+    border: none !important;
+    border-top: 1px solid var(--border, #e2e8f0) !important;
+    margin: 0.75rem 0.25rem 0.25rem !important;
+}
+
+/* Dark mode adjustments for quick-nav */
+html[data-theme="dark"] .sidebar-quicknav-header {
+    color: #888 !important;
+}
+html[data-theme="dark"] .sidebar-quicknav-list li a {
+    color: #aaa !important;
+}
+html[data-theme="dark"] .sidebar-quicknav-list li a:hover,
+html[data-theme="dark"] .sidebar-quicknav-list li.quicknav-active a {
+    background: rgba(91, 95, 199, 0.15) !important;
+    color: #a5a8e6 !important;
+}
+html[data-theme="dark"] .sidebar-quicknav-divider {
+    border-top-color: #334155 !important;
+}
+
 /* ===== Tutorial Video Cards ===== */
 .tutorial-card {
     transition: all 0.2s ease !important;

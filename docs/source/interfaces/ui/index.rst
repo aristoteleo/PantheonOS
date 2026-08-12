@@ -107,6 +107,17 @@ shared lab or team deployments.
    The desktop installer is available from the PantheonOS releases page. On first launch it
    prompts for a NATS server URL or can start one automatically.
 
+Video Tutorials
+---------------
+
+New to PantheonOS? The video tutorials below walk you through the web and desktop app entirely through the graphical interface — no command line required. They cover downloading and launching the desktop app, navigating the UI, running analyses, using the store, Fleet, Live View, and more.
+
+.. card:: Watch the Web/Desktop App Tutorials
+   :link: /interfaces/tutorials
+   :link-type: doc
+
+   Ten step-by-step video tutorials showing how to access and use PantheonOS through the web and desktop interface without relying on any terminal commands. Covers the online platform, the desktop app installer, single-cell analysis, image analysis, structural biology, the Store, Live View, Fleet, and the Evolution system.
+
 Next Steps
 ----------
 
