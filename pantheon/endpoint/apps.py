@@ -93,6 +93,9 @@ class _AppProcess:
         self.pending: dict[str, asyncio.Future] = {}
         self.seq = 0
         self.last_used = time.monotonic()
+        # Newest source mtime at spawn — call() retires the process when the
+        # code on disk moves past it (dev sync, upgrade).
+        self.code_stamp = 0.0
         self.stderr_tail = ""
         self.reader_task: asyncio.Task | None = None
         self.stderr_task: asyncio.Task | None = None
@@ -182,6 +185,25 @@ class AppSupervisor:
             logger.warning(f"app {entry.app_id}: python env '{env}' not found, using endpoint python")
         return sys.executable
 
+    def _code_stamp(self, entry: AppEntry) -> float:
+        """Newest .py mtime under the backend's directory.
+
+        The fingerprint of what a spawned process is running. Bounded: a
+        backend directory holds a handful of source files, not a dataset.
+        """
+        backend = entry.manifest.get("entry", {}).get("backend") or ""
+        root = (entry.dir / backend).parent
+        stamp = 0.0
+        try:
+            for path in root.rglob("*.py"):
+                try:
+                    stamp = max(stamp, path.stat().st_mtime)
+                except OSError:
+                    continue
+        except OSError:
+            pass
+        return stamp
+
     async def _spawn(self, entry: AppEntry) -> _AppProcess:
         runtime = Path(__file__).with_name("app_runtime.py")
         state_dir = self.workspace / ".pantheon" / "app-state" / entry.app_id
@@ -202,6 +224,7 @@ class AppSupervisor:
             start_new_session=True,
         )
         ap = _AppProcess(entry, proc)
+        ap.code_stamp = self._code_stamp(entry)
         ap.stderr_task = asyncio.create_task(self._drain_stderr(ap))
 
         # Handshake: one line, {"ready": true, "api": 1, "methods": [...]}.
@@ -334,6 +357,24 @@ class AppSupervisor:
         lock = self._locks.setdefault(app_id, asyncio.Lock())
         async with lock:
             ap = self.procs.get(app_id)
+            # Hot reload: the code on disk moved past what this process runs —
+            # a dev sync or an upgrade landed. Retire it (not a crash: no
+            # backoff, no counter) and let the spawn below run the new code.
+            # Mid-flight calls postpone it; the next call gets fresh code.
+            if (
+                ap is not None
+                and ap.proc.returncode is None
+                and not ap.pending
+                and self._code_stamp(entry) > ap.code_stamp
+            ):
+                logger.info("app {}: source changed — restarting its backend", app_id)
+                ap.proc.terminate()
+                try:
+                    await asyncio.wait_for(ap.proc.wait(), 5)
+                except asyncio.TimeoutError:
+                    ap.proc.kill()
+                self.procs.pop(app_id, None)
+                ap = None
             if ap is None or ap.proc.returncode is not None:
                 if entry.crashes:
                     delay = _BACKOFF_S[min(entry.crashes, len(_BACKOFF_S)) - 1]
