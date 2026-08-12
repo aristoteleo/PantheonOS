@@ -134,14 +134,60 @@ def main(spec: str = "", collect: str = ""):
 
 @app.function(image=image, volumes={"/results": vol}, timeout=600)
 def summaries(prefix: str) -> list:
-    """Every summary.json under a prefix -- the collect path for a finished (or running) wave."""
+    """Every summary.json under a prefix -- the collect path for a finished (or running) wave.
+
+    Two numbers the summary alone cannot give, read from the store:
+
+      * `seed_own`: what the SEED measured on THIS container. Containers differ in CPU
+        throughput and AHC scores are wall-clock-limited, so absolute bests carry a per-container
+        offset; the honest cross-arm comparison is `gain = best - seed_own`.
+      * `hist_max`: the best single measurement. Content-identical resubmissions re-measure one
+        individual and the latest reading wins, so `best` can sit a noise-width below the best
+        roll of the same program. The difference is the eval noise band, worth seeing.
+    """
     vol.reload()
     out = []
     for p in sorted(Path(f"/results/{prefix}").rglob("summary.json")):
         s = json.loads(p.read_text())
+        seed_own = None
+        kids = {"n": 0, "improved": 0, "wrecked": 0}
+        sp = p.parent / "store.json"
+        if sp.exists():
+            inds = json.loads(sp.read_text())["individuals"]
+            if isinstance(inds, dict):
+                inds = list(inds.values())
+            for i in inds:
+                if not i.get("parent_ids") and i.get("kind") == "code":
+                    for m in i.get("measurements", []):
+                        v = m.get("metrics", {}).get("combined_score")
+                        if v is not None:
+                            seed_own = v
+                    break
+            # Which kind of children a method writes: improvements, noise, or wreckage. A
+            # "wrecked" child compiled and ran and lost more than 0.5 -- on this task that means
+            # the incumbent's structure did not survive the edit.
+            if seed_own is not None:
+                for i in inds:
+                    if i.get("kind") != "code" or not i.get("parent_ids"):
+                        continue
+                    v = None
+                    for m in i.get("measurements", []):
+                        mt = m.get("metrics", {})
+                        if "combined_score" in mt and mt.get("validity", 1) > 0:
+                            v = mt["combined_score"]
+                    if v is None:
+                        continue
+                    kids["n"] += 1
+                    kids["improved"] += v > seed_own + 0.001
+                    kids["wrecked"] += v < seed_own - 0.5
+        hist = [h["score"] for h in s.get("history", [])]
         out.append({"arm": str(p.parent).removeprefix("/results/"),
                     "best": s.get("best_combined_score"),
-                    "seed": s.get("seed_combined_score"),
+                    "seed_own": seed_own,
+                    "gain": (s.get("best_combined_score") - seed_own)
+                            if seed_own is not None else None,
+                    "hist_max": max(hist) if hist else None,
+                    "kids": kids,
                     "items": s.get("items_run"), "failures": s.get("failures"),
                     "seconds": round(s.get("seconds", 0)),
                     "search": s.get("search", {})})
