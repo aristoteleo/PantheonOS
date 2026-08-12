@@ -12,6 +12,7 @@ from pantheon.settings import get_settings
 from pantheon.toolset import tool
 from pantheon.toolsets.file_transfer import FileTransferToolSet
 from pantheon.utils.log import log_startup_profile, logger
+from .apps import AppSupervisor
 from .mcp import MCPManager
 from .toolsets import ToolSetManager
 from .mcp import MCPServerConfig
@@ -68,6 +69,11 @@ class Endpoint(FileTransferToolSet):
         # Convert to absolute path BEFORE chdir to avoid path resolution issues
         workspace_path = str(Path(workspace_path).resolve())
         Path(workspace_path).mkdir(parents=True, exist_ok=True)
+
+        # App backends (Atrium packaged apps): supervised subprocesses,
+        # spawned lazily by app_call. Constructed here because the workspace
+        # path is what scopes their registry.
+        self._app_supervisor = AppSupervisor(self, Path(workspace_path))
 
         # Switch to workspace directory for this Endpoint instance
         os.chdir(workspace_path)
@@ -403,6 +409,50 @@ class Endpoint(FileTransferToolSet):
         return method
 
     # ===== ToolSet Management (delegated to ToolSetManager) =====
+
+    @tool
+    async def app_call(
+        self,
+        app_id: str,
+        method: str,
+        args: dict | None = None,
+        timeout_s: float = 120.0,
+    ) -> dict:
+        """Call a method on an installed Atrium app's backend.
+
+        The backend runs in its own supervised subprocess (see
+        ``endpoint/apps.py``); this is the dispatch table the app-spec's §6
+        describes, spelled as arguments rather than a munged method name.
+        Spawns lazily on first use.
+
+        Args:
+            app_id: The app's manifest id, e.g. "viv".
+            method: A method the backend registered via ``@ctx.method``.
+            args: Keyword arguments for the method.
+            timeout_s: How long the call may run — conversions take a while.
+
+        Returns:
+            {"success": True, "result": ...} or {"success": False, "error": ...}.
+        """
+        try:
+            result = await self._app_supervisor.call(app_id, method, args, timeout_s)
+            return {"success": True, "result": result}
+        except Exception as e:  # noqa: BLE001 — the browser needs the reason
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def app_registry(self) -> dict:
+        """The installed Atrium apps and their registration state.
+
+        Rescans the install scopes on every call — an install is a file
+        write, and a cached registry is how it goes stale. Includes each
+        app's lifecycle state and, once its backend has handshaken, the
+        methods it registered.
+        """
+        try:
+            return {"success": True, "apps": self._app_supervisor.scan()}
+        except Exception as e:  # noqa: BLE001
+            return {"success": False, "error": str(e)}
 
     @tool
     async def services_ready(self) -> bool:

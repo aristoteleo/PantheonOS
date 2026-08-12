@@ -1,7 +1,7 @@
 #!/bin/sh
 # Pantheon-Fleet installer — user-space, no sudo, no elevated permissions.
 #
-#   curl -fsSL https://github.com/aristoteleo/PantheonOS/releases/download/fleet-v0.1.0-alpha/install.sh | sh -s -- --controller <url> --key <key>
+#   curl -fsSL https://github.com/aristoteleo/PantheonOS/releases/download/fleet-latest/install.sh | sh -s -- --controller <url> --key <key>
 #
 # Detects this machine's OS/arch, downloads the matching `fleet` binary into a
 # user-writable dir, and runs `fleet up` with whatever args you pass after `--`.
@@ -12,7 +12,7 @@
 #   FLEET_INSTALL_ONLY if set, install the binary but do not run `up`
 set -eu
 
-BASE_URL="${FLEET_BASE_URL:-https://github.com/aristoteleo/PantheonOS/releases/download/fleet-v0.1.0-alpha}"
+BASE_URL="${FLEET_BASE_URL:-https://github.com/aristoteleo/PantheonOS/releases/download/fleet-latest}"
 
 # Pick a user-writable install dir — never sudo. Prefer an explicit FLEET_BIN,
 # then /usr/local/bin if it already happens to be writable (Homebrew setups),

@@ -10,6 +10,11 @@ on:
         description: 'Existing Fleet tag to build and publish (for example fleet-v0.1.1)'
         required: true
         type: string
+      update_latest:
+        description: 'Refresh the existing fleet-latest assets from this tag'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -42,6 +47,15 @@ jobs:
             exit 1
           fi
           git rev-parse --verify "refs/tags/$RELEASE_TAG" >/dev/null
+
+      - name: Validate stable installer defaults
+        if: github.event_name == 'push'
+        working-directory: fleet
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'releases/download/fleet-latest/install.sh' scripts/install.sh
+          grep -q 'releases/download/fleet-latest/install.ps1' scripts/install.ps1
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -108,8 +122,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sed "s|fleet-v0.1.0-alpha|${RELEASE_TAG}|g" scripts/install.sh > dist/install.sh
-          sed "s|fleet-v0.1.0-alpha|${RELEASE_TAG}|g" scripts/install.ps1 > dist/install.ps1
+          sed -e "s|fleet-v0.1.0-alpha|${RELEASE_TAG}|g" \
+              -e "s|fleet-latest|${RELEASE_TAG}|g" scripts/install.sh > dist/install.sh
+          sed -e "s|fleet-v0.1.0-alpha|${RELEASE_TAG}|g" \
+              -e "s|fleet-latest|${RELEASE_TAG}|g" scripts/install.ps1 > dist/install.ps1
           chmod 0755 dist/install.sh
           grep -q "$RELEASE_TAG" dist/install.sh
           grep -q "$RELEASE_TAG" dist/install.ps1
@@ -241,3 +257,23 @@ jobs:
                 ;;
             esac
           fi
+
+      # Keep a Fleet-specific stable asset URL separate from GitHub's generic
+      # releases/latest (which belongs to another Pantheon product). The alias
+      # tag is bootstrapped once by a maintainer; later promotions replace the
+      # release assets. GITHUB_TOKEN cannot create the initial Release here.
+      - name: Update Fleet latest alias
+        if: github.event_name == 'push' || inputs.update_latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          alias_notes="Fleet installer assets currently mirror ${RELEASE_TAG}. The versioned release remains the immutable rollback target."
+          if ! gh release view fleet-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "fleet-latest is not bootstrapped; create the initial Release once with a maintainer token before enabling promotions." >&2
+            exit 1
+          fi
+          gh release upload fleet-latest dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit fleet-latest --repo "$GITHUB_REPOSITORY" \
+            --title "Pantheon-Fleet latest" --notes "$alias_notes" --prerelease

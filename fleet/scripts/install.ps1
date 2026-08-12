@@ -4,7 +4,7 @@
 # so Windows uses this. Downloads the matching fleet.exe into
 # %LOCALAPPDATA%\PantheonFleet and runs `fleet up` with the args you pass.
 #
-#   & ([scriptblock]::Create((irm https://github.com/aristoteleo/PantheonOS/releases/download/fleet-v0.1.0-alpha/install.ps1))) `
+#   & ([scriptblock]::Create((irm https://github.com/aristoteleo/PantheonOS/releases/download/fleet-latest/install.ps1))) `
 #       -Controller <url> -JoinToken <token>
 #
 # Env overrides (also used by the test harness):
@@ -22,7 +22,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $base = if ($env:FLEET_BASE_URL) { $env:FLEET_BASE_URL } else {
-    'https://github.com/aristoteleo/PantheonOS/releases/download/fleet-v0.1.0-alpha'
+    'https://github.com/aristoteleo/PantheonOS/releases/download/fleet-latest'
 }
 
 # Match this machine's architecture (Windows on ARM ships as arm64).

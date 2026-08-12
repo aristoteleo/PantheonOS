@@ -6,6 +6,36 @@ echo "Pantheon Docker Container"
 echo "Mode: ${PANTHEON_MODE:-hub}"
 echo "========================================="
 
+# Point pip, npm, R and apt at the Volume, so software a user installs is still
+# there after the sandbox is recreated. Sourced (not run) so the exports reach
+# the agent and every pty it spawns; see docker/pantheon-userspace.sh.
+#
+# Guarded on both sides: an older image may not carry the script, and a failure
+# inside it must cost the user a package manager, never their sandbox — `set -e`
+# is suspended for the whole of an `||` list, including the sourced body.
+if [ -f /usr/local/bin/pantheon-userspace.sh ]; then
+    . /usr/local/bin/pantheon-userspace.sh || echo "[userspace] skipped (non-fatal)"
+    echo "  User prefix:   ${PANTHEON_USER_PREFIX:-unset}"
+    echo "  Analysis env:  ${PANTHEON_ANALYSIS_PYTHON:-not built yet}"
+fi
+
+# Build or repair the analysis env. In the BACKGROUND, and deliberately so: it
+# costs ~20 s of network the first time and almost nothing after, and startup
+# latency is the one thing users feel every session. Until the env is ready the
+# sandbox runs on /venv with the flat prefix, which is a working sandbox.
+#
+# EVERY boot, not only when the env is missing. Skipping it once the env exists
+# was wrong twice over: an env whose creation was interrupted — a sandbox
+# reclaimed mid-build — would keep its python and therefore never be repaired,
+# and the kernelspec that lets the notebook toolset reach the env is written
+# into the image, which is ephemeral, so it has to be re-registered each boot
+# or jupyter silently loses the env after every rebuild. The script is
+# idempotent and takes ~2 s when there is nothing to do (measured), against a
+# first build of ~20 s.
+if [ -x /usr/local/bin/pantheon-analysis-env ]; then
+    ( /usr/local/bin/pantheon-analysis-env > /tmp/pantheon-analysis-env.log 2>&1 || true ) &
+fi
+
 # ========== MODE DETECTION ==========
 if [ "${PANTHEON_MODE}" = "standalone" ]; then
     echo "[STANDALONE MODE] Starting with auto-start-nats and auto-ui"
@@ -102,7 +132,7 @@ EOF
 
     # Start command: use pantheon ui instead of pantheon.chatroom
     # Run in background with tee to display logs and capture to file
-    python -m pantheon ui \
+    "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon ui \
         --workspace_path="${WORKSPACE}" \
         --auto-start-nats \
         --auto-ui="${FRONTEND_URL}" \
@@ -380,6 +410,49 @@ EOF
             > /tmp/fleet-node.log 2>&1 &
     fi
 
+    # ── User setup hook ───────────────────────────────────────────────────
+    #
+    # Everything a user installs with apt lands in /usr, which is the image,
+    # not the Volume — so it is gone the next time the sandbox is recreated,
+    # and sandboxes are recreated often: on restart, after an idle reclaim,
+    # and on every agent-image update. "I installed vim yesterday and today it
+    # is missing" is the whole shape of the problem.
+    #
+    # The persistent half of the filesystem cannot hold binaries in system
+    # paths, but it can hold the *instructions* for putting them back. This
+    # runs one script the user owns, from the Volume, on every boot — so the
+    # environment is declared rather than accumulated, which also means it
+    # survives an image update instead of being erased by one.
+    #
+    #   <Volume>/.pantheon/on-start.sh
+    #
+    # Keyed off the Volume, NOT off HOME. Under the default_workspace layout
+    # HOME *is* the Volume, but in the legacy layout HOME is /root, which is
+    # ephemeral — a hook stored there would vanish with the container it was
+    # meant to outlive, which is the exact bug this fixes. (Checked on a live
+    # staging sandbox: HOME=/root, and the Volume is elsewhere.)
+    #
+    # Deliberately: not fatal, so a broken line cannot cost the user their
+    # sandbox; bounded, so an accidental `read` cannot hang the boot forever;
+    # and logged where both the user and support can find it.
+    # WORKSPACE only gets its default in the standalone branch above, so it
+    # may be unset here; /workspace is the Volume mount in both hub layouts.
+    VOLUME_ROOT="${WORKSPACE:-/workspace}"
+    SETUP_HOOK="${VOLUME_ROOT}/.pantheon/on-start.sh"
+    if [ -f "$SETUP_HOOK" ]; then
+        SETUP_LOG=/tmp/pantheon-on-start.log
+        echo "[setup] running $SETUP_HOOK (log: $SETUP_LOG) ..."
+        if timeout "${PANTHEON_SETUP_TIMEOUT:-300}" bash "$SETUP_HOOK" > "$SETUP_LOG" 2>&1; then
+            echo "[setup] ✓ finished"
+        else
+            rc=$?
+            [ $rc -eq 124 ] && echo "[setup] ✗ timed out; continuing without it" \
+                            || echo "[setup] ✗ exited $rc; continuing without it"
+            tail -n 20 "$SETUP_LOG" 2>/dev/null | sed 's/^/[setup]   /'
+        fi
+        cp "$SETUP_LOG" "${VOLUME_ROOT}/.pantheon/on-start.log" 2>/dev/null || true
+    fi
+
     # Run the endpoint IN the default workspace so work_dir (=cwd at import) makes
     # default_workspace the active project, while HOME=/workspace keeps ~/.pantheon
     # (global store) at the Volume root. Users create sibling workspaces under
@@ -388,13 +461,38 @@ EOF
         cd "$DEFAULT_WS" || cd /workspace
     fi
 
+    # Which interpreter is about to run the agent, and what it thinks it is.
+    #
+    # A baseline image had the agent crash on import with "failed to parse
+    # CPython sys.version: '3.12.13 | packaged by conda-forge | ...'" —
+    # cloudpickle cannot read conda's version string — so something was
+    # selecting conda's python over the runtime venv. Reproducing it outside a
+    # real sandbox failed: in the image alone, PANTHEON_RUNTIME_PYTHON resolves
+    # correctly. This prints the answer where the failure actually happens.
+    RUNPY="${PANTHEON_RUNTIME_PYTHON:-python}"
+    echo "[launch] interpreter : $RUNPY -> $(command -v "$RUNPY" 2>/dev/null || echo '(not on PATH)')"
+    echo "[launch] sys.version : $("$RUNPY" -c 'import sys; print(sys.version.replace(chr(10)," "))' 2>&1 | head -1)"
+    echo "[launch] sys.prefix  : $("$RUNPY" -c 'import sys; print(sys.prefix)' 2>&1 | head -1)"
+    echo "[launch] PATH head   : $(echo "$PATH" | cut -c1-120)"
+    # Everything that can make a binary load a different libpython. Three
+    # guesses at which one it was — a stale activate.d hook, LD_LIBRARY_PATH,
+    # the activation itself — were all wrong, each disproved only after a
+    # rebuild. The interpreter reports conda's sys.version, which lives in
+    # libpython, so one of these is pointing it somewhere else; this prints
+    # them at the moment it happens instead of guessing again.
+    echo "[launch] LD_LIBRARY  : ${LD_LIBRARY_PATH:-unset}"
+    echo "[launch] PYTHONHOME  : ${PYTHONHOME:-unset}"
+    echo "[launch] PYTHONPATH  : ${PYTHONPATH:-unset}"
+    echo "[launch] CONDA_PREFIX: ${CONDA_PREFIX:-unset}"
+    echo "[launch] libpython   : $(ldd "$(readlink -f "${PANTHEON_RUNTIME_PYTHON:-python}")" 2>/dev/null | grep -i libpython | head -1)"
+
     # Execute the command with ID_HASH parameter
     if [ $# -eq 0 ]; then
         # No arguments provided, use default command with ID_HASH
-        exec python -m pantheon.chatroom --id_hash="${ID_HASH}" ${SYNC_FLAG}
+        exec "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.chatroom --id_hash="${ID_HASH}" ${SYNC_FLAG}
     else
         # Arguments provided, pass them to pantheon.chatroom with ID_HASH
         # This ensures ID_HASH is always used for stable service_id generation
-        exec python -m pantheon.chatroom --id_hash="${ID_HASH}" ${SYNC_FLAG} "$@"
+        exec "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.chatroom --id_hash="${ID_HASH}" ${SYNC_FLAG} "$@"
     fi
 fi

@@ -82,19 +82,27 @@ async def test_python_interpreter_toolset():
         await engine.submit_async(job)
         await job.wait_until_status("running")
         s = await connect_remote(toolset.service_id)
-        with pytest.raises(Exception):
-            resp = await s.invoke("run_python_code", {"code": "xxxxx"})
-        resp = await s.invoke(
-            "run_python_code", {"code": "res = 1 + 1", "result_var_name": "res"}
-        )
-        assert resp["result"] == 2
-        resp = await s.invoke("run_python_code", {"code": "", "result_var_name": "res"})
-        assert resp["result"] == 2
-        s = await connect_remote(toolset.service_id)
-        resp = await s.invoke(
-            "run_python_code", {"code": "res = 1 + 1", "result_var_name": "res"}
-        )
-        assert resp["result"] == 2
+
+        # A traceback is a failed execution reported back, not a raised tool
+        # error — the agent needs to read what went wrong.
+        resp = await s.invoke("run_python_code", {"code": "xxxxx"})
+        assert resp["success"] is False
+        assert "NameError" in resp["stderr"]
+
+        # A value comes home by being the last expression, which is what
+        # execute_result is for. It arrives as its repr, since it crossed a
+        # kernel boundary.
+        resp = await s.invoke("run_python_code", {"code": "res = 1 + 1\nres"})
+        assert resp["success"] is True
+        assert resp["result"] == "2"
+
+        # State persists across calls in the same session.
+        resp = await s.invoke("run_python_code", {"code": "res + 1"})
+        assert resp["result"] == "3"
+
+        # stdout is captured.
+        resp = await s.invoke("run_python_code", {"code": "print('hello')"})
+        assert "hello" in resp["stdout"]
         await job.cancel()
         await engine.wait_async()
 

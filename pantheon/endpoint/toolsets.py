@@ -639,7 +639,7 @@ class ToolSetManager:
         """Prepare ToolSet instantiation arguments."""
         service_name = params.get("name", service_type)
         args = {"name": service_name}
-        if service_type in ("python_interpreter", "shell", "package"):
+        if service_type in ("python_interpreter", "shell", "package", "pty"):
             args["workdir"] = str(self.path)
         elif service_type == "file_manager":
             args["path"] = str(self.path)
