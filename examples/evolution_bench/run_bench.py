@@ -33,12 +33,16 @@ sys.path.insert(0, str(HERE.parent.parent))
 TASKS = HERE / "tasks"
 
 
-def build_method(name: str, seed: int, judge=None, norm: str = "minmax"):
+def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=None):
     from pantheon.evolution.methods import (
         AnnealedIdeaCode, IdeaCodeAlternating, AgentMapElites, SimpleTES)
 
     if name == "annealed":
-        return AnnealedIdeaCode(judge=judge, norm=norm, seed=seed)
+        # `sched` carries only the knobs the caller actually set, so the method's own defaults
+        # stay authoritative for everything else. The ablations pin one at a time: `gamma=0`
+        # freezes the action mix, `t0=t1` holds the selection temperature, `beta0=0` removes the
+        # exploration bonus.
+        return AnnealedIdeaCode(judge=judge, norm=norm, seed=seed, **(sched or {}))
     if name == "idea_code":
         return IdeaCodeAlternating(ideas_per_round=3, code_per_idea=3, ideas_kept=2,
                                    k_ideas=1, k_code=1, seed=seed)
@@ -91,12 +95,20 @@ async def main(a) -> None:
 
     judge = None
     if a.method == "annealed":
-        from pantheon.evolution.variators import LearnedIdeaJudge
+        from pantheon.evolution.variators import LearnedIdeaJudge, NulledJudge
 
-        judge = LearnedIdeaJudge(model=a.model, objective=objective, n_min=a.judge_n_min)
+        # `--judge random|constant` ablates the model's opinion while keeping the judge's whole
+        # apparatus -- base resolution, calibration, metric names -- so the arms differ in
+        # information content and nothing else.
+        if a.judge == "llm":
+            judge = LearnedIdeaJudge(model=a.model, objective=objective, n_min=a.judge_n_min)
+        else:
+            judge = NulledJudge(mode=a.judge, seed=a.seed, n_min=a.judge_n_min)
         if a.judge_state:
             judge.load(a.judge_state)
-    method = build_method(a.method, a.seed, judge=judge, norm=a.norm)
+    sched = {k: getattr(a, k) for k in ("t0", "t1", "beta0", "gamma")
+             if getattr(a, k) is not None}
+    method = build_method(a.method, a.seed, judge=judge, norm=a.norm, sched=sched)
 
     variator = method.default_variator(
         evaluator=evaluator, model=a.model, timeout=a.mutation_timeout,
@@ -150,8 +162,10 @@ async def main(a) -> None:
         print(f"  [{len(history):>3}] {time.time()-t0:6.0f}s  score={s:.6f}  best={best:.6f}",
               flush=True)
 
+    # Only the problem's evaluator: a method that owns an idea judge registers it itself through
+    # `default_evaluators()`.
     res = await evolve(method=method, variator=variator,
-                       evaluators={"code": evaluator, **({"idea": judge} if judge else {})},
+                       evaluators={"code": evaluator},
                        seeds=[CodeGenome(files={evolve_file: seed_src})],
                        objective=objective, budget=Budget(max_items=a.iterations),
                        concurrency=a.workers, on_event=on_event,
@@ -170,8 +184,18 @@ async def main(a) -> None:
     if best is not None and hasattr(best.genome, "files"):
         for path, content in best.genome.files.items():
             (out / f"best_{Path(path).name}").write_text(content)
+    if judge is not None and a.judge_state:
+        # Loading without saving would make `--judge-state` a read-only flag and the cross-run
+        # chain silently train nothing.
+        judge.save(a.judge_state)
+        print(f"judge state ({len(judge.cal)} pairs) -> {a.judge_state}")
+    # The RESOLVED search configuration, not the flags: an arm whose knob silently failed to
+    # reach the method would otherwise present itself as the ablation it is not.
+    search = ({"judge": f"{a.judge}(n_min={a.judge_n_min})", "norm": method.norm,
+               "t0": method.t0, "t1": method.t1, "beta0": method.beta0, "gamma": method.gamma}
+              if a.method == "annealed" else {})
     json.dump({"task": a.task, "evolve": evolve_file, "method": method.name, "model": a.model, "seed": a.seed,
-               "operator": operator, "seed_sha": seed_sha,
+               "operator": operator, "search": search, "seed_sha": seed_sha,
                "items_run": res.items_run, "failures": res.failures,
                "best_combined_score": best_score, "seed_combined_score": seed_score,
                "seconds": res.seconds, "history": history},
@@ -201,8 +225,17 @@ if __name__ == "__main__":
                    help="fidelity for the agent's own run_evaluator calls, when the task offers "
                         "more than one. What gets RECORDED is always measured at full fidelity")
     p.add_argument("--norm", default="minmax", choices=["minmax", "absolute"])
+    p.add_argument("--judge", default="llm", choices=["llm", "random", "constant"],
+                   help="ablate the annealed method's judge: the model's opinion is replaced by "
+                        "noise while the base/calibration/metric apparatus stays")
     p.add_argument("--judge-state", default=None)
     p.add_argument("--judge-n-min", type=int, default=5)
+    # Schedule ablations. Unset means the method's own default; the record in summary.json is the
+    # resolved value either way.
+    p.add_argument("--t0", type=float, default=None)
+    p.add_argument("--t1", type=float, default=None)
+    p.add_argument("--beta0", type=float, default=None)
+    p.add_argument("--gamma", type=float, default=None)
     p.add_argument("--output", default=None)
     p.add_argument("--resume", action="store_true")
     args = p.parse_args()

@@ -482,6 +482,39 @@ def test_conforms_to_the_method_protocol():
     assert isinstance(AnnealedIdeaCode(), EvolveMethod)
 
 
+# ---------------------------------------------------------- the nulled judge ---
+def test_nulled_judge_speaks_the_annealed_metric_dialect():
+    """`NullJudge` emits `idea_score`, which this method never reads. The ablation judge must
+    emit exactly what `LearnedIdeaJudge` emits, or the ablation measures plumbing."""
+    from pantheon.evolution.variators import NulledJudge
+
+    j = NulledJudge(mode="random", seed=1)
+    m = asyncio.run(j.measure(ctx_with(Store()), _mk_idea("a")))
+    assert {"idea_base", "idea_raw", "idea_delta_hat", "idea_sigma"} <= set(m.metrics)
+
+
+def test_constant_null_ties_every_idea():
+    from pantheon.evolution.variators import NulledJudge
+
+    j = NulledJudge(mode="constant", value=0.0)
+    ms = [asyncio.run(j.measure(ctx_with(Store()), _mk_idea(t))) for t in ("a", "b", "c")]
+    assert len({m.metrics["idea_raw"] for m in ms}) == 1
+
+
+def test_nulled_judge_uses_the_installed_base_fn():
+    """The method installs `base_fn` on whatever judge it is given; the null must accept and use
+    it, because `idea_base` is half of every downstream number."""
+    from pantheon.evolution.variators import NulledJudge
+
+    j = NulledJudge(mode="constant")
+    AnnealedIdeaCode(judge=j)
+    assert j.base_fn is not None
+
+
+def _mk_idea(text):
+    return Individual(genome=TextGenome(text=text, kind=IDEA), kind=IDEA)
+
+
 # ------------------------------------------------- the evaluators it owns ---
 def test_method_supplies_the_judge_as_the_evaluator_for_ideas():
     j = LearnedIdeaJudge()

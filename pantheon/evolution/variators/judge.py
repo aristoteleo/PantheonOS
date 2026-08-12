@@ -38,6 +38,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import random
 import re
 import time
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -357,6 +358,54 @@ class LearnedIdeaJudge:
             self.load_state_dict(json.load(fh))
         logger.info(f"judge loaded {len(self.cal)} prior observations from {path}")
         return True
+
+
+class NulledJudge(LearnedIdeaJudge):
+    """The learned judge with the model's opinion replaced by noise. For the ablation.
+
+    `NullJudge` (in `idea.py`) nulls the OLD alternating method's judge and speaks its metric
+    dialect, `idea_score`. `AnnealedIdeaCode` reads `idea_raw`/`idea_delta_hat`/`idea_base`/
+    `idea_sigma` and installs a `base_fn` on its judge, so ablating THAT judge has to replace
+    exactly one thing -- the model call -- while the base resolution, the calibration machinery
+    and the metric names stay identical. Anything less and the ablation measures the plumbing
+    difference, not the information difference (the mistake that made `results_ablation/`
+    unreadable the first time).
+
+    Two modes, same rationale as `NullJudge`: `random` removes the signal and the ordering;
+    `constant` removes the signal but keeps every idea exactly tied, which under the annealed
+    softmax means uniform selection among the unmeasured. Between them they separate "the model
+    knows something" from "any consistent ordering would have done".
+    """
+
+    def __init__(self, *, mode: str = "random", value: float = 0.0, seed: int = 0, **kw):
+        if mode not in ("random", "constant"):
+            raise ValueError(f"mode must be 'random' or 'constant', got {mode!r}")
+        super().__init__(**kw)
+        self.mode = mode
+        self.value = float(value)
+        self.rng = random.Random(seed)
+
+    async def measure(self, ctx: EvolveContext, ind: Individual,
+                      fidelity: str = "full") -> Measurement:
+        t0 = time.time()
+        base = 0.0
+        if self.base_fn is not None:
+            try:
+                base = float(self.base_fn(ctx, ind))
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"judge base_fn failed: {type(e).__name__}: {e}")
+        # A raw "gain" with no information in it. The scale is irrelevant under min-max
+        # normalisation -- only the ordering reaches selection, and the ordering is the thing
+        # being nulled.
+        raw = self.rng.random() if self.mode == "random" else self.value
+        return Measurement(
+            individual_id=ind.id, fidelity=fidelity, ok=True,
+            metrics={"idea_base": base, "idea_pred_score": base + raw, "idea_raw": raw,
+                     "idea_delta_hat": self.cal(raw), "idea_sigma": self.cal.sigma},
+            artifacts={"judgement": f"null:{self.mode}", "calibrated": self.cal.fitted,
+                       "n_train": len(self.cal)},
+            duration=time.time() - t0,
+        )
 
 
 def _parse_prediction(text: str, base: float) -> Tuple[float, str]:

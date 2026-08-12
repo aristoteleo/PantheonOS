@@ -74,15 +74,25 @@ def _invalid(reason: str, t0: float, **extra) -> Dict[str, Any]:
 
 
 def _run_once(tmp_dir: Path, n_cases: int) -> Dict[str, Any]:
-    cmd = ["docker", "run", "--rm", "--network=none", "--platform", PLATFORM,
-           "-v", f"{tmp_dir}:/work:ro",
-           "-v", f"{CACHE_DIR}:/cache:ro",
-           "-v", f"{RUNNER}:/runner.py:ro",
-           DOCKER_IMAGE, "python3", "/runner.py",
-           "/work/Main.cpp",
-           f"/cache/public_inputs_150/{PROBLEM_ID}_inputs",
-           f"/cache/tester_binaries/{PROBLEM_ID}_tester",
-           str(n_cases), str(CASE_WORKERS), str(TIME_LIMIT)]
+    if os.environ.get("AHC_EXEC") == "direct":
+        # For environments that ARE the container: a Modal image built FROM the ale-bench image
+        # has the identical g++-12/cpp20 toolchain, no Docker daemon, and is itself disposable --
+        # the isolation `docker run --network=none` provides locally is already the platform's.
+        # Same runner script, host paths instead of mounts.
+        cmd = ["python3", str(RUNNER), str(tmp_dir / "Main.cpp"),
+               str(CACHE_DIR / "public_inputs_150" / f"{PROBLEM_ID}_inputs"),
+               str(CACHE_DIR / "tester_binaries" / f"{PROBLEM_ID}_tester"),
+               str(n_cases), str(CASE_WORKERS), str(TIME_LIMIT)]
+    else:
+        cmd = ["docker", "run", "--rm", "--network=none", "--platform", PLATFORM,
+               "-v", f"{tmp_dir}:/work:ro",
+               "-v", f"{CACHE_DIR}:/cache:ro",
+               "-v", f"{RUNNER}:/runner.py:ro",
+               DOCKER_IMAGE, "python3", "/runner.py",
+               "/work/Main.cpp",
+               f"/cache/public_inputs_150/{PROBLEM_ID}_inputs",
+               f"/cache/tester_binaries/{PROBLEM_ID}_tester",
+               str(n_cases), str(CASE_WORKERS), str(TIME_LIMIT)]
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=DOCKER_TIMEOUT)
     line = next((ln for ln in reversed((p.stdout or "").splitlines())
                  if ln.strip().startswith("{")), None)
