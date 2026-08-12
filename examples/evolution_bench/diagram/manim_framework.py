@@ -3,30 +3,38 @@
     manim -qm --format=mp4 manim_framework.py FrameworkRun
 
 The other videos each show one method running. This one shows what they run IN: a fixed loop --
-select, mutate, evaluate, record -- with named seams, and the method as a plug-in behind two of
-the four stations. It is deliberately short and has no simulated run: the claim it makes is
-structural, and the three method videos are its evidence.
+select, mutate, evaluate, record -- and a method that reaches ALL FOUR stations. It is deliberately
+short and has no simulated run: the claim it makes is structural, and the three method videos are
+its evidence.
+
+The point worth getting right, because an earlier cut of this video got it wrong: a method is not
+just a parent-selection policy. It decides at two stations (`ask`, `on_measured`) and NAMES the
+component at the other two (`default_variator`, `default_evaluators`). SimpleTES mutates with a
+single completion and AgentMapElites with a coding agent -- that difference is part of what those
+algorithms ARE, not a deployment choice. Anything a method does not name falls back to a default.
+
+The one boundary that is not the method's: what a program is worth. `code` is measured by the
+problem's verifier, supplied by the caller, and a search method that could redefine the objective
+could make its own results.
 
 Beats:
 
   1. the loop, assembled, with the runner making a lap -- "every method in this series is this
      machine"
-  2. the seams, one at a time: Method (select + record: ask/on_measured/rank, and it names its
-     own operator), Variator (mutate: the coding agent), Evaluator (evaluate: one per kind of
-     genome), and underneath them the Store (everything ever made, with lineage) and the Budget
-     (what stops the run)
-  3. the swap: three method cards take the Method slot in turn -- AgentMapElites, SimpleTES,
-     AnnealedIdeaCode -- while the rest of the machine does not move.
+  2. the four seams, with the API name at each station, then the split inside `evaluate`, then
+     what the LOOP keeps: concurrency, budget, checkpoints
+  3. the swap: three method cards in turn -- AgentMapElites, SimpleTES, AnnealedIdeaCode -- each
+     rewriting all four stations, while the store and the loop's own machinery do not move.
 """
 from __future__ import annotations
 
 import numpy as np
-from manim import (DOWN, LEFT, ORIGIN, RIGHT, UP, Circle, Create, DashedVMobject, Dot, FadeIn,
-                   FadeOut, Indicate, LaggedStart, Line, MoveAlongPath, MovingCameraScene,
-                   Rectangle, RoundedRectangle, Square, Transform, VGroup, VMobject, Write)
+from manim import (DOWN, LEFT, ORIGIN, RIGHT, UP, Circle, Create, Dot, FadeIn, FadeOut, Indicate,
+                   LaggedStart, Line, MoveAlongPath, MovingCameraScene, Rectangle,
+                   RoundedRectangle, Square, Transform, VGroup, VMobject, Write)
 
-from manim_kit import (BLUE, EDGE, FULL_W, GREEN, INK, Kit, MUTED, ORANGE, PANEL, PURPLE, RED,
-                       SUB, arc, fit, para, score_color, spoke, txt)
+from manim_kit import (BLUE, EDGE, FULL_W, GREEN, INK, Kit, MUTED, ORANGE, PANEL, PURPLE, SUB,
+                       fit, para, score_color, spoke, txt)
 
 # ---- the stage -------------------------------------------------------------
 LOOP_AT = {"select": np.array([-2.6, 1.15, 0.0]), "mutate": np.array([0.0, 2.55, 0.0]),
@@ -34,6 +42,8 @@ LOOP_AT = {"select": np.array([-2.6, 1.15, 0.0]), "mutate": np.array([0.0, 2.55,
 BOX_W, BOX_H = 2.9, 1.0
 CAP_AT = np.array([0.0, -3.5, 0.0])
 STORE_Y, CARD_Y = -1.55, -2.52
+TITLES = {"select": "select a parent", "mutate": "mutate it",
+          "evaluate": "evaluate", "record": "record"}
 
 
 def loop_box(key: str, top: str, sub: str) -> VGroup:
@@ -55,15 +65,6 @@ def rect_anchor(box, other, pad=0.09) -> np.ndarray:
 def ring_arrow(a_box, b_box):
     return spoke(rect_anchor(a_box, b_box), rect_anchor(b_box, a_box), SUB, 2.8,
                  0.0, 0.0, tip=0.18)
-
-
-def brace_around(mobs, color, pad=0.22) -> VMobject:
-    """A dashed rounded frame around a group -- the visual for 'this is one seam'."""
-    g = VGroup(*mobs)
-    r = RoundedRectangle(width=g.width + 2 * pad, height=g.height + 2 * pad,
-                         corner_radius=0.18, stroke_width=2.2, color=color,
-                         fill_opacity=0.0).move_to(g.get_center())
-    return DashedVMobject(r, num_dashes=48)
 
 
 # ---- method-card thumbnails --------------------------------------------------
@@ -148,10 +149,9 @@ class FrameworkRun(Kit, MovingCameraScene):
 
     # ---- act 1: the loop ---------------------------------------------------
     def act_loop(self):
-        boxes = {"select": loop_box("select", "select a parent", "from what the method keeps"),
-                 "mutate": loop_box("mutate", "mutate it", "a coding agent"),
-                 "evaluate": loop_box("evaluate", "evaluate", "a verifier scores it"),
-                 "record": loop_box("record", "record", "the tree keeps everything")}
+        boxes = {k: loop_box(k, TITLES[k], sub) for k, sub in (
+            ("select", "from what the method keeps"), ("mutate", "an operator writes a child"),
+            ("evaluate", "something scores it"), ("record", "the tree keeps everything"))}
         self.boxes = boxes
         ring = VGroup(ring_arrow(boxes["select"][0], boxes["mutate"][0]),
                       ring_arrow(boxes["mutate"][0], boxes["evaluate"][0]),
@@ -181,53 +181,62 @@ class FrameworkRun(Kit, MovingCameraScene):
     def act_seams(self):
         b = self.boxes
 
-        # Method: select + record together -- one object owns both decisions
-        brace_m = brace_around([b["select"], b["record"]], ORANGE)
-        tag_m = VGroup(txt("Method", 22, ORANGE, weight="BOLD"),
-                       txt("ask() · on_measured() · rank()", 15, SUB)).arrange(RIGHT, buff=0.3)
-        # BELOW the brace, not beside it: beside, the tag's left edge crosses x = -7.11 and the
-        # first characters are simply not rendered
-        tag_m.next_to(brace_m, DOWN, buff=0.16).align_to(brace_m, LEFT)
-        self.play(Create(brace_m), FadeIn(tag_m), run_time=1.0)
-        self.say("the ALGORITHM is one object behind two stations: which parent to hand out,\n"
-                 "and what to do with the measured child. It also names its own operator.",
-                 hold=2.8)
+        # The method reaches every station. Shown as the actual API at each one rather than as a
+        # brace around a subset: an earlier cut braced select+record and said "the method decides
+        # where the tree grows next", which is the parent-selection half of an algorithm and left
+        # the operator and the judge looking like deployment choices.
+        api = {
+            "select": txt("ask()", 15, ORANGE).next_to(b["select"], LEFT, buff=0.22),
+            "record": txt("on_measured()", 15, ORANGE).next_to(b["record"], DOWN, buff=0.2),
+            "mutate": txt("default_variator()", 15, ORANGE).next_to(b["mutate"], RIGHT, buff=0.22),
+            "evaluate": txt("default_evaluators()", 15, ORANGE).next_to(b["evaluate"], RIGHT,
+                                                                       buff=0.22),
+        }
+        tag_all = VGroup(txt("Method", 22, ORANGE, weight="BOLD"),
+                         txt("the algorithm", 15, SUB)).arrange(DOWN, buff=0.06)
+        tag_all.move_to([-5.35, 3.25, 0])
+        self.play(FadeIn(tag_all),
+                  LaggedStart(*[FadeIn(api[k]) for k in
+                                ("select", "record", "mutate", "evaluate")], lag_ratio=0.2),
+                  run_time=1.6)
+        self.say("a method reaches all FOUR stations. At two it decides, item by item: which\n"
+                 "parent goes out, and what the measured child means", hold=2.4)
+        self.play(Indicate(VGroup(b["select"], b["record"], api["select"], api["record"]),
+                           color=ORANGE, scale_factor=1.03), run_time=1.0)
+        self.say("at the other two it does not decide — it NAMES the component. SimpleTES\n"
+                 "mutates with one blind completion, AgentMapElites with a coding agent, and\n"
+                 "that difference is part of what those algorithms are", hold=3.0)
+        self.play(Indicate(VGroup(b["mutate"], b["evaluate"], api["mutate"], api["evaluate"]),
+                           color=ORANGE, scale_factor=1.03), run_time=1.0)
 
-        # Variator
-        brace_v = brace_around([b["mutate"]], GREEN)
-        tag_v = VGroup(txt("Variator", 22, GREEN, weight="BOLD"),
-                       txt("the agent: edit · run · check", 15, SUB)).arrange(DOWN, buff=0.08)
-        tag_v.next_to(brace_v, RIGHT, buff=0.3)
-        self.play(Create(brace_v), FadeIn(tag_v), run_time=1.0)
-        self.say("the OPERATOR is a coding agent with a workspace — it verifies its own edit\n"
-                 "before submitting. Swapping it changes the algorithm, so methods name theirs.",
-                 hold=2.8)
+        # The one boundary that is not the method's.
+        # Kept short and then width-capped: this column starts at x ~ 4.2 and the frame ends at
+        # 7.11, so a line that reads well in the source runs straight off the right edge.
+        split = VGroup(txt("idea → the method's judge", 13.5, ORANGE),
+                       txt("code → the problem's verifier", 13.5, BLUE)
+                       ).arrange(DOWN, buff=0.1, aligned_edge=LEFT)
+        fit(split, 2.75)
+        split.next_to(api["evaluate"], DOWN, buff=0.18).align_to(api["evaluate"], LEFT)
+        self.play(FadeIn(split), run_time=0.7)
+        self.say("with one line it may not cross: what a PROGRAM is worth is the problem's\n"
+                 "question. A method that could answer it could make its own results", hold=3.0)
 
-        # Evaluator
-        brace_e = brace_around([b["evaluate"]], BLUE)
-        tag_e = VGroup(txt("Evaluator", 22, BLUE, weight="BOLD"),
-                       txt("one per kind — code: a verifier · ideas: a judge", 15, SUB)
-                       ).arrange(RIGHT, buff=0.3)
-        tag_e.next_to(brace_e, DOWN, buff=0.16).align_to(brace_e, RIGHT)
-        self.play(Create(brace_e), FadeIn(tag_e), run_time=1.0)
-        self.say("scoring is per KIND of genome: programs meet a verifier; an idea, if a method\n"
-                 "uses ideas, meets a judge that only predicts", hold=2.6)
-
-        # Store + Budget, underneath everything
-        store = RoundedRectangle(width=9.4, height=0.62, corner_radius=0.12, stroke_width=1.8,
+        # Store + Budget + what the loop keeps for itself
+        store = RoundedRectangle(width=10.6, height=0.62, corner_radius=0.12, stroke_width=1.8,
                                  color=EDGE, fill_color=PANEL, fill_opacity=1.0)
         store.move_to([0, STORE_Y, 0])
-        store_lab = VGroup(txt("Store", 18, INK, weight="BOLD"),
-                           txt("every genome ever made, with both lineages", 14, SUB),
-                           txt("·", 14, MUTED),
-                           txt("Budget", 18, INK, weight="BOLD"),
-                           txt("what stops the run", 14, SUB)
-                           ).arrange(RIGHT, buff=0.3).move_to(store.get_center())
+        store_lab = VGroup(txt("Store", 17, INK, weight="BOLD"),
+                           txt("every genome, with both lineages", 13.5, SUB),
+                           txt("·", 13.5, MUTED),
+                           txt("the loop keeps", 17, INK, weight="BOLD"),
+                           txt("concurrency · budget · checkpoints", 13.5, SUB)
+                           ).arrange(RIGHT, buff=0.26).move_to(store.get_center())
         self.play(FadeIn(store), FadeIn(store_lab), run_time=1.0)
-        self.say("under all of it, the STORE: nothing is ever deleted, and every child knows\n"
-                 "the code it edited and the idea it served", hold=2.6)
+        self.say("and what the loop keeps is what every algorithm needs and none should have to\n"
+                 "write. If adding a method meant editing the loop, the seam would be wrong",
+                 hold=2.8)
 
-        self.braces = VGroup(brace_m, tag_m, brace_v, tag_v, brace_e, tag_e)
+        self.tags = VGroup(tag_all, split, *api.values())
         self.store_g = VGroup(store, store_lab)
 
     # ---- act 3: the swap -------------------------------------------------------
@@ -241,31 +250,37 @@ class FrameworkRun(Kit, MovingCameraScene):
             method_card("AnnealedIdeaCode",
                         "ideas first — propose early, implement late", thumb_mix()),
         ]
-        subs = ["from the MAP-Elites grid", "a chain's selector picks", "the annealed softmax"]
-        rec_subs = ["tree grows · grid updates", "best-of-k joins its chain",
-                    "tree grows · values update"]
+        # All four stations, per method. The mutate row is the one that makes the point: these
+        # are not the same algorithm running three selection policies.
+        rows = [
+            {"select": "from the MAP-Elites grid", "mutate": "a coding agent",
+             "evaluate": "the problem's verifier", "record": "tree grows · grid updates"},
+            {"select": "a chain's selector picks", "mutate": "one completion, no tools",
+             "evaluate": "the problem's verifier", "record": "best-of-k joins its chain"},
+            {"select": "the annealed softmax", "mutate": "prose, then a coding agent",
+             "evaluate": "the verifier · and its own judge", "record": "tree · judge recalibrates"},
+        ]
 
-        self.say("and the method is a PLUG-IN. Watch the select and record stations change\n"
-                 "while the agent, the verifier and the store do not move", hold=1.2)
-        # every tag goes, including Method's: the store bar arrives in the same band and the
-        # half-covered caption reads worse than no caption. The orange brace stays -- it IS the
-        # slot the cards are about to fill.
-        self.play(FadeOut(self.braces[1:]), run_time=0.5)
+        self.say("so a method is a plug-in at every station. Watch all four rewrite themselves —\n"
+                 "and watch what does not move", hold=1.2)
+        self.play(FadeOut(self.tags), run_time=0.5)
 
         shown = None
         for i, card in enumerate(cards):
             card.move_to([0, CARD_Y, 0])
-            new_sel = loop_box("select", "select a parent", subs[i])
-            new_rec = loop_box("record", "record", rec_subs[i])
-            anims = [Transform(b["select"], new_sel), Transform(b["record"], new_rec),
-                     Indicate(self.braces[0], color=ORANGE, scale_factor=1.02)]
+            # The station titles are re-stated rather than read back off the mobject: `Transform`
+            # moves points, not attributes, so after the first swap the old text is still hanging
+            # on the object and reading it back is only accidentally right.
+            fresh = {k: loop_box(k, TITLES[k], rows[i][k]) for k in rows[i]}
+            anims = [Transform(b[k], fresh[k]) for k in fresh]
             if shown is None:
                 anims.append(FadeIn(card, shift=UP * 0.2))
                 shown = card
             else:
                 anims.append(Transform(shown, card))
             self.play(*anims, run_time=0.9)
-            self.wait(1.6)
+            self.wait(1.8)
 
-        self.say("same loop, same agent, same verifier, same store — three different searches.\n"
-                 "The method only ever decides one thing: where the tree grows next.", hold=3.4)
+        self.say("three different searches on one engine — and the store, the budget and the\n"
+                 "loop never learned any of their names. What a method does not name, it "
+                 "inherits.", hold=3.4)
