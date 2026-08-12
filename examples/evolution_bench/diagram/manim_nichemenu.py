@@ -32,7 +32,8 @@ from collections import defaultdict
 import numpy as np
 from manim import (DL, DOWN, DR, LEFT, ORIGIN, RIGHT, UL, UP, UR, Axes, Circle, Create,
                    DashedLine, Dot, FadeIn, FadeOut, GrowFromPoint, Indicate, LaggedStart, Line,
-                   MovingCameraScene, RoundedRectangle, Square, Transform, VGroup, Write)
+                   MoveAlongPath, MovingCameraScene, RoundedRectangle, Square, Transform, VGroup,
+                   VMobject, Write)
 
 from manim_kit import (BLUE, EDGE, FULL_W, GREEN, INK, Kit, MUTED, ORANGE, PANEL, RED, SUB, arc,
                        dim, fit, para, score_color, spoke, txt)
@@ -233,6 +234,22 @@ class NicheMenuRun(Kit, MovingCameraScene):
         self.best_pts.append(bp)
         return anims
 
+    def led(self, key) -> np.ndarray:
+        """A docking point inside each box's top-left corner for the runner dot."""
+        return self.boxes[key][0].get_corner(UL) + np.array([0.18, -0.18, 0.0])
+
+    def lap_anim(self):
+        """One full turn of the loop, run by the dot.
+
+        During the fast laps the tree, the grid and the curve all move while the loop diagram sat
+        perfectly still -- the machine the video claims is running showed no sign of running. The
+        dot walks mutate -> evaluate -> record every step; the flash play parks it back on select.
+        """
+        path = VMobject().set_points_as_corners(
+            [self.runner.get_center(), self.led("mutate"), self.led("evaluate"),
+             self.led("record")])
+        return MoveAlongPath(self.runner, path)
+
     def select_flashes(self, ev):
         """The selection, made visible on every single step: the drawn cell and the parent node
         flash together, BEFORE the child exists. No connecting line -- an arrow from the bottom
@@ -248,9 +265,10 @@ class NicheMenuRun(Kit, MovingCameraScene):
     def step(self, ev, run_time=0.55):
         flashes = self.select_flashes(ev)
         if flashes:
-            self.play(*flashes, run_time=run_time * 0.55)
+            self.play(*flashes, self.runner.animate.move_to(self.led("select")),
+                      run_time=run_time * 0.55)
         self.play(*self.tree_anims(ev), *self.grid_anims(ev), *self.curve_anims(ev),
-                  run_time=run_time)
+                  self.lap_anim(), run_time=run_time)
 
     # ---- act 1: the loop, the tree, the grid, the curve --------------------
     def act_one(self):
@@ -286,6 +304,7 @@ class NicheMenuRun(Kit, MovingCameraScene):
         self.add(self.best_line, self.curve_dots)
 
         tree_lab = txt("the tree — everything ever made", 17, SUB).move_to([TREE_CX, 3.55, 0])
+        self.runner = Dot(radius=0.07, color=ORANGE)
 
         seed = PLACES[0]
         self.play(LaggedStart(*[FadeIn(boxes[k], scale=0.9) for k in
@@ -294,6 +313,8 @@ class NicheMenuRun(Kit, MovingCameraScene):
                   FadeIn(grid_frame), FadeIn(grid_lab),
                   Create(self.ax), FadeIn(ticks), FadeIn(curve_lab), FadeIn(tree_lab),
                   run_time=2.0)
+        self.runner.move_to(self.led("select"))
+        self.play(FadeIn(self.runner, scale=0.4), run_time=0.4)
         self.next_idx = 1
         pos0 = tree_layout(PLACES[:1])
         seed_dot = tree_dot(seed, pos0[seed["id"]])
@@ -309,6 +330,7 @@ class NicheMenuRun(Kit, MovingCameraScene):
 
         # SELECT -- the cell and the node flash together; they are the same thing seen twice
         self.play(Indicate(boxes["select"][1][0], color=ORANGE, scale_factor=1.15),
+                  self.runner.animate.move_to(self.led("select")),
                   *self.select_flashes(ev), run_time=1.0)
         self.play(*self.select_flashes(ev), run_time=0.9)
         self.say("select — a uniform draw over the grid's filled cells, one vote each.\n"
@@ -325,6 +347,7 @@ class NicheMenuRun(Kit, MovingCameraScene):
             DashedLine(mut.get_corner(DR), agent[0].get_corner(UR), color=ORANGE,
                        stroke_width=1.6, dash_length=0.08))
         self.play(Indicate(boxes["mutate"][1][0], color=ORANGE, scale_factor=1.15),
+                  self.runner.animate.move_to(self.led("mutate")),
                   GrowFromPoint(agent, mut.get_center()), run_time=0.9)
         self.play(Create(callout), run_time=0.4)
         self.say("mutate — the operator is a coding agent: it edits, runs the evaluator itself,\n"
@@ -338,12 +361,14 @@ class NicheMenuRun(Kit, MovingCameraScene):
         # EVALUATE
         self.play(FadeOut(agent), FadeOut(callout),
                   Indicate(boxes["evaluate"][1][0], color=ORANGE, scale_factor=1.15),
+                  self.runner.animate.move_to(self.led("evaluate")),
                   *self.curve_anims(ev), run_time=0.9)
         self.say(f"evaluate — the verifier reports the metrics; this child scores "
                  f"{ev['score']:.2f}", hold=1.6)
 
         # RECORD
         self.play(Indicate(boxes["record"][1][0], color=ORANGE, scale_factor=1.15),
+                  self.runner.animate.move_to(self.led("record")),
                   *self.tree_anims(ev, lit=True), *self.grid_anims(ev, lit=True), run_time=1.0)
         self.say("record — the tree keeps everything, always. The grid updates one cell's\n"
                  "representative — the rules for that are the next scene.", hold=2.2)
@@ -449,8 +474,10 @@ class NicheMenuRun(Kit, MovingCameraScene):
             assert ev["admitted"] == admitted, "the recorded run no longer matches the script"
             flashes = self.select_flashes(ev)
             if flashes:
-                self.play(*flashes, run_time=0.4)
-            self.play(*self.tree_anims(ev), *self.curve_anims(ev), run_time=0.7)
+                self.play(*flashes, self.runner.animate.move_to(self.led("select")),
+                          run_time=0.4)
+            self.play(*self.tree_anims(ev), *self.curve_anims(ev), self.lap_anim(),
+                      run_time=0.7)
             tok = self.tree_mobs[ev["id"]].copy().scale(1.25)
             self.say(text.format(score=ev["score"], best=ev["best"]))
             self.play(tok.animate.move_to(cell_center(ev["cell"])), run_time=0.9)
