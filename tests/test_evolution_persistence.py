@@ -31,7 +31,7 @@ from pantheon.evolution.core import (
 )
 from pantheon.evolution.core.loop import evolve
 from pantheon.evolution.core.persistence import load_run, register_genome, save_run
-from pantheon.evolution.methods import MapElitesIslands, SimpleTES
+from pantheon.evolution.methods import NicheMenu, SimpleTES
 
 
 class Counter:
@@ -92,7 +92,7 @@ class TestRoundTrip:
                                  cost=0.5, duration=1.5))
         b = store.add(Individual(genome=TextGenome(text="an idea", kind="idea"), kind="idea",
                                  parent_ids=[a.id], anchor_id=a.id))
-        save_run(str(tmp_path), store, MapElitesIslands())
+        save_run(str(tmp_path), store, NicheMenu())
 
         back, _, _ = load_run(str(tmp_path))
         assert {i.id for i in back} == {a.id, b.id}
@@ -110,7 +110,7 @@ class TestRoundTrip:
         idea = store.add(Individual(genome=TextGenome(text="i", kind="idea"), kind="idea"))
         code = store.add(Individual(genome=CodeGenome(files={"a.py": "1"}), kind="code",
                                     parent_ids=[idea.id], anchor_id=idea.id))
-        save_run(str(tmp_path), store, MapElitesIslands())
+        save_run(str(tmp_path), store, NicheMenu())
         back, _, _ = load_run(str(tmp_path))
         assert [i.id for i in back.children(idea.id)] == [code.id]
         assert [i.id for i in back.anchored_on(idea.id)] == [code.id]
@@ -120,7 +120,7 @@ class TestRoundTrip:
         record rather than an artefact of insertion."""
         store = Store()
         ids = [store.add(Individual(genome=TextGenome(text=f"t{i}"))).id for i in range(4)]
-        save_run(str(tmp_path), store, MapElitesIslands())
+        save_run(str(tmp_path), store, NicheMenu())
         back, _, _ = load_run(str(tmp_path))
         assert [back.get(i).order for i in ids] == [0, 1, 2, 3]
 
@@ -131,7 +131,7 @@ class TestRoundTrip:
         i = store.add(Individual(genome=TextGenome(text="t")))
         store.record(Measurement(individual_id=i.id, metrics={"s": 1.0},
                                  artifacts={"obj": object(), "fine": [1, 2]}))
-        save_run(str(tmp_path), store, MapElitesIslands())
+        save_run(str(tmp_path), store, NicheMenu())
         back, _, _ = load_run(str(tmp_path))
         m = back.get(i.id).measurements[0]
         assert m.metrics["s"] == 1.0
@@ -142,7 +142,7 @@ class TestRoundTrip:
         store = Store()
         i = store.add(Individual(genome=ItemsGenome(items=("Gata4", "Nkx2-5"), kind="panel"),
                                  kind="panel"))
-        save_run(str(tmp_path), store, MapElitesIslands())
+        save_run(str(tmp_path), store, NicheMenu())
         back, _, _ = load_run(str(tmp_path))
         assert back.get(i.id).genome.items == ("Gata4", "Nkx2-5")
 
@@ -151,23 +151,23 @@ class TestResume:
     def test_resuming_keeps_the_earlier_individuals_and_adds_to_them(self, tmp_path):
         """The budget is a TOTAL for the run, as `max_iterations` was for the loop this replaces,
         so continuing means raising it rather than passing the increment."""
-        m1 = MapElitesIslands(num_islands=1, function_weight=1.0, llm_weight=0.0)
+        m1 = NicheMenu(num_islands=1, function_weight=1.0, llm_weight=0.0)
         first = run(m1, tmp_path, budget=4)
         assert len(first.store) == 5          # seed + 4
 
-        m2 = MapElitesIslands(num_islands=1, function_weight=1.0, llm_weight=0.0)
+        m2 = NicheMenu(num_islands=1, function_weight=1.0, llm_weight=0.0)
         second = run(m2, tmp_path, budget=7, resume=True)
         assert len(second.store) == 8, "4 already recorded plus 3 more, on top of the seed"
 
     def test_resuming_with_an_already_spent_budget_does_nothing(self, tmp_path):
-        m1 = MapElitesIslands(num_islands=1)
+        m1 = NicheMenu(num_islands=1)
         run(m1, tmp_path, budget=4)
-        res = run(MapElitesIslands(num_islands=1), tmp_path, budget=4, resume=True)
+        res = run(NicheMenu(num_islands=1), tmp_path, budget=4, resume=True)
         assert len(res.store) == 5, "nothing new: the total was already reached"
 
     def test_resuming_does_not_re_evaluate_the_seed(self, tmp_path):
         """Re-measuring the seed would spend budget to learn something already in the store."""
-        run(MapElitesIslands(num_islands=1), tmp_path, budget=2)
+        run(NicheMenu(num_islands=1), tmp_path, budget=2)
 
         class CountingValue(Value):
             calls = 0
@@ -177,7 +177,7 @@ class TestResume:
                 return await Value.measure(self, ctx, ind, fidelity)
 
         asyncio.run(evolve(
-            method=MapElitesIslands(num_islands=1), variator=Counter(),
+            method=NicheMenu(num_islands=1), variator=Counter(),
             evaluators={"code": CountingValue()}, seeds=[seed()],
             budget=Budget(max_items=4), concurrency=1,      # 2 already spent, so 2 more
             checkpoint_path=str(tmp_path), checkpoint_every=1, resume=True,
@@ -185,11 +185,11 @@ class TestResume:
         assert CountingValue.calls == 2, "two children, no seed re-measurement"
 
     def test_the_method_state_survives_and_reconciles(self, tmp_path):
-        m1 = MapElitesIslands(num_islands=2, function_weight=1.0, llm_weight=0.0)
+        m1 = NicheMenu(num_islands=2, function_weight=1.0, llm_weight=0.0)
         run(m1, tmp_path, budget=4)
         elites_before, islands_before = dict(m1.elites), dict(m1.island_of)
 
-        m2 = MapElitesIslands(num_islands=2, function_weight=1.0, llm_weight=0.0)
+        m2 = NicheMenu(num_islands=2, function_weight=1.0, llm_weight=0.0)
         run(m2, tmp_path, budget=0, resume=True)
         assert m2.island_of == islands_before
         assert m2.elites == elites_before
@@ -207,10 +207,10 @@ class TestResume:
     def test_a_method_can_drop_its_state_and_rebuild_from_the_store(self, tmp_path):
         """The store is the record; the archive is derived. A method whose shape changed between
         runs discards its state and reconciles, rather than being stuck with a stale grid."""
-        run(MapElitesIslands(num_islands=1, feature_bins=4), tmp_path, budget=4)
+        run(NicheMenu(num_islands=1, feature_bins=4), tmp_path, budget=4)
         store, _, _ = load_run(str(tmp_path))
 
-        fresh = MapElitesIslands(num_islands=1, feature_bins=16)     # different grid
+        fresh = NicheMenu(num_islands=1, feature_bins=16)     # different grid
         ctx = EvolveContext(store=store, budget=Budget())
         for ind in sorted(store, key=lambda i: i.order):
             fresh._place(ctx, ind, island=0)
@@ -218,12 +218,12 @@ class TestResume:
         assert set(fresh.island_of) == {i.id for i in store}
 
     def test_resuming_without_a_checkpoint_starts_fresh_rather_than_failing(self, tmp_path):
-        res = run(MapElitesIslands(num_islands=1), tmp_path / "nothing-here",
+        res = run(NicheMenu(num_islands=1), tmp_path / "nothing-here",
                   budget=2, resume=True)
         assert len(res.store) == 3
 
     def test_budget_accounting_carries_across_the_restart(self, tmp_path):
-        run(MapElitesIslands(num_islands=1), tmp_path, budget=3)
+        run(NicheMenu(num_islands=1), tmp_path, budget=3)
         meta = json.loads((tmp_path / "run.json").read_text())
         assert meta["items_used"] == 3
         assert meta["cost_used"] > 0
@@ -233,7 +233,7 @@ class TestAtomicity:
     def test_a_checkpoint_is_written_atomically(self, tmp_path):
         """Written aside and renamed, so a crash mid-write leaves the previous checkpoint intact
         instead of a truncated file that cannot be loaded."""
-        run(MapElitesIslands(num_islands=1), tmp_path, budget=2)
+        run(NicheMenu(num_islands=1), tmp_path, budget=2)
         assert not list(tmp_path.glob("*.tmp"))
         for name in ("store.json", "method.json", "run.json"):
             json.loads((tmp_path / name).read_text())
@@ -248,7 +248,7 @@ class TestReporting:
         from pantheon.evolution.core.report_view import is_new_format, load_view
         from pantheon.evolution.visualizer import EvolutionVisualizer
 
-        m = MapElitesIslands(num_islands=1, function_weight=1.0, llm_weight=0.0)
+        m = NicheMenu(num_islands=1, function_weight=1.0, llm_weight=0.0)
         run(m, tmp_path, budget=4)
         assert is_new_format(str(tmp_path))
 
@@ -263,7 +263,7 @@ class TestReporting:
         way -- which is the entire reason fitness moved onto the method."""
         from pantheon.evolution.core.report_view import load_view
 
-        m = MapElitesIslands(num_islands=1, function_weight=1.0, llm_weight=0.0)
+        m = NicheMenu(num_islands=1, function_weight=1.0, llm_weight=0.0)
         run(m, tmp_path, budget=3)
         view = load_view(str(tmp_path))
         metrics = {"combined_score": 0.5, "fitness_weights": {"combined_score": 1.0}}

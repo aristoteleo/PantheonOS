@@ -293,13 +293,13 @@ class TestTheOperatorBelongsToTheAlgorithm:
     """
 
     def test_each_method_declares_the_operator_it_is_defined_with(self):
-        from pantheon.evolution.methods import MapElitesIslands, SimpleTES
+        from pantheon.evolution.methods import NicheMenu, SimpleTES
         from pantheon.evolution.variators import (
             AgentVariator, CompletionVariator, SandboxVariator)
 
         assert isinstance(SimpleTES().default_variator(model="m"), CompletionVariator)
-        assert isinstance(MapElitesIslands().default_variator(model="m"), AgentVariator)
-        assert isinstance(MapElitesIslands().default_variator(model="m", sandbox=True),
+        assert isinstance(NicheMenu().default_variator(model="m"), AgentVariator)
+        assert isinstance(NicheMenu().default_variator(model="m", sandbox=True),
                           SandboxVariator)
 
     def test_the_loop_uses_the_methods_operator_when_none_is_passed(self):
@@ -371,7 +371,7 @@ def test_default_variator_forwards_every_operator_knob():
     """
     import inspect
 
-    from pantheon.evolution.methods import AnnealedIdeaCode, MapElitesIslands
+    from pantheon.evolution.methods import AnnealedIdeaCode, NicheMenu
     from pantheon.evolution.variators.agent import AgentVariator
 
     params = inspect.signature(AgentVariator.__init__).parameters
@@ -393,7 +393,7 @@ def test_default_variator_forwards_every_operator_knob():
 
     kw = dict(evaluator=object(), model="m", target_file="solution.py", **probes)
     checked = 0
-    for method in (AnnealedIdeaCode(), MapElitesIslands(feature_dimensions=["complexity"])):
+    for method in (AnnealedIdeaCode(), NicheMenu(feature_dimensions=["complexity"])):
         built = method.default_variator(**kw)
         agent = built if isinstance(built, AgentVariator) else getattr(built, "code", None)
         if not isinstance(agent, AgentVariator):

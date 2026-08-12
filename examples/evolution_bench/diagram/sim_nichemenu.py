@@ -1,12 +1,13 @@
-"""A MAP-Elites run, simulated -- and it is a real one.
+"""A NicheMenu run, simulated -- and it is a real one.
 
-Unlike the SimpleTES sim, which drives the selector directly, this runs the actual method through
-the actual `evolve()` loop against a toy landscape. Nothing about which bin a child lands in,
-whether it is admitted, who it displaces, or when islands migrate is reimplemented here: it is all
-recorded by hooking `MapElitesIslands` and reading what it decided.
+This runs the actual `NicheMenu` method through the actual `evolve()` loop against a toy landscape
+and records what it decided. Which parent was drawn and from where, which cell a child lands in,
+whether it becomes its cell's representative, who it displaces -- all of it is read off the method
+rather than reimplemented. Only the landscape and the mutation are invented.
 
-The landscape is invented -- a two-descriptor space where quality is highest along a ridge -- and
-so is the mutation. Everything downstream of a measurement is the method's.
+One island, deliberately. The video explains the mechanism -- loop, tree, menu -- and islands are
+a deployment detail (several menus in parallel, occasionally trading representatives) that gets a
+closing sentence, not footage.
 """
 from __future__ import annotations
 
@@ -18,17 +19,15 @@ from typing import Any, Dict, List, Optional
 from pantheon.evolution.core import (Budget, EvolveContext, Individual, Measurement, Produced,
                                      TextGenome)
 from pantheon.evolution.core.loop import evolve
-from pantheon.evolution.methods.map_elites import MapElitesIslands
+from pantheon.evolution.methods.niche_menu import NicheMenu
 
-ISLANDS = 2
 BINS = 5
-STEPS = 56
-MIGRATE_EVERY = 10
+STEPS = 26
 SEED_XY = (0.30, 0.35)
 
 
 def quality(x: float, y: float) -> float:
-    """A ridge, so the grid has somewhere good to find and somewhere dull to fill."""
+    """A ridge, so the menu has somewhere good to find and somewhere dull to fill."""
     ridge = math.exp(-((y - 0.35 - 0.45 * x) ** 2) / 0.045)
     return max(0.05, min(0.98, 0.28 + 0.62 * ridge * (0.45 + 0.55 * x)))
 
@@ -58,7 +57,7 @@ class Jitter:
 
 
 class Landscape:
-    """Reports the objective AND the two descriptors, so the method bins on real features."""
+    """Reports the objective AND the two descriptors, so the method bins on real metrics."""
 
     kind = "code"
 
@@ -70,49 +69,43 @@ class Landscape:
                            cost=0.01)
 
 
-class Recorded(MapElitesIslands):
-    """The real method, with a note taken at every decision it makes."""
+class Recorded(NicheMenu):
+    """The real method, with a note taken every time it decides something."""
 
     def __init__(self, **kw):
         super().__init__(**kw)
         self.events: List[Dict[str, Any]] = []
-        self._ctx: Optional[EvolveContext] = None
-        self._parent: Optional[str] = None
+        self._sel: Dict[str, Any] = {}
 
     def _sample_parent(self, ctx):
         p = super()._sample_parent(ctx)
-        self._parent = p.id if p is not None else None
+        if p is not None:
+            # `from_menu` is "was this a representative at the moment of the draw". The uniform
+            # exploration path can also land on a representative, so this slightly overcounts the
+            # menu; for narration -- "the parent came off the menu" -- that statement stays true.
+            menu_now = set(self.elites.values())
+            self._sel = {"parent": p.id, "from_menu": p.id in menu_now,
+                         "parent_cell": self._bin(self.coords[p.id]) if p.id in self.coords
+                         else None}
         return p
 
     def _place(self, ctx, ind, island=None):
-        self._ctx = ctx
-        isl = island if island is not None else self.island_of.get(ind.id)
-        held_before = self.elites.get((isl, self._bin(self._features(ind)))) if isl is not None \
-            else None
+        held_before = None
+        if self.coords is not None:
+            key = (0, self._bin(self._features(ind)))
+            held_before = self.elites.get(key)
         admitted = super()._place(ctx, ind, island=island)
         # After the fact: `_place` may widen a range and rebuild every bin, so the child's bin is
         # only final once it has run.
-        isl = self.island_of[ind.id]
         cell = self._bin(self.coords[ind.id])
         self.events.append({
-            "kind": "place", "id": ind.id, "parent": self._parent, "island": isl, "cell": cell,
-            "score": self._raw(ctx, ind.id), "admitted": admitted,
+            "id": ind.id, "cell": cell, "score": self._raw(ctx, ind.id), "admitted": admitted,
             "displaced": held_before if admitted and held_before not in (None, ind.id) else None,
             "grid": self._grid_snapshot(ctx), "best": self._raw(ctx, self.best_id),
-            "coverage": self.coverage(),
+            "coverage": self.coverage(), **self._sel,
         })
-        self._parent = None
+        self._sel = {}
         return admitted
-
-    def _migrate(self):
-        before = {i: sorted(pop) for i, pop in enumerate(self.islands)}
-        super()._migrate()
-        moved = [(mid, i, self.island_of[mid])
-                 for i, pop in before.items() for mid in pop if self.island_of[mid] != i]
-        if moved and self._ctx is not None:
-            self.events.append({"kind": "migrate", "moved": moved,
-                                "grid": self._grid_snapshot(self._ctx),
-                                "coverage": self.coverage()})
 
     @staticmethod
     def _raw(ctx, ind_id: Optional[str]) -> float:
@@ -127,14 +120,14 @@ class Recorded(MapElitesIslands):
         return float(v) if isinstance(v, (int, float)) else 0.0
 
     def _grid_snapshot(self, ctx) -> Dict[tuple, tuple]:
-        """`(island, cell) -> (holder id, its raw score)`, which is all the picture needs."""
-        return {k: (v, self._raw(ctx, v)) for k, v in self.elites.items()}
+        """`cell -> (representative id, its raw score)` -- single island, so the cell is the key."""
+        return {cell: (v, self._raw(ctx, v)) for (_, cell), v in self.elites.items()}
 
 
 def simulate():
-    method = Recorded(num_islands=ISLANDS, feature_bins=BINS, num_inspirations=1,
-                      migration_interval=MIGRATE_EVERY, migration_rate=0.34,
-                      exploration_ratio=0.25, llm_weight=0.0, function_weight=1.0, seed=4)
+    method = Recorded(num_islands=1, feature_bins=BINS, num_inspirations=1,
+                      migration_interval=0, exploration_ratio=0.25,
+                      llm_weight=0.0, function_weight=1.0, seed=4)
     seed_genome = TextGenome(text="seed", kind="code",
                              meta={"x": SEED_XY[0], "y": SEED_XY[1]})
     asyncio.run(evolve(method=method, variator=Jitter(),
@@ -145,4 +138,4 @@ def simulate():
 
 
 EVENTS = simulate()
-PLACES = [e for e in EVENTS if e["kind"] == "place"]
+PLACES = EVENTS

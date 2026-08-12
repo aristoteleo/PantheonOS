@@ -35,15 +35,15 @@ TASKS = HERE / "tasks"
 
 def build_method(name: str, seed: int, judge=None, norm: str = "minmax"):
     from pantheon.evolution.methods import (
-        AnnealedIdeaCode, IdeaCodeAlternating, MapElitesIslands, SimpleTES)
+        AnnealedIdeaCode, IdeaCodeAlternating, NicheMenu, SimpleTES)
 
     if name == "annealed":
         return AnnealedIdeaCode(judge=judge, norm=norm, seed=seed)
     if name == "idea_code":
         return IdeaCodeAlternating(ideas_per_round=3, code_per_idea=3, ideas_kept=2,
                                    k_ideas=1, k_code=1, seed=seed)
-    if name == "map_elites":
-        return MapElitesIslands(num_islands=2, feature_dimensions=["complexity", "diversity"],
+    if name in ("niche_menu", "map_elites"):   # old token accepted as an alias
+        return NicheMenu(num_islands=2, feature_dimensions=["complexity", "diversity"],
                                 feature_bins=6, exploration_ratio=0.2, num_inspirations=2,
                                 migration_interval=8, function_weight=1.0, llm_weight=0.0,
                                 seed=seed)
@@ -183,7 +183,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--task", required=True)
     p.add_argument("--method", default="map_elites",
-                   choices=["map_elites", "simpletes", "idea_code", "annealed"])
+                   choices=["niche_menu", "map_elites", "simpletes", "idea_code", "annealed"])
     p.add_argument("--iterations", type=int, default=40)
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--workers", type=int, default=2)

@@ -8,7 +8,7 @@ a 224-line function.
 What the config flags now select:
 
     single_agent_mutation / sandbox_mutation  ->  which Variator
-    num_islands, feature_*, exploration_ratio ->  MapElitesIslands' parameters
+    num_islands, feature_*, exploration_ratio ->  NicheMenu' parameters
     max_iterations, num_workers               ->  the loop's budget and concurrency
 
 That mapping is the whole argument for the refactor: what used to be three `if` branches spread
@@ -25,7 +25,7 @@ from .core.genome import CodeGenome
 from .core.individual import Individual
 from .core.loop import evolve as _evolve
 from .core.method import Budget
-from .methods.map_elites import MapElitesIslands
+from .methods.niche_menu import NicheMenu
 from .program import CodebaseSnapshot, Program
 from .result import EvolutionResult, IterationResult
 from .variators.adapters import CodeEvaluator
@@ -33,8 +33,8 @@ from .variators.agent import AgentVariator
 from .variators.sandbox import SandboxVariator
 
 
-def method_from_config(config: EvolutionConfig) -> MapElitesIslands:
-    return MapElitesIslands(
+def method_from_config(config: EvolutionConfig) -> NicheMenu:
+    return NicheMenu(
         num_islands=config.num_islands,
         feature_dimensions=list(config.feature_dimensions or []) or None,
         feature_bins=config.feature_bins,
@@ -76,7 +76,7 @@ def variator_from_config(config: EvolutionConfig, evaluator: Any,
     )
 
 
-def _as_program(ind: Individual, method: MapElitesIslands) -> Program:
+def _as_program(ind: Individual, method: NicheMenu) -> Program:
     """Present an `Individual` in the shape callers still expect."""
     genome = ind.genome
     snapshot = (genome.to_snapshot() if isinstance(genome, CodeGenome)
@@ -116,7 +116,7 @@ class EvolutionTeam:
             if given is not None:
                 logger.warning(f"EvolutionTeam({name}=...) is ignored by the new loop")
         self._evaluator = evaluator
-        self.method: Optional[MapElitesIslands] = None
+        self.method: Optional[NicheMenu] = None
         self.objective = ""
         self.evaluator_code = ""
 

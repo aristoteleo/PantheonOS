@@ -1,8 +1,17 @@
-"""The algorithm Pantheon-Evolve runs today, written against the method interface.
+"""NicheMenu: the algorithm Pantheon-Evolve runs today, written against the method interface.
 
-This is a port, not a redesign: MAP-Elites over islands with periodic migration, exactly as
-`EvolutionDatabase` implements it. It exists so the existing algorithm survives the move -- the
-21 tests in `test_evolution_search_semantics.py` describe that behaviour and this has to match it.
+Named for what the grid actually does here, which is less than "MAP-Elites" claims. Read the code:
+nothing is ever discarded -- every measured child stays in the store and stays selectable
+(`_place` registers unconditionally). "Admission" only decides whether a child becomes its bin's
+REPRESENTATIVE in `self.elites`, and the grid's one causal effect on the search is
+`_sample_parent`: most draws come uniformly from those representatives, one per filled niche, one
+vote each. The grid is a MENU for choosing parents -- a derived index over (coords, fitness) that
+is rebuilt wholesale when ranges widen -- not an archive that gates survival. Calling the method
+MAP-Elites promoted an index to the algorithm's name.
+
+Mechanically it is still a port, not a redesign: the menu-over-islands-with-migration behaviour is
+exactly what `EvolutionDatabase` implemented, and the tests in `test_evolution_map_elites_port.py`
+pin the two against each other. `MapElitesIslands` remains as an alias for old scripts.
 
 One thing does change, deliberately. Fitness is computed here rather than on the individual.
 `Program.fitness_score()` folds raw metrics into a scalar using weights the evaluator supplied,
@@ -30,10 +39,10 @@ def _clamp01(v: float) -> float:
     return max(0.0, min(1.0, float(v)))
 
 
-class MapElitesIslands(BaseMethod):
-    """Quality-diversity over a feature grid, replicated across islands."""
+class NicheMenu(BaseMethod):
+    """A menu of niche representatives to draw parents from, replicated across islands."""
 
-    name = "map_elites_islands"
+    name = "niche_menu"
 
     def __init__(
         self,
@@ -227,7 +236,11 @@ class MapElitesIslands(BaseMethod):
         return ctx.store.get(self.rng.choice(list(self.elites.values())))
 
     def _inspirations(self, ctx: EvolveContext, parent: Individual, n: int) -> List[Individual]:
-        """Top performers plus a random elite, never the parent itself."""
+        """The top performers by fitness, then a random draw from the rest; never the parent.
+
+        The menu is NOT consulted here -- inspirations are pure fitness ranking over everything
+        placed. (An earlier docstring claimed "plus a random elite"; the code never did that.)
+        """
         if n <= 0:
             return []
         ranked = sorted(

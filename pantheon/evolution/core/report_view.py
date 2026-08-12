@@ -128,9 +128,9 @@ def load_view(path: str, method: Optional[Any] = None) -> RunView:
     """
     store, state, meta = load_run(path)
     if method is None:
-        from ..methods.map_elites import MapElitesIslands
+        from ..methods.niche_menu import NicheMenu
 
-        method = MapElitesIslands()
+        method = NicheMenu()
         try:
             method.load_state_dict(state)
         except Exception:  # a state from a different method simply does not apply

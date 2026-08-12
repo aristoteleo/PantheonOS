@@ -27,7 +27,7 @@ sys.path.insert(0, HERE)
 
 FPS = 30
 
-MANIM_SCENES = [("evolution_01_map_elites", "manim_mapelites.py", "MapElitesRun"),
+MANIM_SCENES = [("evolution_01_niche_menu", "manim_nichemenu.py", "NicheMenuRun"),
                 ("evolution_02_simpletes", "manim_simpletes.py", "SimpleTESRun"),
                 ("evolution_03_annealed_idea_code", "manim_annealed.py",
                  "AnnealedRun")]
