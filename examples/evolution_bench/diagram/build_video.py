@@ -21,7 +21,11 @@ MANIM_SCENES = [("evolution_00_framework", "manim_framework.py", "FrameworkRun")
                 ("evolution_01_agent_map_elites", "manim_agentmapelites.py",
                  "AgentMapElitesRun"),
                 ("evolution_02_simpletes", "manim_simpletes.py", "SimpleTESRun"),
-                ("evolution_03_annealed_idea_code", "manim_annealed.py", "AnnealedRun")]
+                ("evolution_03_annealed_idea_code", "manim_annealed.py", "AnnealedRun"),
+                # The PROBLEM explainers: what each benchmark is, on its real artifacts.
+                ("problem_00_erdos", "manim_prob_erdos.py", "ErdosProblem"),
+                ("problem_01_circle_packing", "manim_prob_packing.py", "PackingProblem"),
+                ("problem_02_ahc039", "manim_prob_ahc039.py", "AhcProblem")]
 
 
 QUALITY = {"low": ("-ql", "480p15"), "medium": ("-qm", "720p30"), "high": ("-qh", "1080p60")}
