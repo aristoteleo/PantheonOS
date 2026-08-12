@@ -49,6 +49,9 @@ SHELL_CANDIDATES = ("/bin/bash", "/usr/bin/bash", "/bin/zsh", "/bin/sh")
 
 # A session with no reader and no writer eventually costs the pod a process.
 IDLE_REAP_SECONDS = 60 * 60
+#: How much of a session's output history an attach can replay. Enough for a
+#: real working scrollback; small enough that a hundred sessions cost nothing.
+SCROLLBACK_CAP = 256 * 1024
 
 # How long pty_open waits for the shell's first output — the prompt — so it can
 # return it rather than publishing it to a stream nobody is subscribed to yet.
@@ -113,6 +116,9 @@ class PtySession:
     reader_task: asyncio.Task | None = None
     #: Bytes from the pty, awaiting publication. `None` marks end of stream.
     outbox: asyncio.Queue = field(default_factory=asyncio.Queue)
+    #: Ordered output history, capped at SCROLLBACK_CAP — what pty_attach
+    #: replays so a reattached terminal is not blank.
+    scrollback: bytearray = field(default_factory=bytearray)
     exited: bool = False
     exit_code: int | None = None
 
@@ -221,6 +227,12 @@ class PtyToolSet(ToolSet):
         # out of order is worse than one that arrives late.
         session.outbox.put_nowait(data)
 
+    @staticmethod
+    def _remember(session: PtySession, data: bytes) -> None:
+        session.scrollback.extend(data)
+        if len(session.scrollback) > SCROLLBACK_CAP:
+            del session.scrollback[: len(session.scrollback) - SCROLLBACK_CAP]
+
     async def _pump(self, session: PtySession) -> None:
         """Publish what the reader queued, in order."""
         while True:
@@ -237,9 +249,11 @@ class PtyToolSet(ToolSet):
                     ended = True
                     break
                 parts.append(more)
+            data = b"".join(parts)
+            self._remember(session, data)
             await self._publish(
                 session,
-                {"type": "pty.data", "data": base64.b64encode(b"".join(parts)).decode()},
+                {"type": "pty.data", "data": base64.b64encode(data).decode()},
             )
             if ended:
                 break
@@ -365,6 +379,7 @@ class PtyToolSet(ToolSet):
         # back in `initial_output`, everything after goes on the stream.
         # `shell.new_shell` returns its first output the same way.
         initial = _banner() + await self._drain_initial(session)
+        self._remember(session, initial)
 
         session.reader_task = asyncio.create_task(self._pump(session))
 
@@ -451,6 +466,48 @@ class PtyToolSet(ToolSet):
             logger.debug("pty: resize {}: {}", session_id, e)
         session.cols, session.rows = cols, rows
         return {"success": True, "cols": cols, "rows": rows}
+
+    @tool(exclude=True)
+    async def pty_attach(
+        self,
+        session_id: str,
+        cols: int | None = None,
+        rows: int | None = None,
+    ) -> dict:
+        """Rejoin a live session instead of starting a shell.
+
+        A closed tab does not kill the shell — sessions live until the idle
+        reaper takes them (an hour untouched) — so a reloaded desktop can pick
+        its terminal back up: everything typed, every running process, still
+        there. Replays the capped scrollback so the window is not blank, then
+        the stream carries on as usual.
+
+        Args:
+            session_id: The session to rejoin.
+            cols: New width, when the window came back a different size.
+            rows: New height.
+
+        Returns:
+            On success: ``scrollback`` (base64) to paint first, plus the same
+            session fields ``pty_open`` returns. ``{"success": False}`` when
+            the session is gone — callers fall back to ``pty_open``.
+        """
+        session = self._sessions.get(session_id)
+        if session is None or session.exited:
+            return {"success": False, "error": "session gone"}
+        session.last_active = time.time()
+        if cols and rows and (cols != session.cols or rows != session.rows):
+            try:
+                _set_winsize(session.master_fd, rows, cols)
+                session.cols, session.rows = cols, rows
+            except OSError:
+                pass  # resize is best-effort; the shell repaints regardless
+        logger.info("pty: reattached {} ({} bytes replay)", session_id, len(session.scrollback))
+        return {
+            "success": True,
+            "scrollback": base64.b64encode(bytes(session.scrollback)).decode(),
+            **session.snapshot(),
+        }
 
     @tool(exclude=True)
     async def pty_close(self, session_id: str) -> dict:
