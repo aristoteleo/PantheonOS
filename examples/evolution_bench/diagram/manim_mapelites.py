@@ -2,12 +2,23 @@
 
     manim -qm --format=mp4 manim_mapelites.py MapElitesRun
 
+There are TWO structures, and the difference between them is the mechanism:
+
+  the GRID keeps one program per niche, and forgets whoever it replaced
+  the TREE keeps everything ever made, including the children that were thrown away
+
+Both are on screen in act 2, growing from the same events, because neither explains the algorithm
+on its own. The grid says what the search currently holds; the tree says what it cost to get there
+and which of those attempts went on to become parents.
+
 Three acts:
 
   1. what one step IS -- take a program off the grid, mutate it, measure it, and put it in the cell
-     its DESCRIPTORS point at. Twice: once into an empty cell, once against a sitting tenant.
-  2. the grid filling, with the count of occupied cells climbing. This is where the idea lives: a
-     program worse than anything found so far still earns a slot, provided its slot was empty.
+     its DESCRIPTORS point at. Three times: into an empty cell, against a tenant it beats, against
+     a tenant it does not.
+  2. both structures filling together. This is where the idea lives: a program worse than anything
+     found so far still earns a slot, provided its slot was empty -- and the tree shows those same
+     mediocre programs going on to have children.
   3. the second island, and migration between them.
 
 The run is real. `sim_mapelites` drives the actual `MapElitesIslands` through the actual loop and
@@ -16,9 +27,8 @@ records what it decided; only the landscape and the mutation are invented.
 from __future__ import annotations
 
 import numpy as np
-from manim import (DOWN, LEFT, ORIGIN, RIGHT, UP, Axes, Create, FadeIn, FadeOut, Flash, Indicate,
-                   LaggedStart, Line, MovingCameraScene, Rectangle, Square, Transform, VGroup,
-                   Write)
+from manim import (DOWN, LEFT, ORIGIN, RIGHT, UP, Axes, Circle, Create, FadeIn, FadeOut, Indicate,
+                   LaggedStart, Line, MovingCameraScene, Square, Transform, VGroup, Write)
 
 from manim_kit import (BLUE, EDGE, FULL_H, FULL_W, GREEN, INK, Kit, MUTED, ORANGE, PANEL, RED, SUB,
                        fit, ink_on, node_mob, para, score_color, txt)
@@ -28,6 +38,31 @@ CELL = 0.52
 GRID_X = [-4.62, 0.78]          # left edge of each island's grid
 GRID_Y = -0.22                  # bottom edge
 LO, HI = 0.25, 0.75             # the score range the cell colours span
+
+TREE_X0, TREE_DX = -0.45, 0.78
+TREE_TOP, TREE_DY = 2.25, 0.38
+TREE_R = 0.14
+"""Laid out in layers by DEPTH rather than as a tidy tree with a row per node: this run is 8
+generations deep and at most 10 wide, so columns fit the frame and one-row-per-node does not.
+DY is set from that 10 -- the deepest column has to clear the caption underneath it."""
+
+
+def tree_layout(events):
+    """`id -> (position, parent id, admitted, score)` for one island's lineage.
+
+    Depth comes from the parent chain, not from the order things were placed: a child of an early
+    program made late in the run belongs next to its parent, not next to its timestamp.
+    """
+    depth, out, per_layer = {}, {}, {}
+    for e in events:
+        pid = e["parent"]
+        d = 0 if pid not in depth else depth[pid] + 1
+        depth[e["id"]] = d
+        row = per_layer.get(d, 0)
+        per_layer[d] = row + 1
+        out[e["id"]] = (np.array([TREE_X0 + d * TREE_DX, TREE_TOP - row * TREE_DY, 0.0]),
+                        pid, e["admitted"], e["score"])
+    return out
 
 
 def cell_pos(island: int, cell) -> np.ndarray:
@@ -180,33 +215,96 @@ class MapElitesRun(Kit, MovingCameraScene):
 
     # ---- act 2 -----------------------------------------------------------
     def act_two(self):
-        """The rest of island 0, at speed, with the occupied count climbing."""
-        note = self.cap("Most of these are worse than the best already found. They are kept "
-                        "anyway,\nbecause the grid asks a different question: is anything else "
-                        "like this?", 23, INK)
-        note.move_to([GRID_X[0] + BINS * CELL / 2, -1.3, 0])
-        self.play(FadeIn(note), run_time=0.6)
+        """Both structures, growing from the same events."""
+        island0 = [e for e in PLACES if e["island"] == 0]
+        self.tree = tree_layout(island0)
+        self.tree_mobs = {}
+        self.tree_edges = VGroup()
+        """Edges are held, not just drawn. Act 3 clears the tree to make room for island 2, and
+        anything not in a group here stays on screen as a stray line across the second grid."""
 
-        todo = [e for i, e in enumerate(PLACES)
-                if i and e["island"] == 0 and e["admitted"]]
+        self.play(self.camera.frame.animate.move_to([-0.6, 0.3, 0]).set(width=FULL_W),
+                  run_time=1.3)
+        heads = VGroup(
+            txt("the grid — one per niche", 22, INK)
+            .move_to([GRID_X[0] + BINS * CELL / 2, GRID_Y + BINS * CELL + 0.34, 0]),
+            txt("the tree — everything ever made", 22, INK)
+            .move_to([TREE_X0 + 3.4 * TREE_DX, TREE_TOP + 0.62, 0]))
+        self.play(FadeIn(heads), run_time=0.8)
+
+        # whatever act 1 already put on the grid also belongs in the tree
+        seen = 0
+        for e in island0[:3]:
+            self.add_tree_node(e, animate=False)
+            seen += 1
+
+        note = para("The grid forgets whoever it replaced. The tree does not — every attempt is "
+                    "still here,\nincluding the ones that were measured and thrown away.",
+                    22, INK)
+        fit(note, FULL_W - 2.0).move_to([-0.6, -2.55, 0])
+        self.play(FadeIn(note), run_time=0.7)
+        self.wait(2.0)
 
         def tally():
-            t = self.cap(f"{len(self.cells)} of {BINS * BINS} cells filled", 24, ORANGE)
-            return t.move_to([GRID_X[0] + BINS * CELL / 2, GRID_Y + BINS * CELL + 0.3, 0])
+            t = txt(f"{len(self.cells)} of {BINS * BINS} cells filled", 22, ORANGE)
+            return t.move_to([GRID_X[0] + BINS * CELL / 2, GRID_Y - 0.72, 0])
 
         counter = tally()
         self.play(FadeIn(counter), run_time=0.3)
+
+        todo = island0[seen:]
         for start in range(0, len(todo), 3):
-            anims = [self.place_anim(e)[0] for e in todo[start:start + 3]]
-            self.play(LaggedStart(*anims, lag_ratio=0.4),
-                      Transform(counter, tally()), run_time=0.85)
-        self.wait(2.0)
-        self.play(FadeOut(note), FadeOut(counter), run_time=0.6)
+            anims = []
+            for e in todo[start:start + 3]:
+                if e["admitted"]:
+                    anims.append(self.place_anim(e)[0])
+                anims.extend(self.add_tree_node(e, animate=True))
+            if not anims:
+                continue
+            self.play(LaggedStart(*anims, lag_ratio=0.3), Transform(counter, tally()),
+                      run_time=0.9)
+        self.wait(1.6)
+
+        closing = para("Hollow dots are children that were measured and dropped — they cost the "
+                       "same as the rest.\nEvery filled dot with something below it is a mediocre "
+                       "program that went on to be a parent.", 22, INK)
+        fit(closing, FULL_W - 2.0).move_to([-0.6, -2.55, 0])
+        self.play(FadeOut(note), FadeIn(closing), run_time=0.8)
+        self.wait(3.4)
+        self.play(FadeOut(closing), FadeOut(counter), FadeOut(heads), run_time=0.6)
+
+    def add_tree_node(self, ev, animate=True):
+        """A dot, and the edge from its parent. Filled if it took a cell, hollow if it was
+        dropped -- the tree keeps both, which is the whole reason it is on screen."""
+        pos, pid, admitted, score = self.tree[ev["id"]]
+        dot = Circle(radius=TREE_R if admitted else TREE_R * 0.6,
+                     stroke_width=2.0 if admitted else 1.6,
+                     color=EDGE if admitted else MUTED,
+                     fill_color=score_color(score, LO, HI),
+                     fill_opacity=1.0 if admitted else 0.0).move_to(pos)
+        self.tree_mobs[ev["id"]] = dot
+        anims = []
+        if pid in self.tree:
+            a = self.tree[pid][0]
+            edge = Line(a + RIGHT * TREE_R, pos - RIGHT * TREE_R,
+                        color=EDGE, stroke_width=1.6).set_stroke(opacity=0.75)
+            self.tree_edges.add(edge)
+            if animate:
+                anims.append(Create(edge))
+            else:
+                self.add(edge)
+        if animate:
+            anims.append(FadeIn(dot, scale=0.5))
+        else:
+            self.add(dot)
+        return anims
 
     # ---- act 3 -----------------------------------------------------------
     def act_three(self):
         """The second island, migration, and what the run bought."""
-        self.play(self.camera.frame.animate.move_to([0, 0.35, 0]).set(width=FULL_W), run_time=1.4)
+        # The tree has said what it had to say, and island 2's grid needs its half of the frame.
+        self.play(*[FadeOut(m) for m in self.tree_mobs.values()], FadeOut(self.tree_edges),
+                  self.camera.frame.animate.move_to([0, 0.35, 0]).set(width=FULL_W), run_time=1.4)
         head = txt("islands: several grids, occasionally trading programs", 28, INK)
         head.move_to([0, 3.5, 0])
         tags = VGroup(*[txt(f"island {i + 1}", 20, SUB)
