@@ -137,7 +137,7 @@ async def _run_remeasure(
 async def evolve(
     method: EvolveMethod,
     variator: Optional[Variator],
-    evaluators: Dict[str, Evaluator],
+    evaluators: Optional[Dict[str, Evaluator]],
     seeds: Sequence[Genome],
     *,
     objective: str = "",
@@ -170,6 +170,10 @@ async def evolve(
                 "passed. A method's operator is part of what the algorithm is, so it has to come "
                 "from somewhere explicit."
             )
+    # The caller owns the problem's evaluators; the method fills in the kinds it invented and
+    # evaluates itself. Caller wins on a collision -- an experiment holding measurement fixed
+    # across arms has to be able to say so.
+    evaluators = {**(method.default_evaluators() or {}), **(evaluators or {})}
     t0 = time.time()
     store = store if store is not None else Store()
     resumed = False

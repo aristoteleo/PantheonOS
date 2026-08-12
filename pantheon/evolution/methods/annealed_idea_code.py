@@ -481,6 +481,20 @@ class AnnealedIdeaCode(BaseMethod):
 
     # ---- operator ---------------------------------------------------------
 
+    def default_evaluators(self, **kw) -> Dict[str, Any]:
+        """The judge, as the evaluator for ideas.
+
+        This method invents a second kind and measures it itself: the judge is constructed with
+        the method, wears the `base_fn` the method installs on it, and is refit on the method's
+        schedule. Leaving its registration to the caller made the one component the method
+        genuinely owns the one component a caller could forget -- and forgetting it is silent,
+        producing a run where every idea comes back unmeasured.
+
+        `code` is deliberately absent. What a program is worth is the problem's question, and a
+        search method has no business answering it.
+        """
+        return {IDEA: self.judge} if self.judge is not None else {}
+
     def default_variator(self, *, evaluator=None, model: str = "high", timeout: float = 1800,
                          target_file: Optional[str] = None, sandbox: bool = False, **kw):
         """Prose for ideas, a coding agent for implementations.

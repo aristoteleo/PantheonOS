@@ -127,6 +127,22 @@ class EvolveMethod(Protocol):
         """
         ...
 
+    def default_evaluators(self, **kw) -> Dict[str, "Evaluator"]:
+        """The evaluators this algorithm brings with it, by kind.
+
+        Most measurement belongs to the *problem*, not the method: the caller owns the verifier
+        that scores code, and no method should be able to change what a score means. But some
+        methods invent a kind and evaluate it themselves -- `AnnealedIdeaCode` judges IDEAS with
+        a model whose calibration it owns and refits -- and those evaluators are part of the
+        algorithm in exactly the way `default_variator` is.
+
+        `evolve()` merges these under whatever the caller passed, so a caller-supplied kind always
+        wins and the method only fills gaps. Without this seam a method that owns an evaluator has
+        to hope the caller remembers to register it, and forgetting is silent: the loop reports
+        `no evaluator for kind ...` per item and the search quietly runs half-blind.
+        """
+        ...
+
 
 @runtime_checkable
 class Variator(Protocol):
@@ -175,6 +191,9 @@ class BaseMethod:
 
     def default_variator(self, **kw):
         return None
+
+    def default_evaluators(self, **kw) -> Dict[str, Any]:
+        return {}
 
     def context_for(self, ctx: EvolveContext, item: Create) -> PromptContext:
         return item.context

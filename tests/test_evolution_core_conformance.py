@@ -344,6 +344,68 @@ class TestTheOperatorBelongsToTheAlgorithm:
                                budget=Budget(max_items=1)))
 
 
+class TestTheEvaluatorsAMethodBringsWithIt:
+    """Measurement is mostly the problem's business -- but not entirely.
+
+    A method that invents a kind has to be able to measure it, and `AnnealedIdeaCode` does exactly
+    that: it judges IDEAS with a model whose calibration it owns. Leaving that registration to the
+    caller makes the one evaluator the method owns the one a caller can forget, and the failure is
+    silent. So the method declares it and the loop merges, with anything the caller passed winning.
+    """
+
+    def test_the_loop_fills_in_the_kinds_a_caller_did_not_supply(self):
+        from pantheon.evolution.core import Budget, Measurement
+        from pantheon.evolution.core.loop import evolve
+        from pantheon.evolution.methods import SimpleTES
+
+        seen = []
+
+        class Extra:
+            kind = "code"
+
+            async def measure(self, ctx, ind, fidelity="full"):
+                seen.append(ind.id)
+                return Measurement(individual_id=ind.id, fidelity=fidelity,
+                                   metrics={"combined_score": 0.5})
+
+        m = SimpleTES(num_chains=1, k_candidates=1)
+        m.default_evaluators = lambda **kw: {"code": Extra()}   # type: ignore[assignment]
+        asyncio.run(evolve(method=m, variator=CountingVariator(), evaluators=None,
+                           seeds=[seed(0)], budget=Budget(max_items=1), concurrency=1))
+        assert seen, "the method's evaluator measured the seed"
+
+    def test_the_caller_wins_on_a_kind_they_both_supply(self):
+        from pantheon.evolution.core import Budget, Measurement
+        from pantheon.evolution.core.loop import evolve
+        from pantheon.evolution.methods import SimpleTES
+
+        who = []
+
+        def evaluator(tag):
+            class E:
+                kind = "code"
+
+                async def measure(self, ctx, ind, fidelity="full"):
+                    who.append(tag)
+                    return Measurement(individual_id=ind.id, fidelity=fidelity,
+                                       metrics={"combined_score": 0.5})
+
+            return E()
+
+        m = SimpleTES(num_chains=1, k_candidates=1)
+        m.default_evaluators = lambda **kw: {"code": evaluator("method")}  # type: ignore
+        asyncio.run(evolve(method=m, variator=CountingVariator(),
+                           evaluators={"code": evaluator("caller")},
+                           seeds=[seed(0)], budget=Budget(max_items=1), concurrency=1))
+        assert who and set(who) == {"caller"}, "a caller-supplied kind is never overridden"
+
+    def test_a_method_that_owns_no_evaluator_supplies_none(self):
+        from pantheon.evolution.methods import AgentMapElites, SimpleTES
+
+        assert SimpleTES().default_evaluators() == {}
+        assert AgentMapElites().default_evaluators() == {}
+
+
 # --------------------------------------------------- operator knob forwarding ---
 def _agent_of(variator):
     """The AgentVariator a method built, whether directly or behind a router."""

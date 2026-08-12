@@ -231,9 +231,9 @@ async def main(a) -> None:
         print(f"  [{len(history):>3}] {time.time()-t0:6.0f}s  score={s:.6f}  "
               f"best={best:.6f}  Psi={1 - best:.6f}", flush=True)
 
+    # Only the problem's evaluator. `AnnealedIdeaCode` registers its own judge for ideas through
+    # `default_evaluators()`, because the judge is part of that method rather than of this script.
     evaluators = {"code": evaluator}
-    if judge is not None:
-        evaluators["idea"] = judge
     if method.name == "idea_code_alternating":
         from pantheon.evolution.variators import IdeaJudge, NullJudge
 

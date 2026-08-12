@@ -482,6 +482,58 @@ def test_conforms_to_the_method_protocol():
     assert isinstance(AnnealedIdeaCode(), EvolveMethod)
 
 
+# ------------------------------------------------- the evaluators it owns ---
+def test_method_supplies_the_judge_as_the_evaluator_for_ideas():
+    j = LearnedIdeaJudge()
+    assert AnnealedIdeaCode(judge=j).default_evaluators() == {IDEA: j}
+
+
+def test_a_method_without_a_judge_supplies_nothing():
+    assert AnnealedIdeaCode().default_evaluators() == {}
+
+
+def test_the_method_never_offers_to_score_code():
+    """What a program is worth is the problem's question. A method that answered it could make
+    its own search look good by redefining the objective."""
+    assert CODE not in AnnealedIdeaCode(judge=LearnedIdeaJudge()).default_evaluators()
+
+
+def test_the_run_judges_ideas_without_the_caller_registering_the_judge():
+    judge = FakeJudge(n_min=3)
+    method = AnnealedIdeaCode(judge=judge, seed=7)
+    result = asyncio.run(evolve(
+        method, FakeVariator(),
+        {CODE: FakeCodeEvaluator()},               # the problem's evaluator, and only that
+        seeds=[CodeGenome(files={"main.py": "# seed\n"})],
+        objective="toy", budget=Budget(max_items=20), concurrency=2))
+    ideas = result.store.of_kind(IDEA)
+    assert ideas, "ideas were produced"
+    assert all(any("idea_raw" in m.metrics for m in i.measurements) for i in ideas), \
+        "every idea was measured by the judge the method brought with it"
+
+
+def test_a_caller_supplied_evaluator_beats_the_methods_own():
+    """The override has to exist: holding measurement fixed across arms is how the judge gets
+    ablated, and `results_ablation/` is exactly that experiment."""
+    class Stub:
+        kind = IDEA
+
+        async def measure(self, ctx, ind, fidelity="full"):
+            return Measurement(individual_id=ind.id, fidelity=fidelity,
+                               metrics={"idea_raw": 0.0, "idea_base": 0.0, "stub": 1.0})
+
+    judge, stub = FakeJudge(n_min=3), Stub()
+    method = AnnealedIdeaCode(judge=judge, seed=7)
+    result = asyncio.run(evolve(
+        method, FakeVariator(),
+        {CODE: FakeCodeEvaluator(), IDEA: stub},
+        seeds=[CodeGenome(files={"main.py": "# seed\n"})],
+        objective="toy", budget=Budget(max_items=14), concurrency=1))
+    ideas = result.store.of_kind(IDEA)
+    assert ideas
+    assert all(any("stub" in m.metrics for m in i.measurements) for i in ideas)
+
+
 def test_state_dict_round_trips_through_json():
     m = AnnealedIdeaCode(judge=LearnedIdeaJudge(), seed=3)
     m.seed_code = "seed"
