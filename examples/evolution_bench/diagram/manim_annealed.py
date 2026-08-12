@@ -22,8 +22,10 @@ Acts:
      idea's bar turns from prediction to fact). Then speed.
   2. the schedule: the mix slides from proposing to implementing while the temperature falls and
      the selection distribution collapses onto the leader.
-  3. the judge, learning: predictions land in a narrow band, gains span a wide one; only the
-     ORDER is trustworthy, and the isotonic fit turns that order into the verifier's units.
+  3. the judge, learning -- and the only act with REAL numbers in it. The pairs come from six
+     actual runs on the Erdos problem (`judge_data`), replayed one step ahead: the identity while
+     the evidence is thin, the first fit at five pairs, one bad extrapolation, and the observation
+     that repairs it. It closes on what the calibration was actually worth, which is not much yet.
   4. the rest of the run at speed, closing on where the budget actually went.
 
 The run is real: `sim_annealed` drives the actual method, schedule, selection and calibration
@@ -38,9 +40,10 @@ from manim import (DL, DOWN, DR, LEFT, ORIGIN, RIGHT, UL, UP, UR, ArcBetweenPoin
                    MovingCameraScene, Rectangle, RoundedRectangle, Square, Transform, VGroup,
                    VMobject, Write)
 
-from manim_kit import (BLUE, EDGE, FULL_W, GREEN, INK, Kit, MUTED, ORANGE, PANEL, PURPLE, RED,
-                       SUB, arc, dim, fit, para, score_color, spoke, txt)
-from sim_annealed import EVENTS, IDEAS, IMPLS, SEED_ID, SEED_SCORE
+from judge_data import FEATURED_RHO, STEPS, SUMMARY, TALLY
+from manim_kit import (BLUE, EDGE, FULL_W, GREEN, INK, Kit, MUTED, ORANGE, PANEL, PURPLE, SUB,
+                       arc, dim, fit, para, score_color, spoke, txt)
+from sim_annealed import EVENTS, IMPLS, SEED_ID, SEED_SCORE
 
 LO, HI = 0.35, 0.95                      # the score range every colour in the video spans
 
@@ -161,7 +164,8 @@ class AnnealedRun(Kit, MovingCameraScene):
         title = txt("AnnealedIdeaCode", 52, INK, weight="BOLD")
         sub = para("search the IDEAS, not just the code — propose early, implement late,\n"
                    "and learn what an idea is worth before spending the budget on it", 27, SUB)
-        fine = txt("simulated scores · real method decisions", 16, MUTED)
+        fine = txt("simulated scores · real method decisions · the judge act is real data",
+                   16, MUTED)
         card = VGroup(title, sub, fine).arrange(DOWN, buff=0.42)
         fit(card, FULL_W - 2.4).move_to(ORIGIN)
         self.play(Write(title), FadeIn(sub, shift=UP * 0.15), FadeIn(fine), run_time=1.4)
@@ -411,6 +415,7 @@ class AnnealedRun(Kit, MovingCameraScene):
                           fill_color=score_color(SEED_SCORE, LO, HI),
                           fill_opacity=1.0).move_to(SEED_POS)
         seed_tag = txt("seed", 12, MUTED).next_to(seed_dot, UP, buff=0.1)
+        self.seed_tag = seed_tag                # act 3 clears the tree, label included
         self.prog_mobs[SEED_ID] = seed_dot
         self.best_pts.append(self.ax.c2p(1, SEED_SCORE))
         seed_pt = Dot(self.ax.c2p(1, SEED_SCORE), radius=0.045, color=BLUE).set_opacity(0.65)
@@ -574,57 +579,138 @@ class AnnealedRun(Kit, MovingCameraScene):
 
     # ---- act 3: the judge ----------------------------------------------------
     def act_judge(self):
-        pairs = [(e["raw"], e["score"] - (e.get("idea_base") or 0.0))
-                 for e in IMPLS if e.get("raw") is not None and e.get("score") is not None]
-        rs = sorted(r for r, _ in pairs)
-        k = max(1, len(rs) // 10)
-        lo_r, hi_r = rs[k], rs[-k - 1]
+        """The one act with real numbers in it.
 
-        # The tree label leaves entirely: the chart's heading lands on the same spot, and even
-        # at 12% the ghost of one title under another reads as smudge.
+        Everything else in this video is the stubbed run. Here the pairs come out of six actual
+        `AnnealedIdeaCode` runs on the Erdos problem, replayed one step ahead through the real
+        calibration -- so the act can show the update happening AND what it was worth, which on
+        this evidence is not what the design hoped for. The caption says so rather than cutting
+        the awkward half.
+        """
+        X_LO, X_HI = -0.01, 0.20
+        Y_LO, Y_HI = -0.12, 0.15
+
+        # The tree goes all the way out, not down to a ghost. This chart's subject is a field of
+        # blue dots, and a faded tree is a field of blue circles behind it -- at 12% the two read
+        # as one scatter. The stage's identity is carried by the loop and the panel, which stay.
         tree = VGroup(*self.idea_mobs.values(),
                       *[m for i, m in self.prog_mobs.items()],
                       *self.edge_mobs.values())
-        self.play(tree.animate.set_opacity(0.12), FadeOut(self.tree_lab), run_time=0.7)
+        self.play(tree.animate.set_opacity(0.0), FadeOut(self.tree_lab),
+                  FadeOut(self.seed_tag), run_time=0.7)
 
-        ax = Axes(x_range=[0, 0.55, 0.25], y_range=[0, 0.55, 0.25], x_length=3.4, y_length=2.9,
-                  tips=False,
+        ax = Axes(x_range=[X_LO, X_HI, 0.05], y_range=[Y_LO, Y_HI, 0.05],
+                  x_length=3.3, y_length=2.7, tips=False,
                   axis_config={"color": EDGE, "stroke_width": 2, "include_numbers": False})
-        ax.move_to([3.55, 1.45, 0])
-        xlab = txt("what the judge said", 15, MUTED).next_to(ax, DOWN, buff=0.16)
-        ylab = txt("what it gained", 15, MUTED).rotate(np.pi / 2).next_to(ax, LEFT, buff=0.14)
-        head = txt("the judge, checked against the verifier", 20, INK).next_to(ax, UP, buff=0.45)
-        self.say("every implementation checks the judge: what it SAID against what the\n"
-                 "program actually GAINED", color=SUB)
-        self.play(Create(ax), FadeIn(xlab), FadeIn(ylab), FadeIn(head), run_time=0.9)
+        ax.move_to([3.5, 1.5, 0])
+        xlab = txt("what the judge said", 15, MUTED).next_to(ax, DOWN, buff=0.14)
+        ylab = txt("what it gained", 15, MUTED).rotate(np.pi / 2).next_to(ax, LEFT, buff=0.12)
+        head = txt("the judge, learning", 21, INK).next_to(ax, UP, buff=0.52)
+        src = txt("a real run — Erdős minimum overlap, 10 labelled ideas", 12, MUTED)
+        src.next_to(head, DOWN, buff=0.1)
+        self.say("the judge is checked against the verifier every time an idea gets built:\n"
+                 "what it SAID, against what the program actually GAINED", color=SUB)
+        self.play(Create(ax), FadeIn(xlab), FadeIn(ylab), FadeIn(head), FadeIn(src), run_time=0.9)
 
-        band = Rectangle(width=abs(ax.c2p(hi_r, 0)[0] - ax.c2p(lo_r, 0)[0]), height=2.9,
-                         stroke_width=0, fill_color=ORANGE, fill_opacity=0.14)
-        band.move_to([(ax.c2p(lo_r, 0)[0] + ax.c2p(hi_r, 0)[0]) / 2, ax.get_center()[1], 0])
-        dots = VGroup(*[Dot(ax.c2p(min(max(r, 0.0), 0.54), min(max(g, 0.0), 0.54)),
-                            radius=0.05, color=BLUE).set_opacity(0.75) for r, g in pairs])
-        self.play(FadeIn(band), run_time=0.5)
-        self.play(LaggedStart(*[FadeIn(d, scale=0.4) for d in dots], lag_ratio=0.08),
-                  run_time=1.6)
-        self.say("ranked about right, scaled completely wrong — the predictions bunch into a\n"
-                 "band a fraction of the width of the gains. Only the ORDER is trustworthy",
-                 hold=2.6)
+        def pt(x, y):
+            return ax.c2p(min(max(x, X_LO), X_HI), min(max(y, Y_LO), Y_HI))
 
-        pts = sorted(pairs)
-        run_y, fit_line = None, VGroup()
-        for i, (r, g) in enumerate(pts):
-            run_y = g if run_y is None else max(run_y, g)
-            x0 = ax.c2p(min(max(r, 0.0), 0.54), 0)[0]
-            x1 = ax.c2p(min(max(pts[i + 1][0], 0.0), 0.54), 0)[0] if i + 1 < len(pts) \
-                else ax.c2p(0.55, 0)[0]
-            y = ax.c2p(0, min(run_y, 0.54))[1]
-            fit_line.add(Line([x0, y, 0], [x1, y, 0], color=RED, stroke_width=3.6))
-        self.play(Create(fit_line), run_time=1.4)
-        self.say("so the judge is asked for an ORDER, and an isotonic fit turns that order\n"
-                 "into the verifier's units — the leftover spread becomes its σ", hold=2.8)
+        def curve(knots):
+            """What the calibration returns across the axis: the knots, held flat past both ends
+            (`_interp` clamps), which is exactly the behaviour that misfires below."""
+            kx, ky = knots
+            if not kx:
+                # A true diagonal, so it has to stop where the shorter axis does -- drawn to the
+                # x-axis end it leaves the plot and reads as an arbitrary slope.
+                d = min(X_HI, Y_HI)
+                return Line(pt(X_LO, X_LO), pt(d, d), color=MUTED, stroke_width=2.2)
+            xs = [X_LO] + list(kx) + [X_HI]
+            ys = [ky[0]] + list(ky) + [ky[-1]]
+            line = VMobject(color=PURPLE, stroke_width=2.6)
+            line.set_points_as_corners([pt(x, y) for x, y in zip(xs, ys)])
+            return line
 
-        self.play(FadeOut(VGroup(ax, xlab, ylab, head, band, dots, fit_line)),
-                  tree.animate.set_opacity(1.0), FadeIn(self.tree_lab), run_time=0.8)
+        state = txt("0 pairs · the identity", 14, MUTED)
+        state.next_to(ax, DOWN, buff=0.42)
+        # Gains go negative on this problem, so the sign has to be readable: without a marked
+        # zero, "gained nothing" and "lost ground" are the same picture. It goes at the RIGHT end
+        # of the zero line -- to the left is where the axis label already is, and the origin
+        # itself has data sitting on it.
+        zero = txt("0", 12, MUTED).next_to(ax.c2p(X_HI, 0), RIGHT, buff=0.07)
+        fitline = curve(([], []))
+        fitlab = txt("said = gained", 12, MUTED).rotate(np.pi / 4.4).move_to(pt(0.125, 0.135))
+        self.play(Create(fitline), FadeIn(fitlab), FadeIn(state), FadeIn(zero), run_time=0.7)
+        self.say("below five pairs the calibration IS the identity — it will not fit a curve\n"
+                 "the evidence cannot hold up", hold=1.2)
+
+        dots = []
+        for i, s in enumerate(STEPS):
+            d = Dot(pt(s["said"], s["gained"]), radius=0.05, color=BLUE).set_opacity(0.8)
+            dots.append(d)
+            anims = [GrowFromPoint(d, pt(s["said"], s["gained"]))]
+            n_after = s["n"] + 1
+            after = txt(f"{n_after} pair{'' if n_after == 1 else 's'} · "
+                        + ("fitted" if s["fitted_after"] else "the identity"), 14,
+                        MUTED if not s["fitted_after"] else INK).move_to(state)
+            anims.append(Transform(state, after))
+            if s["fitted_after"] and (s["knots_after"] != s["knots_before"]):
+                anims.append(Transform(fitline, curve(s["knots_after"])))
+            if i == 4:                                    # the fit fires for the first time
+                # The pair lands, THEN the caption, THEN the curve it describes. Played as one
+                # block the new fit sits under the old caption ("below five pairs...") for the
+                # better part of a second and flatly contradicts it.
+                self.play(GrowFromPoint(d, pt(s["said"], s["gained"])),
+                          Transform(state, after), FadeOut(fitlab), run_time=0.5)
+                # Not "the fifth pair, and..." -- a caption pinned to a count goes stale while it
+                # is still on screen, and two steps later it is contradicting the counter above it.
+                self.say("five pairs in, the fit takes over from the identity: a monotone curve\n"
+                         "through what the judge said and what those ideas turned out to be worth")
+                self.play(Transform(fitline, curve(s["knots_after"])), run_time=0.7)
+                self.wait(1.4)
+                continue
+            if i == 6:                                    # the clamp, in the act of misfiring
+                # The curve is held at what it was, deliberately. The orange bar measures the
+                # point against the fit that was ON SCREEN when the prediction was made; update
+                # the curve first and the bar floats in space pointing at nothing, while the
+                # repair plays out under a caption still saying the thing is broken.
+                self.play(GrowFromPoint(d, pt(s["said"], s["gained"])),
+                          Transform(state, after), run_time=0.5)
+                gap = Line(pt(s["said"], s["gained"]), pt(s["said"], s["before"]),
+                           color=ORANGE, stroke_width=3)
+                gap_lab = txt("+0.084", 13, ORANGE).next_to(gap, RIGHT, buff=0.08)
+                self.play(Create(gap), FadeIn(gap_lab), run_time=0.5)
+                self.say("the run has hit the plateau and the judge knows it — it says this idea\n"
+                         "is worth +0.001. The fit has never seen a prediction that low, so it\n"
+                         "clamps to the lowest it knows, +0.084, and overrides the judge",
+                         color=ORANGE, hold=2.8)
+                self.say("then the outcome goes in, and the curve learns a left-hand end",
+                         color=SUB)
+                self.play(Transform(fitline, curve(s["knots_after"])),
+                          FadeOut(gap), FadeOut(gap_lab), run_time=0.9)
+                self.wait(1.4)
+                continue
+            if i == 7:                                    # the repaired fit, tested
+                self.play(*anims, run_time=0.5)
+                self.say("the very next prediction is the same +0.001 — and this time it\n"
+                         "calibrates to +0.001 and lands on the point", hold=2.2)
+                continue
+            self.play(*anims, run_time=0.42)
+
+        self.say(f"and it does rank them: Spearman {FEATURED_RHO:+.2f} on this run, "
+                 f"{min(r for _, _, r in SUMMARY):+.2f} to {max(r for _, _, r in SUMMARY):+.2f}\n"
+                 f"across all six — against −0.15 for the judge this one replaced", hold=2.4)
+
+        # The disclosure, and it goes in the caption slot rather than under the chart: squeezed
+        # into the gap above the fitness panel it renders as a cramped grey block, and this is
+        # the one thing in the act nobody should have to squint at.
+        self.say(f"but the calibration ON TOP of that order has not paid for itself: over six "
+                 f"runs it\nchanged {TALLY['changed']} of {TALLY['n']} predictions and was closer "
+                 f"on {TALLY['better']} of them. Ten pairs is not a training set", 18, MUTED,
+                 hold=3.4)
+
+        self.play(FadeOut(VGroup(ax, xlab, ylab, head, src, state, zero, fitline, *dots)),
+                  tree.animate.set_opacity(1.0), FadeIn(self.tree_lab),
+                  FadeIn(self.seed_tag), run_time=0.8)
 
     # ---- act 4: the rest ------------------------------------------------------
     def act_rest(self):

@@ -1,12 +1,14 @@
 """An AnnealedIdeaCode run, simulated -- and it is a real one.
 
-The method, the schedule, the selection distribution and the judge's CALIBRATION are all the real
+The method, the schedule, the selection distribution and the judge's calibration are all the real
 code, driven through the real `evolve()` loop. What is stubbed is exactly one thing: the model
-call inside the judge, replaced by a number that correlates with an idea's hidden ceiling and is
-deliberately squashed into a narrow band. That squashing is the failure the calibration exists to
-undo, so faking it there keeps the interesting half honest.
+call inside the judge, replaced by a number that correlates with an idea's hidden ceiling.
 
 Invented: an idea's ceiling, and how much of it an implementation reaches.
+
+What this run is NOT used for is the judge's learning. A stub that ranks correctly makes the
+calibration look good by construction, which is circular; the video's judge act reads six real
+runs instead -- see `judge_data`.
 
 The recording keeps both lineages, because the method issues both: a program's `parent` is the
 CODE it started from (`_implement` sets `parent_ids=[pool_best(idea)]`), and its `anchor` is the

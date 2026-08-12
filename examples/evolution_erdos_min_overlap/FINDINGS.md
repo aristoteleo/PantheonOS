@@ -84,6 +84,49 @@ were not even on the same scale) to **+0.49** and **+0.80** with slope near 1, m
 0.014–0.054 on gains of ~0.11. n = 10 and n = 5, neither significant alone; the point is that the
 shared scale makes the question answerable at all.
 
+Across all six `annealed` runs the ranking holds: Spearman **+0.38, +0.49, +0.53, +0.80, +0.90,
++0.97**.
+
+### 4. The calibration on top of it has not paid for itself
+
+Separate question, and it went the other way. Each run's judge kept its training pairs in
+`method.json` → `state.history`, in order, with the base the work item pinned. Replaying those
+through the real `Calibration` under a strict one-step-ahead rule — predict each pair using only
+the pairs before it, which is the state the judge was actually in — gives:
+
+| | mean absolute error |
+|---|---|
+| the judge's raw prediction | **0.0434** |
+| after calibration | 0.0471 |
+
+It only changed 12 of the 44 predictions at all, and was closer on 4 of those 12 (sign test
+p = 0.39). Not significant in either direction, but the direction is wrong, and the mechanism is
+visible in the log: once a run reaches the plateau the judge correctly says an idea is worth
++0.001, the isotonic fit has never seen a prediction that low, `_interp` clamps to the lowest
+value it knows (+0.084), and the calibration overrides a judge that was right. The next
+observation repairs it.
+
+This is the redesign undoing its own justification. The calibration exists to move a prediction
+onto the verifier's scale, and the redesign already put it there — so within a run, at 5–10 pairs,
+there is nothing left for it to fix and plenty for it to break.
+
+**Where it starts to work is across runs.** Leave-one-run-out (fit on five runs' pairs ≈ 35, test
+on the sixth): **0.0434 → 0.0401**, though still worse on more points than it fixes (18 of 42
+closer) — the gain comes from damping a few large optimistic misses, not from being generally
+better. That is the first evidence for `--judge-state`, the knob meant to carry the training set
+between runs, which is listed below as never exercised.
+
+The replay is `examples/evolution_bench/diagram/judge_data.py`; run it directly to reproduce every
+number here. The training pairs are vendored alongside it in `judge_runs.json`, because the run
+directories are gitignored and these numbers should stay checkable without them.
+
+### 5. The judge ablation is void
+
+`results_ablation/` (constant / llm / random judge, two seeds each) cannot be read. It predates the
+fix that put predictions and measurements on one scale, so an unbuilt idea could outrank a built
+one merely by being unbuilt, which is the thing the ablation was trying to measure. It has not been
+re-run.
+
 ---
 
 ## Bugs found, all of which were invisible in the printed numbers
@@ -124,4 +167,6 @@ seed hash and refuses to present a comparison whose arms differ in either.
   whatever the true spread, so with two candidates the search is greedy exactly when it should be
   broadest. `--norm absolute` exists as the alternative and has never been measured.
 - The learned judge accumulates roughly ten labelled ideas per run, which is not a training set.
-  `--judge-state` persists it across runs; that has never been exercised for more than one run.
+  `--judge-state` persists it across runs; that has never been exercised for more than one run,
+  and the offline leave-one-run-out above is now a reason to try. Until then the honest default is
+  arguably to raise `n_min` well above 5 — on this evidence the fit does harm before it does good.
