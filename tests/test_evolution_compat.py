@@ -171,7 +171,7 @@ class TestSandboxOperator:
     def test_a_sandbox_measured_child_is_not_re_evaluated_on_the_host(self, monkeypatch):
         from pantheon.evolution.core import Budget, CodeGenome
         from pantheon.evolution.core.loop import evolve
-        from pantheon.evolution.methods import NicheMenu
+        from pantheon.evolution.methods import AgentMapElites
         from pantheon.evolution.variators import SandboxVariator
         import pantheon.evolution.sandbox as sandbox_mod
 
@@ -196,7 +196,7 @@ class TestSandboxOperator:
                                             "fitness_weights": {"combined_score": 1.0}})
 
         res = asyncio.run(evolve(
-            method=NicheMenu(num_islands=1, function_weight=1.0, llm_weight=0.0),
+            method=AgentMapElites(num_islands=1, function_weight=1.0, llm_weight=0.0),
             variator=SandboxVariator(evaluator_code="x", model="m"),
             evaluators={"code": SeedOnly()},
             seeds=[CodeGenome(files={"main.py": "SCORE = 0.0\n"})],

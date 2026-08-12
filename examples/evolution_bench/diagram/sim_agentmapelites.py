@@ -1,6 +1,6 @@
-"""A NicheMenu run, simulated -- and it is a real one.
+"""An AgentMapElites run, simulated -- and it is a real one.
 
-This runs the actual `NicheMenu` method through the actual `evolve()` loop against a toy landscape
+This runs the actual `AgentMapElites` method through the actual `evolve()` loop against a toy landscape
 and records what it decided. Which parent was drawn and from where, which cell a child lands in,
 whether it becomes its cell's representative, who it displaces -- all of it is read off the method
 rather than reimplemented. Only the landscape and the mutation are invented.
@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 from pantheon.evolution.core import (Budget, EvolveContext, Individual, Measurement, Produced,
                                      TextGenome)
 from pantheon.evolution.core.loop import evolve
-from pantheon.evolution.methods.niche_menu import NicheMenu
+from pantheon.evolution.methods.agent_map_elites import AgentMapElites
 
 BINS = 5
 STEPS = 26
@@ -69,7 +69,7 @@ class Landscape:
                            cost=0.01)
 
 
-class Recorded(NicheMenu):
+class Recorded(AgentMapElites):
     """The real method, with a note taken every time it decides something."""
 
     def __init__(self, **kw):

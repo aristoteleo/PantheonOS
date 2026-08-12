@@ -1,6 +1,12 @@
-"""NicheMenu: the algorithm Pantheon-Evolve runs today, written against the method interface.
+"""AgentMapElites: the algorithm Pantheon-Evolve runs today, written against the method interface.
 
-Named for what the grid actually does here, which is less than "MAP-Elites" claims. Read the code:
+Named for its two defining parts. The SELECTION structure is a MAP-Elites grid; the MUTATION
+operator is a coding agent (see `default_variator` -- an agent with a workspace that runs the
+evaluator itself and submits only an edit that passes; that is what Pantheon-Evolve has always
+meant by a mutation, and the reported results were produced with it). Neither half alone is
+the method.
+
+What the grid does here is narrower than "MAP-Elites" alone would suggest. Read the code:
 nothing is ever discarded -- every measured child stays in the store and stays selectable
 (`_place` registers unconditionally). "Admission" only decides whether a child becomes its bin's
 REPRESENTATIVE in `self.elites`, and the grid's one causal effect on the search is
@@ -9,9 +15,10 @@ vote each. The grid is a MENU for choosing parents -- a derived index over (coor
 is rebuilt wholesale when ranges widen -- not an archive that gates survival. Calling the method
 MAP-Elites promoted an index to the algorithm's name.
 
-Mechanically it is still a port, not a redesign: the menu-over-islands-with-migration behaviour is
-exactly what `EvolutionDatabase` implemented, and the tests in `test_evolution_map_elites_port.py`
-pin the two against each other. `MapElitesIslands` remains as an alias for old scripts.
+Mechanically it is still a port, not a redesign: the grid-over-islands-with-migration behaviour
+is exactly what `EvolutionDatabase` implemented, and the tests in
+`test_evolution_map_elites_port.py` pin the two against each other. `MapElitesIslands` and
+`NicheMenu` (two earlier names) remain as aliases for old scripts.
 
 One thing does change, deliberately. Fitness is computed here rather than on the individual.
 `Program.fitness_score()` folds raw metrics into a scalar using weights the evaluator supplied,
@@ -39,10 +46,10 @@ def _clamp01(v: float) -> float:
     return max(0.0, min(1.0, float(v)))
 
 
-class NicheMenu(BaseMethod):
-    """A menu of niche representatives to draw parents from, replicated across islands."""
+class AgentMapElites(BaseMethod):
+    """MAP-Elites parent selection over islands, with a coding agent as the mutation."""
 
-    name = "niche_menu"
+    name = "agent_map_elites"
 
     def __init__(
         self,

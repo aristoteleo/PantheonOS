@@ -6,15 +6,16 @@ editing anything outside this directory.
 """
 from .annealed_idea_code import AnnealedIdeaCode
 from .idea_code import IdeaCodeAlternating
-from .niche_menu import NicheMenu
+from .agent_map_elites import AgentMapElites
 
-MapElitesIslands = NicheMenu
-"""The old name, kept so existing scripts and notebooks keep importing. The class
-was renamed because the grid here is a parent-selection menu, not an archive --
-see the module docstring of `niche_menu`."""
+MapElitesIslands = AgentMapElites
+NicheMenu = AgentMapElites
+"""Earlier names, kept so existing scripts and notebooks keep importing. See the
+module docstring of `agent_map_elites` for what each rename corrected."""
 from .simpletes import PUCTSelector, RPUCGSelector, Selector, SimpleTES
 
 __all__ = [
+    "AgentMapElites",
     "MapElitesIslands",
     "NicheMenu",
     "IdeaCodeAlternating",

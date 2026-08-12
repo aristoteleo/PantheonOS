@@ -1,7 +1,7 @@
 """Does the ported MAP-Elites behave like the one it replaces?
 
 `test_evolution_search_semantics.py` pins what `EvolutionDatabase` does today. This file asserts
-the same properties of `NicheMenu`, which is the port. Where the two must agree, they are
+the same properties of `AgentMapElites`, which is the port. Where the two must agree, they are
 checked against each other on the same inputs rather than against numbers copied by hand.
 
 The port is not a rewrite of the algorithm, so a difference here is a bug in the port -- except
@@ -29,7 +29,7 @@ from pantheon.evolution.core import (
 )
 from pantheon.evolution.core.loop import evolve
 from pantheon.evolution.database import EvolutionDatabase
-from pantheon.evolution.methods import NicheMenu
+from pantheon.evolution.methods import AgentMapElites
 from pantheon.evolution.program import CodebaseSnapshot, Program
 
 
@@ -53,20 +53,20 @@ def ind(pid: str, score: float, *, code: str | None = None, parent: str | None =
     return i
 
 
-def method(**kw) -> NicheMenu:
+def method(**kw) -> AgentMapElites:
     kw.setdefault("num_islands", 1)
     kw.setdefault("function_weight", 1.0)
     kw.setdefault("llm_weight", 0.0)
     kw.setdefault("feature_bins", 4)
     kw.setdefault("feature_dimensions", ["f1", "f2"])
-    return NicheMenu(**kw)
+    return AgentMapElites(**kw)
 
 
 def ctx_with(store: Store) -> EvolveContext:
     return EvolveContext(store=store, budget=Budget(max_items=100))
 
 
-def place(m: NicheMenu, ctx: EvolveContext, i: Individual, island=0) -> bool:
+def place(m: AgentMapElites, ctx: EvolveContext, i: Individual, island=0) -> bool:
     # use what the store hands back: an identical genome resolves to the individual already
     # stored, and placing the discarded copy would put an unknown id on the grid
     return m._place(ctx, ctx.store.add(i), island=island)
@@ -201,7 +201,7 @@ class TestFitness:
                        metrics={"combined_score": 0.9, "other": 0.1,
                                 "fitness_weights": {"combined_score": 0.7, "other": 0.3}}))
 
-        m = NicheMenu(num_islands=1, feature_bins=4, function_weight=0.8, llm_weight=0.2)
+        m = AgentMapElites(num_islands=1, feature_bins=4, function_weight=0.8, llm_weight=0.2)
         ctx = ctx_with(Store())
         place(m, ctx, ind("p", 0.4, other=0.9,
                           fitness_weights={"combined_score": 0.7, "other": 0.3}))

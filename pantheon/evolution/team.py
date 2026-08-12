@@ -8,7 +8,7 @@ scratch state for a single mutation, stored on an object every worker shared -- 
 Those four things are now four things:
 
     pantheon.evolution.core.loop.evolve   the loop        (a function, ~220 lines)
-    pantheon.evolution.methods            the algorithm   (NicheMenu, SimpleTES, ...)
+    pantheon.evolution.methods            the algorithm   (AgentMapElites, SimpleTES, ...)
     pantheon.evolution.variators          the operator    (AgentVariator, per-call isolated)
     pantheon.evolution.variators.adapters evaluation
 

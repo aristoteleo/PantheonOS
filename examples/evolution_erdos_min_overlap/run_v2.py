@@ -51,7 +51,7 @@ VERIFY_NOTE = ("Verify the program runs and satisfies the problem's constraints 
 
 def build_method(name: str, seed: int, judge=None, norm: str = "minmax"):
     from pantheon.evolution.methods import (
-        AnnealedIdeaCode, IdeaCodeAlternating, NicheMenu, SimpleTES)
+        AnnealedIdeaCode, IdeaCodeAlternating, AgentMapElites, SimpleTES)
 
     if name == "annealed":
         # No `ideas_kept`: selection is a Boltzmann sample whose temperature anneals, so ideas are
@@ -70,8 +70,8 @@ def build_method(name: str, seed: int, judge=None, norm: str = "minmax"):
             k_ideas=1, k_code=1, seed=seed,
         )
 
-    if name in ("niche_menu", "map_elites"):   # old token accepted as an alias
-        return NicheMenu(
+    if name in ("agent_map_elites", "niche_menu", "map_elites"):   # old tokens accepted
+        return AgentMapElites(
             num_islands=2,
             feature_dimensions=["complexity", "diversity"],
             feature_bins=6,
@@ -320,7 +320,7 @@ async def main(a) -> None:
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--method", default="map_elites",
-                   choices=["niche_menu", "map_elites", "simpletes", "idea_code", "annealed"])
+                   choices=["agent_map_elites", "map_elites", "simpletes", "idea_code", "annealed"])
     p.add_argument("--iterations", type=int, default=12, help="work items, i.e. LLM mutations")
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--workers", type=int, default=2)

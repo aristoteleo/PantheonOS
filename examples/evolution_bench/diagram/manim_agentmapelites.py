@@ -1,10 +1,10 @@
-"""NicheMenu, as a narrated run.
+"""Agent MAP-Elites, as a narrated run.
 
-    manim -qm --format=mp4 manim_nichemenu.py NicheMenuRun
+    manim -qm --format=mp4 manim_agentmapelites.py AgentMapElitesRun
 
 **The tree is the protagonist.** Evolution is a tree growing; the loop is the machine that grows
-it; the MAP-Elites grid is the rule for where it grows next. (NicheMenu is the METHOD's name --
-the structure on screen is a MAP-Elites grid and is labelled as one.) Every structure holds one
+it; the MAP-Elites grid is the rule for where it grows next; the agent is what does the
+growing -- the method is named for those last two. Every structure holds one
 fixed position for the whole video: loop top-left, grid bottom-left, tree right, curve bottom.
 
 The tree RE-LAYS ITSELF as it grows: each step recomputes the tidy layout over what exists so far
@@ -22,7 +22,7 @@ Three acts:
      run's real admission cases, and what selection means over the cells now filled.
   3. the rest of the run at speed, closing on best-vs-coverage.
 
-The run is real: `sim_nichemenu` drives the actual `NicheMenu` method through the actual loop and
+The run is real: `sim_agentmapelites` drives the actual `AgentMapElites` method through the actual loop and
 records its decisions. Only the landscape and the mutation are invented.
 """
 from __future__ import annotations
@@ -37,7 +37,7 @@ from manim import (DL, DOWN, DR, LEFT, ORIGIN, RIGHT, UL, UP, UR, Axes, Circle, 
 
 from manim_kit import (BLUE, EDGE, FULL_W, GREEN, INK, Kit, MUTED, ORANGE, PANEL, RED, SUB, arc,
                        dim, fit, para, score_color, spoke, txt)
-from sim_nichemenu import BINS, PLACES
+from sim_agentmapelites import BINS, PLACES
 
 LO, HI = 0.25, 0.75                      # the score range every colour in the video spans
 
@@ -146,12 +146,11 @@ def ring_arrow(a_box, b_box):
                  0.0, 0.0, tip=0.16)
 
 
-class NicheMenuRun(Kit, MovingCameraScene):
+class AgentMapElitesRun(Kit, MovingCameraScene):
 
     def construct(self):
-        title = txt("NicheMenu", 54, INK, weight="BOLD")
-        sub = para("evolution is a tree, growing —\na MAP-Elites grid decides where it grows next",
-                   27, SUB)
+        title = txt("Agent MAP-Elites", 54, INK, weight="BOLD")
+        sub = para("evolution is a tree, growing — a MAP-Elites grid picks where,\nand a coding agent does the growing", 27, SUB)
         card = VGroup(title, sub).arrange(DOWN, buff=0.45)
         fit(card, FULL_W - 2.4).move_to(ORIGIN)
         self.play(Write(title), FadeIn(sub, shift=UP * 0.15), run_time=1.4)
