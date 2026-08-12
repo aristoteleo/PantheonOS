@@ -3,40 +3,54 @@ root: index
 title: Home
 
 chapters:
-# Getting Started (Easy)
+
+# ── Getting Started ──────────────────────────────────────────────────────────
 - file: getting-started/index
   sections:
   - file: getting-started/installation
   - file: getting-started/first-steps
   - file: getting-started/5min-tutorial
 
-# Interfaces (Three Entry Points)
-- file: interfaces/index
+# ── Web / Desktop App ────────────────────────────────────────────────────────
+- title: Web / Desktop App
+  file: interfaces/ui/index
   sections:
-  - title: REPL
-    file: interfaces/repl/index
-    sections:
-    - file: interfaces/repl/commands
-    - file: interfaces/repl/file-viewer
-    - file: interfaces/repl/advanced
-  - title: Web UI
-    file: interfaces/ui/index
-    sections:
-    - file: interfaces/ui/quickstart
-    - file: interfaces/ui/web-interface
-    - file: interfaces/ui/advanced
-  - title: Python API
-    file: interfaces/api/index
-    sections:
-    - file: interfaces/api/quickstart
-    - file: interfaces/api/agent
-    - file: interfaces/api/team
-    - file: interfaces/api/toolsets
-    - file: interfaces/api/advanced
-  - title: Web/Desktop App Tutorials
+  - file: interfaces/ui/quickstart
+  - file: interfaces/ui/core-features
+  - file: interfaces/ui/projects
+  - file: interfaces/ui/teams-agents
+  - file: interfaces/ui/models-providers
+  - file: interfaces/ui/store-skills
+  - file: interfaces/ui/fleet
+  - file: interfaces/ui/live-view
+  - file: interfaces/ui/terminal
+  - file: interfaces/ui/gateway
+  - file: interfaces/ui/advanced
+  - title: Video Tutorials
     file: interfaces/tutorials
 
-# Configuration (Shared Foundation)
+# ── CLI (REPL) ────────────────────────────────────────────────────────────────
+- title: CLI (REPL)
+  file: interfaces/repl/index
+  sections:
+  - file: interfaces/repl/quickstart
+  - file: interfaces/repl/commands
+  - file: interfaces/repl/session-management
+  - file: interfaces/repl/file-viewer
+  - file: interfaces/repl/mcp-servers
+  - file: interfaces/repl/advanced
+
+# ── Python API ────────────────────────────────────────────────────────────────
+- title: Python API
+  file: interfaces/api/index
+  sections:
+  - file: interfaces/api/quickstart
+  - file: interfaces/api/agent
+  - file: interfaces/api/team
+  - file: interfaces/api/toolsets
+  - file: interfaces/api/advanced
+
+# ── Configuration ─────────────────────────────────────────────────────────────
 - file: configuration/index
   sections:
   - file: configuration/settings
@@ -48,59 +62,60 @@ chapters:
   - file: configuration/mcp
   - file: configuration/models
 
-# Core Components (Deep Dive)
-- file: components/index
+# ── Toolsets Reference ────────────────────────────────────────────────────────
+- file: toolsets/index
   sections:
-  - file: components/agents
-  - file: components/teams
-  - file: components/toolsets
-  - file: components/memory
-  - file: components/providers
-  # Legacy detailed docs
-  - title: Teams
-    file: team/index
+  - file: toolsets/builtin_toolsets
+  - title: Code Execution
+    file: toolsets/python_interpreter
     sections:
-    - file: team/pantheon_team
-    - file: team/sequential_team
-    - file: team/moa_team
-    - file: team/swarm_team
-    - file: team/swarm_center_team
-  - title: Toolsets
-    file: toolsets/index
-    sections:
-    - file: toolsets/builtin_toolsets
-    - file: toolsets/python_interpreter
-    - file: toolsets/notebook
+    - file: toolsets/r_interpreter
+    - file: toolsets/julia_interpreter
     - file: toolsets/shell
-    - file: toolsets/web_browse
-    - file: toolsets/file_editor
-    - file: toolsets/custom_toolsets
+    - file: toolsets/notebook
+  - file: toolsets/file_editor
+  - file: toolsets/web_browse
+  - file: toolsets/fleet
+  - file: toolsets/live_view
+  - file: toolsets/scfm
+  - file: toolsets/evolution
+  - file: toolsets/evaluator
+  - file: toolsets/knowledge
+  - file: toolsets/vector_rag
+  - file: toolsets/database_api
+  - file: toolsets/scraper_api
+  - file: toolsets/image_generation
+  - file: toolsets/task
+  - file: toolsets/skillbook
+  - file: toolsets/code_toolset
+  - file: toolsets/file_transfer
+  - file: toolsets/package
+  - file: toolsets/custom_toolsets
 
-# Advanced Topics
+# ── Teams & Agents ────────────────────────────────────────────────────────────
+- file: team/index
+  sections:
+  - file: team/pantheon_team
+  - file: team/sequential_team
+  - file: team/moa_team
+  - file: team/swarm_team
+  - file: team/swarm_center_team
+  - file: team/custom_team
+
+# ── Advanced Topics ───────────────────────────────────────────────────────────
 - file: advanced/index
   sections:
-  - file: advanced/learning
   - file: advanced/evolution
   - file: advanced/distributed
+  - file: advanced/learning
   - file: advanced/extending
 
-# Reference
-- file: examples/index
-  sections:
-  - file: examples/shell_bot
-  - file: examples/search_bot
-  - file: examples/coderun_bot
-  - file: examples/reasoning_bot
-  - file: examples/sequential_team
-  - file: examples/swarm_team
-  - file: examples/moa_team
-  - file: examples/paper_reporter
+# ── Reference ─────────────────────────────────────────────────────────────────
 - file: api/index
   sections:
   - file: api/agent
   - file: api/team
   - file: api/memory
-  - file: api/chatroom
   - file: api/repl
 - file: concepts
 - file: architecture

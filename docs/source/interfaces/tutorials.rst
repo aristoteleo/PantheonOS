@@ -1,7 +1,7 @@
 Web/Desktop App Tutorials
 =========================
 
-A curated collection of video tutorials covering the PantheonOS platform — from initial setup through advanced workflows.
+A curated collection of video tutorials covering the PantheonOS Web/Desktop App — from initial setup through advanced workflows.
 
 .. grid:: 1 2 2 2
    :gutter: 4

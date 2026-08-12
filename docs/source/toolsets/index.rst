@@ -1,5 +1,5 @@
-Toolsets
-========
+Toolsets Reference
+==================
 
 Toolsets extend agent capabilities by providing access to external functions, APIs, and services. They are bundled with the ``pantheon-agents`` package and can be used directly with agents.
 
@@ -36,6 +36,89 @@ The toolset system consists of:
 1. **ToolSet Base Class**: Base class that all toolsets inherit from
 2. **Tool Decorator**: Marks methods as tools with docstring descriptions
 3. **Provider System**: Handles tool discovery and execution
+
+Complete Toolset Catalog
+------------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 35 35
+
+   * - Toolset
+     - Category
+     - Key Capabilities
+   * - :doc:`python_interpreter`
+     - Code Execution
+     - Persistent Python sessions, run code, manage interpreters
+   * - :doc:`r_interpreter`
+     - Code Execution
+     - Persistent R sessions
+   * - :doc:`julia_interpreter`
+     - Code Execution
+     - Persistent Julia sessions
+   * - :doc:`shell`
+     - Code Execution
+     - Shell commands, background processes, timeouts
+   * - :doc:`notebook`
+     - Code Execution
+     - Jupyter notebooks, cell ops, kernel management
+   * - :doc:`file_editor`
+     - Files
+     - Read/write/edit files, search, patch, PDF, images
+   * - :doc:`file_transfer`
+     - Files
+     - Chunked streaming file I/O
+   * - :doc:`web_browse`
+     - Web & Search
+     - DuckDuckGo search, URL crawl/extract
+   * - :doc:`scraper_api`
+     - Web & Search
+     - JS-rendered scraping, selectors, pagination
+   * - :doc:`fleet`
+     - Infrastructure
+     - Multi-node execution, file transfer, cluster management
+   * - :doc:`live_view`
+     - Visualization
+     - Interactive browser visualizations (11 viewer types)
+   * - :doc:`scfm`
+     - Bioinformatics
+     - Single-cell foundation models: annotate, embed, perturb
+   * - :doc:`evolution`
+     - AI/ML
+     - LLM-guided evolutionary code optimization
+   * - :doc:`evaluator`
+     - AI/ML
+     - Code evaluation, metrics, LLM review
+   * - :doc:`knowledge`
+     - Knowledge & RAG
+     - Qdrant hybrid search, collection management
+   * - :doc:`vector_rag`
+     - Knowledge & RAG
+     - LanceDB vector retrieval
+   * - :doc:`database_api`
+     - Data
+     - 26+ biological database queries via natural language
+   * - :doc:`scraper_api`
+     - Data
+     - Web scraping with ScraperAPI
+   * - :doc:`image_generation`
+     - Media
+     - AI image generation (DALL-E, Gemini, …)
+   * - :doc:`task`
+     - Workflow
+     - Task boundaries, user notifications, output registration
+   * - :doc:`skillbook`
+     - Learning
+     - Skill CRUD, trajectory tracking, effectiveness tagging
+   * - :doc:`package`
+     - Discovery
+     - Search packages and tools by keyword
+   * - :doc:`code_toolset`
+     - Code Analysis
+     - AST-based code outline and item extraction
+   * - :doc:`custom_toolsets`
+     - Extensibility
+     - Build your own toolsets
 
 Built-in Toolsets
 -----------------
@@ -180,6 +263,26 @@ Evolution & Evaluation
   - ``evaluate_codebase``: Evaluate entire projects
   - ``compute_code_metrics``: Static code metrics
   - ``get_llm_code_review``: AI-powered code review
+
+Infrastructure & Visualization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- :doc:`fleet` - Multi-node cluster management
+
+  - ``fleet_list_nodes``, ``fleet_node_info``, ``fleet_status``: Observe cluster
+  - ``run_on_node``, ``run_on_label``: Execute on remote nodes
+  - ``transfer``, ``broadcast``, ``gather``: Move files across nodes
+
+- :doc:`live_view` - Interactive browser visualizations
+
+  - ``open_live_view``: Open IGV, Vitessce, Mol*, Gosling, Cytoscape, and 6 more
+  - ``update_live_view``, ``close_live_view``: Manage open panels
+
+- :doc:`scfm` - Single-cell foundation models
+
+  - ``list_scfm_models``: Browse available models
+  - ``select_scfm_model``, ``run_scfm``: Run annotation, embedding, perturbation
+  - ``interpret_scfm_results``: Summarize and explain model output
 
 Quick Start
 -----------
@@ -344,24 +447,28 @@ See :doc:`/api/utils` for more details on MCP integration.
    :hidden:
    :maxdepth: 1
 
-   file_editor
-   file_transfer
-   shell
+   builtin_toolsets
    python_interpreter
    r_interpreter
    julia_interpreter
+   shell
    notebook
-   code_toolset
+   file_editor
+   file_transfer
    web_browse
    scraper_api
-   knowledge
-   vector_rag
-   image_generation
-   database_api
-   task
-   skillbook
-   package
+   fleet
+   live_view
+   scfm
    evolution
    evaluator
-   custom_toolset
+   knowledge
+   vector_rag
+   database_api
+   image_generation
+   task
+   skillbook
+   code_toolset
+   package
+   custom_toolsets
 
