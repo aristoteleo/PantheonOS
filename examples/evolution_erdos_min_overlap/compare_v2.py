@@ -14,7 +14,7 @@ that is not the policy is held fixed:
 
   A  annealed    new policy: one scale, soft annealed selection, learned judge, inheritance
   B  idea_code   old policy: top-k cutoff over a judge's [0,1] prior, rigid phase alternation
-  C  map_elites  the established baseline that produced the recorded result
+  C  agent_map_elites  the established baseline that produced the recorded result
 
 A vs B isolates the policy redesign. A vs C says whether any of it beats what was already there.
 
@@ -37,7 +37,7 @@ PY = sys.executable
 ARMS = {
     "annealed":  ["--method", "annealed"],
     "idea_code": ["--method", "idea_code", "--code-variator", "agent"],
-    "map_elites": ["--method", "map_elites"],
+    "agent_map_elites": ["--method", "agent_map_elites"],
 }
 
 

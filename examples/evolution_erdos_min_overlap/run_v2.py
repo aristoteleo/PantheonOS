@@ -2,14 +2,14 @@
 """Erdos minimum-overlap, run through the refactored loop with a choice of algorithm.
 
 The same problem, evaluator and seed as `run_evolution.py`; what changes is that the search is a
-plugged-in method rather than the one hard-coded into `EvolutionTeam`, so `--method map_elites`
+plugged-in method rather than the one hard-coded into `EvolutionTeam`, so `--method agent_map_elites`
 and `--method simpletes` are the same run with a different algorithm and nothing else.
 
 That comparison is the reason this file exists. Two algorithms on one problem, one evaluator, one
 budget and one model is the only way to say anything about the algorithms rather than about the
 harness they happen to be wired into.
 
-    python run_v2.py --method map_elites --iterations 12 --model openai/gpt-5.6-luna
+    python run_v2.py --method agent_map_elites --iterations 12 --model openai/gpt-5.6-luna
     python run_v2.py --method simpletes   --iterations 12 --model openai/gpt-5.6-luna
 """
 from __future__ import annotations
@@ -83,7 +83,7 @@ def build_method(name: str, seed: int, judge=None, norm: str = "minmax"):
             seed=seed,
         )
     if name == "simpletes":
-        # k=2 keeps the per-item cost comparable to map_elites' single child, so the two arms are
+        # k=2 keeps the per-item cost comparable to agent_map_elites' single child, so the two arms are
         # matched on evaluations rather than on prompts
         return SimpleTES(
             num_chains=2,
@@ -319,7 +319,7 @@ async def main(a) -> None:
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--method", default="map_elites",
+    p.add_argument("--method", default="agent_map_elites",
                    choices=["agent_map_elites", "map_elites", "simpletes", "idea_code", "annealed"])
     p.add_argument("--iterations", type=int, default=12, help="work items, i.e. LLM mutations")
     p.add_argument("--model", default="openai/gpt-5.6-luna")

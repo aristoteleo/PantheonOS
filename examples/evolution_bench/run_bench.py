@@ -10,7 +10,7 @@ this one takes the problem as data:
     tasks/<name>/objective.md   what the agent is told
 
     python run_bench.py --task hadamard29 --method annealed --iterations 40
-    python run_bench.py --task sums_diffs --method map_elites --iterations 120
+    python run_bench.py --task sums_diffs --method agent_map_elites --iterations 120
 
 The point of the first runs is not a score. It is whether the score is still climbing at the end of
 the budget: Erdos put every arm within 0.0005 of every other across twenty runs, and circle packing
@@ -182,7 +182,7 @@ async def main(a) -> None:
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--task", required=True)
-    p.add_argument("--method", default="map_elites",
+    p.add_argument("--method", default="agent_map_elites",
                    choices=["agent_map_elites", "map_elites", "simpletes", "idea_code", "annealed"])
     p.add_argument("--iterations", type=int, default=40)
     p.add_argument("--model", default="openai/gpt-5.6-luna")
