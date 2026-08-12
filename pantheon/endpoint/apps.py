@@ -68,6 +68,7 @@ class AppEntry:
     manifest: dict
     state: str = "registered"  # registered|spawning|ready|failed
     methods: list[str] = field(default_factory=list)
+    methods_info: list[dict] = field(default_factory=list)
     crashes: int = 0
     last_error: str = ""
 
@@ -78,6 +79,7 @@ class AppEntry:
             "scope": self.scope,
             "state": self.state,
             "methods": list(self.methods),
+            "methods_info": list(self.methods_info),
             "actions": self.manifest.get("actions", []),
             "opens": self.manifest.get("opens", []),
             "error": self.last_error or None,
