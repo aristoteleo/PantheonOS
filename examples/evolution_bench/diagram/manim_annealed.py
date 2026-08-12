@@ -2,213 +2,643 @@
 
     manim -qm --format=mp4 manim_annealed.py AnnealedRun
 
-Three acts, one per thing that only a run shows:
+**The tree is the protagonist, and it has two layers.** IDEAS are diamonds; PROGRAMS are circles
+hanging under the idea they implement. Three kinds of edge, because the method issues three kinds
+of parentage: refine (diamond to diamond), implementation (diamond to its circles), and BASE
+inheritance (dashed, circle to circle) -- the code an implementation actually started from, which
+is often the best program of a different idea. Every program knows two parents: the code it
+edited and the idea it served.
 
-  1. the loop -- every step draws an action from a mix, and the two branches cost different things:
-     an idea is PREDICTED by the judge, a program is MEASURED by the verifier
-  2. the schedule -- that mix sliding from proposing to implementing while the temperature falls,
-     and the selection distribution collapsing from near-uniform onto one idea
-  3. the judge learning -- its raw numbers all land in a narrow band, and the calibration is what
-     maps them onto the scale the verifier actually reports
+Fixed stage, as in the sibling videos: loop top-left with a runner dot, the annealed MIX BAR and
+the IDEA PANEL bottom-left (the method's two levers: which action, then which idea), tree right,
+fitness curve bottom right. The idea panel shows value = mu + beta*sigma per idea -- lavender
+while the value is only the judge's prediction, blue once an implementation has measured it --
+with the selection probability beside each bar.
+
+Acts:
+
+  1. two slow laps -- one NEW (the judge PREDICTS; nothing runs, the curve gets no point) and one
+     IMPLEMENT (softmax pick over the panel, the agent opens up, the verifier MEASURES, the
+     idea's bar turns from prediction to fact). Then speed.
+  2. the schedule: the mix slides from proposing to implementing while the temperature falls and
+     the selection distribution collapses onto the leader.
+  3. the judge, learning: predictions land in a narrow band, gains span a wide one; only the
+     ORDER is trustworthy, and the isotonic fit turns that order into the verifier's units.
+  4. the rest of the run at speed, closing on where the budget actually went.
 
 The run is real: `sim_annealed` drives the actual method, schedule, selection and calibration
-through the actual loop. Only the model call inside the judge is stubbed.
+through the actual loop. Only the judge's model call is stubbed -- the title card says so.
 """
 from __future__ import annotations
 
 import numpy as np
-from manim import (DOWN, LEFT, ORIGIN, RIGHT, UP, Axes, Circle, Create, Dot, FadeIn, FadeOut,
-                   Indicate, LaggedStart, Line, MovingCameraScene, Rectangle, Transform, VGroup,
-                   Write)
+from manim import (DL, DOWN, DR, LEFT, ORIGIN, RIGHT, UL, UP, UR, ArcBetweenPoints, Axes,
+                   Circle, Create, DashedLine, DashedVMobject, Dot, FadeIn, FadeOut,
+                   GrowFromPoint, Indicate, LaggedStart, Line, MoveAlongPath,
+                   MovingCameraScene, Rectangle, RoundedRectangle, Square, Transform, VGroup,
+                   VMobject, Write)
 
-from manim_kit import (BLUE, EDGE, FULL_W, GREEN, INK, Kit, MUTED, ORANGE, PANEL, PURPLE, RED, SUB,
-                       fit, para, txt)
-from sim_annealed import EVENTS, IMPLS, RAW_HI, RAW_LO
+from manim_kit import (BLUE, EDGE, FULL_W, GREEN, INK, Kit, MUTED, ORANGE, PANEL, PURPLE, RED,
+                       SUB, arc, dim, fit, para, score_color, spoke, txt)
+from sim_annealed import EVENTS, IDEAS, IMPLS, SEED_ID, SEED_SCORE
 
-ACTS = [("NEW", "propose an unrelated approach", PURPLE),
-        ("REFINE", "vary one that exists", BLUE),
-        ("IMPL", "implement one, and measure it", GREEN)]
-BAR_W, BAR_Y = 9.0, 2.05
+LO, HI = 0.35, 0.95                      # the score range every colour in the video spans
+
+# ---- the fixed stage ------------------------------------------------------
+LOOP_AT = {"action": np.array([-5.75, 1.75, 0.0]), "generate": np.array([-3.95, 3.05, 0.0]),
+           "score": np.array([-2.15, 1.75, 0.0]), "record": np.array([-3.95, 0.45, 0.0])}
+BOX_W, BOX_H = 2.55, 0.95
+MIX_C, MIX_W, MIX_H = np.array([-4.05, -0.30, 0.0]), 3.2, 0.22
+PANEL_TOP, ROW_H = -1.15, 0.27
+PANEL_X0, BAR_X0, BAR_WMAX = -5.85, -5.05, 2.1
+CURVE_C = np.array([3.35, -2.75, 0.0])
+CAP_AT = np.array([-3.6, -3.42, 0.0])
+
+IDEA_Y, STACK_TOP, STACK_DY, SUB_DX = 2.95, 2.3, 0.4, 0.24
+IDEA_R, PROG_R = 0.19, 0.125
+SEED_POS = np.array([0.55, 2.3, 0.0])
+
+ACTIONS = [("NEW", PURPLE), ("REFINE", BLUE), ("IMPL", GREEN)]
+LAVENDER = "#b9a7e6"
+BY_ID = {e["id"]: e for e in EVENTS}
 
 
-def mix_bar(mix, y=BAR_Y, w=BAR_W, h=0.46, lit=None) -> VGroup:
-    """The action distribution as one divided bar -- three numbers that always sum to 1."""
+def tree_layout(events):
+    """Ideas as columns, implementations stacked beneath their idea.
+
+    Column positions are recomputed over whatever exists so far and re-centred, so the first
+    diamond is born in the middle and the row spreads as ideas arrive. A stack deeper than eight
+    wraps into a second sub-column -- the run's leading idea collects fifteen implementations,
+    and fifteen circles at readable size do not fit in one column.
+    """
+    ideas = [e["id"] for e in events if e["kind"] == "idea"]
+    sp = min(0.95, 5.9 / max(1, len(ideas) - 1))
+    x0 = 3.7 - sp * (len(ideas) - 1) / 2
+    pos = {SEED_ID: SEED_POS} if SEED_ID else {}
+    for i, nid in enumerate(ideas):
+        pos[nid] = np.array([x0 + i * sp, IDEA_Y, 0.0])
+    counts: dict = {}
+    total = {}
+    for e in events:
+        if e["kind"] == "code" and e["id"] != SEED_ID:
+            total[e["anchor"]] = total.get(e["anchor"], 0) + 1
+    for e in events:
+        if e["kind"] != "code" or e["id"] == SEED_ID:
+            continue
+        k = counts.get(e["anchor"], 0)
+        counts[e["anchor"]] = k + 1
+        col, row = divmod(k, 8)
+        base = pos.get(e["anchor"], SEED_POS)
+        wraps = total.get(e["anchor"], 0) > 8
+        dx = SUB_DX * (2 * col - 1) if wraps else 0.0
+        pos[e["id"]] = np.array([base[0] + dx, STACK_TOP - row * STACK_DY, 0.0])
+    return pos
+
+
+def idea_mob(pos, lit=False) -> VGroup:
+    d = Square(side_length=IDEA_R * 2, stroke_width=2.6 if lit else 2.0,
+               color=GREEN if lit else PURPLE, fill_color="#ede7f8",
+               fill_opacity=1.0).rotate(np.pi / 4).move_to(pos)
+    return VGroup(d)
+
+
+def prog_mob(ev, pos, lit=False) -> Circle:
+    return Circle(radius=PROG_R, stroke_width=2.4 if lit else 1.8,
+                  color=GREEN if lit else EDGE,
+                  fill_color=score_color(ev["score"], LO, HI),
+                  fill_opacity=1.0).move_to(pos)
+
+
+def trimmed(a, b, ra, rb, **kw) -> Line:
+    d = b - a
+    u = d / max(float(np.linalg.norm(d)), 1e-6)
+    return Line(a + u * (ra + 0.02), b - u * (rb + 0.02), **kw)
+
+
+def mix_bar(mix, lit=None) -> VGroup:
     g = VGroup()
-    x = -w / 2
-    for i, (name, _, col) in enumerate(ACTS):
-        seg_w = max(0.001, mix[i] * w)
-        r = Rectangle(width=seg_w, height=h, stroke_width=2.0 if lit == i else 1.0,
+    x = MIX_C[0] - MIX_W / 2
+    for i, (name, col) in enumerate(ACTIONS):
+        w = max(0.001, mix[i] * MIX_W)
+        r = Rectangle(width=w, height=MIX_H, stroke_width=1.8 if lit == i else 0.8,
                       color=INK if lit == i else EDGE, fill_color=col,
-                      fill_opacity=0.9 if lit == i else 0.55)
-        r.move_to([x + seg_w / 2, y, 0])
+                      fill_opacity=0.85 if lit == i else 0.5)
+        r.move_to([x + w / 2, MIX_C[1], 0])
         g.add(r)
-        if mix[i] > 0.07:
-            g.add(txt(f"{name} {mix[i] * 100:.0f}%", 17, INK).move_to([x + seg_w / 2, y, 0]))
-        x += seg_w
+        # a label wider than its segment spills into the neighbours and the bar becomes soup;
+        # the segment's colour still says which action shrank
+        label = txt(f"{name} {mix[i] * 100:.0f}%", 10.5, INK)
+        if label.width < w - 0.1:
+            g.add(label.move_to([x + w / 2, MIX_C[1], 0]))
+        x += w
     return g
+
+
+def loop_box(key: str, top: str, sub: str) -> VGroup:
+    body = VGroup(txt(top, 20, INK), txt(sub, 13.5, SUB)).arrange(DOWN, buff=0.09)
+    frame = RoundedRectangle(width=BOX_W, height=BOX_H, corner_radius=0.13, stroke_width=1.7,
+                             color=EDGE, fill_color=PANEL, fill_opacity=1.0)
+    return VGroup(frame, body).move_to(LOOP_AT[key])
+
+
+def rect_anchor(box, other, pad=0.08) -> np.ndarray:
+    c, o = box.get_center(), other.get_center()
+    d = o - c
+    u = d / max(float(np.linalg.norm(d)), 1e-6)
+    t = min(BOX_W / 2 / abs(u[0]) if abs(u[0]) > 1e-6 else 1e9,
+            BOX_H / 2 / abs(u[1]) if abs(u[1]) > 1e-6 else 1e9)
+    return c + u * (t + pad)
+
+
+def ring_arrow(a_box, b_box):
+    return spoke(rect_anchor(a_box, b_box), rect_anchor(b_box, a_box), SUB, 2.6,
+                 0.0, 0.0, tip=0.16)
 
 
 class AnnealedRun(Kit, MovingCameraScene):
 
     def construct(self):
         title = txt("AnnealedIdeaCode", 52, INK, weight="BOLD")
-        sub = para("search the IDEAS, not just the programs — and spend the budget on proposing\n"
-                   "early, on implementing late, with a judge that learns what an idea is worth",
-                   27, SUB)
-        card = VGroup(title, sub).arrange(DOWN, buff=0.45)
+        sub = para("search the IDEAS, not just the code — propose early, implement late,\n"
+                   "and learn what an idea is worth before spending the budget on it", 27, SUB)
+        fine = txt("simulated scores · real method decisions", 16, MUTED)
+        card = VGroup(title, sub, fine).arrange(DOWN, buff=0.42)
         fit(card, FULL_W - 2.4).move_to(ORIGIN)
-        self.play(Write(title), FadeIn(sub, shift=UP * 0.15), run_time=1.4)
-        self.wait(1.8)
+        self.play(Write(title), FadeIn(sub, shift=UP * 0.15), FadeIn(fine), run_time=1.4)
+        self.wait(2.0)
         self.play(FadeOut(card), run_time=0.9)
 
-        self.act_loop()
+        self.idea_mobs: dict = {}
+        self.prog_mobs: dict = {}
+        self.edge_mobs: dict = {}              # (kind, a, b) -> mobject
+        self.panel_rows: dict = {}             # idea id -> row mobject
+        self.panel_order: list = []
+        self.curve_dots, self.best_pts = VGroup(), []
+        self.caption = None
+        self.ptr = 0
+        self.n_seen = 0
+        self.refine_explained = False
+
+        self.act_one()
         self.act_schedule()
         self.act_judge()
+        self.act_rest()
 
-    # ---- act 1 -----------------------------------------------------------
-    def act_loop(self):
-        head = txt("every step draws an action", 30, INK).move_to([0, 3.2, 0])
+    # ---- shared -----------------------------------------------------------
+    def say(self, text, size=22, color=INK, hold=0.0):
+        new = para(text, size, color) if "\n" in text else txt(text, size, color)
+        fit(new, 6.6).move_to(CAP_AT)
+        if self.caption is None:
+            self.caption = new
+            self.play(FadeIn(new), run_time=0.5)
+        else:
+            self.play(Transform(self.caption, new), run_time=0.5)
+        if hold:
+            self.wait(hold)
+
+    def drop_caption(self):
+        if self.caption is not None:
+            self.play(FadeOut(self.caption), run_time=0.4)
+            self.caption = None
+
+    def led(self, key) -> np.ndarray:
+        return self.boxes[key][0].get_corner(UL) + np.array([0.18, -0.18, 0.0])
+
+    def lap_anim(self):
+        path = VMobject().set_points_as_corners(
+            [self.runner.get_center(), self.led("generate"), self.led("score"),
+             self.led("record")])
+        return MoveAlongPath(self.runner, path)
+
+    def next_event(self):
+        ev = EVENTS[self.ptr]
+        self.ptr += 1
+        return ev
+
+    # ---- tree -------------------------------------------------------------
+    def tree_anims(self, ev, lit=False):
+        self.n_seen += 1
+        pos = tree_layout(EVENTS[: self.n_seen])
+        anims = []
+        for nid, mob in {**self.idea_mobs, **self.prog_mobs}.items():
+            if nid in pos and float(np.linalg.norm(mob.get_center() - pos[nid])) > 1e-3:
+                anims.append(mob.animate.move_to(pos[nid]))
+        for (kind, a, b), mob in self.edge_mobs.items():
+            if kind == "spine":
+                anims.append(Transform(mob, self.spine_edge(a, b, pos)))
+            else:
+                anims.append(Transform(mob, self.make_edge(kind, a, b, pos)))
+
+        if ev["kind"] == "idea":
+            node = idea_mob(pos[ev["id"]], lit=lit)
+            self.idea_mobs[ev["id"]] = node
+            if ev.get("parent") in self.idea_mobs:
+                key = ("refine", ev["parent"], ev["id"])
+                self.edge_mobs[key] = self.make_edge(*key, pos)
+                anims.append(Create(self.edge_mobs[key]))
+        else:
+            node = prog_mob(ev, pos[ev["id"]], lit=lit)
+            self.prog_mobs[ev["id"]] = node
+            if ev.get("anchor") in self.idea_mobs:
+                # ONE spine per sub-column, not an edge per implementation: fifteen circles
+                # each wired to the same diamond braid into a rope. The spine is drawn once
+                # and stretched as the stack grows; circles sit on top of it.
+                col = round((pos[ev["id"]][0] - pos[ev["anchor"]][0]) / SUB_DX) if SUB_DX else 0
+                key = ("spine", ev["anchor"], col)
+                if key in self.edge_mobs:
+                    anims.append(Transform(self.edge_mobs[key],
+                                           self.spine_edge(ev["anchor"], col, pos)))
+                else:
+                    self.edge_mobs[key] = self.spine_edge(ev["anchor"], col, pos)
+                    anims.append(Create(self.edge_mobs[key]))
+            if ev.get("parent") in self.prog_mobs:
+                key = ("base", ev["parent"], ev["id"])
+                self.edge_mobs[key] = self.make_edge(*key, pos)
+                anims.append(Create(self.edge_mobs[key]))
+        anims.append(FadeIn(node, scale=0.5))
+        return anims
+
+    def spine_edge(self, idea_id, col, pos):
+        """Diamond to the bottom of one of its sub-columns."""
+        xs = [pos[nid][0] for nid, e in BY_ID.items()
+              if e.get("kind") == "code" and e.get("anchor") == idea_id and nid in pos
+              and round((pos[nid][0] - pos[idea_id][0]) / SUB_DX) == col]
+        ys = [pos[nid][1] for nid, e in BY_ID.items()
+              if e.get("kind") == "code" and e.get("anchor") == idea_id and nid in pos
+              and round((pos[nid][0] - pos[idea_id][0]) / SUB_DX) == col]
+        x = xs[0] if xs else pos[idea_id][0]
+        y_end = min(ys) if ys else STACK_TOP
+        return Line(pos[idea_id] + DOWN * (IDEA_R + 0.02), [x, y_end, 0],
+                    color=EDGE, stroke_width=1.5).set_stroke(opacity=0.7)
+
+    def make_edge(self, kind, a, b, pos):
+        ra = IDEA_R if BY_ID.get(a, {}).get("kind") == "idea" else PROG_R
+        rb = IDEA_R if BY_ID.get(b, {}).get("kind") == "idea" else PROG_R
+        if kind == "refine":
+            return arc(pos[a], pos[b], PURPLE, 1.8, angle=-0.5,
+                       buff_a=ra + 0.04, buff_b=rb + 0.04, tip=0.1)
+        if kind == "impl":
+            return trimmed(pos[a], pos[b], ra, rb, color=EDGE,
+                           stroke_width=1.5).set_stroke(opacity=0.8)
+        # An arc, not a line. Five base edges leave the seed for circles at the SAME height,
+        # and straight dashed lines lie collinear on that row -- one fence through every circle.
+        # Bowed under the row, each span gets its own curve.
+        d = pos[b] - pos[a]
+        u = d / max(float(np.linalg.norm(d)), 1e-6)
+        a2, b2 = pos[a] + u * (ra + 0.04), pos[b] - u * (rb + 0.04)
+        curve = ArcBetweenPoints(a2, b2, angle=-0.45, color=MUTED, stroke_width=1.3)
+        return DashedVMobject(curve, num_dashes=max(6, int(np.linalg.norm(d) * 7))
+                              ).set_stroke(opacity=0.55)
+
+    # ---- the idea panel ----------------------------------------------------
+    def panel_row_mob(self, entry, y) -> VGroup:
+        mu, sig, beta = entry["mu"], entry["sigma"], entry["beta"]
+        measured = entry["measured"]
+        w_mu = max(0.02, min((mu - 0.3) / 0.7, 1.0) * BAR_WMAX)
+        w_bo = max(0.0, min(beta * sig / 0.7 * BAR_WMAX, BAR_WMAX * 0.5))
+        icon = Square(side_length=0.13, stroke_width=1.6, color=PURPLE,
+                      fill_color=PURPLE if measured else "#ede7f8",
+                      fill_opacity=1.0).rotate(np.pi / 4).move_to([PANEL_X0 + 0.1, y, 0])
+        bar = Rectangle(width=w_mu, height=0.13, stroke_width=0,
+                        fill_color=BLUE if measured else LAVENDER,
+                        fill_opacity=0.95).move_to([BAR_X0 + w_mu / 2, y, 0])
+        bonus = Rectangle(width=max(w_bo, 0.001), height=0.13, stroke_width=0, fill_color=ORANGE,
+                          fill_opacity=0.85).move_to([BAR_X0 + w_mu + w_bo / 2, y, 0])
+        ptxt = txt(f"{entry['prob'] * 100:.0f}%", 12, SUB)
+        ptxt.move_to([BAR_X0 + BAR_WMAX + 0.85, y, 0])
+        return VGroup(icon, bar, bonus, ptxt)
+
+    def panel_anims(self, table):
+        anims = []
+        for entry in table:
+            if entry["id"] not in self.panel_order:
+                self.panel_order.append(entry["id"])
+            y = PANEL_TOP - self.panel_order.index(entry["id"]) * ROW_H
+            new = self.panel_row_mob(entry, y)
+            old = self.panel_rows.get(entry["id"])
+            if old is None:
+                self.panel_rows[entry["id"]] = new
+                anims.append(FadeIn(new, scale=0.7))
+            else:
+                anims.append(Transform(old, new))
+        return anims
+
+    def flash_idea(self, idea_id):
+        out = []
+        if idea_id in self.panel_rows:
+            out.append(Indicate(self.panel_rows[idea_id], color=ORANGE, scale_factor=1.1))
+        if idea_id in self.idea_mobs:
+            out.append(Indicate(self.idea_mobs[idea_id], color=ORANGE, scale_factor=1.35))
+        return out
+
+    # ---- curve (programs only: prediction is free, measurement is not) ----
+    def curve_anims(self, ev):
+        if ev["kind"] != "code":
+            return []
+        i = len(self.best_pts)
+        p = self.ax.c2p(i + 1, ev["score"])
+        d = Dot(p, radius=0.045, color=BLUE).set_opacity(0.65)
+        self.curve_dots.add(d)
+        anims = [FadeIn(d, scale=0.4)]
+        bp = self.ax.c2p(i + 1, ev["best"])
+        if self.best_pts:
+            seg = Line(self.best_pts[-1], bp, color=ORANGE, stroke_width=3.6)
+            self.best_line.add(seg)
+            anims.append(Create(seg))
+        self.best_pts.append(bp)
+        return anims
+
+    # ---- one step ----------------------------------------------------------
+    def step(self, ev, run_time=0.55):
+        act_i = ["NEW", "REFINE", "IMPL"].index(ev["action"]) if ev.get("action") else None
+        pre = []
+        if act_i is not None:
+            pre.append(Transform(self.mix, mix_bar(ev["mix"], lit=act_i)))
+        if ev["kind"] == "code" and ev.get("anchor"):
+            pre += self.flash_idea(ev["anchor"])
+        elif ev["kind"] == "idea" and ev.get("parent"):
+            pre += self.flash_idea(ev["parent"])
+        if pre:
+            self.play(*pre, self.runner.animate.move_to(self.led("action")),
+                      run_time=run_time * 0.6)
+        self.play(*self.tree_anims(ev), *self.panel_anims(ev["table"]),
+                  *self.curve_anims(ev), self.lap_anim(), run_time=run_time)
+        if ev["kind"] == "idea" and ev["action"] == "REFINE" and not self.refine_explained:
+            self.refine_explained = True
+            self.say("refine — a variation of the leading idea. It starts from that idea's\n"
+                     "best code, so the intellectual lineage carries the code lineage with it",
+                     hold=2.4)
+
+    # ---- act 1 -------------------------------------------------------------
+    def act_one(self):
+        boxes = {"action": loop_box("action", "draw an action", "from the annealed mix"),
+                 "generate": loop_box("generate", "generate", "idea: one call · code: an agent"),
+                 "score": loop_box("score", "score", "judge predicts · verifier measures"),
+                 "record": loop_box("record", "record", "tree grows · values update")}
+        self.boxes = boxes
+        ring = VGroup(ring_arrow(boxes["action"][0], boxes["generate"][0]),
+                      ring_arrow(boxes["generate"][0], boxes["score"][0]),
+                      ring_arrow(boxes["score"][0], boxes["record"][0]),
+                      ring_arrow(boxes["record"][0], boxes["action"][0]))
+        self.ring = ring
+
         first = EVENTS[0]
-        bar = mix_bar(first["mix"])
-        cap = txt("the three add up to one, and the split is what the schedule moves",
-                  22, SUB).move_to([0, BAR_Y - 0.62, 0])
-        self.play(FadeIn(head), FadeIn(bar), FadeIn(cap), run_time=1.1)
-        self.wait(1.6)
+        self.mix = mix_bar(first["mix"])
+        mix_lab = txt("the annealed mix", 13, SUB).next_to(self.mix, DOWN, buff=0.1)
+        panel_lab = fit(txt("the ideas — value μ + bonus β·σ · chance of being drawn", 13, SUB),
+                        5.3).move_to([-4.05, -0.85, 0])
 
-        rows = VGroup()
-        for name, what, col in ACTS:
-            rows.add(VGroup(txt(name, 25, col, weight="BOLD"), txt(what, 22, SUB))
-                     .arrange(RIGHT, buff=0.4))
-        rows.arrange(DOWN, buff=0.42, aligned_edge=LEFT).move_to([0, 0.15, 0])
-        self.play(LaggedStart(*[FadeIn(r, shift=RIGHT * 0.15) for r in rows], lag_ratio=0.3),
-                  run_time=1.4)
-        self.wait(1.6)
+        self.ax = Axes(x_range=[0, len(IMPLS) + 2, 5], y_range=[0.4, 1.0, 0.3],
+                       x_length=6.6, y_length=2.1, tips=False,
+                       axis_config={"color": EDGE, "stroke_width": 2, "include_numbers": False})
+        self.ax.move_to(CURVE_C)
+        ticks = VGroup(*[txt(f"{v:.1f}", 13, MUTED).next_to(self.ax.c2p(0, v), LEFT, buff=0.1)
+                         for v in (0.4, 0.7, 1.0)],
+                       *[txt(str(v), 13, MUTED).next_to(self.ax.c2p(v, 0.4), DOWN, buff=0.1)
+                         for v in (10, 20)],
+                       txt("programs", 13, MUTED).next_to(self.ax.c2p(len(IMPLS) + 2, 0.4),
+                                                          DOWN, buff=0.1))
+        curve_lab = txt("fitness · every program measured, and the best so far", 15, SUB)
+        curve_lab.next_to(self.ax, UP, buff=0.1).align_to(self.ax, LEFT)
+        self.best_line = VGroup()
+        self.add(self.best_line, self.curve_dots)
 
-        cost = para("The two branches do not cost the same thing. An idea is PREDICTED by the "
-                    "judge —\ncheap, and possibly wrong. A program is MEASURED by the verifier — "
-                    "expensive, and true.", 22, INK)
-        fit(cost, FULL_W - 2.0).move_to([0, -2.3, 0])
-        self.play(FadeIn(cost), run_time=0.8)
-        self.wait(3.0)
-        self.play(FadeOut(head), FadeOut(rows), FadeOut(cost), FadeOut(cap), FadeOut(bar),
-                  run_time=0.8)
+        self.tree_lab = txt("the tree — ideas above, their implementations below", 17, SUB)
+        tree_lab = self.tree_lab.move_to([3.6, 3.55, 0])
+        self.runner = Dot(radius=0.07, color=ORANGE)
 
-    # ---- act 2 -----------------------------------------------------------
+        seed_dot = Circle(radius=PROG_R, stroke_width=1.8, color=EDGE,
+                          fill_color=score_color(SEED_SCORE, LO, HI),
+                          fill_opacity=1.0).move_to(SEED_POS)
+        seed_tag = txt("seed", 12, MUTED).next_to(seed_dot, UP, buff=0.1)
+        self.prog_mobs[SEED_ID] = seed_dot
+        self.best_pts.append(self.ax.c2p(1, SEED_SCORE))
+        seed_pt = Dot(self.ax.c2p(1, SEED_SCORE), radius=0.045, color=BLUE).set_opacity(0.65)
+        self.curve_dots.add(seed_pt)
+
+        self.play(LaggedStart(*[FadeIn(boxes[k], scale=0.9) for k in
+                                ("action", "generate", "score", "record")], lag_ratio=0.15),
+                  LaggedStart(*[Create(a) for a in ring], lag_ratio=0.15),
+                  FadeIn(self.mix), FadeIn(mix_lab), FadeIn(panel_lab),
+                  Create(self.ax), FadeIn(ticks), FadeIn(curve_lab), FadeIn(tree_lab),
+                  FadeIn(seed_dot), FadeIn(seed_tag), FadeIn(seed_pt),
+                  run_time=2.0)
+        self.runner.move_to(self.led("action"))
+        self.play(FadeIn(self.runner, scale=0.4), run_time=0.4)
+        self.say("one seed program, already measured — and no ideas yet", hold=1.4)
+
+        # ---- slow lap A: a NEW idea ----------------------------------------
+        ev = self.next_event()
+        self.play(Indicate(boxes["action"][1][0], color=ORANGE, scale_factor=1.15),
+                  Transform(self.mix, mix_bar(ev["mix"], lit=0)),
+                  self.runner.animate.move_to(self.led("action")), run_time=0.9)
+        self.say("draw an action — early in the run the mix leans towards PROPOSING\n"
+                 "new ideas; that lean is exactly what the schedule will anneal away", hold=2.2)
+
+        self.play(Indicate(boxes["generate"][1][0], color=ORANGE, scale_factor=1.15),
+                  self.runner.animate.move_to(self.led("generate")), run_time=0.7)
+        self.say("generate — an idea is one model call: a paragraph describing an approach,\n"
+                 "not a program. Nothing is executed.", hold=2.0)
+
+        self.play(Indicate(boxes["score"][1][0], color=ORANGE, scale_factor=1.15),
+                  self.runner.animate.move_to(self.led("score")), run_time=0.7)
+        self.say("score — the JUDGE predicts what a competent implementation would reach.\n"
+                 "A prediction is free: notice the fitness curve gets no point", hold=2.2)
+
+        self.play(Indicate(boxes["record"][1][0], color=ORANGE, scale_factor=1.15),
+                  self.runner.animate.move_to(self.led("record")),
+                  *self.tree_anims(ev, lit=True), *self.panel_anims(ev["table"]), run_time=1.0)
+        self.say("record — a diamond on the tree, and a row in the panel: the judge's value\n"
+                 "in lavender, because it is a claim, not a measurement", hold=2.4)
+        self.play(self.idea_mobs[ev["id"]][0].animate.set_stroke(PURPLE, width=2.0),
+                  run_time=0.4)
+
+        # a second NEW, in one breath
+        self.step(self.next_event(), run_time=0.5)
+
+        # ---- slow lap B: an IMPLEMENT ---------------------------------------
+        ev = self.next_event()
+        self.play(Indicate(boxes["action"][1][0], color=ORANGE, scale_factor=1.15),
+                  Transform(self.mix, mix_bar(ev["mix"], lit=2)),
+                  self.runner.animate.move_to(self.led("action")), run_time=0.9)
+        self.say("this time: IMPLEMENT. Which idea? — a softmax over value + β·σ,\n"
+                 "still wide open while the temperature is high", hold=0.4)
+        self.play(*self.flash_idea(ev["anchor"]), run_time=0.9)
+        self.wait(1.4)
+
+        agent = self.agent_inset()
+        gen = self.boxes["generate"][0]
+        callout = VGroup(
+            DashedLine(gen.get_corner(DL), agent[0].get_corner(UL), color=ORANGE,
+                       stroke_width=1.6, dash_length=0.08),
+            DashedLine(gen.get_corner(DR), agent[0].get_corner(UR), color=ORANGE,
+                       stroke_width=1.6, dash_length=0.08))
+        self.play(Indicate(self.boxes["generate"][1][0], color=ORANGE, scale_factor=1.15),
+                  self.runner.animate.move_to(self.led("generate")),
+                  GrowFromPoint(agent, gen.get_center()), run_time=0.9)
+        self.play(Create(callout), run_time=0.4)
+        self.say("implementing is a coding agent. It starts from the idea's best code so far —\n"
+                 "here, the seed — edits, runs the evaluator itself, submits what passes")
+        for _ in range(2):
+            for j in range(3):
+                self.play(Indicate(agent[1][j][1], color=ORANGE, scale_factor=1.25),
+                          run_time=0.32)
+        self.wait(0.6)
+
+        self.play(FadeOut(agent), FadeOut(callout),
+                  Indicate(self.boxes["score"][1][0], color=ORANGE, scale_factor=1.15),
+                  self.runner.animate.move_to(self.led("score")),
+                  *self.curve_anims(ev), run_time=0.9)
+        self.say(f"score — the VERIFIER measures it: {ev['score']:.2f}. Measurements are what "
+                 "the budget\nbuys; predictions were the discount version", hold=2.0)
+
+        self.play(Indicate(self.boxes["record"][1][0], color=ORANGE, scale_factor=1.15),
+                  self.runner.animate.move_to(self.led("record")),
+                  *self.tree_anims(ev, lit=True), *self.panel_anims(ev["table"]), run_time=1.0)
+        self.say("record — a circle under its diamond, a dashed line back to the code it "
+                 "edited,\nand the idea's bar turns BLUE: its value is now a fact, not a claim",
+                 hold=2.6)
+        self.play(self.prog_mobs[ev["id"]].animate.set_stroke(EDGE, width=1.8), run_time=0.4)
+
+        # ---- speed ----------------------------------------------------------
+        self.say("the same turn, over and over — ideas appear, implementations pile up",
+                 color=SUB)
+        while self.n_seen < 9:
+            self.step(self.next_event())
+        self.wait(0.8)
+        self.drop_caption()
+
+    def agent_inset(self) -> VGroup:
+        steps = VGroup(*[VGroup(RoundedRectangle(width=1.0, height=0.5, corner_radius=0.08,
+                                                 stroke_width=1.4, color=EDGE,
+                                                 fill_color=PANEL, fill_opacity=1.0),
+                                txt(w, 15, INK))
+                         for w in ("edit", "run", "check")])
+        for box in steps:
+            box[1].move_to(box[0])
+        steps.arrange(RIGHT, buff=0.5)
+        fwd = VGroup(spoke(steps[0].get_right(), steps[1].get_left(), MUTED, 1.6,
+                           0.04, 0.04, tip=0.12),
+                     spoke(steps[1].get_right(), steps[2].get_left(), MUTED, 1.6,
+                           0.04, 0.04, tip=0.12))
+        rail_y = steps.get_bottom()[1] - 0.42
+        down = Line(steps[2][0].get_bottom() + DOWN * 0.04,
+                    [steps[2][0].get_bottom()[0], rail_y, 0], color=MUTED, stroke_width=1.6)
+        across = Line([steps[2][0].get_bottom()[0], rail_y, 0],
+                      [steps[0][0].get_bottom()[0], rail_y, 0], color=MUTED, stroke_width=1.6)
+        up = spoke([steps[0][0].get_bottom()[0], rail_y, 0],
+                   steps[0][0].get_bottom() + DOWN * 0.04, MUTED, 1.6, 0.0, 0.02, tip=0.12)
+        retry = txt("fails? edit again", 13, MUTED).next_to(across, DOWN, buff=0.08)
+        head = txt("implement, opened up", 15, ORANGE)
+        head.next_to(steps, UP, buff=0.22)
+        content = VGroup(head, steps, fwd, down, across, up, retry)
+        frame = RoundedRectangle(width=content.width + 0.55, height=content.height + 0.4,
+                                 corner_radius=0.15, stroke_width=1.8, color=ORANGE,
+                                 fill_color=PANEL, fill_opacity=1.0)
+        frame.move_to(content.get_center())
+        return VGroup(frame, steps, fwd, VGroup(down, across, up), retry, head).move_to(
+            [-3.95, 1.32, 0])
+
+    # ---- act 2: the schedule ------------------------------------------------
     def act_schedule(self):
-        head = txt("the schedule: broad early, narrow late", 30, INK).move_to([0, 3.35, 0])
-        bar = mix_bar(EVENTS[0]["mix"])
-        tlab = txt("t = 0.00", 22, ORANGE).move_to([0, BAR_Y + 0.62, 0])
-        self.play(FadeIn(head), FadeIn(bar), FadeIn(tlab), run_time=1.0)
+        self.play(*[self.boxes[k][0].animate.set_stroke(opacity=0.35) for k in self.boxes],
+                  *[self.boxes[k][1].animate.set_opacity(0.35) for k in self.boxes],
+                  *dim([(self.ring, "stroke")], 0.22), run_time=0.8)
 
-        ax = Axes(x_range=[0, 1.02, 0.25], y_range=[0, 1.05, 0.5], x_length=8.6, y_length=2.5,
+        ax = Axes(x_range=[0, 1.02, 0.5], y_range=[0, 1.05, 0.5], x_length=3.1, y_length=1.6,
                   tips=False,
                   axis_config={"color": EDGE, "stroke_width": 2, "include_numbers": False})
-        ax.move_to([0, -0.55, 0])
-        ticks = VGroup(txt("t = 0", 17, MUTED).next_to(ax.c2p(0, 0), DOWN, buff=0.2),
-                       txt("t = 1", 17, MUTED).next_to(ax.c2p(1.0, 0), DOWN, buff=0.2))
+        ax.move_to([-3.95, 1.65, 0])
         ts = [e["t"] for e in EVENTS]
         curves = VGroup(
             ax.plot_line_graph(ts, [e["mix"][0] for e in EVENTS], line_color=PURPLE,
-                               add_vertex_dots=False, stroke_width=4),
+                               add_vertex_dots=False, stroke_width=3.4),
             ax.plot_line_graph(ts, [e["mix"][2] for e in EVENTS], line_color=GREEN,
-                               add_vertex_dots=False, stroke_width=4),
+                               add_vertex_dots=False, stroke_width=3.4),
             ax.plot_line_graph(ts, [e["temperature"] for e in EVENTS], line_color=ORANGE,
-                               add_vertex_dots=False, stroke_width=3.4))
-        key = VGroup(txt("propose", 19, PURPLE), txt("implement", 19, GREEN),
-                     txt("temperature", 19, ORANGE)).arrange(RIGHT, buff=0.55)
+                               add_vertex_dots=False, stroke_width=3.0))
+        key = VGroup(txt("propose", 14, PURPLE), txt("implement", 14, GREEN),
+                     txt("temperature", 14, ORANGE)).arrange(RIGHT, buff=0.35)
         key.next_to(ax, UP, buff=0.12)
-        self.play(Create(ax), FadeIn(ticks), FadeIn(key), run_time=0.9)
-        self.play(Create(curves), run_time=2.2)
+        tick = VGroup(txt("t = 0", 12, MUTED).next_to(ax.c2p(0, 0), DOWN, buff=0.1),
+                      txt("t = 1", 12, MUTED).next_to(ax.c2p(1, 0), DOWN, buff=0.1))
+        self.say("the schedule, drawn from this very run: proposing decays, implementing\n"
+                 "takes what it gives up, and the temperature falls alongside", hold=0.2)
+        self.play(Create(ax), FadeIn(key), FadeIn(tick), run_time=0.8)
+        self.play(Create(curves), run_time=2.0)
+        self.wait(1.6)
+        self.say("a falling temperature narrows the softmax over the panel: early, every idea\n"
+                 "gets a real chance — late, the leader takes nearly every implementation",
+                 hold=2.6)
+        self.play(FadeOut(VGroup(ax, curves, key, tick)), run_time=0.6)
 
-        # the bar walking the same schedule
-        marker = Dot(ax.c2p(0, 0), radius=0.06, color=ORANGE)
-        self.play(FadeIn(marker), run_time=0.3)
-        for e in EVENTS[::3]:
-            self.play(Transform(bar, mix_bar(e["mix"])),
-                      Transform(tlab, txt(f"t = {e['t']:.2f}", 22, ORANGE)
-                                .move_to([0, BAR_Y + 0.62, 0])),
-                      marker.animate.move_to(ax.c2p(e["t"], e["temperature"])),
-                      run_time=0.32)
-        self.wait(1.0)
-
-        tag = para("Proposing decays; implementing takes what it gives up. The temperature falls "
-                   "with it,\nso the choice of WHICH idea to implement goes from near-uniform to "
-                   "nearly always the leader.", 21, INK)
-        fit(tag, FULL_W - 2.0).move_to([0, -2.95, 0])
-        self.play(FadeIn(tag), run_time=0.8)
-        self.wait(3.0)
-        self.play(FadeOut(head), FadeOut(bar), FadeOut(tlab), FadeOut(ax), FadeOut(ticks),
-                  FadeOut(key), FadeOut(curves), FadeOut(marker), FadeOut(tag), run_time=0.9)
-
-    # ---- act 3 -----------------------------------------------------------
+    # ---- act 3: the judge ----------------------------------------------------
     def act_judge(self):
-        head = txt("the judge, and what it has to learn", 30, INK).move_to([0, 3.35, 0])
-        self.play(FadeIn(head), run_time=0.6)
-
         pairs = [(e["raw"], e["score"] - (e.get("idea_base") or 0.0))
                  for e in IMPLS if e.get("raw") is not None and e.get("score") is not None]
-        # The BULK, not the extremes. `raw = prediction - base`, and the base climbs as the run
-        # improves, so a couple of late ideas predict almost no gain and sit far from the rest.
-        # A band drawn to the extremes would be labelled "0.46 wide" over a picture of a cluster --
-        # the caption contradicting its own chart.
         rs = sorted(r for r, _ in pairs)
         k = max(1, len(rs) // 10)
         lo_r, hi_r = rs[k], rs[-k - 1]
-        gs = sorted(g for _, g in pairs)
-        lo_g, hi_g = gs[0], gs[-1]
 
-        # BOTH axes on the same scale, and neither zoomed to its data. Zooming x to the band the
-        # predictions occupy would make it look wide, which is the opposite of the point: the
-        # judge's numbers span %.2f while the gains they are predicting span %.2f.
-        ax = Axes(x_range=[0, 0.55, 0.25], y_range=[0, 0.55, 0.25], x_length=5.0, y_length=3.4,
+        # The tree label leaves entirely: the chart's heading lands on the same spot, and even
+        # at 12% the ghost of one title under another reads as smudge.
+        tree = VGroup(*self.idea_mobs.values(),
+                      *[m for i, m in self.prog_mobs.items()],
+                      *self.edge_mobs.values())
+        self.play(tree.animate.set_opacity(0.12), FadeOut(self.tree_lab), run_time=0.7)
+
+        ax = Axes(x_range=[0, 0.55, 0.25], y_range=[0, 0.55, 0.25], x_length=3.4, y_length=2.9,
                   tips=False,
                   axis_config={"color": EDGE, "stroke_width": 2, "include_numbers": False})
-        ax.move_to([0.2, -0.2, 0])
-        xlab = txt("what the judge said", 19, MUTED).next_to(ax, DOWN, buff=0.28)
-        ylab = txt("what it actually gained", 19, MUTED).rotate(np.pi / 2).next_to(ax, LEFT,
-                                                                                  buff=0.22)
-        corner = VGroup(txt("0", 16, MUTED).next_to(ax.c2p(0, 0), DOWN + LEFT, buff=0.12),
-                        txt("0.5", 16, MUTED).next_to(ax.c2p(0.5, 0), DOWN, buff=0.16),
-                        txt("0.5", 16, MUTED).next_to(ax.c2p(0, 0.5), LEFT, buff=0.16))
-        self.play(Create(ax), FadeIn(xlab), FadeIn(ylab), FadeIn(corner), run_time=1.0)
+        ax.move_to([3.55, 1.45, 0])
+        xlab = txt("what the judge said", 15, MUTED).next_to(ax, DOWN, buff=0.16)
+        ylab = txt("what it gained", 15, MUTED).rotate(np.pi / 2).next_to(ax, LEFT, buff=0.14)
+        head = txt("the judge, checked against the verifier", 20, INK).next_to(ax, UP, buff=0.45)
+        self.say("every implementation checks the judge: what it SAID against what the\n"
+                 "program actually GAINED", color=SUB)
+        self.play(Create(ax), FadeIn(xlab), FadeIn(ylab), FadeIn(head), run_time=0.9)
 
-        band = Rectangle(width=abs(ax.c2p(hi_r, 0)[0] - ax.c2p(lo_r, 0)[0]),
-                         height=3.4, stroke_width=0, fill_color=ORANGE, fill_opacity=0.14)
+        band = Rectangle(width=abs(ax.c2p(hi_r, 0)[0] - ax.c2p(lo_r, 0)[0]), height=2.9,
+                         stroke_width=0, fill_color=ORANGE, fill_opacity=0.14)
         band.move_to([(ax.c2p(lo_r, 0)[0] + ax.c2p(hi_r, 0)[0]) / 2, ax.get_center()[1], 0])
-        bandlab = txt(f"8 in 10 predictions: {hi_r - lo_r:.2f} wide", 18, ORANGE)
-        bandlab.next_to(band, UP, buff=0.1)
-        spread = txt(f"their gains: {hi_g - lo_g:.2f} wide", 18, BLUE)
-        spread.rotate(np.pi / 2).next_to(ax.c2p(0, (lo_g + hi_g) / 2), RIGHT, buff=0.05)
-        dots = VGroup(*[Dot(ax.c2p(r, g), radius=0.055, color=BLUE).set_opacity(0.75)
-                        for r, g in pairs])
-        self.play(FadeIn(band), FadeIn(bandlab), run_time=0.7)
-        self.play(LaggedStart(*[FadeIn(d, scale=0.4) for d in dots], lag_ratio=0.09), run_time=1.8)
-        self.play(FadeIn(spread), run_time=0.5)
+        dots = VGroup(*[Dot(ax.c2p(min(max(r, 0.0), 0.54), min(max(g, 0.0), 0.54)),
+                            radius=0.05, color=BLUE).set_opacity(0.75) for r, g in pairs])
+        self.play(FadeIn(band), run_time=0.5)
+        self.play(LaggedStart(*[FadeIn(d, scale=0.4) for d in dots], lag_ratio=0.08),
+                  run_time=1.6)
+        self.say("ranked about right, scaled completely wrong — the predictions bunch into a\n"
+                 "band a fraction of the width of the gains. Only the ORDER is trustworthy",
+                 hold=2.6)
 
-        why = para("Ranked about right, scaled completely wrong: the predictions bunch into a "
-                   "band\na fraction of the width of the gains they are predicting. Only the ORDER "
-                   "is trustworthy.", 21, INK)
-        fit(why, FULL_W - 2.0).move_to([0, -3.15, 0])
-        self.play(FadeIn(why), run_time=0.8)
-        self.wait(3.2)
-
-        # the isotonic fit: monotone, and free to move each step as far as it needs to
-        # A running maximum: monotone by construction, and free to step as far as it needs to at
-        # any point. That is what lets it stretch a 0.05-wide input onto a 0.33-wide output, which
-        # no rescaling of a straight line can do.
         pts = sorted(pairs)
-        fit_line = VGroup()
-        run_y = None
+        run_y, fit_line = None, VGroup()
         for i, (r, g) in enumerate(pts):
             run_y = g if run_y is None else max(run_y, g)
-            x0 = ax.c2p(r, 0)[0]
-            x1 = ax.c2p(pts[i + 1][0], 0)[0] if i + 1 < len(pts) else ax.c2p(0.55, 0)[0]
-            y = ax.c2p(0, min(0.55, run_y))[1]
-            fit_line.add(Line([x0, y, 0], [x1, y, 0], color=RED, stroke_width=4))
-        done = para("So the judge is not asked for a number. It is asked for an ORDER, and a "
-                    "monotone fit\nturns that order into the verifier's units — with the leftover "
-                    "spread as its uncertainty.", 21, INK)
-        fit(done, FULL_W - 2.0).move_to([0, -3.15, 0])
-        self.play(FadeOut(why), FadeOut(spread), Create(fit_line), run_time=1.6)
-        self.play(FadeIn(done), run_time=0.7)
-        self.wait(3.4)
+            x0 = ax.c2p(min(max(r, 0.0), 0.54), 0)[0]
+            x1 = ax.c2p(min(max(pts[i + 1][0], 0.0), 0.54), 0)[0] if i + 1 < len(pts) \
+                else ax.c2p(0.55, 0)[0]
+            y = ax.c2p(0, min(run_y, 0.54))[1]
+            fit_line.add(Line([x0, y, 0], [x1, y, 0], color=RED, stroke_width=3.6))
+        self.play(Create(fit_line), run_time=1.4)
+        self.say("so the judge is asked for an ORDER, and an isotonic fit turns that order\n"
+                 "into the verifier's units — the leftover spread becomes its σ", hold=2.8)
+
+        self.play(FadeOut(VGroup(ax, xlab, ylab, head, band, dots, fit_line)),
+                  tree.animate.set_opacity(1.0), FadeIn(self.tree_lab), run_time=0.8)
+
+    # ---- act 4: the rest ------------------------------------------------------
+    def act_rest(self):
+        self.say("the rest of the budget — watch where it goes", color=SUB)
+        while self.ptr < len(EVENTS):
+            self.step(self.next_event(), run_time=0.4)
+
+        lead = max({e["anchor"] for e in IMPLS if e.get("anchor")},
+                   key=lambda a: sum(1 for e in IMPLS if e["anchor"] == a))
+        n_lead = sum(1 for e in IMPLS if e["anchor"] == lead)
+        self.play(*self.flash_idea(lead), run_time=0.9)
+        self.say(f"{len(IMPLS)} implementations, {n_lead} of them on this one idea — the mix "
+                 "slid from proposing\nto implementing, and the cooling softmax picked its "
+                 "winner", hold=3.0)
+        self.say("every program here has two parents: the code it edited (dashed) and the\n"
+                 "idea it served — the search keeps both lineages, and budgets by the second",
+                 hold=3.2)

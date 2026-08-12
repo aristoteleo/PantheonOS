@@ -1,30 +1,34 @@
 """An AnnealedIdeaCode run, simulated -- and it is a real one.
 
 The method, the schedule, the selection distribution and the judge's CALIBRATION are all the real
-code, driven through the real `evolve()` loop. What is stubbed is exactly one thing: the model call
-inside the judge, replaced by a number that correlates with an idea's hidden ceiling and is
+code, driven through the real `evolve()` loop. What is stubbed is exactly one thing: the model
+call inside the judge, replaced by a number that correlates with an idea's hidden ceiling and is
 deliberately squashed into a narrow band. That squashing is the failure the calibration exists to
 undo, so faking it there keeps the interesting half honest.
 
 Invented: an idea's ceiling, and how much of it an implementation reaches.
+
+The recording keeps both lineages, because the method issues both: a program's `parent` is the
+CODE it started from (`_implement` sets `parent_ids=[pool_best(idea)]`), and its `anchor` is the
+IDEA it serves. An idea's `parent` is the idea it refines. The video draws all three edge kinds.
 """
 from __future__ import annotations
 
 import asyncio
 import random
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from pantheon.evolution.core import (Budget, EvolveContext, Individual, Measurement, Produced,
                                      TextGenome)
 from pantheon.evolution.core.loop import evolve
-from pantheon.evolution.methods.annealed_idea_code import CODE, IDEA, IMPL, AnnealedIdeaCode
+from pantheon.evolution.methods.annealed_idea_code import CODE, IDEA, AnnealedIdeaCode
 from pantheon.evolution.variators.judge import LearnedIdeaJudge
 
 STEPS = 30
 SEED_SCORE = 0.42
 RAW_LO, RAW_HI = 0.72, 0.93
-"""The band the stubbed model insists on using. Every prediction lands in it regardless of how good
-the approach is -- which is why a linear rescale cannot fix it and the isotonic fit can."""
+"""The band the stubbed model insists on using. Every prediction lands in it regardless of how
+good the approach is -- which is why a linear rescale cannot fix it and the isotonic fit can."""
 
 
 class Ideas:
@@ -73,11 +77,11 @@ class Verifier:
 class StubJudge(LearnedIdeaJudge):
     """The real `Calibration`; only the model call is faked.
 
-    The learnable part of the judge is the calibration -- an isotonic regression from whatever band
-    the model uses onto the verifier's scale, with the residual spread as sigma. That is arithmetic
-    and it runs here for real. The stub supplies a raw number that ranks approaches correctly and
-    is compressed into RAW_LO..RAW_HI, which is the shape the real thing produces and the reason a
-    monotone fit is the right tool.
+    The learnable part of the judge is the calibration -- an isotonic regression from whatever
+    band the model uses onto the verifier's scale, with the residual spread as sigma. That is
+    arithmetic and it runs here for real. The stub supplies a raw number that ranks approaches
+    correctly and is compressed into RAW_LO..RAW_HI, which is the shape the real thing produces
+    and the reason a monotone fit is the right tool.
     """
 
     def __init__(self, **kw):
@@ -106,47 +110,54 @@ class Recorded(AnnealedIdeaCode):
 
     async def ask(self, ctx, n):
         t = self.progress(ctx)
-        ideas, probs = self.select_probs(ctx, t)
         items = await super().ask(ctx, n)
         for it in items:
-            self._pending[it.id] = {
+            self._pending[it.batch_id] = {
                 "t": t, "temperature": self.temperature(t), "beta": self.beta(t),
                 "mix": self.mix(t), "action": it.meta.get("action"),
-                "base": it.meta.get("base"),
-                "idea": it.meta.get("idea") or (it.parent_ids[0] if it.parent_ids else None),
-                "probs": [(i.id, p) for i, p in zip(ideas, probs)],
+                "issued_base": it.meta.get("base"),
+                "idea": it.meta.get("idea"),
             }
         return items
 
+    def _table(self, ctx) -> List[Dict[str, Any]]:
+        """The idea panel, as the method computes it right now: value, uncertainty, selection
+        probability, and whether the value is a measurement or still the judge's word."""
+        t = self.progress(ctx)
+        ideas, probs = self.select_probs(ctx, t)
+        return [{"id": i.id, "mu": self.mu(ctx, i), "sigma": self.sigma(ctx, i),
+                 "beta": self.beta(t), "prob": p,
+                 "measured": bool(self.own_scores(ctx, i.id))}
+                for i, p in zip(ideas, probs)]
+
     async def on_measured(self, ctx, ind, m):
-        before = len(self.judge.cal) if self.judge else 0
         await super().on_measured(ctx, ind, m)
-        rec = self._pending.pop(ind.item_id, None) if hasattr(ind, "item_id") else None
-        rec = rec or self._pending.pop(m.item_id, None) if hasattr(m, "item_id") else rec
-        ev = dict(rec or {})
-        # An implementation's PREDICTION lives on the idea it came from, not on the program: the
-        # judge measured the idea, the verifier measured the program. Joining them here is the
-        # whole point -- "what was said" against "what happened" is two separate measurements.
+        rec = dict(self._pending.pop(m.batch_id, {}))
+        # A code child's prediction lives on the idea it serves, not on the program: the judge
+        # measured one, the verifier the other, and "what was said" against "what happened" only
+        # exists once they are joined.
         said = {}
-        idea = ctx.store.get(ev.get("idea")) if ev.get("idea") else None
-        if idea is not None:
-            for im in idea.measurements:
+        anchor = ctx.store.get(ind.anchor_id) if ind.anchor_id else None
+        if anchor is not None:
+            for im in anchor.measurements:
                 said = {k: v for k, v in im.metrics.items() if k.startswith("idea_")} or said
-        ev.update({
+        rec.update({
             "kind": ind.kind, "id": ind.id,
+            "parent": ind.parent_ids[0] if ind.parent_ids else None,
+            "anchor": ind.anchor_id,
             "score": self._score(ind) if ind.kind == CODE else None,
-            "delta_hat": m.metrics.get("idea_delta_hat", said.get("idea_delta_hat")),
             "raw": m.metrics.get("idea_raw", said.get("idea_raw")),
-            "idea_base": said.get("idea_base"),
-            "sigma": m.metrics.get("idea_sigma", said.get("idea_sigma")),
+            "delta_hat": m.metrics.get("idea_delta_hat", said.get("idea_delta_hat")),
+            "idea_base": m.metrics.get("idea_base", said.get("idea_base")),
+            "pred_mu": (m.metrics.get("idea_base", 0.0) or 0.0)
+                       + (m.metrics.get("idea_delta_hat", 0.0) or 0.0),
             "judge_n": len(self.judge.cal) if self.judge else 0,
-            "judge_grew": (len(self.judge.cal) if self.judge else 0) > before,
             "fitted": bool(self.judge.cal.fitted) if self.judge else False,
             "best": max([s for s in (self._score(c) for c in ctx.store.of_kind(CODE))
                          if s is not None] or [0.0]),
-            "n_ideas": len(list(ctx.store.of_kind(IDEA))),
+            "table": self._table(ctx),
         })
-        self.events.append(ev)
+        self.events.append(rec)
 
 
 def simulate():
@@ -163,3 +174,5 @@ def simulate():
 
 EVENTS = simulate()
 IMPLS = [e for e in EVENTS if e.get("kind") == CODE]
+IDEAS = [e for e in EVENTS if e.get("kind") == IDEA]
+SEED_ID = next((e["parent"] for e in IMPLS if e.get("parent")), None)
