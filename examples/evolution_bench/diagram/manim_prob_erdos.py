@@ -1,26 +1,30 @@
-"""The Erdos minimum-overlap problem, told entirely in cells.
+"""The Erdos minimum-overlap problem, taught the way it finally landed in conversation.
 
     manim -qm --format=mp4 manim_prob_erdos.py ErdosProblem
 
-Third cut. The first opened on measure theory; the second still switched notation midway (cells,
-then suddenly axes, h, and 1-h(.+k)) and still never said WHY anything slides. This one keeps a
-single visual language -- a strip of red/blue cells and a bar chart of slides -- and puts the
-missing bridge on screen: a red and a blue cell six apart LINE UP when the copy slides by six,
-so the slide-by-6 count IS the number of red-blue pairs at distance 6.
+Fourth cut. The first three explained the CONTINUOUS object (step functions, sliding copies) and
+each time the viewer bounced off. What worked in the end was a worked example small enough to
+check by eye -- four numbers, every cross-pair enumerated, the tally of differences built pair by
+pair -- and only then the jump to "with 2n numbers, a split is a red-fraction curve and the tally
+becomes this profile". This cut follows that order exactly:
 
-  1. the pair: one red, one blue, 6 apart; slide the copy 6 and they align. All distance-6 pairs
-     align at once: count 6. The judge tries every slide and keeps only the WORST bar.
-  2. spreading out: half-red cells make every meeting worth 1/4 -- the worst bar halves
-     (Psi 1.0 -> 0.5).
-  3. the record: the same strip with 951 cells (drawn as a red/blue area -- same object, finer),
-     whose bar chart is nearly FLAT on top at Psi = 0.380909. No slide left to blame.
+  1. the problem: split {1,2,3,4} into two groups of two
+  2. the obvious split A={1,2}: enumerate all four cross-pairs, tally their differences --
+     difference -2 appears twice, so the score (the most crowded difference) is 2
+  3. the smarter split A={1,4}: same enumeration, all four differences distinct, score 1. Same
+     numbers, half the worst crowding -- that is the whole game, and Erdos asks how low the
+     worst crowding can go as n grows
+  4. scaling up: a split of 2n numbers is "how much of each position is A's" -- the tally
+     becomes a curve of crowding per difference. The record construction (K=951, ours) has a
+     nearly FLAT profile at Psi = 0.380909: no difference is crowded any more
+  5. the scoreboard against the published constructions
 
-All numbers are the evaluator's own; the 951-cell construction is the record run's artifact.
+All record-side numbers are the evaluator's own; see `prob_data`.
 """
 from __future__ import annotations
 
 import numpy as np
-from manim import (DOWN, LEFT, ORIGIN, UP, Create, FadeIn, FadeOut, LaggedStart, Line,
+from manim import (DOWN, LEFT, ORIGIN, UP, Create, CubicBezier, FadeIn, FadeOut, Line,
                    MovingCameraScene, Polygon, Rectangle, Square, Transform, VGroup, VMobject,
                    Write)
 
@@ -31,61 +35,55 @@ CAP_AT = np.array([0.0, -3.45, 0.0])
 H = np.asarray(ERDOS["steps"], float)
 PROF = np.asarray(ERDOS["profile"], float)
 
-N, CELL = 12, 0.5
-STRIP_Y, COPY_Y = 2.35, 1.55
-X0 = -N * CELL / 2
-
-# The bar panel: every possible slide, scored as Psi (meetings x 2/N -- length-normalised, so a
-# 12-cell toy and the 951-cell record live on one scale).
-PANEL_Y, PANEL_H, PANEL_W = -2.25, 1.55, 7.6
+TILE = 0.92
+TILE_Y = 2.5
+TALLY_Y, TALLY_H, TALLY_W = -2.3, 1.5, 7.4    # the differences panel, reused by every act
 
 
-def psi_profile(reds):
-    r = np.asarray(reds, float)
-    return np.correlate(r, 1 - r, mode="full") * 2 / len(r)
-
-
-def strip(reds, y, fill=1.0) -> VGroup:
+def tiles(groups, y=TILE_Y) -> VGroup:
+    """The numbers 1..4 as tiles; groups[i] is 'A' (red) or 'B' (blue)."""
     g = VGroup()
-    for i, r in enumerate(reds):
-        cell = Square(side_length=CELL, stroke_width=1.6, color=INK)
-        cell.move_to([X0 + (i + 0.5) * CELL, y, 0])
-        if r > 0:
-            red = Rectangle(width=CELL, height=CELL * r, stroke_width=0, fill_color=RED,
-                            fill_opacity=0.75 * fill)
-            red.move_to(cell.get_bottom() + np.array([0, CELL * r / 2, 0]))
-            g.add(red)
-        if r < 1:
-            blue = Rectangle(width=CELL, height=CELL * (1 - r), stroke_width=0, fill_color=BLUE,
-                             fill_opacity=0.55 * fill)
-            blue.move_to(cell.get_top() - np.array([0, CELL * (1 - r) / 2, 0]))
-            g.add(blue)
-        g.add(cell)
+    n = len(groups)
+    x0 = -(n * (TILE + 0.25) - 0.25) / 2
+    for i, grp in enumerate(groups):
+        col = RED if grp == "A" else BLUE
+        box = Square(side_length=TILE, stroke_width=2.2, color=INK,
+                     fill_color=col, fill_opacity=0.28)
+        box.move_to([x0 + i * (TILE + 0.25) + TILE / 2, y, 0])
+        num = txt(str(i + 1), 30, INK, weight="BOLD").move_to(box.get_center())
+        tag = txt(grp, 15, col).move_to(box.get_corner(UP + LEFT) + np.array([0.16, -0.16, 0]))
+        g.add(VGroup(box, num, tag))
     return g
 
 
-def bars(prof, color, opacity=0.75) -> VGroup:
-    """One thin bar per slide, x centred, height = Psi."""
-    g = VGroup()
-    n = len(prof)
-    w = PANEL_W / n
-    for i, v in enumerate(prof):
-        if v <= 1e-9:
-            continue
-        b = Rectangle(width=w * 0.72, height=max(PANEL_H * v, 0.012), stroke_width=0,
-                      fill_color=color, fill_opacity=opacity)
-        b.move_to([-PANEL_W / 2 + (i + 0.5) * w, PANEL_Y + PANEL_H * v / 2, 0])
-        g.add(b)
+def tally_axis() -> VGroup:
+    base = Line([-TALLY_W / 2, TALLY_Y, 0], [TALLY_W / 2, TALLY_Y, 0],
+                color=MUTED, stroke_width=2)
+    g = VGroup(base)
+    for k in range(-3, 4):
+        x = k * TALLY_W / 7
+        g.add(Line([x, TALLY_Y, 0], [x, TALLY_Y - 0.07, 0], color=MUTED, stroke_width=2),
+              txt(f"{k:+d}" if k else "0", 14, MUTED).move_to([x, TALLY_Y - 0.28, 0]))
+    g.add(txt("difference a − b", 14, MUTED).move_to([TALLY_W / 2 - 1.0, TALLY_Y - 0.62, 0]))
     return g
+
+
+def tally_block(k: int, level: int, color) -> Rectangle:
+    """One counted pair: a block stacked at difference k, `level` blocks already below it."""
+    unit = TALLY_H / 2.4
+    b = Rectangle(width=TALLY_W / 7 * 0.5, height=unit * 0.88, stroke_width=1.4,
+                  color=INK, fill_color=color, fill_opacity=0.55)
+    b.move_to([k * TALLY_W / 7, TALLY_Y + unit * (level + 0.5), 0])
+    return b
 
 
 class ErdosProblem(Kit, MovingCameraScene):
 
     def construct(self):
         title = txt("The Erdős Minimum-Overlap Problem", 46, INK, weight="BOLD")
-        sub = para("colour half a strip red, the rest blue. Slide a copy under it:\n"
-                   "every slide gets a score, and YOUR score is your worst slide", 26, SUB)
-        fine = txt("the 951-cell construction at the end is our record run's: Ψ = 0.380909",
+        sub = para("split the numbers 1…2n into two equal groups, so that no difference\n"
+                   "between the groups is crowded — the score is the WORST difference", 26, SUB)
+        fine = txt("the construction at the end is our record run's: K = 951, Ψ = 0.380909",
                    16, MUTED)
         card = VGroup(title, sub, fine).arrange(DOWN, buff=0.42)
         fit(card, FULL_W - 2.2).move_to(ORIGIN)
@@ -94,96 +92,78 @@ class ErdosProblem(Kit, MovingCameraScene):
         self.play(FadeOut(card), run_time=0.8)
         self.caption = None
 
-        block = [1.0] * 6 + [0.0] * 6
-
-        # ---- act 1: why slides ------------------------------------------------
-        top = strip(block, STRIP_Y)
-        copy = strip(block, COPY_Y, fill=0.8)
-        copylab = txt("its copy", 15, SUB).next_to(copy, LEFT, buff=0.3)
-        self.say("the obvious colouring: red left, blue right — and a copy of the same strip\n"
-                 "sitting underneath", color=SUB)
-        self.play(FadeIn(top), FadeIn(copy), FadeIn(copylab), run_time=1.0)
-
-        # one pair, its distance made explicit
-        i_red, i_blue = 2, 8
-        arc = VMobject(color=ORANGE, stroke_width=2.6)
-        a = [X0 + (i_red + 0.5) * CELL, STRIP_Y + CELL / 2, 0]
-        b = [X0 + (i_blue + 0.5) * CELL, STRIP_Y + CELL / 2, 0]
-        arc.set_points_smoothly([a, [(a[0] + b[0]) / 2, STRIP_Y + 1.0, 0], b])
-        dlab = txt("6 apart", 16, ORANGE).move_to([(a[0] + b[0]) / 2, STRIP_Y + 1.18, 0])
-        self.say("take one red cell and one blue cell, six positions apart", hold=0.2)
-        self.play(Create(arc), FadeIn(dlab), run_time=0.9)
+        # ---- act 1+2: the obvious split, every pair counted ---------------------
+        tl = tiles(["A", "A", "B", "B"])
+        self.say("four numbers, two groups of two: the obvious split puts 1 and 2 in A,\n"
+                 "3 and 4 in B", color=SUB)
+        self.play(FadeIn(tl), run_time=0.9)
         self.wait(0.8)
 
-        self.say("slide the copy six to the left — and that pair LINES UP: the red sits\n"
-                 "directly over the blue. One meeting", color=SUB)
-        self.play(copy.animate.shift(LEFT * 6 * CELL),
-                  copylab.animate.shift(LEFT * 6 * CELL), run_time=1.6)
-        pair = Line([a[0], STRIP_Y - CELL / 2, 0], [a[0], COPY_Y + CELL / 2, 0],
-                    color=ORANGE, stroke_width=5)
-        self.play(Create(pair), run_time=0.5)
-        self.wait(1.2)
+        ax = tally_axis()
+        self.say("now take EVERY pair with one number from each group, and tally the\n"
+                 "difference a − b", color=SUB)
+        self.play(FadeIn(ax), run_time=0.7)
 
-        self.say("but EVERY red-blue pair six apart lines up at this same slide — all six of\n"
-                 "them. This slide scores 6 meetings, the worst possible", hold=0.2)
-        pairs = VGroup(*[Line([X0 + (i + 0.5) * CELL, STRIP_Y - CELL / 2, 0],
-                              [X0 + (i + 0.5) * CELL, COPY_Y + CELL / 2, 0],
-                              color=ORANGE, stroke_width=5) for i in range(6) if i != i_red])
-        cnt = txt("meetings: 6", 20, ORANGE, weight="BOLD").move_to([4.75, 1.95, 0])
-        self.play(LaggedStart(*[Create(p) for p in pairs], lag_ratio=0.12),
-                  FadeIn(cnt), FadeOut(arc), FadeOut(dlab), run_time=1.3)
-        self.wait(1.6)
+        pairs_1 = [(0, 2, -2), (0, 3, -3), (1, 2, -1), (1, 3, -2)]
+        levels: dict = {}
+        blocks = VGroup()
+        for a, b, k in pairs_1:
+            pa, pb = tl[a][0].get_bottom(), tl[b][0].get_bottom()
+            arc = CubicBezier(pa, pa + np.array([0, -0.85, 0]), pb + np.array([0, -0.85, 0]), pb)
+            arc.set_stroke(ORANGE, 2.4)
+            lab = txt(f"{a + 1} − {b + 1} = {k:+d}", 17, ORANGE)
+            lab.move_to([(pa[0] + pb[0]) / 2, TILE_Y - 1.5, 0])
+            lvl = levels.get(k, 0)
+            levels[k] = lvl + 1
+            blk = tally_block(k, lvl, ORANGE)
+            blocks.add(blk)
+            self.play(Create(arc), FadeIn(lab), run_time=0.45)
+            self.play(FadeIn(blk, shift=UP * 0.15), FadeOut(arc), FadeOut(lab), run_time=0.45)
 
-        # the judge: every slide, worst bar
-        prof_block = psi_profile(block)
-        panel = VGroup(
-            Line([-PANEL_W / 2, PANEL_Y, 0], [PANEL_W / 2, PANEL_Y, 0],
-                 color=MUTED, stroke_width=2),
-            txt("← slide left        every possible slide        slide right →", 13, MUTED)
-            .move_to([0, PANEL_Y - 0.28, 0]),
-        )
-        pb = bars(prof_block, ORANGE)
-        peak = txt("worst slide: Ψ = 1.0", 17, ORANGE, weight="BOLD")
-        peak.move_to([-PANEL_W / 2 + 1.1, PANEL_Y + PANEL_H + 0.24, 0])
-        self.say("the judge tries every slide and scores each one — six meetings out of a\n"
-                 "twelve-cell strip is Ψ = 1.0. Only the TALLEST bar counts", color=SUB)
-        self.play(FadeIn(panel), LaggedStart(*[FadeIn(x) for x in pb], lag_ratio=0.04),
-                  run_time=1.4)
-        self.play(FadeIn(peak), run_time=0.4)
-        self.say("the block colouring is perfect at some slides and catastrophic at its worst.\n"
-                 "The score is the worst: Ψ = 1.0", hold=2.2)
+        worst = txt("difference −2 appears TWICE — score: 2", 18, ORANGE, weight="BOLD")
+        worst.move_to([0, TALLY_Y + TALLY_H + 0.4, 0])
+        ring = Rectangle(width=TALLY_W / 7 * 0.66, height=TALLY_H / 2.4 * 1.85,
+                         stroke_width=3, color=ORANGE)
+        ring.move_to([-2 * TALLY_W / 7, TALLY_Y + TALLY_H / 2.4 * 1.0, 0])
+        self.play(FadeIn(worst), Create(ring), run_time=0.7)
+        self.say("the score is the height of the TALLEST stack — the most crowded\n"
+                 "difference. The obvious split scores 2", hold=2.2)
 
-        # ---- act 2: spreading out ---------------------------------------------
-        self.say("Erdős allows partial cells. Make every cell HALF red, and slide the copy\n"
-                 "back into line", color=SUB)
-        half = [0.5] * N
-        top2, copy2 = strip(half, STRIP_Y), strip(half, COPY_Y, fill=0.8)
-        self.play(Transform(top, top2), Transform(copy, copy2),
-                  copylab.animate.shift(6 * CELL * np.array([1.0, 0, 0])),
-                  FadeOut(cnt), FadeOut(pair), FadeOut(pairs), run_time=1.4)
-        thin = VGroup(*[Line([X0 + (i + 0.5) * CELL, STRIP_Y - CELL / 2, 0],
-                             [X0 + (i + 0.5) * CELL, COPY_Y + CELL / 2, 0],
-                             color=ORANGE, stroke_width=2.2).set_opacity(0.7)
-                        for i in range(N)])
-        cnt2 = txt("meetings: 3", 20, INK).move_to(cnt)
-        self.play(LaggedStart(*[Create(t) for t in thin], lag_ratio=0.05),
-                  FadeIn(cnt2), run_time=1.0)
-        self.say("every column now meets — but each only at ½ × ½ = ¼. Twelve columns make 3,\n"
-                 "and no other slide is worse", hold=1.6)
-        prof_half = psi_profile(half)
-        ph = bars(prof_half, BLUE)
-        peak2 = txt("worst slide: Ψ = 0.5", 17, BLUE, weight="BOLD").move_to(peak)
-        # Swap, not morph: orange-to-blue bar morphs read as brown mush for the whole window.
-        self.play(FadeOut(pb), FadeIn(ph), FadeOut(peak), FadeIn(peak2), run_time=0.7)
-        pb = ph
-        self.say("the worst bar HALVED: Ψ = 0.5. Spreading out is the whole game —\n"
-                 "how much further can it go?", hold=2.4)
+        # ---- act 3: the smarter split ------------------------------------------
+        tl2 = tiles(["A", "B", "B", "A"])
+        self.say("same four numbers, smarter split: A gets 1 and 4, B gets 2 and 3", color=SUB)
+        self.play(Transform(tl, tl2), FadeOut(blocks), FadeOut(worst), FadeOut(ring),
+                  run_time=1.0)
 
-        # ---- act 3: the record -------------------------------------------------
-        self.say("our record run plays the same game with 951 cells. Same strip, drawn finer:\n"
-                 "red below the curve, blue above — still exactly half red in total", color=SUB)
-        xs = np.linspace(-PANEL_W / 2, PANEL_W / 2, len(H))
-        y0, y1 = 1.35, 2.9                     # the strip band, redrawn wider
+        pairs_2 = [(0, 1, -1), (0, 2, -2), (3, 1, 2), (3, 2, 1)]
+        levels = {}
+        blocks2 = VGroup()
+        for a, b, k in pairs_2:
+            pa, pb = tl[a][0].get_bottom(), tl[b][0].get_bottom()
+            arc = CubicBezier(pa, pa + np.array([0, -0.85, 0]), pb + np.array([0, -0.85, 0]), pb)
+            arc.set_stroke(BLUE, 2.4)
+            lab = txt(f"{a + 1} − {b + 1} = {k:+d}", 17, BLUE)
+            lab.move_to([(pa[0] + pb[0]) / 2, TILE_Y - 1.5, 0])
+            lvl = levels.get(k, 0)
+            levels[k] = lvl + 1
+            blk = tally_block(k, lvl, BLUE)
+            blocks2.add(blk)
+            self.play(Create(arc), FadeIn(lab), run_time=0.4)
+            self.play(FadeIn(blk, shift=UP * 0.15), FadeOut(arc), FadeOut(lab), run_time=0.4)
+
+        even = txt("four different differences — score: 1", 18, BLUE, weight="BOLD")
+        even.move_to([0, TALLY_Y + TALLY_H + 0.4, 0])
+        self.play(FadeIn(even), run_time=0.6)
+        self.say("every difference occurs once: the worst crowding fell from 2 to 1.\n"
+                 "THAT is the whole game — spread the differences out evenly", hold=2.6)
+        self.say("Erdős asked: as n grows, how low can the worst crowding go, relative\n"
+                 "to n? Nobody knows exactly — the bounds have narrowed for 70 years", hold=2.6)
+
+        # ---- act 4: scaling up --------------------------------------------------
+        self.say("with 2n numbers you cannot enumerate by hand. But any split is fully\n"
+                 "described by one curve: how much of each POSITION belongs to A", color=SUB)
+        xs = np.linspace(-TALLY_W / 2, TALLY_W / 2, len(H))
+        y0, y1 = 1.55, 3.05
         red_area = Polygon(*([[x, y0, 0] for x in xs]
                              + [[xs[i], y0 + (y1 - y0) * H[i], 0]
                                 for i in range(len(H) - 1, -1, -1)]),
@@ -191,29 +171,37 @@ class ErdosProblem(Kit, MovingCameraScene):
         blue_area = Polygon(*([[xs[i], y0 + (y1 - y0) * H[i], 0] for i in range(len(H))]
                               + [[x, y1, 0] for x in reversed(xs)]),
                             stroke_width=0, fill_color=BLUE, fill_opacity=0.55)
-        frame = Rectangle(width=PANEL_W, height=y1 - y0, stroke_width=1.8, color=INK)
+        frame = Rectangle(width=TALLY_W, height=y1 - y0, stroke_width=1.8, color=INK)
         frame.move_to([0, (y0 + y1) / 2, 0])
-        fine_strip = VGroup(red_area, blue_area, frame)
-        self.play(FadeOut(VGroup(copy, copylab, cnt2, *thin)),
-                  Transform(top, fine_strip), run_time=2.0)
-        self.wait(1.4)
+        strip = VGroup(red_area, blue_area, frame)
+        striplab = txt("RED = A's share of each position · our record split, 951 positions",
+                       14, SUB).next_to(frame, UP, buff=0.12)
+        # The integer ticks go: the record's differences span the whole +-2n range, and leaving
+        # -3..+3 under the continuous profile would caption it with a falsehood.
+        self.play(Transform(tl, strip), FadeIn(striplab), FadeOut(blocks2), FadeOut(even),
+                  FadeOut(VGroup(*ax[1:-1])), run_time=1.8)
+        self.wait(1.2)
 
-        prof_scaled = PROF.copy()
-        line = VMobject(color=GREEN, stroke_width=2.6)
-        lx = np.linspace(-PANEL_W / 2, PANEL_W / 2, len(prof_scaled))
-        line.set_points_as_corners([[x, PANEL_Y + PANEL_H * v, 0]
-                                    for x, v in zip(lx, prof_scaled)])
-        peak3 = txt("worst slide: Ψ = 0.380909", 17, GREEN, weight="BOLD").move_to(peak)
-        self.say("bursts at the edges, a plateau in the middle, mirror symmetry — and look at\n"
-                 "its slide chart: nearly FLAT on top. No slide left to blame", color=SUB)
-        self.play(FadeOut(pb), Create(line), FadeOut(peak2), FadeIn(peak3), run_time=1.8)
-        self.wait(2.2)
+        self.say("and the tally becomes a CURVE — crowding per difference, for every\n"
+                 "difference at once. This is the record split's tally", color=SUB)
+        lx = np.linspace(-TALLY_W / 2, TALLY_W / 2, len(PROF))
+        prof_line = VMobject(color=GREEN, stroke_width=2.6)
+        prof_line.set_points_as_corners([[x, TALLY_Y + TALLY_H * v / 0.55, 0]
+                                         for x, v in zip(lx, PROF)])
+        self.play(Create(prof_line), run_time=1.6)
+        lvl_lab = txt("Ψ = 0.380909 — nearly FLAT: no difference is crowded", 17, GREEN,
+                      weight="BOLD").move_to([0, TALLY_Y + TALLY_H + 0.4, 0])
+        self.play(FadeIn(lvl_lab), run_time=0.5)
+        self.say("bursts of A at the edges, a plateau in the middle, mirror symmetry —\n"
+                 "and no stack stands above the rest. Minimax, achieved", hold=2.6)
 
-        board = para("ours 0.380909   ·   AlphaEvolve 0.380924   ·   Haugland 0.380927\n"
-                     "(SimpleTES's published construction is lower still: 0.380868)", 17, SUB)
+        # ---- act 5: scoreboard --------------------------------------------------
+        board = para("flat split 0.5   ·   ours 0.380909   ·   AlphaEvolve 0.380924\n"
+                     "Haugland 0.380927   ·   SimpleTES 0.380868   ·   theory floor ≈ 0.379",
+                     17, SUB)
         fit(board, FULL_W - 2.4).move_to(CAP_AT)
         self.play(Transform(self.caption, board), run_time=0.6)
-        self.wait(4.0)
+        self.wait(4.2)
 
     def say(self, text, size=22, color=INK, hold=0.0):
         new = para(text, size, color) if "\n" in text else txt(text, size, color)
