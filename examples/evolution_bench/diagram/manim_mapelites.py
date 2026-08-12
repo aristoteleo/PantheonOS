@@ -2,24 +2,29 @@
 
     manim -qm --format=mp4 manim_mapelites.py MapElitesRun
 
-There are TWO structures, and the difference between them is the mechanism:
+**The loop is the algorithm.** Select a parent, mutate it, evaluate it, decide what to keep, repeat.
+Every method in this series runs that cycle; MAP-Elites is one answer to the last box, and the
+answer happens to change the first box too -- keeping an archive rather than a champion changes
+what there is to select from.
+
+An earlier cut opened on the grid, which is opening on the answer: it made the archive look like
+the algorithm and left the loop happening offscreen. The loop goes first now, and the grid arrives
+as the archive box opened up.
+
+There are then two structures, and the difference between them is the rest of the mechanism:
 
   the GRID keeps one program per niche, and forgets whoever it replaced
   the TREE keeps everything ever made, including the children that were thrown away
 
-Both are on screen in act 2, growing from the same events, because neither explains the algorithm
-on its own. The grid says what the search currently holds; the tree says what it cost to get there
-and which of those attempts went on to become parents.
+Four acts:
 
-Three acts:
-
-  1. what one step IS -- take a program off the grid, mutate it, measure it, and put it in the cell
-     its DESCRIPTORS point at. Three times: into an empty cell, against a tenant it beats, against
-     a tenant it does not.
-  2. both structures filling together. This is where the idea lives: a program worse than anything
-     found so far still earns a slot, provided its slot was empty -- and the tree shows those same
-     mediocre programs going on to have children.
-  3. the second island, and migration between them.
+  1. the loop, with one real step walked around it
+  2. what the archive does with a child -- into an empty cell, against a tenant it beats, against
+     a tenant it does not
+  3. both structures filling together. A program worse than anything found so far still earns a
+     slot if its slot was empty, and the tree shows those same mediocre programs going on to have
+     children -- which is what the grid buys and what the grid alone cannot show.
+  4. the second island, and migration between them.
 
 The run is real. `sim_mapelites` drives the actual `MapElitesIslands` through the actual loop and
 records what it decided; only the landscape and the mutation are invented.
@@ -30,8 +35,8 @@ import numpy as np
 from manim import (DOWN, LEFT, ORIGIN, RIGHT, UP, Axes, Circle, Create, FadeIn, FadeOut, Indicate,
                    LaggedStart, Line, MovingCameraScene, Square, Transform, VGroup, Write)
 
-from manim_kit import (BLUE, EDGE, FULL_H, FULL_W, GREEN, INK, Kit, MUTED, ORANGE, PANEL, RED, SUB,
-                       fit, ink_on, node_mob, para, score_color, txt)
+from manim_kit import (BLUE, EDGE, FULL_W, GREEN, INK, Kit, MUTED, ORANGE, PANEL, RED, SUB,
+                       arc, fit, node_mob, para, score_color, txt)
 from sim_mapelites import BINS, EVENTS, ISLANDS, PLACES, quality
 
 CELL = 0.52
@@ -98,14 +103,16 @@ class MapElitesRun(Kit, MovingCameraScene):
 
     def construct(self):
         title = txt("MAP-Elites", 54, INK, weight="BOLD")
-        sub = para("keep the best program in each NICHE, not the best program overall —\n"
-                   "so a mediocre result still earns a place, provided nothing else is like it",
+        sub = para("a parent, a mutation, a measurement, and a decision about what to keep.\n"
+                   "MAP-Elites is one answer to the last of those — and it changes the first.",
                    27, SUB)
         card = VGroup(title, sub).arrange(DOWN, buff=0.45)
         fit(card, FULL_W - 2.4).move_to(ORIGIN)
         self.play(Write(title), FadeIn(sub, shift=UP * 0.15), run_time=1.4)
-        self.wait(1.6)
+        self.wait(2.0)
         self.play(FadeOut(card), run_time=0.9)
+
+        self.act_the_loop()
 
         self.cells = {}                      # (island, cell) -> the Square sitting there
         self.grids = VGroup(*[blank_grid(i) for i in range(ISLANDS)])
@@ -121,9 +128,10 @@ class MapElitesRun(Kit, MovingCameraScene):
         # captions below it, and a frame's height follows from its width.
         self.camera.frame.move_to([GRID_X[0] + BINS * CELL / 2, 0.55, 0]).set(width=8.4)
         self.play(FadeIn(self.grids[0]), FadeIn(self.axes_labels[:2]), run_time=1.0)
-        note = self.cap("one cell per combination of descriptors — an empty grid, and one seed",
+        note = self.cap("the archive, opened up: one cell per combination of descriptors.\n"
+                        "Two axes chosen for the problem — here, how complex and how varied.",
                         24, SUB)
-        note.move_to([GRID_X[0] + BINS * CELL / 2, -1.15, 0])
+        note.move_to([GRID_X[0] + BINS * CELL / 2, -1.25, 0])
         self.play(FadeIn(note), run_time=0.6)
 
         seed_sq = self.place(PLACES[0], lit=True)
@@ -135,6 +143,79 @@ class MapElitesRun(Kit, MovingCameraScene):
         self.act_one()
         self.act_two()
         self.act_three()
+
+    # ---- the loop --------------------------------------------------------
+    def act_the_loop(self):
+        """The search is the loop. MAP-Elites is a component inside it.
+
+        This act exists because the first cut of this video opened on the grid, which is opening
+        on the answer: it made the archive look like the algorithm and left the loop -- select,
+        mutate, evaluate, decide -- as something happening offscreen. Every method in this series
+        runs this same cycle; what they differ in is one box.
+        """
+        head = txt("the search is a loop", 31, INK).move_to([0, 3.35, 0])
+        self.play(FadeIn(head), run_time=0.6)
+
+        spots = {"select": np.array([-3.7, 0.55, 0.0]),
+                 "mutate": np.array([0.0, 2.35, 0.0]),
+                 "evaluate": np.array([3.7, 0.55, 0.0]),
+                 "archive": np.array([0.0, -1.25, 0.0])}
+        labels = {"select": ("select a parent", "from what the search has kept"),
+                  "mutate": ("mutate it", "ask a model for a variation"),
+                  "evaluate": ("evaluate", "run it, and get a score"),
+                  "archive": ("decide what to keep", "the only box that differs")}
+        order = ["select", "mutate", "evaluate", "archive"]
+
+        boxes = {}
+        for key in order:
+            top, bottom = labels[key]
+            body = VGroup(txt(top, 24, INK), txt(bottom, 18, SUB)).arrange(DOWN, buff=0.12)
+            frame = Square(side_length=1.0, stroke_width=2.0,
+                           color=ORANGE if key == "archive" else EDGE,
+                           fill_color=PANEL, fill_opacity=1.0)
+            frame.stretch_to_fit_width(body.width + 0.55).stretch_to_fit_height(body.height + 0.5)
+            boxes[key] = VGroup(frame, body).move_to(spots[key])
+        self.play(LaggedStart(*[FadeIn(boxes[k], scale=0.85) for k in order], lag_ratio=0.25),
+                  run_time=1.8)
+
+        arrows = VGroup()
+        for i, key in enumerate(order):
+            nxt = order[(i + 1) % len(order)]
+            a, b = spots[key], spots[nxt]
+            arrows.add(arc(a, b, MUTED, 2.4, angle=-0.42,
+                           buff_a=boxes[key].width * 0.42, buff_b=boxes[nxt].width * 0.42))
+        self.play(LaggedStart(*[Create(x) for x in arrows], lag_ratio=0.2), run_time=1.6)
+        self.wait(1.2)
+
+        # one real step around it, with the numbers the recorded run actually produced
+        ev = PLACES[1]
+        beats = [("select", f"a program the archive is holding — {ev['best']:.2f} is the best so "
+                            "far, but it is not the only one available"),
+                 ("mutate", "a variation on it"),
+                 ("evaluate", f"the verifier scores it: {ev['score']:.2f}"),
+                 ("archive", "and now the decision — this is where the methods part company")]
+        cap = None
+        for key, text in beats:
+            new = para(text, 22, INK) if "\n" in text else txt(text, 22, INK)
+            fit(new, FULL_W - 2.6).move_to([0, -2.95, 0])
+            anims = [Indicate(boxes[key], color=ORANGE, scale_factor=1.08)]
+            anims.append(FadeIn(new) if cap is None else Transform(cap, new))
+            self.play(*anims, run_time=0.9)
+            if cap is None:
+                cap = new
+            self.wait(1.5)
+
+        punch = para("Keep only the best program and the loop collapses onto one line of attack.\n"
+                     "MAP-Elites keeps an ARCHIVE instead — which changes what there is to select "
+                     "from.", 23, INK)
+        fit(punch, FULL_W - 2.0).move_to([0, -2.95, 0])
+        self.play(Transform(cap, punch),
+                  boxes["archive"][0].animate.set_stroke(ORANGE, width=3.4), run_time=0.9)
+        self.wait(3.2)
+        self.play(FadeOut(head), FadeOut(arrows), FadeOut(cap),
+                  *[FadeOut(boxes[k]) for k in order if k != "archive"], run_time=0.9)
+        # the archive box opens into the grid
+        self.play(FadeOut(boxes["archive"]), run_time=0.7)
 
     # ---- drawing ---------------------------------------------------------
     def place_anim(self, ev, lit=False):
