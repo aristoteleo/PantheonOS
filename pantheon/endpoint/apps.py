@@ -152,7 +152,12 @@ class AppSupervisor:
                     continue
                 prev = self.entries.get(app_id)
                 if prev and prev.dir == app_dir:
-                    found[app_id] = prev  # keep live state across scans
+                    # Keep live state (process, crash count) across scans — but
+                    # the manifest follows the FILE. Keeping the old dict meant
+                    # an upgrade that added a backend was invisible until the
+                    # endpoint restarted, however many rescans ran.
+                    prev.manifest = manifest
+                    found[app_id] = prev
                 else:
                     found[app_id] = AppEntry(app_id, app_dir, scope, manifest)
         self.entries = found
@@ -309,7 +314,11 @@ class AppSupervisor:
         if not self.entries:
             self.scan()
         entry = self.entries.get(app_id)
-        if entry is None:
+        # Rescan for an unknown id — and equally for a known entry that
+        # declares no backend: an install or upgrade may have grown one since
+        # the last scan, and without the rescan that stale entry errors on
+        # every call until something else happens to poke app_registry.
+        if entry is None or not entry.manifest.get("entry", {}).get("backend"):
             self.scan()
             entry = self.entries.get(app_id)
         if entry is None:
