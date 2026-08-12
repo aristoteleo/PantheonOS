@@ -69,13 +69,13 @@ class PackingProblem(Kit, MovingCameraScene):
             run_sum += float(R[chunk].sum())
             batches.append((chunk, run_sum))
         for chunk, s in batches:
-            # Crossfade, not Transform: morphing digit glyphs scrambles the counter for the
-            # whole animation window, and this counter is on screen mid-morph most of the act.
-            new_total = txt(f"Σr = {s:.6f}", 26, INK).move_to(total)
+            # The counter swap is its OWN short play. Transform scrambles digit glyphs, and a
+            # crossfade sharing the batch's 0.75s window shows both readings at half opacity
+            # for most of it -- sub-animation run_times do not survive being grouped.
             self.play(LaggedStart(*[FadeIn(circles[i], scale=0.6) for i in chunk],
-                                  lag_ratio=0.12),
-                      FadeOut(total, run_time=0.2), FadeIn(new_total, run_time=0.2),
-                      run_time=0.75)
+                                  lag_ratio=0.12), run_time=0.6)
+            new_total = txt(f"Σr = {s:.6f}", 26, INK).move_to(total)
+            self.play(FadeOut(total), FadeIn(new_total), run_time=0.15)
             total = new_total
         self.wait(1.0)
 
@@ -106,12 +106,15 @@ class PackingProblem(Kit, MovingCameraScene):
         self.wait(1.2)
 
         # ---- act 3: the score ---------------------------------------------------
-        self.play(FadeOut(touches), FadeOut(wall), FadeOut(tlab), FadeOut(wlab), run_time=0.6)
+        # `total` leaves too -- the board restates the same number in green, and a stale black
+        # copy floating above it reads as two different scores.
+        self.play(FadeOut(touches), FadeOut(wall), FadeOut(tlab), FadeOut(wlab),
+                  FadeOut(total), run_time=0.6)
         board = VGroup(
             txt("Σr = 2.635983", 30, GREEN, weight="BOLD"),
             para("published record (AlphaEvolve, n=26)  2.635\n"
                  "naive seed — rings of equal circles   1.8045", 18, SUB),
-        ).arrange(DOWN, buff=0.3, aligned_edge=LEFT).move_to([3.3, 0.9, 0])
+        ).arrange(DOWN, buff=0.3, aligned_edge=LEFT).move_to([3.3, 1.1, 0])
         fit(board, 4.4)
         self.play(FadeIn(board), run_time=0.7)
         self.say("the evolved packing reaches 2.635983 — a hair above the published record —\n"
