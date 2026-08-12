@@ -263,9 +263,12 @@ class SimpleTESRun(MovingCameraScene):
         sub = para("an evolutionary search for programs: several chains of attempts advancing in\n"
                    "parallel, a language model as the only mutation operator, one score to sort by",
                    27, SUB)
-        card = VGroup(title, sub).arrange(DOWN, buff=0.45)
+        # The same disclosure the sibling videos carry: the scores are invented, the selection
+        # arithmetic is the real implementation. A viewer should not have to read source for that.
+        fine = txt("simulated scores · real selection code", 16, MUTED)
+        card = VGroup(title, sub, fine).arrange(DOWN, buff=0.42)
         fit(card, FULL_W - 2.4).move_to(ORIGIN)
-        self.play(Write(title), FadeIn(sub, shift=UP * 0.15), run_time=1.4)
+        self.play(Write(title), FadeIn(sub, shift=UP * 0.15), FadeIn(fine), run_time=1.4)
         self.wait(1.4)
 
         seeds = {}
