@@ -30,9 +30,9 @@ from __future__ import annotations
 from collections import defaultdict
 
 import numpy as np
-from manim import (DOWN, LEFT, ORIGIN, RIGHT, UP, Axes, Circle, Create, Dot, FadeIn, FadeOut,
-                   Indicate, LaggedStart, Line, MovingCameraScene, RoundedRectangle, Square,
-                   Transform, VGroup, Write)
+from manim import (DL, DOWN, DR, LEFT, ORIGIN, RIGHT, UL, UP, UR, Axes, Circle, Create,
+                   DashedLine, Dot, FadeIn, FadeOut, GrowFromPoint, Indicate, LaggedStart, Line,
+                   MovingCameraScene, RoundedRectangle, Square, Transform, VGroup, Write)
 
 from manim_kit import (BLUE, EDGE, FULL_W, GREEN, INK, Kit, MUTED, ORANGE, PANEL, RED, SUB, arc,
                        dim, fit, para, score_color, spoke, txt)
@@ -41,8 +41,8 @@ from sim_nichemenu import BINS, PLACES
 LO, HI = 0.25, 0.75                      # the score range every colour in the video spans
 
 # ---- the fixed stage ------------------------------------------------------
-LOOP_AT = {"select": np.array([-5.55, 1.75, 0.0]), "mutate": np.array([-3.95, 3.0, 0.0]),
-           "evaluate": np.array([-2.35, 1.75, 0.0]), "record": np.array([-3.95, 0.5, 0.0])}
+LOOP_AT = {"select": np.array([-5.75, 1.75, 0.0]), "mutate": np.array([-3.95, 3.05, 0.0]),
+           "evaluate": np.array([-2.15, 1.75, 0.0]), "record": np.array([-3.95, 0.45, 0.0])}
 BOX_W, BOX_H = 2.55, 0.95
 """Equal boxes. Four different widths read as four different kinds of thing, and they are four
 stations of one loop."""
@@ -125,10 +125,24 @@ def loop_box(key: str, top: str, sub: str) -> VGroup:
     return VGroup(frame, body).move_to(LOOP_AT[key])
 
 
-def ring_arrow(a, b):
-    """Anchor to anchor, bowing OUTWARD from the diamond. The first version used a negative
-    angle, which bows every arc INTO the ring -- each one grazed a box corner on its way."""
-    return arc(a, b, SUB, 2.6, angle=0.5, buff_a=0.07, buff_b=0.09, tip=0.17)
+def rect_anchor(box, other, pad=0.08) -> np.ndarray:
+    """Where the centre-to-centre line leaves `box`.
+
+    Anchoring at edge MIDPOINTS put every arrow's tail in the middle of a wide box and made it
+    swing around to reach its neighbour -- four arcs of four different lengths at four different
+    angles. On the centre line, each arrow sits exactly in the gap between its two boxes.
+    """
+    c, o = box.get_center(), other.get_center()
+    d = o - c
+    u = d / max(float(np.linalg.norm(d)), 1e-6)
+    t = min(BOX_W / 2 / abs(u[0]) if abs(u[0]) > 1e-6 else 1e9,
+            BOX_H / 2 / abs(u[1]) if abs(u[1]) > 1e-6 else 1e9)
+    return c + u * (t + pad)
+
+
+def ring_arrow(a_box, b_box):
+    return spoke(rect_anchor(a_box, b_box), rect_anchor(b_box, a_box), SUB, 2.6,
+                 0.0, 0.0, tip=0.16)
 
 
 class NicheMenuRun(Kit, MovingCameraScene):
@@ -246,10 +260,10 @@ class NicheMenuRun(Kit, MovingCameraScene):
                  "record": loop_box("record", "record", "tree grows · grid updates")}
         self.boxes = boxes
         b = boxes
-        ring = VGroup(ring_arrow(b["select"].get_top(), b["mutate"].get_left()),
-                      ring_arrow(b["mutate"].get_right(), b["evaluate"].get_top()),
-                      ring_arrow(b["evaluate"].get_bottom(), b["record"].get_right()),
-                      ring_arrow(b["record"].get_left(), b["select"].get_bottom()))
+        ring = VGroup(ring_arrow(b["select"][0], b["mutate"][0]),
+                      ring_arrow(b["mutate"][0], b["evaluate"][0]),
+                      ring_arrow(b["evaluate"][0], b["record"][0]),
+                      ring_arrow(b["record"][0], b["select"][0]))
         self.ring = ring
 
         grid_frame = VGroup(*[grid_square((cx, cy)) for cx in range(BINS) for cy in range(BINS)])
@@ -301,10 +315,18 @@ class NicheMenuRun(Kit, MovingCameraScene):
                  "The cell holds a pointer; the parent it points at is a node of the tree.",
                  hold=2.2)
 
-        # MUTATE: the agent, opened up
+        # MUTATE: the panel is the mutate box opened up, and it has to LOOK like that --
+        # it grows out of the box, and callout lines tie the box's corners to the panel's.
         agent = self.agent_inset()
+        mut = boxes["mutate"][0]
+        callout = VGroup(
+            DashedLine(mut.get_corner(DL), agent[0].get_corner(UL), color=ORANGE,
+                       stroke_width=1.6, dash_length=0.08),
+            DashedLine(mut.get_corner(DR), agent[0].get_corner(UR), color=ORANGE,
+                       stroke_width=1.6, dash_length=0.08))
         self.play(Indicate(boxes["mutate"][1][0], color=ORANGE, scale_factor=1.15),
-                  FadeIn(agent, scale=0.85), run_time=0.8)
+                  GrowFromPoint(agent, mut.get_center()), run_time=0.9)
+        self.play(Create(callout), run_time=0.4)
         self.say("mutate — the operator is a coding agent: it edits, runs the evaluator itself,\n"
                  "and submits only an edit that passes. Not one model call — a loop of its own.")
         for _ in range(2):
@@ -314,7 +336,7 @@ class NicheMenuRun(Kit, MovingCameraScene):
         self.wait(0.7)
 
         # EVALUATE
-        self.play(FadeOut(agent),
+        self.play(FadeOut(agent), FadeOut(callout),
                   Indicate(boxes["evaluate"][1][0], color=ORANGE, scale_factor=1.15),
                   *self.curve_anims(ev), run_time=0.9)
         self.say(f"evaluate — the verifier reports the metrics; this child scores "
@@ -369,7 +391,7 @@ class NicheMenuRun(Kit, MovingCameraScene):
         up = spoke([steps[0][0].get_bottom()[0], rail_y, 0],
                    steps[0][0].get_bottom() + DOWN * 0.04, MUTED, 1.6, 0.0, 0.02, tip=0.12)
         retry = txt("fails? edit again", 13, MUTED).next_to(across, DOWN, buff=0.08)
-        head = txt("the agent", 15, ORANGE)
+        head = txt("mutate it, opened up", 15, ORANGE)
         head.next_to(steps, UP, buff=0.22)
 
         content = VGroup(head, steps, fwd, down, across, up, retry)
@@ -378,7 +400,7 @@ class NicheMenuRun(Kit, MovingCameraScene):
                                  fill_color=PANEL, fill_opacity=1.0)
         frame.move_to(content.get_center())
         return VGroup(frame, steps, fwd, VGroup(down, across, up), retry, head).move_to(
-            [-3.95, 1.7, 0])
+            [-3.95, 1.32, 0])
 
     # ---- act 2: the grid's bookkeeping --------------------------------------
     def act_two(self):
