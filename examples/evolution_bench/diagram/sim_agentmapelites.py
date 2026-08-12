@@ -1,13 +1,15 @@
 """An AgentMapElites run, simulated -- and it is a real one.
 
-This runs the actual `AgentMapElites` method through the actual `evolve()` loop against a toy landscape
-and records what it decided. Which parent was drawn and from where, which cell a child lands in,
-whether it becomes its cell's representative, who it displaces -- all of it is read off the method
-rather than reimplemented. Only the landscape and the mutation are invented.
+This runs the actual `AgentMapElites` method through the actual `evolve()` loop against a toy
+landscape and records what it decided. Which parent was drawn and from where, which cell a child
+lands in, whether it becomes its cell's representative, who it displaces, who migrates -- all of
+it is read off the method rather than reimplemented. Only the landscape and the mutation are
+invented.
 
-One island, deliberately. The video explains the mechanism -- loop, tree, menu -- and islands are
-a deployment detail (several menus in parallel, occasionally trading representatives) that gets a
-closing sentence, not footage.
+TWO islands, and the video leans on a fact the code guarantees: with a single seed, everything
+starts on island 0 (children inherit their parent's island), so island 1 begins EMPTY and is
+populated by the first migration. The migration interval is set so that first migration lands
+after the acts that teach the single-grid mechanics.
 """
 from __future__ import annotations
 
@@ -22,12 +24,16 @@ from pantheon.evolution.core.loop import evolve
 from pantheon.evolution.methods.agent_map_elites import AgentMapElites
 
 BINS = 5
-STEPS = 26
+ISLANDS = 2
+STEPS = 30
+MIGRATE_EVERY = 14
+"""In children measured, which is what `steps` counts. Acts 1 and 2 use the first ~14 events, so
+the run is genuinely single-island for as long as the video is teaching the single-grid story."""
 SEED_XY = (0.30, 0.35)
 
 
 def quality(x: float, y: float) -> float:
-    """A ridge, so the menu has somewhere good to find and somewhere dull to fill."""
+    """A ridge, so the grid has somewhere good to find and somewhere dull to fill."""
     ridge = math.exp(-((y - 0.35 - 0.45 * x) ** 2) / 0.045)
     return max(0.05, min(0.98, 0.28 + 0.62 * ridge * (0.45 + 0.55 * x)))
 
@@ -76,36 +82,50 @@ class Recorded(AgentMapElites):
         super().__init__(**kw)
         self.events: List[Dict[str, Any]] = []
         self._sel: Dict[str, Any] = {}
+        self._ctx: Optional[EvolveContext] = None
 
     def _sample_parent(self, ctx):
+        self._ctx = ctx
         p = super()._sample_parent(ctx)
         if p is not None:
             # `from_menu` is "was this a representative at the moment of the draw". The uniform
-            # exploration path can also land on a representative, so this slightly overcounts the
-            # menu; for narration -- "the parent came off the menu" -- that statement stays true.
+            # exploration path can also land on a representative, so this slightly overcounts;
+            # for narration -- "the parent came off the grid" -- the statement stays true.
             menu_now = set(self.elites.values())
             self._sel = {"parent": p.id, "from_menu": p.id in menu_now,
+                         "parent_island": self.island_of.get(p.id),
                          "parent_cell": self._bin(self.coords[p.id]) if p.id in self.coords
                          else None}
         return p
 
     def _place(self, ctx, ind, island=None):
-        held_before = None
-        if self.coords is not None:
-            key = (0, self._bin(self._features(ind)))
-            held_before = self.elites.get(key)
+        self._ctx = ctx
+        isl_guess = island if island is not None else self.island_of.get(ind.id, 0)
+        held_before = self.elites.get((isl_guess, self._bin(self._features(ind))))
         admitted = super()._place(ctx, ind, island=island)
         # After the fact: `_place` may widen a range and rebuild every bin, so the child's bin is
         # only final once it has run.
+        isl = self.island_of[ind.id]
         cell = self._bin(self.coords[ind.id])
         self.events.append({
-            "id": ind.id, "cell": cell, "score": self._raw(ctx, ind.id), "admitted": admitted,
+            "kind": "place", "id": ind.id, "island": isl, "cell": cell,
+            "score": self._raw(ctx, ind.id), "admitted": admitted,
             "displaced": held_before if admitted and held_before not in (None, ind.id) else None,
             "grid": self._grid_snapshot(ctx), "best": self._raw(ctx, self.best_id),
             "coverage": self.coverage(), **self._sel,
         })
         self._sel = {}
         return admitted
+
+    def _migrate(self):
+        before = dict(self.island_of)
+        super()._migrate()
+        moved = [(nid, before[nid], self.island_of[nid])
+                 for nid in before if self.island_of[nid] != before[nid]]
+        if moved and self._ctx is not None:
+            self.events.append({"kind": "migrate", "moved": moved,
+                                "grid": self._grid_snapshot(self._ctx),
+                                "coverage": self.coverage()})
 
     @staticmethod
     def _raw(ctx, ind_id: Optional[str]) -> float:
@@ -120,14 +140,19 @@ class Recorded(AgentMapElites):
         return float(v) if isinstance(v, (int, float)) else 0.0
 
     def _grid_snapshot(self, ctx) -> Dict[tuple, tuple]:
-        """`cell -> (representative id, its raw score)` -- single island, so the cell is the key."""
-        return {cell: (v, self._raw(ctx, v)) for (_, cell), v in self.elites.items()}
+        """`(island, cell) -> (representative id, its raw score)` -- the whole book, both islands.
+
+        The whole book and not just the child's cell, because a range widening rebuilds every bin
+        and a migration refiles individuals: cells other than the child's can change under any
+        event, and the video diffs consecutive snapshots to stay truthful.
+        """
+        return {key: (v, self._raw(ctx, v)) for key, v in self.elites.items()}
 
 
 def simulate():
-    method = Recorded(num_islands=1, feature_bins=BINS, num_inspirations=1,
-                      migration_interval=0, exploration_ratio=0.25,
-                      llm_weight=0.0, function_weight=1.0, seed=4)
+    method = Recorded(num_islands=ISLANDS, feature_bins=BINS, num_inspirations=1,
+                      migration_interval=MIGRATE_EVERY, migration_rate=0.34,
+                      exploration_ratio=0.25, llm_weight=0.0, function_weight=1.0, seed=4)
     seed_genome = TextGenome(text="seed", kind="code",
                              meta={"x": SEED_XY[0], "y": SEED_XY[1]})
     asyncio.run(evolve(method=method, variator=Jitter(),
@@ -138,4 +163,4 @@ def simulate():
 
 
 EVENTS = simulate()
-PLACES = EVENTS
+PLACES = [e for e in EVENTS if e["kind"] == "place"]
