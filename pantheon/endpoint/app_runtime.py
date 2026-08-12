@@ -161,7 +161,34 @@ async def main() -> int:
         _out({"ready": False, "error": f"{type(e).__name__}: {e}"})
         return 1
 
-    _out({"ready": True, "api": 1, "methods": sorted(ctx._methods)})
+    def _method_info(name, fn):
+        """Signature + first doc line, best-effort — the Interfaces UI's food."""
+        info = {"name": name, "params": [], "doc": ""}
+        try:
+            import inspect
+            for pname, param in inspect.signature(fn).parameters.items():
+                if pname in ("self", "ctx"):
+                    continue
+                entry = {"name": pname}
+                if param.annotation is not inspect.Parameter.empty:
+                    ann = param.annotation
+                    entry["type"] = getattr(ann, "__name__", None) or str(ann)
+                if param.default is not inspect.Parameter.empty:
+                    entry["default"] = repr(param.default)
+                info["params"].append(entry)
+            doc = inspect.getdoc(fn) or ""
+            info["doc"] = doc.strip().split("\n")[0][:200]
+        except Exception:
+            pass
+        return info
+
+    _out({
+        "ready": True, "api": 1,
+        "methods": sorted(ctx._methods),
+        # Names alone say nothing; the desktop's Interfaces view shows the
+        # agent-callable surface with signatures and one-line docs.
+        "methods_info": [_method_info(n, f) for n, f in sorted(ctx._methods.items())],
+    })
 
     async def handle(msg: dict) -> None:
         mid = msg.get("id")

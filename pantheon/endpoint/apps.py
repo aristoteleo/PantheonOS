@@ -242,6 +242,7 @@ class AppSupervisor:
             ) from e
 
         entry.methods = [str(m) for m in hello.get("methods", [])]
+        entry.methods_info = [m for m in hello.get("methods_info", []) if isinstance(m, dict)]
         entry.state = "ready"
         entry.last_error = ""
         ap.reader_task = asyncio.create_task(self._read_loop(ap))
