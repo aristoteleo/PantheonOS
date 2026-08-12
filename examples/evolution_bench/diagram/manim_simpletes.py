@@ -334,10 +334,10 @@ class SimpleTESRun(MovingCameraScene):
         because a chain shorter than the parent count has every node selected every time.
         """
         ev = self.chain_of[0][5]
-        ranking = ev["ranking"]                          # (order, score, visits, bonus), best first
+        ranking = ev["ranking"]                  # (order, raw, Q, visits, bonus), best first
         n = len(ranking)
         picked_orders = {o for o, _ in ev["picked"]}
-        slot_of = {o: i for i, (o, _, _, _) in enumerate(ranking)}
+        slot_of = {o: i for i, (o, *_) in enumerate(ranking)}
 
         # Everything below the chain has to fit between it and the bottom edge: the heading, the
         # formula, the ranking, a bar per node and a closing line. The frame is 8 units tall and
@@ -353,20 +353,47 @@ class SimpleTESRun(MovingCameraScene):
         def slot(i):
             return (i - (n - 1) / 2) * SPACING
 
+        # The circles enter carrying each node's OWN score -- the same numbers as the chain above,
+        # so the row visibly IS the chain, re-sorted. Only then does the record lift the parents.
+        # An earlier cut drew them with Q from the start, and five circles reading 0.77 over a
+        # chain where only one node scored 0.77 read as a typo, not as backpropagation.
         row, seen_labels = VGroup(), VGroup()
-        for i, (order, q, visits, _) in enumerate(ranking):
-            row.add(node_mob(q, ORIGIN).scale(1.5).move_to([slot(i), ROW_Y, 0]))
+        for i, (order, raw, q, visits, _) in enumerate(ranking):
+            row.add(node_mob(raw, ORIGIN).scale(1.5).move_to([slot(i), ROW_Y, 0]))
             seen_labels.add(txt(f"used {visits}×", 17, MUTED).move_to([slot(i), -0.98, 0]))
-        # Name the number before showing it. These circles carry each node's VALUE, which is not
-        # the score the same node shows on the chain above -- a node whose children did well is
-        # worth more than it scored, and a viewer who has just watched the chain will read the
-        # circles as scores unless told otherwise.
-        sortnote = txt("each node's value — its own score, or the best any of its children reached",
+        sortnote = txt("the chain again, best first — each node with its own score",
                        21, SUB).move_to([0, 0.48, 0])
         self.play(LaggedStart(*[FadeIn(m, shift=DOWN * 0.25) for m in row], lag_ratio=0.11),
                   FadeIn(sortnote), run_time=1.5)
-        self.play(FadeIn(seen_labels), run_time=0.7)
-        self.wait(1.4)
+        self.wait(1.2)
+
+        # the backpropagation, acted out: the record flows into every parent of the batch that
+        # set it, and each lifted circle becomes a VALUE where it was a score
+        record = max(raw for _, raw, _, _, _ in ranking)
+        src = next(i for i, (_, raw, _, _, _) in enumerate(ranking) if raw == record)
+        lifts, beams = [], VGroup()
+        for i, (order, raw, q, visits, _) in enumerate(ranking):
+            if q > raw + 1e-9:
+                # A beam only where THIS record did the lifting. One node here was raised to 0.71
+                # by an earlier batch's best; drawing the record's beam into it would claim credit
+                # the record does not have.
+                if abs(q - record) < 1e-9:
+                    beams.add(arc(np.array([slot(src), ROW_Y, 0]), np.array([slot(i), ROW_Y, 0]),
+                                  GREEN, 2.2, angle=-0.55, buff_a=0.36, buff_b=0.36))
+                lifts.append(Transform(
+                    row[i], node_mob(q, np.array([slot(i), ROW_Y, 0]), ring=GREEN,
+                                     width=2.6).scale(1.5)))
+        bp = para(f"its batch set the record — {record:.2f} — so that value flows back to every "
+                  "parent\nthe batch was built from. A node is worth the best thing it led to.",
+                  21, INK)
+        fit(bp, FULL_W - 2.0).move_to([0, -3.42, 0])
+        self.play(FadeOut(sortnote), FadeIn(bp),
+                  LaggedStart(*[Create(b) for b in beams], lag_ratio=0.15), run_time=1.3)
+        self.play(LaggedStart(*lifts, lag_ratio=0.12), run_time=1.1)
+        self.wait(2.6)
+        self.play(FadeOut(beams), FadeOut(bp), FadeIn(seen_labels),
+                  *[m[0].animate.set_stroke(EDGE, width=2.0) for m in row], run_time=0.8)
+        self.wait(0.8)
 
         # The rule, colour-coded to the bars it is about to draw. Spaces cannot do the spacing:
         # Pango trims them at the ends of a run, so "u  =  " sets as "u =" and the pieces collide.
@@ -377,18 +404,18 @@ class SimpleTESRun(MovingCameraScene):
         self.play(FadeOut(sortnote), FadeIn(formula), run_time=0.8)
         self.wait(1.8)
 
-        scale = BAR_H / max(s + b for _, s, _, b in ranking)
+        scale = BAR_H / max(q + b for _, _, q, _, b in ranking)
         bars, tops = VGroup(), VGroup()
-        for i, (order, score, _, bonus) in enumerate(ranking):
-            q = Rectangle(width=0.62, height=score * scale, stroke_width=0,
+        for i, (order, _, value, _, bonus) in enumerate(ranking):
+            q = Rectangle(width=0.62, height=value * scale, stroke_width=0,
                           fill_color=BLUE, fill_opacity=0.85)
-            q.move_to([slot(i), BASE_Y + score * scale / 2, 0])
+            q.move_to([slot(i), BASE_Y + value * scale / 2, 0])
             e = Rectangle(width=0.62, height=bonus * scale, stroke_width=0,
                           fill_color=ORANGE, fill_opacity=0.85)
-            e.move_to([slot(i), BASE_Y + score * scale + bonus * scale / 2, 0])
+            e.move_to([slot(i), BASE_Y + value * scale + bonus * scale / 2, 0])
             bars.add(VGroup(q, e))
-            tops.add(txt(f"{score + bonus:.2f}", 19, INK)
-                     .move_to([slot(i), BASE_Y + (score + bonus) * scale + 0.2, 0]))
+            tops.add(txt(f"{value + bonus:.2f}", 19, INK)
+                     .move_to([slot(i), BASE_Y + (value + bonus) * scale + 0.2, 0]))
         axis = Line([slot(0) - 0.55, BASE_Y, 0], [slot(n - 1) + 0.55, BASE_Y, 0],
                     color=EDGE, stroke_width=2)
 
@@ -398,11 +425,10 @@ class SimpleTESRun(MovingCameraScene):
                   LaggedStart(*[FadeIn(t) for t in tops], lag_ratio=0.1), run_time=1.2)
         # Say what the bars actually show, which on a chain this short is not what a reader of the
         # formula would guess: a node's value is its own score OR the best any of its children
-        # reached, whichever is higher, and nearly all of these were parents of the batch that set
-        # the record -- so the blue is almost flat and the orange decides.
-        why = para("Almost all of these were parents of the batch that set the record, so their "
-                   "values are nearly flat.\nThe decision falls to the bonus — and the bonus "
-                   "shrinks every time a node gets used.", 21, INK)
+        # reached, whichever is higher. The backprop beat above just SHOWED the values going flat,
+        # so this caption only has to add the consequence: the bonus decides.
+        why = para("With the values levelled by that backpropagation, the decision falls to the "
+                   "bonus —\nand the bonus shrinks every time a node gets used.", 21, INK)
         fit(why, FULL_W - 2.0).move_to([0, -3.42, 0])
         self.play(FadeIn(why), run_time=0.7)
         self.wait(3.4)

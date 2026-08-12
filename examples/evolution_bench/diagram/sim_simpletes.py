@@ -72,8 +72,11 @@ def simulate(seed: int = 7):
 
         # Ask the selector for its own arithmetic rather than recomputing it here, so the bars the
         # animation draws are the numbers the picks were actually made from.
+        # Raw score AND Q, separately. They differ exactly where the backpropagation acted --
+        # a node whose batch produced the record carries the record's value, not its own score --
+        # and the animation shows that lift, which it cannot do from the lifted number alone.
         seen = sel.visits.get(c, {})
-        ranking = [(n.order, q, seen.get(n.id, 0), bonus)
+        ranking = [(n.order, n.score, q, seen.get(n.id, 0), bonus)
                    for n, (q, bonus) in zip(ranked, sel.terms(ranked, KEY, c))]
 
         picked = sel.pick(ranked, min(N_PARENTS, len(ranked)), rng, KEY, c)
