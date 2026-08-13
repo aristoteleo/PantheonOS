@@ -183,6 +183,8 @@ def summaries(prefix: str) -> list:
         hist = [h["score"] for h in s.get("history", [])]
         out.append({"arm": str(p.parent).removeprefix("/results/"),
                     "best": s.get("best_combined_score"),
+                    "task": s.get("task"), "method": s.get("method"),
+                    "history": s.get("history", []),
                     "seed_own": seed_own,
                     "gain": (s.get("best_combined_score") - seed_own)
                             if seed_own is not None else None,

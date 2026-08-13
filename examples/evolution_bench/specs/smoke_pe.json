@@ -1,0 +1,3 @@
+[{"out": "smoke/erdos_pantheon_evo_4it",
+  "argv": ["--task", "erdos", "--method", "pantheon_evo",
+           "--iterations", "4", "--seed", "0", "--workers", "1"]}]
