@@ -1,5 +1,12 @@
 # The AHC039 ablation campaign
 
+> **Erratum (2026-08-12, same day).** The SimpleTES row below is INVALID as a claim about the
+> algorithm: `CompletionVariator` silently truncated the 43,592-byte seed at
+> `max_parent_chars=24000`, so every completion rewrote a program it had seen barely half of
+> (children 8–18KB against a 43KB seed), and the operator also sent no `max_tokens` where
+> upstream budgets 32768. Both fixed (`1396587f`, `0f8ea622`); `wave3/` re-runs the arms under
+> the fix. Every other arm used the agent operator and is unaffected.
+
 2026-08-12. Forty-two 30-item runs on AHC039, all on Modal (`modal_exp.py`, one container per
 run, results on the `evolve-exp-results` volume under `wave1/`, `wave2/`), model
 `openai/gpt-5.6-luna` throughout — the same model as every number in the Erdős findings. Total
