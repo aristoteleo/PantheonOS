@@ -54,9 +54,17 @@ the fixed parts kept verbatim. Whole-file mode is only the fallback for marker-l
 
 `CompletionVariator` now implements the block protocol (marker detection, upstream's generation
 prompt, prefix/suffix-preserving merge), the AHC039 seed marks its simulated-annealing core
-(lines 441–874; the KD-tree/scoring/IO scaffolding is fixed), and `wave3c/` re-runs the arms
-under it. Erdos and circle packing are unaffected: their seeds are marker-less, where
-whole-file mode IS upstream's behaviour — which is also why the packing record stood.
+(lines 441–874; the KD-tree/scoring/IO scaffolding is fixed), and `wave3c/` re-ran the arms
+under it. The protocol verifiably worked — all 56 children preserve the markers and the fixed
+scaffolding, sizes 20–34KB — **and the result held: 0/3 runs improved, 29–30 of 30 children
+wrecked per run.** The best block-protocol child reached 2.01 against a ~2.47 seed. The claim
+that survives three rounds of harness correction is narrow and real: single-shot regeneration
+of a large (24KB) heavily tuned block, blind to execution, does not preserve incumbent quality
+within this budget — an agent that runs the evaluator before submitting does. One authoring
+caveat: the block's SCOPE is the task author's choice; we marked the whole SA core, and a
+smaller block (say, only the parameter schedule) might behave differently. Upstream published
+no AHC-class results to compare against. Erdos and circle packing are unaffected: their seeds
+are marker-less, where whole-file mode IS upstream's behaviour — and the packing record stood.
 
 ## Caveats
 
