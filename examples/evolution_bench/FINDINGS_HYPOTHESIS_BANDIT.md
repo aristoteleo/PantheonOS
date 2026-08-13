@@ -63,9 +63,19 @@ that survives three rounds of harness correction is narrow and real: single-shot
 of a large (24KB) heavily tuned block, blind to execution, does not preserve incumbent quality
 within this budget — an agent that runs the evaluator before submitting does. One authoring
 caveat: the block's SCOPE is the task author's choice; we marked the whole SA core, and a
-smaller block (say, only the parameter schedule) might behave differently. Upstream published
-no AHC-class results to compare against. Erdos and circle packing are unaffected: their seeds
-are marker-less, where whole-file mode IS upstream's behaviour — and the packing record stood.
+smaller block (say, only the parameter schedule) might behave differently.
+
+**Erratum (2026-08-13):** an earlier revision of this paragraph said upstream published no
+AHC-class results. Wrong — the SimpleTES paper's Table 9 reports AHC039 = 567,503 (official
+AtCoder platform, max of 10 submissions, gpt-oss-20b), a new SOTA above the 1st human
+(566,997) and TTT-Discover (567,057), from the same 5th-place-lineage seed we use. That does
+not overturn the wave3c finding; it bounds it. Their regime: fitness = mean of 3x150 cases
+per candidate on a native 96-core EPYC, long campaigns, best-of-10 official submissions. Ours:
+~30 single-shot children per run under x86 emulation at ~65% native speed. So "0/3 improved,
+29-30/30 wrecked" is a statement about THIS budget, not a ceiling on the protocol — at ~100x
+the evaluation scale the same protocol demonstrably wins. Erdos and circle packing are
+unaffected: their seeds are marker-less, where whole-file mode IS upstream's behaviour — and
+the packing record stood.
 
 ## Caveats
 
