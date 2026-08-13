@@ -22,6 +22,7 @@ MANIM_SCENES = [("evolution_00_framework", "manim_framework.py", "FrameworkRun")
                  "AgentMapElitesRun"),
                 ("evolution_02_simpletes", "manim_simpletes.py", "SimpleTESRun"),
                 ("evolution_03_annealed_idea_code", "manim_annealed.py", "AnnealedRun"),
+                ("evolution_04_hypothesis_bandit", "manim_hypbandit.py", "HypothesisBanditRun"),
                 # The PROBLEM explainers: what each benchmark is, on its real artifacts.
                 ("problem_00_erdos", "manim_prob_erdos.py", "ErdosProblem"),
                 ("problem_01_circle_packing", "manim_prob_packing.py", "PackingProblem"),
