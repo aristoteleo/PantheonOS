@@ -76,12 +76,16 @@ def main() -> None:
     evolve_file = cfg.get("evolve", "solution.py")
 
     # ---- the engine, pinned ------------------------------------------------
-    eng = out / "upstream"
+    # /tmp, not the output volume: a git clone is thousands of small files and network-volume
+    # writes make it crawl. Only the checkpoints and summary live on the volume.
+    eng = Path("/tmp/upstream_simpletes")
     if not (eng / "main.py").exists():
         subprocess.run(["git", "clone", UPSTREAM_REPO, str(eng)], check=True)
         subprocess.run(["git", "-C", str(eng), "checkout", UPSTREAM_SHA], check=True)
     subprocess.run([sys.executable, "-m", "pip", "install", "-q",
-                    "litellm>=1.80.0", "rich>=13.0.0", "questionary>=2.0.0"], check=True)
+                    "litellm>=1.80.0", "rich>=13.0.0", "questionary>=2.0.0",
+                    "pandas", "numpy", "scikit-learn", "psutil", "matplotlib",
+                    "protobuf", "cython"], check=True)
 
     adapter = out / "adapter_evaluator.py"
     adapter.write_text(ADAPTER.format(task_dir=str(task_dir), evolve_file=evolve_file,
