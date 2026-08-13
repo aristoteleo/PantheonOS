@@ -17,11 +17,28 @@ this page: follow the links.
 Pack 26 circles in the unit square, maximise the sum of radii. Evolved from a naive ring layout
 (1.8045) to **2.635983** — an exact tie with AlphaEvolve V2 and SimpleTES, which both report
 2.635983 (SimpleTES technical report, arXiv:2604.19341, benchmark table); validity re-verified
-through the evaluator (no overlaps, inside the square). Run setup, verified: model
-`z-ai/glm-5.2` (not Opus), `single_agent_mutation=True`, record at iteration 2 of 3 — the agent
-ran SLSQP with restarts inside a single mutation. The optimum's signature — 58 tangencies, 16 wall
-contacts — is drawn in `problem_01_circle_packing.mp4` / `poster_circle_packing.png`.
-Details: `evolution_circle_packing/results/RESULTS.md`. Caveat: n=1 run at this level.
+through the evaluator (no overlaps, inside the square).
+
+**The record was reached twice, once per model, both in solver-allowed arms**: `z-ai/glm-5.2`
+(the `results/` run, iteration 2 of 3) and `claude-opus-4.8` (`results_arm_S_scipy`, 6
+iterations, task description explicitly allowing scipy/SLSQP). A further six Opus arms probed
+exploration shape WITHOUT the solver nudge (`results_arm_*`, main checkout;
+`all_arms_final.png` is the original matched-compute figure):
+
+| arm (all opus-4.8, n=1) | shape | best Σr |
+|---|---|---|
+| A depth | 4 iters × 40 calls | **2.6331** |
+| D deep | 12 iters | 2.6259 |
+| B2 breadth+thick | 12 × 13 | 2.6229 |
+| C hybrid | 8 × 20 | 2.6058 |
+| B3 = B2 + warm-start | 12 × 13 | 2.5919 |
+| B breadth thin | 12 × 13 | 2.5867 |
+
+Two transferable reads: **depth beats breadth at matched compute**, and **warm-start hurt here
+too** (B3 < B2) — the same attractor the Erdős ablation later isolated. The optimum's signature
+— 58 tangencies, 16 wall contacts — is drawn in `problem_01_circle_packing.mp4` /
+`poster_circle_packing.png`. Details: `evolution_circle_packing/results/RESULTS.md`. Caveat:
+n=1 per arm.
 
 ## Erdős minimum overlap
 

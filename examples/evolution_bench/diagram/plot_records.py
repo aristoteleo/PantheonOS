@@ -54,11 +54,11 @@ def fig_packing(out):
     R = np.asarray(PACKING["radii"])
     fig = plt.figure(figsize=(16, 9), dpi=150)
     fig.text(0.055, 0.93, "Circle packing n = 26 — the record run", size=26, weight="bold")
-    fig.text(0.055, 0.885, "sum of radii 2.635983 — a three-way tie with AlphaEvolve V2 and SimpleTES "
-                           "(both report 2.635983) — found at iteration 2 of a 3-iteration run",
+    fig.text(0.055, 0.885, "sum of radii 2.635983 — a three-way tie with AlphaEvolve V2 and SimpleTES — reached "
+                           "by BOTH glm-5.2 and opus-4.8, in the solver-allowed arms",
              size=14, color=SUB)
 
-    ax = fig.add_axes([0.055, 0.09, 0.40, 0.72])
+    ax = fig.add_axes([0.045, 0.06, 0.50, 0.76])
     ax.set_aspect("equal")
     ax.add_patch(Rectangle((0, 0), 1, 1, fill=False, edgecolor=INK, lw=2))
     for c, r in zip(C, R):
@@ -67,30 +67,43 @@ def fig_packing(out):
     ax.set_ylim(-0.02, 1.02)
     ax.axis("off")
 
-    # the score ladder
-    axl = fig.add_axes([0.53, 0.52, 0.42, 0.3])
-    vals = [("naive ring seed", 1.8045, MUTED), ("evolved (iter 2)", 2.635983, GREEN)]
-    for i, (name, v, col) in enumerate(vals):
-        axl.barh(i, v, 0.5, color=col, alpha=0.75)
-        axl.text(v + 0.02, i, f"{v:.6f}".rstrip("0"), va="center", size=13, color=INK)
-    axl.axvline(2.635983, color=ORANGE, lw=1.6, ls="--")
-    axl.text(2.62, 1.62, "AlphaEvolve V2 = SimpleTES = 2.635983 (tie)", size=11.5, color=ORANGE, ha="right")
-    axl.set_yticks(range(len(vals)))
-    axl.set_yticklabels([v[0] for v in vals], size=12.5)
-    axl.set_xlim(0, 3.0)
-    axl.set_ylim(-0.5, 1.9)
-    for s in ("top", "right", "left"):
-        axl.spines[s].set_visible(False)
+    # every arm ever run, zoomed to where they differ. Two arms reached the record -- one per
+    # model -- and both were the arms where an external solver was allowed. The ability arms
+    # (no solver nudge) rank depth over breadth, and warm-start HURT here too (B3 < B2), the
+    # same attractor the Erdos ablation isolated.
+    axl = fig.add_axes([0.625, 0.44, 0.33, 0.40])
+    arms = [("B breadth 12×13 · opus", 2.5867, MUTED),
+            ("B3 = B2 + warm-start · opus", 2.5919, RED),
+            ("C hybrid 8×20 · opus", 2.6058, MUTED),
+            ("B2 breadth+thick · opus", 2.6229, MUTED),
+            ("D deep 12 iters · opus", 2.6259, MUTED),
+            ("A depth 4×40 · opus", 2.6331, BLUE),
+            ("S solver allowed · opus", 2.635983, GREEN),
+            ("record run · glm-5.2", 2.635983, GREEN)]
+    for i, (name, v, col) in enumerate(arms):
+        axl.barh(i, v - 2.55, 0.6, left=2.55, color=col, alpha=0.8)
+        axl.text(v + 0.001, i, f"{v:.6f}".rstrip("0"), va="center", size=10.5, color=INK)
+    axl.axvline(2.635983, color=ORANGE, lw=1.5, ls="--")
+    axl.text(2.6488, 0.8, "AlphaEvolve V2 = SimpleTES\n2.635983", size=10, color=ORANGE,
+             ha="right", va="center")
+    axl.set_yticks(range(len(arms)))
+    axl.set_yticklabels([a[0] for a in arms], size=10.5)
+    axl.set_xlim(2.55, 2.65)
+    axl.set_xticks([2.56, 2.59, 2.62, 2.65])
+    axl.set_xlabel("best sum of radii (seed 1.8045 off-scale left)", size=11)
+    for sp in ("top", "right"):
+        axl.spines[sp].set_visible(False)
+    axl.set_title("every arm, matched seed — the record was reached TWICE",
+                  size=12.5, color=SUB, loc="left", pad=6)
 
-    setup_box(fig, 0.53, 0.40, [
+    setup_box(fig, 0.625, 0.345, [
         ("method", "MAP-Elites archive + ONE coding-agent mutation"),
-        ("", "(single_agent_mutation=True; pre-refactor stack,"),
-        ("", " today's AgentMapElites)"),
-        ("model", "openrouter/z-ai/glm-5.2  — NOT Opus"),
-        ("run", "3 iterations · workers 1 · record at iter 2, ~410 s"),
-        ("how", "the agent ran SLSQP over all centers+radii with"),
-        ("", " restarts inside its mutation, verified, submitted"),
-        ("caveat", "n = 1 at this level; validity re-checked (1.0)"),
+        ("", "(single_agent_mutation=True; pre-refactor stack)"),
+        ("records", "glm-5.2 (iter 2 of 3) and opus-4.8 (arm S, 6 iters)"),
+        ("", " — both with an external solver allowed (SLSQP)"),
+        ("ability", "no-solver opus arms top out at 2.6331 (A depth);"),
+        ("", " depth beats breadth at matched compute"),
+        ("warm-start", "B3 (2.5919) < B2 (2.6229): hurts here too · n=1/arm"),
     ])
     fig.savefig(out / "record_circle_packing.png")
     plt.close(fig)
