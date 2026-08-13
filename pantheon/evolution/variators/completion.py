@@ -101,9 +101,15 @@ class CompletionVariator:
             v = ind.metrics().get(self.score_key)
             return f" ({self.score_key} = {v})" if v is not None else ""
 
-        def _body(text: str) -> str:
-            return (text if len(text) <= self.max_parent_chars
-                    else text[: self.max_parent_chars] + "\n# ... truncated ...\n")
+        def _body(text: str, primary: bool = False) -> str:
+            # A program the model is asked to REWRITE is never truncated: on AHC039 the 43KB
+            # seed was silently cut at 24KB, so 189 completions rewrote a program they had seen
+            # barely half of -- and every one of them wrecked it. That number then masqueraded
+            # as a result about the algorithm. The cap protects the prompt from a pile of large
+            # REFERENCE parents; the primary parent is the one thing it must never touch.
+            if primary or len(text) <= self.max_parent_chars:
+                return text
+            return text[: self.max_parent_chars] + "\n# ... truncated ...\n"
 
         if len(c.parents) > 1:
             # Several parents means the method is asking for a synthesis, not an edit: the
@@ -115,14 +121,16 @@ class CompletionVariator:
             for i, p in enumerate(c.parents):
                 src = p.genome.files.get(path) if isinstance(p.genome, CodeGenome) else None
                 parts.append(f"\n### reference {i + 1}{_score(p)}")
-                parts.append(f"```python\n{_body(src or p.genome.render())}```")
+                # the best-first reference is what the new program most plausibly builds on;
+                # it gets the primary guarantee, the rest absorb the cap
+                parts.append(f"```python\n{_body(src or p.genome.render(), primary=i == 0)}```")
             parts.append("\nWrite a NEW program, better than all of them. Prefer an approach none "
                          "of them takes; combine what works where that helps.")
         else:
             parent = c.parents[0] if c.parents else None
             parts.append(f"\n## Current program `{path}`"
                          + (_score(parent) if parent is not None else ""))
-            parts.append(f"```python\n{_body(content)}```")
+            parts.append(f"```python\n{_body(content, primary=True)}```")
         if c.history:
             parts.append(f"\n## What earlier attempts scored\n{c.history}")
         if c.inspirations:
