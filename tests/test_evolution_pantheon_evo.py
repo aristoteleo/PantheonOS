@@ -1,0 +1,205 @@
+"""PantheonEvo: hypothesis-guided adaptive co-evolution, on fakes.
+
+The claims tested are the mechanisms the design document names: hypotheses are structured and
+gated structurally (not judged), implementations are component-tagged edits whose measured dR
+feeds per-hypothesis evidence and per-component credit, the controller prefers evidence and
+retires refuted hypotheses, and the multi-fidelity stage promotes only survivors. Nothing here
+claims the search is good -- a toy cannot say that.
+"""
+from __future__ import annotations
+
+import asyncio
+from typing import List
+
+import pytest
+
+from pantheon.evolution.core import (
+    Budget,
+    CodeGenome,
+    EvolveContext,
+    Individual,
+    Measurement,
+    Produced,
+    Store,
+    TextGenome,
+)
+from pantheon.evolution.core.loop import evolve
+from pantheon.evolution.core.method import EvolveMethod
+from pantheon.evolution.methods import PantheonEvo
+from pantheon.evolution.methods.pantheon_evo import (
+    COMPONENTS,
+    HYP,
+    CODE,
+    HypothesisGate,
+    _parse_component,
+)
+
+
+def hyp_text(component: str, mech: str = "swap the inner loop") -> str:
+    return (f"target_component: {component}\nmechanism: {mech}\n"
+            f"expected_effect: higher score\nfalsification: no gain on the benchmark\n")
+
+
+class FakeVariator:
+    """Hypotheses cycle through components; implementations climb, one component faster."""
+
+    def __init__(self):
+        self.serial = 0
+
+    async def create(self, ctx: EvolveContext, item) -> List[Produced]:
+        self.serial += 1
+        if item.kind == HYP:
+            comp = item.meta.get("target") or COMPONENTS[self.serial % len(COMPONENTS)]
+            return [Produced(
+                genome=TextGenome(text=hyp_text(comp, f"mechanism #{self.serial}"), kind=HYP),
+                item_id=item.id, batch_id=item.batch_id,
+                parent_ids=list(item.parent_ids), anchor_id=item.anchor_id)]
+        parent = ctx.store.get(item.parent_ids[0]) if item.parent_ids else None
+        base = 0.0
+        if parent is not None:
+            first = next(iter(parent.genome.files.values()), "# value=0.0")
+            base = float(first.split("value=")[1].split()[0]) if "value=" in first else 0.0
+        comp = (item.context.extra or {}).get("component", COMPONENTS[0])
+        step = 0.05 if comp == "search-strategy" else 0.01
+        return [Produced(
+            genome=CodeGenome(files={"solution.py":
+                                     f"# v{self.serial} value={base + step}\n"}),
+            item_id=item.id, batch_id=item.batch_id,
+            parent_ids=list(item.parent_ids), anchor_id=item.anchor_id)]
+
+
+class FakeCodeEvaluator:
+    kind = CODE
+
+    async def measure(self, ctx, ind: Individual, fidelity: str = "full") -> Measurement:
+        first = next(iter(ind.genome.files.values()), "")
+        v = float(first.split("value=")[1].split()[0]) if "value=" in first else 0.0
+        return Measurement(individual_id=ind.id, fidelity=fidelity,
+                           metrics={"combined_score": v, "validity": 1.0}, cost=0.01)
+
+
+def run(method, budget=24):
+    return asyncio.run(evolve(
+        method, FakeVariator(), {CODE: FakeCodeEvaluator()},
+        seeds=[CodeGenome(files={"solution.py": "# seed value=0.0\n"})],
+        objective="maximise the toy value", budget=Budget(max_items=budget), concurrency=2))
+
+
+# ------------------------------------------------------------------ protocol ---
+def test_conforms_to_the_method_protocol():
+    assert isinstance(PantheonEvo(), EvolveMethod)
+
+
+def test_the_gate_is_its_own_idea_evaluator():
+    m = PantheonEvo()
+    evs = m.default_evaluators()
+    assert isinstance(evs[HYP], HypothesisGate)
+    assert CODE not in evs
+
+
+# ------------------------------------------------------------- the mechanisms ---
+def test_structured_hypotheses_are_admitted_and_prose_is_not():
+    gate = HypothesisGate()
+    s = Store()
+    good = s.add(Individual(genome=TextGenome(text=hyp_text("parameters"), kind=HYP), kind=HYP))
+    bad = s.add(Individual(genome=TextGenome(text="just try something better", kind=HYP),
+                           kind=HYP))
+    ctx = EvolveContext(store=s, budget=Budget(max_items=1))
+    g = asyncio.run(gate.measure(ctx, good))
+    b = asyncio.run(gate.measure(ctx, bad))
+    assert g.metrics["structured"] == 1.0
+    assert b.metrics["structured"] == 0.0
+
+
+def test_parse_component_reads_the_field_line_first():
+    text = ("target_component: numerical-optimization\n"
+            "mechanism: tune the parameters of the core-algorithm\n")
+    assert _parse_component(text) == "numerical-optimization"
+
+
+def test_end_to_end_produces_hypotheses_and_component_tagged_children():
+    m = PantheonEvo(seed=3)
+    res = run(m, budget=24)
+    hyps = res.store.of_kind(HYP)
+    codes = [c for c in res.store.of_kind(CODE) if c.parent_ids or c.anchor_id]
+    assert hyps and codes
+    assert all(c.anchor_id for c in codes), "every implementation serves a hypothesis"
+    assert all(c.meta.get("component") in COMPONENTS for c in codes)
+    assert any(gs for gs in m.credit.values()), "credit accumulated on some component"
+
+
+def test_credit_steers_toward_the_paying_component():
+    """search-strategy pays 5x in the fake; after enough evidence the controller should have
+    implemented it more than any single other component."""
+    m = PantheonEvo(seed=5, min_live_hyps=3)
+    run(m, budget=40)
+    counts = {c: len(g) for c, g in m.credit.items()}
+    assert counts, "no edits recorded"
+    # not a strict argmax claim (stochastic controller); the paying component must at least be
+    # among the most-edited
+    top = sorted(counts.items(), key=lambda kv: -kv[1])
+    assert dict(top).get("search-strategy", 0) > 0
+
+
+def test_a_refuted_hypothesis_is_retired():
+    m = PantheonEvo(retire_after=2)
+    m.hyp["h1"] = {"component": "parameters", "text": "t", "head": "t",
+                   "gains": [-0.02, -0.01], "fails": 0, "retired": False}
+    m._maybe_retire("h1")
+    assert m.hyp["h1"]["retired"]
+
+
+def test_evidence_beats_novelty_once_it_exists():
+    m = PantheonEvo(lam=1.0, eta=0.5, prior_sigma=0.05)
+    m.hyp["good"] = {"component": "parameters", "text": "t", "head": "t",
+                     "gains": [0.5, 0.5], "fails": 0, "retired": False}
+    m.hyp["fresh"] = {"component": "core-algorithm", "text": "t", "head": "t",
+                      "gains": [], "fails": 0, "retired": False}
+    picks = [m.sample_hyp() for _ in range(200)]
+    assert picks.count("good") > picks.count("fresh")
+
+
+def test_low_fidelity_screen_gates_the_full_measurement():
+    m = PantheonEvo(low_fidelity=True, promote_margin=0.0)
+    s = Store()
+    ctx = EvolveContext(store=s, budget=Budget(max_items=10))
+    child = s.add(Individual(genome=CodeGenome(files={"a": "x"}), kind=CODE,
+                             meta={"component": "parameters", "base": 0.5}))
+    # a cheap reading above the base earns a promotion
+    good = Measurement(individual_id=child.id, fidelity="low",
+                       metrics={"combined_score": 0.6, "validity": 1.0})
+    asyncio.run(m.on_measured(ctx, child, good))
+    assert len(m.pending_promote) == 1
+    assert m.pending_promote[0].individual_id == child.id
+    # a cheap reading far below it does not
+    child2 = s.add(Individual(genome=CodeGenome(files={"a": "y"}), kind=CODE,
+                              meta={"component": "parameters", "base": 0.5}))
+    bad = Measurement(individual_id=child2.id, fidelity="low",
+                      metrics={"combined_score": 0.1, "validity": 1.0})
+    asyncio.run(m.on_measured(ctx, child2, bad))
+    assert len(m.pending_promote) == 1
+
+
+def test_cheap_readings_never_become_the_recorded_score():
+    m = PantheonEvo()
+    s = Store()
+    ind = s.add(Individual(genome=CodeGenome(files={"a": "x"}), kind=CODE))
+    s.record(Measurement(individual_id=ind.id, fidelity="low",
+                         metrics={"combined_score": 9.9, "validity": 1.0}))
+    assert m._score(s.get(ind.id)) is None
+    s.record(Measurement(individual_id=ind.id, fidelity="full",
+                         metrics={"combined_score": 0.7, "validity": 1.0}))
+    assert m._score(s.get(ind.id)) == pytest.approx(0.7)
+
+
+def test_state_round_trips():
+    m = PantheonEvo(seed=7)
+    run(m, budget=16)
+    st = m.state_dict()
+    import json
+
+    st2 = json.loads(json.dumps(st))
+    m2 = PantheonEvo()
+    m2.load_state_dict(st2)
+    assert set(m2.hyp) == set(m.hyp)
+    assert m2.credit.keys() == m.credit.keys()

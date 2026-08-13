@@ -33,9 +33,14 @@ sys.path.insert(0, str(HERE.parent.parent))
 TASKS = HERE / "tasks"
 
 
-def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=None):
+def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=None,
+                 low_fidelity: bool = False):
     from pantheon.evolution.methods import (
-        AnnealedIdeaCode, IdeaCodeAlternating, AgentMapElites, SimpleTES)
+        AnnealedIdeaCode, IdeaCodeAlternating, AgentMapElites, PantheonEvo, SimpleTES)
+
+    if name == "pantheon_evo":
+        # low_fidelity follows the task: staged promotion only where a cheap fidelity exists.
+        return PantheonEvo(seed=seed, low_fidelity=low_fidelity)
 
     if name == "annealed":
         # `sched` carries only the knobs the caller actually set, so the method's own defaults
@@ -108,7 +113,8 @@ async def main(a) -> None:
             judge.load(a.judge_state)
     sched = {k: getattr(a, k) for k in ("t0", "t1", "beta0", "gamma")
              if getattr(a, k) is not None}
-    method = build_method(a.method, a.seed, judge=judge, norm=a.norm, sched=sched)
+    method = build_method(a.method, a.seed, judge=judge, norm=a.norm, sched=sched,
+                          low_fidelity=(a.inner_fidelity or cfg.get("inner_fidelity")) == "low")
 
     variator = method.default_variator(
         evaluator=evaluator, model=a.model, timeout=a.mutation_timeout,
@@ -207,7 +213,8 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--task", required=True)
     p.add_argument("--method", default="agent_map_elites",
-                   choices=["agent_map_elites", "map_elites", "simpletes", "idea_code", "annealed"])
+                   choices=["agent_map_elites", "map_elites", "simpletes", "idea_code", "annealed",
+                            "pantheon_evo"])
     p.add_argument("--iterations", type=int, default=40)
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--workers", type=int, default=2)
