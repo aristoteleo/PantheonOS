@@ -19,6 +19,11 @@ five tools — the SAME windows the user sees and clicks.
 ## The tools
 
 ```python
+desktop_apps()
+# → what is INSTALLED: app_id, name, description, opens, actions, backend,
+#   skill path. Use it to name an app explicitly or to see what opens a
+#   given file type — never guess an app_id.
+
 desktop_windows()
 # → every open window: window_id, app_id, title, path, actions, controllable
 
@@ -41,6 +46,14 @@ app_call(app_id, method, args={})                # an app's backend method,
 
 Windows the **user** opened are first-class: find them with
 `desktop_windows()`, then read/update/call exactly as if you opened them.
+
+## Choosing the app
+
+`desktop_open(path=...)` picks the app that claims the extension — the
+same routing a double-click uses. **Name it explicitly** when you want a
+particular viewer (the file has more than one candidate, or the user asked
+for one): `desktop_open(app="spatial3d", path="cells.h5ad")`. `desktop_apps()`
+gives you the exact ids.
 
 ## File routing (what opens what)
 
