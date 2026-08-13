@@ -561,6 +561,79 @@ class LiveViewToolSet(ToolSet):
 
         return result
 
+    def _package_screenshot(self, data_url: str, stem: str) -> dict:
+        """Save a captured data URL and hand it back, inline when the model
+        can see images in tool results — shared by live_view_screenshot and
+        desktop_screenshot."""
+        try:
+            import base64
+            from pathlib import Path
+            from pantheon.settings import get_settings
+
+            header, _, b64 = str(data_url).partition(",")
+            ext = "jpg" if "jpeg" in header else "png"
+            snap_dir = get_settings().pantheon_dir / "live_view_snapshots"
+            snap_dir.mkdir(parents=True, exist_ok=True)
+            path = snap_dir / f"{stem}-{int(time.time())}.{ext}"
+            Path(path).write_bytes(base64.b64decode(b64))
+        except Exception as e:  # noqa: BLE001
+            return {"success": False, "error": f"failed to save snapshot: {e}"}
+
+        result: dict = {
+            "success": True,
+            "path": str(path),
+            "note": (
+                "Screenshot of the window. WebGL/canvas surfaces are captured "
+                "when the app provides its own snapshot; if THIS image is blank, "
+                "fall back to reading state + asking the user."
+            ),
+        }
+        try:
+            from pantheon.agent import get_current_run_model
+            from pantheon.utils.vision_capability import supports_tool_result_image
+
+            if supports_tool_result_image(get_current_run_model()):
+                result["content_blocks"] = [
+                    {"type": "image_url", "image_url": {"url": str(data_url)}}
+                ]
+                result["note"] += " The screenshot is shown inline above."
+            else:
+                result["note"] += " View the saved file with observe_images."
+        except Exception:  # noqa: BLE001
+            result["note"] += " View the saved file with observe_images."
+        return result
+
+    @tool
+    async def desktop_screenshot(self, window_id: str) -> dict:
+        """See what a desktop window currently shows, as an image.
+
+        Works on any packaged-app window — including ones the user opened.
+        Returns the screenshot inline (vision-capable models) and saves it to
+        `path`. Use it to VERIFY after desktop_open / desktop_update: state
+        alone does not prove the view looks right.
+        """
+        chat_id = self._chat_id()
+        if not chat_id:
+            return {"success": False, "error": "no chat context — cannot reach the desktop"}
+        request_id = uuid.uuid4().hex
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future = loop.create_future()
+        self._pending_snapshots[request_id] = future
+        await self._publish(chat_id, {
+            "type": "desktop.snapshot",
+            "window_id": window_id,
+            "request_id": request_id,
+        })
+        try:
+            data_url = await asyncio.wait_for(future, timeout=SNAPSHOT_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            return {"success": False, "error": "screenshot timed out — is the window still open?"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+        finally:
+            self._pending_snapshots.pop(request_id, None)
+        return self._package_screenshot(data_url, window_id)
+
     @tool
     async def serve_local_data(self, path: str) -> dict:
         """Expose a local workspace file or directory over HTTP (CORS).
