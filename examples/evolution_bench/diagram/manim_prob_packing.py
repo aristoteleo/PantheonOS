@@ -3,14 +3,15 @@
     manim -qm --format=mp4 manim_prob_packing.py PackingProblem
 
 Everything drawn is the real artifact: the 26 centres and radii `results/packing_best.py`
-returns, whose sum of radii is 2.635983 against the published 2.635.
+returns, whose sum of radii is 2.635983 -- an exact tie with AlphaEvolve V2 and SimpleTES
+(both report 2.635983; SimpleTES technical report, arXiv:2604.19341).
 
 Acts:
 
   1. the object: 26 circles grow into the unit square, largest first, the sum ticking up
   2. the rules: inside the square, no two circles overlapping -- and at the optimum almost
      everything KISSES; the tangencies are drawn from the data (gap < 1e-4)
-  3. the score: 2.635983, a hair above the published record, from a 1.8045 naive seed
+  3. the score: 2.635983, tying AlphaEvolve V2 and SimpleTES, from a 1.8045 naive seed
 """
 from __future__ import annotations
 
@@ -38,8 +39,8 @@ class PackingProblem(Kit, MovingCameraScene):
         title = txt("Circle Packing, n = 26", 48, INK, weight="BOLD")
         sub = para("fit 26 circles into the unit square — grow their radii as far as\n"
                    "geometry allows, and the score is the SUM of all 26", 26, SUB)
-        fine = txt("the packing shown is our best artifact: Σr = 2.635983 (published record 2.635)",
-                   16, MUTED)
+        fine = txt("the packing shown is our best artifact: Σr = 2.635983 — tying AlphaEvolve V2 "
+                   "and SimpleTES exactly", 16, MUTED)
         card = VGroup(title, sub, fine).arrange(DOWN, buff=0.42)
         fit(card, FULL_W - 2.2).move_to(ORIGIN)
         self.play(Write(title), FadeIn(sub, shift=UP * 0.15), FadeIn(fine), run_time=1.4)
@@ -112,13 +113,14 @@ class PackingProblem(Kit, MovingCameraScene):
                   FadeOut(total), run_time=0.6)
         board = VGroup(
             txt("Σr = 2.635983", 30, GREEN, weight="BOLD"),
-            para("published record (AlphaEvolve, n=26)  2.635\n"
-                 "naive seed — rings of equal circles   1.8045", 18, SUB),
+            para("AlphaEvolve V2 (n=26)   2.635983\n"
+                 "SimpleTES               2.635983\n"
+                 "naive seed — rings      1.8045", 18, SUB),
         ).arrange(DOWN, buff=0.3, aligned_edge=LEFT).move_to([3.3, 1.1, 0])
         fit(board, 4.4)
         self.play(FadeIn(board), run_time=0.7)
-        self.say("the evolved packing reaches 2.635983 — a hair above the published record —\n"
-                 "having started from a naive ring layout worth 1.80", hold=3.2)
+        self.say("the evolved packing reaches 2.635983 — an exact tie with AlphaEvolve V2 and\n"
+                 "SimpleTES — having started from a naive ring layout worth 1.80", hold=3.2)
 
     def say(self, text, size=22, color=INK, hold=0.0):
         new = para(text, size, color) if "\n" in text else txt(text, size, color)

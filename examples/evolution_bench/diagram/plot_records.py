@@ -1,5 +1,10 @@
 """Two record figures -- circle packing and Erdos -- with their VERIFIED setups on the canvas.
 
+Reference values cross-checked against the SimpleTES technical report (arXiv:2604.19341,
+Table on p.13): Circle Packing n=26 is AlphaEvolve V2 2.635983 = SimpleTES 2.635983 (our
+2.635983 ties both at reported precision); the report also lists TogetherAI 0.380871 as the
+prior Erdos best, below AlphaEvolve's 0.380924.
+
     uv run python plot_records.py --out ~/Downloads
 
 The setup boxes were checked against the primary sources, because memory had already drifted
@@ -49,8 +54,9 @@ def fig_packing(out):
     R = np.asarray(PACKING["radii"])
     fig = plt.figure(figsize=(16, 9), dpi=150)
     fig.text(0.055, 0.93, "Circle packing n = 26 — the record run", size=26, weight="bold")
-    fig.text(0.055, 0.885, "sum of radii 2.635983, matching the AlphaEvolve record — found at "
-                           "iteration 2 of a 3-iteration run", size=14, color=SUB)
+    fig.text(0.055, 0.885, "sum of radii 2.635983 — a three-way tie with AlphaEvolve V2 and SimpleTES "
+                           "(both report 2.635983) — found at iteration 2 of a 3-iteration run",
+             size=14, color=SUB)
 
     ax = fig.add_axes([0.055, 0.09, 0.40, 0.72])
     ax.set_aspect("equal")
@@ -68,7 +74,7 @@ def fig_packing(out):
         axl.barh(i, v, 0.5, color=col, alpha=0.75)
         axl.text(v + 0.02, i, f"{v:.6f}".rstrip("0"), va="center", size=13, color=INK)
     axl.axvline(2.635983, color=ORANGE, lw=1.6, ls="--")
-    axl.text(2.62, 1.62, "AlphaEvolve record 2.635983", size=11.5, color=ORANGE, ha="right")
+    axl.text(2.62, 1.62, "AlphaEvolve V2 = SimpleTES = 2.635983 (tie)", size=11.5, color=ORANGE, ha="right")
     axl.set_yticks(range(len(vals)))
     axl.set_yticklabels([v[0] for v in vals], size=12.5)
     axl.set_xlim(0, 3.0)
@@ -125,8 +131,8 @@ def fig_erdos(out):
     axb.axvline(0.380924, color=ORANGE, lw=1.5, ls="--")
     axb.text(0.380934, -0.42, "AlphaEvolve 0.380924", size=10.5, color=ORANGE, ha="left")
     axb.axvline(0.380868, color=PURPLE, lw=1.5, ls="--")
-    axb.text(0.380858, -0.42, "SimpleTES\n0.380868", size=10.5, color=PURPLE, ha="right",
-             va="top")
+    axb.text(0.380858, -0.42, "SimpleTES 0.380868\nTogetherAI 0.380871", size=10.5,
+             color=PURPLE, ha="right", va="top")
     axb.set_yticks(range(len(runs)))
     axb.set_yticklabels([r[0] for r in runs], size=12)
     axb.invert_yaxis()

@@ -9,7 +9,6 @@ afford what animations cannot); the case input is read straight from the task ca
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from pathlib import Path
 
@@ -84,7 +83,8 @@ def poster_erdos(out):
     # scoreboard
     fig.text(0.72, 0.72, "Ψ = 0.380909", size=30, weight="bold", color=GREEN)
     rows = [("ours", "0.380909"), ("AlphaEvolve", "0.380924"),
-            ("Haugland", "0.380927"), ("SimpleTES", "0.380868")]
+            ("Haugland", "0.380927"), ("TogetherAI", "0.380871"),
+            ("SimpleTES", "0.380868")]
     for i, (k, v) in enumerate(rows):
         y = 0.63 - i * 0.05
         fig.text(0.72, y, k, size=14, color=SUB)
@@ -102,7 +102,7 @@ def poster_packing(out):
     _title(fig, "Circle Packing, n = 26",
            "fit 26 circles in the unit square, no overlaps — the score is the sum of the radii",
            "the packing is our best artifact, verified by the evaluator (validity 1.0); "
-           "record 2.635 is AlphaEvolve's published n=26 value · Pantheon Evolve")
+           "2.635983 ties AlphaEvolve V2 and SimpleTES (arXiv:2604.19341) · Pantheon Evolve")
 
     ax = fig.add_axes([0.055, 0.1, 0.44, 0.74])
     ax.set_aspect("equal")
@@ -121,15 +121,16 @@ def poster_packing(out):
     ax.axis("off")
 
     fig.text(0.56, 0.72, "Σr = 2.635983", size=30, weight="bold", color=GREEN)
-    rows = [("published record", "2.635"), ("naive ring seed", "1.8045"),
+    rows = [("AlphaEvolve V2 / SimpleTES", "2.635983"), ("naive ring seed", "1.8045"),
             ("tangencies", str(n_t)), ("radii", "0.069 – 0.137")]
     for i, (k, v) in enumerate(rows):
         y = 0.63 - i * 0.05
         fig.text(0.56, y, k, size=14, color=SUB)
         fig.text(0.76, y, v, size=14, color=INK, family="Menlo")
     fig.text(0.56, 0.36,
-             "the orange web is the optimum's signature: everything\n"
-             "touches, so growing any circle shrinks a neighbour",
+             "a three-way tie at reported precision. The orange web is the\n"
+             "optimum's signature: everything touches, so growing any\n"
+             "circle shrinks a neighbour",
              size=12.5, color=MUTED)
     fig.savefig(out / "poster_circle_packing.png", bbox_inches=None)
     plt.close(fig)

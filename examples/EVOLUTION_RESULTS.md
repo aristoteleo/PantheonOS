@@ -6,8 +6,8 @@ this page: follow the links.
 
 | problem | metric | seed | **ours (best)** | reference | status |
 |---|---|---|---|---|---|
-| Circle packing n=26 (↑) | Σ radii | 1.8045 | **2.635983** | AlphaEvolve 2.635983 | matched SOTA |
-| Erdős min overlap (↓) | Ψ | 0.5 | **0.380909** | AlphaEvolve 0.380924 · SimpleTES 0.380868 | beats AlphaEvolve, 4e-5 short of SimpleTES |
+| Circle packing n=26 (↑) | Σ radii | 1.8045 | **2.635983** | AlphaEvolve V2 2.635983 · SimpleTES 2.635983 | three-way tie |
+| Erdős min overlap (↓) | Ψ | 0.5 | **0.380909** | AlphaEvolve 0.380924 · TogetherAI 0.380871 · SimpleTES 0.380868 | beats AlphaEvolve; SimpleTES & TogetherAI lower |
 | Mouse-heart gene panel (↑) | FFP | 0.688 (DE) | **0.778** | best published bench row 0.738 | beats the bench leader |
 | Breast-cancer panel, direct (↑) | quality | 0.5433 / 0.5880 | **0.5477 / 0.5928** | — | mechanism validated; lift small |
 | AHC039 purse-seine (↑) | mean/case | ~2.47 (5th place) | +0.022 best gain | contest leaderboard n/a | ablation campaign benchmark |
@@ -15,16 +15,21 @@ this page: follow the links.
 ## Circle packing, n = 26
 
 Pack 26 circles in the unit square, maximise the sum of radii. Evolved from a naive ring layout
-(1.8045) to **2.635983**, matching the AlphaEvolve record; validity re-verified through the
-evaluator (no overlaps, inside the square). The optimum's signature — 58 tangencies, 16 wall
+(1.8045) to **2.635983** — an exact tie with AlphaEvolve V2 and SimpleTES, which both report
+2.635983 (SimpleTES technical report, arXiv:2604.19341, benchmark table); validity re-verified
+through the evaluator (no overlaps, inside the square). Run setup, verified: model
+`z-ai/glm-5.2` (not Opus), `single_agent_mutation=True`, record at iteration 2 of 3 — the agent
+ran SLSQP with restarts inside a single mutation. The optimum's signature — 58 tangencies, 16 wall
 contacts — is drawn in `problem_01_circle_packing.mp4` / `poster_circle_packing.png`.
 Details: `evolution_circle_packing/results/RESULTS.md`. Caveat: n=1 run at this level.
 
 ## Erdős minimum overlap
 
 Continuous relaxation, scored with DeepMind's exact evaluator. Best construction **Ψ = 0.380909**
-(K=951), below AlphaEvolve's 0.380924, ~4e-5 above SimpleTES's 0.380868. Margins are 1e-5-scale
-and n=1: treat as "same club", not a ranking.
+(K=951), below AlphaEvolve's 0.380924; SimpleTES (0.380868) and TogetherAI (0.380871, listed as
+the prior best in the SimpleTES report) are lower still. Margins are 1e-5-scale and n=1: treat
+as "same club", not a ranking. Run setup, verified: model `anthropic/claude-opus-4.8`,
+MAP-Elites islands=2 with diff-based agent edits, 12 iterations, warm-start OFF.
 
 The transferable findings came from the ablations (`evolution_erdos_min_overlap/RESULTS.md` and
 `FINDINGS.md`):
