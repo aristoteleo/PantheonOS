@@ -1117,10 +1117,32 @@ class LiveViewToolSet(ToolSet):
             "desktop.update", {"window_id": window_id, "patch": patch or {}})
 
     @tool
-    async def desktop_call(self, window_id: str, action: str, args: dict = {}) -> dict:
+    async def desktop_call(
+        self, window_id: str, action: str = "", args: dict = {}, **kwargs,
+    ) -> dict:
         """Invoke a named action on a window — the same handlers its menus
         trigger (defineAction). List a window's actions via desktop_windows.
         Also accepts window ops: action "$close" closes the window."""
+        # Underscore-prefixed kwargs happen: the framework passes _background,
+        # and a model that has seen it sometimes writes _action / _args too.
+        # Three consecutive calls once died on "missing 1 required positional
+        # argument: \'action\'" for exactly that. Accept both spellings.
+        if not action:
+            action = str(kwargs.get("_action") or "")
+        if not args:
+            raw = kwargs.get("_args")
+            if isinstance(raw, str):
+                try:
+                    import json as _json
+                    raw = _json.loads(raw)
+                except Exception:
+                    raw = None
+            if isinstance(raw, dict):
+                args = raw
+        if not action:
+            return {"success": False,
+                    "error": "desktop_call needs an action name — desktop_windows() lists each "
+                             "window's actions"}
         return await self._desktop_request(
             "desktop.call", {"window_id": window_id, "action": action, "args": args or {}},
             timeout=60.0)
