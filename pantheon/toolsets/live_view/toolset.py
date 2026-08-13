@@ -1026,6 +1026,21 @@ class LiveViewToolSet(ToolSet):
             self._pending_desktop.pop(request_id, None)
 
     @tool
+    async def desktop_apps(self) -> dict:
+        """List the apps installed on the user's desktop — what you can open.
+
+        Each entry: `app_id` (what desktop_open's `app` takes), `name`,
+        `description`, `opens` (file extensions it claims), `actions`
+        (names for desktop_call), `backend` (whether app_call reaches a
+        backend process), and `skill` (the path of the doc describing its
+        state contract — read_file it before driving anything non-trivial).
+
+        Call this when you need to name an app explicitly, or to see what
+        can open a given file type.
+        """
+        return await self._desktop_request("desktop.apps", {})
+
+    @tool
     async def desktop_windows(self) -> dict:
         """List every window on the user's desktop — whoever opened it.
 
