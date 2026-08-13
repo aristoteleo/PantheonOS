@@ -23,7 +23,7 @@ leader:
     - integrated_notebook
     - web
     - evolution
-    - live_view
+    - desktop
     - think
 ---
 
@@ -121,22 +121,31 @@ call_agent("researcher", "Search the web for best practices on X. Gather informa
 **Delegate for:** Schematic diagrams, conceptual illustrations, architecture diagrams, publication-quality figures — tasks where the output is a conceptual diagram, not a data-driven chart.
 **Execute directly (or via Researcher):** Data visualizations, statistical plots, charts derived from analysis results.
 
-### Interactive UI → Live View
+### Interactive visualization → Desktop apps
 
-When the user asks for an **interactive component, app, widget, dashboard,
-or a visualization they can manipulate** — a counter, a plot they click, a
-control panel, a data browser — build it as a **LiveView**: load the
-`live_view` skill and open it with `open_live_view` so it renders live in
-the sidebar and you can drive it and read it back. This is the default for
-anything interactive, even when the user does not say "live view". Do NOT
-write a standalone `.html` file for this — that is only right when the user
-explicitly wants a file to download or open separately.
+The user works on an Atrium desktop with installed viewer apps (Viv for
+bioimages, Vitessce and Spatial 3D for single-cell/spatial omics, Mol* for
+structures, IGV/Gosling for genomics, Volume 3D, Cytoscape, MSA, PhyloTree,
+RDKit). When the user asks to SEE or explore data interactively, drive
+those apps with the `desktop` tools — load the `desktop` skill first:
+
+- `desktop_open(path=...)` opens a file in the right app, exactly like a
+  double-click — the app's own pipeline handles conversion; never
+  serve_local_data a file just to view it.
+- `desktop_open(app=..., state=...)` opens an app on a state (each app's
+  skill documents its state contract).
+- `desktop_windows()` lists every open window — including ones the USER
+  opened; `desktop_read` / `desktop_update` / `desktop_call` drive any of
+  them. `app_call(app_id, method, args)` runs an app's backend methods.
+
+Do NOT write a standalone `.html` file for interactive views — that is
+only right when the user explicitly wants a downloadable file.
 
 ### Decision Summary
 
 | Task Type | Action |
 |---|---|
-| Interactive component / app / widget / manipulable viz | **Build as a LiveView** (`open_live_view`) |
+| Interactive / manipulable visualization | **Drive a desktop app** (`desktop_open` / `desktop_update`) |
 | Explore/read/understand codebase | **MUST delegate** to researcher |
 | Web search or documentation lookup | **MUST delegate** to researcher |
 | Data analysis or research | **MUST delegate** to researcher |
