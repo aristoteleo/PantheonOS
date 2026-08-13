@@ -98,7 +98,15 @@ class LiveViewSession:
 
 
 class LiveViewToolSet(ToolSet):
-    """Toolset for opening and controlling agent-driven UI components."""
+    """The desktop plane: the agent's hands and eyes on Atrium windows.
+
+    Agent-facing surface: desktop_windows / desktop_open / desktop_read /
+    desktop_update / desktop_call (+ serve_local_data and the generic data
+    endpoints). The legacy live_view_* tools are hidden from agents
+    (exclude=True) — they drove the old Pantheon-UI sidebar; Atrium windows
+    are the one mechanism now — but remain callable so existing UI paths and
+    old transcripts keep working.
+    """
 
     def __init__(self, name: str = "live_view", **kwargs):
         super().__init__(name, **kwargs)
@@ -215,7 +223,7 @@ class LiveViewToolSet(ToolSet):
 
     # ── agent-facing tools ────────────────────────────────────────────────
 
-    @tool
+    @tool(exclude=True)  # superseded by the desktop plane; UI/back-compat only
     async def open_live_view(
         self,
         view_type: str,
@@ -317,7 +325,7 @@ class LiveViewToolSet(ToolSet):
         logger.info("live_view: opened {} ({}) for chat {}", view_id, view_type, chat_id)
         return {"success": True, "view_id": view_id, "state": session.snapshot()}
 
-    @tool
+    @tool(exclude=True)  # superseded by the desktop plane; UI/back-compat only
     async def live_view_update(self, view_id: str, patch: dict) -> dict:
         """Apply a partial-state patch to an open LiveView (drive the component).
 
@@ -351,7 +359,7 @@ class LiveViewToolSet(ToolSet):
         })
         return {"success": True, "state": session.snapshot()}
 
-    @tool
+    @tool(exclude=True)  # superseded by the desktop plane; UI/back-compat only
     async def live_view_set_state(self, view_id: str, state: dict) -> dict:
         """Replace an open LiveView's whole state.
 
@@ -379,7 +387,7 @@ class LiveViewToolSet(ToolSet):
         })
         return {"success": True, "state": session.snapshot()}
 
-    @tool
+    @tool(exclude=True)  # superseded by the desktop plane; UI/back-compat only
     async def live_view_call(self, view_id: str, action: str, args: dict = {}) -> dict:
         """Invoke a named action the component exposes, and wait for its result.
 
@@ -423,7 +431,7 @@ class LiveViewToolSet(ToolSet):
         finally:
             self._pending_actions.pop(action_id, None)
 
-    @tool
+    @tool(exclude=True)  # superseded by the desktop plane; UI/back-compat only
     async def live_view_get_state(self, view_id: str) -> dict:
         """Read an open LiveView's current state, status, and diagnostics.
 
@@ -451,7 +459,7 @@ class LiveViewToolSet(ToolSet):
             return {"success": False, "error": str(e)}
         return {"success": True, "state": session.snapshot()}
 
-    @tool
+    @tool(exclude=True)  # superseded by the desktop plane; UI/back-compat only
     async def live_view_screenshot(self, view_id: str) -> dict:
         """Capture what an open LiveView currently looks like, as an image.
 
@@ -748,7 +756,7 @@ class LiveViewToolSet(ToolSet):
         except ValueError:
             return False
 
-    @tool
+    @tool(exclude=True)  # superseded by the desktop plane; UI/back-compat only
     async def list_live_views(self) -> dict:
         """List the LiveViews currently open in this chat."""
         chat_id = self._chat_id()
@@ -758,7 +766,7 @@ class LiveViewToolSet(ToolSet):
         ]
         return {"success": True, "views": views}
 
-    @tool
+    @tool(exclude=True)  # superseded by the desktop plane; UI/back-compat only
     async def close_live_view(self, view_id: str) -> dict:
         """Close an open LiveView and remove its sidebar tab.
 

@@ -11,7 +11,15 @@ description: |
 tags: [live-view, visualization, vitessce, viv, bioimage, spatial, single-cell, interactive]
 ---
 
-# LiveView — Agent-Controllable UI Components
+# LiveView — DEPRECATED index (see the `desktop` skill)
+
+> **This mechanism is superseded.** The `live_view_*` tools are no longer
+> exposed; the same viewers are installed as Atrium desktop apps and driven
+> with `desktop_open` / `desktop_read` / `desktop_update` / `desktop_call`
+> (+ `app_call` for backends). Load the **`desktop`** skill. Each app's own
+> skill lives at `.pantheon/apps/<id>/skill/SKILL.md` in the workspace and
+> documents its state contract for the desktop tools. The per-viewer files
+> below remain as adapter sources and state references only.
 
 A **LiveView** is an interactive component the agent opens in the Pantheon
 UI's right sidebar, then drives and observes through the `live_view` tools.
