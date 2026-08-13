@@ -107,6 +107,8 @@ class LiveViewToolSet(ToolSet):
         self._pending_actions: dict[str, asyncio.Future] = {}
         # request_id -> Future, resolved by report_snapshot.
         self._pending_snapshots: dict[str, asyncio.Future] = {}
+        # request_id -> Future, resolved by report_desktop_result.
+        self._pending_desktop: dict[str, asyncio.Future] = {}
         self._nats = None  # lazy NATSStreamAdapter
         self._data_server = None  # lazy LiveViewDataServer
 
@@ -875,6 +877,110 @@ class LiveViewToolSet(ToolSet):
         server = await self._ensure_data_server()
         server.set_tunnel_base(tunnel_base)
         logger.info("live_view: data endpoint set to {}", tunnel_base)
+        return {"success": True}
+
+    # ── the desktop plane (app-spec: the agent interface, normalized) ──────
+    #
+    # live_view_* drives views the AGENT opened, by view_id. These five drive
+    # THE DESKTOP: any window, whoever opened it — the user's double-click
+    # included — by window_id, plus app-or-file opening with the same routing
+    # the desktop itself uses. Same transport (chat-stream events, answered by
+    # the connected desktop via report_desktop_result); an Atrium must be
+    # connected and showing this chat for them to answer.
+
+    async def _desktop_request(self, event_type: str, payload: dict, timeout: float = 30.0) -> dict:
+        chat_id = self._chat_id()
+        if not chat_id:
+            return {"success": False, "error": "no chat context — cannot reach the desktop"}
+        request_id = uuid.uuid4().hex
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future = loop.create_future()
+        self._pending_desktop[request_id] = future
+        await self._publish(chat_id, {
+            "type": event_type,
+            "request_id": request_id,
+            **payload,
+        })
+        try:
+            value = await asyncio.wait_for(future, timeout=timeout)
+            return {"success": True, "result": value}
+        except asyncio.TimeoutError:
+            return {"success": False,
+                    "error": "the desktop did not answer — is an Atrium window open on this chat?"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+        finally:
+            self._pending_desktop.pop(request_id, None)
+
+    @tool
+    async def desktop_windows(self) -> dict:
+        """List every window on the user's desktop — whoever opened it.
+
+        Each entry: `window_id`, `app_id` (manifest id for packaged apps),
+        `name`, `title`, `path` (the file it shows, when opened on one),
+        `controllable` (whether desktop_read/update/call can drive it — true
+        for packaged-app windows), and `actions` it exposes.
+
+        This is how you reach windows the USER opened: find its window_id
+        here, then desktop_read / desktop_update / desktop_call it exactly
+        like a view you opened yourself.
+        """
+        return await self._desktop_request("desktop.windows", {})
+
+    @tool
+    async def desktop_open(self, app: str = "", path: str = "", state: dict = {}) -> dict:
+        """Open an app window on the desktop, the way a double-click would.
+
+        Args:
+            app: app id (e.g. "molstar", "vitessce"). Omit with `path` to let
+                the desktop route by file type, exactly as a double-click.
+            path: file to open. The app's own open pipeline runs (backend
+                prepare, format conversion) — you do NOT need serve_local_data.
+            state: initial state instead of / merged over a file, for apps
+                driven by state (same contract as the app's skill documents).
+
+        Returns `window_id` — drive it with desktop_read/update/call.
+        """
+        return await self._desktop_request(
+            "desktop.open", {"app": app, "path": path, "state": state or {}}, timeout=120.0)
+
+    @tool
+    async def desktop_read(self, window_id: str) -> dict:
+        """Read a window's current state (the same shape its skill documents).
+
+        Works on any packaged-app window, including ones the user opened.
+        """
+        return await self._desktop_request("desktop.read", {"window_id": window_id})
+
+    @tool
+    async def desktop_update(self, window_id: str, patch: dict) -> dict:
+        """Deep-merge a patch into a window's state — live_view_update, but
+        for ANY packaged-app window by window_id, however it was opened."""
+        return await self._desktop_request(
+            "desktop.update", {"window_id": window_id, "patch": patch or {}})
+
+    @tool
+    async def desktop_call(self, window_id: str, action: str, args: dict = {}) -> dict:
+        """Invoke a named action on a window — the same handlers its menus
+        trigger (defineAction). List a window's actions via desktop_windows.
+        Also accepts window ops: action "$close" closes the window."""
+        return await self._desktop_request(
+            "desktop.call", {"window_id": window_id, "action": action, "args": args or {}},
+            timeout=60.0)
+
+    @tool(exclude=True)
+    async def report_desktop_result(
+        self, request_id: str, ok: bool = True, value: Any = None, error: str = "",
+    ) -> dict:
+        """UI-only: the desktop answers a desktop.* request."""
+        future = self._pending_desktop.get(request_id)
+        if future is None:
+            return {"success": False, "error": "unknown or expired request"}
+        if not future.done():
+            if ok:
+                future.set_result(value)
+            else:
+                future.set_exception(RuntimeError(error or "desktop request failed"))
         return {"success": True}
 
     @tool(exclude=True)
