@@ -1,4 +1,4 @@
-"""PantheonEvo: hypothesis-guided adaptive co-evolution, on fakes.
+"""HypothesisBandit: hypothesis-guided adaptive co-evolution, on fakes.
 
 The claims tested are the mechanisms the design document names: hypotheses are structured and
 gated structurally (not judged), implementations are component-tagged edits whose measured dR
@@ -25,8 +25,8 @@ from pantheon.evolution.core import (
 )
 from pantheon.evolution.core.loop import evolve
 from pantheon.evolution.core.method import EvolveMethod
-from pantheon.evolution.methods import PantheonEvo
-from pantheon.evolution.methods.pantheon_evo import (
+from pantheon.evolution.methods import HypothesisBandit
+from pantheon.evolution.methods.hypothesis_bandit import (
     COMPONENTS,
     HYP,
     CODE,
@@ -87,11 +87,11 @@ def run(method, budget=24):
 
 # ------------------------------------------------------------------ protocol ---
 def test_conforms_to_the_method_protocol():
-    assert isinstance(PantheonEvo(), EvolveMethod)
+    assert isinstance(HypothesisBandit(), EvolveMethod)
 
 
 def test_the_gate_is_its_own_idea_evaluator():
-    m = PantheonEvo()
+    m = HypothesisBandit()
     evs = m.default_evaluators()
     assert isinstance(evs[HYP], HypothesisGate)
     assert CODE not in evs
@@ -118,7 +118,7 @@ def test_parse_component_reads_the_field_line_first():
 
 
 def test_end_to_end_produces_hypotheses_and_component_tagged_children():
-    m = PantheonEvo(seed=3)
+    m = HypothesisBandit(seed=3)
     res = run(m, budget=24)
     hyps = res.store.of_kind(HYP)
     codes = [c for c in res.store.of_kind(CODE) if c.parent_ids or c.anchor_id]
@@ -131,7 +131,7 @@ def test_end_to_end_produces_hypotheses_and_component_tagged_children():
 def test_credit_steers_toward_the_paying_component():
     """search-strategy pays 5x in the fake; after enough evidence the controller should have
     implemented it more than any single other component."""
-    m = PantheonEvo(seed=5, min_live_hyps=3)
+    m = HypothesisBandit(seed=5, min_live_hyps=3)
     run(m, budget=40)
     counts = {c: len(g) for c, g in m.credit.items()}
     assert counts, "no edits recorded"
@@ -142,7 +142,7 @@ def test_credit_steers_toward_the_paying_component():
 
 
 def test_a_refuted_hypothesis_is_retired():
-    m = PantheonEvo(retire_after=2)
+    m = HypothesisBandit(retire_after=2)
     m.hyp["h1"] = {"component": "parameters", "text": "t", "head": "t",
                    "gains": [-0.02, -0.01], "fails": 0, "retired": False}
     m._maybe_retire("h1")
@@ -150,7 +150,7 @@ def test_a_refuted_hypothesis_is_retired():
 
 
 def test_evidence_beats_novelty_once_it_exists():
-    m = PantheonEvo(lam=1.0, eta=0.5, prior_sigma=0.05)
+    m = HypothesisBandit(lam=1.0, eta=0.5, prior_sigma=0.05)
     m.hyp["good"] = {"component": "parameters", "text": "t", "head": "t",
                      "gains": [0.5, 0.5], "fails": 0, "retired": False}
     m.hyp["fresh"] = {"component": "core-algorithm", "text": "t", "head": "t",
@@ -160,7 +160,7 @@ def test_evidence_beats_novelty_once_it_exists():
 
 
 def test_low_fidelity_screen_gates_the_full_measurement():
-    m = PantheonEvo(low_fidelity=True, promote_margin=0.0)
+    m = HypothesisBandit(low_fidelity=True, promote_margin=0.0)
     s = Store()
     ctx = EvolveContext(store=s, budget=Budget(max_items=10))
     child = s.add(Individual(genome=CodeGenome(files={"a": "x"}), kind=CODE,
@@ -181,7 +181,7 @@ def test_low_fidelity_screen_gates_the_full_measurement():
 
 
 def test_cheap_readings_never_become_the_recorded_score():
-    m = PantheonEvo()
+    m = HypothesisBandit()
     s = Store()
     ind = s.add(Individual(genome=CodeGenome(files={"a": "x"}), kind=CODE))
     s.record(Measurement(individual_id=ind.id, fidelity="low",
@@ -193,13 +193,13 @@ def test_cheap_readings_never_become_the_recorded_score():
 
 
 def test_state_round_trips():
-    m = PantheonEvo(seed=7)
+    m = HypothesisBandit(seed=7)
     run(m, budget=16)
     st = m.state_dict()
     import json
 
     st2 = json.loads(json.dumps(st))
-    m2 = PantheonEvo()
+    m2 = HypothesisBandit()
     m2.load_state_dict(st2)
     assert set(m2.hyp) == set(m.hyp)
     assert m2.credit.keys() == m.credit.keys()

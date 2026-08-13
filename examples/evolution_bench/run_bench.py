@@ -36,11 +36,11 @@ TASKS = HERE / "tasks"
 def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=None,
                  low_fidelity: bool = False):
     from pantheon.evolution.methods import (
-        AnnealedIdeaCode, IdeaCodeAlternating, AgentMapElites, PantheonEvo, SimpleTES)
+        AnnealedIdeaCode, HypothesisBandit, IdeaCodeAlternating, AgentMapElites, SimpleTES)
 
-    if name == "pantheon_evo":
+    if name in ("hypothesis_bandit", "pantheon_evo"):   # old token accepted
         # low_fidelity follows the task: staged promotion only where a cheap fidelity exists.
-        return PantheonEvo(seed=seed, low_fidelity=low_fidelity)
+        return HypothesisBandit(seed=seed, low_fidelity=low_fidelity)
 
     if name == "annealed":
         # `sched` carries only the knobs the caller actually set, so the method's own defaults
@@ -214,7 +214,7 @@ if __name__ == "__main__":
     p.add_argument("--task", required=True)
     p.add_argument("--method", default="agent_map_elites",
                    choices=["agent_map_elites", "map_elites", "simpletes", "idea_code", "annealed",
-                            "pantheon_evo"])
+                            "pantheon_evo", "hypothesis_bandit"])
     p.add_argument("--iterations", type=int, default=40)
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--workers", type=int, default=2)

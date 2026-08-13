@@ -12,7 +12,10 @@ MapElitesIslands = AgentMapElites
 NicheMenu = AgentMapElites
 """Earlier names, kept so existing scripts and notebooks keep importing. See the
 module docstring of `agent_map_elites` for what each rename corrected."""
-from .pantheon_evo import PantheonEvo
+from .hypothesis_bandit import HypothesisBandit
+
+PantheonEvo = HypothesisBandit
+"""The working name during development; runs recorded under `pantheon_evo` load fine."""
 from .simpletes import PUCTSelector, RPUCGSelector, Selector, SimpleTES
 
 __all__ = [
@@ -21,6 +24,7 @@ __all__ = [
     "NicheMenu",
     "IdeaCodeAlternating",
     "AnnealedIdeaCode",
+    "HypothesisBandit",
     "PantheonEvo",
     "SimpleTES", "Selector", "PUCTSelector", "RPUCGSelector",
 ]

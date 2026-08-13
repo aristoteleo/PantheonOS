@@ -22,8 +22,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 INK, SUB, MUTED = "#1f2328", "#57606a", "#8c959f"
-COLORS = {"pantheon_evo": "#8250df", "agent_map_elites": "#0969da", "simpletes": "#bc4c00"}
-LABELS = {"pantheon_evo": "PantheonEvo", "agent_map_elites": "AgentMapElites",
+COLORS = {"hypothesis_bandit": "#8250df", "agent_map_elites": "#0969da", "simpletes": "#bc4c00"}
+LABELS = {"hypothesis_bandit": "HypothesisBandit", "agent_map_elites": "AgentMapElites",
           "simpletes": "SimpleTES"}
 
 plt.rcParams.update({
@@ -37,11 +37,12 @@ plt.rcParams.update({
 def method_of(row):
     m = (row.get("search") or {}).get("method") or row.get("method")
     if m:
-        return m
+        return "hypothesis_bandit" if m == "pantheon_evo" else m
     arm = row["arm"]
-    for key in ("pantheon_evo", "mapelites", "agent_map_elites", "simpletes"):
+    for key in ("hypothesis_bandit", "pantheon_evo", "mapelites", "agent_map_elites",
+                "simpletes"):
         if key in arm:
-            return "agent_map_elites" if key == "mapelites" else key
+            return {"mapelites": "agent_map_elites", "pantheon_evo": "hypothesis_bandit"}.get(key, key)
     return "?"
 
 

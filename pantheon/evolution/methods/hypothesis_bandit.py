@@ -1,4 +1,7 @@
-"""PantheonEvo -- hypothesis-guided adaptive co-evolution (the pantheon_evolve_2 core).
+"""HypothesisBandit -- hypothesis-guided adaptive co-evolution (the pantheon_evolve_2 core).
+
+Named for the two mechanisms that actually decide: HYPOTHESES are the search representation,
+and a BANDIT over their measured evidence allocates the budget.
 
 The design document ("A Technical Revision Strategy...", pantheon_evolve_2.pdf) prescribes five
 mechanisms; this implements the four that have a substrate on code benchmarks, in the shape its
@@ -103,10 +106,10 @@ def _parse_component(text: str) -> Optional[str]:
     return None
 
 
-class PantheonEvo(BaseMethod):
+class HypothesisBandit(BaseMethod):
     """Hypothesis-guided adaptive co-evolution."""
 
-    name = "pantheon_evo"
+    name = "hypothesis_bandit"
 
     def __init__(
         self,
@@ -480,7 +483,7 @@ class PantheonEvo(BaseMethod):
             from ..variators.completion import CompletionVariator
 
             logger.warning(
-                "pantheon_evo has no evaluator to give the coding agent; falling back to a "
+                "hypothesis_bandit has no evaluator to give the coding agent; falling back to a "
                 "blind completion. Pass evaluator= for the operator this method is defined with."
             )
             code = CompletionVariator(model=model, timeout=timeout, target_file=target_file,
