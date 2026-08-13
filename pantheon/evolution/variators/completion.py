@@ -57,6 +57,60 @@ def extract_code(text: str) -> Optional[str]:
     return None
 
 
+class EvolveBlock:
+    """Upstream SimpleTES's EVOLVE-BLOCK protocol (simpletes/utils/code_extract.py).
+
+    A seed that carries `EVOLVE-BLOCK-START` / `EVOLVE-BLOCK-END` marker lines is not
+    regenerated whole: the model produces only the code between the markers, and the final
+    program is EXACT_PREFIX + evolved_block + EXACT_SUFFIX with both fixed parts kept
+    verbatim. This is the load-bearing half of how upstream evolves large programs -- our port
+    originally ran whole-file regeneration on a 43KB seed and produced a result that was about
+    the port, not the algorithm.
+    """
+
+    def __init__(self, program: str):
+        self.prefix = self.suffix = ""
+        self.block = program
+        self.has_markers = False
+        lines = program.splitlines(keepends=True)
+        start = end = -1
+        for i, ln in enumerate(lines):
+            if "EVOLVE-BLOCK-START" in ln and start < 0:
+                start = i
+            elif "EVOLVE-BLOCK-END" in ln:
+                end = i
+                break
+        if start < 0 or end < 0 or end <= start:
+            return
+        self.prefix = "".join(lines[: start + 1]).rstrip("\n")
+        self.suffix = "".join(lines[end:]).lstrip("\n")
+        self.block = "".join(lines[start + 1:end])
+        self.has_markers = True
+        self.start_line = lines[start].rstrip("\r\n")
+        self.end_line = lines[end].rstrip("\r\n")
+
+    def merge(self, reply: str) -> Optional[str]:
+        """Reconstruct the full program from a model reply.
+
+        The evolved block is the text between the marker lines of the reply's code (fenced or
+        bare); a reply that dropped the markers is treated as being the bare block, which keeps
+        an otherwise-good completion usable.
+        """
+        code = extract_code(reply) or (reply or "").strip()
+        if not code:
+            return None
+        s = code.find("EVOLVE-BLOCK-START")
+        e = code.find("EVOLVE-BLOCK-END")
+        if s != -1 and e != -1 and e > s:
+            body = code[code.index("\n", s) + 1: code.rfind("\n", 0, e) + 1]
+        else:
+            body = code
+        body = body.strip("\n")
+        if not body:
+            return None
+        return f"{self.prefix}\n{body}\n{self.suffix}"
+
+
 class CompletionVariator:
     """One prompt, `n=k` completions, one code block from each."""
 
@@ -148,6 +202,46 @@ class CompletionVariator:
         parts.append(f"\nReply with the complete new `{path}` in one fenced code block.")
         return "\n".join(parts)
 
+    def build_block_prompt(self, ctx: EvolveContext, item: Create, path: str,
+                           eb: "EvolveBlock") -> str:
+        """Upstream's generation prompt, for a marker-carrying program: the model regenerates
+        ONLY the evolve block; prefix and suffix are shown and kept verbatim."""
+        c = item.context
+
+        def _score(ind):
+            v = ind.metrics().get(self.score_key)
+            return f" ({self.score_key} = {v})" if v is not None else ""
+
+        parts = [c.instruction or ctx.objective or "Improve the program.",
+                 "\nGeneration instruction (must follow exactly):\n"
+                 f"1) Only the code between `{eb.start_line}` and `{eb.end_line}` is extracted.\n"
+                 "2) The final program is reconstructed as EXACT_PREFIX + evolved_block + "
+                 "EXACT_SUFFIX.\n"
+                 "3) Keep marker lines exactly as written.\n"
+                 "4) Return one code block that includes both EVOLVE-BLOCK markers.",
+                 f"\nEXACT_PREFIX (kept unchanged):\n```\n{eb.prefix}\n```",
+                 f"\nEXACT_SUFFIX (kept unchanged):\n```\n{eb.suffix}\n```"]
+        refs = c.parents if len(c.parents) > 1 else c.parents[:1]
+        for i, p in enumerate(refs):
+            src = p.genome.files.get(path) if isinstance(p.genome, CodeGenome) else None
+            block = EvolveBlock(src).block if src else p.genome.render()
+            title = ("current evolve block" if len(refs) == 1
+                     else f"reference {i + 1} evolve block")
+            parts.append(f"\n### {title}{_score(p)}\n```\n{block.strip()}\n```")
+        if c.history:
+            parts.append(f"\n## What earlier attempts scored\n{c.history}")
+        if c.failures:
+            worst = sorted(c.failures.items(), key=lambda kv: -kv[1])[:5]
+            parts.append("\n## Recurring failures to avoid\n" +
+                         "\n".join(f"- {k} (x{int(v)})" for k, v in worst))
+        parts.append("\n=== GENERATION STRATEGY ===\n"
+                     "- Prioritize NOVEL approaches not yet seen above\n"
+                     "- Only refine existing approaches if you identify clear improvement "
+                     "potential\n"
+                     "- Combine insights from multiple solutions when beneficial\n\n"
+                     "Generate an improved solution with higher score:")
+        return "\n".join(parts)
+
     # ---- the call --------------------------------------------------------
 
     async def _complete(self, prompt: str, k: int) -> List[str]:
@@ -184,7 +278,11 @@ class CompletionVariator:
 
         files = dict(parent.genome.files)
         path = self._file_to_evolve(files)
-        prompt = self.build_prompt(ctx, item, path, files.get(path, ""))
+        eb = EvolveBlock(files.get(path, ""))
+        if eb.has_markers:
+            prompt = self.build_block_prompt(ctx, item, path, eb)
+        else:
+            prompt = self.build_prompt(ctx, item, path, files.get(path, ""))
 
         t0 = time.time()
         try:
@@ -206,7 +304,7 @@ class CompletionVariator:
 
         out: List[Produced] = []
         for i, text in enumerate(texts[: item.k]):
-            code = extract_code(text)
+            code = eb.merge(text) if eb.has_markers else extract_code(text)
             if not code:
                 logger.warning(f"[{item.id}#{i}] no code block in the reply")
                 continue

@@ -203,3 +203,34 @@ def test_state_round_trips():
     m2.load_state_dict(st2)
     assert set(m2.hyp) == set(m.hyp)
     assert m2.credit.keys() == m.credit.keys()
+
+
+# ----------------------------------------------- the EVOLVE-BLOCK protocol ---
+def test_evolve_block_splits_and_merges_verbatim():
+    from pantheon.evolution.variators.completion import EvolveBlock
+
+    src = ("#include <x>\n// EVOLVE-BLOCK-START\nint core() { return 1; }\n"
+           "// EVOLVE-BLOCK-END\nint main() { return core(); }\n")
+    eb = EvolveBlock(src)
+    assert eb.has_markers
+    assert eb.block.strip() == "int core() { return 1; }"
+    merged = eb.merge("```\n// EVOLVE-BLOCK-START\nint core() { return 2; }\n"
+                      "// EVOLVE-BLOCK-END\n```")
+    assert "#include <x>" in merged and "int main()" in merged
+    assert "return 2" in merged and "return 1" not in merged
+
+
+def test_evolve_block_reply_without_markers_is_the_bare_block():
+    from pantheon.evolution.variators.completion import EvolveBlock
+
+    src = "a\n# EVOLVE-BLOCK-START\nold\n# EVOLVE-BLOCK-END\nz\n"
+    eb = EvolveBlock(src)
+    merged = eb.merge("```\nnew body\n```")
+    assert merged == "a\n# EVOLVE-BLOCK-START\nnew body\n# EVOLVE-BLOCK-END\nz\n"
+
+
+def test_a_markerless_program_keeps_whole_file_mode():
+    from pantheon.evolution.variators.completion import EvolveBlock
+
+    eb = EvolveBlock("print('no markers here')\n")
+    assert not eb.has_markers

@@ -40,15 +40,23 @@ dominates every task shape.
 the first two measured programs (the agent writes a numerical optimiser immediately). Same
 conclusion as the twenty-run study in `evolution_erdos_min_overlap/FINDINGS.md`.
 
-## The SimpleTES-on-AHC039 erratum, closed
+## The SimpleTES-on-AHC039 erratum, reopened and properly closed
 
-wave3 (full parent visible) and wave3b (plus upstream's 32k output budget) re-ran the arms the
-truncation bug had invalidated. Result: children improved from catastrophic (0.001–1.3, seeing
-half the file) to plausible (1.3–2.4) — and still **0/3 runs improved on the seed**. With the
-harness artifacts removed, the residual claim is honest and narrower: blind whole-file
-regeneration cannot preserve a 43KB tuned incumbent within this budget, however much of it the
-model sees. It is a paradigm limit on large mature code, not a SimpleTES bug — the same
-paradigm holds the record on circle packing.
+Three defects in our port surfaced in sequence, each caught by refusing to accept the number:
+the prompt truncated the 43KB seed at 24KB (fixed, wave3), the operator sent no output budget
+where upstream sets 32768 (fixed, wave3b) — and wave3b's children were still complete SHORT
+programs (6–19KB, almost all compiling), which ruled out truncation and pointed at the real
+difference: **upstream SimpleTES does not regenerate whole files. Its generation protocol is
+EVOLVE-BLOCK** (`simpletes/utils/code_extract.py`): the seed marks a region, the model produces
+only that block, and the program is reconstructed as EXACT_PREFIX + block + EXACT_SUFFIX with
+the fixed parts kept verbatim. Whole-file mode is only the fallback for marker-less seeds. Our
+"0/3, paradigm limit" claim was therefore about our port's paradigm, not SimpleTES's.
+
+`CompletionVariator` now implements the block protocol (marker detection, upstream's generation
+prompt, prefix/suffix-preserving merge), the AHC039 seed marks its simulated-annealing core
+(lines 441–874; the KD-tree/scoring/IO scaffolding is fixed), and `wave3c/` re-runs the arms
+under it. Erdos and circle packing are unaffected: their seeds are marker-less, where
+whole-file mode IS upstream's behaviour — which is also why the packing record stood.
 
 ## Caveats
 

@@ -437,6 +437,7 @@ std::vector<Point> create_initial_polygon_kadane() {
     return initial_poly;
 }
 
+// EVOLVE-BLOCK-START
 // === SIMULATED ANNEALING ===
 struct SAState {
     std::vector<Point> poly;
@@ -870,6 +871,7 @@ void simulated_annealing_main() {
         std::cout << p.x << " " << p.y << "\n";
     }
 }
+// EVOLVE-BLOCK-END
 
 
 int main(int argc, char *argv[]) {
