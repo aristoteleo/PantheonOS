@@ -60,10 +60,12 @@ image = (
 )
 
 
-def _run_one(argv: list, out: str, judge_state: str | None = None) -> dict:
-    """One run_bench invocation, log streamed to the volume as it goes."""
+def _run_one(argv: list, out: str, judge_state: str | None = None,
+             script: str = "examples/evolution_bench/run_bench.py") -> dict:
+    """One runner invocation, log streamed to the volume as it goes. `script` lets an arm run
+    a different repo-relative runner (e.g. the upstream-SimpleTES adapter)."""
     os.makedirs(out, exist_ok=True)
-    cmd = [sys.executable, "/repo/examples/evolution_bench/run_bench.py",
+    cmd = [sys.executable, f"/repo/{script}",
            *[str(a) for a in argv], "--output", out]
     if judge_state:
         os.makedirs(os.path.dirname(judge_state), exist_ok=True)
@@ -92,10 +94,11 @@ def _run_one(argv: list, out: str, judge_state: str | None = None) -> dict:
 @app.function(image=image, secrets=[modal.Secret.from_name("evolve-exp-openrouter")],
               volumes={"/results": vol}, cpu=8.0, memory=16384, timeout=8 * 3600,
               max_containers=12)
-def run_arm(argv: list, out_rel: str) -> dict:
+def run_arm(argv: list, out_rel: str,
+            script: str = "examples/evolution_bench/run_bench.py") -> dict:
     # max_containers bounds the wave's concurrency: the OpenRouter key is shared, and a wave of
     # 24 arms x 2 workers all streaming at once turns into 429s that pollute the arms unevenly.
-    return _run_one(argv, f"/results/{out_rel}")
+    return _run_one(argv, f"/results/{out_rel}", script=script)
 
 
 @app.function(image=image, secrets=[modal.Secret.from_name("evolve-exp-openrouter")],
@@ -123,7 +126,9 @@ def main(spec: str = "", collect: str = ""):
             c = run_chain.spawn(arm["chain"], arm["judge_state"])
             name = arm["chain"][0]["out"] + f" (chain of {len(arm['chain'])})"
         else:
-            c = run_arm.spawn(arm["argv"], arm["out"])
+            c = run_arm.spawn(arm["argv"], arm["out"],
+                              script=arm.get("script",
+                                             "examples/evolution_bench/run_bench.py"))
             name = arm["out"]
         calls.append((name, c))
         print(f"spawned {name:42} {c.object_id}")
