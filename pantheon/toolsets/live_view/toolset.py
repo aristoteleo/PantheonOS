@@ -117,6 +117,8 @@ class LiveViewToolSet(ToolSet):
         self._pending_snapshots: dict[str, asyncio.Future] = {}
         # request_id -> Future, resolved by report_desktop_result.
         self._pending_desktop: dict[str, asyncio.Future] = {}
+        # chats whose desktop has answered a ping — subscription is live.
+        self._desktop_ready: set[str] = set()
         self._nats = None  # lazy NATSStreamAdapter
         self._data_server = None  # lazy LiveViewDataServer
 
@@ -969,10 +971,40 @@ class LiveViewToolSet(ToolSet):
     # the connected desktop via report_desktop_result); an Atrium must be
     # connected and showing this chat for them to answer.
 
+    async def _desktop_ping(self, chat_id: str) -> bool:
+        """Handshake until the desktop's stream subscription is live.
+
+        The UI subscribes to a chat's stream when its window opens; a fresh
+        chat's very first desktop request can beat that subscription and the
+        event is simply lost (streams do not replay). Pinging is idempotent,
+        so retry it until an answer proves the pipe — then send the real
+        request once.
+        """
+        if chat_id in self._desktop_ready:
+            return True
+        for _ in range(4):
+            request_id = uuid.uuid4().hex
+            loop = asyncio.get_event_loop()
+            future: asyncio.Future = loop.create_future()
+            self._pending_desktop[request_id] = future
+            await self._publish(chat_id, {"type": "desktop.ping", "request_id": request_id})
+            try:
+                await asyncio.wait_for(future, timeout=2.0)
+                self._desktop_ready.add(chat_id)
+                return True
+            except Exception:
+                continue
+            finally:
+                self._pending_desktop.pop(request_id, None)
+        return False
+
     async def _desktop_request(self, event_type: str, payload: dict, timeout: float = 30.0) -> dict:
         chat_id = self._chat_id()
         if not chat_id:
             return {"success": False, "error": "no chat context — cannot reach the desktop"}
+        if not await self._desktop_ping(chat_id):
+            return {"success": False,
+                    "error": "the desktop did not answer — is an Atrium window open on this chat?"}
         request_id = uuid.uuid4().hex
         loop = asyncio.get_event_loop()
         future: asyncio.Future = loop.create_future()
