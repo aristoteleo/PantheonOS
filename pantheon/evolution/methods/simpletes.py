@@ -567,5 +567,8 @@ class SimpleTES(BaseMethod):
         """
         from ..variators.completion import CompletionVariator
 
+        # max_tokens matches upstream's default (EngineConfig.max_tokens = 32768). Left unset,
+        # the gateway's own output cap decides whether a 43KB program can even be emitted whole,
+        # and that decision then wears the algorithm's name.
         return CompletionVariator(model=model, timeout=timeout, target_file=target_file,
-                                  score_key=self.score_key)
+                                  score_key=self.score_key, max_tokens=32768)
