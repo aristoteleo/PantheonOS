@@ -1056,21 +1056,47 @@ class LiveViewToolSet(ToolSet):
         return await self._desktop_request("desktop.windows", {})
 
     @tool
-    async def desktop_open(self, app: str = "", path: str = "", state: dict = {}) -> dict:
+    async def desktop_open(
+        self, app: str = "", path: str = "", state: dict = {}, window_id: str = "",
+    ) -> dict:
         """Open an app window on the desktop, the way a double-click would.
 
+        WINDOWS ARE LONG-LIVED. If something is wrong with what a window
+        shows, CORRECT IT IN PLACE — desktop_update (patch), desktop_set
+        (replace), desktop_call (an action), or this tool with `window_id`
+        to show a different file in that same window. Opening again is for a
+        genuinely new thing; the desktop is the user's, and a pile of
+        near-identical windows is a mess they have to clean up.
+
         Args:
-            app: app id (e.g. "molstar", "vitessce"). Omit with `path` to let
-                the desktop route by file type, exactly as a double-click.
+            app: app id (e.g. "molstar", "vitessce"); desktop_apps() lists
+                them. Omit with `path` to route by file type, as a
+                double-click does.
             path: file to open. The app's own open pipeline runs (backend
                 prepare, format conversion) — you do NOT need serve_local_data.
             state: initial state instead of / merged over a file, for apps
-                driven by state (same contract as the app's skill documents).
+                driven by state (the contract each app's skill documents).
+            window_id: show it in THIS existing window instead of a new one.
 
-        Returns `window_id` — drive it with desktop_read/update/call.
+        Returns `window_id`, and `reused: true` when it landed in a window
+        that was already showing that file.
         """
         return await self._desktop_request(
-            "desktop.open", {"app": app, "path": path, "state": state or {}}, timeout=120.0)
+            "desktop.open",
+            {"app": app, "path": path, "state": state or {}, "window_id": window_id},
+            timeout=120.0)
+
+    @tool
+    async def desktop_set(self, window_id: str, state: dict) -> dict:
+        """Replace a window's state wholesale — the fix-in-place for apps
+        whose state IS a config (Vitessce, Gosling, IGV).
+
+        desktop_update deep-merges, so it can add and change but never
+        remove; when the config is wrong rather than incomplete, set the
+        whole corrected one here instead of opening another window.
+        """
+        return await self._desktop_request(
+            "desktop.set", {"window_id": window_id, "state": state or {}})
 
     @tool
     async def desktop_read(self, window_id: str) -> dict:
@@ -1082,8 +1108,11 @@ class LiveViewToolSet(ToolSet):
 
     @tool
     async def desktop_update(self, window_id: str, patch: dict) -> dict:
-        """Deep-merge a patch into a window's state — live_view_update, but
-        for ANY packaged-app window by window_id, however it was opened."""
+        """Deep-merge a patch into a window's state — for ANY packaged-app
+        window by window_id, however it was opened.
+
+        The first thing to reach for when a view is wrong: fix the window
+        you have rather than opening another one."""
         return await self._desktop_request(
             "desktop.update", {"window_id": window_id, "patch": patch or {}})
 

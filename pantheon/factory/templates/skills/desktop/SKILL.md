@@ -37,8 +37,11 @@ desktop_open(app="viv", state={...})            # open on a state instead;
 
 desktop_read(window_id)                          # current state, skill-shaped
 desktop_update(window_id, patch)                 # deep-merge a state patch
+desktop_set(window_id, state)                    # REPLACE the state
 desktop_call(window_id, action, args={})         # run a named action
+desktop_open(path=..., window_id=...)            # show another file in it
 desktop_call(window_id, "$close")                # close the window
+desktop_screenshot(window_id)                    # see what it shows
 
 app_call(app_id, method, args={})                # an app's backend method,
 # in the app's own process. app_registry() lists live method signatures.
@@ -46,6 +49,19 @@ app_call(app_id, method, args={})                # an app's backend method,
 
 Windows the **user** opened are first-class: find them with
 `desktop_windows()`, then read/update/call exactly as if you opened them.
+
+## Fix the window you have
+
+Windows are long-lived and they are the USER's. When a view is wrong —
+the layout, the channels, the config, even the file — correct it in
+place: `desktop_update` to patch, `desktop_set` to replace the whole
+state, `desktop_call` for an action, `desktop_open(path=..., window_id=...)`
+to show a different file in that window. Open a NEW window only for a
+genuinely new thing. Reopening the same file just focuses the window that
+already has it (`reused: true`), so a retry cannot litter the desktop.
+
+If a screenshot or an action fails, that is not a reason to open another
+window — read the error, fix the state, screenshot again.
 
 ## Choosing the app
 
