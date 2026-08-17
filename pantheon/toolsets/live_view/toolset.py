@@ -1519,3 +1519,13 @@ class LiveViewToolSet(ToolSet):
             return {"success": True}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    @tool(exclude=True)
+    async def browser_clear_data(self) -> dict:
+        """UI → backend: sign out of every site (clear cookies + storage)."""
+        try:
+            engine = self._browser_engine()
+            await engine.call(engine.clear_data())
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
