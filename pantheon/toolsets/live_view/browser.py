@@ -164,13 +164,34 @@ class BrowserEngine:
             profile.mkdir(parents=True, exist_ok=True)
             self._context = await self._pw.chromium.launch_persistent_context(
                 user_data_dir=str(profile),
+                # New (not old) headless renders like a real Chrome and is far
+                # less fingerprintable — old headless is what most "this browser
+                # isn't secure" login blocks key off. A realistic UA + turning
+                # off the AutomationControlled blink feature removes the rest of
+                # the obvious tells, so site logins (incl. Google) behave like a
+                # normal browser rather than a bot.
                 headless=True,
+                channel="chromium",
+                user_agent=(
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+                ),
+                locale="en-US",
                 viewport={"width": VIEW_W, "height": VIEW_H},
                 args=[
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
+                    "--disable-blink-features=AutomationControlled",
                 ],
+            )
+            # navigator.webdriver=true is the single biggest automation tell;
+            # drop it (and normalise a couple of headless quirks) before any
+            # page script runs.
+            await self._context.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+                "window.chrome = window.chrome || { runtime: {} };"
+                "Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});"
             )
             # The persistent context opens with a blank page; close it so the
             # page registry is the single source of what exists.
@@ -286,6 +307,25 @@ class BrowserEngine:
             except Exception as e:
                 logger.warning("browser: initial goto {} failed: {}", url, e)
         return session
+
+    async def clear_data(self) -> None:
+        """Sign out of every site: drop cookies and stored credentials."""
+        if self._context is None:
+            return
+        try:
+            await self._context.clear_cookies()
+        except Exception as e:
+            logger.warning("browser: clear_cookies failed: {}", e)
+        # Storage (localStorage/IndexedDB) via CDP, per open page.
+        for session in list(self.pages.values()):
+            try:
+                if session.cdp is not None:
+                    await session.cdp.send("Storage.clearDataForOrigin", {
+                        "origin": "*",
+                        "storageTypes": "cookies,local_storage,indexeddb,service_workers,cache_storage",
+                    })
+            except Exception:
+                pass
 
     def get(self, page_id: str) -> PageSession:
         session = self.pages.get(page_id)
