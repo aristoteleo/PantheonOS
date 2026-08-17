@@ -1064,6 +1064,7 @@ class LiveViewToolSet(ToolSet):
     @tool
     async def desktop_open(
         self, app: str = "", path: str = "", state: dict = {}, window_id: str = "",
+        module: str = "", title: str = "",
     ) -> dict:
         """Open an app window on the desktop, the way a double-click would.
 
@@ -1083,14 +1084,57 @@ class LiveViewToolSet(ToolSet):
             state: initial state instead of / merged over a file, for apps
                 driven by state (the contract each app's skill documents).
             window_id: show it in THIS existing window instead of a new one.
+            module: a frontend ES-module SOURCE you wrote —
+                `export function setup(app, root) { … }` — to open as a BESPOKE
+                window with no install and no manifest. The app gets the full
+                bridge (app.onState / setState / defineAction / onSnapshot /
+                fs) and is drivable with desktop_read / update / set / call
+                exactly like a packaged app. This is the fast path for a
+                one-off UI. For something reusable, write a package under
+                `.pantheon/apps/<id>/` and open it by `app` id instead. (This
+                replaces the retired open_live_view custom path.)
+            title: window title, used with `module`.
 
         Returns `window_id`, and `reused: true` when it landed in a window
         that was already showing that file.
         """
+        if module:
+            url = await self._serve_bespoke_module(module)
+            if not url:
+                return {
+                    "success": False,
+                    "error": (
+                        "the data server has no browser-reachable URL for the "
+                        "module yet (tunnel not delivered) — try again shortly"
+                    ),
+                }
+            return await self._desktop_request("desktop.open", {
+                "app": "", "path": "", "state": state or {},
+                "window_id": window_id, "module_url": url,
+                "title": title or "Agent app",
+            }, timeout=90.0)
         return await self._desktop_request(
             "desktop.open",
             {"app": app, "path": path, "state": state or {}, "window_id": window_id},
             timeout=120.0)
+
+    async def _serve_bespoke_module(self, source: str) -> str | None:
+        """Write an agent-authored frontend module to the workspace and serve
+        it, returning a browser-reachable URL (or None if unservable).
+
+        Written as `.jsx` so the app host transpiles it (Sucrase) — valid for
+        plain JS too, so the agent can use JSX without a build step.
+        """
+        import hashlib
+        from pantheon.settings import get_settings
+
+        slug = hashlib.sha1(source.encode("utf-8")).hexdigest()[:12]
+        bespoke_dir = get_settings().work_dir / ".pantheon" / "bespoke"
+        bespoke_dir.mkdir(parents=True, exist_ok=True)
+        mod_path = (bespoke_dir / f"{slug}.jsx").resolve()
+        mod_path.write_text(source, encoding="utf-8")
+        server = await self._ensure_data_server()
+        return server.url_for(mod_path)
 
     @tool
     async def desktop_set(self, window_id: str, state: dict) -> dict:

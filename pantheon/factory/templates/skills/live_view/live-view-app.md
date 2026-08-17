@@ -1,19 +1,33 @@
 ---
 id: live_view_app
-name: Generate an Agent-Controllable LiveView App
+name: Generate an Agent-Controllable App — DEPRECATED
 description: |
-  Write a custom interactive visualization component that the agent can
-  open, drive, and observe — using the LiveView SDK. Covers the SDK API,
-  the component contract, how to serve and open it, and how the agent
-  drives it via live_view_update / live_view_call.
-tags: [live-view, sdk, custom-component, visualization, interactive, generate-app]
+  DEPRECATED. The live_view_* tools (open_live_view, live_view_call…) are no
+  longer exposed. To build a bespoke app now, use desktop_open(module=…) or
+  a package under .pantheon/apps/ — see the `desktop` skill, "Building your
+  own app". This file is kept only for the setup(app, root) contract, which
+  is unchanged.
+tags: [deprecated, desktop, generate-app]
 ---
 
-# Generating an Agent-Controllable LiveView App
+# DEPRECATED — build apps with the `desktop` skill
 
-When no existing viewer fits, write your own interactive component. With the
-**LiveView SDK** the component is controllable-by-construction: the agent
-drives it and reads it back, with no extra wiring.
+> **This mechanism is retired.** `open_live_view` / `live_view_*` are no
+> longer exposed to the agent. Build a bespoke window with
+> `desktop_open(module="export function setup(app, root){…}", state=…)`, or a
+> reusable package under `.pantheon/apps/<id>/`. Both are documented in the
+> **`desktop` skill → "Building your own app"**. The `setup(app, root)`
+> component contract below is unchanged and still describes what to write —
+> only the open/drive tools differ (desktop_open / desktop_call, not
+> live_view_*).
+
+---
+
+<details><summary>Historical LiveView authoring notes (contract only)</summary>
+
+When no existing viewer fits, write your own interactive component. The
+component is controllable-by-construction: the agent drives it and reads it
+back, with no extra wiring.
 
 Use this for bespoke dashboards, custom plots, tailored data views. **First
 check the existing viewer skills — a custom build is the last resort, not the
@@ -324,3 +338,5 @@ selection; `live_view_get_state(view_id)` shows which point the user clicked.
   commands as actions, and have those actions call `lv.setState`.
 - The component runs in a sandboxed iframe; it can fetch CORS-enabled URLs
   (use `serve_local_data` for workspace files) and import CDN libraries.
+
+</details>

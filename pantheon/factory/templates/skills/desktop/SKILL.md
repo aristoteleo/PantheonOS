@@ -118,3 +118,76 @@ w = desktop_open(path="/workspace/scan.tif")["result"]["window_id"]  # viv conve
 state = desktop_read(w)["result"]["state"]         # see the auto-filled channels
 desktop_update(w, {"channels": [{**state["channels"][0], "color": [255, 0, 0]}]})
 ```
+
+# Building your own app
+
+When no installed app fits, BUILD one. There are two paths — a quick
+bespoke window, and a real installed package.
+
+## A. Bespoke window (fast, no install)
+
+Pass a frontend module SOURCE to `desktop_open(module=…)`. It opens with no
+manifest and no install, and is drivable with the same
+desktop_read/update/set/call. The module is one function:
+
+```python
+desktop_open(module='''
+export function setup(app, root) {
+  // render only in onState; mutate only through setState — ONE state path.
+  app.onState((s) => {
+    root.innerHTML = `<div style="font:20px sans-serif;padding:24px">
+      count: ${s.n ?? 0}
+      <button id="inc">+1</button></div>`
+    root.querySelector("#inc").onclick = () => app.setState({ n: (s.n ?? 0) + 1 })
+  })
+  // an action the AGENT (or a menu) can call — same handler as any UI click
+  app.defineAction("bump", () => { const n = (app.state?.n ?? 0) + 1; app.setState({ n }); return n })
+  app.ready()
+}
+''', state={"n": 5}, title="Counter")
+# → window_id; then desktop_call(window_id, "bump") or desktop_read/set it.
+```
+
+The bridge `app` gives: `onState(cb)` / `setState(patch)` / `emitState(full)`
+/ `state`, `defineAction(name, fn)`, `onSnapshot(fn)`, `ready()` / `fail(msg)`,
+`fs.read/write/ls(path)` (workspace files), `window.setTitle/close`. It runs
+in a sandboxed iframe — bundle any framework you like, but keep the module
+self-contained. (This replaces the retired `open_live_view`; do NOT use
+`live_view_*` tools.)
+
+## B. Installed package (reusable, claims file types, may have a backend)
+
+Write a package under `.pantheon/apps/<id>/` with ordinary file tools — a
+file write IS the install (workspace scope), discovered on the next
+`desktop_open`:
+
+```
+.pantheon/apps/<id>/
+  atrium.json          # manifest (below)
+  frontend/index.js    # export function setup(app, root)  — same contract as A
+  backend/__init__.py  # optional: def register(ctx): @ctx.method async def …
+  skill/SKILL.md       # optional: how you (the agent) drive it later
+```
+
+Minimal `atrium.json`:
+
+```json
+{
+  "id": "my-app",
+  "name": "My App",
+  "version": "0.1.0",
+  "atriumApi": 1,
+  "surface": "dom",
+  "entry": { "frontend": "frontend/index.js" },
+  "launcher": true,
+  "icon": { "path": "assets/icon.svg", "tint": "#5b6ee0" },
+  "opens": [".myext"],
+  "actions": [{ "name": "bump", "description": "increment", "params": {} }]
+}
+```
+
+Then `desktop_open(app="my-app")` (a just-written app is re-scanned on the
+open that misses, so no reconnect needed). A backend method is reached from
+the frontend with `app.call("methodName", args)` and from you with
+`app_call(app_id="my-app", method="methodName", args={…})`. Prefer path A
+for a one-off; path B when the user will reuse it or it needs a backend.
