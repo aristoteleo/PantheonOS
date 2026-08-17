@@ -76,6 +76,11 @@ class PageSession:
         self.loading = False
         self.can_back = False
         self.can_forward = False
+        self.favicon = ""
+        # page ids of popups this page spawned, not yet claimed by the UI —
+        # drained onto the next frame response as X-Popup so the Browser can
+        # open them as tabs (this is how "Log in with Google" pop-ups land).
+        self.pending_popups: list[str] = []
         self.new_frame = asyncio.Condition()
         self.input_lock = asyncio.Lock()
         self.created_at = time.time()
@@ -227,29 +232,41 @@ class BrowserEngine:
                 session.loading = True
                 asyncio.ensure_future(refresh_history())
 
+        async def refresh_favicon() -> None:
+            try:
+                href = await page.evaluate(
+                    "() => { const l = document.querySelector(\"link[rel~='icon']\")"
+                    " || document.querySelector(\"link[rel='shortcut icon']\");"
+                    " return (l && l.href) ? l.href :"
+                    " (location.origin ? location.origin + '/favicon.ico' : ''); }"
+                )
+                session.favicon = href or ""
+            except Exception:
+                pass
+
         def on_load(_: Any = None) -> None:
             session.loading = False
             asyncio.ensure_future(refresh_history())
+            asyncio.ensure_future(refresh_favicon())
 
         page.on("framenavigated", on_nav)
         page.on("load", on_load)
         page.on("domcontentloaded", on_load)
 
-        # Popups fold back into the SAME page: the streamed window is the one
-        # surface the user has, so a hidden second page would just be lost.
+        # A popup becomes its own tab: it is adopted as a real page, attached
+        # (screencast + events), and announced to the UI via the opener's
+        # pending_popups. This is what makes OAuth pop-ups ("Continue with
+        # Google/GitHub") work — the user finishes the login in the new tab
+        # and the opener, on the SAME shared browser, sees the result.
         def on_popup(popup: Any) -> None:
             async def _adopt() -> None:
                 try:
-                    for _ in range(30):
-                        if popup.url and popup.url != "about:blank":
-                            break
-                        await asyncio.sleep(0.1)
-                    url = popup.url
-                    await popup.close()
-                    if url and url != "about:blank":
-                        await page.goto(url)
-                except Exception:
-                    pass
+                    child = PageSession(uuid.uuid4().hex[:12], popup)
+                    self.pages[child.id] = child
+                    await self._attach(child)
+                    session.pending_popups.append(child.id)
+                except Exception as e:
+                    logger.warning("browser: popup adopt failed: {}", e)
 
             asyncio.ensure_future(_adopt())
 
@@ -362,16 +379,22 @@ class BrowserEngine:
 
     async def status_headers(self, session: PageSession) -> dict[str, str]:
         """Navigation state as latin-1-safe response headers."""
-        return {
+        headers = {
             "X-Seq": str(session.seq),
             "X-Url": quote(session.url, safe=""),
             "X-Title": quote(await session.title(), safe=""),
             "X-Loading": "1" if session.loading else "0",
             "X-Back": "1" if session.can_back else "0",
             "X-Fwd": "1" if session.can_forward else "0",
+            "X-Favicon": quote(session.favicon, safe=""),
             "X-W": str(session.width),
             "X-H": str(session.height),
         }
+        # Report each spawned popup once, then forget it — the UI opens a tab.
+        if session.pending_popups:
+            headers["X-Popup"] = ",".join(session.pending_popups)
+            session.pending_popups = []
+        return headers
 
     async def wait_frame(self, session: PageSession, since: int) -> bool:
         """Park until the page paints past `since` (or the poll times out)."""
