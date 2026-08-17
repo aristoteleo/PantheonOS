@@ -66,6 +66,14 @@ async def _cors_middleware(request: web.Request, handler):
     resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Access-Control-Allow-Methods"] = "GET, HEAD, POST, OPTIONS"
     resp.headers["Access-Control-Allow-Headers"] = "*"
+    # Custom response headers are invisible to cross-origin JS unless named
+    # here — the Browser app reads its page's nav state (url/title/loading/
+    # back/forward, and the frame sequence) off the X-* headers on each
+    # browser-frame response, and a bare "*" is NOT honoured for exposed
+    # headers by browsers, so they must be listed explicitly.
+    resp.headers["Access-Control-Expose-Headers"] = (
+        "X-Seq, X-Url, X-Title, X-Loading, X-Back, X-Fwd, X-W, X-H"
+    )
     # Never let the browser cache anything this server returns. Two reasons:
     #  1. Viewer modules (adapter.js) are edited during development — an ES module
     #     pinned in the document's module map by a stale URL renders/snapshots
