@@ -1044,6 +1044,11 @@ class LiveViewToolSet(ToolSet):
     async def desktop_windows(self) -> dict:
         """List every window on the user's desktop — whoever opened it.
 
+        The desktop has virtual spaces (mac-style, numbered from 1): the
+        top-level `active_space` / `space_count` describe them, and each
+        window carries its `space`. Focusing or opening a window on another
+        space carries the user there.
+
         Each entry: `window_id`, `app_id` (manifest id for packaged apps),
         `name`, `title`, `path` (the file it shows, when opened on one),
         `controllable` (whether desktop_read/update/call can drive it — true
