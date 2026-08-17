@@ -50,6 +50,18 @@ app_call(app_id, method, args={})                # an app's backend method,
 Windows the **user** opened are first-class: find them with
 `desktop_windows()`, then read/update/call exactly as if you opened them.
 
+## The Browser (a shared, real Chromium)
+
+`browser_open(url)` starts a real Chromium page in the sandbox and shows it
+to the user as a Browser window. The page is SHARED: the user sees it live
+and can click, type, and log in; you drive the same page with
+`browser_goto` / `browser_click` / `browser_type` / `browser_read` /
+`browser_screenshot`. When a site needs credentials, open it, ask the user
+to sign in in the Browser window, then continue on the now-authenticated
+page. The profile (cookies, sessions) persists in the sandbox. Use
+`browser_read` (text) or `browser_screenshot` + observe_image (pixels) as
+your eyes; prefer leaving pages open for the user over closing them.
+
 ## Fix the window you have
 
 Windows are long-lived and they are the USER's. When a view is wrong —

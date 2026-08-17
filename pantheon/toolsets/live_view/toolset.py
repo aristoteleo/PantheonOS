@@ -121,6 +121,7 @@ class LiveViewToolSet(ToolSet):
         self._desktop_ready: set[str] = set()
         self._nats = None  # lazy NATSStreamAdapter
         self._data_server = None  # lazy LiveViewDataServer
+        self._browser_endpoints = False  # browser-frame/-input registered
 
     # ── internals ─────────────────────────────────────────────────────────
 
@@ -1285,3 +1286,236 @@ class LiveViewToolSet(ToolSet):
             if s.chat_id == cid and s.status != "closed"
         ]
         return {"success": True, "views": views}
+
+    # ══ Browser — a real Chromium, shared by the agent and the user ═══════════
+    #
+    # One headless Chromium runs in this sandbox (see browser.py). Pages are
+    # visible to both sides at once: the user's Atrium Browser window streams
+    # frames from the browser-frame endpoint and sends input back through
+    # browser-input; the agent drives the SAME pages with the tools below.
+
+    def _browser_engine(self):
+        from .browser import BrowserEngine
+
+        return BrowserEngine.instance()
+
+    async def _browser_urls(self) -> tuple[str, str]:
+        """Register the stream endpoints (once) and return their URLs."""
+        server = await self._ensure_data_server()
+        from .browser import make_frame_handler, make_input_handler
+
+        engine = self._browser_engine()
+        if not self._browser_endpoints:
+            await server.register_endpoint("browser-frame", make_frame_handler(engine))
+            await server.register_endpoint("browser-input", make_input_handler(engine))
+            self._browser_endpoints = True
+        frame = server.url_for_endpoint("browser-frame")
+        inp = server.url_for_endpoint("browser-input")
+        if not frame or not inp:
+            raise RuntimeError(
+                "the data server has no browser-reachable URL yet (tunnel not set)")
+        return frame, inp
+
+    async def _browser_page_info(self, session) -> dict:
+        engine = self._browser_engine()
+        return {
+            "page_id": session.id,
+            "url": session.url,
+            "title": await engine.call(session.title()),
+        }
+
+    @tool
+    async def browser_open(self, url: str = "", show: bool = True) -> dict:
+        """Open a real browser page (Chromium in this sandbox) and, by default,
+        show it to the user as a Browser window on their desktop.
+
+        THE PAGE IS SHARED. The user sees it live and can click, type and log
+        in; you drive the SAME page with browser_goto / browser_click /
+        browser_type / browser_read. When a site needs a login, open it, ask
+        the user to sign in, then continue — the profile (cookies, sessions)
+        persists in the sandbox.
+
+        Args:
+            url: address to load (https:// is assumed when the scheme is
+                missing). Empty opens a blank page.
+            show: also open the desktop Browser window (needs an Atrium
+                desktop on this chat). Pass False to browse headlessly.
+
+        Returns `page_id` for the other browser_* tools, plus url/title, and
+        `window_id` when a desktop window was opened.
+        """
+        try:
+            from .browser import normalize_url
+
+            engine = self._browser_engine()
+            session = await engine.call(engine.open_page(normalize_url(url)))
+            info = await self._browser_page_info(session)
+            result: dict = {"success": True, **info}
+            if show:
+                shown = await self._desktop_request("desktop.open", {
+                    "app": "browser", "path": "",
+                    "state": {"page_id": session.id}, "window_id": "",
+                }, timeout=60.0)
+                if shown.get("success"):
+                    result["window_id"] = (shown.get("result") or {}).get("window_id")
+                else:
+                    result["shown"] = False
+                    result["show_error"] = shown.get("error")
+            return result
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def browser_goto(self, url: str, page_id: str = "") -> dict:
+        """Navigate a browser page (the newest one unless `page_id` says
+        otherwise). The user watching the window sees the navigation live."""
+        try:
+            engine = self._browser_engine()
+            session = engine.latest(page_id)
+            await engine.call(engine.navigate(session.id, "goto", url))
+            return {"success": True, **await self._browser_page_info(session)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def browser_read(self, page_id: str = "") -> dict:
+        """Read the visible text of a browser page (title, url, body text
+        truncated to ~8k chars). Your eyes on the shared page — use it after
+        navigating, or after asking the user to do something there."""
+        try:
+            from .browser import READ_LIMIT
+
+            engine = self._browser_engine()
+            session = engine.latest(page_id)
+            text = await engine.call(session.page.evaluate(
+                "() => document.body ? document.body.innerText : ''"))
+            if len(text) > READ_LIMIT:
+                text = text[:READ_LIMIT] + "\n… (truncated)"
+            return {"success": True, **await self._browser_page_info(session),
+                    "text": text}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def browser_click(self, selector: str, page_id: str = "") -> dict:
+        """Click an element on a browser page by CSS selector (or text=...,
+        role=... — any Playwright selector). 5s timeout when nothing matches."""
+        try:
+            engine = self._browser_engine()
+            session = engine.latest(page_id)
+            await engine.call(session.page.click(selector, timeout=5000))
+            return {"success": True, **await self._browser_page_info(session)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def browser_type(
+        self, selector: str, text: str, submit: bool = False, page_id: str = "",
+    ) -> dict:
+        """Fill a field on a browser page (replaces its value). `submit`
+        presses Enter afterwards."""
+        try:
+            engine = self._browser_engine()
+            session = engine.latest(page_id)
+            await engine.call(session.page.fill(selector, text, timeout=5000))
+            if submit:
+                await engine.call(session.page.press(selector, "Enter"))
+            return {"success": True, **await self._browser_page_info(session)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def browser_screenshot(self, page_id: str = "", path: str = "") -> dict:
+        """Screenshot a browser page to a workspace file (JPEG) and return its
+        path — observe_image it to see the page as pixels."""
+        try:
+            import time as _time
+            from pathlib import Path as _Path
+
+            engine = self._browser_engine()
+            session = engine.latest(page_id)
+            rel = path or f"browser-shot-{int(_time.time())}.jpg"
+            out = _Path(rel)
+            if not out.is_absolute():
+                out = _Path.cwd() / out
+            out.parent.mkdir(parents=True, exist_ok=True)
+            data = await engine.call(session.page.screenshot(type="jpeg", quality=80))
+            out.write_bytes(data)
+            return {"success": True, "path": str(out),
+                    **await self._browser_page_info(session)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def browser_pages(self) -> dict:
+        """List open browser pages (newest last) with their ids and urls."""
+        try:
+            engine = self._browser_engine()
+            pages = []
+            for s in sorted(engine.pages.values(), key=lambda x: x.created_at):
+                pages.append(await self._browser_page_info(s))
+            return {"success": True, "pages": pages}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def browser_close(self, page_id: str) -> dict:
+        """Close a browser page. The user's window for it (if any) goes blank
+        — prefer leaving pages open for the user unless they are truly done."""
+        try:
+            engine = self._browser_engine()
+            await engine.call(engine.close_page(page_id))
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    # ── UI plumbing (excluded from the agent) ─────────────────────────────
+
+    @tool(exclude=True)
+    async def browser_ui_page(self, url: str = "", page_id: str = "") -> dict:
+        """UI → backend: create (or attach to) a page and get stream URLs.
+
+        The Atrium Browser window calls this on mount: with `page_id` when the
+        agent already opened the page (desktop.open state), without to start a
+        fresh page. Returns frame/input endpoint URLs plus the page's state.
+        """
+        try:
+            engine = self._browser_engine()
+            if page_id:
+                session = engine.get(page_id)
+            else:
+                from .browser import normalize_url
+
+                session = await engine.call(engine.open_page(normalize_url(url)))
+            frame_url, input_url = await self._browser_urls()
+            return {
+                "success": True,
+                **await self._browser_page_info(session),
+                "frame_url": frame_url,
+                "input_url": input_url,
+                "width": session.width,
+                "height": session.height,
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool(exclude=True)
+    async def browser_ui_nav(self, page_id: str, op: str, url: str = "") -> dict:
+        """UI → backend: toolbar navigation (goto/back/forward/reload/stop)."""
+        try:
+            engine = self._browser_engine()
+            await engine.call(engine.navigate(page_id, op, url))
+            return {"success": True,
+                    **await self._browser_page_info(engine.get(page_id))}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool(exclude=True)
+    async def browser_ui_close(self, page_id: str) -> dict:
+        """UI → backend: the Browser window closed; drop its page."""
+        try:
+            engine = self._browser_engine()
+            await engine.call(engine.close_page(page_id))
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
