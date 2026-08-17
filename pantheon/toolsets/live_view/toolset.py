@@ -120,6 +120,7 @@ class LiveViewToolSet(ToolSet):
         # chats whose desktop has answered a ping — subscription is live.
         self._desktop_ready: set[str] = set()
         self._nats = None  # lazy NATSStreamAdapter
+        self._desktop_store = None  # lazy DesktopSessionStore
         self._data_server = None  # lazy LiveViewDataServer
         self._browser_endpoints = False  # browser-frame/-input registered
 
@@ -148,6 +149,66 @@ class LiveViewToolSet(ToolSet):
             await self._nats.publish(chat_id, event["type"], event)
         except Exception as e:  # streaming is best-effort
             logger.error("live_view: publish failed: {}", e)
+
+    # ── the desktop session ───────────────────────────────────────────────
+
+    def _desktop(self):
+        """The window document, loaded from the volume on first use."""
+        if self._desktop_store is None:
+            from .desktop_session import DesktopSessionStore
+
+            self._desktop_store = DesktopSessionStore()
+            self._desktop_store.load()
+        return self._desktop_store
+
+    async def _publish_desktop(self, event: dict[str, Any]) -> None:
+        """Announce a change to every viewport of this pod.
+
+        Pod-scoped, not per chat: a desktop belongs to the machine, and every
+        view of it has to hear about a window opening whatever conversation —
+        or none — that view has on screen.
+        """
+        from .desktop_session import DESKTOP_STREAM
+
+        if self._nats is None:
+            from pantheon.chatroom.stream import NATSStreamAdapter
+
+            self._nats = NATSStreamAdapter()
+        try:
+            await self._nats.publish_stream(DESKTOP_STREAM, event)
+        except Exception as e:  # noqa: BLE001  streaming is best-effort
+            logger.error("desktop: publish failed: {}", e)
+
+    @tool(exclude=True)
+    async def desktop_session_get(self) -> dict:
+        """UI-only: the whole window document, for a viewport attaching or
+        recovering from a missed delta."""
+        return {"success": True, "session": self._desktop().snapshot()}
+
+    @tool(exclude=True)
+    async def desktop_intent(self, kind: str, args: dict | None = None) -> dict:
+        """UI-only: ask for a change to the desktop.
+
+        Clients send intents rather than state, so this is the only writer and
+        the order of two viewports' edits is decided in one place. The reply
+        carries whatever the caller needs back — a minted window id — and the
+        ops themselves, so the caller can show the result now instead of
+        waiting to hear its own broadcast come back. Applying by `seq` makes
+        that idempotent: the broadcast arrives, is not newer, and is dropped.
+        """
+        store = self._desktop()
+        try:
+            ops, result = store.apply(kind, args or {})
+        except (KeyError, ValueError) as e:
+            return {"success": False, "error": str(e)}
+        if ops:
+            await self._publish_desktop({
+                "type": "desktop.delta",
+                "seq": store.session.seq,
+                "ops": ops,
+            })
+            store.save()
+        return {"success": True, "seq": store.session.seq, "ops": ops, **result}
 
     def _require(self, view_id: str) -> LiveViewSession:
         session = self._views.get(view_id)
@@ -1059,7 +1120,33 @@ class LiveViewToolSet(ToolSet):
         here, then desktop_read / desktop_update / desktop_call it exactly
         like a view you opened yourself.
         """
-        return await self._desktop_request("desktop.windows", {})
+        # Answered from the pod's own document, so this works with no desktop
+        # on screen at all — the window list is a property of the machine, and
+        # asking a browser for it was what produced "the desktop did not
+        # answer" for a question the pod could always answer itself.
+        s = self._desktop().session
+        windows = [
+            {
+                "window_id": wid,
+                "app_id": w.get("app_id"),
+                "name": w.get("app_id"),
+                "title": w.get("title"),
+                "path": w.get("path") or None,
+                "space": w.get("space", 1),
+                "minimized": bool(w.get("minimized")),
+                "status": w.get("status", "ready"),
+                "opened_by": w.get("opened_by") or None,
+            }
+            for wid, w in sorted(s.windows.items(), key=lambda kv: kv[1].get("z", 0))
+        ]
+        return {"success": True, "result": {
+            "windows": windows,
+            "space_count": s.spaces,
+            # Which space a person is LOOKING at belongs to that person, not to
+            # the machine — two viewports may be on different ones. Reported
+            # for compatibility as the space the topmost window sits on.
+            "active_space": windows[-1]["space"] if windows else 1,
+        }}
 
     @tool
     async def desktop_open(
