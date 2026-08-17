@@ -120,7 +120,6 @@ class LiveViewToolSet(ToolSet):
         # chats whose desktop has answered a ping — subscription is live.
         self._desktop_ready: set[str] = set()
         self._nats = None  # lazy NATSStreamAdapter
-        self._desktop_store = None  # lazy DesktopSessionStore
         self._data_server = None  # lazy LiveViewDataServer
         self._browser_endpoints = False  # browser-frame/-input registered
 
@@ -153,13 +152,15 @@ class LiveViewToolSet(ToolSet):
     # ── the desktop session ───────────────────────────────────────────────
 
     def _desktop(self):
-        """The window document, loaded from the volume on first use."""
-        if self._desktop_store is None:
-            from .desktop_session import DesktopSessionStore
+        """The window document — process-wide, not per toolset instance.
 
-            self._desktop_store = DesktopSessionStore()
-            self._desktop_store.load()
-        return self._desktop_store
+        The toolset is built per connection; a store held on `self` gave every
+        browser its own desktop, which is the bug the document exists to fix
+        wearing a different hat.
+        """
+        from .desktop_session import get_store
+
+        return get_store()
 
     async def _publish_desktop(self, event: dict[str, Any]) -> None:
         """Announce a change to every viewport of this pod.

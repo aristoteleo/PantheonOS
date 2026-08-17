@@ -357,3 +357,21 @@ class DesktopSessionStore:
         s.nominal_h = max(s.nominal_h, h)
         return ([{"op": "meta", "nominal_w": s.nominal_w, "nominal_h": s.nominal_h}],
                 {"nominal_w": s.nominal_w, "nominal_h": s.nominal_h})
+
+
+# One pod, one desktop.
+#
+# The toolset is instantiated per connection, so holding the store on the
+# instance gave every browser its own document: three viewports attached at
+# three different seqs and never saw each other's windows, which is the exact
+# bug this module exists to fix, reintroduced one layer up. The desktop is a
+# property of the PROCESS.
+_STORE: DesktopSessionStore | None = None
+
+
+def get_store() -> DesktopSessionStore:
+    global _STORE
+    if _STORE is None:
+        _STORE = DesktopSessionStore()
+        _STORE.load()
+    return _STORE
