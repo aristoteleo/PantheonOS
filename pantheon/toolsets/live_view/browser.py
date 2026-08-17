@@ -390,6 +390,11 @@ class BrowserEngine:
                     elif t == "wheel":
                         await page.mouse.move(ev["x"], ev["y"])
                         await page.mouse.wheel(ev.get("dx", 0), ev.get("dy", 0))
+                    elif t == "scroll":
+                        # Absolute scroll from the UI's scrollbar-thumb drag.
+                        await page.evaluate(
+                            "(y) => window.scrollTo(0, y)", ev.get("y", 0)
+                        )
                     elif t == "keydown":
                         await page.keyboard.down(ev["key"])
                     elif t == "keyup":
@@ -430,6 +435,18 @@ class BrowserEngine:
             "X-W": str(session.width),
             "X-H": str(session.height),
         }
+        # Scroll metrics for the UI's own scrollbar overlay — headless Chromium
+        # paints no native scrollbar, so the frontend draws one from these.
+        # `scrollY,scrollHeight,innerHeight`; cheap eval, only on repaints.
+        try:
+            m = await session.page.evaluate(
+                "() => [Math.round(scrollY),"
+                " Math.round(document.documentElement.scrollHeight),"
+                " Math.round(innerHeight)]"
+            )
+            headers["X-Scroll"] = f"{m[0]},{m[1]},{m[2]}"
+        except Exception:
+            pass
         # Report each spawned popup once, then forget it — the UI opens a tab.
         if session.pending_popups:
             headers["X-Popup"] = ",".join(session.pending_popups)
