@@ -194,8 +194,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcb1 \
     libxext6 \
     libxshmfence1 \
-    # Fonts for better rendering (removed emoji fonts to save ~20MB)
+    # Fonts for better rendering (removed emoji fonts to save ~20MB).
+    # noto-cjk: the desktop Browser app streams real Chromium pages to the
+    # user — without CJK coverage every Chinese/Japanese/Korean page is tofu.
     fonts-liberation \
+    fonts-noto-cjk \
     # Interactive shell tools. The sandbox now serves a real terminal (the pty
     # toolset), and a terminal without an editor or a pager is not one: `vim`
     # was "command not found", so was `less`, and installing them by hand does
