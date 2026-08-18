@@ -169,7 +169,7 @@ clean path is: download with the token, then `serve_local_data` → IGV.
 # bam_path, bai_path already downloaded with X-Auth-Token above
 bam_url = serve_local_data(bam_path)["url"]
 bai_url = serve_local_data(bai_path)["url"]
-open_live_view(view_type="igv", title="TCGA BAM", state={
+desktop_open(app="igv", title="TCGA BAM", state={
     "genome": "hg38", "locus": "BRCA1",
     "tracks": [{"name": "TCGA", "url": bam_url, "indexURL": bai_url,
                 "format": "bam"}],

@@ -6,7 +6,7 @@ description: |
   DNase-seq, RNA-seq, eCLIP and many more assays across human / mouse with
   full standardised metadata. Open access, JSON REST API; processed track
   files (BAM, bigWig, narrowPeak, …) and metadata. Pairs cleanly with the
-  `igv` and `gosling` LiveViews.
+  `igv` and `gosling` desktop apps.
 tags: [encode, chip-seq, atac-seq, dnase, rna-seq, bigwig, bam, peaks, functional-genomics]
 ---
 
@@ -128,7 +128,7 @@ r = requests.get(
 
 ```python
 url = "https://www.encodeproject.org" + bw_file["href"]
-open_live_view(view_type="igv", title="CTCF signal", state={
+desktop_open(app="igv", title="CTCF signal", state={
     "genome": "hg38",
     "locus": "MYC",
     "tracks": [{"name": "ENCODE CTCF K562 fold-change",
@@ -154,7 +154,7 @@ r = requests.get(
 bai = r["@graph"][0]
 bam_url = "https://www.encodeproject.org" + bam["href"]
 bai_url = "https://www.encodeproject.org" + bai["href"]
-open_live_view(view_type="igv", title="BAM", state={
+desktop_open(app="igv", title="BAM", state={
     "genome": "hg38", "locus": "MYC",
     "tracks": [{"name": "BAM", "url": bam_url, "indexURL": bai_url,
                 "format": "bam"}],

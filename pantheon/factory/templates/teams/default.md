@@ -23,7 +23,7 @@ leader:
     - integrated_notebook
     - web
     - evolution
-    - live_view
+    - desktop
     - think
 ---
 

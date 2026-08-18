@@ -1,9 +1,0 @@
-{
-  "title": "Mouse embryo (EMA10) — reference volume",
-  "url": "https://tiles.virtualembryo.org/samples/ema10/images/reference.ome.zarr",
-  "level": "auto",
-  "mode": "iso",
-  "threshold": 0.45,
-  "brightness": 1.2,
-  "flipUp": false
-}
