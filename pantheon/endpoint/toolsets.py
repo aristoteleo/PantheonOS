@@ -25,6 +25,18 @@ from pantheon.utils.log import log_startup_profile, logger
 from pantheon.internal.package_runtime.context import export_context, load_context
 
 
+# Names a toolset used to answer to.
+#
+# The pod and the browser ship separately, so a rename is live for one of them
+# before the other. Without this, the window between the two deploys is a
+# desktop where nothing opens — every proxy call answered "Toolset 'live_view'
+# not found in endpoint services". Cheap to keep, and the only cost of keeping
+# it too long is a line of code.
+TOOLSET_ALIASES = {
+    "live_view": "desktop",
+}
+
+
 class ToolSetMode(Enum):
     """ToolSet execution mode"""
 
@@ -145,6 +157,7 @@ class ToolSetManager:
         """
         try:
             args = args or {}
+            toolset_name = TOOLSET_ALIASES.get(toolset_name or "", toolset_name)
             logger.debug(
                 f"proxy_toolset_method: method={method_name}, toolset={toolset_name}, args={args}"
             )

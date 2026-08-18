@@ -23,6 +23,17 @@ from .template_io import (
 from .models import AgentConfig, TeamConfig
 
 
+# Templates the factory has withdrawn, relative to a scope's template root.
+#
+# Deleting a tree from the package is NOT enough to delete anyone's copy of it
+# — see `_remove_retired_templates`. Add a path here when removing one, and it
+# can come back out once no live workspace could still be carrying it.
+RETIRED_TEMPLATES = (
+    # The live view plane: skills for `live_view_*` tools that no longer exist.
+    "skills/live_view",
+)
+
+
 class TemplateManager:
     """Template manager for discovery, loading, file operations, and bootstrap"""
 
@@ -109,6 +120,11 @@ class TemplateManager:
         # factory fallback. Remove factory-origin project files, preserving
         # user-created and user-modified content.
         self._reclaim_factory_from_project(pre_sync_hashes)
+
+        # Reclaim cannot remove what the factory no longer ships: it only
+        # deletes a project file whose path still exists in the package. So a
+        # RETIRED tree would survive in every workspace that ever synced it.
+        self._remove_retired_templates()
 
         # One-time per-workspace migration: older builds hash-tracked factory
         # agents/teams/prompts in the PROJECT scope, but on some workspaces those
@@ -369,6 +385,32 @@ class TemplateManager:
                 )
             except Exception as e:
                 logger.error(f"Failed to copy default {label}: {e}")
+
+    def _remove_retired_templates(self):
+        """Delete templates the factory has WITHDRAWN, from every writable scope.
+
+        `_reclaim_factory_from_project` deliberately only removes a project file
+        whose relative path still exists in the packaged factory — that is what
+        makes it safe for user-created content. The consequence is that deleting
+        a tree from the factory does not delete anyone's copy of it: it stops
+        looking factory-origin and starts looking user-created, so it is kept
+        and keeps being loaded. On Modal that copy lives on a volume that
+        outlives every deploy.
+
+        For a retired SKILL that is not cosmetic. The live_view skills document
+        tools that no longer exist on the toolset, so a workspace still holding
+        them hands the agent a manual for a machine that was dismantled.
+        """
+        for rel in RETIRED_TEMPLATES:
+            for scope in (self.skills_dir.parent, self.settings.global_skills_dir.parent):
+                victim = scope / rel
+                if not victim.exists():
+                    continue
+                try:
+                    shutil.rmtree(victim) if victim.is_dir() else victim.unlink()
+                    logger.info(f"Removed retired template '{rel}' from {scope}")
+                except Exception as e:
+                    logger.error(f"retire: failed to remove {victim}: {e}")
 
     def _reclaim_factory_from_project(self, prior_hashes: dict | None = None):
         """Remove factory-origin templates that an older build copied into the

@@ -97,7 +97,7 @@ queries, gene filtering, and pre-computed embeddings (scVI, Geneformer).
 Query and download from the ENCODE Portal — standardised processed files
 (BAM, bigWig, narrowPeak) for ChIP-seq, ATAC-seq, DNase-seq, RNA-seq,
 eCLIP, etc. across human / mouse cell types and tissues. Pairs with the
-`igv` and `gosling` LiveViews.
+`igv` and `gosling` desktop apps.
 
 **Skill file**: [encode.md](./encode.md)
 
@@ -114,7 +114,7 @@ eCLIP, etc. across human / mouse cell types and tissues. Pairs with the
 
 Query and download from the 4D Nucleome Data Portal — Hi-C variants,
 Micro-C, ChIA-PET, SPRITE, GAM, FISH. Returns `.mcool` / `.hic` contact
-matrices and `.pairs.gz` files. Pairs with the `gosling` LiveView via the
+matrices and `.pairs.gz` files. Pairs with the `gosling` desktop app via the
 HiGlass back-end, and with `cooler` / `pairix` for Python analysis.
 
 **Skill file**: [fourdn.md](./fourdn.md)
@@ -173,8 +173,8 @@ raw GDC files.
 3. **Follow examples**: each skill's recipes section is copy-paste-able.
 4. **Combine tools**: they're orthogonal by design — e.g. gget to look up
    a gene's coordinates → ENCODE for ChIP-seq tracks at that locus →
-   IGV LiveView to display; or GDC for TCGA RNA-seq counts → gget for
+   the IGV app to display; or GDC for TCGA RNA-seq counts → gget for
    gene-set enrichment on the result.
 5. **Viewer wiring**: every new skill includes a "Wire it to a viewer"
    section showing how to pipe its files into the `igv` / `gosling` /
-   `molstar` LiveViews (download → `serve_local_data` → viewer track).
+   `molstar` apps (download → `serve_local_data` → viewer track).

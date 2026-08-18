@@ -6,7 +6,7 @@ description: |
   — Hi-C, Micro-C, single-cell Hi-C, ChIA-PET, SPRITE, GAM, FISH and other
   3D-genome assays. Returns processed contact matrices (`.hic` / `.mcool`),
   pairs files (`.pairs.gz`), and metadata. Pairs with the `gosling`
-  LiveView (HiGlass back-end natively reads `.mcool` / `.hic`) and with the
+  desktop app (HiGlass back-end natively reads `.mcool` / `.hic`) and with the
   `cooler` Python library.
 tags: [4dn, nucleome, hi-c, micro-c, mcool, hic, contact-matrix, 3d-genome, chia-pet, sprite]
 ---
@@ -148,7 +148,7 @@ spec = {
     "width": 700, "height": 700,
   }]
 }
-open_live_view(view_type="gosling", title="Hi-C", state={"spec": spec})
+desktop_open(app="gosling", title="Hi-C", state={"spec": spec})
 ```
 
 Gosling matrix specs are the trickiest part of the grammar — verify

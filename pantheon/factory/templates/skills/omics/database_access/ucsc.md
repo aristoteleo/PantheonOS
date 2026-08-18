@@ -141,14 +141,14 @@ r = requests.get(
 ).json()
 hit = r["matches"][0]
 locus = f"{hit['chrom']}:{hit['chromStart']}-{hit['chromEnd']}"
-open_live_view(view_type="igv", title="BRCA1", state={
+desktop_open(app="igv", title="BRCA1", state={
     "genome": "hg38", "locus": locus, "tracks": []})
 ```
 
 ### Track-hub bigWig → IGV
 
 ```python
-open_live_view(view_type="igv", title="Track-hub bw", state={
+desktop_open(app="igv", title="Track-hub bw", state={
     "genome": "hg38",
     "tracks": [{"name": "Hub bigWig", "format": "bigwig",
                 "url": "https://hgdownload.soe.ucsc.edu/.../signal.bw"}],
@@ -163,7 +163,7 @@ import subprocess
 subprocess.run(["liftOver", "peaks.hg19.bed", "hg19ToHg38.over.chain.gz",
                 "peaks.hg38.bed", "unmapped.bed"], check=True)
 url = serve_local_data("peaks.hg38.bed")["url"]
-open_live_view(view_type="igv", title="Lifted peaks", state={
+desktop_open(app="igv", title="Lifted peaks", state={
     "genome": "hg38", "locus": "BRCA1",
     "tracks": [{"name": "peaks (lifted)", "url": url, "format": "bed"}],
 })

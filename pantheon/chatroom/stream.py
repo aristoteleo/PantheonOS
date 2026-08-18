@@ -39,6 +39,30 @@ class NATSStreamAdapter:
         except Exception as e:
             logger.error(f"Error publishing stream: {e}")
 
+    async def publish_stream(self, stream_id: str, data: dict):
+        """Publish to a named stream that is NOT a chat.
+
+        The desktop is the pod's, not a conversation's: every viewport of this
+        pod listens on one stream regardless of which chat it has open, which
+        is what lets a window opened from one conversation show up in a
+        standalone desktop page that has none. Both ends derive the subject as
+        `<prefix>.pantheon.stream.<id>`, and the prefix is this pod's.
+        """
+        from pantheon.remote.backend.base import StreamMessage, StreamType
+
+        backend = await self._get_backend()
+        message = StreamMessage(
+            type=StreamType.CUSTOM,
+            session_id=stream_id,
+            timestamp=time.time(),
+            data=data,
+        )
+        channel = await backend.get_or_create_stream(stream_id, StreamType.CUSTOM)
+        try:
+            await channel.publish(message)
+        except Exception as e:
+            logger.error(f"Error publishing stream {stream_id}: {e}")
+
     def create_hooks(self, chat_id: str):
         """Create NATS hooks for chat() method
 
