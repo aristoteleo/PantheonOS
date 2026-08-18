@@ -204,6 +204,31 @@ class DesktopToolSet(ToolSet):
         return {"success": True, **registry}
 
     @tool(exclude=True)
+    async def desktop_broadcast(self, topic: str = "", payload: dict | None = None) -> dict:
+        """UI-only: pass an EPHEMERAL value to the pod's other viewports.
+
+        The counterpart to `desktop_intent`, for state whose only interesting
+        version is the newest one — a camera mid-drag, a cursor, a selection
+        being scrubbed. It is relayed and forgotten: nothing is sequenced,
+        nothing is written to the record, and a viewport that joins later
+        learns none of it.
+
+        That is the point rather than a limitation. Putting a camera in the
+        session document would sequence and persist a value that changes at
+        pointer rates and that nobody should reload into — someone else's zoom
+        restored at boot is not a feature. What must survive a reload belongs
+        in an intent instead.
+        """
+        if not topic:
+            return {"success": False, "error": "desktop_broadcast needs a topic"}
+        await self._publish_desktop({
+            "type": "desktop.broadcast",
+            "topic": topic,
+            "payload": payload or {},
+        })
+        return {"success": True}
+
+    @tool(exclude=True)
     async def desktop_anchor(self, chat_id: str = "") -> dict:
         """UI-only: which viewport this chat's directed requests should reach.
 
