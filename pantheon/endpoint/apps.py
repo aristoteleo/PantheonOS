@@ -112,7 +112,7 @@ class AppSupervisor:
 
     Owns no app code. The ``endpoint`` reference exists solely to answer the
     child's AppContext requests with the endpoint's own facilities — today
-    ``serve`` (the live_view data server) and logging.
+    ``serve`` (the desktop toolset's data server) and logging.
     """
 
     def __init__(self, endpoint: Any, workspace: Path):
@@ -315,7 +315,7 @@ class AppSupervisor:
         try:
             if method == "ctx.serve":
                 res = await self.endpoint.proxy_toolset(
-                    "serve_local_data", {"path": params["path"]}, "live_view",
+                    "serve_local_data", {"path": params["path"]}, "desktop",
                 )
                 if not res.get("success"):
                     raise RuntimeError(res.get("error") or "serve_local_data refused")

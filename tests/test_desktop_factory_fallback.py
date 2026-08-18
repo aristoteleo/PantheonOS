@@ -1,6 +1,6 @@
 import pytest
 
-from pantheon.toolsets.live_view.toolset import LiveViewToolSet
+from pantheon.toolsets.desktop.toolset import DesktopToolSet
 
 
 @pytest.mark.asyncio
@@ -17,7 +17,7 @@ async def test_resolve_viewer_falls_back_to_factory_skills(monkeypatch, tmp_path
     adapter.parent.mkdir(parents=True)
     adapter.write_text("export function setup() {}\n", encoding="utf-8")
 
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
 
     class FakeServer:
         def url_for(self, path):

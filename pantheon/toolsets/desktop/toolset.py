@@ -97,7 +97,7 @@ class LiveViewSession:
         }
 
 
-class LiveViewToolSet(ToolSet):
+class DesktopToolSet(ToolSet):
     """The desktop plane: the agent's hands and eyes on Atrium windows.
 
     Agent-facing surface: desktop_windows / desktop_open / desktop_read /
@@ -108,7 +108,7 @@ class LiveViewToolSet(ToolSet):
     old transcripts keep working.
     """
 
-    def __init__(self, name: str = "live_view", **kwargs):
+    def __init__(self, name: str = "desktop", **kwargs):
         super().__init__(name, **kwargs)
         self._views: dict[str, LiveViewSession] = {}
         # action_id -> Future, resolved by report_action_result.

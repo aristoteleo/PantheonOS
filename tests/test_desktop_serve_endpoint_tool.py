@@ -3,7 +3,7 @@ import sys
 import pytest
 from aiohttp import web
 
-from pantheon.toolsets.live_view.toolset import LiveViewToolSet
+from pantheon.toolsets.desktop.toolset import DesktopToolSet
 
 
 class FakeDataServer:
@@ -26,7 +26,7 @@ async def test_serve_endpoint_loads_handle_export(monkeypatch, tmp_path):
         encoding="utf-8",
     )
     fake_server = FakeDataServer()
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
     monkeypatch.setattr(toolset, "_data_roots", lambda: [tmp_path])
 
     async def fake_data_server():
@@ -60,7 +60,7 @@ async def test_serve_endpoint_loads_build_export(monkeypatch, tmp_path):
         encoding="utf-8",
     )
     fake_server = FakeDataServer()
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
     monkeypatch.setattr(toolset, "_data_roots", lambda: [tmp_path])
 
     async def fake_data_server():
@@ -86,7 +86,7 @@ async def test_serve_endpoint_passes_config_to_build(monkeypatch, tmp_path):
         encoding="utf-8",
     )
     fake_server = FakeDataServer()
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
     monkeypatch.setattr(toolset, "_data_roots", lambda: [tmp_path])
 
     async def fake_data_server():
@@ -109,7 +109,7 @@ async def test_serve_endpoint_passes_config_to_build(monkeypatch, tmp_path):
 async def test_serve_endpoint_rejects_non_json_config(tmp_path):
     module = tmp_path / "endpoint.py"
     module.write_text("async def handle(request): pass\n", encoding="utf-8")
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
     toolset._data_roots = lambda: [tmp_path]
 
     result = await toolset.serve_endpoint("track", str(module), {"bad": object()})
@@ -131,7 +131,7 @@ async def test_serve_endpoint_rejects_config_when_build_takes_no_args(
         "    return handler\n",
         encoding="utf-8",
     )
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
     monkeypatch.setattr(toolset, "_data_roots", lambda: [tmp_path])
 
     result = await toolset.serve_endpoint("track", str(module), {"x": 1})
@@ -150,7 +150,7 @@ def test_load_endpoint_handler_does_not_leave_unique_module_in_sys_modules(
         "    return web.json_response({'ok': True})\n",
         encoding="utf-8",
     )
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
 
     toolset._load_endpoint_handler(module)
 
@@ -165,7 +165,7 @@ def test_load_endpoint_handler_does_not_leave_unique_module_in_sys_modules(
 async def test_serve_endpoint_rejects_bad_name(tmp_path):
     module = tmp_path / "endpoint.py"
     module.write_text("async def handle(request): pass\n", encoding="utf-8")
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
 
     result = await toolset.serve_endpoint("bad/name", str(module))
 
@@ -179,7 +179,7 @@ async def test_serve_endpoint_rejects_file_outside_served_roots(tmp_path):
     allowed.mkdir()
     module = tmp_path / "endpoint.py"
     module.write_text("async def handle(request): pass\n", encoding="utf-8")
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
     toolset._data_roots = lambda: [allowed]
 
     result = await toolset.serve_endpoint("track", str(module))
@@ -190,7 +190,7 @@ async def test_serve_endpoint_rejects_file_outside_served_roots(tmp_path):
 
 @pytest.mark.asyncio
 async def test_serve_endpoint_rejects_missing_file():
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
 
     result = await toolset.serve_endpoint("track", "/no/such/endpoint.py")
 
@@ -202,7 +202,7 @@ async def test_serve_endpoint_rejects_missing_file():
 async def test_serve_endpoint_requires_handle_or_build(tmp_path):
     module = tmp_path / "endpoint.py"
     module.write_text("VALUE = 1\n", encoding="utf-8")
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
     toolset._data_roots = lambda: [tmp_path]
 
     result = await toolset.serve_endpoint("track", str(module))

@@ -56,7 +56,7 @@
             // === Tier 3: Advanced Tools (enable as needed) ===
             // "integrated_notebook", // Integrated Notebook (with file operations)
             // "evolution",
-            // "live_view" // Agent-controllable in-page UI components (Vitessce, etc.)
+            // "desktop" // The user's desktop: windows, apps, browser, data server
             // === More Available Services (commented, enable as needed) ===
             // "file_editor",     // Advanced file editing (Claude Code style)
             // "jupyter_kernel",  // Standard Jupyter Kernel

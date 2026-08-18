@@ -30,7 +30,7 @@ DEFAULT_BUILTINS = [
     "shell",
     "integrated_notebook",
     "evolution",
-    "live_view",
+    "desktop",
 ]
 
 

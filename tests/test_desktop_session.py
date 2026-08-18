@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from pantheon.toolsets.live_view.desktop_session import (
+from pantheon.toolsets.desktop.desktop_session import (
     DesktopSession,
     DesktopSessionStore,
 )
