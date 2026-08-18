@@ -29,8 +29,12 @@ only one of it.
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
 import time
+import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -52,6 +56,39 @@ RECORD = ".pantheon/desktop.json"
 EPHEMERAL_APPS = {"agent-view"}
 
 MAX_SPACES = 6
+
+# A token every process in this container agrees on, and that no other
+# container can produce. It marks the record with the LIFETIME that wrote it,
+# which is what tells a reload "these agent views are still live" apart from
+# "these agent views point at a tunnel that died with the last container".
+_BOOT_FILE = Path("/tmp/pantheon-desktop-boot")
+_BOOT: str | None = None
+
+
+def boot_token() -> str:
+    global _BOOT
+    if _BOOT is not None:
+        return _BOOT
+    token = uuid.uuid4().hex
+    try:
+        fd = os.open(_BOOT_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        try:
+            os.write(fd, token.encode())
+        finally:
+            os.close(fd)
+    except FileExistsError:
+        # Someone else in this container got there first — theirs is the one.
+        try:
+            token = _BOOT_FILE.read_text().strip() or token
+        except OSError:
+            pass
+    except OSError:
+        # No /tmp to agree through. A per-process token is the safe way to be
+        # wrong: every load looks like a restart, so ephemeral windows are
+        # dropped rather than resurrected against a dead tunnel.
+        pass
+    _BOOT = token
+    return token
 
 
 @dataclass
@@ -82,7 +119,14 @@ class DesktopSession:
         }
 
     def to_record(self) -> dict[str, Any]:
-        """What lands on the volume. Ephemeral windows are left out.
+        """What lands on the volume — the WHOLE document, ephemera included.
+
+        This file is not a backup taken on the way out, it is where the
+        document lives between one call and the next, so leaving anything out
+        of it deletes that thing. Ephemeral windows are dropped on the way back
+        IN, and only when the record was written by an earlier container (see
+        `from_record`): within one lifetime an agent view is a real window and
+        has to survive the next reader as much as any other.
 
         The id is carried INSIDE each window: the document keys by it, a JSON
         list does not, and reading back a record whose windows have no id is
@@ -90,14 +134,14 @@ class DesktopSession:
         """
         return {
             "v": 2,
+            "boot": boot_token(),
+            "seq": self.seq,
             "nominal_w": self.nominal_w,
             "nominal_h": self.nominal_h,
             "spaces": self.spaces,
+            "top_z": self.top_z,
             "next_id": self._next_id,
-            "windows": [
-                {**w, "id": wid} for wid, w in self.windows.items()
-                if w.get("app_id") not in EPHEMERAL_APPS
-            ],
+            "windows": [{**w, "id": wid} for wid, w in self.windows.items()],
         }
 
     @classmethod
@@ -110,11 +154,20 @@ class DesktopSession:
             s.nominal_h = int(data.get("nominal_h") or 800)
             s.spaces = max(1, min(MAX_SPACES, int(data.get("spaces") or 1)))
             s._next_id = max(1, int(data.get("next_id") or 1))
+            s.seq = max(0, int(data.get("seq") or 0))
+            s.top_z = max(s.top_z, int(data.get("top_z") or 0))
+            # Written by a container that is gone: its agent views point at a
+            # tunnel that died with it, so they are not part of the desktop the
+            # user comes back to.
+            same_life = data.get("boot") == boot_token()
             for w in data.get("windows") or []:
                 wid = str(w.get("id") or "")
-                if wid:
-                    s.windows[wid] = w
-                    s.top_z = max(s.top_z, int(w.get("z") or 0))
+                if not wid:
+                    continue
+                if not same_life and w.get("app_id") in EPHEMERAL_APPS:
+                    continue
+                s.windows[wid] = w
+                s.top_z = max(s.top_z, int(w.get("z") or 0))
             return s
         # v1 — the browser's own record, a list of windows with no ids. Adopt
         # it rather than dropping the user's layout on the floor at upgrade.
@@ -174,9 +227,19 @@ class DesktopSessionStore:
     """Owns the document, applies intents, and says what changed.
 
     Every mutator returns `(ops, result)`: the ops go out as a delta, the
-    result goes back to whoever asked. Nothing here publishes or writes — the
-    toolset does both, so the reducer stays a pure function of the document
-    and is testable without a pod.
+    result goes back to whoever asked. The mutators themselves neither read
+    nor write the record — they are a pure function of the document, testable
+    without a pod — but `apply` wraps them in one.
+
+    THE RECORD IS THE DOCUMENT, not a backup of it. A process-wide singleton
+    was not enough: the toolset does not run in one process, so `desktop_intent`
+    and `desktop_session_get` could land on different copies of a Python object
+    and the second would honestly report an empty desktop while the first had
+    just opened a window on it. The only thing every one of them shares is the
+    filesystem, so each call reads the record, applies, and writes it back
+    under a lock. At desktop rates — a few clicks a second — that costs a
+    stat and a few kilobytes, and it is the difference between a shared
+    session and three private ones.
     """
 
     def __init__(self, work_dir: Path | None = None):
@@ -188,28 +251,48 @@ class DesktopSessionStore:
     # ── persistence ──────────────────────────────────────────────────────
 
     def load(self) -> None:
-        """Read the record once. A missing or broken one is an empty desktop."""
-        if self._loaded:
-            return
+        """Adopt the record. A missing or broken one is an empty desktop.
+
+        Called before every read and every write, not once at boot: another
+        process may have applied an intent since we last looked, and the whole
+        point is to notice. Deliberately NOT skipped when the file looks
+        unchanged — an mtime-and-size guard would silently keep a stale
+        document whenever two writes of the same length land in one filesystem
+        tick, which is the exact failure this read-through exists to prevent.
+        The record is kilobytes; re-reading it is cheaper than being wrong.
+        """
         self._loaded = True
         path = self._record_path()
-        if path is None or not path.exists():
+        if path is None:
             return
         try:
-            self.session = DesktopSession.from_record(json.loads(path.read_text()))
-            logger.info("desktop session restored: {} window(s)", len(self.session.windows))
+            raw = path.read_text()
+        except OSError:
+            return
+        try:
+            self.session = DesktopSession.from_record(json.loads(raw))
+            self._dirty = False
         except Exception as e:  # noqa: BLE001
             logger.warning("desktop session record unreadable, starting empty: {}", e)
 
     def save(self) -> None:
         if not self._dirty:
             return
+        with self._locked():
+            self._write()
+
+    def _write(self) -> None:
+        """Replace the record atomically. Caller holds the lock."""
         path = self._record_path()
         if path is None:
             return
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(self.session.to_record(), indent=1))
+            # A reader without the lock (a person, a backup) must never catch
+            # the file half-written, so build it beside and rename over.
+            tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(self.session.to_record(), indent=1))
+            os.replace(tmp, path)
             self._dirty = False
         except Exception as e:  # noqa: BLE001
             # A failed save costs one snapshot; a SILENT one costs the whole
@@ -226,18 +309,69 @@ class DesktopSessionStore:
                 return None
         return self._work_dir / RECORD
 
+    @contextmanager
+    def _locked(self):
+        """Serialise readers and writers across processes.
+
+        Two intents arriving at once must not both read seq 7 and both write
+        seq 8 — one of the two changes would simply not exist, while its
+        client had already been told it did.
+        """
+        path = self._record_path()
+        if path is None:
+            yield
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fh = open(path.with_name(path.name + ".lock"), "a+")
+        except OSError:
+            yield  # unlockable is still better than unusable
+            return
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            yield
+        finally:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_UN)
+            finally:
+                fh.close()
+
+    def current(self) -> dict[str, Any]:
+        """The document as it stands, from whoever wrote it last."""
+        with self._locked():
+            self.load()
+            return self.session.snapshot()
+
+    def where(self) -> dict[str, Any]:
+        """Which copy of the desktop this is — pid, container, record.
+
+        Kept because the failure it diagnoses is silent: a viewport talking to
+        a different document simply sees an empty desktop, with no error to
+        go on. Compare these across viewports and the answer is immediate.
+        """
+        return {
+            "pid": os.getpid(),
+            "boot": boot_token()[:8],
+            "record": str(self._record_path() or ""),
+        }
+
     # ── intents ──────────────────────────────────────────────────────────
 
     def apply(self, kind: str, args: dict[str, Any]) -> tuple[list[dict], dict]:
         handler = getattr(self, f"_do_{kind}", None)
         if handler is None:
             raise ValueError(f"unknown desktop intent '{kind}'")
-        ops, result = handler(args or {})
-        if ops:
-            self.session.seq += 1
-            for op in ops:
-                op["seq"] = self.session.seq
-            self._dirty = True
+        with self._locked():
+            # Read-modify-write: whatever anyone else did lands before this
+            # intent does, so seq stays monotonic and no change is overwritten.
+            self.load()
+            ops, result = handler(args or {})
+            if ops:
+                self.session.seq += 1
+                for op in ops:
+                    op["seq"] = self.session.seq
+                self._dirty = True
+                self._write()
         return ops, result
 
     def _touch(self, wid: str) -> dict:
@@ -364,8 +498,13 @@ class DesktopSessionStore:
 # The toolset is instantiated per connection, so holding the store on the
 # instance gave every browser its own document: three viewports attached at
 # three different seqs and never saw each other's windows, which is the exact
-# bug this module exists to fix, reintroduced one layer up. The desktop is a
-# property of the PROCESS.
+# bug this module exists to fix, reintroduced one layer up.
+#
+# Process-wide was the second wrong answer. The toolset does not run in one
+# process either (`run_toolsets` submits a ProcessJob per toolset), so this is
+# a CACHE of the record rather than the document itself — every call reloads it
+# if the file has moved on. What makes the desktop shared is the record; this
+# just saves re-parsing it when nothing has changed.
 _STORE: DesktopSessionStore | None = None
 
 

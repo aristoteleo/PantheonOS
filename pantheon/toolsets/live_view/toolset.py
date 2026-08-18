@@ -152,11 +152,12 @@ class LiveViewToolSet(ToolSet):
     # ── the desktop session ───────────────────────────────────────────────
 
     def _desktop(self):
-        """The window document — process-wide, not per toolset instance.
+        """The window document, as the record on disk currently has it.
 
-        The toolset is built per connection; a store held on `self` gave every
-        browser its own desktop, which is the bug the document exists to fix
-        wearing a different hat.
+        Not per toolset instance (built per connection) and not per process
+        either (a ProcessJob per toolset): both gave some browser its own
+        desktop, which is the bug the document exists to fix wearing a
+        different hat. The store reads the record through on every call.
         """
         from .desktop_session import get_store
 
@@ -184,7 +185,8 @@ class LiveViewToolSet(ToolSet):
     async def desktop_session_get(self) -> dict:
         """UI-only: the whole window document, for a viewport attaching or
         recovering from a missed delta."""
-        return {"success": True, "session": self._desktop().snapshot()}
+        store = self._desktop()
+        return {"success": True, "session": store.current(), "host": store.where()}
 
     @tool(exclude=True)
     async def desktop_intent(self, kind: str, args: dict | None = None) -> dict:
@@ -208,8 +210,8 @@ class LiveViewToolSet(ToolSet):
                 "seq": store.session.seq,
                 "ops": ops,
             })
-            store.save()
-        return {"success": True, "seq": store.session.seq, "ops": ops, **result}
+        return {"success": True, "seq": store.session.seq, "ops": ops,
+                "host": store.where(), **result}
 
     def _require(self, view_id: str) -> LiveViewSession:
         session = self._views.get(view_id)
@@ -1125,7 +1127,9 @@ class LiveViewToolSet(ToolSet):
         # on screen at all — the window list is a property of the machine, and
         # asking a browser for it was what produced "the desktop did not
         # answer" for a question the pod could always answer itself.
-        s = self._desktop().session
+        store = self._desktop()
+        store.current()          # read the record through before answering
+        s = store.session
         windows = [
             {
                 "window_id": wid,

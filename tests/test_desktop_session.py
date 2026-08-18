@@ -109,7 +109,7 @@ def test_set_patches_only_named_keys(store):
     assert "nonsense" not in w
 
 
-def test_a_record_round_trips_with_its_ids(store):
+def test_a_record_round_trips_with_its_ids(store, tmp_path):
     """Regression: to_record wrote windows without their ids while from_record
     keyed on them, so every window vanished on the next restart."""
     a = store.apply("open", {"app_id": "files", "title": "Files"})[1]["window_id"]
@@ -119,9 +119,9 @@ def test_a_record_round_trips_with_its_ids(store):
     back = DesktopSession.from_record(json.loads(json.dumps(store.session.to_record())))
     assert sorted(back.windows) == sorted([a, b])
     assert (back.windows[b]["x"], back.windows[b]["y"]) == (300, 90)
+    assert back.seq == store.session.seq   # or every client re-syncs backwards
     # And a window opened after the reload must not reuse a live id.
-    reloaded = DesktopSessionStore()
-    reloaded._loaded = True
+    reloaded = DesktopSessionStore(work_dir=tmp_path / "elsewhere")
     reloaded.session = back
     assert reloaded.apply("open", {"app_id": "terminal"})[1]["window_id"] not in (a, b)
 
@@ -138,11 +138,26 @@ def test_the_record_survives_a_real_save_and_load(tmp_path):
     assert second.session.windows[wid]["title"] == "Files"
 
 
-def test_agent_windows_are_not_part_of_the_desktop_you_come_back_to(store):
+def test_agent_windows_outlive_a_reader_but_not_a_restart(tmp_path):
+    """The record is where the document lives between two calls, not a backup
+    taken on the way out — so leaving a window out of it deletes that window.
+    Agent views must survive another process reading the record, and must not
+    survive the container whose tunnel they point at."""
+    store = DesktopSessionStore(work_dir=tmp_path)
+    store.load()
     store.apply("open", {"app_id": "files"})
     store.apply("open", {"app_id": "agent-view", "title": "a view"})
-    assert len(store.session.windows) == 2
-    assert len(store.session.to_record()["windows"]) == 1
+
+    # Another process, same container: both windows are still there.
+    peer = DesktopSessionStore(work_dir=tmp_path)
+    peer.load()
+    assert len(peer.session.windows) == 2
+
+    # A later container: the agent view's module URL died with the old tunnel.
+    record = json.loads((tmp_path / ".pantheon" / "desktop.json").read_text())
+    record["boot"] = "some-other-container"
+    after_restart = DesktopSession.from_record(record)
+    assert [w["app_id"] for w in after_restart.windows.values()] == ["files"]
 
 
 def test_a_v1_browser_record_is_adopted_not_dropped(tmp_path):
@@ -160,6 +175,45 @@ def test_a_v1_browser_record_is_adopted_not_dropped(tmp_path):
     only = next(iter(s.session.windows.values()))
     assert (only["x"], only["y"], only["space"]) == (10, 20, 2)
     assert s.session.spaces == 2
+
+
+def test_two_stores_on_one_record_are_one_desktop(tmp_path):
+    """THE bug this file is about, at the layer it actually bit.
+
+    The toolset is built per connection and run as a ProcessJob per toolset,
+    so `desktop_intent` and `desktop_session_get` need not reach the same
+    Python object — and when they did not, one viewport opened a window while
+    the other was told, honestly, that the desktop was empty. Two stores over
+    one record have to behave as one."""
+    a = DesktopSessionStore(work_dir=tmp_path)
+    b = DesktopSessionStore(work_dir=tmp_path)
+    a.load()
+    b.load()
+
+    wid = a.apply("open", {"app_id": "terminal", "title": "Terminal"})[1]["window_id"]
+    assert list(b.current()["windows"]) == [wid]
+
+    # And B's own intent continues A's sequence rather than colliding with it:
+    # two clients that both minted seq 2 would each be told a change landed
+    # while one of the two silently did not exist.
+    ops, _ = b.apply("move", {"window_id": wid, "x": 400, "y": 120})
+    assert ops[0]["seq"] == a.session.seq + 1
+    assert a.current()["windows"][wid]["x"] == 400
+    assert a.session.seq == b.session.seq
+
+
+def test_a_reader_does_not_lose_what_it_has_not_written(tmp_path):
+    """Reloading must not clobber: B holding a stale copy, then applying its
+    own intent, must not roll A's window back out of existence."""
+    a = DesktopSessionStore(work_dir=tmp_path)
+    b = DesktopSessionStore(work_dir=tmp_path)
+    a.load()
+    b.load()
+    b.apply("open", {"app_id": "files"})          # B's copy is warm
+    wid = a.apply("open", {"app_id": "terminal"})[1]["window_id"]
+    b.apply("spaces", {"count": 2})               # B never re-read in between
+    assert wid in b.session.windows
+    assert len(a.current()["windows"]) == 2
 
 
 def test_an_unreadable_record_is_an_empty_desktop_not_a_crash(tmp_path):
