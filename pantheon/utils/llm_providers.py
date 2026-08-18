@@ -340,14 +340,29 @@ def get_global_fallback_base_url() -> str:
 def is_force_proxy_enabled() -> bool:
     """True when this backend is in 'platform budget' mode: every LLM call is routed
     through the platform LiteLLM proxy + the user's virtual key, bypassing the user's
-    own provider keys (without deleting them). Toggled at runtime via the
-    ``set_llm_proxy`` RPC, which sets ``LLM_FORCE_PROXY`` +
-    ``PANTHEON_PLATFORM_PROXY_BASE`` / ``PANTHEON_PLATFORM_PROXY_KEY`` (dedicated env
-    so the user's own ``LLM_API_BASE`` is never touched)."""
+    own provider keys (without deleting them).
+
+    Activated in two ways:
+    1. Explicitly via the ``set_llm_proxy`` RPC (frontend toggles at runtime), which
+       sets ``LLM_FORCE_PROXY=true`` together with the proxy credentials.
+    2. Implicitly when ``PANTHEON_PLATFORM_PROXY_BASE`` **and**
+       ``PANTHEON_PLATFORM_PROXY_KEY`` are both present in the environment at process
+       start — e.g. when an admin pre-configures the Desktop app's launch environment
+       with the platform proxy URL and the user's virtual key, so proxy routing is
+       active immediately without requiring the frontend to call ``set_llm_proxy``.
+       This is what allows the $200 platform-budget credits to be used on the Desktop
+       app even before the frontend has had a chance to push the proxy config.
+    """
     import os
 
     val = os.environ.get("LLM_FORCE_PROXY", "")
-    return val.strip().lower() in ("1", "true", "yes", "on")
+    if val.strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    # Auto-activate: if both proxy credential vars are already in the environment
+    # (pre-configured by the deployment / launch script), treat that as force-proxy on.
+    proxy_base = os.environ.get("PANTHEON_PLATFORM_PROXY_BASE", "").strip()
+    proxy_key = os.environ.get("PANTHEON_PLATFORM_PROXY_KEY", "").strip()
+    return bool(proxy_base and proxy_key)
 
 
 def get_force_proxy_config() -> tuple[Optional[str], Optional[str]]:

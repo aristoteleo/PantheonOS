@@ -4618,7 +4618,11 @@ class ChatRoom(ToolSet):
             return True, ""
 
         selector = get_model_selector()
-        available = selector._get_available_providers()
+        # Use _effective_providers() so that under platform budget (force-proxy)
+        # providers served by the proxy (anthropic/openai/gemini) are accepted even
+        # when the user has no BYOK key for them.  In BYOK mode _effective_providers()
+        # delegates to _get_available_providers() — no change in behaviour.
+        available = selector._effective_providers()
 
         # Extract provider from model name
         if "/" in model:
