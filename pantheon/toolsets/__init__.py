@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from .task import TaskToolSet
     from .evolution import EvolutionToolSet, EvaluatorToolSet
     from .scfm import SCFMToolSet
-    from .live_view import LiveViewToolSet
+    from .desktop import DesktopToolSet, LiveViewToolSet
     from .pty import PtyToolSet
     from .fleet import FleetToolSet
 
@@ -42,7 +42,10 @@ _TOOLSET_MAPPING = {
     "EvolutionToolSet": ".evolution",
     "EvaluatorToolSet": ".evolution",
     "SCFMToolSet": ".scfm",
-    "LiveViewToolSet": ".live_view",
+    "DesktopToolSet": ".desktop",
+    # The name before the toolset outgrew it. Kept so a saved agent
+    # config naming the old class still resolves.
+    "LiveViewToolSet": ".desktop",
     "PtyToolSet": ".pty",
     "FleetToolSet": ".fleet",
 }

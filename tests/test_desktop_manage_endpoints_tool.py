@@ -2,7 +2,7 @@
 
 import pytest
 
-from pantheon.toolsets.live_view.toolset import LiveViewToolSet
+from pantheon.toolsets.desktop.toolset import DesktopToolSet
 
 
 class FakeDataServer:
@@ -38,7 +38,7 @@ class FakeDataServer:
 @pytest.mark.asyncio
 async def test_manage_endpoints_list_returns_empty_when_none(monkeypatch):
     fake_server = FakeDataServer()
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
 
     async def fake_data_server():
         return fake_server
@@ -54,7 +54,7 @@ async def test_manage_endpoints_list_returns_empty_when_none(monkeypatch):
 async def test_manage_endpoints_list_returns_all_registered(monkeypatch):
     fake_server = FakeDataServer()
     fake_server.registered = {"track_a": lambda r: None, "track_b": lambda r: None}
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
 
     async def fake_data_server():
         return fake_server
@@ -73,7 +73,7 @@ async def test_manage_endpoints_list_returns_all_registered(monkeypatch):
 async def test_manage_endpoints_info_returns_details_for_existing(monkeypatch):
     fake_server = FakeDataServer()
     fake_server.registered = {"my_track": lambda r: None}
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
 
     async def fake_data_server():
         return fake_server
@@ -93,7 +93,7 @@ async def test_manage_endpoints_info_returns_details_for_existing(monkeypatch):
 @pytest.mark.asyncio
 async def test_manage_endpoints_info_returns_not_exists_for_missing(monkeypatch):
     fake_server = FakeDataServer()
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
 
     async def fake_data_server():
         return fake_server
@@ -114,7 +114,7 @@ async def test_manage_endpoints_info_returns_not_exists_for_missing(monkeypatch)
 async def test_manage_endpoints_unregister_removes_endpoint(monkeypatch):
     fake_server = FakeDataServer()
     fake_server.registered = {"temp": lambda r: None}
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
 
     async def fake_data_server():
         return fake_server
@@ -130,7 +130,7 @@ async def test_manage_endpoints_unregister_removes_endpoint(monkeypatch):
 @pytest.mark.asyncio
 async def test_manage_endpoints_unregister_returns_false_for_nonexistent(monkeypatch):
     fake_server = FakeDataServer()
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
 
     async def fake_data_server():
         return fake_server
@@ -144,7 +144,7 @@ async def test_manage_endpoints_unregister_returns_false_for_nonexistent(monkeyp
 
 @pytest.mark.asyncio
 async def test_manage_endpoints_rejects_invalid_action():
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
 
     result = await toolset.manage_endpoints("invalid_action")
 
@@ -154,7 +154,7 @@ async def test_manage_endpoints_rejects_invalid_action():
 
 @pytest.mark.asyncio
 async def test_manage_endpoints_info_requires_name():
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
 
     result = await toolset.manage_endpoints("info")
 
@@ -164,7 +164,7 @@ async def test_manage_endpoints_info_requires_name():
 
 @pytest.mark.asyncio
 async def test_manage_endpoints_unregister_requires_name():
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
 
     result = await toolset.manage_endpoints("unregister")
 
@@ -175,7 +175,7 @@ async def test_manage_endpoints_unregister_requires_name():
 @pytest.mark.asyncio
 async def test_manage_endpoints_info_validates_endpoint_name(monkeypatch):
     fake_server = FakeDataServer()
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
 
     async def fake_data_server():
         return fake_server
@@ -191,7 +191,7 @@ async def test_manage_endpoints_info_validates_endpoint_name(monkeypatch):
 @pytest.mark.asyncio
 async def test_manage_endpoints_unregister_validates_endpoint_name(monkeypatch):
     fake_server = FakeDataServer()
-    toolset = LiveViewToolSet()
+    toolset = DesktopToolSet()
 
     async def fake_data_server():
         return fake_server
