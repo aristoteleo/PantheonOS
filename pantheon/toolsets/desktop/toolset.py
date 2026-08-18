@@ -71,8 +71,6 @@ class DesktopToolSet(ToolSet):
         self._pending_snapshots: dict[str, asyncio.Future] = {}
         # request_id -> Future, resolved by report_desktop_result.
         self._pending_desktop: dict[str, asyncio.Future] = {}
-        # chats whose desktop has answered a ping — subscription is live.
-        self._desktop_ready: set[str] = set()
         self._nats = None  # lazy NATSStreamAdapter
         self._data_server = None  # lazy LiveViewDataServer
         self._browser_endpoints = False  # browser-frame/-input registered
@@ -88,20 +86,6 @@ class DesktopToolSet(ToolSet):
         """
         ctx = self.get_context() or {}
         return ctx.get("session_id") or ctx.get("chat_id")
-
-    async def _publish(self, chat_id: str, event: dict[str, Any]) -> None:
-        """Broadcast a desktop.* event to the UI over the NATS chat stream."""
-        if not chat_id:
-            logger.warning("desktop: no chat_id, cannot publish {}", event.get("type"))
-            return
-        if self._nats is None:
-            from pantheon.chatroom.stream import NATSStreamAdapter
-
-            self._nats = NATSStreamAdapter()
-        try:
-            await self._nats.publish(chat_id, event["type"], event)
-        except Exception as e:  # streaming is best-effort
-            logger.error("desktop: publish failed: {}", e)
 
     # ── the desktop session ───────────────────────────────────────────────
 
@@ -307,17 +291,19 @@ class DesktopToolSet(ToolSet):
         `path`. Use it to VERIFY after desktop_open / desktop_update: state
         alone does not prove the view looks right.
         """
-        chat_id = self._chat_id()
-        if not chat_id:
-            return {"success": False, "error": "no chat context — cannot reach the desktop"}
+        anchor = self._presence().anchor_for(self._chat_id() or "")
+        viewport_id = anchor.get("viewport_id")
+        if not viewport_id:
+            return {"success": False, "error": f"no desktop to ask — {anchor.get('reason')}"}
         request_id = uuid.uuid4().hex
         loop = asyncio.get_event_loop()
         future: asyncio.Future = loop.create_future()
         self._pending_snapshots[request_id] = future
-        await self._publish(chat_id, {
+        await self._publish_desktop({
             "type": "desktop.snapshot",
             "window_id": window_id,
             "request_id": request_id,
+            "viewport_id": viewport_id,
         })
         try:
             data_url = await asyncio.wait_for(future, timeout=SNAPSHOT_TIMEOUT_SECONDS)
@@ -633,51 +619,44 @@ class DesktopToolSet(ToolSet):
     # These drive THE DESKTOP: any window, whoever opened it — the user's
     # double-click included — by window_id, plus app-or-file opening with the
     # same routing
-    # the desktop itself uses. Same transport (chat-stream events, answered by
-    # the connected desktop via report_desktop_result); an Atrium must be
-    # connected and showing this chat for them to answer.
-
-    async def _desktop_ping(self, chat_id: str) -> bool:
-        """Handshake until the desktop's stream subscription is live.
-
-        The UI subscribes to a chat's stream when its window opens; a fresh
-        chat's very first desktop request can beat that subscription and the
-        event is simply lost (streams do not replay). Pinging is idempotent,
-        so retry it until an answer proves the pipe — then send the real
-        request once.
-        """
-        if chat_id in self._desktop_ready:
-            return True
-        for _ in range(4):
-            request_id = uuid.uuid4().hex
-            loop = asyncio.get_event_loop()
-            future: asyncio.Future = loop.create_future()
-            self._pending_desktop[request_id] = future
-            await self._publish(chat_id, {"type": "desktop.ping", "request_id": request_id})
-            try:
-                await asyncio.wait_for(future, timeout=2.0)
-                self._desktop_ready.add(chat_id)
-                return True
-            except Exception:
-                continue
-            finally:
-                self._pending_desktop.pop(request_id, None)
-        return False
+    # the desktop itself uses. Addressed to ONE viewport (presence.py decides
+    # which) over the pod-scoped stream and answered by report_desktop_result,
+    # so the screen that answers need not be showing this conversation — or
+    # any conversation at all.
 
     async def _desktop_request(self, event_type: str, payload: dict, timeout: float = 30.0) -> dict:
-        chat_id = self._chat_id()
-        if not chat_id:
-            return {"success": False, "error": "no chat context — cannot reach the desktop"}
-        if not await self._desktop_ping(chat_id):
-            return {"success": False,
-                    "error": "the desktop did not answer — is an Atrium window open on this chat?"}
+        """Ask ONE screen to do something that only a live browser can do.
+
+        Addressed, not broadcast. The registry says which viewport hosts this
+        chat (presence.py), the event carries that id, and every other viewport
+        ignores it — which retires the Web Locks election that used to decide,
+        anonymously and per browser profile, who would answer.
+
+        Two limits fall away with it. There is no ping round trip before the
+        real request: the registry already knows whether a screen is there, and
+        a lease says so more reliably than a probe that races. And a chat
+        context is no longer required — a request with no chat still resolves
+        to the pod's most recently active viewport, so the standalone desktop
+        stops being a place where `desktop_open` answers "no chat context".
+        """
+        chat_id = self._chat_id() or ""
+        anchor = self._presence().anchor_for(chat_id)
+        viewport_id = anchor.get("viewport_id")
+        if not viewport_id:
+            # Say which thing is missing. "The desktop did not answer" was the
+            # old text for this, and it sent people looking for a bug in a
+            # desktop that was simply not open.
+            return {"success": False, "error": f"no desktop to ask — {anchor.get('reason')}"}
         request_id = uuid.uuid4().hex
         loop = asyncio.get_event_loop()
         future: asyncio.Future = loop.create_future()
         self._pending_desktop[request_id] = future
-        await self._publish(chat_id, {
+        # Pod-scoped, not the chat stream: the addressed viewport may be
+        # showing a different conversation, or none.
+        await self._publish_desktop({
             "type": event_type,
             "request_id": request_id,
+            "viewport_id": viewport_id,
             **payload,
         })
         try:
@@ -685,7 +664,8 @@ class DesktopToolSet(ToolSet):
             return {"success": True, "result": value}
         except asyncio.TimeoutError:
             return {"success": False,
-                    "error": "the desktop did not answer — is an Atrium window open on this chat?"}
+                    "error": f"the desktop did not answer in {timeout:g}s "
+                             f"(asked the viewport that {anchor.get('reason')})"}
         except Exception as e:
             return {"success": False, "error": str(e)}
         finally:
