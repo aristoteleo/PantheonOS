@@ -167,6 +167,70 @@ class DesktopToolSet(ToolSet):
         return {"success": True, "seq": store.session.seq, "ops": ops,
                 "host": store.where(), **result}
 
+    # ── who is looking (presence.py) ──────────────────────────────────────
+
+    def _presence(self):
+        from .presence import get_store as presence_store
+
+        return presence_store()
+
+    @tool(exclude=True)
+    async def desktop_presence(
+        self,
+        viewport_id: str = "",
+        clients: list | None = None,
+        visible: bool = True,
+        active: bool = False,
+    ) -> dict:
+        """UI-only: renew this page's leases, and read back who else is here.
+
+        One call per page, on a heartbeat — a page has at most one viewport and
+        any number of chat clients, so sending them together keeps this to one
+        message rather than one per entity. The reply carries the whole live
+        registry, so a viewport that wants to draw other people's cursors does
+        not need a second round trip.
+
+        `active` means real user input since the last beat, not that the beat
+        happened: a background tab must not out-rank the window someone is
+        typing in when the anchor is resolved.
+        """
+        registry, changed = self._presence().announce(
+            viewport_id=viewport_id, clients=clients,
+            visible=visible, active=active)
+        # Only membership is worth telling anyone about. Broadcasting renewals
+        # would wake every viewport on this pod every few seconds per open tab.
+        if changed:
+            await self._publish_desktop({"type": "desktop.presence", **registry})
+        return {"success": True, **registry}
+
+    @tool(exclude=True)
+    async def desktop_presence_leave(
+        self, viewport_id: str = "", client_ids: list | None = None,
+    ) -> dict:
+        """UI-only: give up leases on the way out (pagehide).
+
+        Best-effort by nature — it does not fire for a crash, a dropped
+        connection or a sleeping laptop, which is exactly why the lease exists.
+        This only saves the TTL in the common case.
+        """
+        registry, changed = self._presence().leave(
+            viewport_id=viewport_id, client_ids=client_ids)
+        if changed:
+            await self._publish_desktop({"type": "desktop.presence", **registry})
+        return {"success": True, **registry}
+
+    @tool(exclude=True)
+    async def desktop_anchor(self, chat_id: str = "") -> dict:
+        """UI-only: which viewport this chat's directed requests should reach.
+
+        Exposed rather than kept internal because "why that screen?" is
+        otherwise unanswerable after the fact, and not being able to name the
+        copy that answered was the whole difficulty of debugging the session.
+        """
+        chat_id = chat_id or self._chat_id() or ""
+        return {"success": True, "chat_id": chat_id,
+                **self._presence().anchor_for(chat_id)}
+
     def _data_roots(self) -> list:
         """Directories the data server should expose: the workspace (agent
         data + agent-written components) and the skills dirs (viewer plugins)."""
