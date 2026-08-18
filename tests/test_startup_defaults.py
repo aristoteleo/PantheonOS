@@ -133,19 +133,45 @@ def test_bootstrap_reclaims_stale_factory_skill_from_project_keeps_user_skill(mo
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.delenv("PANTHEON_FACTORY_TEMPLATE_MODE", raising=False)
     pdir = tmp_path / "workspace" / ".pantheon"
-    gosling = pdir / "skills" / "live_view" / "gosling" / "gosling.md"
-    gosling.parent.mkdir(parents=True)
-    gosling.write_text("STALE no-hic\n", encoding="utf-8")
+    stale = pdir / "skills" / "desktop" / "SKILL.md"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("STALE copy\n", encoding="utf-8")
     user_skill = pdir / "skills" / "openclaw-medical_x" / "SKILL.md"
     user_skill.parent.mkdir(parents=True)
     user_skill.write_text("user custom\n", encoding="utf-8")
 
     manager = TemplateManager(work_dir=tmp_path / "workspace")
 
-    assert not gosling.exists()  # factory-origin reclaimed from project
-    assert (manager.system_templates_dir / "skills" / "live_view" / "gosling" / "gosling.md").exists()
-    assert not (manager.settings.global_skills_dir / "live_view" / "gosling" / "gosling.md").exists()
+    assert not stale.exists()  # factory-origin reclaimed from project
+    assert (manager.system_templates_dir / "skills" / "desktop" / "SKILL.md").exists()
+    assert not (manager.settings.global_skills_dir / "desktop" / "SKILL.md").exists()
     assert user_skill.exists()  # user-created skill preserved
+
+
+def test_bootstrap_removes_a_retired_skill_tree(monkeypatch, tmp_path):
+    """Withdrawing a template from the factory does not withdraw anyone's copy.
+
+    Reclaim only removes project files the factory STILL ships — that is what
+    makes it safe for user-created content — so a deleted tree stops looking
+    factory-origin and is kept. On Modal that copy sits on a volume outliving
+    every deploy, and the agent goes on loading skills for tools that no longer
+    exist. Retirement has to be explicit.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("PANTHEON_FACTORY_TEMPLATE_MODE", raising=False)
+    pdir = tmp_path / "workspace" / ".pantheon"
+    retired = pdir / "skills" / "live_view" / "gosling" / "gosling.md"
+    retired.parent.mkdir(parents=True)
+    retired.write_text("open_live_view(view_type='gosling')\n", encoding="utf-8")
+    keeper = pdir / "skills" / "openclaw-medical_x" / "SKILL.md"
+    keeper.parent.mkdir(parents=True)
+    keeper.write_text("user custom\n", encoding="utf-8")
+
+    TemplateManager(work_dir=tmp_path / "workspace")
+
+    assert not retired.exists()
+    assert not retired.parent.parent.exists()   # the whole tree, not one file
+    assert keeper.exists()                      # nothing else was touched
 
 
 def test_global_template_sync_preserves_user_modified_files(monkeypatch, tmp_path):

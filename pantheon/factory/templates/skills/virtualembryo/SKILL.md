@@ -25,7 +25,7 @@ volumes + anatomy meshes, and 3D spatial-transcriptomics reconstructions).
 
 This skill lets you **answer developmental-biology questions from the KG** and
 **pull atlas datasets and render them in 3D** with the `volume3d` / `spatial3d`
-LiveView viewers.
+desktop viewer apps.
 
 ## The public interfaces (read-only, no key)
 
@@ -147,7 +147,7 @@ datasets, …).
 
 ## 3. Visualise an atlas dataset in 3D
 
-The viewers (`volume3d`, `spatial3d`) load a zarr the **LiveView data server**
+The viewers (`volume3d`, `spatial3d`) load a zarr the **desktop's data server**
 serves with CORS. The public data host (`tiles.virtualembryo.org`) has **no
 CORS**, so the browser can't fetch it directly — **read it server-side and
 re-serve it locally**. (On a machine that already has the atlas checked out
@@ -193,7 +193,7 @@ def fetch_ve_spatial(name, out="/workspace", max_cells=150_000):
 
 # then: write_spatial_zarr(anndata.read_h5ad(path), out_zarr)  # from spatial3d.md
 #       url = serve_local_data(out_zarr)
-#       open_live_view(view_type="spatial3d", state={"url": url, "colorBy":"cluster"})
+#       desktop_open(app="spatial3d", state={"url": url, "colorBy":"cluster"})
 ```
 
 Note: big reconstructions (`e9_5_embryo` 646k, `e11_5_embryo` 7M cells) are slow
@@ -211,7 +211,7 @@ def fetch_ve_volume(ema_code, out="/workspace"):
     vol = np.asarray(g["0"][:])     # finest level [Z,Y,X]; coarsen if very large
     # then write_ome_zarr_v2(vol, out_zarr, voxel=rec.get("voxel_um", (1,1,1)))  # volume3d.md
     return vol
-# open_live_view(view_type="volume3d", state={"url": serve_local_data(out_zarr), "mode":"iso"})
+# desktop_open(app="volume3d", state={"url": serve_local_data(out_zarr), "mode":"iso"})
 ```
 
 ---
@@ -225,8 +225,8 @@ def fetch_ve_volume(ema_code, out="/workspace"):
 **"Show me an E9.5 mouse embryo in 3D coloured by cell type, then by Sox2."**
 Pick a 3D dataset near E9.5 from `spatial_datasets` (e.g. a `digiembryo_*` or
 `e9_5_embryo`) → `fetch_ve_spatial` → `write_spatial_zarr` → `serve_local_data`
-→ `open_live_view("spatial3d", state={url, colorBy:"cluster"})` → then
-`live_view_update(view_id, {"colorBy":"gene","gene":"Sox2","colormap":"plasma"})`.
+→ `desktop_open(app="spatial3d", state={url, colorBy:"cluster"})` → then
+`desktop_update(view_id, {"colorBy":"gene","gene":"Sox2","colormap":"plasma"})`.
 
 **"Which genes are expressed in the neural tube?"**
 `resolve_entity("neural tube", type="anatomy")` → EMAPA IRI → `POST cypher`
@@ -235,7 +235,7 @@ Pick a 3D dataset near E9.5 from `spatial_datasets` (e.g. a `digiembryo_*` or
 
 **"Render the EMA10 reference embryo volume."**
 `fetch_ve_volume("EMA10")` → `write_ome_zarr_v2` → `serve_local_data` →
-`open_live_view("volume3d", state={url, mode:"iso"})`.
+`desktop_open(app="volume3d", state={url, mode:"iso"})`.
 
 ## Gotchas
 

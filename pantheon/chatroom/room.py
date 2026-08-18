@@ -4846,7 +4846,7 @@ class ChatRoom(ToolSet):
                 })
 
             # Factory-bundled sub-skills: nested resource ".md" files (e.g.
-            # live_view/cytoscape/cytoscape.md) that ship INSIDE a built-in skill.
+            # omics/subskill.md) that ship INSIDE a built-in skill.
             # The store seeds each as a SEPARATE package, but they're already
             # present locally — so the UI must show them as built-in, not as
             # installable. Mirror the seed's path convention (rel-without-suffix,

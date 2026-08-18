@@ -5,7 +5,7 @@ description: |
   Obtain and predict protein 3D structures — fetch AlphaFold predicted
   models from the AlphaFold DB, experimental structures from the RCSB PDB,
   or predict a novel sequence with ColabFold — and visualise them in the
-  Mol* LiveView.
+  Mol* desktop app.
 tags: [structural-biology, alphafold, esmfold, protein, structure, pdb, colabfold, plddt, molstar]
 ---
 
@@ -98,19 +98,19 @@ judge inter-domain / inter-chain placement confidence.
 
 ## Visualising the structure
 
-Show the structure in the **Mol\*** LiveView viewer (see the `live_view`
+Show the structure in the **Mol\***  desktop app (see the `molstar`
 skill, `molstar` viewer):
 
 ```
 # an AlphaFold model — Mol* fetches it and colours by pLDDT
-open_live_view(view_type="molstar", title="EGFR (AlphaFold)",
+desktop_open(app="molstar", title="EGFR (AlphaFold)",
                state={"alphafold": "P00533"})
 
 # an experimental PDB entry
-open_live_view(view_type="molstar", title="...", state={"pdbId": "1CBS"})
+desktop_open(app="molstar", title="...", state={"pdbId": "1CBS"})
 
 # a local structure file (an ESMFold / ColabFold output, a downloaded model)
 serve_local_data("predicted.pdb")               # -> { url }
-open_live_view(view_type="molstar", title="...",
+desktop_open(app="molstar", title="...",
                state={"url": <that url>, "format": "pdb"})
 ```

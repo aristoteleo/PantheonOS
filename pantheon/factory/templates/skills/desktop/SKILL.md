@@ -152,8 +152,7 @@ The bridge `app` gives: `onState(cb)` / `setState(patch)` / `emitState(full)`
 / `state`, `defineAction(name, fn)`, `onSnapshot(fn)`, `ready()` / `fail(msg)`,
 `fs.read/write/ls(path)` (workspace files), `window.setTitle/close`. It runs
 in a sandboxed iframe — bundle any framework you like, but keep the module
-self-contained. (This replaces the retired `open_live_view`; do NOT use
-`live_view_*` tools.)
+self-contained.
 
 ## B. Installed package (reusable, claims file types, may have a backend)
 
