@@ -90,6 +90,30 @@ def test_nominal_size_only_grows(store):
     assert ops == []
 
 
+def test_nominal_set_may_shrink(store):
+    """A person choosing in Settings is not a viewport proposing.
+
+    Grow-only is right for an attaching viewport and wrong for a choice: a
+    session once opened maximised on a large monitor would otherwise stay that
+    size forever, scaling itself down on every smaller screen after it.
+    """
+    store.apply("nominal", {"w": 1920, "h": 1080})
+    ops, result = store.apply("nominal", {"w": 1280, "h": 800, "mode": "set"})
+    assert result == {"nominal_w": 1280, "nominal_h": 800}
+    assert [{k: v for k, v in op.items() if k != "seq"} for op in ops] == [
+        {"op": "meta", "nominal_w": 1280, "nominal_h": 800}]
+    # And a later viewport proposal still grows from the chosen size.
+    assert store.apply("nominal", {"w": 1600, "h": 900})[1] == {
+        "nominal_w": 1600, "nominal_h": 900}
+
+
+def test_nominal_set_is_floored_and_idempotent(store):
+    ops, result = store.apply("nominal", {"w": 10, "h": 10, "mode": "set"})
+    assert result == {"nominal_w": 640, "nominal_h": 480}
+    ops, _ = store.apply("nominal", {"w": 640, "h": 480, "mode": "set"})
+    assert ops == []
+
+
 def test_unknown_intent_and_missing_window_raise(store):
     with pytest.raises(ValueError):
         store.apply("teleport", {})

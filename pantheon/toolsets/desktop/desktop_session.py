@@ -476,19 +476,35 @@ class DesktopSessionStore:
         return ops, {"spaces": n}
 
     def _do_nominal(self, a: dict) -> tuple[list[dict], dict]:
-        """A viewport proposes the desktop's resolution.
+        """Set the desktop's resolution.
 
-        Grow-only, and only from a viewport big enough to hold it: the desktop
-        should be as large as the largest screen looking at it, and a narrow
-        panel attaching must not shrink the page's desktop under it.
+        Two callers, and they must not be treated alike:
+
+        `mode="propose"` (the default) is a VIEWPORT reporting its own size on
+        attach. Grow-only: the desktop should be as large as the largest screen
+        looking at it, and a narrow panel attaching must not shrink the page's
+        desktop under it.
+
+        `mode="set"` is a PERSON choosing, in Settings. It sets exactly, and it
+        may shrink — which is the entire reason it exists. Grow-only means a
+        session that was once opened maximised on a large monitor stays that
+        size forever, and every smaller viewport after it gets the whole
+        desktop scaled down to fit a screen nobody is using any more. A
+        proposal cannot undo that, because undoing it is what a proposal is
+        forbidden to do; a choice can.
         """
         s = self.session
         w = max(640, int(a.get("w") or 0))
         h = max(480, int(a.get("h") or 0))
-        if w <= s.nominal_w and h <= s.nominal_h:
-            return [], {"nominal_w": s.nominal_w, "nominal_h": s.nominal_h}
-        s.nominal_w = max(s.nominal_w, w)
-        s.nominal_h = max(s.nominal_h, h)
+        if str(a.get("mode") or "propose") == "set":
+            if w == s.nominal_w and h == s.nominal_h:
+                return [], {"nominal_w": s.nominal_w, "nominal_h": s.nominal_h}
+            s.nominal_w, s.nominal_h = w, h
+        else:
+            if w <= s.nominal_w and h <= s.nominal_h:
+                return [], {"nominal_w": s.nominal_w, "nominal_h": s.nominal_h}
+            s.nominal_w = max(s.nominal_w, w)
+            s.nominal_h = max(s.nominal_h, h)
         return ([{"op": "meta", "nominal_w": s.nominal_w, "nominal_h": s.nominal_h}],
                 {"nominal_w": s.nominal_w, "nominal_h": s.nominal_h})
 
