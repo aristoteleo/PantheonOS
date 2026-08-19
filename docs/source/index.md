@@ -77,7 +77,7 @@
 
 **Web / Desktop App**
 
-Full graphical interface with chat, projects, fleet, live view, store, and terminal.
+Full graphical interface with chat, projects, fleet, desktop apps, store, and terminal.
 :::
 
 :::{grid-item-card}
@@ -134,7 +134,7 @@ PantheonTeam, Sequential, Swarm, MoA — delegate and parallelize complex tasks.
 
 **25+ Toolsets**
 
-Python, R, Julia, Shell, Jupyter, Files, Web, Fleet, Live View, SCFM, RAG, and more.
+Python, R, Julia, Shell, Jupyter, Files, Web, Fleet, Desktop, SCFM, RAG, and more.
 :::
 
 :::{grid-item-card}
@@ -150,15 +150,15 @@ Control multiple machines from one session — run code, transfer files, manage 
 :::
 
 :::{grid-item-card}
-:link: toolsets/live_view
+:link: toolsets/desktop
 :link-type: doc
 :text-align: center
 
 <svg class="card-icon-sm icon-purple" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5m.75-9 3-3 2.148 2.148A12.061 12.061 0 0 1 16.5 7.605" /></svg>
 
-**Live View**
+**Desktop & Apps**
 
-Interactive visualizations in the browser: IGV, Mol*, Vitessce, Cytoscape, and 7 more.
+App windows on a shared desktop: IGV, Mol*, Vitessce, Viv, Cytoscape, and more.
 :::
 
 :::{grid-item-card}

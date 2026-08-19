@@ -77,9 +77,9 @@ Complete Toolset Catalog
    * - :doc:`fleet`
      - Infrastructure
      - Multi-node execution, file transfer, cluster management
-   * - :doc:`live_view`
+   * - :doc:`desktop`
      - Visualization
-     - Interactive browser visualizations (11 viewer types)
+     - Atrium desktop windows, app viewers, and a shared browser
    * - :doc:`scfm`
      - Bioinformatics
      - Single-cell foundation models: annotate, embed, perturb
@@ -273,16 +273,18 @@ Infrastructure & Visualization
   - ``run_on_node``, ``run_on_label``: Execute on remote nodes
   - ``transfer``, ``broadcast``, ``gather``: Move files across nodes
 
-- :doc:`live_view` - Interactive browser visualizations
+- :doc:`desktop` - Atrium desktop windows and app viewers
 
-  - ``open_live_view``: Open IGV, Vitessce, Mol*, Gosling, Cytoscape, and 6 more
-  - ``update_live_view``, ``close_live_view``: Manage open panels
+  - ``desktop_apps``, ``desktop_windows``: See what is installed and what is open
+  - ``desktop_open``: Open IGV, Vitessce, Mol*, Gosling, Cytoscape, and more
+  - ``desktop_read``, ``desktop_update``, ``desktop_set``, ``desktop_call``: Steer a window
+  - ``browser_open`` and the ``browser_*`` tools: Drive a shared Chromium page
 
 - :doc:`scfm` - Single-cell foundation models
 
-  - ``list_scfm_models``: Browse available models
-  - ``select_scfm_model``, ``run_scfm``: Run annotation, embedding, perturbation
-  - ``interpret_scfm_results``: Summarize and explain model output
+  - ``scfm_list_models``, ``scfm_describe_model``: Browse available models
+  - ``scfm_select_model``, ``scfm_run``: Run annotation, embedding, perturbation
+  - ``scfm_interpret_results``: Summarize and explain model output
 
 Quick Start
 -----------
@@ -442,33 +444,4 @@ Toolsets can be exposed as MCP (Model Context Protocol) servers::
    await gateway.serve()
 
 See :doc:`/api/utils` for more details on MCP integration.
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-
-   builtin_toolsets
-   python_interpreter
-   r_interpreter
-   julia_interpreter
-   shell
-   notebook
-   file_editor
-   file_transfer
-   web_browse
-   scraper_api
-   fleet
-   live_view
-   scfm
-   evolution
-   evaluator
-   knowledge
-   vector_rag
-   database_api
-   image_generation
-   task
-   skillbook
-   code_toolset
-   package
-   custom_toolsets
 

@@ -42,10 +42,13 @@ Starting with a Specific Team Template
 
 .. code-block:: bash
 
-   pantheon cli --template single_cell
+   pantheon cli --template .pantheon/teams/single_cell_team.md
 
-Replace ``single_cell`` with any template name from ``.pantheon/teams/`` or a built-in
-template. The CLI loads the team configuration before the first prompt.
+``--template`` takes a **path to a team Markdown file**, not a bare ID. Factory
+templates are copied into ``.pantheon/teams/`` on first run (``default.md``,
+``single_cell_team.md``, ``paper_write_team.md``, ``omicverse_team.md``,
+``rare_disease_team.md``, ``evolution_team.md``). The CLI loads that team before
+the first prompt.
 
 Resuming a Previous Session
 ----------------------------

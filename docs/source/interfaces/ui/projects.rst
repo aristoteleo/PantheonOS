@@ -32,10 +32,8 @@ Open **Settings → Projects** in the sidebar and click **Add Project**. Provide
   (e.g., ``/home/user/projects/rna-seq-pipeline``).
 - **Team template** (optional) — a default team to activate when this project is opened.
 
-.. code-block:: bash
-
-   # Equivalent CLI registration
-   pantheon project add --name genomics-lab --workspace /home/user/projects/rna-seq-pipeline
+There is no ``pantheon project`` CLI command. Projects are registered and switched
+from the web/desktop app only.
 
 **Switch the active project**
 

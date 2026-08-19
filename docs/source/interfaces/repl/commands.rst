@@ -18,10 +18,11 @@ Starting Pantheon CLI
    * - Option
      - Default
      - Description
-   * - ``--template <name>``
+   * - ``--template <path>``
      -
-     - Team template to load. Uses a built-in template name or a filename from
-       ``.pantheon/teams/`` (without the ``.md`` extension).
+     - Path to a team template Markdown file (for example
+       ``.pantheon/teams/single_cell_team.md``). The path must exist; this is not a
+       bare template ID.
    * - ``--memory-dir <path>``
      - ``.pantheon/memory``
      - Directory where session files are stored and read from.
@@ -104,11 +105,12 @@ Chat History
        If no argument is provided, shows an interactive session picker.
    * - ``/save [file]``
      - Save the current conversation to a JSON file. If no filename is provided,
-       saves to ``<session-id>.json`` in the current directory.
+       saves to a timestamped ``YYYYmmdd_HHMMSS.json`` in the current directory.
+       A name without a ``.json`` suffix gets one added.
    * - ``/load <file>``
-     - Load a conversation from a JSON file exported by ``/save``. The loaded
-       conversation replaces the current context; all history from the file is
-       available to the agent.
+     - **Not implemented.** Prints a notice that ``/load`` is not supported in
+       ChatRoom mode and recommends ``/resume``; the file is not read and the
+       conversation is unchanged. Use ``/resume`` to return to a saved session.
    * - ``/revert [index]``
      - Revert the conversation to an earlier user turn. If ``index`` is provided,
        reverts to that turn number (0-indexed). If omitted, shows a numbered list
@@ -212,13 +214,16 @@ MCP Servers
    * - ``/mcp restart <name>``
      - Stop and restart an MCP server. Useful after updating the server binary or
        when a server has entered an error state.
-   * - ``/mcp add <name> <cmd>``
-     - Add a new MCP server for this session. ``<cmd>`` is the full shell command
-       to start the server (e.g., ``npx @modelcontextprotocol/server-filesystem``).
-       The server starts immediately and its tools become available.
+   * - ``/mcp add <name> '<cmd>'``
+     - Add a new MCP server and **persist it to** ``.pantheon/mcp.json``. ``<cmd>``
+       is the server's whole command line, quoted (e.g. ``'uvx context7'``). Use
+       ``--uri <url>`` instead for a remote HTTP server. The server is registered
+       but not started — run ``/mcp start <name>``, or pass ``--autostart`` to have
+       it start on every launch. Also accepts ``--desc`` and repeatable ``--env``.
    * - ``/mcp remove <name>``
-     - Remove an MCP server from the current session. The server is stopped and
-       its tools are unregistered. Does not modify ``mcp.json``.
+     - Stop the server, unregister its tools, and **delete its entry from**
+       ``.pantheon/mcp.json`` (including the ``auto_start`` list). To keep the
+       configuration and only stop the server, use ``/mcp stop``.
 
 Shell Pass-Through
 ~~~~~~~~~~~~~~~~~~

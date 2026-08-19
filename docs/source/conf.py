@@ -31,7 +31,13 @@ extensions = [
     'sphinx_togglebutton',
     'sphinx_thebe',
     'sphinxcontrib.mermaid',
+    'sphinx_external_toc',
 ]
+
+# `_toc.yml` is the single source of the site navigation; no page carries its
+# own toctree. Missing files are reported rather than silently dropped.
+external_toc_path = '_toc.yml'
+external_toc_exclude_missing = False
 
 # Use modern syntax highlighting styles
 pygments_style = 'github-dark'  # Modern GitHub-inspired style

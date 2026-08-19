@@ -37,11 +37,12 @@ automatically the next time you run ``pantheon ui``.
 **Via the fleet toolset**
 
 Include the ``FleetToolSet`` in your team template. When the backend starts, the fleet
-node is registered automatically:
+node is registered automatically. Start the UI as usual (``pantheon ui`` has no
+``--template`` flag):
 
 .. code-block:: bash
 
-   pantheon ui --auto-start-nats --auto-ui --template fleet_team
+   pantheon ui --auto-start-nats --auto-ui
 
 The local node appears in the Fleet panel under the hostname of the current machine with
 status **Connected**.

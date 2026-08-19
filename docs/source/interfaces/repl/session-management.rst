@@ -2,7 +2,7 @@ Session Management
 ==================
 
 Pantheon CLI automatically saves every conversation as a named session. Sessions persist
-across restarts and can be resumed, exported, branched, or recovered after a crash.
+across restarts and can be resumed, exported, or recovered after a crash.
 
 Overview
 --------
@@ -97,60 +97,69 @@ where you left off. The agent receives the complete prior context.
 Renaming a Session
 ------------------
 
-Session names are currently set automatically from the first message. To rename a
-session, export it, delete the original, and reimport under a new name:
+Session names are set automatically from the first message, and the CLI has no rename
+command. A session's name is part of its file name on disk
+(``<id>_<name>.jsonl``), so renaming means renaming that file while the session is not
+open — do it at your own risk, and keep the ``<id>_`` prefix intact so ``/resume`` can
+still find it.
 
-.. code-block:: text
+.. warning::
 
-   > /save my-rna-analysis.json
-   > /new
-   > /load my-rna-analysis.json
-
-The loaded session inherits the filename as its display name. This workflow also serves
-as a manual backup mechanism.
+   Do **not** try to rename a session by exporting it, deleting the original, and
+   loading the export back. ``/load`` does not import anything (see
+   `Exporting Sessions`_ below), so deleting the original would lose the conversation.
 
 Forking a Session
 -----------------
 
-To branch the conversation from a specific point:
+There is no built-in fork or branch command. What the CLI offers instead:
 
-1. Export the conversation up to the desired point: ``/save branch-point.json``.
-2. Start a new session: ``/new``.
-3. Load the exported file: ``/load branch-point.json``.
-4. Continue from the branch point in a new direction.
-
-Both sessions (original and fork) are now independent and evolve separately.
+- ``/revert [index]`` rewinds the *current* session to an earlier user turn and lets you
+  continue in a new direction from there. This rewrites the session in place rather than
+  creating a second one, and it only affects conversation memory — files the agent
+  already wrote, and any other external state, are not rolled back.
+- ``/save <file>`` writes a portable copy of the conversation before you revert, so you
+  keep a record of the path you abandoned.
 
 Exporting Sessions
 ------------------
 
+``/save`` writes the current conversation to a portable JSON file:
+
 .. code-block:: text
 
    > /save
-   Saved to: 8f3a2b1c_rna-seq-quality-control.json
+   ✅ Conversation saved to: 20260810_143201.json
 
    > /save /tmp/analysis-backup.json
-   Saved to: /tmp/analysis-backup.json
+   ✅ Conversation saved to: /tmp/analysis-backup.json
 
-The exported file is a JSON array of conversation turns. It can be shared with colleagues,
-imported on another machine, or used as input to a downstream script.
+With no argument the file name is a timestamp (``YYYYmmdd_HHMMSS.json``) in the current
+directory. A name you supply gets a ``.json`` suffix if it does not already have one.
 
-Importing Sessions
-------------------
+The file is a single JSON object with the session ``id``, its ``name``, the ``messages``
+list, and ``extra_data``. It is a snapshot for archiving, sharing, or feeding to a
+downstream script.
+
+.. important::
+
+   Export is **one-way**. ``/load <file>`` is not implemented in the current
+   ChatRoom-based CLI: it prints a notice recommending ``/resume`` and does not read the
+   file or change the conversation. Treat ``/save`` output as an archive, not as
+   something you can import back into a session.
+
+Returning to a Saved Conversation
+---------------------------------
+
+To pick a conversation back up, resume the session itself rather than loading a file:
 
 .. code-block:: text
 
-   > /load /tmp/analysis-backup.json
+   > /list                  # find the session
+   > /resume 8f3a2b1c       # or /resume rna-seq, or /resume last
 
-The conversation from the file is loaded into the current session. All prior turns
-are available in the agent's context. You can continue the conversation or use
-``/revert`` to go back to a specific earlier point.
-
-.. note::
-
-   Loading a file into a session that already has conversation history **appends** the
-   loaded turns after the existing history. If you want a clean import, start a new
-   session with ``/new`` first.
+Sessions live in the memory directory and are resumable indefinitely, so there is no
+need to export and re-import to continue earlier work.
 
 Auto-Recovery
 -------------

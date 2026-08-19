@@ -62,8 +62,8 @@ Command-Line Options
 
    * - Option
      - Description
-   * - ``--template <name>``
-     - Load a specific team template on startup.
+   * - ``--template <path>``
+     - Load a team from a Markdown file path (must exist on disk).
    * - ``--resume <id\|name\|last>``
      - Resume a saved session immediately on startup.
    * - ``-i <message>``
@@ -87,16 +87,5 @@ Prefer the Pantheon CLI when:
 - Running on a headless machine or inside a container.
 - You want the fastest possible startup time (the CLI starts in under a second).
 
-Use the web or desktop app when you need Live View visualizations, the Fleet panel,
-the integrated PTY terminal, or the Gateway configuration UI.
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-
-   quickstart
-   commands
-   session-management
-   file-viewer
-   mcp-servers
-   advanced
+Use the web or desktop app when you need the Atrium desktop and its app windows, the
+Fleet panel, the integrated PTY terminal, or the Gateway configuration UI.

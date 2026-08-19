@@ -27,12 +27,12 @@ it to open the template browser.
 
 Pantheon ships with a set of built-in templates covering common workflows:
 
-- ``default`` — single general-purpose agent
-- ``data_research_team`` — analyst + coder + critic
-- ``single_cell`` — scRNA-seq analysis pipeline
-- ``paper_writing`` — writer + editor + literature reviewer
-- ``structural_biology`` — structure prediction + analysis
-- ``coding_assistant`` — multi-agent code review and generation
+- ``default`` — general team (leader plus researcher and scientific illustrator)
+- ``single_cell_team`` — scRNA-seq and spatial omics analysis pipeline
+- ``paper_write_team`` — report and academic paper writing
+- ``omicverse_team`` — OmicVerse-driven single-cell and spatial analysis
+- ``rare_disease_team`` — rare disease case support and differential reasoning
+- ``evolution_team`` — evolutionary code optimization
 
 **Custom templates**
 

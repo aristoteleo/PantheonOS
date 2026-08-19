@@ -63,8 +63,8 @@ Google, Mistral, Meta, and many other providers.
 **Setting the OpenRouter API key**
 
 Go to **Settings → API Keys** and enter your OpenRouter key in the **OpenRouter** field.
-The key is stored in ``.pantheon/settings.json`` (or the system keychain, depending on
-your OS) and used for all OpenRouter-sourced models.
+The key is stored as plain JSON in ``.pantheon/settings.json`` (overridable by the
+``OPENROUTER_API_KEY`` environment variable) and used for all OpenRouter-sourced models.
 
 **Automatic catalog**
 
@@ -123,7 +123,10 @@ API Key Management
 ------------------
 
 API keys for all providers can be entered and updated from **Settings → API Keys**. Keys
-are stored encrypted in ``.pantheon/settings.json`` and never logged.
+are stored as **plain JSON** in ``.pantheon/settings.json`` (the ``api_keys`` object).
+Pantheon does not encrypt them at rest. Environment variables take precedence over
+values in that file. Treat the settings file as a secret and restrict filesystem
+permissions accordingly.
 
 Supported providers:
 

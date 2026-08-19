@@ -96,9 +96,9 @@ Skill Categories
    * - **Omics**
      - RNA-seq, scRNA-seq, proteomics, multi-omics integration pipelines and analysis
        skills.
-   * - **Live View**
-     - Skills that configure and launch Live View viewers (IGV, Vitessce, Mol*, etc.)
-       from agent responses.
+   * - **Desktop**
+     - Skills for driving the Atrium desktop and its app windows (IGV, Vitessce, Mol*,
+       Viv, and the rest).
    * - **Paper Writing**
      - Literature review, abstract drafting, citation management, and figure description
        skills.

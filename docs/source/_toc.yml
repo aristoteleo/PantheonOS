@@ -11,6 +11,10 @@ chapters:
   - file: getting-started/first-steps
   - file: getting-started/5min-tutorial
 
+# ── Choosing an Interface ────────────────────────────────────────────────────
+- title: Interfaces Overview
+  file: interfaces/index
+
 # ── Web / Desktop App ────────────────────────────────────────────────────────
 - title: Web / Desktop App
   file: interfaces/ui/index
@@ -22,9 +26,10 @@ chapters:
   - file: interfaces/ui/models-providers
   - file: interfaces/ui/store-skills
   - file: interfaces/ui/fleet
-  - file: interfaces/ui/live-view
+  - file: interfaces/ui/desktop
   - file: interfaces/ui/terminal
   - file: interfaces/ui/gateway
+  - file: interfaces/ui/web-interface
   - file: interfaces/ui/advanced
   - title: Video Tutorials
     file: interfaces/tutorials
@@ -76,12 +81,13 @@ chapters:
   - file: toolsets/file_editor
   - file: toolsets/web_browse
   - file: toolsets/fleet
-  - file: toolsets/live_view
+  - file: toolsets/desktop
   - file: toolsets/scfm
   - file: toolsets/evolution
   - file: toolsets/evaluator
   - file: toolsets/knowledge
   - file: toolsets/vector_rag
+  - file: toolsets/rag_system
   - file: toolsets/database_api
   - file: toolsets/scraper_api
   - file: toolsets/image_generation
@@ -91,6 +97,7 @@ chapters:
   - file: toolsets/file_transfer
   - file: toolsets/package
   - file: toolsets/custom_toolsets
+  - file: toolsets/custom_toolset
 
 # ── Teams & Agents ────────────────────────────────────────────────────────────
 - file: team/index
@@ -117,6 +124,9 @@ chapters:
   - file: api/team
   - file: api/memory
   - file: api/repl
+  - file: api/utils
+- file: examples/index
+- file: components/index
 - file: concepts
 - file: architecture
 - file: contributing

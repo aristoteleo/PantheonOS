@@ -32,9 +32,9 @@ Feature Overview
    * - **Pantheon Fleet**
      - Connect and control multiple machines from a single UI session; mint join tokens;
        run commands on remote nodes.
-   * - **Live View**
-     - Open interactive in-browser visualizations (genome browsers, 3D structure viewers,
-       spatial maps, network graphs) alongside the chat — no external tool required.
+   * - **Desktop & App Windows**
+     - Open app windows on the shared Atrium desktop (genome browsers, 3D structure
+       viewers, spatial maps, network graphs) — no external tool required.
    * - **Integrated Terminal**
      - Full PTY terminal backed by a real shell process on the server; output streams live;
        sessions survive reconnects.
@@ -73,9 +73,6 @@ Additional options:
 
 .. code-block:: bash
 
-   # Use a specific team template
-   pantheon ui --auto-start-nats --auto-ui --template data_research_team
-
    # Connect to a remote NATS server
    pantheon ui --nats-servers "wss://your-server.example.com/nats"
 
@@ -84,6 +81,11 @@ Additional options:
 
    # Debug logging
    pantheon ui --auto-start-nats --auto-ui --log-level DEBUG
+
+``pantheon ui`` has no ``--template`` flag. Pick a team from the **Team** dropdown
+after the app starts (built-in IDs include ``default``, ``single_cell_team``,
+``paper_write_team``, ``omicverse_team``, ``rare_disease_team``, and
+``evolution_team``).
 
 See the full option reference in :doc:`quickstart`.
 
@@ -110,13 +112,13 @@ shared lab or team deployments.
 Video Tutorials
 ---------------
 
-New to PantheonOS? The video tutorials below walk you through the web and desktop app entirely through the graphical interface — no command line required. They cover downloading and launching the desktop app, navigating the UI, running analyses, using the store, Fleet, Live View, and more.
+New to PantheonOS? The video tutorials below walk you through the web and desktop app entirely through the graphical interface — no command line required. They cover downloading and launching the desktop app, navigating the UI, running analyses, using the store, Fleet, Desktop, and more.
 
 .. card:: Watch the Web/Desktop App Tutorials
    :link: /interfaces/tutorials
    :link-type: doc
 
-   Ten step-by-step video tutorials showing how to access and use PantheonOS through the web and desktop interface without relying on any terminal commands. Covers the online platform, the desktop app installer, single-cell analysis, image analysis, structural biology, the Store, Live View, Fleet, and the Evolution system.
+   Ten step-by-step video tutorials showing how to access and use PantheonOS through the web and desktop interface without relying on any terminal commands. Covers the online platform, the desktop app installer, single-cell analysis, image analysis, structural biology, the Store, Desktop, Fleet, and the Evolution system.
 
 Next Steps
 ----------
@@ -128,22 +130,6 @@ Next Steps
 - :doc:`models-providers` — model browser, OpenRouter, and Ollama
 - :doc:`store-skills` — installing skills and browsing the Pantheon Store
 - :doc:`fleet` — controlling multiple machines from the UI
-- :doc:`live-view` — interactive in-browser visualizations
+- :doc:`desktop` — app windows on the shared Atrium desktop
 - :doc:`terminal` — integrated PTY terminal
 - :doc:`gateway` — connecting agents to Discord, WeChat, and other platforms
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-
-   quickstart
-   core-features
-   projects
-   teams-agents
-   models-providers
-   store-skills
-   fleet
-   live-view
-   terminal
-   gateway
-   advanced

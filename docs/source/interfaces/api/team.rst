@@ -143,7 +143,7 @@ Creating Teams from Templates
    from pantheon.endpoint import Endpoint
 
    endpoint = Endpoint()
-   team = await create_team_from_template(endpoint, "data_research_team")
+   team = await create_team_from_template(endpoint, "single_cell_team")
 
 Best Practices
 --------------

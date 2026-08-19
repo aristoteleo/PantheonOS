@@ -111,36 +111,71 @@ Restart a server that has hung, crashed, or whose binary has been updated:
 Adding a Server at Runtime
 ---------------------------
 
-Add a new MCP server for the current session without editing ``mcp.json``:
+``/mcp add`` registers a server without editing ``mcp.json`` by hand:
 
 .. code-block:: text
 
-   > /mcp add notes npx @modelcontextprotocol/server-memory
+   > /mcp add notes 'npx -y @modelcontextprotocol/server-memory'
 
-   Starting "notes"... done
-   Tools registered: store_memory, retrieve_memory, list_memories
+   ✅ Added: notes
+     Type: STDIO, Command: npx -y @modelcontextprotocol/server-memory
+     Saved to .pantheon/mcp.json
+     Use '/mcp start notes' to start
 
-The server is active for this session only. To make it permanent, add it to
-``.pantheon/mcp.json`` manually.
+.. important::
 
-For servers requiring arguments:
+   **This change is permanent.** ``/mcp add`` persists the new server to
+   ``.pantheon/mcp.json``, so it is still configured in every future session. There is no
+   session-only variant of the command — remove it with ``/mcp remove`` if you only
+   wanted it once.
+
+Adding a server does not start it. Either run ``/mcp start <name>`` afterwards, or pass
+``--autostart`` to have it start automatically whenever the endpoint launches (which also
+adds it to the ``auto_start`` list in ``mcp.json``).
+
+The command takes the server's whole command line as one quoted argument, plus optional
+flags:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Form
+     - Description
+   * - ``/mcp add <name> '<command>'``
+     - Add a STDIO server that Pantheon launches as a subprocess.
+   * - ``/mcp add <name> --uri <url>``
+     - Add an HTTP server — an already-running remote endpoint, not managed by Pantheon.
+   * - ``--autostart``
+     - Start the server automatically on launch (adds it to ``auto_start``).
+   * - ``--desc '<text>'``
+     - A description, stored alongside the server entry.
+   * - ``--env KEY=VALUE``
+     - Set an environment variable for the subprocess. Repeatable.
 
 .. code-block:: text
 
-   > /mcp add myfs npx @modelcontextprotocol/server-filesystem /tmp/workspace
+   > /mcp add ctx7 'uvx context7' --autostart --desc 'Context7 docs'
+   > /mcp add bio 'uvx biomcp' --env API_KEY=xxx --env DEBUG=1
+   > /mcp add remote --uri http://localhost:3000/mcp
 
 Removing a Server
 -----------------
-
-Remove an MCP server from the current session:
 
 .. code-block:: text
 
    > /mcp remove notes
 
-   Stopped "notes". Tools unregistered and server removed from session.
+   ✅ Removed: notes
+     Removed from .pantheon/mcp.json
 
-This does not modify ``mcp.json`` — the server remains configured for future sessions.
+The server is stopped if it is running, its tools are unregistered, and its entry is
+deleted from ``.pantheon/mcp.json`` — including from the ``auto_start`` list.
+
+.. warning::
+
+   ``/mcp remove`` **deletes the configuration**; it is not a session-only detach. If you
+   only want to stop a server for now and keep it configured, use ``/mcp stop`` instead.
 
 Tools from MCP
 --------------

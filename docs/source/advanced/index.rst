@@ -52,12 +52,3 @@ Extending Pantheon
 
 Build custom toolsets, register new team patterns, or add third-party providers.
 See :doc:`extending`.
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-
-   evolution
-   distributed
-   learning
-   extending

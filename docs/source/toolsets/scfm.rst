@@ -34,25 +34,37 @@ Quick Start
 Tool Reference
 --------------
 
-``list_scfm_models``
+``scfm_list_models``
 ~~~~~~~~~~~~~~~~~~~~
 
-Returns the full catalog of available foundation models with name, version, task types, and data requirements.
+Returns the catalog of available foundation models. Optional filters:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Parameter
+     - Description
+   * - ``task``
+     - Filter by task type: ``"embed"``, ``"annotate"``, ``"integrate"``, or ``"perturb"``
+   * - ``skill_ready_only``
+     - If ``True`` (default), only models with a complete adapter spec
+
+Each entry includes name, version, skill-ready status, tasks, modalities, species,
+gene-ID scheme, and hardware requirements.
 
 .. code-block:: text
 
-   Agent: [calls list_scfm_models]
-   → scGPT          v0.2.1  cell annotation, embedding, perturbation
-   → Geneformer     v2.0    cell annotation, embedding, dosage sensitivity
-   → UCE            v1.0    embedding, cross-species
-   → TOSICA         v1.0    cell type annotation
-   → scFoundation   v1.0    embedding, cell annotation
+   Agent: [calls scfm_list_models(task="annotate")]
+   → geneformer     v2.0    annotate, embed
+   → scgpt          v0.2.1  annotate, embed, perturb
    → ...
 
-``select_scfm_model``
+``scfm_select_model``
 ~~~~~~~~~~~~~~~~~~~~~
 
-Choose a model for the current task. Sets the active model for subsequent ``run_scfm`` calls.
+Recommend a model for a given dataset and task. This does **not** store an active model
+for later calls — pass the chosen ``model_name`` explicitly to ``scfm_run``.
 
 .. list-table::
    :header-rows: 1
@@ -60,15 +72,20 @@ Choose a model for the current task. Sets the active model for subsequent ``run_
 
    * - Parameter
      - Description
-   * - ``model_name``
-     - Name of the model (from ``list_scfm_models``)
+   * - ``adata_path``
+     - Path to the input AnnData (``.h5ad``) file (**required**)
    * - ``task``
-     - Task type: ``"annotation"``, ``"embedding"``, ``"perturbation"``, ``"integration"``
+     - Task type: ``"embed"``, ``"annotate"``, or ``"integrate"`` (**required**)
+   * - ``prefer_zero_shot``
+     - Prefer models that do not require fine-tuning (default ``True``)
+   * - ``max_vram_gb``
+     - Optional VRAM constraint
 
-``run_scfm``
+``scfm_run``
 ~~~~~~~~~~~~
 
-Execute the selected model on input data.
+Execute a foundation model task. ``task``, ``model_name``, and ``adata_path`` are all
+required — there is no implicit "currently selected" model.
 
 .. list-table::
    :header-rows: 1
@@ -76,19 +93,49 @@ Execute the selected model on input data.
 
    * - Parameter
      - Description
-   * - ``input_path``
-     - Path to the input AnnData (.h5ad) file
-   * - ``output_path``
-     - Where to write the result AnnData with added embeddings / annotations
    * - ``task``
-     - Task override (optional — defaults to the task set in ``select_scfm_model``)
-   * - ``kwargs``
-     - Model-specific parameters (batch size, gene set, etc.)
+     - Task type: ``"embed"``, ``"annotate"``, or ``"integrate"``
+   * - ``model_name``
+     - Model to run (from ``scfm_list_models`` / ``scfm_select_model``)
+   * - ``adata_path``
+     - Path to the input AnnData (``.h5ad``) file
+   * - ``output_path``
+     - Where to write the result AnnData (default: overwrite ``adata_path``)
+   * - ``batch_key``
+     - Optional ``.obs`` column for batch information
+   * - ``label_key``
+     - Optional ``.obs`` column for cell-type labels (annotation)
+   * - ``device``
+     - ``"auto"`` (default), ``"cuda"``, or ``"cpu"``
+   * - ``batch_size``
+     - Optional inference batch size
 
-``interpret_scfm_results``
+``scfm_interpret_results``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Ask the model to interpret its own output: explain predicted cell types, highlight uncertain predictions, flag low-quality cells, or summarize the embedding structure.
+Generate QA metrics and visualizations for model output. Both ``adata_path`` and
+``task`` are required.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Parameter
+     - Description
+   * - ``adata_path``
+     - Path to the ``.h5ad`` file that already contains model outputs
+   * - ``task``
+     - The task that was executed
+   * - ``output_dir``
+     - Directory for visualization files (default: same directory as ``adata_path``)
+   * - ``generate_umap``
+     - Whether to generate UMAP plots (default ``True``)
+   * - ``color_by``
+     - Optional list of ``.obs`` columns to color UMAP by
+
+Related tools: ``scfm_describe_model(model_name)`` for a full spec, and
+``scfm_profile_data(adata_path)`` / ``scfm_preprocess_validate`` for dataset checks
+before a run.
 
 Usage Examples
 --------------
@@ -99,28 +146,33 @@ Cell type annotation workflow
 .. code-block:: text
 
    User: Annotate the cell types in my PBMC dataset at data/pbmc.h5ad.
-   Agent: [calls list_scfm_models → selects Geneformer for annotation]
-          [calls run_scfm(input="data/pbmc.h5ad", output="data/pbmc_annotated.h5ad")]
-   → Added column 'predicted_cell_type' to .obs
-   → Confidence scores in .obs['scfm_confidence']
+   Agent: [calls scfm_list_models(task="annotate")]
+          [calls scfm_select_model(adata_path="data/pbmc.h5ad", task="annotate")]
+          [calls scfm_run(task="annotate", model_name="geneformer",
+                          adata_path="data/pbmc.h5ad",
+                          output_path="data/pbmc_annotated.h5ad")]
+   → Added predicted labels to .obs (key depends on the model)
 
    User: Which cells have low confidence?
-   Agent: [calls interpret_scfm_results]
-   → 143 cells below 0.5 confidence — mostly at cluster boundaries.
-      Recommend manual review of clusters 3 and 7.
+   Agent: [calls scfm_interpret_results(adata_path="data/pbmc_annotated.h5ad",
+                                       task="annotate")]
+   → QA metrics and UMAP paths for the annotation result.
 
 Embedding for integration
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
-   # Programmatic use
-   await scfm.select_scfm_model(model_name="scGPT", task="embedding")
-   result = await scfm.run_scfm(
-       input_path="data/dataset_a.h5ad",
+   # Programmatic use — every argument is explicit
+   rec = scfm.scfm_select_model(adata_path="data/dataset_a.h5ad", task="embed")
+   result = scfm.scfm_run(
+       task="embed",
+       model_name=rec["recommended"]["name"],
+       adata_path="data/dataset_a.h5ad",
        output_path="data/dataset_a_embedded.h5ad",
    )
-   # adata.obsm["X_scgpt"] now contains the embeddings
+   # Embeddings land in adata.obsm under the model's output key
+   # (see scfm_describe_model for the exact key)
 
 Requirements
 ------------

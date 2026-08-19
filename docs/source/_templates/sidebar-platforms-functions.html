@@ -17,14 +17,14 @@
     <li class="{% if pagename.startswith('team') %}quicknav-active{% endif %}">
       <a href="{{ pathto('team/index') }}">Multi-Agent Teams</a>
     </li>
-    <li class="{% if pagename.startswith('toolsets') and not pagename.startswith('toolsets/fleet') and not pagename.startswith('toolsets/live') and not pagename.startswith('toolsets/scfm') and not pagename.startswith('toolsets/evolution') %}quicknav-active{% endif %}">
+    <li class="{% if pagename.startswith('toolsets') and not pagename.startswith('toolsets/fleet') and not pagename.startswith('toolsets/desktop') and not pagename.startswith('toolsets/scfm') and not pagename.startswith('toolsets/evolution') %}quicknav-active{% endif %}">
       <a href="{{ pathto('toolsets/index') }}">Toolsets</a>
     </li>
     <li class="{% if pagename == 'toolsets/fleet' or pagename.startswith('interfaces/ui/fleet') %}quicknav-active{% endif %}">
       <a href="{{ pathto('toolsets/fleet') }}">Pantheon Fleet</a>
     </li>
-    <li class="{% if pagename == 'toolsets/live_view' or pagename.startswith('interfaces/ui/live') %}quicknav-active{% endif %}">
-      <a href="{{ pathto('toolsets/live_view') }}">Live View</a>
+    <li class="{% if pagename == 'toolsets/desktop' or pagename.startswith('interfaces/ui/desktop') %}quicknav-active{% endif %}">
+      <a href="{{ pathto('toolsets/desktop') }}">Desktop &amp; Apps</a>
     </li>
     <li class="{% if pagename == 'advanced/evolution' or pagename == 'toolsets/evolution' %}quicknav-active{% endif %}">
       <a href="{{ pathto('advanced/evolution') }}">Evolution</a>
