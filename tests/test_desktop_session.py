@@ -84,9 +84,9 @@ def test_nominal_size_only_grows(store):
     """The desktop should be as large as the largest screen looking at it: a
     narrow sidebar panel attaching must not shrink the page's desktop."""
     assert store.apply("nominal", {"w": 1700, "h": 1000})[1] == {
-        "nominal_w": 1700, "nominal_h": 1000}
+        "nominal_w": 1700, "nominal_h": 1000, "nominal_locked": False}
     ops, result = store.apply("nominal", {"w": 660, "h": 900})
-    assert result == {"nominal_w": 1700, "nominal_h": 1000}
+    assert result == {"nominal_w": 1700, "nominal_h": 1000, "nominal_locked": False}
     assert ops == []
 
 
@@ -99,19 +99,42 @@ def test_nominal_set_may_shrink(store):
     """
     store.apply("nominal", {"w": 1920, "h": 1080})
     ops, result = store.apply("nominal", {"w": 1280, "h": 800, "mode": "set"})
-    assert result == {"nominal_w": 1280, "nominal_h": 800}
+    assert result == {"nominal_w": 1280, "nominal_h": 800, "nominal_locked": True}
     assert [{k: v for k, v in op.items() if k != "seq"} for op in ops] == [
-        {"op": "meta", "nominal_w": 1280, "nominal_h": 800}]
-    # And a later viewport proposal still grows from the chosen size.
-    assert store.apply("nominal", {"w": 1600, "h": 900})[1] == {
-        "nominal_w": 1600, "nominal_h": 900}
+        {"op": "meta", "nominal_w": 1280, "nominal_h": 800, "nominal_locked": True}]
+
+
+def test_a_choice_survives_the_next_viewport(store):
+    """The bug this lock exists for.
+
+    Two viewports on one session showed the same setting and laid out at
+    different sizes, because a proposal from the larger screen grew the desktop
+    straight back and the choice was gone seconds after being made.
+    """
+    store.apply("nominal", {"w": 1280, "h": 800, "mode": "set"})
+    ops, result = store.apply("nominal", {"w": 2048, "h": 1035})
+    assert result["nominal_w"] == 1280 and result["nominal_h"] == 800
+    assert ops == []
+    # And there is a way back out.
+    _, result = store.apply("nominal", {"w": 2048, "h": 1035, "mode": "auto"})
+    assert result == {"nominal_w": 2048, "nominal_h": 1035, "nominal_locked": False}
+    assert store.apply("nominal", {"w": 2560, "h": 1440})[1]["nominal_w"] == 2560
 
 
 def test_nominal_set_is_floored_and_idempotent(store):
     ops, result = store.apply("nominal", {"w": 10, "h": 10, "mode": "set"})
-    assert result == {"nominal_w": 640, "nominal_h": 480}
+    assert result == {"nominal_w": 640, "nominal_h": 480, "nominal_locked": True}
     ops, _ = store.apply("nominal", {"w": 640, "h": 480, "mode": "set"})
     assert ops == []
+
+
+def test_lock_survives_a_reload(store):
+    """The record is where the document lives between calls, so a field left
+    out of it is a field deleted on the next read."""
+    store.apply("nominal", {"w": 1280, "h": 800, "mode": "set"})
+    from pantheon.toolsets.desktop.desktop_session import DesktopSession
+    back = DesktopSession.from_record(store.session.to_record())
+    assert (back.nominal_w, back.nominal_h, back.nominal_locked) == (1280, 800, True)
 
 
 def test_unknown_intent_and_missing_window_raise(store):

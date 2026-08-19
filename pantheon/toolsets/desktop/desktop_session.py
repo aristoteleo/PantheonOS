@@ -98,9 +98,13 @@ class DesktopSession:
     seq: int = 0
     # The desktop's own resolution. Viewports scale to fit it, so a window at
     # x=1200 is the same place in a 660px panel and an 1800px page. A viewport
-    # may propose a larger one; see `propose_nominal`.
+    # may propose a larger one; see `_do_nominal`.
     nominal_w: int = 1280
     nominal_h: int = 800
+    # Did a PERSON choose that resolution? If so, viewports stop proposing:
+    # otherwise the next screen to attach grows the desktop back to its own
+    # size and the choice does not survive opening a second tab.
+    nominal_locked: bool = False
     spaces: int = 1
     top_z: int = 10
     windows: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -113,6 +117,7 @@ class DesktopSession:
             "seq": self.seq,
             "nominal_w": self.nominal_w,
             "nominal_h": self.nominal_h,
+            "nominal_locked": self.nominal_locked,
             "spaces": self.spaces,
             "top_z": self.top_z,
             "windows": self.windows,
@@ -138,6 +143,7 @@ class DesktopSession:
             "seq": self.seq,
             "nominal_w": self.nominal_w,
             "nominal_h": self.nominal_h,
+            "nominal_locked": self.nominal_locked,
             "spaces": self.spaces,
             "top_z": self.top_z,
             "next_id": self._next_id,
@@ -152,6 +158,7 @@ class DesktopSession:
         if data.get("v") == 2:
             s.nominal_w = int(data.get("nominal_w") or 1280)
             s.nominal_h = int(data.get("nominal_h") or 800)
+            s.nominal_locked = bool(data.get("nominal_locked"))
             s.spaces = max(1, min(MAX_SPACES, int(data.get("spaces") or 1)))
             s._next_id = max(1, int(data.get("next_id") or 1))
             s.seq = max(0, int(data.get("seq") or 0))
@@ -478,35 +485,49 @@ class DesktopSessionStore:
     def _do_nominal(self, a: dict) -> tuple[list[dict], dict]:
         """Set the desktop's resolution.
 
-        Two callers, and they must not be treated alike:
+        Three modes, because there are two kinds of caller and a way back:
 
-        `mode="propose"` (the default) is a VIEWPORT reporting its own size on
-        attach. Grow-only: the desktop should be as large as the largest screen
-        looking at it, and a narrow panel attaching must not shrink the page's
-        desktop under it.
+        `propose` (the default) is a VIEWPORT reporting its own size on attach.
+        Grow-only: the desktop should be as large as the largest screen looking
+        at it, and a narrow panel attaching must not shrink the page's desktop
+        under it. **Ignored entirely once the resolution is locked** — that is
+        what makes a choice survive opening a second tab. Without it the next
+        screen to attach proposes its own size, grow-only takes it, and the
+        chosen resolution is gone within seconds of being chosen.
 
-        `mode="set"` is a PERSON choosing, in Settings. It sets exactly, and it
-        may shrink — which is the entire reason it exists. Grow-only means a
-        session that was once opened maximised on a large monitor stays that
-        size forever, and every smaller viewport after it gets the whole
-        desktop scaled down to fit a screen nobody is using any more. A
-        proposal cannot undo that, because undoing it is what a proposal is
-        forbidden to do; a choice can.
+        `set` is a PERSON choosing, in Settings. It sets exactly, may shrink —
+        which is the entire reason it exists, since grow-only leaves a session
+        once opened on a large monitor stuck at that size forever — and it
+        LOCKS, so proposals stop overriding it.
+
+        `auto` unlocks, and adopts the proposing viewport's size as the new
+        starting point. Being unable to get back to "just fit whatever screen
+        is looking" would make the setting a trap.
         """
         s = self.session
         w = max(640, int(a.get("w") or 0))
         h = max(480, int(a.get("h") or 0))
-        if str(a.get("mode") or "propose") == "set":
-            if w == s.nominal_w and h == s.nominal_h:
-                return [], {"nominal_w": s.nominal_w, "nominal_h": s.nominal_h}
-            s.nominal_w, s.nominal_h = w, h
-        else:
-            if w <= s.nominal_w and h <= s.nominal_h:
-                return [], {"nominal_w": s.nominal_w, "nominal_h": s.nominal_h}
+        mode = str(a.get("mode") or "propose")
+        before = (s.nominal_w, s.nominal_h, s.nominal_locked)
+        if mode == "set":
+            s.nominal_w, s.nominal_h, s.nominal_locked = w, h, True
+        elif mode == "auto":
+            s.nominal_locked = False
+            s.nominal_w = max(640, w)
+            s.nominal_h = max(480, h)
+        elif s.nominal_locked:
+            # A viewport's opinion, after someone has decided. Not an error —
+            # every viewport still offers its size on attach — just no longer
+            # something that changes anything.
+            pass
+        elif w > s.nominal_w or h > s.nominal_h:
             s.nominal_w = max(s.nominal_w, w)
             s.nominal_h = max(s.nominal_h, h)
-        return ([{"op": "meta", "nominal_w": s.nominal_w, "nominal_h": s.nominal_h}],
-                {"nominal_w": s.nominal_w, "nominal_h": s.nominal_h})
+        state = {"nominal_w": s.nominal_w, "nominal_h": s.nominal_h,
+                 "nominal_locked": s.nominal_locked}
+        if before == (s.nominal_w, s.nominal_h, s.nominal_locked):
+            return [], state
+        return [{"op": "meta", **state}], state
 
 
 # One pod, one desktop.
