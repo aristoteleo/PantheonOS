@@ -4635,6 +4635,15 @@ class ChatRoom(ToolSet):
             provider = provider_aliases.get(provider, provider)
 
             if provider not in available:
+                # Platform-OpenRouter mode: the picker offers platform models as
+                # "openrouter/<vendor>/<model>" (and a saved pin can be "<vendor>/<model>"),
+                # whose first segment is a ROUTING prefix, not a native provider — the
+                # platform's OpenRouter key supplies the credentials. Ask the same canonical
+                # routing path the LLM call uses; if it will be routed, it is usable.
+                from pantheon.utils.llm_providers import platform_openrouter_model_id
+
+                if platform_openrouter_model_id(model):
+                    return True, ""
                 return False, f"Provider '{provider}' not available (missing credentials)"
 
         return True, ""

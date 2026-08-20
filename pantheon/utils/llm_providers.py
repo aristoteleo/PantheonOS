@@ -88,20 +88,16 @@ def get_provider_base_env(
 # ============ Provider Detection ============
 
 
-def _platform_openrouter_config(
-    model: str, relaxed_schema: bool
-) -> Optional[ProviderConfig]:
-    """Platform-OpenRouter mode: route EVERY model (incl. anthropic/openai/gemini) through
-    OpenRouter for unified billing. Returns a config that forces the OpenAI-compatible path
-    with the full ``openrouter/<vendor>/<model>`` id, so the LiteLLM proxy's ``openrouter/*``
-    group serves it (and OpenRouter fronts one key for all vendors) — bypassing the native
-    anthropic/gemini adapters. Returns None (→ fall through to normal per-provider detection)
-    when: not in platform-openrouter mode, not proxying, or the model isn't on OpenRouter
-    (naming mismatch / native-only release → keeps its native route instead of 404-ing).
+def platform_openrouter_model_id(model: str) -> Optional[str]:
+    """The id a model will actually be SENT as under platform-OpenRouter routing, or None.
 
-    Prompt caching still works: the agent injects Anthropic-style cache_control breakpoints
-    (supports_explicit_cache_control), the OpenAI adapter passes them through, and OpenRouter
-    forwards them to the vendor — verified end-to-end (repeat call → cached_tokens > 0)."""
+    Returns the canonical ``openrouter/<vendor>/<model>`` id when the deployment fronts the
+    platform budget with OpenRouter (``PLATFORM_MODEL_MODE=openrouter``), we're proxying, and
+    OpenRouter serves the model. None means "not routed through OpenRouter" — the model keeps
+    its normal per-provider route. Callers that need to know whether a model is reachable
+    (e.g. provider validation) should ask here rather than parsing the id's first segment:
+    ``openrouter`` is a ROUTING prefix, not a provider with its own credentials.
+    """
     import os
 
     if not isinstance(model, str) or not model.strip():
@@ -120,9 +116,26 @@ def _platform_openrouter_config(
     try:
         from .openrouter_catalog import canonical_openrouter_id
 
-        canon = canonical_openrouter_id(core)
+        return canonical_openrouter_id(core)
     except Exception:  # noqa: BLE001
-        canon = None
+        return None
+
+
+def _platform_openrouter_config(
+    model: str, relaxed_schema: bool
+) -> Optional[ProviderConfig]:
+    """Platform-OpenRouter mode: route EVERY model (incl. anthropic/openai/gemini) through
+    OpenRouter for unified billing. Returns a config that forces the OpenAI-compatible path
+    with the full ``openrouter/<vendor>/<model>`` id, so the LiteLLM proxy's ``openrouter/*``
+    group serves it (and OpenRouter fronts one key for all vendors) — bypassing the native
+    anthropic/gemini adapters. Returns None (→ fall through to normal per-provider detection)
+    when: not in platform-openrouter mode, not proxying, or the model isn't on OpenRouter
+    (naming mismatch / native-only release → keeps its native route instead of 404-ing).
+
+    Prompt caching still works: the agent injects Anthropic-style cache_control breakpoints
+    (supports_explicit_cache_control), the OpenAI adapter passes them through, and OpenRouter
+    forwards them to the vendor — verified end-to-end (repeat call → cached_tokens > 0)."""
+    canon = platform_openrouter_model_id(model)
     if not canon:
         return None
     return ProviderConfig(
