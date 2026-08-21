@@ -723,11 +723,22 @@ class DesktopToolSet(ToolSet):
         Each entry: `window_id`, `app_id` (manifest id for packaged apps),
         `name`, `title`, `path` (the file it shows, when opened on one),
         `controllable` (whether desktop_read/update/call can drive it — true
-        for packaged-app windows), and `actions` it exposes.
+        for packaged-app windows), `actions` it exposes, and `pty_session`
+        for a Terminal window.
 
         This is how you reach windows the USER opened: find its window_id
         here, then desktop_read / desktop_update / desktop_call it exactly
         like a view you opened yourself.
+
+        A TERMINAL WINDOW IS ALSO DRIVABLE, by a different route. It is a
+        view onto a pty session on this pod, so `pty_write(pty_session,
+        base64("echo hi\n"))` types into the terminal the user is looking
+        at — they see the command and its output in their own window. Prefer
+        that to running the command out of sight and pasting the result: it
+        is the difference between working in their terminal and describing
+        what you did somewhere else. (desktop_read/update/call will refuse
+        it — those are the packaged-app bridge, which a built-in app has no
+        part in. That refusal is not "the Terminal cannot be driven".)
         """
         # Answered from the pod's own document, so this works with no desktop
         # on screen at all — the window list is a property of the machine, and
@@ -747,6 +758,12 @@ class DesktopToolSet(ToolSet):
                 "minimized": bool(w.get("minimized")),
                 "status": w.get("status", "ready"),
                 "opened_by": w.get("opened_by") or None,
+                # A Terminal window is a VIEW onto a pty session running on
+                # this pod — so it is drivable, just not through the packaged-
+                # app bridge. pty_write(session_id, <base64>) and the command
+                # appears in the window the user is watching, with its output,
+                # as if they had typed it.
+                "pty_session": (w.get("args") or {}).get("ptySession") or None,
             }
             for wid, w in sorted(s.windows.items(), key=lambda kv: kv[1].get("z", 0))
         ]
