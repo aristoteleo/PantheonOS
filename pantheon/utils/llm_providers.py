@@ -88,20 +88,16 @@ def get_provider_base_env(
 # ============ Provider Detection ============
 
 
-def _platform_openrouter_config(
-    model: str, relaxed_schema: bool
-) -> Optional[ProviderConfig]:
-    """Platform-OpenRouter mode: route EVERY model (incl. anthropic/openai/gemini) through
-    OpenRouter for unified billing. Returns a config that forces the OpenAI-compatible path
-    with the full ``openrouter/<vendor>/<model>`` id, so the LiteLLM proxy's ``openrouter/*``
-    group serves it (and OpenRouter fronts one key for all vendors) — bypassing the native
-    anthropic/gemini adapters. Returns None (→ fall through to normal per-provider detection)
-    when: not in platform-openrouter mode, not proxying, or the model isn't on OpenRouter
-    (naming mismatch / native-only release → keeps its native route instead of 404-ing).
+def platform_openrouter_model_id(model: str) -> Optional[str]:
+    """The id a model will actually be SENT as under platform-OpenRouter routing, or None.
 
-    Prompt caching still works: the agent injects Anthropic-style cache_control breakpoints
-    (supports_explicit_cache_control), the OpenAI adapter passes them through, and OpenRouter
-    forwards them to the vendor — verified end-to-end (repeat call → cached_tokens > 0)."""
+    Returns the canonical ``openrouter/<vendor>/<model>`` id when the deployment fronts the
+    platform budget with OpenRouter (``PLATFORM_MODEL_MODE=openrouter``), we're proxying, and
+    OpenRouter serves the model. None means "not routed through OpenRouter" — the model keeps
+    its normal per-provider route. Callers that need to know whether a model is reachable
+    (e.g. provider validation) should ask here rather than parsing the id's first segment:
+    ``openrouter`` is a ROUTING prefix, not a provider with its own credentials.
+    """
     import os
 
     if not isinstance(model, str) or not model.strip():
@@ -120,9 +116,26 @@ def _platform_openrouter_config(
     try:
         from .openrouter_catalog import canonical_openrouter_id
 
-        canon = canonical_openrouter_id(core)
+        return canonical_openrouter_id(core)
     except Exception:  # noqa: BLE001
-        canon = None
+        return None
+
+
+def _platform_openrouter_config(
+    model: str, relaxed_schema: bool
+) -> Optional[ProviderConfig]:
+    """Platform-OpenRouter mode: route EVERY model (incl. anthropic/openai/gemini) through
+    OpenRouter for unified billing. Returns a config that forces the OpenAI-compatible path
+    with the full ``openrouter/<vendor>/<model>`` id, so the LiteLLM proxy's ``openrouter/*``
+    group serves it (and OpenRouter fronts one key for all vendors) — bypassing the native
+    anthropic/gemini adapters. Returns None (→ fall through to normal per-provider detection)
+    when: not in platform-openrouter mode, not proxying, or the model isn't on OpenRouter
+    (naming mismatch / native-only release → keeps its native route instead of 404-ing).
+
+    Prompt caching still works: the agent injects Anthropic-style cache_control breakpoints
+    (supports_explicit_cache_control), the OpenAI adapter passes them through, and OpenRouter
+    forwards them to the vendor — verified end-to-end (repeat call → cached_tokens > 0)."""
+    canon = platform_openrouter_model_id(model)
     if not canon:
         return None
     return ProviderConfig(
@@ -340,14 +353,29 @@ def get_global_fallback_base_url() -> str:
 def is_force_proxy_enabled() -> bool:
     """True when this backend is in 'platform budget' mode: every LLM call is routed
     through the platform LiteLLM proxy + the user's virtual key, bypassing the user's
-    own provider keys (without deleting them). Toggled at runtime via the
-    ``set_llm_proxy`` RPC, which sets ``LLM_FORCE_PROXY`` +
-    ``PANTHEON_PLATFORM_PROXY_BASE`` / ``PANTHEON_PLATFORM_PROXY_KEY`` (dedicated env
-    so the user's own ``LLM_API_BASE`` is never touched)."""
+    own provider keys (without deleting them).
+
+    Activated in two ways:
+    1. Explicitly via the ``set_llm_proxy`` RPC (frontend toggles at runtime), which
+       sets ``LLM_FORCE_PROXY=true`` together with the proxy credentials.
+    2. Implicitly when ``PANTHEON_PLATFORM_PROXY_BASE`` **and**
+       ``PANTHEON_PLATFORM_PROXY_KEY`` are both present in the environment at process
+       start — e.g. when an admin pre-configures the Desktop app's launch environment
+       with the platform proxy URL and the user's virtual key, so proxy routing is
+       active immediately without requiring the frontend to call ``set_llm_proxy``.
+       This is what allows the $200 platform-budget credits to be used on the Desktop
+       app even before the frontend has had a chance to push the proxy config.
+    """
     import os
 
     val = os.environ.get("LLM_FORCE_PROXY", "")
-    return val.strip().lower() in ("1", "true", "yes", "on")
+    if val.strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    # Auto-activate: if both proxy credential vars are already in the environment
+    # (pre-configured by the deployment / launch script), treat that as force-proxy on.
+    proxy_base = os.environ.get("PANTHEON_PLATFORM_PROXY_BASE", "").strip()
+    proxy_key = os.environ.get("PANTHEON_PLATFORM_PROXY_KEY", "").strip()
+    return bool(proxy_base and proxy_key)
 
 
 def get_force_proxy_config() -> tuple[Optional[str], Optional[str]]:
