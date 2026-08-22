@@ -238,22 +238,27 @@ Usage
 
 .. code-block:: bash
 
-   pantheon cli --template developer
+   pantheon cli --template .pantheon/teams/default.md
 
 **ChatRoom:**
 
+Start the UI, then select a team that references this agent from the **Team**
+dropdown. ``pantheon ui`` has no ``--template`` flag.
+
 .. code-block:: bash
 
-   pantheon ui --auto-start-nats --auto-ui --template developer
+   pantheon ui --auto-start-nats --auto-ui
 
 **Python API:**
 
 .. code-block:: python
 
-   from pantheon.factory import load_agent
+   from pantheon.factory import create_team_from_template
+   from pantheon.endpoint import Endpoint
 
-   agent = load_agent("developer")
-   response = await agent.run("Help me write a function")
+   endpoint = Endpoint()
+   team = await create_team_from_template(endpoint, "default")
+   response = await team.run("Help me write a function")
 
 Best Practices
 --------------
