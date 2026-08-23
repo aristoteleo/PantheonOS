@@ -270,3 +270,38 @@ def test_an_unreadable_record_is_an_empty_desktop_not_a_crash(tmp_path):
     s = DesktopSessionStore(work_dir=tmp_path)
     s.load()
     assert s.session.windows == {}
+
+
+def test_maximising_does_not_strand_a_window_when_set_overtakes_spaces(store):
+    """The bug behind "I maximised it and the window vanished".
+
+    Full screen is two intents — mint the space, then move the window onto it —
+    and they were fired without ordering. Arriving the other way round, the old
+    code clamped the window to the count it had at that instant and put it back
+    on Desktop 1, while the viewport that clicked had already switched to
+    Desktop 2. The person watched the window they had just maximised disappear.
+
+    So: apply them in the WRONG order on purpose. The window must still end up
+    where it was sent, and the desktop must have grown to hold it.
+    """
+    store.apply("open", {"app_id": "terminal", "title": "Terminal"})
+    assert store.session.spaces == 1
+
+    # `set` first — the overtaking case.
+    store.apply("set", {"window_id": "win-1", "patch": {"fullscreen": True, "space": 2}})
+    assert store.session.windows["win-1"]["space"] == 2, "the window was demoted"
+    assert store.session.spaces >= 2, "the count did not grow to hold it"
+
+    # And the `spaces` intent that follows must not undo any of it.
+    store.apply("spaces", {"count": 2})
+    assert store.session.windows["win-1"]["space"] == 2
+    assert store.session.spaces == 2
+
+
+def test_a_window_can_never_be_sent_past_the_last_space(store):
+    """Growing to fit is not the same as growing without limit."""
+    store.apply("open", {"app_id": "files", "title": "Files"})
+    store.apply("set", {"window_id": "win-1", "patch": {"space": 99}})
+    assert store.session.spaces <= 6
+    assert store.session.windows["win-1"]["space"] <= 6
+    assert store.session.windows["win-1"]["space"] == store.session.spaces

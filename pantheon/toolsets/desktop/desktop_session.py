@@ -459,7 +459,23 @@ class DesktopSessionStore:
             if key in patch:
                 w[key] = patch[key]
         if "space" in patch:
-            w["space"] = min(self.session.spaces, max(1, int(patch["space"] or 1)))
+            # GROW to fit rather than clamp down.
+            #
+            # Full screen mints a space and moves a window onto it as two
+            # separate intents. Clamping against the count held at this instant
+            # silently demoted the window to Desktop 1 whenever the `set`
+            # overtook the `spaces` — while the viewport that asked had already
+            # switched to the new desktop, so the person watched the window they
+            # had just maximised disappear. Intermittent, because it was a race.
+            #
+            # The client now orders its intents, which closes the race; this
+            # closes the hole the race fell through. A window may never be put
+            # somewhere no one can reach it, and a count that trails a window is
+            # the count that is wrong, not the window.
+            want = max(1, int(patch["space"] or 1))
+            if want > self.session.spaces:
+                self.session.spaces = min(MAX_SPACES, want)
+            w["space"] = min(self.session.spaces, want)
         if "args" in patch and isinstance(patch["args"], dict):
             w["args"] = {**(w.get("args") or {}), **patch["args"]}
         return [self._upsert(wid)], {}
