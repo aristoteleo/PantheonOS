@@ -48,13 +48,3 @@ Basic Usage
    # Use in a team
    team = SequentialTeam([agent1, agent2])
    await team.chat()
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-
-   agent
-   team
-   memory
-   repl
-   utils

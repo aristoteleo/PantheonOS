@@ -252,14 +252,3 @@ Need a collaboration pattern not covered by built-in teams? You can create custo
            for name, agent in self.agents.items():
                result = await agent.run(msg, **kwargs)
            return result
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-
-   pantheon_team
-   sequential_team
-   moa_team
-   swarm_team
-   swarm_center_team
-   custom_team

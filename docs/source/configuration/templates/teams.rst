@@ -12,7 +12,7 @@ Team templates are stored in ``.pantheon/teams/``:
 
    .pantheon/
    └── teams/
-       ├── developer_team.md
+       ├── my_team.md
        ├── research_team.md
        └── data_team.md
 
@@ -314,21 +314,26 @@ Usage
 
 .. code-block:: bash
 
-   pantheon cli --template developer_team
+   pantheon cli --template .pantheon/teams/default.md
 
 **ChatRoom:**
 
 .. code-block:: bash
 
-   pantheon ui --auto-start-nats --auto-ui --template developer_team
+   pantheon ui --auto-start-nats --auto-ui
+
+Then select the team from the **Team** dropdown. ``pantheon ui`` has no
+``--template`` flag.
 
 **Python API:**
 
 .. code-block:: python
 
-   from pantheon.factory import load_team
+   from pantheon.factory import create_team_from_template
+   from pantheon.endpoint import Endpoint
 
-   team = load_team("developer_team")
+   endpoint = Endpoint()
+   team = await create_team_from_template(endpoint, "default")
    response = await team.run("Build a REST API")
 
 Best Practices
