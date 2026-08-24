@@ -994,6 +994,68 @@ class DesktopToolSet(ToolSet):
                 "the data server has no browser-reachable URL yet (tunnel not set)")
         return frame, inp
 
+    def _resolve_page(self, engine, page_id: str = ""):
+        """The addressed page — accepting a desktop Browser WINDOW id too.
+
+        Agents naturally pass the window id they referenced (#app:win-N); a
+        window is not a page, but its shared tab state names one, so the
+        natural guess resolves instead of dead-ending. Failures explain the
+        namespaces and the way forward.
+        """
+        try:
+            return engine.latest(page_id)
+        except KeyError:
+            if page_id:
+                w = (self._desktop().session.windows or {}).get(page_id)
+                if w and w.get("app_id") == "browser":
+                    shared = ((w.get("args") or {}).get("shared") or {}).get("v") or {}
+                    pages = list(shared.get("pages") or [])
+                    idx = shared.get("active", 0)
+                    pid = None
+                    if isinstance(idx, int) and 0 <= idx < len(pages):
+                        pid = pages[idx]
+                    pid = pid or next((x for x in pages if x), None)
+                    if pid:
+                        return engine.get(pid)
+                    raise KeyError(
+                        f"'{page_id}' is a desktop Browser WINDOW whose active tab is an "
+                        f"empty New Tab — there is no page to drive yet. Call "
+                        f"browser_open(url, window_id='{page_id}') to open the page as a "
+                        "tab IN that window, then drive it by the returned page_id.")
+            known = sorted(getattr(engine, "pages", {}).keys())
+            raise KeyError(
+                f"no such page: {page_id!r} — page ids come from browser_open "
+                f"(currently open: {known if known else 'none'}). A desktop window id "
+                "only resolves for Browser windows.")
+
+    def _adopt_page_into_window(self, window_id: str, page_id: str) -> dict:
+        """Show an engine page as a tab of an EXISTING Browser window.
+
+        The window's tab set lives in its shared app state (pages + active);
+        writing it through the session makes every viewport converge on the
+        new tab. An empty New Tab slot is taken over rather than left behind.
+        """
+        store = self._desktop()
+        w = (store.session.windows or {}).get(window_id)
+        if not w:
+            raise KeyError(f"no such window: {window_id}")
+        if w.get("app_id") != "browser":
+            raise ValueError(f"window {window_id} is {w.get('app_id')!r}, not a Browser window")
+        shared = ((w.get("args") or {}).get("shared") or {}).get("v") or {}
+        pages = list(shared.get("pages") or [])
+        idx = shared.get("active", 0)
+        if pages and isinstance(idx, int) and 0 <= idx < len(pages) and pages[idx] is None:
+            pages[idx] = page_id
+            active = idx
+        else:
+            pages.append(page_id)
+            active = len(pages) - 1
+        ops, _ = store.apply("set", {
+            "window_id": window_id,
+            "patch": {"args": {"shared": {"by": "agent", "v": {"pages": pages, "active": active}}}},
+        })
+        return {"ops": ops, "seq": store.session.seq}
+
     async def _browser_page_info(self, session) -> dict:
         engine = self._browser_engine()
         return {
@@ -1003,7 +1065,8 @@ class DesktopToolSet(ToolSet):
         }
 
     @tool
-    async def browser_open(self, url: str = "", show: bool = True) -> dict:
+    async def browser_open(self, url: str = "", show: bool = True,
+                           window_id: str = "") -> dict:
         """Open a real browser page (Chromium in this sandbox) and, by default,
         show it to the user as a Browser window on their desktop.
 
@@ -1018,9 +1081,13 @@ class DesktopToolSet(ToolSet):
                 missing). Empty opens a blank page.
             show: also open the desktop Browser window (needs an Atrium
                 desktop on this chat). Pass False to browse headlessly.
+            window_id: an EXISTING Browser window to open the page in — the
+                page appears there as a tab (taking over an empty New Tab)
+                instead of a new window. This is how "search in THIS browser
+                window" is done.
 
         Returns `page_id` for the other browser_* tools, plus url/title, and
-        `window_id` when a desktop window was opened.
+        `window_id` when a desktop window was opened or reused.
         """
         try:
             from .browser import normalize_url
@@ -1029,7 +1096,16 @@ class DesktopToolSet(ToolSet):
             session = await engine.call(engine.open_page(normalize_url(url)))
             info = await self._browser_page_info(session)
             result: dict = {"success": True, **info}
-            if show:
+            if window_id:
+                adopted = self._adopt_page_into_window(window_id, session.id)
+                if adopted.get("ops"):
+                    await self._publish_desktop({
+                        "type": "desktop.delta",
+                        "seq": adopted["seq"],
+                        "ops": adopted["ops"],
+                    })
+                result["window_id"] = window_id
+            elif show:
                 shown = await self._desktop_request("desktop.open", {
                     "app": "browser", "path": "",
                     "state": {"page_id": session.id}, "window_id": "",
@@ -1049,7 +1125,7 @@ class DesktopToolSet(ToolSet):
         otherwise). The user watching the window sees the navigation live."""
         try:
             engine = self._browser_engine()
-            session = engine.latest(page_id)
+            session = self._resolve_page(engine, page_id)
             await engine.call(engine.navigate(session.id, "goto", url))
             return {"success": True, **await self._browser_page_info(session)}
         except Exception as e:
@@ -1064,7 +1140,7 @@ class DesktopToolSet(ToolSet):
             from .browser import READ_LIMIT
 
             engine = self._browser_engine()
-            session = engine.latest(page_id)
+            session = self._resolve_page(engine, page_id)
             text = await engine.call(session.page.evaluate(
                 "() => document.body ? document.body.innerText : ''"))
             if len(text) > READ_LIMIT:
@@ -1080,7 +1156,7 @@ class DesktopToolSet(ToolSet):
         role=... — any Playwright selector). 5s timeout when nothing matches."""
         try:
             engine = self._browser_engine()
-            session = engine.latest(page_id)
+            session = self._resolve_page(engine, page_id)
             await engine.call(session.page.click(selector, timeout=5000))
             return {"success": True, **await self._browser_page_info(session)}
         except Exception as e:
@@ -1094,7 +1170,7 @@ class DesktopToolSet(ToolSet):
         presses Enter afterwards."""
         try:
             engine = self._browser_engine()
-            session = engine.latest(page_id)
+            session = self._resolve_page(engine, page_id)
             await engine.call(session.page.fill(selector, text, timeout=5000))
             if submit:
                 await engine.call(session.page.press(selector, "Enter"))
@@ -1111,7 +1187,7 @@ class DesktopToolSet(ToolSet):
             from pathlib import Path as _Path
 
             engine = self._browser_engine()
-            session = engine.latest(page_id)
+            session = self._resolve_page(engine, page_id)
             rel = path or f"browser-shot-{int(_time.time())}.jpg"
             out = _Path(rel)
             if not out.is_absolute():
