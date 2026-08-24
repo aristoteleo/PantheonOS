@@ -876,9 +876,37 @@ class DesktopToolSet(ToolSet):
         window by window_id, however it was opened.
 
         The first thing to reach for when a view is wrong: fix the window
-        you have rather than opening another one."""
+        you have rather than opening another one.
+
+        To show DIFFERENT DATA in a file window, patch ``path`` (the
+        workspace file). A path is durable: it lands in the session record,
+        every viewport re-opens the app from it, and it survives page
+        reloads and pod replacement (served URLs are re-derived fresh).
+        State patched WITHOUT a path — a raw ``url``, say — only changes the
+        live views and is gone after a reload.
+        """
+        patch = patch or {}
+        path = patch.get("path")
+        if isinstance(path, str) and path:
+            # Write the durable pointer through to the session record. The
+            # broadcast makes every viewport reload the app from the new
+            # file; the rest of the patch still rides the live update below.
+            store = self._desktop()
+            try:
+                ops, _ = store.apply("set", {
+                    "window_id": window_id,
+                    "patch": {"path": path, "args": {"path": path}},
+                })
+            except (KeyError, ValueError) as e:
+                return {"success": False, "error": str(e)}
+            if ops:
+                await self._publish_desktop({
+                    "type": "desktop.delta",
+                    "seq": store.session.seq,
+                    "ops": ops,
+                })
         return await self._desktop_request(
-            "desktop.update", {"window_id": window_id, "patch": patch or {}})
+            "desktop.update", {"window_id": window_id, "patch": patch})
 
     @tool
     async def desktop_call(

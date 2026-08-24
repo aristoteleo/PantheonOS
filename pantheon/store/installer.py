@@ -22,12 +22,14 @@ def _skill_install_root(name: str) -> str:
 
 
 class PackageInstaller:
-    """Install/uninstall agent, team, and skill packages from the Store.
+    """Install/uninstall agent, team, skill, and app packages from the Store.
 
-    Packages are installed to the user's ~/.pantheon/ directory structure:
+    Packages are installed to the .pantheon/ directory structure:
       - agents/{name}.md
       - teams/{name}.md  (+ bundled agents)
       - skills/{name}/SKILL.md  (+ bundled files)
+      - apps/{name}/atrium.json  (+ frontend/backend files) — desktop apps,
+        discovered by the desktop shell from this exact directory.
     """
 
     def __init__(self, work_dir: Optional[Path] = None):
@@ -45,7 +47,7 @@ class PackageInstaller:
         """Install a package locally.
 
         Args:
-            pkg_type: One of "agent", "team", "skill".
+            pkg_type: One of "agent", "team", "skill", "app".
             name: Package name (used as filename).
             content: Main .md file content.
             files: Optional dict of relative_path -> content for bundled files
@@ -107,6 +109,27 @@ class PackageInstaller:
                     file_target.write_text(file_content, encoding="utf-8")
                     written.append(file_target)
 
+        elif pkg_type == "app":
+            # A desktop app: the whole package rides in `files` (atrium.json,
+            # frontend/, backend/, assets/); `content` is the README, not a
+            # file. Lands where the desktop shell discovers apps.
+            if not files:
+                raise ValueError("app package has no files")
+            root = (self.settings.pantheon_dir / "apps" / name).resolve()
+            prefix = f"{name}/"
+            for rel_path, file_content in files.items():
+                rp = rel_path.lstrip("/")
+                # Tolerate archives that prefix every path with the app id.
+                if rp.startswith(prefix):
+                    rp = rp[len(prefix):]
+                file_target = (root / rp).resolve()
+                # Store content is remote input: nothing escapes the app root.
+                if root != file_target and root not in file_target.parents:
+                    raise ValueError(f"app file escapes its package dir: {rel_path}")
+                file_target.parent.mkdir(parents=True, exist_ok=True)
+                file_target.write_text(file_content, encoding="utf-8")
+                written.append(file_target)
+
         else:
             raise ValueError(f"Unknown package type: {pkg_type}")
 
@@ -119,7 +142,7 @@ class PackageInstaller:
         """Uninstall a package by removing its files.
 
         Args:
-            pkg_type: One of "agent", "team", "skill".
+            pkg_type: One of "agent", "team", "skill", "app".
             name: Package name.
             path: Original hierarchical source path the skill was installed under
                   (e.g. "omics/database_access/gget"). When recorded at install
@@ -170,6 +193,15 @@ class PackageInstaller:
                 if flat_target.exists():
                     flat_target.unlink()
                     removed.append(flat_target)
+
+        elif pkg_type == "app":
+            dir_target = self.settings.pantheon_dir / "apps" / name
+            if dir_target.is_dir():
+                import shutil
+                removed_files = list(dir_target.rglob("*"))
+                shutil.rmtree(dir_target)
+                removed.extend(removed_files)
+                removed.append(dir_target)
 
         else:
             raise ValueError(f"Unknown package type: {pkg_type}")
