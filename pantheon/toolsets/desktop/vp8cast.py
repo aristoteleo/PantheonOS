@@ -124,16 +124,57 @@ def make_cast_handler(engine):
         ws = web.WebSocketResponse(heartbeat=20.0, max_msg_size=16 * 1024 * 1024)
         await ws.prepare(request)
 
-        try:
-            caster = Vp8Caster()
-        except Exception as e:  # av missing in an old image
-            await ws.close(code=1011, message=str(e)[:100].encode())
-            return ws
+        # X11 capture when the page owns an OS window: 30fps against the
+        # screencast path's 14, and the same mechanism that will stream
+        # non-browser apps. Anything missing falls back to the JPEG
+        # transcode, which works everywhere.
+        x11 = None
+        if getattr(session, "windowed", False) and getattr(session, "rect", None):
+            try:
+                from .x11cast import X11Caster
+
+                display = getattr(engine, "_xvfb_display", None)
+                if display:
+                    left, top, w, h = session.rect
+                    x11 = X11Caster(f"{display}.0", left, top, w, h)
+                    await asyncio.get_running_loop().run_in_executor(None, x11.open)
+            except Exception:
+                x11 = None
+
+        caster = None
+        if x11 is None:
+            try:
+                caster = Vp8Caster()
+            except Exception as e:  # av missing in an old image
+                await ws.close(code=1011, message=str(e)[:100].encode())
+                return ws
 
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
 
-        async def pump() -> None:
+        async def send(meta: dict, payload: bytes, seq: int) -> None:
+            headers = await engine.call(engine.status_headers(session))
+            meta["seq"] = seq
+            meta["status"] = {
+                k.lower().replace("x-", "", 1): v
+                for k, v in headers.items() if k != "X-Seq"
+            }
+            await ws.send_json(meta)
+            await ws.send_bytes(payload)
+
+        async def pump_x11() -> None:
+            """The display drives the pace — no waiting on paint events."""
+            while not stop.is_set() and not ws.closed:
+                try:
+                    out = await loop.run_in_executor(None, x11.next_frame)
+                    if out is None:
+                        continue
+                    meta, payload = out
+                    await send(meta, payload, session.seq)
+                except Exception:
+                    break
+
+        async def pump_jpeg() -> None:
             since = 0
             while not stop.is_set() and not ws.closed:
                 try:
@@ -153,16 +194,11 @@ def make_cast_handler(engine):
                     if out is None:
                         continue
                     meta, payload = out
-                    headers = await engine.call(engine.status_headers(session))
-                    meta["seq"] = since
-                    meta["status"] = {
-                        k.lower().replace("x-", "", 1): v
-                        for k, v in headers.items() if k != "X-Seq"
-                    }
-                    await ws.send_json(meta)
-                    await ws.send_bytes(payload)
+                    await send(meta, payload, since)
                 except Exception:
                     break
+
+        pump = pump_x11 if x11 is not None else pump_jpeg
 
         pump_task = asyncio.create_task(pump())
         try:
@@ -173,7 +209,7 @@ def make_cast_handler(engine):
                     except Exception:
                         continue
                     if payload.get("keyframe"):
-                        caster.request_keyframe()
+                        (x11 or caster).request_keyframe()
                     events = payload.get("events") or []
                     if events and page_id in engine.pages:
                         try:
@@ -185,6 +221,8 @@ def make_cast_handler(engine):
         finally:
             stop.set()
             pump_task.cancel()
+            if x11 is not None:
+                x11.close()
         return ws
 
     return handler

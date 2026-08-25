@@ -57,6 +57,12 @@ def normalize_url(url: str) -> str:
     return f"https://{url}"
 
 VIEW_W, VIEW_H = 1280, 800
+# Chromium's own tab strip + toolbar, in device pixels — the band an X11
+# grab must skip to show the page rather than the browser around it. Our
+# UI draws its own chrome, so this must never reach the viewer. Verified
+# against the sandbox's Chromium; a wrong value shows as a sliver of tab
+# strip at the top of the stream.
+WINDOW_CHROME_PX = 152
 JPEG_QUALITY = 70
 # The tunnel out of the sandbox caps at ~20 Mbps (measured; shared across
 # connections, so striping cannot help) — fps is bytes-bound. Dense (Retina)
@@ -88,6 +94,10 @@ class PageSession:
         # (capped at 2). Pixels scale by it; CSS-pixel geometry — viewport,
         # input coordinates, agent screenshots — does not.
         self.dsf = 1.0
+        # This page owns an OS window (so X11 capture can see it), and where
+        # that window sits on the virtual display.
+        self.windowed = False
+        self.rect: tuple[int, int, int, int] | None = None
         self.loading = False
         self.can_back = False
         self.can_forward = False
@@ -391,18 +401,83 @@ class BrowserEngine:
 
     # ── public surface (call through .call from any loop) ────────────────
 
+    async def _open_windowed(self, url: str):
+        """A page in its OWN OS window, or None to fall back to a tab.
+
+        X11 capture can only see what is actually rendered, and a
+        background TAB paints nothing — so a page that will be streamed
+        from the display needs a window of its own. Tabs remain correct
+        for the screencast path, hence the graceful None.
+        """
+        if self._xvfb_display is None or self._context is None:
+            return None
+        try:
+            before = set(self._context.pages)
+            keeper = next(iter(before), None)
+            if keeper is None:
+                return None
+            cdp = await self._context.new_cdp_session(keeper)
+            await cdp.send("Target.createTarget", {
+                "url": url or "about:blank", "newWindow": True,
+                "width": VIEW_W, "height": VIEW_H,
+            })
+            for _ in range(80):
+                fresh = [p for p in self._context.pages if p not in before]
+                if fresh:
+                    return fresh[0]
+                await asyncio.sleep(0.05)
+        except Exception as e:
+            logger.info("browser: windowed open failed ({}); using a tab", e)
+        return None
+
     async def open_page(self, url: str = "") -> PageSession:
         await self._ensure_browser()
-        page = await self._context.new_page()  # type: ignore[union-attr]
+        page = await self._open_windowed(url)
+        windowed = page is not None
+        if page is None:
+            page = await self._context.new_page()  # type: ignore[union-attr]
         session = PageSession(uuid.uuid4().hex[:12], page)
+        session.windowed = windowed
         self.pages[session.id] = session
         await self._attach(session)
+        if windowed:
+            await self.place_window(session)
         if url:
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
             except Exception as e:
                 logger.warning("browser: initial goto {} failed: {}", url, e)
         return session
+
+    async def place_window(self, session: PageSession) -> tuple[int, int, int, int] | None:
+        """Park this page's OS window on its own tile and remember the rect.
+
+        Tiles are disjoint because an X11 grab of overlapping windows would
+        capture whichever is on top — someone else's pixels.
+        """
+        if not session.windowed or session.cdp is None:
+            return None
+        from .x11cast import tile_rect
+
+        w = max(2, int(session.width * session.dsf))
+        h = max(2, int(session.height * session.dsf))
+        try:
+            info = await session.cdp.send("Browser.getWindowForTarget")
+            index = list(self.pages).index(session.id)
+            left, top = tile_rect(index, w, h)
+            await session.cdp.send("Browser.setWindowBounds", {
+                "windowId": info["windowId"],
+                "bounds": {"left": left, "top": top, "width": w, "height": h,
+                           "windowState": "normal"},
+            })
+            # The window's frame is chrome, not page: capture the viewport
+            # area, which sits below the tab strip and toolbar.
+            session.rect = (left, top + WINDOW_CHROME_PX, w, max(2, h - WINDOW_CHROME_PX))
+            return session.rect
+        except Exception as e:
+            logger.info("browser: window placement failed: {}", e)
+            session.windowed = False
+            return None
 
     async def clear_data(self) -> None:
         """Sign out of every site: drop cookies and stored credentials."""
@@ -506,6 +581,10 @@ class BrowserEngine:
                             session.width, session.height = w, h
                             session.dsf = s
                             await page.set_viewport_size({"width": w, "height": h})
+                            if session.windowed:
+                                # The OS window must follow, or the X11 grab
+                                # keeps aiming at the old rectangle.
+                                await self.place_window(session)
                             if session.cdp is not None:
                                 try:
                                     await session.cdp.send("Page.stopScreencast")
