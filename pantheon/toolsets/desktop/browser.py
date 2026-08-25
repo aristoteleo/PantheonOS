@@ -184,6 +184,26 @@ class BrowserEngine:
 
     # ── Chromium lifecycle (engine loop only) ────────────────────────────
 
+    @staticmethod
+    def _clear_stale_locks(profile: Path) -> None:
+        """Drop the previous sandbox's ProcessSingleton files.
+
+        The profile lives on a volume that OUTLIVES the sandbox, so a pod
+        that dies without shutting Chromium down leaves its lock behind and
+        the next pod's Chromium refuses to start at all ("Failed to create
+        a ProcessSingleton for your profile directory"). Any lock we find
+        here is stale by construction: this process is the only one that
+        launches Chromium in this container, and it has not yet.
+        """
+        for name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
+            path = profile / name
+            try:
+                if path.is_symlink() or path.exists():
+                    path.unlink()
+                    logger.info("browser: cleared stale {}", name)
+            except Exception as e:
+                logger.warning("browser: could not clear {}: {}", name, e)
+
     async def _ensure_xvfb(self) -> str | None:
         """Start a virtual X display and return DISPLAY, or None to stay
         headless.
@@ -254,6 +274,7 @@ class BrowserEngine:
             self._pw = await async_playwright().start()
             profile = Path.home() / ".pantheon" / "browser-profile"
             profile.mkdir(parents=True, exist_ok=True)
+            self._clear_stale_locks(profile)
             self._context = await self._pw.chromium.launch_persistent_context(
                 user_data_dir=str(profile),
                 # Headful under Xvfb when the image carries one (the capture
