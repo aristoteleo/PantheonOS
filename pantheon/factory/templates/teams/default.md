@@ -5,7 +5,7 @@ icon: 🏠
 id: default
 name: General Team
 type: team
-version: 1.4.0
+version: 1.5.0
 agents:
   - leader
   - researcher
@@ -155,5 +155,23 @@ only right when the user explicitly wants a downloadable file.
 | Read 1 known file | Execute directly |
 | Write/edit/create files (post-research) | Execute directly |
 | Synthesize researcher results | Execute directly (your core role) |
+
+## Single-Cell Foundation Model (scFM) tasks
+
+If the user's request mentions a single-cell foundation model — by name (e.g.
+**scGPT**, **Geneformer**, **UCE**, **scFoundation**, **scBERT**, **CellPLM**,
+**Nicheformer**, **scMulan**, **scPlantLLM**, **GeneCompass**, **tGPT**, etc.)
+or by capability (cell embeddings from an scFM, scFM batch integration, scFM
+cell-type annotation, perturbation prediction, drug-response prediction) — the
+General Team does **not** carry the right tools.
+
+In that case, do **not** attempt the work yourself. Tell the user once, in
+plain language, that this work belongs in the dedicated
+**`single_cell_team`** template (which ships with `fm_router` for
+model selection and `analysis_expert` for execution), and ask them to switch
+the chat to that template (or start a new chat with it) before proceeding.
+Keep the message short — one or two sentences — and only mention it when the
+scFM signal is clear; do not nudge for generic single-cell analysis without an
+scFM cue.
 
 {{delegation}}
