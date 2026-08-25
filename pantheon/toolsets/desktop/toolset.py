@@ -1196,7 +1196,10 @@ class DesktopToolSet(ToolSet):
             if not out.is_absolute():
                 out = _Path.cwd() / out
             out.parent.mkdir(parents=True, exist_ok=True)
-            data = await engine.call(session.page.screenshot(type="jpeg", quality=80))
+            # scale="css": the page may render at Retina density for the
+            # human viewer; agent vision stays at CSS pixels.
+            data = await engine.call(
+                session.page.screenshot(type="jpeg", quality=80, scale="css"))
             out.write_bytes(data)
             return {"success": True, "path": str(out),
                     **await self._browser_page_info(session)}

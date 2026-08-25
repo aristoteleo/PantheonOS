@@ -22,7 +22,6 @@ probes.
 from __future__ import annotations
 
 import asyncio
-import io
 import json
 import logging
 import os
@@ -31,9 +30,6 @@ import uuid
 
 import aiohttp
 from aiohttp import WSMsgType, web
-
-import numpy as np
-from PIL import Image
 
 from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
 from aiortc.codecs import vpx
@@ -136,35 +132,41 @@ class TunnelTrack(VideoStreamTrack):
         super().__init__()
         self.feed = feed
         self._t0: float | None = None
+        # JPEG -> yuv entirely in libavcodec; the PIL/numpy path decoded to
+        # RGB and swscaled back to yuv, which at Retina frame sizes was the
+        # fps ceiling.
+        self._dec = av.CodecContext.create("mjpeg", "r")
 
     async def recv(self) -> av.VideoFrame:
-        try:
+        # A frame that fails to decode is skipped, not fatal: aiortc's
+        # sender coroutine dies silently on a recv() exception, so only the
+        # feed closing (MediaStreamError) may propagate.
+        while True:
             data = await self.feed.next_frame()
-            img = Image.open(io.BytesIO(data)).convert("RGB")
-            w, h = img.size
-            # vpx wants even dimensions: crop the odd pixel edge off rather
-            # than resample. Size otherwise follows the source — the encoder
-            # re-inits itself on a change, so a window resize stays sharp
-            # instead of being squeezed through the first frame's geometry.
-            if (w & 1) or (h & 1):
-                img = img.crop((0, 0, max(2, w & ~1), max(2, h & ~1)))
-            frame = av.VideoFrame.from_ndarray(np.asarray(img), format="rgb24")
-            # Honest wall-clock pts. Frames are paint-driven and arrive at
-            # any cadence; VideoStreamTrack.next_timestamp() would stamp a
-            # fixed 30fps timeline (sleeping to enforce it during bursts),
-            # which is exactly wrong for this track.
-            if self._t0 is None:
-                self._t0 = time.monotonic()
-            frame.pts = int((time.monotonic() - self._t0) * VIDEO_CLOCK_RATE)
-            frame.time_base = VIDEO_TIME_BASE
-            return frame
-        except MediaStreamError:
-            raise
-        except Exception as e:
-            # One bad frame must not kill the whole call silently — that is
-            # exactly the failure this log exists to catch.
-            logger.warning("track: frame error: %r", e)
-            raise
+            try:
+                frames = self._dec.decode(av.Packet(data))
+                if not frames:
+                    continue
+                frm = frames[0]
+                # vpx wants even yuv420p; a size change mid-stream is fine —
+                # the encoder re-inits itself, so a window resize stays
+                # sharp instead of being squeezed through old geometry.
+                w = max(2, frm.width & ~1)
+                h = max(2, frm.height & ~1)
+                if frm.format.name != "yuv420p" or (frm.width, frm.height) != (w, h):
+                    frm = frm.reformat(width=w, height=h, format="yuv420p")
+                # Honest wall-clock pts. Frames are paint-driven and arrive
+                # at any cadence; VideoStreamTrack.next_timestamp() would
+                # stamp a fixed 30fps timeline (sleeping to enforce it
+                # during bursts), which is exactly wrong for this track.
+                if self._t0 is None:
+                    self._t0 = time.monotonic()
+                frm.pts = int((time.monotonic() - self._t0) * VIDEO_CLOCK_RATE)
+                frm.time_base = VIDEO_TIME_BASE
+                return frm
+            except Exception as e:
+                logger.warning("track: frame error: %r", e)
+                continue
 
 
 class Session:

@@ -74,6 +74,10 @@ class PageSession:
         self.seq = 0
         self.width = VIEW_W
         self.height = VIEW_H
+        # Rendering density, set by the viewing client from its display
+        # (capped at 2). Pixels scale by it; CSS-pixel geometry — viewport,
+        # input coordinates, agent screenshots — does not.
+        self.dsf = 1.0
         self.loading = False
         self.can_back = False
         self.can_forward = False
@@ -235,8 +239,8 @@ class BrowserEngine:
         await cdp.send("Page.startScreencast", {
             "format": "jpeg",
             "quality": JPEG_QUALITY,
-            "maxWidth": session.width,
-            "maxHeight": session.height,
+            "maxWidth": min(4096, int(session.width * session.dsf)),
+            "maxHeight": min(4096, int(session.height * session.dsf)),
             "everyNthFrame": 1,
         })
 
@@ -405,10 +409,26 @@ class BrowserEngine:
                     elif t == "resize":
                         w = max(320, min(2560, int(ev["w"])))
                         h = max(240, min(1600, int(ev["h"])))
-                        if (w, h) != (session.width, session.height):
+                        s = max(1.0, min(2.0, float(ev.get("s") or 1)))
+                        prev_s = session.dsf
+                        if (w, h, s) != (session.width, session.height, prev_s):
                             session.width, session.height = w, h
+                            session.dsf = s
                             await page.set_viewport_size({"width": w, "height": h})
                             if session.cdp is not None:
+                                # Playwright's viewport call resets the device
+                                # scale to the context default, so the density
+                                # override must always FOLLOW it.
+                                if s != 1.0 or prev_s != 1.0:
+                                    try:
+                                        await session.cdp.send(
+                                            "Emulation.setDeviceMetricsOverride", {
+                                                "width": 0, "height": 0,
+                                                "deviceScaleFactor": s,
+                                                "mobile": False,
+                                            })
+                                    except Exception:
+                                        pass
                                 try:
                                     await session.cdp.send("Page.stopScreencast")
                                 except Exception:
@@ -416,8 +436,8 @@ class BrowserEngine:
                                 await session.cdp.send("Page.startScreencast", {
                                     "format": "jpeg",
                                     "quality": JPEG_QUALITY,
-                                    "maxWidth": w,
-                                    "maxHeight": h,
+                                    "maxWidth": min(4096, int(w * s)),
+                                    "maxHeight": min(4096, int(h * s)),
                                     "everyNthFrame": 1,
                                 })
                 except Exception as e:

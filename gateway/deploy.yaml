@@ -48,7 +48,7 @@ spec:
             - -c
             - >-
               pip install --no-cache-dir 'aiortc==1.15.0' 'aiohttp>=3.9,<4'
-              pillow numpy && exec python /app/webrtc_gateway.py
+              && exec python /app/webrtc_gateway.py
           env:
             - { name: GATEWAY_PORT, value: "8089" }
           ports:
