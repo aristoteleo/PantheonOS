@@ -455,16 +455,28 @@ EOF
     SETUP_HOOK="${VOLUME_ROOT}/.pantheon/on-start.sh"
     if [ -f "$SETUP_HOOK" ]; then
         SETUP_LOG=/tmp/pantheon-on-start.log
-        echo "[setup] running $SETUP_HOOK (log: $SETUP_LOG) ..."
-        if timeout "${PANTHEON_SETUP_TIMEOUT:-300}" bash "$SETUP_HOOK" > "$SETUP_LOG" 2>&1; then
-            echo "[setup] ✓ finished"
+        _run_setup_hook() {
+            if timeout "${PANTHEON_SETUP_TIMEOUT:-300}" bash "$SETUP_HOOK" > "$SETUP_LOG" 2>&1; then
+                echo "[setup] ✓ finished"
+            else
+                rc=$?
+                [ $rc -eq 124 ] && echo "[setup] ✗ timed out; continuing without it" \
+                                || echo "[setup] ✗ exited $rc; continuing without it"
+                tail -n 20 "$SETUP_LOG" 2>/dev/null | sed 's/^/[setup]   /'
+            fi
+            cp "$SETUP_LOG" "${VOLUME_ROOT}/.pantheon/on-start.log" 2>/dev/null || true
+        }
+        # Serial by default: "the hook has finished before the agent starts" is
+        # a guarantee users may rely on (install a tool, then ask the agent to
+        # use it). The background mode trades that guarantee for boot latency —
+        # a hook that only starts services or pre-pulls data can opt in.
+        if [ "${PANTHEON_SETUP_HOOK_BACKGROUND:-}" = "true" ]; then
+            echo "[setup] running $SETUP_HOOK in background (log: $SETUP_LOG) ..."
+            ( _run_setup_hook & )
         else
-            rc=$?
-            [ $rc -eq 124 ] && echo "[setup] ✗ timed out; continuing without it" \
-                            || echo "[setup] ✗ exited $rc; continuing without it"
-            tail -n 20 "$SETUP_LOG" 2>/dev/null | sed 's/^/[setup]   /'
+            echo "[setup] running $SETUP_HOOK (log: $SETUP_LOG) ..."
+            _run_setup_hook
         fi
-        cp "$SETUP_LOG" "${VOLUME_ROOT}/.pantheon/on-start.log" 2>/dev/null || true
     fi
 
     # Run the endpoint IN the default workspace so work_dir (=cwd at import) makes
