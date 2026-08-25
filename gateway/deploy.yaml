@@ -1,0 +1,104 @@
+# WebRTC gateway — staging deployment (DigitalOcean, cluster do-sfo3-pantheon-staging-sfo).
+#
+# The gateway is webrtc_gateway.py mounted from a ConfigMap into a stock
+# python image; deps pip-install at boot. Update flow:
+#
+#   kubectl -n pantheon create configmap webrtc-gateway-src \
+#     --from-file=webrtc_gateway.py --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl -n pantheon rollout restart deploy/webrtc-gateway
+#
+# hostNetwork: WebRTC media is UDP and DO load balancers do not forward UDP,
+# so the pod binds the node's public interface directly. That forces two
+# things: strategy Recreate (two replicas cannot share hostPort 8089, and
+# RollingUpdate deadlocks on the single node) and a DO firewall opening
+# TCP 8089 + UDP 1025-65535 on the cluster droplet tag (firewall
+# pantheon-webrtc-gw-staging, created via doctl, lives outside k8s).
+#
+# Signaling (POST /offer, GET /healthz) goes through the HTTPS ingress —
+# raw-IP plain HTTP gets intercepted by content filters on some networks.
+# Media then flows on the node's public IP via ICE.
+#
+# NOT applied by any CI workflow — apply by hand. The hub deploy workflow
+# re-applies only the manifests in pantheon-hub, so it cannot clobber this.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webrtc-gateway
+  namespace: pantheon
+  labels: { app: webrtc-gateway }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: webrtc-gateway }
+  template:
+    metadata:
+      labels: { app: webrtc-gateway }
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      volumes:
+        - name: src
+          configMap: { name: webrtc-gateway-src }
+      containers:
+        - name: gateway
+          image: python:3.12-slim
+          command:
+            - sh
+            - -c
+            - >-
+              pip install --no-cache-dir 'aiortc==1.15.0' 'aiohttp>=3.9,<4'
+              pillow numpy && exec python /app/webrtc_gateway.py
+          env:
+            - { name: GATEWAY_PORT, value: "8089" }
+          ports:
+            - containerPort: 8089
+              hostPort: 8089
+          volumeMounts:
+            - { name: src, mountPath: /app, readOnly: true }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8089 }
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            failureThreshold: 12
+          resources:
+            requests: { cpu: 50m, memory: 192Mi }
+            limits: { cpu: 1500m, memory: 768Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webrtc-gateway
+  namespace: pantheon
+  labels: { app: webrtc-gateway }
+spec:
+  selector: { app: webrtc-gateway }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8089
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pantheon-staging-gateway-ingress
+  namespace: pantheon
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: staging.aristoteleo.com
+      http:
+        paths:
+          - path: /gateway(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: webrtc-gateway
+                port: { number: 80 }
+  tls:
+    - hosts: [staging.aristoteleo.com]
+      secretName: pantheon-tls-staging

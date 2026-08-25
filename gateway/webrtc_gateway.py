@@ -120,15 +120,34 @@ class TunnelTrack(VideoStreamTrack):
     def __init__(self, feed: BrowserFeed):
         super().__init__()
         self.feed = feed
+        # Locked on the first frame, EVENED: vpx chokes on odd dimensions
+        # (the killer was a 1198x661 early-paint frame — the encoder died in
+        # the sender coroutine and recv() was simply never pulled again),
+        # and mid-stream size flips are nearly as hostile. One session, one
+        # size; stragglers get resized to it.
+        self._size: tuple[int, int] | None = None
 
     async def recv(self) -> av.VideoFrame:
-        data = await self.feed.next_frame()
-        img = Image.open(io.BytesIO(data)).convert("RGB")
-        frame = av.VideoFrame.from_ndarray(np.asarray(img), format="rgb24")
-        pts, time_base = await self.next_timestamp()
-        frame.pts = pts
-        frame.time_base = time_base
-        return frame
+        try:
+            data = await self.feed.next_frame()
+            img = Image.open(io.BytesIO(data)).convert("RGB")
+            if self._size is None:
+                w, h = img.size
+                self._size = (max(2, w & ~1), max(2, h & ~1))
+            if img.size != self._size:
+                img = img.resize(self._size)
+            frame = av.VideoFrame.from_ndarray(np.asarray(img), format="rgb24")
+            pts, time_base = await self.next_timestamp()
+            frame.pts = pts
+            frame.time_base = time_base
+            return frame
+        except MediaStreamError:
+            raise
+        except Exception as e:
+            # One bad frame must not kill the whole call silently — that is
+            # exactly the failure this log exists to catch.
+            logger.warning("track: frame error: %r", e)
+            raise
 
 
 class Session:
