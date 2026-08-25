@@ -57,6 +57,15 @@ def normalize_url(url: str) -> str:
 
 VIEW_W, VIEW_H = 1280, 800
 JPEG_QUALITY = 70
+# The tunnel out of the sandbox caps at ~20 Mbps (measured; shared across
+# connections, so striping cannot help) — fps is bytes-bound. Dense (Retina)
+# frames carry 4x the pixels, so they trade JPEG quality for rate; the
+# artifacts hide in the pixel density.
+JPEG_QUALITY_DENSE = 55
+
+
+def _cast_quality(dsf: float) -> int:
+    return JPEG_QUALITY if dsf <= 1.2 else JPEG_QUALITY_DENSE
 LONG_POLL_S = 20.0
 READ_LIMIT = 8000
 
@@ -246,7 +255,7 @@ class BrowserEngine:
         cdp.on("Page.screencastFrame", on_frame)
         await cdp.send("Page.startScreencast", {
             "format": "jpeg",
-            "quality": JPEG_QUALITY,
+            "quality": _cast_quality(session.dsf),
             "maxWidth": min(4096, int(session.width * session.dsf)),
             "maxHeight": min(4096, int(session.height * session.dsf)),
             "everyNthFrame": 1,
@@ -430,7 +439,7 @@ class BrowserEngine:
                                     pass
                                 await session.cdp.send("Page.startScreencast", {
                                     "format": "jpeg",
-                                    "quality": JPEG_QUALITY,
+                                    "quality": _cast_quality(s),
                                     "maxWidth": min(4096, int(w * s)),
                                     "maxHeight": min(4096, int(h * s)),
                                     "everyNthFrame": 1,
