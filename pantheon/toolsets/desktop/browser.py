@@ -283,14 +283,20 @@ class BrowserEngine:
                 "window.chrome = window.chrome || { runtime: {} };"
                 "Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});"
             )
-            # The persistent context opens with a blank page; close it so the
-            # page registry is the single source of what exists.
-            for p in list(self._context.pages):
-                try:
-                    await p.close()
-                except Exception:
-                    pass
-            logger.info("browser: chromium up (profile {})", profile)
+            # The persistent context opens with a blank page. Headless: close
+            # it so the page registry is the single source of what exists.
+            # HEADFUL: keep it — closing the last window makes Chrome refuse
+            # Target.createTarget ("Failed to open a new tab") or exit
+            # outright, which bricked every later page open. The blank page
+            # is never registered, never streamed, and holds the window open.
+            if display is None:
+                for p in list(self._context.pages):
+                    try:
+                        await p.close()
+                    except Exception:
+                        pass
+            logger.info("browser: chromium up (profile {}, display {})",
+                        profile, display or "headless")
         except Exception as e:
             self._launch_error = f"chromium unavailable: {e}"
             logger.error("browser: launch failed: {}", e)
