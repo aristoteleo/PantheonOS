@@ -188,6 +188,14 @@ class BrowserEngine:
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
                     "--disable-blink-features=AutomationControlled",
+                    # Raster every surface at 2x. The screencast captures the
+                    # raster (it ignores Emulation.setDeviceMetricsOverride —
+                    # verified empirically), so this is what makes Retina-
+                    # density frames possible at all. Per-viewer density then
+                    # only picks the screencast's max dims: 2x viewers get the
+                    # raster 1:1, 1x viewers get a supersampled downscale.
+                    # Coordinates stay CSS pixels throughout.
+                    "--force-device-scale-factor=2",
                 ],
             )
             # navigator.webdriver=true is the single biggest automation tell;
@@ -416,19 +424,6 @@ class BrowserEngine:
                             session.dsf = s
                             await page.set_viewport_size({"width": w, "height": h})
                             if session.cdp is not None:
-                                # Playwright's viewport call resets the device
-                                # scale to the context default, so the density
-                                # override must always FOLLOW it.
-                                if s != 1.0 or prev_s != 1.0:
-                                    try:
-                                        await session.cdp.send(
-                                            "Emulation.setDeviceMetricsOverride", {
-                                                "width": 0, "height": 0,
-                                                "deviceScaleFactor": s,
-                                                "mobile": False,
-                                            })
-                                    except Exception:
-                                        pass
                                 try:
                                     await session.cdp.send("Page.stopScreencast")
                                 except Exception:
