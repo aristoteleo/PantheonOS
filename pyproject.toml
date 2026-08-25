@@ -44,6 +44,9 @@ dependencies = [
     "openai>=2.0.0",
     "tiktoken>=0.7.0",
     "pillow>=10.4.0",
+    # libavcodec bindings for the browser stream's in-sandbox VP8 caster
+    # (pantheon/toolsets/desktop/vp8cast.py)
+    "av>=13.0.0",
     "rich>=14.0.0",
     "rich-pyfiglet",
     "fastmcp>=2.11.0",

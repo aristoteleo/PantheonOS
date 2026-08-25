@@ -31,12 +31,18 @@ import uuid
 import aiohttp
 from aiohttp import WSMsgType, web
 
-from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
+from aiortc import (
+    RTCPeerConnection,
+    RTCRtpSender,
+    RTCSessionDescription,
+    VideoStreamTrack,
+)
 from aiortc.codecs import vpx
 from aiortc.mediastreams import (
     VIDEO_CLOCK_RATE,
     VIDEO_TIME_BASE,
     MediaStreamError,
+    MediaStreamTrack,
 )
 import av
 
@@ -125,6 +131,104 @@ class BrowserFeed:
             pass
 
 
+class CastFeed:
+    """browser-cast: the sandbox already encoded VP8; we only relay.
+
+    Per frame the pod sends one JSON meta line then one binary payload.
+    Frames are strictly in-order (the pod's latest-wins sits BEFORE its
+    encoder), so this queue must never drop — a consumer that cannot keep
+    up is broken and the whole feed closes instead.
+    """
+
+    def __init__(self, cast_url: str):
+        self.url = cast_url
+        self.queue: asyncio.Queue = asyncio.Queue(maxsize=240)
+        self.closed = asyncio.Event()
+        self.status: dict = {}
+        self.on_status = None
+        self.started = asyncio.Event()
+        self._ws: aiohttp.ClientWebSocketResponse | None = None
+        self._http: aiohttp.ClientSession | None = None
+
+    async def run(self) -> None:
+        meta: dict | None = None
+        try:
+            self._http = aiohttp.ClientSession()
+            self._ws = await self._http.ws_connect(
+                self.url, max_msg_size=16 * 1024 * 1024, heartbeat=20.0)
+            async for msg in self._ws:
+                if msg.type == WSMsgType.TEXT:
+                    try:
+                        parsed = json.loads(msg.data)
+                    except Exception:
+                        continue
+                    if parsed.get("t") == "frame":
+                        meta = parsed
+                        status = parsed.get("status")
+                        if status:
+                            self.status = status
+                            cb = self.on_status
+                            if cb is not None:
+                                try:
+                                    cb(status)
+                                except Exception:
+                                    pass
+                elif msg.type == WSMsgType.BINARY:
+                    if meta is None:
+                        continue
+                    self.queue.put_nowait((meta, msg.data))
+                    meta = None
+                    self.started.set()
+                elif msg.type in (WSMsgType.ERROR, WSMsgType.CLOSE, WSMsgType.CLOSING):
+                    break
+        except asyncio.QueueFull:
+            logger.warning("cast feed: consumer wedged, closing")
+        except Exception as e:
+            logger.info("cast feed ended: %s", e)
+        finally:
+            self.closed.set()
+            self.started.set()
+            if self._ws is not None:
+                try:
+                    await self._ws.close()
+                except Exception:
+                    pass
+            if self._http is not None:
+                await self._http.close()
+
+    async def send_input(self, events: list) -> None:
+        if self._ws is None or self._ws.closed:
+            return
+        try:
+            await self._ws.send_json({"events": events})
+        except Exception:
+            pass
+
+
+class CastTrack(MediaStreamTrack):
+    """Yields av.Packet — aiortc's sender packs pre-encoded data as-is."""
+
+    kind = "video"
+
+    def __init__(self, feed: CastFeed):
+        super().__init__()
+        self.feed = feed
+
+    async def recv(self) -> av.Packet:
+        get = asyncio.ensure_future(self.feed.queue.get())
+        closed = asyncio.ensure_future(self.feed.closed.wait())
+        done, _ = await asyncio.wait({get, closed}, return_when=asyncio.FIRST_COMPLETED)
+        if get in done:
+            closed.cancel()
+            meta, payload = get.result()
+            packet = av.Packet(payload)
+            packet.pts = meta["pts"]
+            packet.time_base = VIDEO_TIME_BASE
+            return packet
+        get.cancel()
+        raise MediaStreamError("cast feed closed")
+
+
 class TunnelTrack(VideoStreamTrack):
     """VP8 out of the feed's JPEGs. Frame-driven: output fps = paint rate."""
 
@@ -211,10 +315,34 @@ async def offer(request: web.Request) -> web.StreamResponse:
     stream_url = stream_url.replace("http://", "ws://").replace("https://", "wss://")
 
     sid = uuid.uuid4().hex[:12]
-    feed = BrowserFeed(stream_url)
-    feed_task = asyncio.create_task(feed.run())
+
+    # Prefer the sandbox's own VP8 (browser-cast): ~5x fewer bytes through
+    # the ~20 Mbps tunnel and no transcode here. Old pods without the
+    # endpoint fall back to the JPEG feed transparently.
+    feed = None
+    feed_task = None
+    track = None
+    cast_url = stream_url.replace("browser-stream", "browser-cast")
+    if cast_url != stream_url:
+        cf = CastFeed(cast_url)
+        cf_task = asyncio.create_task(cf.run())
+        try:
+            await asyncio.wait_for(cf.started.wait(), timeout=4.0)
+        except asyncio.TimeoutError:
+            pass
+        if cf.started.is_set() and not cf.closed.is_set():
+            feed, feed_task, track = cf, cf_task, CastTrack(cf)
+            logger.info("session %s: sandbox VP8 cast", sid)
+        else:
+            cf_task.cancel()
+    if feed is None:
+        bf = BrowserFeed(stream_url)
+        feed_task = asyncio.create_task(bf.run())
+        feed, track = bf, TunnelTrack(bf)
+        logger.info("session %s: JPEG transcode fallback", sid)
+
     pc = RTCPeerConnection()
-    pc.addTrack(TunnelTrack(feed))
+    pc.addTrack(track)
     session = Session(sid, pc, feed, feed_task)
     SESSIONS[sid] = session
 
@@ -256,6 +384,15 @@ async def offer(request: web.Request) -> web.StreamResponse:
     feed_task.add_done_callback(feed_done)
 
     await pc.setRemoteDescription(remote)
+    # The cast path relays VP8 packets verbatim, so VP8 MUST win the codec
+    # negotiation — pin it (rtx retained for retransmission).
+    for transceiver in pc.getTransceivers():
+        if transceiver.kind == "video":
+            caps = RTCRtpSender.getCapabilities("video")
+            transceiver.setCodecPreferences([
+                c for c in caps.codecs
+                if c.mimeType.lower() in ("video/vp8", "video/rtx")
+            ])
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
     # aiortc gathers ICE during setLocalDescription and returns when complete,

@@ -981,6 +981,7 @@ class DesktopToolSet(ToolSet):
         """Register the stream endpoints (once) and return their URLs."""
         server = await self._ensure_data_server()
         from .browser import make_frame_handler, make_input_handler, make_stream_handler
+        from .vp8cast import make_cast_handler
 
         engine = self._browser_engine()
         if not self._browser_endpoints:
@@ -989,6 +990,10 @@ class DesktopToolSet(ToolSet):
             # Push variant: frames stream, input rides back — one socket, no
             # per-frame round trip. The WebRTC gateway consumes this.
             await server.register_endpoint("browser-stream", make_stream_handler(engine))
+            # VP8 variant: same contract, ~5x fewer bytes through the
+            # ~20 Mbps tunnel. The gateway prefers it and repackages the
+            # packets into RTP without re-encoding.
+            await server.register_endpoint("browser-cast", make_cast_handler(engine))
             self._browser_endpoints = True
         frame = server.url_for_endpoint("browser-frame")
         inp = server.url_for_endpoint("browser-input")
