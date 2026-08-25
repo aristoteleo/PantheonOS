@@ -63,7 +63,9 @@ spec:
             failureThreshold: 12
           resources:
             requests: { cpu: 50m, memory: 192Mi }
-            limits: { cpu: 1500m, memory: 768Mi }
+            # The limit is headroom for multi-threaded VP8 at Retina frame
+            # sizes, not a reservation — requests stay tiny on purpose.
+            limits: { cpu: 3000m, memory: 768Mi }
 ---
 apiVersion: v1
 kind: Service
