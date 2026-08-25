@@ -20,7 +20,7 @@ def test_tiles_never_overlap():
     w, h = 1400, 900
     seen = []
     for i in range(6):
-        left, top = tile_rect(i, w, h, screen_w=5120, screen_h=3200)
+        left, top = tile_rect(i, w, h, screen_w=8192, screen_h=4608)
         box = (left, top, left + w, top + h)
         for other in seen:
             apart = (box[2] <= other[0] or other[2] <= box[0]
@@ -32,10 +32,26 @@ def test_tiles_never_overlap():
 def test_tiles_wrap_to_the_next_row():
     w, h = 1400, 900
     _, top0 = tile_rect(0, w, h)
-    _, top3 = tile_rect(3, w, h)  # 3 fit across 5120
-    assert top3 > top0
+    _, top6 = tile_rect(6, w, h)  # 5 fit across 8192
+    assert top6 > top0
 
 
-def test_out_of_room_falls_back_to_the_origin():
-    # A window taller than the screen has nowhere disjoint to go.
-    assert tile_rect(9, 2000, 1500, screen_w=4096, screen_h=2000) == (0, 0)
+
+
+
+def test_pool_reuses_released_slots():
+    from pantheon.toolsets.desktop.x11cast import TilePool
+
+    pool = TilePool()
+    a, b, c = pool.acquire("a"), pool.acquire("b"), pool.acquire("c")
+    assert {a, b, c} == {0, 1, 2}
+    pool.release("b")
+    # The freed slot comes back rather than the index marching on.
+    assert pool.acquire("d") == b
+    assert pool.acquire("a") == a  # idempotent for a live key
+
+
+def test_no_room_is_explicit():
+    # A window taller than the screen cannot be placed disjointly.
+    assert tile_rect(0, 2000, 4000, screen_w=4096, screen_h=2000) is None
+    assert tile_rect(999, 1400, 900) is None

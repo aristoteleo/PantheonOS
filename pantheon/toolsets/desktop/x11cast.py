@@ -153,21 +153,46 @@ class X11Caster:
 
 
 def tile_rect(index: int, width: int, height: int,
-              screen_w: int = 5120, screen_h: int = 3200,
-              gap: int = 8) -> tuple[int, int]:
-    """Where window `index` sits so tiles never overlap.
+              screen_w: int = 8192, screen_h: int = 4608,
+              gap: int = 8) -> tuple[int, int] | None:
+    """Where slot `index` sits, or None when the display has no room.
 
-    Overlap would make one window's capture show another's pixels. Nobody
-    ever looks at this display directly, so the layout only has to be
-    disjoint — it does not have to be pretty.
+    Overlap would make one window's capture show another's pixels — the
+    failure looks like a black or wrong-page stream, so running out of
+    room has to be an explicit None the caller can fall back on, never a
+    silent stack at the origin. Nobody ever looks at this display
+    directly, so the layout only has to be disjoint, not pretty.
     """
     cols = max(1, screen_w // max(1, width + gap))
     col = index % cols
     row = index // cols
     left = col * (width + gap)
     top = row * (height + gap)
-    if top + height > screen_h:
-        # Out of room: stack at the origin. The last window wins the
-        # pixels, which is better than silently capturing a neighbour.
-        return 0, 0
+    if top + height > screen_h or left + width > screen_w:
+        return None
     return left, top
+
+
+class TilePool:
+    """Hands out disjoint slots and takes them back when windows close.
+
+    Without reuse, a session that opens and closes pages walks the slot
+    index off the display and every later window falls back to the slower
+    path for no reason.
+    """
+
+    def __init__(self) -> None:
+        self._slots: dict[str, int] = {}
+
+    def acquire(self, key: str) -> int:
+        if key in self._slots:
+            return self._slots[key]
+        taken = set(self._slots.values())
+        slot = 0
+        while slot in taken:
+            slot += 1
+        self._slots[key] = slot
+        return slot
+
+    def release(self, key: str) -> None:
+        self._slots.pop(key, None)

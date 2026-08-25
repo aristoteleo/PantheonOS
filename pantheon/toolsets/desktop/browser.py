@@ -149,6 +149,9 @@ class BrowserEngine:
         self._launch_error: str | None = None
         self._xvfb_display: str | None = None
         self._xvfb_proc = None
+        from .x11cast import TilePool
+
+        self._tiles = TilePool()
         self.pages: dict[str, PageSession] = {}
 
     # ── the daemon loop ──────────────────────────────────────────────────
@@ -202,10 +205,13 @@ class BrowserEngine:
             return None
         display = ":97"
         try:
-            # 2x the viewport clamp (2560x1600) so force-device-scale-factor=2
-            # renders unclipped; 24-bit, no TCP listener.
+            # Room for several 2x windows side by side, since each streamed
+            # page needs a DISJOINT tile (overlapping windows capture each
+            # other). 8192x4608 fits nine 2200x1500 tiles and costs ~150 MB
+            # of framebuffer, which this sandbox has to spare. 24-bit, no
+            # TCP listener.
             self._xvfb_proc = subprocess.Popen(
-                ["Xvfb", display, "-screen", "0", "5120x3200x24", "-nolisten", "tcp"],
+                ["Xvfb", display, "-screen", "0", "8192x4608x24", "-nolisten", "tcp"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             for _ in range(50):
@@ -466,12 +472,21 @@ class BrowserEngine:
         h = max(2, int(session.height * session.dsf))
         try:
             info = await session.cdp.send("Browser.getWindowForTarget")
-            index = list(self.pages).index(session.id)
             # The window carries the viewport PLUS Chromium's own chrome;
             # sized to the viewport alone, the page would be clipped by the
             # height of the tab strip.
             outer_h = h + WINDOW_CHROME_PX
-            left, top = tile_rect(index, w, outer_h)
+            slot = self._tiles.acquire(session.id)
+            spot = tile_rect(slot, w, outer_h)
+            if spot is None:
+                # No disjoint room left. Overlapping windows capture each
+                # other, so this page streams the JPEG way instead.
+                self._tiles.release(session.id)
+                session.windowed = False
+                session.rect = None
+                logger.info("browser: no tile for {}; JPEG path", session.id)
+                return None
+            left, top = spot
             await session.cdp.send("Browser.setWindowBounds", {
                 "windowId": info["windowId"],
                 "bounds": {"left": left, "top": top, "width": w, "height": outer_h,
@@ -482,7 +497,9 @@ class BrowserEngine:
             return session.rect
         except Exception as e:
             logger.info("browser: window placement failed: {}", e)
+            self._tiles.release(session.id)
             session.windowed = False
+            session.rect = None
             return None
 
     async def clear_data(self) -> None:
@@ -522,6 +539,9 @@ class BrowserEngine:
         session = self.pages.pop(page_id, None)
         if session is None:
             return
+        # Give the tile back, or a busy session walks the slot index off
+        # the display and every later window loses the fast path.
+        self._tiles.release(page_id)
         try:
             await session.page.close()
         except Exception:
