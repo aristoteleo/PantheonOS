@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import re
 import threading
 import time
@@ -492,6 +493,78 @@ def make_frame_handler(engine: BrowserEngine):
             content_type="image/jpeg",
             headers=headers,
         )
+
+    return handler
+
+
+def make_stream_handler(engine: BrowserEngine):
+    """One WebSocket = one page's live feed plus its input backchannel.
+
+    The long-poll endpoint pays a full HTTP round trip per frame, which is
+    the whole reason the remote browser feels like a slideshow. Here frames
+    PUSH as the page paints (latest-wins: a consumer that falls behind skips
+    straight to the newest), a JSON status line precedes each frame, and
+    input events ride back on the same socket. The WebRTC gateway is the
+    primary consumer; anything that prefers push over poll may connect.
+    """
+
+    async def handler(request: web.Request) -> web.StreamResponse:
+        page_id = request.query.get("page", "")
+        session = engine.pages.get(page_id)
+        if session is None:
+            return web.Response(status=404, text="no such page")
+        ws = web.WebSocketResponse(heartbeat=20.0, max_msg_size=16 * 1024 * 1024)
+        await ws.prepare(request)
+
+        stop = asyncio.Event()
+
+        async def pump() -> None:
+            since = 0
+            while not stop.is_set() and not ws.closed:
+                try:
+                    fresh = await engine.call(engine.wait_frame(session, since))
+                except Exception:
+                    break
+                if stop.is_set() or ws.closed:
+                    break
+                if not fresh:
+                    continue  # poll window elapsed with no paint; heartbeats cover us
+                since = session.seq
+                frame = session.frame
+                if frame is None:
+                    continue
+                try:
+                    headers = await engine.call(engine.status_headers(session))
+                    status = {
+                        k.lower().replace("x-", "", 1): v
+                        for k, v in headers.items() if k != "X-Seq"
+                    }
+                    status.update({"t": "status", "seq": since})
+                    await ws.send_json(status)
+                    await ws.send_bytes(frame)
+                except Exception:
+                    break
+
+        pump_task = asyncio.create_task(pump())
+        try:
+            async for msg in ws:
+                if msg.type == web.WSMsgType.TEXT:
+                    try:
+                        payload = json.loads(msg.data)
+                    except Exception:
+                        continue
+                    events = payload.get("events") or []
+                    if events and page_id in engine.pages:
+                        try:
+                            await engine.call(engine.dispatch(page_id, events))
+                        except Exception:
+                            pass
+                elif msg.type in (web.WSMsgType.ERROR, web.WSMsgType.CLOSE, web.WSMsgType.CLOSING):
+                    break
+        finally:
+            stop.set()
+            pump_task.cancel()
+        return ws
 
     return handler
 

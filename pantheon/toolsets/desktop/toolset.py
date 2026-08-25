@@ -980,12 +980,15 @@ class DesktopToolSet(ToolSet):
     async def _browser_urls(self) -> tuple[str, str]:
         """Register the stream endpoints (once) and return their URLs."""
         server = await self._ensure_data_server()
-        from .browser import make_frame_handler, make_input_handler
+        from .browser import make_frame_handler, make_input_handler, make_stream_handler
 
         engine = self._browser_engine()
         if not self._browser_endpoints:
             await server.register_endpoint("browser-frame", make_frame_handler(engine))
             await server.register_endpoint("browser-input", make_input_handler(engine))
+            # Push variant: frames stream, input rides back — one socket, no
+            # per-frame round trip. The WebRTC gateway consumes this.
+            await server.register_endpoint("browser-stream", make_stream_handler(engine))
             self._browser_endpoints = True
         frame = server.url_for_endpoint("browser-frame")
         inp = server.url_for_endpoint("browser-input")
