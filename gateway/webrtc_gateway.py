@@ -53,6 +53,10 @@ class BrowserFeed:
         self.fresh = asyncio.Event()
         self.closed = asyncio.Event()
         self.status: dict = {}
+        # Called with each status dict — the gateway forwards it down the
+        # DataChannel so the client gets url/title/scroll without a second
+        # HTTP channel of its own.
+        self.on_status = None
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._http: aiohttp.ClientSession | None = None
 
@@ -69,7 +73,13 @@ class BrowserFeed:
                     try:
                         self.status = json.loads(msg.data)
                     except Exception:
-                        pass
+                        continue
+                    cb = self.on_status
+                    if cb is not None:
+                        try:
+                            cb(self.status)
+                        except Exception:
+                            pass
                 elif msg.type in (WSMsgType.ERROR, WSMsgType.CLOSE, WSMsgType.CLOSING):
                     break
         except Exception as e:
@@ -172,6 +182,18 @@ async def offer(request: web.Request) -> web.StreamResponse:
 
     @pc.on("datachannel")
     def on_datachannel(channel):
+        # Status rides DOWN this channel (url/title/scroll per paint) and
+        # input events ride UP it — the client needs no other connection.
+        def push_status(status: dict) -> None:
+            if channel.readyState == "open":
+                try:
+                    channel.send(json.dumps(status))
+                except Exception:
+                    pass
+        feed.on_status = push_status
+        if feed.status:
+            push_status(feed.status)
+
         @channel.on("message")
         def on_message(message):
             try:
