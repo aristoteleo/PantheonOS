@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
 import re
 import threading
 import time
@@ -133,6 +134,8 @@ class BrowserEngine:
         self._pw = None
         self._context = None
         self._launch_error: str | None = None
+        self._xvfb_display: str | None = None
+        self._xvfb_proc = None
         self.pages: dict[str, PageSession] = {}
 
     # ── the daemon loop ──────────────────────────────────────────────────
@@ -165,6 +168,48 @@ class BrowserEngine:
 
     # ── Chromium lifecycle (engine loop only) ────────────────────────────
 
+    async def _ensure_xvfb(self) -> str | None:
+        """Start a virtual X display and return DISPLAY, or None to stay
+        headless.
+
+        Headful-under-Xvfb is the foundation for native capture: headless
+        Chromium has no tab-capture stack at all (getDisplayMedia and
+        chrome.tabCapture both die with NotReadableError), and a real
+        display is also what lets arbitrary X11 GUI apps render for the
+        display-streaming path. Missing Xvfb (an older image) degrades to
+        headless — everything current keeps working.
+        """
+        if self._xvfb_display is not None:
+            return self._xvfb_display
+        import shutil
+        import subprocess
+
+        if shutil.which("Xvfb") is None:
+            logger.info("browser: no Xvfb on this image; staying headless")
+            return None
+        display = ":97"
+        try:
+            # 2x the viewport clamp (2560x1600) so force-device-scale-factor=2
+            # renders unclipped; 24-bit, no TCP listener.
+            self._xvfb_proc = subprocess.Popen(
+                ["Xvfb", display, "-screen", "0", "5120x3200x24", "-nolisten", "tcp"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            for _ in range(50):
+                probe = subprocess.run(
+                    ["xdpyinfo", "-display", display],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                if probe.returncode == 0:
+                    self._xvfb_display = display
+                    logger.info("browser: Xvfb up on {}", display)
+                    return display
+                await asyncio.sleep(0.1)
+            logger.warning("browser: Xvfb never answered; staying headless")
+        except Exception as e:
+            logger.warning("browser: Xvfb failed ({}); staying headless", e)
+        return None
+
     async def _ensure_browser(self) -> None:
         if self._context is not None:
             return
@@ -173,18 +218,21 @@ class BrowserEngine:
         try:
             from playwright.async_api import async_playwright
 
+            display = await self._ensure_xvfb()
             self._pw = await async_playwright().start()
             profile = Path.home() / ".pantheon" / "browser-profile"
             profile.mkdir(parents=True, exist_ok=True)
             self._context = await self._pw.chromium.launch_persistent_context(
                 user_data_dir=str(profile),
-                # New (not old) headless renders like a real Chrome and is far
-                # less fingerprintable — old headless is what most "this browser
-                # isn't secure" login blocks key off. A realistic UA + turning
-                # off the AutomationControlled blink feature removes the rest of
-                # the obvious tells, so site logins (incl. Google) behave like a
-                # normal browser rather than a bot.
-                headless=True,
+                # Headful under Xvfb when the image carries one (the capture
+                # stack needs a real display; headful is also the least
+                # fingerprintable form there is). Otherwise: new headless,
+                # which renders like a real Chrome and passes most login
+                # checks. A realistic UA + turning off the
+                # AutomationControlled blink feature removes the remaining
+                # obvious tells either way.
+                headless=display is None,
+                env={**os.environ, "DISPLAY": display} if display else None,
                 channel="chromium",
                 user_agent=(
                     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "

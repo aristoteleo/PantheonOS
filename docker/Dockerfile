@@ -290,6 +290,16 @@ ENV PATH="${VENV_PATH}/bin:$PATH" \
 # Using chromium is sufficient for most web scraping/automation tasks.
 RUN ${VENV_PATH}/bin/playwright install chromium --with-deps
 
+# Xvfb: a virtual X display so Chromium can run HEADFUL — headless Chromium
+# has no tab-capture stack (getDisplayMedia/tabCapture fail with
+# NotReadableError), and headful-under-Xvfb is what unlocks native VP8
+# capture for the browser stream AND display streaming for any X11 GUI app
+# (QuPath, ImageJ, napari...). x11-utils ships xdpyinfo for liveness checks.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    xvfb \
+    x11-utils \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
 # ============================================
 # Layer D — MCP Server Caches (~150-300MB, stable)
 # ============================================
