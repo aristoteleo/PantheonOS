@@ -210,6 +210,19 @@ class BrowserEngine:
             logger.warning("browser: Xvfb failed ({}); staying headless", e)
         return None
 
+    def _context_died(self) -> None:
+        """The browser process went away (crash, OOM kill, X hiccup).
+
+        Without this, `_context` stays truthy and every later call answers
+        'browser has been closed' until the sandbox itself is replaced —
+        one bad moment during a busy boot bricked the browser for the
+        pod's whole life. Dropping the state here lets the next call
+        relaunch from scratch.
+        """
+        logger.warning("browser: context died; will relaunch on next use")
+        self._context = None
+        self.pages.clear()
+
     async def _ensure_browser(self) -> None:
         if self._context is not None:
             return
@@ -233,6 +246,10 @@ class BrowserEngine:
                 # obvious tells either way.
                 headless=display is None,
                 env={**os.environ, "DISPLAY": display} if display else None,
+                # A pod's first minutes are a boot storm (pip prewarms, app
+                # installs); a headful first paint under that load can blow
+                # playwright's default 30s.
+                timeout=120_000,
                 channel="chromium",
                 user_agent=(
                     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -255,6 +272,9 @@ class BrowserEngine:
                     "--force-device-scale-factor=2",
                 ],
             )
+            ctx = self._context
+            ctx.on("close",
+                   lambda: self._context_died() if self._context is ctx else None)
             # navigator.webdriver=true is the single biggest automation tell;
             # drop it (and normalise a couple of headless quirks) before any
             # page script runs.
