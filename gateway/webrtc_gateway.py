@@ -26,6 +26,7 @@ import io
 import json
 import logging
 import os
+import time
 import uuid
 
 import aiohttp
@@ -35,8 +36,22 @@ import numpy as np
 from PIL import Image
 
 from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
-from aiortc.mediastreams import MediaStreamError
+from aiortc.codecs import vpx
+from aiortc.mediastreams import (
+    VIDEO_CLOCK_RATE,
+    VIDEO_TIME_BASE,
+    MediaStreamError,
+)
 import av
+
+# Desktop text at aiortc's default 500 kbps VP8 — hard-capped at 1.5 Mbps
+# even under REMB — smears into mush. The constants are read at call time,
+# so patching the module raises both the starting rate and the clamp. The
+# tunnel leg is datacenter-grade and sessions are few: spend bandwidth on
+# legibility.
+vpx.DEFAULT_BITRATE = 4_000_000
+vpx.MIN_BITRATE = 1_000_000
+vpx.MAX_BITRATE = 10_000_000
 
 logger = logging.getLogger("gateway")
 
@@ -120,26 +135,28 @@ class TunnelTrack(VideoStreamTrack):
     def __init__(self, feed: BrowserFeed):
         super().__init__()
         self.feed = feed
-        # Locked on the first frame, EVENED: vpx chokes on odd dimensions
-        # (the killer was a 1198x661 early-paint frame — the encoder died in
-        # the sender coroutine and recv() was simply never pulled again),
-        # and mid-stream size flips are nearly as hostile. One session, one
-        # size; stragglers get resized to it.
-        self._size: tuple[int, int] | None = None
+        self._t0: float | None = None
 
     async def recv(self) -> av.VideoFrame:
         try:
             data = await self.feed.next_frame()
             img = Image.open(io.BytesIO(data)).convert("RGB")
-            if self._size is None:
-                w, h = img.size
-                self._size = (max(2, w & ~1), max(2, h & ~1))
-            if img.size != self._size:
-                img = img.resize(self._size)
+            w, h = img.size
+            # vpx wants even dimensions: crop the odd pixel edge off rather
+            # than resample. Size otherwise follows the source — the encoder
+            # re-inits itself on a change, so a window resize stays sharp
+            # instead of being squeezed through the first frame's geometry.
+            if (w & 1) or (h & 1):
+                img = img.crop((0, 0, max(2, w & ~1), max(2, h & ~1)))
             frame = av.VideoFrame.from_ndarray(np.asarray(img), format="rgb24")
-            pts, time_base = await self.next_timestamp()
-            frame.pts = pts
-            frame.time_base = time_base
+            # Honest wall-clock pts. Frames are paint-driven and arrive at
+            # any cadence; VideoStreamTrack.next_timestamp() would stamp a
+            # fixed 30fps timeline (sleeping to enforce it during bursts),
+            # which is exactly wrong for this track.
+            if self._t0 is None:
+                self._t0 = time.monotonic()
+            frame.pts = int((time.monotonic() - self._t0) * VIDEO_CLOCK_RATE)
+            frame.time_base = VIDEO_TIME_BASE
             return frame
         except MediaStreamError:
             raise
