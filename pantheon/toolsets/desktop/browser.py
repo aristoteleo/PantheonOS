@@ -57,12 +57,15 @@ def normalize_url(url: str) -> str:
     return f"https://{url}"
 
 VIEW_W, VIEW_H = 1280, 800
-# Chromium's own tab strip + toolbar, in device pixels — the band an X11
-# grab must skip to show the page rather than the browser around it. Our
-# UI draws its own chrome, so this must never reach the viewer. Verified
-# against the sandbox's Chromium; a wrong value shows as a sliver of tab
-# strip at the top of the stream.
-WINDOW_CHROME_PX = 152
+# Chromium's own tab strip + toolbar, in DEVICE pixels — the band an X11
+# grab must skip to show the page rather than the browser around it (our
+# UI draws its own chrome, so this must never reach the viewer), and the
+# height a window needs ON TOP of its viewport so the page is not
+# clipped. Measured against the sandbox's Chromium by streaming an
+# all-red page and finding the first red row: 180 at
+# --force-device-scale-factor=2. Tied to that flag — the browser UI
+# scales with it. Too small and the stream wears a sliver of tab strip.
+WINDOW_CHROME_PX = 180
 JPEG_QUALITY = 70
 # The tunnel out of the sandbox caps at ~20 Mbps (measured; shared across
 # connections, so striping cannot help) — fps is bytes-bound. Dense (Retina)
@@ -464,15 +467,18 @@ class BrowserEngine:
         try:
             info = await session.cdp.send("Browser.getWindowForTarget")
             index = list(self.pages).index(session.id)
-            left, top = tile_rect(index, w, h)
+            # The window carries the viewport PLUS Chromium's own chrome;
+            # sized to the viewport alone, the page would be clipped by the
+            # height of the tab strip.
+            outer_h = h + WINDOW_CHROME_PX
+            left, top = tile_rect(index, w, outer_h)
             await session.cdp.send("Browser.setWindowBounds", {
                 "windowId": info["windowId"],
-                "bounds": {"left": left, "top": top, "width": w, "height": h,
+                "bounds": {"left": left, "top": top, "width": w, "height": outer_h,
                            "windowState": "normal"},
             })
-            # The window's frame is chrome, not page: capture the viewport
-            # area, which sits below the tab strip and toolbar.
-            session.rect = (left, top + WINDOW_CHROME_PX, w, max(2, h - WINDOW_CHROME_PX))
+            # Capture the page area only — below the tab strip and toolbar.
+            session.rect = (left, top + WINDOW_CHROME_PX, w, h)
             return session.rect
         except Exception as e:
             logger.info("browser: window placement failed: {}", e)

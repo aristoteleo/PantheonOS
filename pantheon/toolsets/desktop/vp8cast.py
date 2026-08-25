@@ -164,8 +164,18 @@ def make_cast_handler(engine):
 
         async def pump_x11() -> None:
             """The display drives the pace — no waiting on paint events."""
+            # Compared against the SESSION's rect as written, not the
+            # caster's evened copy — otherwise an odd width would look like
+            # a pending move on every single frame.
+            applied = tuple(session.rect or ())
             while not stop.is_set() and not ws.closed:
                 try:
+                    # A resize moves the OS window; the grab has to follow it
+                    # or it keeps capturing the rectangle the window left.
+                    rect = tuple(getattr(session, "rect", None) or ())
+                    if rect and rect != applied:
+                        await loop.run_in_executor(None, lambda r=rect: x11.move(*r))
+                        applied = rect
                     out = await loop.run_in_executor(None, x11.next_frame)
                     if out is None:
                         continue
