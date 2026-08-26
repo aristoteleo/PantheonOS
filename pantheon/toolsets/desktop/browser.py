@@ -78,14 +78,15 @@ def _cast_quality(dsf: float) -> int:
     return JPEG_QUALITY if dsf <= 1.2 else JPEG_QUALITY_DENSE
 
 
-# What one encoder can actually keep up with, in device pixels per frame.
-# VP8 costs roughly 27 ms per 3.2 Mpx frame in this sandbox, so ~3.5 Mpx is
-# the most that sustains 30 fps on one core. A viewer asking for a large
-# window AT 2x lands far past it — a full-width window at 2x measured
-# 4392x2844 (12.5 Mpx), which is ~10 fps no matter how good the pipeline
-# is. The client applies the same budget, but the pod enforces it: an old
-# or buggy client must not be able to ask for a stream nobody can encode.
-CAST_PIXEL_BUDGET = 3_500_000
+# What the capture pipeline can actually keep up with, in device pixels per
+# frame. Measured in this sandbox on a scrolling page, per frame: grab
+# ~10 ms, colour convert ~13 ms, H.264 encode ~8 ms at 11 Mpx — 30 fps with
+# room to spare, where VP8's 29 ms encode held it to 18. 9 Mpx leaves that
+# headroom for the agent's own work while keeping a full-size window near
+# 2x. The client applies the same budget; the pod enforces it, because an
+# old or buggy client must not be able to ask for a stream nobody can
+# encode.
+CAST_PIXEL_BUDGET = 9_000_000
 
 
 def cap_density(width: int, height: int, dsf: float) -> float:

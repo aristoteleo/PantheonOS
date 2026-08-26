@@ -147,6 +147,10 @@ class CastFeed:
         self.status: dict = {}
         self.on_status = None
         self.started = asyncio.Event()
+        # Which codec the sandbox is producing. Relayed packets are never
+        # re-encoded, so this decides the answer's codec preference — and a
+        # pod that predates the field is VP8, which is what it always was.
+        self.codec = "vp8"
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._http: aiohttp.ClientSession | None = None
 
@@ -164,6 +168,7 @@ class CastFeed:
                         continue
                     if parsed.get("t") == "frame":
                         meta = parsed
+                        self.codec = str(parsed.get("codec") or self.codec)
                         status = parsed.get("status")
                         if status:
                             self.status = status
@@ -332,7 +337,7 @@ async def offer(request: web.Request) -> web.StreamResponse:
             pass
         if cf.started.is_set() and not cf.closed.is_set():
             feed, feed_task, track = cf, cf_task, CastTrack(cf)
-            logger.info("session %s: sandbox VP8 cast", sid)
+            logger.info("session %s: sandbox cast (%s)", sid, cf.codec)
         else:
             cf_task.cancel()
     if feed is None:
@@ -384,15 +389,21 @@ async def offer(request: web.Request) -> web.StreamResponse:
     feed_task.add_done_callback(feed_done)
 
     await pc.setRemoteDescription(remote)
-    # The cast path relays VP8 packets verbatim, so VP8 MUST win the codec
-    # negotiation — pin it (rtx retained for retransmission).
+    # Relayed packets are never re-encoded, so the codec the sandbox chose
+    # MUST win the negotiation. aiortc packetizes either one from a raw
+    # av.Packet (Vp8Encoder.pack / H264Encoder.pack); picking the wrong one
+    # here would hand the browser a stream it cannot parse.
+    wanted = f"video/{getattr(feed, 'codec', 'vp8')}".lower()
     for transceiver in pc.getTransceivers():
         if transceiver.kind == "video":
             caps = RTCRtpSender.getCapabilities("video")
-            transceiver.setCodecPreferences([
-                c for c in caps.codecs
-                if c.mimeType.lower() in ("video/vp8", "video/rtx")
-            ])
+            prefs = [c for c in caps.codecs
+                     if c.mimeType.lower() in (wanted, "video/rtx")]
+            if prefs:
+                transceiver.setCodecPreferences(prefs)
+            else:
+                logger.warning("session %s: no %s support; leaving defaults",
+                               sid, wanted)
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
     # aiortc gathers ICE during setLocalDescription and returns when complete,

@@ -58,14 +58,14 @@ def test_no_room_is_explicit():
 
 
 def test_density_cap_keeps_frames_encodable():
-    from pantheon.toolsets.desktop.browser import cap_density
+    from pantheon.toolsets.desktop.browser import CAST_PIXEL_BUDGET, cap_density
 
     # A small window keeps full density.
     assert cap_density(1100, 700, 2.0) == 2.0
-    # The full-width window that measured 12.5 Mpx gets pulled back to the
-    # budget instead of asking for a stream nobody can encode at 30fps.
+    # A full-width window at 2x would be 11.7 Mpx; the cap pulls it back to
+    # the budget — still far above 1x, and encodable at 30fps.
     s = cap_density(2196, 1332, 2.0)
-    assert 1.0 < s < 1.2
-    assert 2196 * 1332 * s * s <= 3_600_000
+    assert 1.5 < s < 2.0
+    assert 2196 * 1332 * s * s <= CAST_PIXEL_BUDGET * 1.02
     # Never below 1: a viewer always gets at least CSS resolution.
-    assert cap_density(2560, 1600, 2.0) == 1.0
+    assert cap_density(3000, 3000, 2.0) == 1.0
