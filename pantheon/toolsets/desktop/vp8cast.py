@@ -205,7 +205,21 @@ def make_cast_handler(engine):
                     # A resize moves the OS window; the grab has to follow it
                     # or it keeps capturing the rectangle the window left.
                     rect = tuple(getattr(session, "rect", None) or ())
-                    if rect and rect != applied:
+                    if not rect:
+                        # The page lost its window (parked, no room, or a
+                        # failed placement). Its old rectangle is now empty
+                        # desk, and grabbing it would stream a flawless 30
+                        # fps of nothing. The screencast still works.
+                        logger.info("cast {}: window gone; JPEG path", page_id)
+                        try:
+                            x11.close()
+                        except Exception:
+                            pass
+                        await pump_jpeg()
+                        return
+                    if rect != applied:
+                        logger.info("cast {}: re-aiming {} -> {}",
+                                    page_id, applied or "(none)", rect)
                         await loop.run_in_executor(None, lambda r=rect: x11.move(*r))
                         applied = rect
                     out = await loop.run_in_executor(None, x11.next_frame)

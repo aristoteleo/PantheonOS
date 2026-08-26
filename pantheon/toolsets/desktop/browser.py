@@ -728,7 +728,9 @@ class BrowserEngine:
             # The window carries the viewport PLUS Chromium's own chrome;
             # sized to the viewport alone, the page would be clipped by the
             # height of the tab strip.
-            outer_h = h + WINDOW_CHROME_PX
+            # Even: Chromium rounds odd DIP heights down, and the read-back
+            # then disagrees with the placement by one pixel forever.
+            outer_h = (h + WINDOW_CHROME_PX) & ~1
             owner = self._windows.get(info["windowId"])
             if owner is not None and owner != session.id:
                 # This page opened as a TAB in another page's window rather

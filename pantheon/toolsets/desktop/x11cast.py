@@ -28,6 +28,8 @@ import fractions
 import time
 from typing import Any
 
+from pantheon.utils.log import logger
+
 KF_INTERVAL = 120
 TARGET_BITRATE = 4_000_000
 CLOCK = 90_000
@@ -140,6 +142,9 @@ class X11Caster:
         self._consumed = 0
         self._dropped = 0
         self._force_key = True
+        self._blank = False
+        self._blank_since: float | None = None
+        self._blank_logged = False
 
     # ── lifecycle ────────────────────────────────────────────────────────
 
@@ -188,6 +193,9 @@ class X11Caster:
         self.close()
         self._t0 = None  # the new stream restarts its own clock
         self._consumed = 0
+        self._blank = False
+        self._blank_since = None
+        self._blank_logged = False
         self.open()
 
     # ── frames ───────────────────────────────────────────────────────────
@@ -210,6 +218,39 @@ class X11Caster:
         enc.thread_count = 0
         self._enc = enc
         self._force_key = True
+
+    def _note_blankness(self, frame: Any) -> None:
+        """Say so when this stream is showing nothing but empty desk.
+
+        Aiming at a rectangle no window is in produces a perfectly healthy
+        stream of the X root background: right size, full frame rate, low
+        latency, and a picture that never changes. Every counter in the
+        system reads fine and the user says "it is frozen". Sampling the
+        luma plane costs nothing and turns that into a log line naming the
+        rectangle nobody is in.
+        """
+        try:
+            plane = frame.planes[0]
+            data = bytes(plane)
+            step = max(1, len(data) // 512)
+            flat = len(set(data[::step])) <= 2
+        except Exception:
+            return
+        if flat == self._blank:
+            self._blank_since = self._blank_since or time.monotonic()
+            if flat and self._blank_since and not self._blank_logged \
+                    and time.monotonic() - self._blank_since > 1.5:
+                self._blank_logged = True
+                logger.warning(
+                    "x11cast: {} is capturing blank desk — no window is at "
+                    "{},{} {}x{}", self.display, *self.rect)
+            return
+        self._blank = flat
+        self._blank_since = time.monotonic()
+        if not flat and self._blank_logged:
+            self._blank_logged = False
+            logger.info("x11cast: {} sees a window again at {},{} {}x{}",
+                        self.display, *self.rect)
 
     def next_frame(self) -> tuple[dict, bytes] | None:
         """Blocking. Returns (meta, vp8 payload), or None to try again."""
@@ -271,6 +312,7 @@ class X11Caster:
                     payload += bytes(pkt)
                     key = key or bool(pkt.is_keyframe)
                 self._count += 1
+                self._note_blankness(frame)
                 if not payload:
                     return None
                 return ({"t": "frame", "key": key, "pts": frame.pts,
