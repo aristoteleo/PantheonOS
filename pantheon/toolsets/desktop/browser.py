@@ -76,6 +76,24 @@ JPEG_QUALITY_DENSE = 55
 
 def _cast_quality(dsf: float) -> int:
     return JPEG_QUALITY if dsf <= 1.2 else JPEG_QUALITY_DENSE
+
+
+# What one encoder can actually keep up with, in device pixels per frame.
+# VP8 costs roughly 27 ms per 3.2 Mpx frame in this sandbox, so ~3.5 Mpx is
+# the most that sustains 30 fps on one core. A viewer asking for a large
+# window AT 2x lands far past it — a full-width window at 2x measured
+# 4392x2844 (12.5 Mpx), which is ~10 fps no matter how good the pipeline
+# is. The client applies the same budget, but the pod enforces it: an old
+# or buggy client must not be able to ask for a stream nobody can encode.
+CAST_PIXEL_BUDGET = 3_500_000
+
+
+def cap_density(width: int, height: int, dsf: float) -> float:
+    """Lower the density until the frame fits the encoder's budget."""
+    if width <= 0 or height <= 0:
+        return dsf
+    fit = (CAST_PIXEL_BUDGET / float(width * height)) ** 0.5
+    return max(1.0, min(dsf, round(fit, 2)))
 LONG_POLL_S = 20.0
 READ_LIMIT = 8000
 
@@ -623,6 +641,7 @@ class BrowserEngine:
                         w = max(320, min(2560, int(ev["w"])))
                         h = max(240, min(1600, int(ev["h"])))
                         s = max(1.0, min(2.0, float(ev.get("s") or 1)))
+                        s = cap_density(w, h, s)
                         prev_s = session.dsf
                         if (w, h, s) != (session.width, session.height, prev_s):
                             session.width, session.height = w, h

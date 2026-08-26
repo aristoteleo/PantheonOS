@@ -30,6 +30,8 @@ from typing import Any
 
 from aiohttp import web
 
+from pantheon.utils.log import logger
+
 KF_INTERVAL = 90          # forced keyframe cadence, in encoded frames
 TARGET_BITRATE = 4_000_000
 CLOCK = 90_000
@@ -138,11 +140,15 @@ def make_cast_handler(engine):
                     left, top, w, h = session.rect
                     x11 = X11Caster(f"{display}.0", left, top, w, h)
                     await asyncio.get_running_loop().run_in_executor(None, x11.open)
-            except Exception:
+                    logger.info("cast {}: X11 {}x{} ({:.1f} Mpx)",
+                                page_id, w, h, w * h / 1e6)
+            except Exception as e:
+                logger.info("cast {}: X11 unavailable ({}); JPEG path", page_id, e)
                 x11 = None
 
         caster = None
         if x11 is None:
+            logger.info("cast {}: JPEG transcode path", page_id)
             try:
                 caster = Vp8Caster()
             except Exception as e:  # av missing in an old image

@@ -55,3 +55,17 @@ def test_no_room_is_explicit():
     # A window taller than the screen cannot be placed disjointly.
     assert tile_rect(0, 2000, 4000, screen_w=4096, screen_h=2000) is None
     assert tile_rect(999, 1400, 900) is None
+
+
+def test_density_cap_keeps_frames_encodable():
+    from pantheon.toolsets.desktop.browser import cap_density
+
+    # A small window keeps full density.
+    assert cap_density(1100, 700, 2.0) == 2.0
+    # The full-width window that measured 12.5 Mpx gets pulled back to the
+    # budget instead of asking for a stream nobody can encode at 30fps.
+    s = cap_density(2196, 1332, 2.0)
+    assert 1.0 < s < 1.2
+    assert 2196 * 1332 * s * s <= 3_600_000
+    # Never below 1: a viewer always gets at least CSS resolution.
+    assert cap_density(2560, 1600, 2.0) == 1.0
