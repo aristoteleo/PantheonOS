@@ -519,8 +519,13 @@ class BrowserEngine:
         await self._attach(session)
         # Window placement and the page load are independent, and the user
         # is waiting on this call: run them together rather than in series.
-        placing = (asyncio.ensure_future(self.place_window(session))
-                   if windowed else None)
+        async def _shape() -> None:
+            # Density first, then a window sized to match it.
+            await self.set_metrics(session, session.width, session.height,
+                                   session.dsf)
+            await self.place_window(session)
+
+        placing = asyncio.ensure_future(_shape()) if windowed else None
         if url:
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
