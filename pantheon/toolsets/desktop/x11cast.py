@@ -39,6 +39,19 @@ CLOCK = 90_000
 # automatically when a window is too large to keep up, so the ceiling
 # degrades to what the machine can do rather than falling over.
 CAPTURE_FPS = 60
+
+
+def capture_fps(width: int, height: int) -> int:
+    """Frames a second worth ASKING for at this size.
+
+    x11grab hands over raw BGRA: a 9 Mpx window is 35 MB per frame, so 60
+    fps there is 2 GB/s of memory traffic before a single pixel is
+    encoded — the pipeline drowns and the picture crawls. Small windows
+    keep the full rate; large ones drop to 30, which they could not exceed
+    anyway.
+    """
+    area = max(1, width * height)
+    return CAPTURE_FPS if area <= 4_000_000 else 30
 # How old a captured frame may be before it is not worth encoding. Two
 # frame intervals at 30 fps: enough slack that ordinary jitter does not
 # throw work away, tight enough that the picture stays current.
@@ -95,7 +108,7 @@ class X11Caster:
         self.display = display
         # vpx wants even dimensions; crop rather than resample.
         self.rect = (left, top, max(2, width & ~1), max(2, height & ~1))
-        self.framerate = framerate
+        self.framerate = min(framerate, capture_fps(*self.rect[2:]))
         self._input: Any = None
         self._stream: Any = None
         self._demux: Any = None
@@ -150,6 +163,7 @@ class X11Caster:
         if rect == self.rect:
             return
         self.rect = rect
+        self.framerate = min(CAPTURE_FPS, capture_fps(rect[2], rect[3]))
         self.close()
         self._t0 = None  # the new stream restarts its own clock
         self._consumed = 0
@@ -180,6 +194,19 @@ class X11Caster:
             self.open()
         _, _, w, h = self.rect
         for packet in self._demux:  # type: ignore[union-attr]
+            # Staleness is decided on the PACKET, before decode. Decoding a
+            # 9 Mpx BGRA frame just to read its timestamp and throw it away
+            # was most of the work the pipeline was doing when it fell
+            # behind, which is why a big window crawled at 5 fps.
+            if self._count and packet.pts is not None and packet.time_base:
+                now = time.monotonic()
+                if self._t0 is None:
+                    self._t0, self._media0 = now, float(packet.pts * packet.time_base)
+                age = (now - self._t0) - (float(packet.pts * packet.time_base) - self._media0)
+                if age > STALE_AFTER_S:
+                    self._consumed += 1
+                    self._dropped += 1
+                    continue
             for frame in packet.decode():
                 # SKIP STALE FRAMES. x11grab is a live source: every frame
                 # it produces arrives in order, so an encode slower than the
