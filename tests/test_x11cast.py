@@ -31,9 +31,20 @@ def test_tiles_never_overlap():
 
 def test_tiles_wrap_to_the_next_row():
     w, h = 1400, 900
-    _, top0 = tile_rect(0, w, h)
-    _, top6 = tile_rect(6, w, h)  # 5 fit across 8192
-    assert top6 > top0
+    cols = 8192 // (w + 8)
+    _, top0 = tile_rect(0, w, h, screen_w=8192, screen_h=4608)
+    _, top_next = tile_rect(cols, w, h, screen_w=8192, screen_h=4608)
+    assert top_next > top0
+
+
+def test_the_display_holds_several_full_size_retina_windows():
+    """A 2300x1350 window at 2x, tiled — the size real use actually asks for.
+
+    The display was once exactly one such window wide, so the second
+    window silently lost its tile and dropped to the slow path.
+    """
+    w, h = 2300 * 2, 1350 * 2 + 180  # physical, chrome included
+    assert tile_rect(3, w, h) is not None
 
 
 
@@ -99,3 +110,49 @@ def test_a_slow_pipeline_still_emits_frames():
 
     assert encoded > 40, f"a slow pipeline still emits frames, got {encoded}"
     assert skipped > 0, "and it does skip the ones it cannot keep up with"
+
+
+def test_h264_stays_inside_the_link_budget():
+    """Hard motion must cost bandwidth the tunnel actually has.
+
+    Under plain CRF the encoder ignores bit_rate completely: scrolling
+    text measured over 200 Mbps against a ~20 Mbps shared tunnel. The
+    socket blocked, captured frames aged out before they could be sent,
+    and a pipeline that encodes at 130 fps delivered five. The ceiling is
+    the encoder's job, so this asserts the encoder does it — and checks
+    the unconstrained settings really would blow past it, so the test
+    cannot quietly stop meaning anything.
+    """
+    import fractions
+
+    import numpy as np
+    import av
+
+    from pantheon.toolsets.desktop.x11cast import CLOCK, H264_OPTS, LINK_BITRATE
+
+    def measured_bps(params: str) -> float:
+        w, h, fps, n = 1280, 720, 30, 45
+        enc = av.CodecContext.create("libx264", "w")
+        enc.width, enc.height, enc.pix_fmt = w, h, "yuv420p"
+        enc.time_base = fractions.Fraction(1, CLOCK)
+        enc.options = {k: v for k, v in H264_OPTS.items() if k != "x264-params"}
+        enc.options["x264-params"] = params
+        rng = np.random.default_rng(0)
+        tall = (rng.random((h + 300, w, 3)) * 255).astype(np.uint8)
+        total = 0
+        for i in range(n):
+            off = (i * 30) % 300
+            frame = av.VideoFrame.from_ndarray(
+                np.ascontiguousarray(tall[off:off + h]), format="rgb24")
+            frame = frame.reformat(format="yuv420p")
+            frame.pts = int(i * CLOCK / fps)
+            for pk in enc.encode(frame):
+                total += pk.size
+        return total * 8 / (n / fps)
+
+    capped = measured_bps(H264_OPTS["x264-params"])
+    assert capped <= LINK_BITRATE * 1.25, f"{capped/1e6:.1f} Mbps exceeds the cap"
+
+    uncapped = measured_bps("repeat-headers=1:keyint=120:scenecut=0")
+    assert uncapped > LINK_BITRATE * 2, (
+        "unconstrained encoding no longer overshoots; this test proves nothing")

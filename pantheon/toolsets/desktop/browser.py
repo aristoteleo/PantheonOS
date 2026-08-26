@@ -287,11 +287,14 @@ class BrowserEngine:
         try:
             # Room for several 2x windows side by side, since each streamed
             # page needs a DISJOINT tile (overlapping windows capture each
-            # other). 8192x4608 fits nine 2200x1500 tiles and costs ~150 MB
-            # of framebuffer, which this sandbox has to spare. 24-bit, no
-            # TCP listener.
+            # other). The size lives with the tiling code that depends on
+            # it — a literal here once drifted from it. 24-bit, no TCP
+            # listener.
+            from .x11cast import SCREEN_H, SCREEN_W
+
             self._xvfb_proc = subprocess.Popen(
-                ["Xvfb", display, "-screen", "0", "8192x4608x24", "-nolisten", "tcp"],
+                ["Xvfb", display, "-screen", "0", f"{SCREEN_W}x{SCREEN_H}x24",
+                 "-nolisten", "tcp"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             for _ in range(50):
@@ -396,12 +399,48 @@ class BrowserEngine:
                         await p.close()
                     except Exception:
                         pass
+            else:
+                await self._park_keeper()
             logger.info("browser: chromium up (profile {}, display {})",
                         profile, display or "headless")
         except Exception as e:
             self._launch_error = f"chromium unavailable: {e}"
             logger.error("browser: launch failed: {}", e)
             raise RuntimeError(self._launch_error) from e
+
+    async def _park_keeper(self) -> None:
+        """Get the blank window that keeps Chromium alive off the display.
+
+        Chromium opens it at its own default position — +20+20, full
+        default size — which is exactly where tile 0 lives. An X11 grab
+        takes whatever is topmost in the rectangle it was given, so a page
+        tiled at the origin streamed the keeper's empty white window
+        instead of itself: 30 fps of a picture that never changed, tab
+        switches that appeared to do nothing, scrolling that appeared to do
+        nothing. Nothing in the pipeline was wrong; it was pointed at the
+        wrong window. Park it in the same off-screen row as any other
+        window that has no tile, and the overlap cannot happen at all.
+        """
+        from .x11cast import PARK_Y
+
+        try:
+            keeper = next(iter(self._context.pages), None)  # type: ignore[union-attr]
+            if keeper is None:
+                return
+            if self._browser_cdp is None:
+                self._browser_cdp = await self._context.new_cdp_session(keeper)
+            info = await self._browser_cdp.send("Browser.getWindowForTarget")
+            await self._browser_cdp.send("Browser.setWindowBounds", {
+                "windowId": info["windowId"],
+                "bounds": {  # DIP, not pixels — see RASTER_SCALE.
+                    "left": 0, "top": PARK_Y // RASTER_SCALE,
+                    "width": 160, "height": 120, "windowState": "normal",
+                },
+            })
+        except Exception as e:
+            # Worth saying out loud: if this fails, streams may show the
+            # wrong window, and that is a confusing symptom to chase.
+            logger.warning("browser: could not park the keeper window: {}", e)
 
     async def _attach(self, session: PageSession) -> None:
         """Wire screencast + navigation events for a page."""

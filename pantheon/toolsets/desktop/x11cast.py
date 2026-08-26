@@ -32,6 +32,11 @@ KF_INTERVAL = 120
 TARGET_BITRATE = 4_000_000
 CLOCK = 90_000
 
+# What the encoder is allowed to put on the wire, in bits per second. The
+# tunnel out of the sandbox measures ~20 Mbps and is SHARED with everything
+# else the pod is doing, so this leaves room rather than claiming the lot.
+LINK_BITRATE = 8_000_000
+
 # Capture rate. At 30 fps a change waits up to 33 ms just to be SEEN, which
 # is a third of the whole hand-to-eye budget; 60 halves that and gives the
 # eye twice as many intermediate positions. The cost is real (convert +
@@ -67,6 +72,19 @@ STALE_AFTER_S = 0.066
 # and no lookahead, Baseline keeps every browser happy, and headers repeat
 # with each keyframe so a viewer joining mid-stream can decode. VP8 stays
 # as the fallback for gateways that predate the codec field.
+#
+# Rate control is a HARD CAP, not a target. Under plain CRF the encoder
+# ignores bit_rate entirely: a still page cost 8.6 Mbps and a scrolling one
+# demanded several times the ~20 Mbps the tunnel actually has. The socket
+# then blocked, captured frames aged out, and a stream that could encode at
+# 130 fps was delivering five — the "scrolling is choppy" report, start to
+# finish. With VBV the encoder spends quality instead of bandwidth when the
+# picture moves: a scroll goes momentarily softer and stays 30 fps, and the
+# text sharpens again the instant it stops, which is when it is read.
+# bufsize stays short (a quarter second) — a large buffer smooths bitrate
+# by letting latency grow, and latency is the thing we are protecting.
+# Shorter than that and x264 panics on hard content, throwing quality away
+# far below the cap it was given.
 H264_OPTS = {
     "preset": "ultrafast",
     "tune": "zerolatency",
@@ -80,7 +98,10 @@ H264_OPTS = {
     # and no counter anywhere said why. Recovery beats smoothness; the
     # gateway also forwards the browser's keyframe requests now, so a lost
     # start is repaired in a frame rather than in seconds.
-    "x264-params": "repeat-headers=1:keyint=120:scenecut=0",
+    "x264-params": (
+        "repeat-headers=1:keyint=120:scenecut=0"
+        f":vbv-maxrate={LINK_BITRATE // 1000}:vbv-bufsize={LINK_BITRATE // 4000}"
+    ),
 }
 VP8_OPTS = {
     "deadline": "realtime",
@@ -181,7 +202,9 @@ class X11Caster:
             enc = av.CodecContext.create(wanted, "w")
         enc.width, enc.height = w, h
         enc.pix_fmt = "yuv420p"
-        enc.bit_rate = TARGET_BITRATE
+        # H.264 runs constrained-quality (CRF under a VBV cap), so its
+        # ceiling is the link budget; VP8 here is plain target-rate.
+        enc.bit_rate = LINK_BITRATE if wanted == "libx264" else TARGET_BITRATE
         enc.time_base = fractions.Fraction(1, CLOCK)
         enc.options = dict(H264_OPTS if wanted == "libx264" else VP8_OPTS)
         enc.thread_count = 0
@@ -256,7 +279,13 @@ class X11Caster:
         return None
 
 
-SCREEN_W, SCREEN_H = 8192, 4608
+# Big enough that several full-size Retina windows get disjoint tiles: a
+# 2300x1350 window at 2x is 4600x2700 physical, so 8192x4608 fit exactly
+# ONE — every window after the first fell back to the slow screencast path
+# without saying so. Four fit here, and many more once windows are smaller.
+# The cost is Xvfb's framebuffer (w*h*4 = 340 MB), paid only in sandboxes
+# that actually open a browser.
+SCREEN_W, SCREEN_H = 12288, 6912
 # Where windows with no tile go: almost entirely off the bottom edge, so
 # they still render (the JPEG path needs that) without covering a tile.
 PARK_Y = SCREEN_H - 80
