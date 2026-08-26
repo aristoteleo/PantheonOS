@@ -206,6 +206,7 @@ class BrowserEngine:
         self._context = None
         self._launch_error: str | None = None
         self._browser_cdp = None
+        self._open_lock = asyncio.Lock()
         self._xvfb_display: str | None = None
         self._xvfb_proc = None
         from .x11cast import TilePool
@@ -500,6 +501,15 @@ class BrowserEngine:
         """
         if self._xvfb_display is None or self._context is None:
             return None
+        # SERIALIZED. Two opens racing here each snapshot the page list,
+        # each see the other's new page, and one of them claims it — the
+        # loser times out and falls back to a tab while its window stays
+        # where Chromium put it, unmanaged and on top of a tile. That is
+        # how a page ended up streaming someone else's blank window.
+        async with self._open_lock:
+            return await self._create_window_page(url)
+
+    async def _create_window_page(self, url: str):
         try:
             before = set(self._context.pages)
             keeper = next(iter(before), None)
@@ -510,15 +520,24 @@ class BrowserEngine:
             if self._browser_cdp is None:
                 self._browser_cdp = await self._context.new_cdp_session(keeper)
             cdp = self._browser_cdp
-            await cdp.send("Target.createTarget", {
+            res = await cdp.send("Target.createTarget", {
                 "url": url or "about:blank", "newWindow": True,
                 "width": VIEW_W, "height": VIEW_H,
             })
-            for _ in range(200):
+            for _ in range(500):
                 fresh = [p for p in self._context.pages if p not in before]
                 if fresh:
                     return fresh[0]
                 await asyncio.sleep(0.01)
+            # Never showed up: close it rather than leave a window nobody
+            # manages sitting on the display.
+            target_id = (res or {}).get("targetId")
+            if target_id:
+                try:
+                    await cdp.send("Target.closeTarget", {"targetId": target_id})
+                except Exception:
+                    pass
+            logger.info("browser: windowed open did not surface a page; using a tab")
         except Exception as e:
             logger.info("browser: windowed open failed ({}); using a tab", e)
         return None
