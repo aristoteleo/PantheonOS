@@ -309,9 +309,19 @@ class Session:
         self.pc = pc
         self.feed = feed
         self.feed_task = feed_task
+        # The keyframe-forwarding poller. Owned here so it dies with the
+        # session: leaked pollers are what turned a gateway that had been
+        # up for hours into one that answered every offer with a dead call
+        # (and filled the log with aiortc complaining about closed
+        # transports). Restarting the pod "fixed" it, which is the shape of
+        # a leak.
+        self.pli_task: asyncio.Task | None = None
 
     async def close(self) -> None:
         self.feed_task.cancel()
+        if self.pli_task is not None:
+            self.pli_task.cancel()
+            self.pli_task = None
         try:
             await self.pc.close()
         except Exception:
@@ -414,6 +424,8 @@ async def offer(request: web.Request) -> web.StreamResponse:
         attr = "_RTCRtpSender__force_keyframe"
         while not session_closed.is_set():
             await asyncio.sleep(0.15)
+            if pc.connectionState in ("failed", "closed", "disconnected"):
+                return
             for sender in pc.getSenders():
                 if getattr(sender, attr, False):
                     try:
@@ -435,7 +447,9 @@ async def offer(request: web.Request) -> web.StreamResponse:
             # viewer on a keyframe rather than mid-chain.
             if hasattr(feed, "request_keyframe"):
                 asyncio.ensure_future(feed.request_keyframe())
-            asyncio.ensure_future(forward_keyframe_requests())
+            # Once per session, never per reconnection.
+            if session.pli_task is None:
+                session.pli_task = asyncio.ensure_future(forward_keyframe_requests())
 
     # The feed dying (pod gone, page closed) must end the call, not freeze it.
     def feed_done(_):
