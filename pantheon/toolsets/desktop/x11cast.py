@@ -55,6 +55,8 @@ class X11Caster:
         self._enc: Any = None
         self._t0: float | None = None
         self._count = 0
+        self._consumed = 0
+        self._dropped = 0
         self._force_key = True
 
     # ── lifecycle ────────────────────────────────────────────────────────
@@ -89,6 +91,11 @@ class X11Caster:
     def request_keyframe(self) -> None:
         self._force_key = True
 
+    @property
+    def stats(self) -> dict:
+        return {"encoded": self._count, "dropped": self._dropped,
+                "consumed": self._consumed}
+
     def move(self, left: int, top: int, width: int, height: int) -> None:
         """Re-aim at a new rectangle (window moved or resized)."""
         rect = (left, top, max(2, width & ~1), max(2, height & ~1))
@@ -97,6 +104,7 @@ class X11Caster:
         self.rect = rect
         self.close()
         self._t0 = None  # the new stream restarts its own clock
+        self._consumed = 0
         self.open()
 
     # ── frames ───────────────────────────────────────────────────────────
@@ -127,10 +135,24 @@ class X11Caster:
         _, _, w, h = self.rect
         for packet in self._demux:  # type: ignore[union-attr]
             for frame in packet.decode():
-                if frame.format.name != "yuv420p" or (frame.width, frame.height) != (w, h):
-                    frame = frame.reformat(width=w, height=h, format="yuv420p")
+                # DROP WHEN BEHIND. x11grab is a live source at a fixed rate:
+                # every frame it produces arrives in order, so an encode
+                # slower than the frame interval does not lower the frame
+                # rate — it accumulates delay, without bound. The stream
+                # still measures 30 fps while drifting seconds behind the
+                # user's hand, which is exactly what "smooth numbers, feels
+                # laggy" means. Skipping frames we are late for keeps the
+                # picture current; the JPEG path has always done this
+                # (latest-wins), and the X11 path needs its own version.
                 if self._t0 is None:
                     self._t0 = time.monotonic()
+                self._consumed += 1
+                behind = (time.monotonic() - self._t0) - self._consumed / self.framerate
+                if self._count and behind > 1.0 / self.framerate:
+                    self._dropped += 1
+                    continue
+                if frame.format.name != "yuv420p" or (frame.width, frame.height) != (w, h):
+                    frame = frame.reformat(width=w, height=h, format="yuv420p")
                 frame.pts = int((time.monotonic() - self._t0) * CLOCK)
                 frame.time_base = fractions.Fraction(1, CLOCK)
                 force = self._force_key or self._count % KF_INTERVAL == 0
