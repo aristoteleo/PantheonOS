@@ -378,6 +378,18 @@ class BrowserEngine:
                     # raster 1:1, 1x viewers get a supersampled downscale.
                     # Coordinates stay CSS pixels throughout.
                     "--force-device-scale-factor=2",
+                    # There is no window manager on this display, so nothing
+                    # tells Chromium which of its windows a person can see.
+                    # Left to guess, it treats every unfocused window as
+                    # hidden and stops painting it — and a window resized
+                    # while unfocused gets a fresh, never-painted surface:
+                    # a flawless 30 fps of flat grey. Every window here is
+                    # watched by someone, so none of this backgrounding is
+                    # ever right.
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-renderer-backgrounding",
+                    "--disable-background-timer-throttling",
+                    "--disable-features=CalculateNativeWinOcclusion",
                 ],
             )
             ctx = self._context
