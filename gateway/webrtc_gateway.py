@@ -209,6 +209,14 @@ class CastFeed:
         except Exception:
             pass
 
+    async def request_keyframe(self) -> None:
+        if self._ws is None or self._ws.closed:
+            return
+        try:
+            await self._ws.send_json({"keyframe": True})
+        except Exception:
+            pass
+
 
 class CastTrack(MediaStreamTrack):
     """Yields av.Packet — aiortc's sender packs pre-encoded data as-is."""
@@ -350,6 +358,7 @@ async def offer(request: web.Request) -> web.StreamResponse:
     pc.addTrack(track)
     session = Session(sid, pc, feed, feed_task)
     SESSIONS[sid] = session
+    session_closed = asyncio.Event()
 
     @pc.on("datachannel")
     def on_datachannel(channel):
@@ -375,12 +384,37 @@ async def offer(request: web.Request) -> web.StreamResponse:
             if events:
                 asyncio.ensure_future(feed.send_input(events))
 
+    async def forward_keyframe_requests() -> None:
+        """Pass the browser's 'I lost the picture' up to the sandbox.
+
+        A receiver that misses the keyframe a call starts with — a packet
+        lost during ICE, a decoder reset — asks for a new one with a PLI.
+        aiortc handles that by telling ITS encoder to make a keyframe, but
+        we do not encode here; the sandbox does. Without this the browser
+        asks forever and shows nothing, which looks exactly like a dead
+        stream. The flag is private, so read it defensively and give up
+        quietly if a future aiortc renames it.
+        """
+        attr = "_RTCRtpSender__force_keyframe"
+        while not session_closed.is_set():
+            await asyncio.sleep(0.15)
+            for sender in pc.getSenders():
+                if getattr(sender, attr, False):
+                    try:
+                        setattr(sender, attr, False)
+                    except Exception:
+                        return
+                    await feed.request_keyframe()
+
     @pc.on("connectionstatechange")
     async def on_state():
         logger.info("session %s: %s", sid, pc.connectionState)
         if pc.connectionState in ("failed", "closed", "disconnected"):
+            session_closed.set()
             if SESSIONS.pop(sid, None):
                 await session.close()
+        elif pc.connectionState == "connected":
+            asyncio.ensure_future(forward_keyframe_requests())
 
     # The feed dying (pod gone, page closed) must end the call, not freeze it.
     def feed_done(_):

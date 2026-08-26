@@ -28,7 +28,7 @@ import fractions
 import time
 from typing import Any
 
-KF_INTERVAL = 600
+KF_INTERVAL = 120
 TARGET_BITRATE = 4_000_000
 CLOCK = 90_000
 
@@ -59,14 +59,15 @@ H264_OPTS = {
     "tune": "zerolatency",
     "profile": "baseline",
     "crf": "28",
-    # INTRA-REFRESH instead of periodic keyframes. A keyframe at 9 Mpx is
-    # 100-300 KB; on a ~20 Mbps tunnel that is a 100 ms stall every few
-    # seconds, and every frame behind it arrives late — the shape of the
-    # 234 ms outliers in the motion-to-photon tail. Intra-refresh spreads
-    # those intra blocks across ordinary frames instead, so the stream has
-    # no size spikes at all. keyint is left long because the refresh cycle,
-    # not an IDR, is what recovers the picture.
-    "x264-params": "repeat-headers=1:intra-refresh=1:keyint=600:scenecut=0",
+    # Keyframes every ~2 s, and NO intra-refresh. Refresh does remove the
+    # keyframe size spikes (a 9 Mpx IDR is 100-300 KB, a visible stall on a
+    # 20 Mbps tunnel) — but it also removes IDRs, and a browser that misses
+    # the one at the start of the call then has nothing to sync to. That is
+    # exactly what happened: the track ended, the video element sat at 2 px,
+    # and no counter anywhere said why. Recovery beats smoothness; the
+    # gateway also forwards the browser's keyframe requests now, so a lost
+    # start is repaired in a frame rather than in seconds.
+    "x264-params": "repeat-headers=1:keyint=120:scenecut=0",
 }
 VP8_OPTS = {
     "deadline": "realtime",
