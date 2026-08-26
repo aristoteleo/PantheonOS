@@ -109,6 +109,11 @@ WHEEL_STEP_S = 0.010
 # than showing every pixel of the journey.
 WHEEL_MAX_DEBT_PX = 4000
 
+# How long a page keeps painting after its last viewer leaves. Long enough
+# that a long-poll's next request finds the screencast still running,
+# short enough that a page nobody watches goes quiet.
+SCREENCAST_LINGER_S = 8.0
+
 LONG_POLL_S = 20.0
 READ_LIMIT = 8000
 
@@ -137,6 +142,8 @@ class PageSession:
         # How many consumers want screencast frames right now. Zero means
         # the JPEG encoder is off — the X11 path never turns it on at all.
         self.viewers = 0
+        self.casting = False
+        self.linger: Any = None
         self.loading = False
         self.can_back = False
         self.can_forward = False
@@ -545,15 +552,37 @@ class BrowserEngine:
 
     async def acquire_viewer(self, session: PageSession) -> None:
         """Someone wants frames: make sure the screencast is running."""
+        if session.linger is not None:
+            session.linger.cancel()
+            session.linger = None
         session.viewers += 1
-        if session.viewers == 1:
+        if session.viewers == 1 and not session.casting:
             await self._set_screencast(session, True)
 
     async def release_viewer(self, session: PageSession) -> None:
-        """The last consumer left: stop paying for frames nobody reads."""
+        """The last consumer left — stop, but not instantly.
+
+        The long-poll acquires for one frame at a time, so stopping the
+        moment it returns would start and stop the screencast on every
+        single poll: thrash, and a first frame that has to wait for the
+        next repaint. Linger instead, and let a page nobody is watching go
+        quiet a few seconds later.
+        """
         session.viewers = max(0, session.viewers - 1)
-        if session.viewers == 0:
-            await self._set_screencast(session, False)
+        if session.viewers:
+            return
+        if session.linger is not None:
+            session.linger.cancel()
+
+        async def _stop_soon() -> None:
+            try:
+                await asyncio.sleep(SCREENCAST_LINGER_S)
+            except asyncio.CancelledError:
+                return
+            if session.viewers == 0:
+                await self._set_screencast(session, False)
+
+        session.linger = asyncio.ensure_future(_stop_soon())
 
     async def _set_screencast(self, session: PageSession, on: bool) -> None:
         if session.cdp is None:
@@ -569,6 +598,7 @@ class BrowserEngine:
                 })
             else:
                 await session.cdp.send("Page.stopScreencast")
+            session.casting = on
         except Exception as e:
             logger.info("browser: screencast {} failed: {}",
                         "start" if on else "stop", e)
