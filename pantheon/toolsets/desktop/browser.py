@@ -212,6 +212,9 @@ class BrowserEngine:
         from .x11cast import TilePool
 
         self._tiles = TilePool()
+        # Which page owns which OS window, so a page that opened as a
+        # TAB in another page's window never moves that window.
+        self._windows: dict[int, str] = {}
         self.pages: dict[str, PageSession] = {}
 
     # ── the daemon loop ──────────────────────────────────────────────────
@@ -726,6 +729,20 @@ class BrowserEngine:
             # sized to the viewport alone, the page would be clipped by the
             # height of the tab strip.
             outer_h = h + WINDOW_CHROME_PX
+            owner = self._windows.get(info["windowId"])
+            if owner is not None and owner != session.id:
+                # This page opened as a TAB in another page's window rather
+                # than a window of its own. Moving it would drag the other
+                # page's window off its rectangle, and that page would then
+                # stream bare desk. A tab in someone else's window cannot be
+                # captured separately at all, so take the screencast path.
+                logger.info("browser: {} shares window {} with {}; JPEG path",
+                            session.id, info["windowId"], owner)
+                self._tiles.release(session.id)
+                session.windowed = False
+                session.rect = None
+                return None
+            self._windows[info["windowId"]] = session.id
             spot = self._tiles.place(session.id, w, outer_h)  # physical px
             if spot is None:
                 # No disjoint room left. A window with nowhere to go must be
@@ -756,8 +773,33 @@ class BrowserEngine:
                     "windowState": "normal",
                 },
             })
+            # Read the bounds back. Capturing a rectangle the window is not
+            # actually in is the single most confusing failure this system
+            # has: the stream is perfectly healthy — 30 fps, low latency,
+            # right size — and shows bare desk or somebody else's window,
+            # which looks like every transport bug in the book and is none
+            # of them. If the browser did not put the window where we asked,
+            # the log has to say so.
+            got = await session.cdp.send("Browser.getWindowBounds",
+                                         {"windowId": info["windowId"]})
+            b = got.get("bounds", {})
+            actual = (b.get("left", 0) * RASTER_SCALE,
+                      b.get("top", 0) * RASTER_SCALE,
+                      b.get("width", 0) * RASTER_SCALE,
+                      b.get("height", 0) * RASTER_SCALE)
+            if actual != (left, top, w, outer_h):
+                logger.warning(
+                    "browser: window {} for {} sits at {} but was placed at "
+                    "{}; the capture would show the wrong pixels",
+                    info["windowId"], session.id, actual,
+                    (left, top, w, outer_h))
+                left, top = actual[0], actual[1]
+                w, outer_h = actual[2] or w, actual[3] or outer_h
+                h = max(2, outer_h - WINDOW_CHROME_PX)
             # Capture the page area only — below the tab strip and toolbar.
             session.rect = (left, top + WINDOW_CHROME_PX, w, h)
+            logger.info("browser: {} -> window {} at {},{} {}x{}",
+                        session.id, info["windowId"], left, top, w, outer_h)
             return session.rect
         except Exception as e:
             logger.info("browser: window placement failed: {}", e)
@@ -806,6 +848,9 @@ class BrowserEngine:
         # Give the tile back, or a busy session walks the slot index off
         # the display and every later window loses the fast path.
         self._tiles.release(page_id)
+        for wid, owner in list(self._windows.items()):
+            if owner == page_id:
+                self._windows.pop(wid, None)
         try:
             await session.page.close()
         except Exception:
