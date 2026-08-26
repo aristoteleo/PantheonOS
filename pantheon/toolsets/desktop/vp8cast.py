@@ -146,14 +146,15 @@ def make_cast_handler(engine):
                 logger.info("cast {}: X11 unavailable ({}); JPEG path", page_id, e)
                 x11 = None
 
-        caster = None
+        # Built either way: the X11 pump falls back to it in place rather
+        # than dropping the viewer when capture fails mid-stream.
+        try:
+            caster = Vp8Caster()
+        except Exception as e:  # av missing in an old image
+            await ws.close(code=1011, message=str(e)[:100].encode())
+            return ws
         if x11 is None:
             logger.info("cast {}: JPEG transcode path", page_id)
-            try:
-                caster = Vp8Caster()
-            except Exception as e:  # av missing in an old image
-                await ws.close(code=1011, message=str(e)[:100].encode())
-                return ws
 
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
@@ -169,7 +170,14 @@ def make_cast_handler(engine):
             await ws.send_bytes(payload)
 
         async def pump_x11() -> None:
-            """The display drives the pace — no waiting on paint events."""
+            """The display drives the pace — no waiting on paint events.
+
+            A failure here used to `break` in silence: the socket closed,
+            the gateway logged 'Server disconnected', the browser showed a
+            2-pixel dead track, and nothing anywhere said why. Now it says
+            why, and falls back to the JPEG path instead of leaving the
+            viewer with nothing.
+            """
             # Compared against the SESSION's rect as written, not the
             # caster's evened copy — otherwise an odd width would look like
             # a pending move on every single frame.
@@ -187,8 +195,18 @@ def make_cast_handler(engine):
                         continue
                     meta, payload = out
                     await send(meta, payload, session.seq)
-                except Exception:
-                    break
+                except Exception as e:
+                    if ws.closed or stop.is_set():
+                        return
+                    logger.warning("cast {}: X11 pump failed ({}: {}); "
+                                   "falling back to the JPEG path",
+                                   page_id, type(e).__name__, str(e)[:160])
+                    try:
+                        x11.close()
+                    except Exception:
+                        pass
+                    await pump_jpeg()
+                    return
 
         async def pump_jpeg() -> None:
             since = 0
@@ -211,7 +229,10 @@ def make_cast_handler(engine):
                         continue
                     meta, payload = out
                     await send(meta, payload, since)
-                except Exception:
+                except Exception as e:
+                    if not (ws.closed or stop.is_set()):
+                        logger.warning("cast {}: JPEG pump failed ({}: {})",
+                                       page_id, type(e).__name__, str(e)[:160])
                     break
 
         pump = pump_x11 if x11 is not None else pump_jpeg
@@ -225,7 +246,9 @@ def make_cast_handler(engine):
                     except Exception:
                         continue
                     if payload.get("keyframe"):
-                        (x11 or caster).request_keyframe()
+                        if x11 is not None:
+                            x11.request_keyframe()
+                        caster.request_keyframe()
                     events = payload.get("events") or []
                     if events and page_id in engine.pages:
                         try:
