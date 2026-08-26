@@ -132,12 +132,16 @@ class BrowserFeed:
 
 
 class CastFeed:
-    """browser-cast: the sandbox already encoded VP8; we only relay.
+    """browser-cast: the sandbox already encoded the video; we only relay.
 
     Per frame the pod sends one JSON meta line then one binary payload.
-    Frames are strictly in-order (the pod's latest-wins sits BEFORE its
-    encoder), so this queue must never drop — a consumer that cannot keep
-    up is broken and the whole feed closes instead.
+    Frames are in-order and inter-dependent, so dropping one costs the
+    decoder its chain until the next keyframe — but a full queue must NOT
+    take the feed down with it. It did: nothing consumes this queue until
+    the answer is negotiated, and at 60 fps a 240-slot queue fills in the
+    four seconds that takes, so every call killed its own feed and then
+    failed with "RTCPeerConnection is closed". Now the oldest frames go,
+    and the pod is asked for a keyframe to rebuild the chain.
     """
 
     def __init__(self, cast_url: str):
@@ -151,6 +155,7 @@ class CastFeed:
         # re-encoded, so this decides the answer's codec preference — and a
         # pod that predates the field is VP8, which is what it always was.
         self.codec = "vp8"
+        self._chain_broken = False
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._http: aiohttp.ClientSession | None = None
 
@@ -181,13 +186,24 @@ class CastFeed:
                 elif msg.type == WSMsgType.BINARY:
                     if meta is None:
                         continue
-                    self.queue.put_nowait((meta, msg.data))
+                    while True:
+                        try:
+                            self.queue.put_nowait((meta, msg.data))
+                            break
+                        except asyncio.QueueFull:
+                            try:
+                                self.queue.get_nowait()
+                            except Exception:
+                                break
+                            self._chain_broken = True
+                    if self._chain_broken and self.queue.qsize() < 8:
+                        # Caught up: ask for a clean starting point.
+                        self._chain_broken = False
+                        await self.request_keyframe()
                     meta = None
                     self.started.set()
                 elif msg.type in (WSMsgType.ERROR, WSMsgType.CLOSE, WSMsgType.CLOSING):
                     break
-        except asyncio.QueueFull:
-            logger.warning("cast feed: consumer wedged, closing")
         except Exception as e:
             logger.info("cast feed ended: %s", e)
         finally:
@@ -404,7 +420,8 @@ async def offer(request: web.Request) -> web.StreamResponse:
                         setattr(sender, attr, False)
                     except Exception:
                         return
-                    await feed.request_keyframe()
+                    if hasattr(feed, "request_keyframe"):
+                        await feed.request_keyframe()
 
     @pc.on("connectionstatechange")
     async def on_state():
@@ -414,6 +431,10 @@ async def offer(request: web.Request) -> web.StreamResponse:
             if SESSIONS.pop(sid, None):
                 await session.close()
         elif pc.connectionState == "connected":
+            # Whatever piled up before negotiation is behind us; start the
+            # viewer on a keyframe rather than mid-chain.
+            if hasattr(feed, "request_keyframe"):
+                asyncio.ensure_future(feed.request_keyframe())
             asyncio.ensure_future(forward_keyframe_requests())
 
     # The feed dying (pod gone, page closed) must end the call, not freeze it.
