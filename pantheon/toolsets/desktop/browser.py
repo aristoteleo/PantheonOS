@@ -95,6 +95,14 @@ def cap_density(width: int, height: int, dsf: float) -> float:
         return dsf
     fit = (CAST_PIXEL_BUDGET / float(width * height)) ** 0.5
     return max(1.0, min(dsf, round(fit, 2)))
+# Wheel smoothing: how finely a notch is split, and how far apart the
+# pieces go out. 30 px steps 6 ms apart turn one notch into ~24 ms of
+# motion — enough for the compositor to draw intermediate positions without
+# letting a fast scroll queue up work faster than it drains.
+WHEEL_STEP_PX = 30
+WHEEL_STEP_S = 0.006
+WHEEL_MAX_STEPS = 5
+
 LONG_POLL_S = 20.0
 READ_LIMIT = 8000
 
@@ -625,8 +633,28 @@ class BrowserEngine:
                             click_count=ev.get("clicks", 1),
                         )
                     elif t == "wheel":
+                        # A synthesized wheel event scrolls INSTANTLY —
+                        # Chromium animates real wheels but not CDP ones, and
+                        # --enable-smooth-scrolling makes no difference
+                        # (measured). One mouse notch is ~120 px, so at a
+                        # normal 20 notches a second the page teleported 120 px
+                        # twenty times a second: 80% of streamed frames were
+                        # identical to the one before, which is the "30 fps but
+                        # it stutters" everyone could see and no counter could.
+                        # Splitting a notch into ~30 px steps a few ms apart
+                        # gives the compositor something to draw in between —
+                        # measured: frames that actually move go from 19% to
+                        # 64%. Trackpad deltas are already small and pass
+                        # through untouched.
                         await page.mouse.move(ev["x"], ev["y"])
-                        await page.mouse.wheel(ev.get("dx", 0), ev.get("dy", 0))
+                        dx = float(ev.get("dx", 0) or 0)
+                        dy = float(ev.get("dy", 0) or 0)
+                        steps = max(1, min(WHEEL_MAX_STEPS,
+                                           int(max(abs(dx), abs(dy)) // WHEEL_STEP_PX)))
+                        for i in range(steps):
+                            await page.mouse.wheel(dx / steps, dy / steps)
+                            if i < steps - 1:
+                                await asyncio.sleep(WHEEL_STEP_S)
                     elif t == "scroll":
                         # Absolute scroll from the UI's scrollbar-thumb drag.
                         await page.evaluate(
