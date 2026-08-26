@@ -6,6 +6,14 @@ echo "Pantheon Docker Container"
 echo "Mode: ${PANTHEON_MODE:-hub}"
 echo "========================================="
 
+# Warm the agent's import set in the background while the shell below does its
+# volume work. Modal lazy-loads image layers, so the first read of every .py
+# and .so pays a network fetch — measured as the difference between a 3-5.5 s
+# first import and a 0.84 s second one. Pulling the files now means the real
+# `python -m pantheon.chatroom` at the end imports from hot cache. Best effort
+# and fully detached: the boot never waits on it, and a failure costs nothing.
+( timeout 90 "${PANTHEON_RUNTIME_PYTHON:-python}" -c "import pantheon.chatroom" >/dev/null 2>&1 & )
+
 # Point pip, npm, R and apt at the Volume, so software a user installs is still
 # there after the sandbox is recreated. Sourced (not run) so the exports reach
 # the agent and every pty it spawns; see docker/pantheon-userspace.sh.
@@ -307,13 +315,19 @@ else
         mkdir -p /workspace/.pantheon "$DEFAULT_WS/.pantheon"
         echo "✓ Global store /workspace/.pantheon + default workspace $DEFAULT_WS ready"
 
-        # Keep the GLOBAL factory cache fresh every boot: global mode materializes
-        # factory into ~/.pantheon (=/workspace/.pantheon, now PERSISTENT), so stale
-        # copies would shadow an image upgrade's new templates. User data
-        # (projects.json, settings, .env, oauth) is untouched.
-        echo "Refreshing global factory template cache..."
-        rm -rf /workspace/.pantheon/agents /workspace/.pantheon/teams /workspace/.pantheon/prompts /workspace/.pantheon/skills /workspace/.pantheon/.factory_hashes.json
-        echo "✓ Factory cache cleared (re-materializes on startup)"
+        # The global factory cache is kept fresh by template_manager's
+        # smart-overwrite: .factory_hashes.json records what the factory last
+        # shipped, so an image upgrade updates exactly the files whose factory
+        # content changed, preserves user edits, and skips the rest — an image
+        # upgrade does NOT need this cache cleared. Clearing it here every boot
+        # (the previous behaviour) cost ~7 s of network-volume rm plus ~4 s
+        # re-materializing 180 files, on every cold start. Kept only as an
+        # escape hatch for a corrupted cache.
+        if [ "${PANTHEON_FORCE_FACTORY_REFRESH:-}" = "true" ]; then
+            echo "Refreshing global factory template cache (forced)..."
+            rm -rf /workspace/.pantheon/agents /workspace/.pantheon/teams /workspace/.pantheon/prompts /workspace/.pantheon/skills /workspace/.pantheon/.factory_hashes.json /workspace/.pantheon/.factory_fingerprint
+            echo "✓ Factory cache cleared (re-materializes on startup)"
+        fi
     else
         # Legacy layout: single workspace at the Volume root, ephemeral HOME.
         mkdir -p /workspace/.pantheon
@@ -441,16 +455,28 @@ EOF
     SETUP_HOOK="${VOLUME_ROOT}/.pantheon/on-start.sh"
     if [ -f "$SETUP_HOOK" ]; then
         SETUP_LOG=/tmp/pantheon-on-start.log
-        echo "[setup] running $SETUP_HOOK (log: $SETUP_LOG) ..."
-        if timeout "${PANTHEON_SETUP_TIMEOUT:-300}" bash "$SETUP_HOOK" > "$SETUP_LOG" 2>&1; then
-            echo "[setup] ✓ finished"
+        _run_setup_hook() {
+            if timeout "${PANTHEON_SETUP_TIMEOUT:-300}" bash "$SETUP_HOOK" > "$SETUP_LOG" 2>&1; then
+                echo "[setup] ✓ finished"
+            else
+                rc=$?
+                [ $rc -eq 124 ] && echo "[setup] ✗ timed out; continuing without it" \
+                                || echo "[setup] ✗ exited $rc; continuing without it"
+                tail -n 20 "$SETUP_LOG" 2>/dev/null | sed 's/^/[setup]   /'
+            fi
+            cp "$SETUP_LOG" "${VOLUME_ROOT}/.pantheon/on-start.log" 2>/dev/null || true
+        }
+        # Serial by default: "the hook has finished before the agent starts" is
+        # a guarantee users may rely on (install a tool, then ask the agent to
+        # use it). The background mode trades that guarantee for boot latency —
+        # a hook that only starts services or pre-pulls data can opt in.
+        if [ "${PANTHEON_SETUP_HOOK_BACKGROUND:-}" = "true" ]; then
+            echo "[setup] running $SETUP_HOOK in background (log: $SETUP_LOG) ..."
+            ( _run_setup_hook & )
         else
-            rc=$?
-            [ $rc -eq 124 ] && echo "[setup] ✗ timed out; continuing without it" \
-                            || echo "[setup] ✗ exited $rc; continuing without it"
-            tail -n 20 "$SETUP_LOG" 2>/dev/null | sed 's/^/[setup]   /'
+            echo "[setup] running $SETUP_HOOK (log: $SETUP_LOG) ..."
+            _run_setup_hook
         fi
-        cp "$SETUP_LOG" "${VOLUME_ROOT}/.pantheon/on-start.log" 2>/dev/null || true
     fi
 
     # Run the endpoint IN the default workspace so work_dir (=cwd at import) makes
@@ -471,8 +497,15 @@ EOF
     # correctly. This prints the answer where the failure actually happens.
     RUNPY="${PANTHEON_RUNTIME_PYTHON:-python}"
     echo "[launch] interpreter : $RUNPY -> $(command -v "$RUNPY" 2>/dev/null || echo '(not on PATH)')"
-    echo "[launch] sys.version : $("$RUNPY" -c 'import sys; print(sys.version.replace(chr(10)," "))' 2>&1 | head -1)"
-    echo "[launch] sys.prefix  : $("$RUNPY" -c 'import sys; print(sys.prefix)' 2>&1 | head -1)"
+    # The sys.version/sys.prefix/ldd probes each spawn an interpreter (~0.3 s
+    # apiece on a cold boot, ~1 s together), so the ones that cost a process
+    # are gated. The env echoes below stay: they are free and they were the
+    # lines that actually caught the libpython mixup.
+    if [ "${PANTHEON_BOOT_DIAG:-}" = "true" ]; then
+        echo "[launch] sys.version : $("$RUNPY" -c 'import sys; print(sys.version.replace(chr(10)," "))' 2>&1 | head -1)"
+        echo "[launch] sys.prefix  : $("$RUNPY" -c 'import sys; print(sys.prefix)' 2>&1 | head -1)"
+        echo "[launch] libpython   : $(ldd "$(readlink -f "$RUNPY")" 2>/dev/null | grep -i libpython | head -1)"
+    fi
     echo "[launch] PATH head   : $(echo "$PATH" | cut -c1-120)"
     # Everything that can make a binary load a different libpython. Three
     # guesses at which one it was — a stale activate.d hook, LD_LIBRARY_PATH,
@@ -484,7 +517,6 @@ EOF
     echo "[launch] PYTHONHOME  : ${PYTHONHOME:-unset}"
     echo "[launch] PYTHONPATH  : ${PYTHONPATH:-unset}"
     echo "[launch] CONDA_PREFIX: ${CONDA_PREFIX:-unset}"
-    echo "[launch] libpython   : $(ldd "$(readlink -f "${PANTHEON_RUNTIME_PYTHON:-python}")" 2>/dev/null | grep -i libpython | head -1)"
 
     # Execute the command with ID_HASH parameter
     if [ $# -eq 0 ]; then
