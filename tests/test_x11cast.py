@@ -69,3 +69,33 @@ def test_density_cap_keeps_frames_encodable():
     assert 2196 * 1332 * s * s <= CAST_PIXEL_BUDGET * 1.02
     # Never below 1: a viewer always gets at least CSS resolution.
     assert cap_density(3000, 3000, 2.0) == 1.0
+
+
+def test_a_slow_pipeline_still_emits_frames():
+    """The regression this pins: a consumer slower than the capture rate
+    must keep encoding the newest frame, not fall permanently behind and
+    emit nothing (which is what rate-accounting did — the stream went
+    black). Replays the staleness arithmetic without needing a display."""
+    from pantheon.toolsets.desktop.x11cast import STALE_AFTER_S
+
+    fps = 60.0
+    encode_cost = 1 / 25.0   # a pipeline that can only manage 25 fps
+    wall = 0.0
+    media0 = None
+    wall0 = None
+    encoded = skipped = 0
+    for i in range(300):
+        media = i / fps                      # the source's own clock
+        if media > wall:                     # frames cannot arrive early
+            wall = media
+        if wall0 is None:
+            wall0, media0 = wall, media
+        age = (wall - wall0) - (media - media0)
+        if encoded and age > STALE_AFTER_S:
+            skipped += 1
+            continue
+        encoded += 1
+        wall += encode_cost                  # encoding costs real time
+
+    assert encoded > 40, f"a slow pipeline still emits frames, got {encoded}"
+    assert skipped > 0, "and it does skip the ones it cannot keep up with"

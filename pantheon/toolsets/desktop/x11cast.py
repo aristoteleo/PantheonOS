@@ -39,6 +39,10 @@ CLOCK = 90_000
 # automatically when a window is too large to keep up, so the ceiling
 # degrades to what the machine can do rather than falling over.
 CAPTURE_FPS = 60
+# How old a captured frame may be before it is not worth encoding. Two
+# frame intervals at 30 fps: enough slack that ordinary jitter does not
+# throw work away, tight enough that the picture stays current.
+STALE_AFTER_S = 0.066
 
 # H.264 over VP8, measured in this sandbox on a scrolling text page:
 #
@@ -96,6 +100,7 @@ class X11Caster:
         self._demux: Any = None
         self._enc: Any = None
         self._t0: float | None = None
+        self._media0 = 0.0
         self._count = 0
         self._consumed = 0
         self._dropped = 0
@@ -175,20 +180,28 @@ class X11Caster:
         _, _, w, h = self.rect
         for packet in self._demux:  # type: ignore[union-attr]
             for frame in packet.decode():
-                # DROP WHEN BEHIND. x11grab is a live source at a fixed rate:
-                # every frame it produces arrives in order, so an encode
-                # slower than the frame interval does not lower the frame
-                # rate — it accumulates delay, without bound. The stream
-                # still measures 30 fps while drifting seconds behind the
-                # user's hand, which is exactly what "smooth numbers, feels
-                # laggy" means. Skipping frames we are late for keeps the
-                # picture current; the JPEG path has always done this
-                # (latest-wins), and the X11 path needs its own version.
+                # SKIP STALE FRAMES. x11grab is a live source: every frame
+                # it produces arrives in order, so an encode slower than the
+                # frame interval does not lower the frame rate — it
+                # accumulates delay, without bound, and the stream measures
+                # a fine 30 fps while drifting seconds behind the user's
+                # hand.
+                #
+                # The test is how old THIS frame is, taken from the capture
+                # clock the source stamps it with. Comparing consumption
+                # against the nominal rate instead — which is what this did
+                # first — makes a pipeline that cannot keep up fall behind
+                # by a little more every second, so every frame looks late
+                # forever and the stream goes black. Staleness self-corrects:
+                # skipping old frames reaches the newest one, and then
+                # nothing is stale.
+                now = time.monotonic()
                 if self._t0 is None:
-                    self._t0 = time.monotonic()
+                    self._t0 = now
+                    self._media0 = float(frame.time or 0.0)
                 self._consumed += 1
-                behind = (time.monotonic() - self._t0) - self._consumed / self.framerate
-                if self._count and behind > 1.0 / self.framerate:
+                age = (now - self._t0) - (float(frame.time or 0.0) - self._media0)
+                if self._count and age > STALE_AFTER_S:
                     self._dropped += 1
                     continue
                 if frame.format.name != "yuv420p" or (frame.width, frame.height) != (w, h):
