@@ -28,9 +28,17 @@ import fractions
 import time
 from typing import Any
 
-KF_INTERVAL = 90
+KF_INTERVAL = 600
 TARGET_BITRATE = 4_000_000
 CLOCK = 90_000
+
+# Capture rate. At 30 fps a change waits up to 33 ms just to be SEEN, which
+# is a third of the whole hand-to-eye budget; 60 halves that and gives the
+# eye twice as many intermediate positions. The cost is real (convert +
+# encode run twice as often), but drop-when-behind sheds frames
+# automatically when a window is too large to keep up, so the ceiling
+# degrades to what the machine can do rather than falling over.
+CAPTURE_FPS = 60
 
 # H.264 over VP8, measured in this sandbox on a scrolling text page:
 #
@@ -47,7 +55,14 @@ H264_OPTS = {
     "tune": "zerolatency",
     "profile": "baseline",
     "crf": "28",
-    "x264-params": "repeat-headers=1:keyint=90:scenecut=0",
+    # INTRA-REFRESH instead of periodic keyframes. A keyframe at 9 Mpx is
+    # 100-300 KB; on a ~20 Mbps tunnel that is a 100 ms stall every few
+    # seconds, and every frame behind it arrives late — the shape of the
+    # 234 ms outliers in the motion-to-photon tail. Intra-refresh spreads
+    # those intra blocks across ordinary frames instead, so the stream has
+    # no size spikes at all. keyint is left long because the refresh cycle,
+    # not an IDR, is what recovers the picture.
+    "x264-params": "repeat-headers=1:intra-refresh=1:keyint=600:scenecut=0",
 }
 VP8_OPTS = {
     "deadline": "realtime",
@@ -67,7 +82,7 @@ class X11Caster:
     """
 
     def __init__(self, display: str, left: int, top: int, width: int, height: int,
-                 framerate: int = 30, codec: str = "h264"):
+                 framerate: int = CAPTURE_FPS, codec: str = "h264"):
         import av
 
         self._av = av
