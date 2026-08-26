@@ -611,6 +611,24 @@ class BrowserEngine:
             logger.info("browser: screencast {} failed: {}",
                         "start" if on else "stop", e)
 
+    async def _park_window(self, session: PageSession, window_id: int,
+                           w: int, h: int) -> None:
+        """Move a window off the display so it cannot cover a tile."""
+        from .x11cast import PARK_Y, SCREEN_H, SCREEN_W
+
+        try:
+            await session.cdp.send("Browser.setWindowBounds", {
+                "windowId": window_id,
+                "bounds": {
+                    "left": 0, "top": PARK_Y // RASTER_SCALE,
+                    "width": min(w, SCREEN_W) // RASTER_SCALE,
+                    "height": min(h, SCREEN_H) // RASTER_SCALE,
+                    "windowState": "normal",
+                },
+            })
+        except Exception as e:
+            logger.info("browser: parking failed: {}", e)
+
     async def place_window(self, session: PageSession) -> tuple[int, int, int, int] | None:
         """Park this page's OS window on its own tile and remember the rect.
 
@@ -632,12 +650,18 @@ class BrowserEngine:
             slot = self._tiles.acquire(session.id)
             spot = tile_rect(slot, w, outer_h)  # physical pixels
             if spot is None:
-                # No disjoint room left. Overlapping windows capture each
-                # other, so this page streams the JPEG way instead.
+                # No disjoint room left. A window with nowhere to go must be
+                # PARKED off the bottom of the display, not left where
+                # Chromium first put it: the default position lands on top of
+                # tile 0, and an X11 grab takes whatever is on top — so the
+                # tiled page streamed the parked page's blank window, and
+                # scrolling appeared to do nothing at all.
                 self._tiles.release(session.id)
                 session.windowed = False
                 session.rect = None
-                logger.info("browser: no tile for {}; JPEG path", session.id)
+                await self._park_window(session, info["windowId"], w, outer_h)
+                logger.info("browser: no tile for {}; parked, JPEG path",
+                            session.id)
                 return None
             left, top = spot
             await session.cdp.send("Browser.setWindowBounds", {

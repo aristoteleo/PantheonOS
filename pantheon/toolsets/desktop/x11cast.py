@@ -229,8 +229,14 @@ class X11Caster:
         return None
 
 
+SCREEN_W, SCREEN_H = 8192, 4608
+# Where windows with no tile go: almost entirely off the bottom edge, so
+# they still render (the JPEG path needs that) without covering a tile.
+PARK_Y = SCREEN_H - 80
+
+
 def tile_rect(index: int, width: int, height: int,
-              screen_w: int = 8192, screen_h: int = 4608,
+              screen_w: int = SCREEN_W, screen_h: int = SCREEN_H,
               gap: int = 8) -> tuple[int, int] | None:
     """Where slot `index` sits, or None when the display has no room.
 
