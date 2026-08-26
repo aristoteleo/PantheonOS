@@ -209,6 +209,15 @@ def make_cast_handler(engine):
                     return
 
         async def pump_jpeg() -> None:
+            # Only this path needs Chromium's screencast; the X11 path reads
+            # the display and leaves the JPEG encoder off entirely.
+            await engine.call(engine.acquire_viewer(session))
+            try:
+                await _pump_jpeg_frames()
+            finally:
+                await engine.call(engine.release_viewer(session))
+
+        async def _pump_jpeg_frames() -> None:
             since = 0
             while not stop.is_set() and not ws.closed:
                 try:

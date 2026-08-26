@@ -43,6 +43,12 @@ class FakeEngine:
     async def status_headers(self, session):
         return {"X-Url": "https%3A%2F%2Fexample.com", "X-Seq": str(session.seq)}
 
+    async def acquire_viewer(self, session):
+        self.viewers = getattr(self, "viewers", 0) + 1
+
+    async def release_viewer(self, session):
+        self.viewers = max(0, getattr(self, "viewers", 0) - 1)
+
     async def dispatch(self, page_id, events):
         self.dispatched.extend(events)
 

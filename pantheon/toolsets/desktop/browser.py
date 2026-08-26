@@ -134,6 +134,9 @@ class PageSession:
         # that window sits on the virtual display.
         self.windowed = False
         self.rect: tuple[int, int, int, int] | None = None
+        # How many consumers want screencast frames right now. Zero means
+        # the JPEG encoder is off — the X11 path never turns it on at all.
+        self.viewers = 0
         self.loading = False
         self.can_back = False
         self.can_forward = False
@@ -409,13 +412,12 @@ class BrowserEngine:
             asyncio.ensure_future(_handle())
 
         cdp.on("Page.screencastFrame", on_frame)
-        await cdp.send("Page.startScreencast", {
-            "format": "jpeg",
-            "quality": _cast_quality(session.dsf),
-            "maxWidth": min(4096, int(session.width * session.dsf)),
-            "maxHeight": min(4096, int(session.height * session.dsf)),
-            "everyNthFrame": 1,
-        })
+        # NOT started here. A screencast runs the JPEG encoder continuously
+        # for as long as it is on, and every page used to start one the
+        # moment it opened and keep it forever — so N open pages cost N
+        # encoders whether or not anyone was watching, and at 2x density
+        # each frame is four times the work. That is why opening the fifth
+        # page took seconds. Consumers acquire it now (acquire_viewer).
 
         async def refresh_history() -> None:
             try:
@@ -540,6 +542,36 @@ class BrowserEngine:
                     session.id, (time.monotonic() - t_open) * 1000,
                     "window" if windowed else "tab")
         return session
+
+    async def acquire_viewer(self, session: PageSession) -> None:
+        """Someone wants frames: make sure the screencast is running."""
+        session.viewers += 1
+        if session.viewers == 1:
+            await self._set_screencast(session, True)
+
+    async def release_viewer(self, session: PageSession) -> None:
+        """The last consumer left: stop paying for frames nobody reads."""
+        session.viewers = max(0, session.viewers - 1)
+        if session.viewers == 0:
+            await self._set_screencast(session, False)
+
+    async def _set_screencast(self, session: PageSession, on: bool) -> None:
+        if session.cdp is None:
+            return
+        try:
+            if on:
+                await session.cdp.send("Page.startScreencast", {
+                    "format": "jpeg",
+                    "quality": _cast_quality(session.dsf),
+                    "maxWidth": min(4096, int(session.width * session.dsf)),
+                    "maxHeight": min(4096, int(session.height * session.dsf)),
+                    "everyNthFrame": 1,
+                })
+            else:
+                await session.cdp.send("Page.stopScreencast")
+        except Exception as e:
+            logger.info("browser: screencast {} failed: {}",
+                        "start" if on else "stop", e)
 
     async def place_window(self, session: PageSession) -> tuple[int, int, int, int] | None:
         """Park this page's OS window on its own tile and remember the rect.
@@ -719,18 +751,9 @@ class BrowserEngine:
                                 # The OS window must follow, or the X11 grab
                                 # keeps aiming at the old rectangle.
                                 await self.place_window(session)
-                            if session.cdp is not None:
-                                try:
-                                    await session.cdp.send("Page.stopScreencast")
-                                except Exception:
-                                    pass
-                                await session.cdp.send("Page.startScreencast", {
-                                    "format": "jpeg",
-                                    "quality": _cast_quality(s),
-                                    "maxWidth": min(4096, int(w * s)),
-                                    "maxHeight": min(4096, int(h * s)),
-                                    "everyNthFrame": 1,
-                                })
+                            if session.viewers:
+                                await self._set_screencast(session, False)
+                                await self._set_screencast(session, True)
                 except Exception as e:
                     logger.debug("browser: input {} failed: {}", t, e)
 
@@ -825,7 +848,11 @@ def make_frame_handler(engine: BrowserEngine):
         session = engine.pages.get(page_id)
         if session is None:
             return web.Response(status=404, text="no such page")
-        fresh = await engine.call(engine.wait_frame(session, since))
+        await engine.call(engine.acquire_viewer(session))
+        try:
+            fresh = await engine.call(engine.wait_frame(session, since))
+        finally:
+            await engine.call(engine.release_viewer(session))
         headers = await engine.call(engine.status_headers(session))
         if not fresh or not session.frame:
             return web.Response(status=204, headers=headers)
@@ -856,6 +883,7 @@ def make_stream_handler(engine: BrowserEngine):
             return web.Response(status=404, text="no such page")
         ws = web.WebSocketResponse(heartbeat=20.0, max_msg_size=16 * 1024 * 1024)
         await ws.prepare(request)
+        await engine.call(engine.acquire_viewer(session))
 
         stop = asyncio.Event()
 
@@ -905,6 +933,7 @@ def make_stream_handler(engine: BrowserEngine):
         finally:
             stop.set()
             pump_task.cancel()
+            await engine.call(engine.release_viewer(session))
         return ws
 
     return handler
