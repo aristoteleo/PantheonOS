@@ -18,6 +18,7 @@ This replaces the historical conflation where "project" was merely a grouping
 tag on a single central memory store.
 """
 
+import threading
 from pathlib import Path
 
 from loguru import logger
@@ -46,6 +47,14 @@ class ProjectRoutedMemoryManager:
         #: ids with no memory file, and when we last looked. See _dir_for_chat.
         self._chat_miss: dict[str, float] = {}
         self._search_dirs: list[str] = []
+        # Routing (active dir + search dirs) may be initialized in the
+        # background: every set_* touches the network-backed volume (resolve,
+        # mkdir), which costs whole seconds at boot. Readers that route by
+        # directory wait on this event instead of silently seeing home-only
+        # routing. Set by default so a manager without deferred init behaves
+        # exactly as before.
+        self._routing_ready = threading.Event()
+        self._routing_ready.set()
         self._mgr(self._home_dir)  # eagerly create home
 
     # ---- manager cache ----------------------------------------------------
@@ -66,6 +75,21 @@ class ProjectRoutedMemoryManager:
             self._managers[key] = m
         self._managers[raw] = m      # alias, so the next call skips resolve()
         return m
+
+    # ---- deferred routing -------------------------------------------------
+    def begin_deferred_routing(self) -> None:
+        """Mark routing as pending; readers block (bounded) until finished."""
+        self._routing_ready.clear()
+
+    def finish_deferred_routing(self) -> None:
+        self._routing_ready.set()
+
+    def _await_routing(self) -> None:
+        # Bounded: a wedged initializer degrades to today's failure mode
+        # (home-only routing, already tolerated) instead of hanging RPCs.
+        if not self._routing_ready.wait(timeout=15):
+            logger.warning("[memory routing] deferred init did not finish in 15s; proceeding with home-only routing")
+            self._routing_ready.set()
 
     # ---- active / search dirs --------------------------------------------
     def set_active_dir(self, d: str | Path) -> None:
@@ -94,6 +118,9 @@ class ProjectRoutedMemoryManager:
         )
 
     def _dir_for_chat(self, chat_id: str) -> str:
+        # Bounded block while boot-deferred routing finishes (seconds, once):
+        # routing by a half-initialized dir set would silently mis-file chats.
+        self._await_routing()
         cached = self._chat_dir.get(chat_id)
         if cached and self._exists_in(chat_id, cached):
             return cached
@@ -152,11 +179,13 @@ class ProjectRoutedMemoryManager:
 
     # active-targeted
     def new_memory(self, name: str | None = None):
+        self._await_routing()
         memory = self._mgr(self._active_dir).new_memory(name)
         self._chat_dir[memory.id] = self._active_dir
         return memory
 
     def list_memory_metadata(self, include_errors: bool = False):
+        self._await_routing()
         return self._mgr(self._active_dir).list_memory_metadata(include_errors)
 
     # ---- explicit-project ops (for per-window / multi-project views) ------
