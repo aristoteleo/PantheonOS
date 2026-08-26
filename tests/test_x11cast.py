@@ -103,6 +103,8 @@ def test_h264_stays_inside_the_link_budget():
         enc = av.CodecContext.create("libx264", "w")
         enc.width, enc.height, enc.pix_fmt = w, h, "yuv420p"
         enc.time_base = fractions.Fraction(1, CLOCK)
+        enc.framerate = fractions.Fraction(fps, 1)
+        enc.bit_rate = LINK_BITRATE
         enc.options = {k: v for k, v in H264_OPTS.items() if k != "x264-params"}
         enc.options["x264-params"] = params
         rng = np.random.default_rng(0)
@@ -120,6 +122,14 @@ def test_h264_stays_inside_the_link_budget():
 
     capped = measured_bps(H264_OPTS["x264-params"])
     assert capped <= LINK_BITRATE * 1.25, f"{capped/1e6:.1f} Mbps exceeds the cap"
+    # ...and SPENDS it. A cap the encoder cannot reach is not rate control,
+    # it is starvation: told nothing about the frame rate, x264 read one
+    # from the 90 kHz timestamp base and gave every frame a ninth of its
+    # budget, which showed up as torn, half-updated text during a scroll
+    # while the link sat idle.
+    assert capped >= LINK_BITRATE * 0.5, (
+        f"{capped/1e6:.1f} Mbps of an {LINK_BITRATE/1e6:.0f} Mbps budget — "
+        "the encoder is being starved, not capped")
 
     uncapped = measured_bps("repeat-headers=1:keyint=120:scenecut=0")
     assert uncapped > LINK_BITRATE * 2, (

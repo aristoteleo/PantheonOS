@@ -214,6 +214,14 @@ class X11Caster:
         # ceiling is the link budget; VP8 here is plain target-rate.
         enc.bit_rate = LINK_BITRATE if wanted == "libx264" else TARGET_BITRATE
         enc.time_base = fractions.Fraction(1, CLOCK)
+        # TELL THE ENCODER THE FRAME RATE. Timestamps are in 90 kHz ticks
+        # because that is what RTP wants, and from a 1/90000 time base the
+        # rate controller infers a nonsense frame rate and divides the
+        # bitrate budget by it: every frame got a ninth of the bits it was
+        # entitled to, and a scroll came out as torn, half-updated text
+        # while the link sat 96% idle. Measured on scrolling text at
+        # 2560x1440: 0.94 Mbps without this line, 8.30 with it.
+        enc.framerate = fractions.Fraction(self.framerate, 1)
         enc.options = dict(H264_OPTS if wanted == "libx264" else VP8_OPTS)
         enc.thread_count = 0
         self._enc = enc
