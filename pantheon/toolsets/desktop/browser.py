@@ -187,6 +187,7 @@ class BrowserEngine:
         self._pw = None
         self._context = None
         self._launch_error: str | None = None
+        self._browser_cdp = None
         self._xvfb_display: str | None = None
         self._xvfb_proc = None
         from .x11cast import TilePool
@@ -300,6 +301,7 @@ class BrowserEngine:
         """
         logger.warning("browser: context died; will relaunch on next use")
         self._context = None
+        self._browser_cdp = None
         self.pages.clear()
 
     async def _ensure_browser(self) -> None:
@@ -486,21 +488,26 @@ class BrowserEngine:
             keeper = next(iter(before), None)
             if keeper is None:
                 return None
-            cdp = await self._context.new_cdp_session(keeper)
+            # One CDP session for the life of the browser: opening a fresh
+            # one per page costs a round trip on the path the user waits on.
+            if self._browser_cdp is None:
+                self._browser_cdp = await self._context.new_cdp_session(keeper)
+            cdp = self._browser_cdp
             await cdp.send("Target.createTarget", {
                 "url": url or "about:blank", "newWindow": True,
                 "width": VIEW_W, "height": VIEW_H,
             })
-            for _ in range(80):
+            for _ in range(200):
                 fresh = [p for p in self._context.pages if p not in before]
                 if fresh:
                     return fresh[0]
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.01)
         except Exception as e:
             logger.info("browser: windowed open failed ({}); using a tab", e)
         return None
 
     async def open_page(self, url: str = "") -> PageSession:
+        t_open = time.monotonic()
         await self._ensure_browser()
         page = await self._open_windowed(url)
         windowed = page is not None
@@ -510,13 +517,23 @@ class BrowserEngine:
         session.windowed = windowed
         self.pages[session.id] = session
         await self._attach(session)
-        if windowed:
-            await self.place_window(session)
+        # Window placement and the page load are independent, and the user
+        # is waiting on this call: run them together rather than in series.
+        placing = (asyncio.ensure_future(self.place_window(session))
+                   if windowed else None)
         if url:
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
             except Exception as e:
                 logger.warning("browser: initial goto {} failed: {}", url, e)
+        if placing is not None:
+            try:
+                await placing
+            except Exception as e:
+                logger.info("browser: window placement failed: {}", e)
+        logger.info("browser: page {} open in {:.0f} ms ({})",
+                    session.id, (time.monotonic() - t_open) * 1000,
+                    "window" if windowed else "tab")
         return session
 
     async def place_window(self, session: PageSession) -> tuple[int, int, int, int] | None:

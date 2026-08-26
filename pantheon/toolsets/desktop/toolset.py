@@ -995,6 +995,18 @@ class DesktopToolSet(ToolSet):
             # packets into RTP without re-encoding.
             await server.register_endpoint("browser-cast", make_cast_handler(engine))
             self._browser_endpoints = True
+            # Warm Chromium now, in the background. It takes seconds to
+            # start (Xvfb, profile, first paint), and paying that on the
+            # user's first page open is the difference between "opening a
+            # tab" and "waiting for something to happen".
+            async def _prewarm():
+                try:
+                    await engine.call(engine._ensure_browser())
+                    logger.info("browser: prewarmed")
+                except Exception as e:
+                    logger.info("browser: prewarm skipped ({})", e)
+
+            asyncio.ensure_future(_prewarm())
         frame = server.url_for_endpoint("browser-frame")
         inp = server.url_for_endpoint("browser-input")
         if not frame or not inp:
