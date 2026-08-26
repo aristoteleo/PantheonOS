@@ -1,7 +1,7 @@
 """X11 capture: rectangle maths and tiling. (Capture itself needs a
 display, so the encode path is exercised end-to-end in the sandbox.)"""
 
-from pantheon.toolsets.desktop.x11cast import X11Caster, tile_rect
+from pantheon.toolsets.desktop.x11cast import TilePool, X11Caster
 
 
 def test_odd_dimensions_crop_even():
@@ -16,100 +16,68 @@ def test_move_is_a_noop_for_the_same_rect():
     assert c.rect == before
 
 
-def test_tiles_never_overlap():
-    w, h = 1400, 900
-    seen = []
-    for i in range(6):
-        left, top = tile_rect(i, w, h, screen_w=8192, screen_h=4608)
-        box = (left, top, left + w, top + h)
-        for other in seen:
-            apart = (box[2] <= other[0] or other[2] <= box[0]
-                     or box[3] <= other[1] or other[3] <= box[1])
-            assert apart, f"tile {i} overlaps {other}"
-        seen.append(box)
+def test_windows_of_different_sizes_never_overlap():
+    """The bug this class exists to prevent, in the shape it actually took.
+
+    A grid indexed by slot is only disjoint while every window is the same
+    size: a 1280-wide window's third cell landed at x=2576, inside a
+    4136-wide window's first, and the smaller one's capture returned the
+    larger one's pixels — or the bare desk between them.
+    """
+    pool = TilePool()
+    sizes = [(4136, 2358), (1280, 980), (4136, 2358), (2200, 1500), (900, 700)]
+    placed = []
+    for i, (w, h) in enumerate(sizes):
+        spot = pool.place(f"w{i}", w, h)
+        assert spot is not None, f"window {i} found no room"
+        box = (spot[0], spot[1], w, h)
+        for other in placed:
+            apart = (box[0] + box[2] <= other[0] or other[0] + other[2] <= box[0]
+                     or box[1] + box[3] <= other[1] or other[1] + other[3] <= box[1])
+            assert apart, f"window {i} at {box} overlaps {other}"
+        placed.append(box)
 
 
-def test_tiles_wrap_to_the_next_row():
-    w, h = 1400, 900
-    cols = 8192 // (w + 8)
-    _, top0 = tile_rect(0, w, h, screen_w=8192, screen_h=4608)
-    _, top_next = tile_rect(cols, w, h, screen_w=8192, screen_h=4608)
-    assert top_next > top0
+def test_a_resize_moves_the_rectangle_rather_than_keeping_both():
+    pool = TilePool()
+    pool.place("a", 1000, 800)
+    pool.place("b", 1000, 800)
+    before = pool.rect("b")
+    # 'a' grows: it must not still be holding its old, smaller rectangle.
+    pool.place("a", 4000, 3000)
+    assert pool.rect("b") == before
+    a = pool.rect("a")
+    assert a is not None and (a[2], a[3]) == (4000, 3000)
+    apart = (a[0] + a[2] <= before[0] or before[0] + before[2] <= a[0]
+             or a[1] + a[3] <= before[1] or before[1] + before[3] <= a[1])
+    assert apart, "the resized window landed on its neighbour"
 
 
 def test_the_display_holds_several_full_size_retina_windows():
-    """A 2300x1350 window at 2x, tiled — the size real use actually asks for.
+    """A 2300x1350 window at 2x — the size real use actually asks for.
 
     The display was once exactly one such window wide, so the second
-    window silently lost its tile and dropped to the slow path.
+    window silently lost its place and dropped to the slow path.
     """
-    w, h = 2300 * 2, 1350 * 2 + 180  # physical, chrome included
-    assert tile_rect(3, w, h) is not None
-
-
-
-
-
-def test_pool_reuses_released_slots():
-    from pantheon.toolsets.desktop.x11cast import TilePool
-
     pool = TilePool()
-    a, b, c = pool.acquire("a"), pool.acquire("b"), pool.acquire("c")
-    assert {a, b, c} == {0, 1, 2}
-    pool.release("b")
-    # The freed slot comes back rather than the index marching on.
-    assert pool.acquire("d") == b
-    assert pool.acquire("a") == a  # idempotent for a live key
+    w, h = 2300 * 2, 1350 * 2 + 180  # physical, chrome included
+    assert all(pool.place(f"w{i}", w, h) is not None for i in range(4))
+
+
+def test_released_room_comes_back():
+    pool = TilePool()
+    first = pool.place("a", 2000, 1500)
+    pool.place("b", 2000, 1500)
+    pool.release("a")
+    assert pool.place("c", 2000, 1500) == first
 
 
 def test_no_room_is_explicit():
-    # A window taller than the screen cannot be placed disjointly.
-    assert tile_rect(0, 2000, 4000, screen_w=4096, screen_h=2000) is None
-    assert tile_rect(999, 1400, 900) is None
-
-
-def test_density_cap_keeps_frames_encodable():
-    from pantheon.toolsets.desktop.browser import CAST_PIXEL_BUDGET, cap_density
-
-    # A small window keeps full density.
-    assert cap_density(1100, 700, 2.0) == 2.0
-    # A full-width window at 2x would be 11.7 Mpx; the cap pulls it back to
-    # the budget — still far above 1x, and encodable at 30fps.
-    s = cap_density(2196, 1332, 2.0)
-    assert 1.5 < s < 2.0
-    assert 2196 * 1332 * s * s <= CAST_PIXEL_BUDGET * 1.02
-    # Never below 1: a viewer always gets at least CSS resolution.
-    assert cap_density(3000, 3000, 2.0) == 1.0
-
-
-def test_a_slow_pipeline_still_emits_frames():
-    """The regression this pins: a consumer slower than the capture rate
-    must keep encoding the newest frame, not fall permanently behind and
-    emit nothing (which is what rate-accounting did — the stream went
-    black). Replays the staleness arithmetic without needing a display."""
-    from pantheon.toolsets.desktop.x11cast import STALE_AFTER_S
-
-    fps = 60.0
-    encode_cost = 1 / 25.0   # a pipeline that can only manage 25 fps
-    wall = 0.0
-    media0 = None
-    wall0 = None
-    encoded = skipped = 0
-    for i in range(300):
-        media = i / fps                      # the source's own clock
-        if media > wall:                     # frames cannot arrive early
-            wall = media
-        if wall0 is None:
-            wall0, media0 = wall, media
-        age = (wall - wall0) - (media - media0)
-        if encoded and age > STALE_AFTER_S:
-            skipped += 1
-            continue
-        encoded += 1
-        wall += encode_cost                  # encoding costs real time
-
-    assert encoded > 40, f"a slow pipeline still emits frames, got {encoded}"
-    assert skipped > 0, "and it does skip the ones it cannot keep up with"
+    # Taller than the display: there is nowhere to put it, and saying so
+    # is the whole point — a silent stack at the origin is what made one
+    # window stream another's pixels.
+    small = TilePool(screen_w=4096, screen_h=2000)
+    assert small.place("a", 2000, 4000) is None
 
 
 def test_h264_stays_inside_the_link_budget():

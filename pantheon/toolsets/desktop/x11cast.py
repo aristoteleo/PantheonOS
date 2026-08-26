@@ -291,47 +291,58 @@ SCREEN_W, SCREEN_H = 12288, 6912
 PARK_Y = SCREEN_H - 80
 
 
-def tile_rect(index: int, width: int, height: int,
-              screen_w: int = SCREEN_W, screen_h: int = SCREEN_H,
-              gap: int = 8) -> tuple[int, int] | None:
-    """Where slot `index` sits, or None when the display has no room.
-
-    Overlap would make one window's capture show another's pixels — the
-    failure looks like a black or wrong-page stream, so running out of
-    room has to be an explicit None the caller can fall back on, never a
-    silent stack at the origin. Nobody ever looks at this display
-    directly, so the layout only has to be disjoint, not pretty.
-    """
-    cols = max(1, screen_w // max(1, width + gap))
-    col = index % cols
-    row = index // cols
-    left = col * (width + gap)
-    top = row * (height + gap)
-    if top + height > screen_h or left + width > screen_w:
-        return None
-    return left, top
+def _overlaps(a: tuple[int, int, int, int],
+              b: tuple[int, int, int, int], gap: int = 0) -> bool:
+    return not (a[0] + a[2] + gap <= b[0] or b[0] + b[2] + gap <= a[0]
+                or a[1] + a[3] + gap <= b[1] or b[1] + b[3] + gap <= a[1])
 
 
 class TilePool:
-    """Hands out disjoint slots and takes them back when windows close.
+    """Disjoint rectangles for windows, whatever size each one is.
 
-    Without reuse, a session that opens and closes pages walks the slot
-    index off the display and every later window falls back to the slower
-    path for no reason.
+    This used to hand out an index into a grid whose cell was the size of
+    the window asking — which is only disjoint while every window is the
+    same size. A 1280-wide window's third cell landed at x=2576, right on
+    top of a 4136-wide window's first, and since an X11 grab takes
+    whatever is topmost in the rectangle it was given, one window streamed
+    the other's pixels or the bare desk between them. That looked like
+    every transport bug in the book and was none of them.
+
+    Windows are packed as actual rectangles now: candidate corners are the
+    origin and the right/bottom edges of what is already placed, and the
+    topmost-leftmost corner that fits and touches nothing wins. Running
+    out of room stays an explicit None the caller falls back on, never a
+    silent stack at the origin.
     """
 
-    def __init__(self) -> None:
-        self._slots: dict[str, int] = {}
+    def __init__(self, screen_w: int = SCREEN_W, screen_h: int = SCREEN_H,
+                 gap: int = 8) -> None:
+        self._rects: dict[str, tuple[int, int, int, int]] = {}
+        self._screen_w = screen_w
+        # Never pack into the row parked windows sit in.
+        self._screen_h = min(screen_h, PARK_Y)
+        self._gap = gap
 
-    def acquire(self, key: str) -> int:
-        if key in self._slots:
-            return self._slots[key]
-        taken = set(self._slots.values())
-        slot = 0
-        while slot in taken:
-            slot += 1
-        self._slots[key] = slot
-        return slot
+    def place(self, key: str, width: int, height: int) -> tuple[int, int] | None:
+        """Reserve a rectangle for `key`, replacing any it already held."""
+        self.release(key)
+        taken = list(self._rects.values())
+        gap = self._gap
+        lefts = sorted({0} | {r[0] + r[2] + gap for r in taken})
+        tops = sorted({0} | {r[1] + r[3] + gap for r in taken})
+        for top in tops:
+            for left in lefts:
+                if left + width > self._screen_w or top + height > self._screen_h:
+                    continue
+                spot = (left, top, width, height)
+                if any(_overlaps(spot, other, gap) for other in taken):
+                    continue
+                self._rects[key] = spot
+                return left, top
+        return None
 
     def release(self, key: str) -> None:
-        self._slots.pop(key, None)
+        self._rects.pop(key, None)
+
+    def rect(self, key: str) -> tuple[int, int, int, int] | None:
+        return self._rects.get(key)

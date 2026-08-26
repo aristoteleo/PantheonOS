@@ -718,8 +718,6 @@ class BrowserEngine:
         """
         if not session.windowed or session.cdp is None:
             return None
-        from .x11cast import tile_rect
-
         w = max(2, int(session.width * session.dsf))
         h = max(2, int(session.height * session.dsf))
         try:
@@ -728,8 +726,7 @@ class BrowserEngine:
             # sized to the viewport alone, the page would be clipped by the
             # height of the tab strip.
             outer_h = h + WINDOW_CHROME_PX
-            slot = self._tiles.acquire(session.id)
-            spot = tile_rect(slot, w, outer_h)  # physical pixels
+            spot = self._tiles.place(session.id, w, outer_h)  # physical px
             if spot is None:
                 # No disjoint room left. A window with nowhere to go must be
                 # PARKED off the bottom of the display, not left where
@@ -744,9 +741,9 @@ class BrowserEngine:
                 from .x11cast import SCREEN_H, SCREEN_W
 
                 logger.info(
-                    "browser: no tile for {} ({}x{} px, slot {}) on a "
-                    "{}x{} display; parked, JPEG path",
-                    session.id, w, outer_h, slot, SCREEN_W, SCREEN_H)
+                    "browser: no room for {} ({}x{} px) on a {}x{} display; "
+                    "parked, JPEG path", session.id, w, outer_h,
+                    SCREEN_W, SCREEN_H)
                 return None
             left, top = spot
             await session.cdp.send("Browser.setWindowBounds", {
