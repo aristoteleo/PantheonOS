@@ -15,9 +15,9 @@ name: Promote Agent Image to :prod
 #   gh workflow run promote-agent.yml -f source=sha-abc123 # promote a specific build
 #   gh workflow run promote-agent.yml -f source=sha256:... # promote by digest (most precise)
 #
-# After promoting, prod picks it up on the next prod hub restart:
-#   REGISTRY_IMAGE=nanguage/pantheon-agents:prod MODAL_APP_NAME=pantheon-agents \
-#     python scripts/prewarm_modal_image.py
+# After promoting, warm Modal's image cache (or the first sandbox created
+# afterwards cold-pulls ~2.5GB, measured 70-192s), then restart the prod hub:
+#   gh workflow run prewarm.yml --repo Nanguage/pantheon-hub -f environment=prod
 #   kubectl --context do-sfo3-pantheon-sfo rollout restart deploy/pantheon-hub -n pantheon
 
 on:

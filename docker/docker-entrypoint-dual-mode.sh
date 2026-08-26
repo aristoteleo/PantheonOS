@@ -25,6 +25,11 @@ if [ -f /usr/local/bin/pantheon-userspace.sh ]; then
     . /usr/local/bin/pantheon-userspace.sh || echo "[userspace] skipped (non-fatal)"
     echo "  User prefix:   ${PANTHEON_USER_PREFIX:-unset}"
     echo "  Analysis env:  ${PANTHEON_ANALYSIS_PYTHON:-not built yet}"
+    # The sourcing above may have replayed the snapshot (fast path). Re-derive
+    # it from scratch in the background so drift the snapshot's own validity
+    # guard cannot see still converges by the next boot. Detached; the boot
+    # never waits on it.
+    ( PANTHEON_USERSPACE_REBUILD=1 bash -c '. /usr/local/bin/pantheon-userspace.sh' >/dev/null 2>&1 & )
 fi
 
 # Build or repair the analysis env. In the BACKGROUND, and deliberately so: it

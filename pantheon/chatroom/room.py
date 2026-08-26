@@ -192,15 +192,38 @@ class ChatRoom(ToolSet):
         # Point memory routing at the registered projects + the active one so
         # list_chats shows the active project's own chats and per-chat ops can
         # find any chat in any project.
-        try:
-            self.memory_manager.set_search_dirs(
-                [project_memory_dir(p["path"]) for p in self.project_manager.list_projects()]
-            )
-            _active = self.project_manager.active_project
-            if _active:
-                self.memory_manager.set_active_dir(project_memory_dir(_active.path))
-        except Exception as _e:
-            logger.warning(f"[memory routing] init failed: {_e}")
+        #
+        # In the BACKGROUND: every set_* here resolves and mkdirs on the
+        # network-backed volume (measured ~2s of the boot's critical path on a
+        # real workspace), and none of it is needed before the NATS worker can
+        # subscribe. Readers that route by directory block on the manager's
+        # routing event instead of seeing a half-initialized dir set; a failure
+        # degrades to home-only routing, exactly what the old inline try/except
+        # produced.
+        self.memory_manager.begin_deferred_routing()
+
+        def _init_memory_routing():
+            import time as _t
+            _t0 = _t.perf_counter()
+            try:
+                self.memory_manager.set_search_dirs(
+                    [project_memory_dir(p["path"]) for p in self.project_manager.list_projects()]
+                )
+                _active = self.project_manager.active_project
+                if _active:
+                    self.memory_manager.set_active_dir(project_memory_dir(_active.path))
+            except Exception as _e:
+                logger.warning(f"[memory routing] init failed: {_e}")
+            finally:
+                self.memory_manager.finish_deferred_routing()
+                log_startup_profile(
+                    f"ChatRoom memory routing initialized in background in {_t.perf_counter() - _t0:.3f}s"
+                )
+
+        import threading as _threading
+        _threading.Thread(
+            target=_init_memory_routing, name="memory-routing-init", daemon=True
+        ).start()
 
         self.description = description
 
