@@ -304,7 +304,8 @@ class BrowserEngine:
                 )
                 if probe.returncode == 0:
                     self._xvfb_display = display
-                    logger.info("browser: Xvfb up on {}", display)
+                    logger.info("browser: Xvfb up on {} at {}x{}",
+                                display, SCREEN_W, SCREEN_H)
                     return display
                 await asyncio.sleep(0.1)
             logger.warning("browser: Xvfb never answered; staying headless")
@@ -407,6 +408,28 @@ class BrowserEngine:
             self._launch_error = f"chromium unavailable: {e}"
             logger.error("browser: launch failed: {}", e)
             raise RuntimeError(self._launch_error) from e
+
+    async def set_metrics(self, session: PageSession,
+                          w: int, h: int, s: float) -> None:
+        """Set the page's size and its raster density together.
+
+        Playwright's set_viewport_size pins deviceScaleFactor to the
+        context default of 1, silently overriding the launch flag for that
+        page: the page then rasters at 1x inside a window sized for 2x and
+        sits in the top-left corner of a blank rectangle — the "content is
+        smaller than the window" report, exactly. One CDP call sets both,
+        so the two cannot disagree.
+
+        This method was called from two places and defined in none of
+        them; every page open raised AttributeError into a log nobody was
+        reading, so the density was never applied at all.
+        """
+        if session.cdp is None:
+            return
+        await session.cdp.send("Emulation.setDeviceMetricsOverride", {
+            "width": int(w), "height": int(h),
+            "deviceScaleFactor": float(s), "mobile": False,
+        })
 
     async def _park_keeper(self) -> None:
         """Get the blank window that keeps Chromium alive off the display.
@@ -718,8 +741,12 @@ class BrowserEngine:
                 session.windowed = False
                 session.rect = None
                 await self._park_window(session, info["windowId"], w, outer_h)
-                logger.info("browser: no tile for {}; parked, JPEG path",
-                            session.id)
+                from .x11cast import SCREEN_H, SCREEN_W
+
+                logger.info(
+                    "browser: no tile for {} ({}x{} px, slot {}) on a "
+                    "{}x{} display; parked, JPEG path",
+                    session.id, w, outer_h, slot, SCREEN_W, SCREEN_H)
                 return None
             left, top = spot
             await session.cdp.send("Browser.setWindowBounds", {
@@ -871,7 +898,7 @@ class BrowserEngine:
                         if (w, h, s) != (session.width, session.height, prev_s):
                             session.width, session.height = w, h
                             session.dsf = s
-                            await page.set_viewport_size({"width": w, "height": h})
+                            await self.set_metrics(session, w, h, s)
                             if session.windowed:
                                 # The OS window must follow, or the X11 grab
                                 # keeps aiming at the old rectangle.
