@@ -224,6 +224,11 @@ class TemplateManager:
         for src_file in src_dir.rglob('*'):
             if not src_file.is_file():
                 continue
+            # Compiled artifacts: their hash changes on every build (embedded
+            # mtimes), so they re-synced on every boot forever. Python
+            # regenerates __pycache__ next to the .py sources on first use.
+            if "__pycache__" in src_file.parts:
+                continue
 
             rel_path = src_file.relative_to(src_dir)
             dest_file = dest_dir / rel_path
@@ -372,19 +377,64 @@ class TemplateManager:
             return
 
         overwrite = self.settings.default_template_auto_update
+
+        # Fingerprint short-circuit: the sweep below exists to propagate image
+        # upgrades, but it re-reads every packaged factory file to hash it —
+        # on a cold-layer Modal worker that is seconds of lazy pulls, paid on
+        # every boot even when nothing changed. The image bakes one aggregate
+        # fingerprint of the factory tree at build time; when it matches what
+        # this volume last synced, the whole sweep is provably a no-op.
+        # (A stale/corrupted cache still has the escape hatch:
+        # PANTHEON_FORCE_FACTORY_REFRESH clears the fingerprint with the rest.)
+        image_fp = self._image_factory_fingerprint()
+        fp_marker = self.settings.pantheon_dir / ".factory_fingerprint"
+        if overwrite and image_fp:
+            try:
+                if fp_marker.exists() and fp_marker.read_text(encoding="utf-8").strip() == image_fp:
+                    logger.info(
+                        "Factory fingerprint unchanged since last sync; skipping template sweep"
+                    )
+                    return
+            except Exception:
+                pass  # unreadable marker -> fall through to the full sweep
+
         if overwrite:
             logger.info(
                 "default_template_auto_update=true: smart-overwriting "
                 f"agents/teams/prompts/skills with latest factory defaults (mode={mode})"
             )
 
+        failed = False
         for subdir, dest_dir, label in self._factory_template_targets(mode=mode):
             try:
                 self._copy_missing_templates(
                     self.system_templates_dir / subdir, dest_dir, label, overwrite=overwrite
                 )
             except Exception as e:
+                failed = True
                 logger.error(f"Failed to copy default {label}: {e}")
+
+        # Record what this volume is now synced to — only after a clean sweep,
+        # so a partial failure retries next boot instead of being masked.
+        if overwrite and image_fp and not failed:
+            try:
+                fp_marker.write_text(image_fp, encoding="utf-8")
+            except Exception as e:
+                logger.debug(f"Could not persist factory fingerprint: {e}")
+
+    @staticmethod
+    def _image_factory_fingerprint() -> str | None:
+        """Aggregate factory-content fingerprint baked into the image at build
+        time (docker/Dockerfile). None on images that predate it, or outside
+        Docker — callers then fall back to the per-file sweep."""
+        fp_file = Path("/etc/pantheon-factory-fingerprint")
+        try:
+            if fp_file.exists():
+                value = fp_file.read_text(encoding="utf-8").strip()
+                return value or None
+        except Exception:
+            pass
+        return None
 
     def _remove_retired_templates(self):
         """Delete templates the factory has WITHDRAWN, from every writable scope.

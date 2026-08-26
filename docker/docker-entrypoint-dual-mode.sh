@@ -325,7 +325,7 @@ else
         # escape hatch for a corrupted cache.
         if [ "${PANTHEON_FORCE_FACTORY_REFRESH:-}" = "true" ]; then
             echo "Refreshing global factory template cache (forced)..."
-            rm -rf /workspace/.pantheon/agents /workspace/.pantheon/teams /workspace/.pantheon/prompts /workspace/.pantheon/skills /workspace/.pantheon/.factory_hashes.json
+            rm -rf /workspace/.pantheon/agents /workspace/.pantheon/teams /workspace/.pantheon/prompts /workspace/.pantheon/skills /workspace/.pantheon/.factory_hashes.json /workspace/.pantheon/.factory_fingerprint
             echo "✓ Factory cache cleared (re-materializes on startup)"
         fi
     else

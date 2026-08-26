@@ -440,6 +440,15 @@ RUN for f in /opt/pantheon/analysis-envs/*.yml; do \
 
 COPY --from=builder /app /app
 
+# One 32-byte fingerprint of the packaged factory templates, computed at build
+# time. template_manager compares it against the copy stored on the user's
+# volume and skips the whole per-file smart-overwrite sweep when the image's
+# factory content is unchanged — that sweep reads all ~180 packaged files to
+# hash them, which on a cold-layer Modal worker measured 8.9 s of lazy pulls.
+RUN find /app/pantheon/factory/templates -type f -not -path '*/__pycache__/*' -print0 \
+    | sort -z | xargs -0 md5sum | md5sum | cut -d' ' -f1 \
+    > /etc/pantheon-factory-fingerprint
+
 # Layer H — Entrypoint setup (depends on /app)
 # This must come after COPY /app because it needs the entrypoint script.
 RUN chmod +x /app/docker/docker-entrypoint-dual-mode.sh && \
