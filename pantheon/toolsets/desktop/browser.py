@@ -89,19 +89,25 @@ def _cast_quality(dsf: float) -> int:
 CAST_PIXEL_BUDGET = 9_000_000
 
 
+def _clamp_debt(v: float) -> float:
+    return max(-WHEEL_MAX_DEBT_PX, min(WHEEL_MAX_DEBT_PX, v))
+
+
 def cap_density(width: int, height: int, dsf: float) -> float:
     """Lower the density until the frame fits the encoder's budget."""
     if width <= 0 or height <= 0:
         return dsf
     fit = (CAST_PIXEL_BUDGET / float(width * height)) ** 0.5
     return max(1.0, min(dsf, round(fit, 2)))
-# Wheel smoothing: how finely a notch is split, and how far apart the
-# pieces go out. 30 px steps 6 ms apart turn one notch into ~24 ms of
-# motion — enough for the compositor to draw intermediate positions without
-# letting a fast scroll queue up work faster than it drains.
-WHEEL_STEP_PX = 30
-WHEEL_STEP_S = 0.006
-WHEEL_MAX_STEPS = 5
+# Wheel smoothing: the size of one step of owed scroll, and how long the
+# drain task waits between steps. 40 px every 10 ms is ~4000 px/s — faster
+# than anyone scrolls, so the debt never grows, while still giving the
+# compositor several intermediate positions per notch.
+WHEEL_STEP_PX = 40
+WHEEL_STEP_S = 0.010
+# A flick can owe more than a screen; past that, catching up matters more
+# than showing every pixel of the journey.
+WHEEL_MAX_DEBT_PX = 4000
 
 LONG_POLL_S = 20.0
 READ_LIMIT = 8000
@@ -138,6 +144,13 @@ class PageSession:
         self.pending_popups: list[str] = []
         self.new_frame = asyncio.Condition()
         self.input_lock = asyncio.Lock()
+        # Wheel motion still owed to the page. Wheels ACCUMULATE rather than
+        # queue: scrolling down and then up must cancel, not play back in
+        # order (see the drain task in dispatch()).
+        self.wheel_dx = 0.0
+        self.wheel_dy = 0.0
+        self.wheel_at = (0.0, 0.0)
+        self.wheel_task: Any = None
         self.created_at = time.time()
 
     @property
@@ -633,28 +646,32 @@ class BrowserEngine:
                             click_count=ev.get("clicks", 1),
                         )
                     elif t == "wheel":
-                        # A synthesized wheel event scrolls INSTANTLY —
-                        # Chromium animates real wheels but not CDP ones, and
-                        # --enable-smooth-scrolling makes no difference
-                        # (measured). One mouse notch is ~120 px, so at a
-                        # normal 20 notches a second the page teleported 120 px
-                        # twenty times a second: 80% of streamed frames were
-                        # identical to the one before, which is the "30 fps but
-                        # it stutters" everyone could see and no counter could.
-                        # Splitting a notch into ~30 px steps a few ms apart
-                        # gives the compositor something to draw in between —
-                        # measured: frames that actually move go from 19% to
-                        # 64%. Trackpad deltas are already small and pass
-                        # through untouched.
-                        await page.mouse.move(ev["x"], ev["y"])
-                        dx = float(ev.get("dx", 0) or 0)
-                        dy = float(ev.get("dy", 0) or 0)
-                        steps = max(1, min(WHEEL_MAX_STEPS,
-                                           int(max(abs(dx), abs(dy)) // WHEEL_STEP_PX)))
-                        for i in range(steps):
-                            await page.mouse.wheel(dx / steps, dy / steps)
-                            if i < steps - 1:
-                                await asyncio.sleep(WHEEL_STEP_S)
+                        # Wheels ADD to what the page still owes and return
+                        # immediately; a separate task pays it off in small
+                        # steps. Two reasons, both learned the hard way:
+                        #
+                        # Chromium scrolls INSTANTLY for a synthesized wheel
+                        # (it animates real ones; --enable-smooth-scrolling
+                        # changes nothing, measured), so one 120 px notch is a
+                        # teleport and 20 notches a second left 80% of streamed
+                        # frames identical to the one before. Small steps fix
+                        # that.
+                        #
+                        # But stepping INSIDE this loop made it worse in a way
+                        # no frame counter shows: the sleeps held the input
+                        # path, events queued, and the picture kept scrolling
+                        # down for a while after the user had already flicked
+                        # back up. Accumulating instead means a reversal
+                        # CANCELS what is still owed, which is what a real
+                        # wheel does.
+                        session.wheel_dx = _clamp_debt(
+                            session.wheel_dx + float(ev.get("dx", 0) or 0))
+                        session.wheel_dy = _clamp_debt(
+                            session.wheel_dy + float(ev.get("dy", 0) or 0))
+                        session.wheel_at = (ev["x"], ev["y"])
+                        if session.wheel_task is None or session.wheel_task.done():
+                            session.wheel_task = asyncio.ensure_future(
+                                self._drain_wheel(session))
                     elif t == "scroll":
                         # Absolute scroll from the UI's scrollbar-thumb drag.
                         await page.evaluate(
@@ -694,6 +711,36 @@ class BrowserEngine:
                                 })
                 except Exception as e:
                     logger.debug("browser: input {} failed: {}", t, e)
+
+    async def _drain_wheel(self, session: PageSession) -> None:
+        """Pay off the page's owed scroll in small steps.
+
+        Runs OUTSIDE the input lock, so a wheel event never waits on this —
+        it just adds to the debt (or cancels it) and returns.
+        """
+        page = session.page
+        try:
+            while True:
+                dx, dy = session.wheel_dx, session.wheel_dy
+                if abs(dx) < 1 and abs(dy) < 1:
+                    session.wheel_dx = session.wheel_dy = 0.0
+                    return
+                # One step: at most WHEEL_STEP_PX, and never more than what
+                # is owed (so a small trackpad delta lands in one go).
+                scale = min(1.0, WHEEL_STEP_PX / max(abs(dx), abs(dy)))
+                sx, sy = dx * scale, dy * scale
+                session.wheel_dx -= sx
+                session.wheel_dy -= sy
+                try:
+                    x, y = session.wheel_at
+                    await page.mouse.move(x, y)
+                    await page.mouse.wheel(sx, sy)
+                except Exception:
+                    session.wheel_dx = session.wheel_dy = 0.0
+                    return
+                await asyncio.sleep(WHEEL_STEP_S)
+        finally:
+            session.wheel_task = None
 
     async def status_headers(self, session: PageSession) -> dict[str, str]:
         """Navigation state as latin-1-safe response headers."""
