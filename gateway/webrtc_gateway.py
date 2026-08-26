@@ -388,11 +388,16 @@ async def offer(request: web.Request) -> web.StreamResponse:
             asyncio.ensure_future(session.close())
     feed_task.add_done_callback(feed_done)
 
-    await pc.setRemoteDescription(remote)
     # Relayed packets are never re-encoded, so the codec the sandbox chose
-    # MUST win the negotiation. aiortc packetizes either one from a raw
-    # av.Packet (Vp8Encoder.pack / H264Encoder.pack); picking the wrong one
-    # here would hand the browser a stream it cannot parse.
+    # MUST win the negotiation: aiortc packetizes either one from a raw
+    # av.Packet (Vp8Encoder.pack / H264Encoder.pack), and the wrong choice
+    # hands the browser H.264 bytes under a VP8 payload type — packets
+    # arrive, nothing ever decodes.
+    #
+    # This must run BEFORE setRemoteDescription: that is where aiortc
+    # freezes the negotiated codec list (rtcpeerconnection.py applies
+    # preferences while handling the remote description, not at
+    # createAnswer time). Setting them afterwards is silently ignored.
     wanted = f"video/{getattr(feed, 'codec', 'vp8')}".lower()
     for transceiver in pc.getTransceivers():
         if transceiver.kind == "video":
@@ -404,6 +409,8 @@ async def offer(request: web.Request) -> web.StreamResponse:
             else:
                 logger.warning("session %s: no %s support; leaving defaults",
                                sid, wanted)
+
+    await pc.setRemoteDescription(remote)
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
     # aiortc gathers ICE during setLocalDescription and returns when complete,
