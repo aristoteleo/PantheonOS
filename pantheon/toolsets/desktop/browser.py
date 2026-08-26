@@ -66,6 +66,14 @@ VIEW_W, VIEW_H = 1280, 800
 # --force-device-scale-factor=2. Tied to that flag — the browser UI
 # scales with it. Too small and the stream wears a sliver of tab strip.
 WINDOW_CHROME_PX = 180
+# Chromium rasters everything at this scale (the launch flag below), and
+# Browser.setWindowBounds speaks DIP — bounds divided by it. Passing
+# physical pixels there made every window exactly twice its intended size:
+# the page then occupied the top-left quarter of it, the X11 grab took a
+# rectangle that was mostly chrome and empty desk, and a scroll changed
+# almost nothing on screen. Capture rectangles stay in physical pixels,
+# because that is what x11grab reads.
+RASTER_SCALE = 2
 JPEG_QUALITY = 70
 # The tunnel out of the sandbox caps at ~20 Mbps (measured; shared across
 # connections, so striping cannot help) — fps is bytes-bound. Dense (Retina)
@@ -622,7 +630,7 @@ class BrowserEngine:
             # height of the tab strip.
             outer_h = h + WINDOW_CHROME_PX
             slot = self._tiles.acquire(session.id)
-            spot = tile_rect(slot, w, outer_h)
+            spot = tile_rect(slot, w, outer_h)  # physical pixels
             if spot is None:
                 # No disjoint room left. Overlapping windows capture each
                 # other, so this page streams the JPEG way instead.
@@ -634,8 +642,13 @@ class BrowserEngine:
             left, top = spot
             await session.cdp.send("Browser.setWindowBounds", {
                 "windowId": info["windowId"],
-                "bounds": {"left": left, "top": top, "width": w, "height": outer_h,
-                           "windowState": "normal"},
+                "bounds": {
+                    # DIP, not pixels — see RASTER_SCALE.
+                    "left": left // RASTER_SCALE, "top": top // RASTER_SCALE,
+                    "width": w // RASTER_SCALE,
+                    "height": outer_h // RASTER_SCALE,
+                    "windowState": "normal",
+                },
             })
             # Capture the page area only — below the tab strip and toolbar.
             session.rect = (left, top + WINDOW_CHROME_PX, w, h)
