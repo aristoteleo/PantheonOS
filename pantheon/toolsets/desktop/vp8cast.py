@@ -32,6 +32,10 @@ from aiohttp import web
 
 from pantheon.utils.log import logger
 
+# How often the cast re-reads the page's navigation state. Two CDP round
+# trips each time, so not per frame.
+STATUS_REFRESH_S = 0.25
+
 KF_INTERVAL = 90          # forced keyframe cadence, in encoded frames
 TARGET_BITRATE = 4_000_000
 CLOCK = 90_000
@@ -159,13 +163,27 @@ def make_cast_handler(engine):
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
 
+        # Status costs TWO CDP round trips (the page's title, and an eval for
+        # scroll metrics), and it was being fetched for every single frame:
+        # sixty round trips a second, all queued on the engine's one loop,
+        # which held the whole cast to about five frames a second. It feeds
+        # the address bar and the scrollbar overlay, so a few times a second
+        # is plenty.
+        cached: dict[str, str] = {}
+        cached_at = 0.0
+
         async def send(meta: dict, payload: bytes, seq: int) -> None:
-            headers = await engine.call(engine.status_headers(session))
+            nonlocal cached, cached_at
+            now = time.monotonic()
+            if now - cached_at > STATUS_REFRESH_S or not cached:
+                headers = await engine.call(engine.status_headers(session))
+                cached = {
+                    k.lower().replace("x-", "", 1): v
+                    for k, v in headers.items() if k != "X-Seq"
+                }
+                cached_at = now
             meta["seq"] = seq
-            meta["status"] = {
-                k.lower().replace("x-", "", 1): v
-                for k, v in headers.items() if k != "X-Seq"
-            }
+            meta["status"] = cached
             await ws.send_json(meta)
             await ws.send_bytes(payload)
 
