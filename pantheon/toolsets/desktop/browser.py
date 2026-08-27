@@ -215,6 +215,9 @@ class BrowserEngine:
         # Which page owns which OS window, so a page that opened as a
         # TAB in another page's window never moves that window.
         self._windows: dict[int, str] = {}
+        # The first window after a launch may arrive late; later
+        # ones either come quickly or are not coming at all.
+        self._cold_start = True
         self.pages: dict[str, PageSession] = {}
 
     # ── the daemon loop ──────────────────────────────────────────────────
@@ -354,6 +357,7 @@ class BrowserEngine:
         logger.warning("browser: context died; will relaunch on next use")
         self._context = None
         self._browser_cdp = None
+        self._cold_start = True
         self.pages.clear()
 
     async def _ensure_browser(self) -> None:
@@ -638,17 +642,21 @@ class BrowserEngine:
                 "url": url or "about:blank", "newWindow": True,
                 "width": VIEW_W, "height": VIEW_H,
             })
-            # Five seconds was enough on a warm pod and nowhere near it on
-            # a cold one, where Chromium had just spent half a minute
-            # starting: the wait expired, the page opened as a TAB instead,
-            # and a tab cannot be captured on its own — so it silently took
-            # the slow screencast path for the rest of its life. Wait long
-            # enough for a slow start, and say when it was slow.
+            # How long to wait depends on whether Chromium is warm. Cold,
+            # it has just spent half a minute starting and the first window
+            # arrives late; five seconds expired, the page opened as a TAB,
+            # and a tab cannot be captured on its own, so it took the slow
+            # screencast path for the rest of its life. Warm, a window that
+            # has not appeared in a few seconds is not coming, and waiting
+            # twenty for it pushes the whole open past the caller's timeout
+            # — which turned a working page into no page at all.
+            budget = 2000 if self._cold_start else 500  # 10 ms ticks
             t0 = time.monotonic()
-            for _ in range(2000):
+            for _ in range(budget):
                 fresh = [p for p in self._context.pages if p not in before]
                 if fresh:
                     waited = time.monotonic() - t0
+                    self._cold_start = False
                     if waited > 1.0:
                         logger.info("browser: the new window took {:.1f}s to "
                                     "appear", waited)
