@@ -22,6 +22,7 @@ probes.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import os
@@ -494,10 +495,52 @@ async def offer(request: web.Request) -> web.StreamResponse:
     # aiortc gathers ICE during setLocalDescription and returns when complete,
     # so the answer below already carries the host candidates.
     return _cors(web.json_response({
-        "sdp": pc.localDescription.sdp,
+        "sdp": reachable_candidates_only(pc.localDescription.sdp),
         "type": pc.localDescription.type,
         "session": sid,
     }))
+
+
+_PRIVATE_NETS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("100.64.0.0/10"),   # carrier-grade NAT, k8s overlays
+    ipaddress.ip_network("169.254.0.0/16"),
+)
+
+
+def reachable_candidates_only(sdp: str) -> str:
+    """Offer only addresses a viewer on the internet could ever reach.
+
+    This host has one public address and half a dozen cluster-internal
+    ones, and aiortc advertises them all. A browser then spends its ICE
+    checks on 10.x and 100.64.x addresses that cannot answer, and the pair
+    that would have worked gets tried late or after the browser has given
+    up — which shows as an occasional call that never connects and a window
+    that silently drops to the long-poll path for the rest of its life.
+
+    If filtering would leave nothing at all, keep the original: a stream
+    with a poor candidate list beats no stream.
+    """
+    kept, dropped = [], 0
+    for line in sdp.splitlines():
+        if line.startswith("a=candidate:"):
+            parts = line.split()
+            try:
+                addr = ipaddress.ip_address(parts[4])
+            except (IndexError, ValueError):
+                kept.append(line)
+                continue
+            if any(addr in net for net in _PRIVATE_NETS):
+                dropped += 1
+                continue
+        kept.append(line)
+    if not any(l.startswith("a=candidate:") for l in kept):
+        return sdp
+    if dropped:
+        logger.info("gateway: dropped %d unreachable candidate(s)", dropped)
+    return "\r\n".join(kept) + "\r\n"
 
 
 async def healthz(_request: web.Request) -> web.Response:
