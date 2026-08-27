@@ -89,3 +89,37 @@ def test_adopt_refuses_a_non_browser_window(toolset, store):
     win = store.apply("open", {"app_id": "files"})[1]["window_id"]
     with pytest.raises(ValueError, match="not a Browser"):
         toolset._adopt_page_into_window(win, "pg-7")
+
+
+def test_volume_caches_are_evicted_but_the_login_state_is_not():
+    """The profile is on a volume so logins survive; caches must not be.
+
+    A real sandbox's profile measured 250 MB, of which 232 MB was Cache and
+    Code Cache — read and written over the network on every navigation.
+    Opening a page there took nine seconds against under one where the
+    profile sat on local disk. Evicting the caches must not touch the
+    things the volume is FOR.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from pantheon.toolsets.desktop.browser import BrowserEngine
+
+    with tempfile.TemporaryDirectory() as tmp:
+        profile = Path(tmp) / "browser-profile"
+        (profile / "Default" / "Cache" / "js").mkdir(parents=True)
+        (profile / "Default" / "Cache" / "js" / "blob").write_text("x" * 10)
+        (profile / "Default" / "Code Cache").mkdir(parents=True)
+        (profile / "ShaderCache").mkdir(parents=True)
+        (profile / "Default" / "Local Storage").mkdir(parents=True)
+        (profile / "Default" / "Cookies").write_text("session")
+        (profile / "Default" / "Preferences").write_text("{}")
+
+        BrowserEngine._evict_volume_caches(profile)
+
+        assert not (profile / "Default" / "Cache").exists()
+        assert not (profile / "Default" / "Code Cache").exists()
+        assert not (profile / "ShaderCache").exists()
+        assert (profile / "Default" / "Cookies").read_text() == "session"
+        assert (profile / "Default" / "Local Storage").is_dir()
+        assert (profile / "Default" / "Preferences").exists()

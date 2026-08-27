@@ -267,6 +267,32 @@ class BrowserEngine:
             except Exception as e:
                 logger.warning("browser: could not clear {}: {}", name, e)
 
+    @staticmethod
+    def _evict_volume_caches(profile: Path) -> None:
+        """Delete cache directories the profile left on the volume.
+
+        The profile lives on a network volume so logins survive a restart.
+        Chromium's caches do not need to survive anything, and they are the
+        overwhelming majority of it: a profile measured in a real sandbox
+        was 250 MB, of which 232 MB was Cache and Code Cache. Every
+        navigation then read and wrote them over the network, which is why
+        opening a page took nine seconds there and under one where the
+        profile sat on local disk. Chromium is pointed at a local cache
+        directory now, so anything still here is dead weight — and it is
+        walked at startup whether it is used or not.
+        """
+        import shutil
+
+        for rel in ("Default/Cache", "Default/Code Cache", "Default/GPUCache",
+                    "ShaderCache", "GrShaderCache", "GraphiteDawnCache"):
+            path = profile / rel
+            try:
+                if path.is_dir():
+                    shutil.rmtree(path, ignore_errors=True)
+                    logger.info("browser: evicted {} from the volume", rel)
+            except Exception as e:
+                logger.warning("browser: could not evict {}: {}", rel, e)
+
     async def _ensure_xvfb(self) -> str | None:
         """Start a virtual X display and return DISPLAY, or None to stay
         headless.
@@ -343,6 +369,9 @@ class BrowserEngine:
             profile = Path.home() / ".pantheon" / "browser-profile"
             profile.mkdir(parents=True, exist_ok=True)
             self._clear_stale_locks(profile)
+            self._evict_volume_caches(profile)
+            cache_dir = Path("/tmp/pantheon-browser-cache")
+            cache_dir.mkdir(parents=True, exist_ok=True)
             self._context = await self._pw.chromium.launch_persistent_context(
                 user_data_dir=str(profile),
                 # Headful under Xvfb when the image carries one (the capture
@@ -390,6 +419,14 @@ class BrowserEngine:
                     "--disable-renderer-backgrounding",
                     "--disable-background-timer-throttling",
                     "--disable-features=CalculateNativeWinOcclusion",
+                    # Caches on LOCAL disk, never on the volume. The profile
+                    # is on a network volume so logins survive a restart;
+                    # caches need to survive nothing and are nearly all of
+                    # its bulk, and every navigation pays for them twice
+                    # over the network. Measured in a real sandbox: nine
+                    # seconds to open a page with the cache on the volume.
+                    f"--disk-cache-dir={cache_dir / 'http'}",
+                    f"--media-cache-dir={cache_dir / 'media'}",
                 ],
             )
             ctx = self._context
@@ -601,9 +638,20 @@ class BrowserEngine:
                 "url": url or "about:blank", "newWindow": True,
                 "width": VIEW_W, "height": VIEW_H,
             })
-            for _ in range(500):
+            # Five seconds was enough on a warm pod and nowhere near it on
+            # a cold one, where Chromium had just spent half a minute
+            # starting: the wait expired, the page opened as a TAB instead,
+            # and a tab cannot be captured on its own — so it silently took
+            # the slow screencast path for the rest of its life. Wait long
+            # enough for a slow start, and say when it was slow.
+            t0 = time.monotonic()
+            for _ in range(2000):
                 fresh = [p for p in self._context.pages if p not in before]
                 if fresh:
+                    waited = time.monotonic() - t0
+                    if waited > 1.0:
+                        logger.info("browser: the new window took {:.1f}s to "
+                                    "appear", waited)
                     return fresh[0]
                 await asyncio.sleep(0.01)
             # Never showed up: close it rather than leave a window nobody
