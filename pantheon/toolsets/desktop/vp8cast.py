@@ -150,8 +150,13 @@ def make_cast_handler(engine):
         # What this socket is currently showing. Mutable: a retarget swaps
         # it and restarts the pump, without touching the WebRTC call.
         live = {"page": page_id, "session": session}
-        # The capture currently running, so a keyframe request can reach it.
-        current: dict[str, Any] = {"x11": None}
+        # The capture currently running, so a keyframe request can reach it,
+        # and which generation of the pump owns it. A retarget bumps the
+        # generation and the pump returns on its own: cancelling it instead
+        # tore the socket down mid-grab, because the capture is blocking
+        # work on a worker thread and the object it was using would then be
+        # closed out from under it.
+        current: dict[str, Any] = {"x11": None, "gen": 0}
 
         # Status costs TWO CDP round trips (the page's title, and an eval for
         # scroll metrics), and it was being fetched for every single frame:
@@ -204,7 +209,10 @@ def make_cast_handler(engine):
                             live["page"], e)
                 return None
 
-        async def pump_x11(x11: Any, sess: Any) -> None:
+        def still_ours(gen: int) -> bool:
+            return gen == current["gen"] and not stop.is_set() and not ws.closed
+
+        async def pump_x11(x11: Any, sess: Any, gen: int) -> None:
             """The display drives the pace — no waiting on paint events.
 
             A failure here used to `break` in silence: the socket closed,
@@ -217,7 +225,7 @@ def make_cast_handler(engine):
             # caster's evened copy — otherwise an odd width would look like
             # a pending move on every single frame.
             applied = tuple(sess.rect or ())
-            while not stop.is_set() and not ws.closed:
+            while still_ours(gen):
                 try:
                     # A resize moves the OS window; the grab has to follow it
                     # or it keeps capturing the rectangle the window left.
@@ -232,7 +240,7 @@ def make_cast_handler(engine):
                             x11.close()
                         except Exception:
                             pass
-                        await pump_jpeg(sess)
+                        await pump_jpeg(sess, gen)
                         return
                     if rect != applied:
                         logger.info("cast {}: re-aiming {} -> {}",
@@ -256,28 +264,28 @@ def make_cast_handler(engine):
                         x11.close()
                     except Exception:
                         pass
-                    await pump_jpeg(sess)
+                    await pump_jpeg(sess, gen)
                     return
 
-        async def pump_jpeg(sess: Any) -> None:
+        async def pump_jpeg(sess: Any, gen: int) -> None:
             # Only this path needs Chromium's screencast; the X11 path reads
             # the display and leaves the JPEG encoder off entirely.
             await engine.call(engine.acquire_viewer(sess))
             try:
-                await _pump_jpeg_frames(sess)
+                await _pump_jpeg_frames(sess, gen)
             finally:
                 await engine.call(engine.release_viewer(sess))
 
-        async def _pump_jpeg_frames(sess: Any) -> None:
+        async def _pump_jpeg_frames(sess: Any, gen: int) -> None:
             since = 0
-            while not stop.is_set() and not ws.closed:
+            while still_ours(gen):
                 try:
                     fresh = await engine.call(engine.wait_frame(sess, since))
                 except asyncio.CancelledError:
                     raise
                 except Exception:
                     break
-                if stop.is_set() or ws.closed:
+                if not still_ours(gen):
                     break
                 if not fresh:
                     continue
@@ -299,25 +307,33 @@ def make_cast_handler(engine):
                                        live["page"], type(e).__name__, str(e)[:160])
                     break
 
-        async def run_target() -> None:
+        async def run_target(gen: int) -> None:
             """Stream whatever `live` points at, until stopped or retargeted."""
             sess = live["session"]
-            x11 = await open_x11(sess)
-            current["x11"] = x11
+            x11 = None
             try:
+                x11 = await open_x11(sess)
+                if gen == current["gen"]:
+                    current["x11"] = x11
                 if x11 is not None:
-                    await pump_x11(x11, sess)
+                    await pump_x11(x11, sess, gen)
                 else:
-                    await pump_jpeg(sess)
+                    await pump_jpeg(sess, gen)
+            except Exception as e:
+                # A pump that dies silently leaves a live socket with no
+                # pictures on it, which reads as a frozen page.
+                logger.warning("cast {}: pump ended ({}: {})",
+                               live["page"], type(e).__name__, str(e)[:160])
             finally:
-                current["x11"] = None
+                if current["x11"] is x11:
+                    current["x11"] = None
                 if x11 is not None:
                     try:
                         x11.close()
                     except Exception:
                         pass
 
-        pump_task = asyncio.create_task(run_target())
+        pump_task = asyncio.create_task(run_target(current["gen"]))
 
         async def retarget(new_id: str) -> None:
             """Point this socket at another page, keeping the call up."""
@@ -328,15 +344,19 @@ def make_cast_handler(engine):
             logger.info("cast: retargeting {} -> {}", live["page"], new_id)
             live["page"], live["session"] = new_id, new_session
             cached, cached_at = {}, 0.0
-            pump_task.cancel()
+            current["gen"] += 1
+            gen = current["gen"]
+            # Let the old pump notice and finish its frame. It is doing
+            # blocking work on a worker thread; cancelling it would close
+            # the capture while that thread is still inside it.
             try:
-                await pump_task
-            except (asyncio.CancelledError, Exception):
+                await asyncio.wait_for(asyncio.shield(pump_task), timeout=2.0)
+            except Exception:
                 pass
             # The picture is about to be a different page: the viewer needs
             # a key frame, not a delta against what it was watching.
             caster.request_keyframe()
-            pump_task = asyncio.create_task(run_target())
+            pump_task = asyncio.create_task(run_target(gen))
 
         try:
             async for msg in ws:
@@ -364,6 +384,11 @@ def make_cast_handler(engine):
                     break
         finally:
             stop.set()
+            current["gen"] += 1
+            try:
+                await asyncio.wait_for(asyncio.shield(pump_task), timeout=2.0)
+            except Exception:
+                pass
             pump_task.cancel()
         return ws
 
