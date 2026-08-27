@@ -310,6 +310,7 @@ def make_cast_handler(engine):
         async def run_target(gen: int) -> None:
             """Stream whatever `live` points at, until stopped or retargeted."""
             sess = live["session"]
+            logger.info("cast {}: pump {} starting", live["page"], gen)
             x11 = None
             try:
                 x11 = await open_x11(sess)
@@ -346,17 +347,20 @@ def make_cast_handler(engine):
             cached, cached_at = {}, 0.0
             current["gen"] += 1
             gen = current["gen"]
-            # Let the old pump notice and finish its frame. It is doing
-            # blocking work on a worker thread; cancelling it would close
-            # the capture while that thread is still inside it.
-            try:
-                await asyncio.wait_for(asyncio.shield(pump_task), timeout=2.0)
-            except Exception:
-                pass
             # The picture is about to be a different page: the viewer needs
             # a key frame, not a delta against what it was watching.
             caster.request_keyframe()
+            # Start the replacement FIRST. Waiting on the outgoing pump
+            # before starting it means anything unexpected in that wait
+            # leaves the socket with no pump at all — which is exactly how
+            # a retarget turned into a stream that never sent another
+            # frame. The old pump sees the new generation and returns.
+            old = pump_task
             pump_task = asyncio.create_task(run_target(gen))
+            try:
+                await asyncio.wait_for(asyncio.shield(old), timeout=2.0)
+            except Exception:
+                pass
 
         try:
             async for msg in ws:
