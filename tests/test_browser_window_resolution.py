@@ -142,3 +142,49 @@ def test_an_icon_belongs_to_a_site_not_to_a_tab():
     assert surviving_favicon("", "https://www.google.com/") == ""
     # Nonsense in, nothing out — never a stale icon.
     assert surviving_favicon(wiki, "not a url") == ""
+
+
+def test_a_gesture_becomes_the_events_a_hand_would_produce():
+    """One action in, the whole gesture out.
+
+    The engine replays what a hand produces — move, down, up — because that
+    is what the viewer sends. An agent asks for a click. Expanding that at
+    each call site is how a click ends up missing its mouse-up in one place
+    and not another.
+    """
+    from pantheon.toolsets.desktop.browser import input_events
+
+    click = input_events([{"t": "click", "x": 40, "y": 90}])
+    assert [e["t"] for e in click] == ["move", "down", "up"]
+    assert all(e["x"] == 40 and e["y"] == 90 for e in click)
+
+    assert [e["t"] for e in input_events([{"t": "key", "key": "Enter"}])] \
+        == ["keydown", "keyup"]
+
+    drag = input_events([{"t": "drag", "x": 5, "y": 5, "to_x": 80, "to_y": 60}])
+    assert [e["t"] for e in drag] == ["move", "down", "move", "up"]
+    assert (drag[2]["x"], drag[2]["y"]) == (80, 60), "it must end where asked"
+
+    right = input_events([{"t": "rightclick", "x": 1, "y": 2}])
+    assert right[1]["button"] == 2
+    assert input_events([{"t": "dblclick", "x": 1, "y": 2}])[1]["clicks"] == 2
+
+    # Order is preserved across a whole sequence: type into a field, submit.
+    seq = input_events([{"t": "click", "x": 10, "y": 10},
+                        {"t": "text", "text": "hi"},
+                        {"t": "key", "key": "Enter"}])
+    assert [e["t"] for e in seq] == [
+        "move", "down", "up", "text", "keydown", "keyup"]
+
+
+def test_an_action_that_cannot_be_carried_out_says_so():
+    """Silence is the wrong answer: a click with no coordinates is a bug
+    in the caller, and swallowing it looks like a page that ignored it."""
+    import pytest
+
+    from pantheon.toolsets.desktop.browser import input_events
+
+    for bad in ({"t": "click"}, {"t": "drag", "x": 1, "y": 1},
+                {"t": "key"}, {"t": "teleport", "x": 1, "y": 1}):
+        with pytest.raises(ValueError):
+            input_events([bad])

@@ -44,6 +44,66 @@ from pantheon.utils.log import logger
 _SCHEME_NO_SLASH = re.compile(r"^(data|about|blob|view-source|file):", re.I)
 
 
+def input_events(actions: list[dict]) -> list[dict]:
+    """Expand what an agent means into what the input path replays.
+
+    The engine speaks the viewer's vocabulary — move, down, up, wheel,
+    keydown, keyup, text — because that is what a hand produces. An agent
+    thinks in whole gestures, so a click is one action here and three
+    events there, and a key is one action and two events. Writing the
+    expansion out at the call site is how a "click" ends up missing its
+    mouse-up in one place and not another.
+
+    Coordinates are CSS pixels of the page, the same ones a screenshot is
+    measured in and the same ones the viewer sends.
+    """
+    out: list[dict] = []
+    for a in actions:
+        t = str(a.get("t") or a.get("type") or "").lower()
+        x, y = a.get("x"), a.get("y")
+        button = int(a.get("button", 0) or 0)
+        if t in ("click", "dblclick", "rightclick"):
+            if x is None or y is None:
+                raise ValueError(f"{t} needs x and y")
+            clicks = 2 if t == "dblclick" else 1
+            btn = 2 if t == "rightclick" else button
+            out.append({"t": "move", "x": x, "y": y})
+            out.append({"t": "down", "x": x, "y": y, "button": btn, "clicks": clicks})
+            out.append({"t": "up", "x": x, "y": y, "button": btn, "clicks": clicks})
+        elif t in ("move", "down", "up"):
+            if x is None or y is None:
+                raise ValueError(f"{t} needs x and y")
+            out.append({"t": t, "x": x, "y": y, "button": button,
+                        "clicks": int(a.get("clicks", 1) or 1)})
+        elif t == "drag":
+            for k in ("x", "y", "to_x", "to_y"):
+                if a.get(k) is None:
+                    raise ValueError("drag needs x, y, to_x and to_y")
+            out.append({"t": "move", "x": x, "y": y})
+            out.append({"t": "down", "x": x, "y": y, "button": button, "clicks": 1})
+            out.append({"t": "move", "x": a["to_x"], "y": a["to_y"]})
+            out.append({"t": "up", "x": a["to_x"], "y": a["to_y"],
+                        "button": button, "clicks": 1})
+        elif t == "wheel":
+            out.append({"t": "wheel", "dx": float(a.get("dx", 0) or 0),
+                        "dy": float(a.get("dy", 0) or 0),
+                        "x": x if x is not None else 0,
+                        "y": y if y is not None else 0})
+        elif t == "key":
+            key = a.get("key")
+            if not key:
+                raise ValueError("key needs a key name, e.g. Enter or ArrowDown")
+            out.append({"t": "keydown", "key": key})
+            out.append({"t": "keyup", "key": key})
+        elif t == "text":
+            out.append({"t": "text", "text": str(a.get("text", ""))})
+        elif t == "scroll":
+            out.append({"t": "scroll", "y": float(a.get("y", 0) or 0)})
+        else:
+            raise ValueError(f"unknown action: {t or a!r}")
+    return out
+
+
 def surviving_favicon(current: str, new_url: str) -> str:
     """The icon a tab keeps as it navigates: only its own site's.
 

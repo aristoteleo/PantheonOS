@@ -1215,6 +1215,100 @@ class DesktopToolSet(ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool
+    async def browser_act(self, actions: list[dict], page_id: str = "") -> dict:
+        """Act on a browser page by COORDINATE — what a hand would do.
+
+        `browser_click` needs a selector, which a canvas, a map, a PDF or a
+        chart does not have. This takes the same input path the user's
+        mouse and keyboard travel, so anything they can do here, so can an
+        agent — and the user watches it happen, because it is one browser.
+
+        Coordinates are CSS pixels of the page, the same ones
+        `browser_screenshot` is measured in. Actions, in order:
+
+            {"t": "click", "x": 400, "y": 220}     also dblclick, rightclick
+            {"t": "move" | "down" | "up", "x":…, "y":…, "button": 0}
+            {"t": "drag", "x":…, "y":…, "to_x":…, "to_y":…}
+            {"t": "wheel", "dy": 300, "x":…, "y":…}
+            {"t": "key", "key": "Enter"}           any Playwright key name
+            {"t": "text", "text": "hello"}
+            {"t": "scroll", "y": 1200}             absolute, in page pixels
+
+        A page the viewer is rendering NATIVELY (a sandbox-local file) is a
+        second copy of that file in this browser, not the copy on their
+        screen: the viewer is asked to reload afterwards, so anything the
+        action wrote to disk appears, but in-memory state will not.
+        """
+        from .browser import input_events
+
+        try:
+            engine = self._browser_engine()
+            session = self._resolve_page(engine, page_id)
+            events = input_events(list(actions or []))
+            if not events:
+                return {"success": False, "error": "no actions"}
+            await engine.call(engine.dispatch(session.id, events))
+            return {"success": True, **await self._browser_page_info(session),
+                    **await self._nudge_native_viewer(session)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool
+    async def browser_scroll(
+        self, dy: float = 0, dx: float = 0, to: str = "", page_id: str = "",
+    ) -> dict:
+        """Scroll a browser page: by `dy`/`dx` pixels, or `to` "top"/"bottom".
+
+        A screenshot shows one screenful. This is how an agent reads the
+        rest of a page it is looking at rather than parsing it — and it is
+        the same scroll the user's wheel produces, on the page they can see.
+        """
+        try:
+            engine = self._browser_engine()
+            session = self._resolve_page(engine, page_id)
+            where = str(to or "").strip().lower()
+            if where in ("top", "bottom"):
+                y = 0 if where == "top" else 10 ** 7
+                await engine.call(engine.dispatch(session.id, [{"t": "scroll", "y": y}]))
+            elif where:
+                return {"success": False,
+                        "error": f'to must be "top" or "bottom", not {to!r}'}
+            else:
+                await engine.call(engine.dispatch(
+                    session.id, [{"t": "wheel", "dx": float(dx), "dy": float(dy),
+                                  "x": 0, "y": 0}]))
+            return {"success": True, **await self._browser_page_info(session),
+                    **await self._nudge_native_viewer(session)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _nudge_native_viewer(self, session) -> dict:
+        """Tell viewers showing this page as a local file to reload it.
+
+        A `file:` page is served to the viewer directly and rendered by
+        their own browser — faster and sharper than streaming it, and a
+        SEPARATE copy from the one in the sandbox that an agent acts on.
+        Reloading is what carries an effect that reached the disk across
+        that gap; nothing carries in-memory state, so the answer says which
+        kind of page this was.
+        """
+        try:
+            url = session.url or ""
+        except Exception:
+            url = ""
+        if not url.startswith("file:"):
+            return {"viewer": "streamed"}
+        await self._publish_desktop({
+            "type": "desktop.broadcast",
+            "topic": "browser.refresh",
+            "payload": {"page_id": session.id},
+        })
+        return {"viewer": "native",
+                "note": "the viewer renders this file itself; it was asked to "
+                        "reload, so changes on disk appear but in-page state "
+                        "does not"}
+
+    @tool
     async def browser_screenshot(self, page_id: str = "", path: str = "") -> dict:
         """Screenshot a browser page to a workspace file (JPEG) and return its
         path — observe_image it to see the page as pixels."""
