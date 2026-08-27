@@ -637,6 +637,15 @@ class DesktopToolSet(ToolSet):
         server = await self._ensure_data_server()
         server.set_tunnel_base(tunnel_base)
         logger.info("desktop: data endpoint set to {}", tunnel_base)
+        # Start Chromium NOW, in the background. It takes a couple of
+        # seconds warm and much longer on a cold profile, and it used to be
+        # launched by the first page open itself — the prewarm that was
+        # supposed to prevent that ran in the same call, after it. So the
+        # first page a user opened always paid the full launch: measured at
+        # 3.6 s against 1.4 s for the next one. This hook runs once, when
+        # the hub hands over the tunnel, which is minutes before anybody
+        # clicks anything.
+        self._prewarm_browser()
         return {"success": True}
 
     # ── the desktop plane (app-spec: the agent interface, normalized) ──────
@@ -995,24 +1004,31 @@ class DesktopToolSet(ToolSet):
             # packets into RTP without re-encoding.
             await server.register_endpoint("browser-cast", make_cast_handler(engine))
             self._browser_endpoints = True
-            # Warm Chromium now, in the background. It takes seconds to
-            # start (Xvfb, profile, first paint), and paying that on the
-            # user's first page open is the difference between "opening a
-            # tab" and "waiting for something to happen".
-            async def _prewarm():
-                try:
-                    await engine.call(engine._ensure_browser())
-                    logger.info("browser: prewarmed")
-                except Exception as e:
-                    logger.info("browser: prewarm skipped ({})", e)
-
-            asyncio.ensure_future(_prewarm())
+            # Belt and braces: the boot hook normally has Chromium up long
+            # before this runs.
+            self._prewarm_browser()
         frame = server.url_for_endpoint("browser-frame")
         inp = server.url_for_endpoint("browser-input")
         if not frame or not inp:
             raise RuntimeError(
                 "the data server has no browser-reachable URL yet (tunnel not set)")
         return frame, inp
+
+    def _prewarm_browser(self) -> None:
+        """Launch Chromium in the background, at most once."""
+        if getattr(self, "_prewarming", False):
+            return
+        self._prewarming = True
+        engine = self._browser_engine()
+
+        async def _run() -> None:
+            try:
+                await engine.call(engine._ensure_browser())
+                logger.info("browser: prewarmed")
+            except Exception as e:
+                logger.info("browser: prewarm skipped ({})", e)
+
+        asyncio.ensure_future(_run())
 
     def _resolve_page(self, engine, page_id: str = ""):
         """The addressed page — accepting a desktop Browser WINDOW id too.

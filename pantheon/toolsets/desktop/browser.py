@@ -224,6 +224,7 @@ class BrowserEngine:
         # The first window after a launch may arrive late; later
         # ones either come quickly or are not coming at all.
         self._cold_start = True
+        self._launch_lock = asyncio.Lock()
         self.pages: dict[str, PageSession] = {}
 
     # ── the daemon loop ──────────────────────────────────────────────────
@@ -369,6 +370,17 @@ class BrowserEngine:
     async def _ensure_browser(self) -> None:
         if self._context is not None:
             return
+        # One launch at a time. The prewarm at boot and a user's first page
+        # open now race by design — the whole point is that one of them has
+        # already paid for the launch — and without this both would start a
+        # Chromium against the same profile, which is exactly the situation
+        # the ProcessSingleton lock exists to refuse.
+        async with self._launch_lock:
+            if self._context is not None:
+                return
+            await self._launch_browser()
+
+    async def _launch_browser(self) -> None:
         if self._launch_error:
             raise RuntimeError(self._launch_error)
         try:
