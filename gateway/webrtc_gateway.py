@@ -123,10 +123,14 @@ class BrowserFeed:
         return frame
 
     async def send_input(self, events: list) -> None:
+        await self.send_control({"events": events})
+
+    async def send_control(self, payload: dict) -> None:
+        """Anything the viewer says to the sandbox: input, keyframe, page."""
         if self._ws is None or self._ws.closed:
             return
         try:
-            await self._ws.send_json({"events": events})
+            await self._ws.send_json(payload)
         except Exception:
             pass
 
@@ -218,20 +222,19 @@ class CastFeed:
                 await self._http.close()
 
     async def send_input(self, events: list) -> None:
+        await self.send_control({"events": events})
+
+    async def send_control(self, payload: dict) -> None:
+        """Anything the viewer says to the sandbox: input, keyframe, page."""
         if self._ws is None or self._ws.closed:
             return
         try:
-            await self._ws.send_json({"events": events})
+            await self._ws.send_json(payload)
         except Exception:
             pass
 
     async def request_keyframe(self) -> None:
-        if self._ws is None or self._ws.closed:
-            return
-        try:
-            await self._ws.send_json({"keyframe": True})
-        except Exception:
-            pass
+        await self.send_control({"keyframe": True})
 
 
 class CastTrack(MediaStreamTrack):
@@ -409,6 +412,12 @@ async def offer(request: web.Request) -> web.StreamResponse:
             events = payload.get("events") or []
             if events:
                 asyncio.ensure_future(feed.send_input(events))
+            # Switching tabs points the SAME capture at another page rather
+            # than negotiating a new call for it: every page already has a
+            # window, rendered and current, so this is a frame's work.
+            page = payload.get("page")
+            if page:
+                asyncio.ensure_future(feed.send_control({"page": str(page)}))
 
     async def forward_keyframe_requests() -> None:
         """Pass the browser's 'I lost the picture' up to the sandbox.

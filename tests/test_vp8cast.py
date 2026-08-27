@@ -51,6 +51,8 @@ class FakeEngine:
 
     async def dispatch(self, page_id, events):
         self.dispatched.extend(events)
+        self.dispatched_pages = getattr(self, "dispatched_pages", [])
+        self.dispatched_pages.append(page_id)
 
 
 async def push_frame(session, data):
@@ -166,3 +168,49 @@ def test_caster_odd_dimensions_even_cropped():
     meta, payload = caster.encode(jpeg_frame(321, 201))
     assert (meta["w"], meta["h"]) == (320, 200)
     assert decode_vp8([payload])[0].width == 320
+
+
+async def run_retarget():
+    """One socket, two pages: switching tabs must not need a new call."""
+    a = FakeSession()
+    a.frame = jpeg_frame(320, 200, shade=210)
+    b = FakeSession()
+    b.frame = jpeg_frame(480, 300, shade=40)
+    engine = FakeEngine(a)
+    engine.pages = {"pg-a": a, "pg-b": b}
+    app = web.Application()
+    app.router.add_get("/cast", make_cast_handler(engine))
+    client = TestClient(TestServer(app))
+    await client.start_server()
+    out = {}
+    try:
+        ws = await client.ws_connect("/cast?page=pg-a")
+        out["first"] = json.loads((await ws.receive(timeout=5)).data)
+        await ws.receive(timeout=5)  # its payload
+
+        await ws.send_json({"page": "pg-b"})
+        await asyncio.sleep(0.1)
+        await push_frame(b, jpeg_frame(480, 300, shade=90))
+        out["second"] = json.loads((await ws.receive(timeout=5)).data)
+        await ws.receive(timeout=5)
+
+        # Input after a retarget must reach the NEW page, not the old one.
+        await ws.send_json({"events": [{"t": "wheel", "dy": 40}]})
+        await asyncio.sleep(0.05)
+        out["dispatched_to"] = list(engine.dispatched_pages)
+        out["closed"] = ws.closed
+        await ws.close()
+    finally:
+        await client.close()
+    return out
+
+
+def test_a_live_socket_can_be_pointed_at_another_page():
+    r = asyncio.run(run_retarget())
+
+    assert (r["first"]["w"], r["first"]["h"]) == (320, 200)
+    # The second page's frames, on the same socket that never closed.
+    assert (r["second"]["w"], r["second"]["h"]) == (480, 300)
+    assert r["second"]["key"] is True, "a different page needs a key frame"
+    assert r["closed"] is False
+    assert r["dispatched_to"] == ["pg-b"], "input followed the retarget"
