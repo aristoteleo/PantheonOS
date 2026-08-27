@@ -447,17 +447,14 @@ class BrowserEngine:
                     # raster 1:1, 1x viewers get a supersampled downscale.
                     # Coordinates stay CSS pixels throughout.
                     "--force-device-scale-factor=2",
-                    # There is no window manager on this display, so nothing
-                    # tells Chromium which of its windows a person can see.
-                    # Left to guess, it treats every unfocused window as
-                    # hidden and stops painting it — and a window resized
-                    # while unfocused gets a fresh, never-painted surface:
-                    # a flawless 30 fps of flat grey. Every window here is
-                    # watched by someone, so none of this backgrounding is
-                    # ever right.
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding",
-                    "--disable-background-timer-throttling",
+                    # Occlusion detection stays ON. Turning it off kept
+                    # every open tab painting at full rate, and five tabs —
+                    # three of them animated interstitials — starved the
+                    # encoder down to 9 fps on the one being watched. The
+                    # window that IS watched is brought to front when the
+                    # capture aims at it, which is what tells Chromium to
+                    # keep painting it; the rest may sleep, exactly as they
+                    # would in a browser on a desk.
                     "--disable-features=CalculateNativeWinOcclusion",
                     # Caches on LOCAL disk, never on the volume. The profile
                     # is on a network volume so logins survive a restart;
@@ -520,6 +517,21 @@ class BrowserEngine:
                 # The OS window must follow, or the X11 grab keeps aiming
                 # at the rectangle the window has left.
                 await self.place_window(session)
+
+    async def focus_page(self, session: PageSession) -> None:
+        """Bring this page's window to the front, so Chromium keeps painting it.
+
+        Nothing else tells it which window a person is looking at: there is
+        no window manager here, and the viewer is a capture of a rectangle.
+        Without this, the page being streamed can be backgrounded and the
+        stream shows a picture that has stopped updating.
+        """
+        if session.cdp is None:
+            return
+        try:
+            await session.cdp.send("Page.bringToFront")
+        except Exception as e:
+            logger.info("browser: could not focus {}: {}", session.id, e)
 
     async def set_metrics(self, session: PageSession,
                           w: int, h: int, s: float) -> None:

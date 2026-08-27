@@ -179,7 +179,11 @@ def make_cast_handler(engine):
                 }
                 cached_at = now
             meta["seq"] = seq
-            meta["status"] = cached
+            # WHICH page this status describes. One socket can be pointed at
+            # another page at any moment, so a viewer that assumed "the
+            # status on this channel belongs to the tab I am looking at"
+            # wrote one page's title onto three tabs during a switch.
+            meta["status"] = {**cached, "page": live["page"]}
             await ws.send_json(meta)
             await ws.send_bytes(payload)
 
@@ -315,6 +319,14 @@ def make_cast_handler(engine):
             """Stream whatever `live` points at, until stopped or retargeted."""
             sess = live["session"]
             logger.info("cast {}: pump {} starting", live["page"], gen)
+            # Tell Chromium this is the window someone is looking at. It has
+            # no other way to know — there is no window manager, and the
+            # viewer is a capture of a rectangle — so without this the page
+            # being streamed can be backgrounded mid-view.
+            try:
+                await engine.call(engine.focus_page(sess))
+            except Exception:
+                pass
             x11 = None
             try:
                 x11 = await open_x11(sess)

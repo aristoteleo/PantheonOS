@@ -122,6 +122,9 @@ def test_cast_stream_contract():
     assert r["meta1"]["t"] == "frame"
     assert r["meta1"]["key"] is True
     assert r["meta1"]["status"]["url"] == "https%3A%2F%2Fexample.com"
+    # Status says which page it is about: a socket can be retargeted, and a
+    # viewer that guesses puts one page's title on another page's tab.
+    assert r["meta1"]["status"]["page"] == "pg-1"
     assert r["meta1"]["w"] == 320 and r["meta1"]["h"] == 200
 
     assert r["meta2"]["key"] is False  # delta frame, chain unbroken
@@ -211,6 +214,7 @@ def test_a_live_socket_can_be_pointed_at_another_page():
     assert (r["first"]["w"], r["first"]["h"]) == (320, 200)
     # The second page's frames, on the same socket that never closed.
     assert (r["second"]["w"], r["second"]["h"]) == (480, 300)
+    assert r["second"]["status"]["page"] == "pg-b", "status follows the target"
     assert r["second"]["key"] is True, "a different page needs a key frame"
     assert r["closed"] is False
     assert r["dispatched_to"] == ["pg-b"], "input followed the retarget"
