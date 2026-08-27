@@ -44,6 +44,24 @@ from pantheon.utils.log import logger
 _SCHEME_NO_SLASH = re.compile(r"^(data|about|blob|view-source|file):", re.I)
 
 
+def surviving_favicon(current: str, new_url: str) -> str:
+    """The icon a tab keeps as it navigates: only its own site's.
+
+    A favicon used to survive until the NEXT page finished loading and an
+    evaluate came back with its icon, so a tab already titled "Google"
+    wore Wikipedia's W for a second or two. Empty means "no icon yet" and
+    the tab falls back to its letter chip, which is honest.
+    """
+    if not current:
+        return ""
+    try:
+        from urllib.parse import urlsplit
+
+        return current if urlsplit(current).netloc == urlsplit(new_url).netloc else ""
+    except Exception:
+        return ""
+
+
 def normalize_url(url: str) -> str:
     """What the address bar means: a bare host gets https, real schemes pass.
 
@@ -601,9 +619,12 @@ class BrowserEngine:
                 pass
 
         def on_nav(frame: Any) -> None:
-            if frame == page.main_frame:
-                session.loading = True
-                asyncio.ensure_future(refresh_history())
+            if frame != page.main_frame:
+                return
+            session.loading = True
+            # An icon belongs to a site, not to a tab.
+            session.favicon = surviving_favicon(session.favicon, frame.url)
+            asyncio.ensure_future(refresh_history())
 
         async def refresh_favicon() -> None:
             try:

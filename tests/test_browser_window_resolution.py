@@ -123,3 +123,22 @@ def test_volume_caches_are_evicted_but_the_login_state_is_not():
         assert (profile / "Default" / "Cookies").read_text() == "session"
         assert (profile / "Default" / "Local Storage").is_dir()
         assert (profile / "Default" / "Preferences").exists()
+
+
+def test_an_icon_belongs_to_a_site_not_to_a_tab():
+    """A tab titled "Google" must not wear Wikipedia's W.
+
+    The favicon used to survive until the next page finished loading and
+    an evaluate returned its icon — a second or two of the previous site's
+    identity on a tab that had already moved on.
+    """
+    from pantheon.toolsets.desktop.browser import surviving_favicon
+
+    wiki = "https://en.wikipedia.org/static/favicon/wikipedia.ico"
+    # Navigating within the site keeps it: no flicker on every click.
+    assert surviving_favicon(wiki, "https://en.wikipedia.org/wiki/Osmosis") == wiki
+    # Leaving it drops it.
+    assert surviving_favicon(wiki, "https://www.google.com/") == ""
+    assert surviving_favicon("", "https://www.google.com/") == ""
+    # Nonsense in, nothing out — never a stale icon.
+    assert surviving_favicon(wiki, "not a url") == ""
