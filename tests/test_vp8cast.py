@@ -30,6 +30,7 @@ class FakeEngine:
     def __init__(self, session):
         self.pages = {"pg-1": session}
         self.dispatched = []
+        self.dispatched_pages = []
 
     async def call(self, coro):
         return await coro
@@ -51,7 +52,6 @@ class FakeEngine:
 
     async def dispatch(self, page_id, events):
         self.dispatched.extend(events)
-        self.dispatched_pages = getattr(self, "dispatched_pages", [])
         self.dispatched_pages.append(page_id)
 
 

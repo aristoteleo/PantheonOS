@@ -250,6 +250,8 @@ def make_cast_handler(engine):
                     out = await loop.run_in_executor(None, x11.next_frame)
                     if out is None:
                         continue
+                    if not still_ours(gen):
+                        return  # the socket moved on while this was captured
                     meta, payload = out
                     await send(meta, payload, sess.seq)
                 except asyncio.CancelledError:
@@ -297,6 +299,8 @@ def make_cast_handler(engine):
                     out = await loop.run_in_executor(None, caster.encode, jpeg)
                     if out is None:
                         continue
+                    if not still_ours(gen):
+                        return  # the socket moved on while this was encoded
                     meta, payload = out
                     await send(meta, payload, since)
                 except asyncio.CancelledError:
@@ -357,10 +361,17 @@ def make_cast_handler(engine):
             # frame. The old pump sees the new generation and returns.
             old = pump_task
             pump_task = asyncio.create_task(run_target(gen))
-            try:
-                await asyncio.wait_for(asyncio.shield(old), timeout=2.0)
-            except Exception:
-                pass
+
+            async def _retire(task: Any) -> None:
+                # In the background: the message loop must keep answering
+                # input while the outgoing pump finishes its frame, or a
+                # switch swallows whatever the user does next.
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=3.0)
+                except Exception:
+                    task.cancel()
+
+            asyncio.ensure_future(_retire(old))
 
         try:
             async for msg in ws:
