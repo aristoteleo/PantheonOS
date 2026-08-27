@@ -162,6 +162,12 @@ class PageSession:
         self.pending_popups: list[str] = []
         self.new_frame = asyncio.Condition()
         self.input_lock = asyncio.Lock()
+        # Sizing the page and sizing its window are two awaits apart, and a
+        # second resize arriving in between used to interleave with the
+        # first: the newer call set the page's metrics, the older one then
+        # set the window to the size it had captured, and the page rendered
+        # into the corner of a window meant for something else.
+        self.shape_lock = asyncio.Lock()
         # Wheel motion still owed to the page. Wheels ACCUMULATE rather than
         # queue: scrolling down and then up must cancel, not play back in
         # order (see the drain task in dispatch()).
@@ -465,6 +471,26 @@ class BrowserEngine:
             logger.error("browser: launch failed: {}", e)
             raise RuntimeError(self._launch_error) from e
 
+    async def reshape(self, session: PageSession,
+                      w: int, h: int, s: float) -> None:
+        """Give the page a size and its window a matching one, atomically.
+
+        The two are several awaits apart. A second resize arriving in the
+        middle interleaved with the first: the newer call set the page's
+        metrics, the older one then sized the window to what it had
+        captured, and the page rendered into the corner of a window meant
+        for another size — the picture filling a fraction of the frame,
+        with bare desk around it.
+        """
+        async with session.shape_lock:
+            session.width, session.height = w, h
+            session.dsf = s
+            await self.set_metrics(session, w, h, s)
+            if session.windowed:
+                # The OS window must follow, or the X11 grab keeps aiming
+                # at the rectangle the window has left.
+                await self.place_window(session)
+
     async def set_metrics(self, session: PageSession,
                           w: int, h: int, s: float) -> None:
         """Set the page's size and its raster density together.
@@ -689,10 +715,8 @@ class BrowserEngine:
         # Window placement and the page load are independent, and the user
         # is waiting on this call: run them together rather than in series.
         async def _shape() -> None:
-            # Density first, then a window sized to match it.
-            await self.set_metrics(session, session.width, session.height,
-                                   session.dsf)
-            await self.place_window(session)
+            await self.reshape(session, session.width, session.height,
+                               session.dsf)
 
         placing = asyncio.ensure_future(_shape()) if windowed else None
         if url:
@@ -1008,13 +1032,7 @@ class BrowserEngine:
                         s = cap_density(w, h, s)
                         prev_s = session.dsf
                         if (w, h, s) != (session.width, session.height, prev_s):
-                            session.width, session.height = w, h
-                            session.dsf = s
-                            await self.set_metrics(session, w, h, s)
-                            if session.windowed:
-                                # The OS window must follow, or the X11 grab
-                                # keeps aiming at the old rectangle.
-                                await self.place_window(session)
+                            await self.reshape(session, w, h, s)
                             if session.viewers:
                                 await self._set_screencast(session, False)
                                 await self._set_screencast(session, True)
