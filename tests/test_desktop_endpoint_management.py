@@ -176,3 +176,58 @@ async def test_endpoint_invalid_return_type_returns_generic_message(tmp_path):
     assert response.text == "Internal server error"
     assert "dict" not in response.text
     assert "StreamResponse" not in response.text
+
+
+def test_app_sync_writes_a_batch_and_prunes_what_the_tree_dropped(tmp_path, monkeypatch):
+    """One call for the whole package tree, and it stays inside it.
+
+    Fifty-eight files at one RPC each is most of the wait a user spends
+    looking at "Preparing the desktop" — and none of it is work, it is
+    round trips. Write-through stays unconditional; only the cost changes.
+    """
+    import asyncio
+    import json
+
+    from pantheon.toolsets.desktop.toolset import DesktopToolSet
+
+    class FakeSettings:
+        workspace = tmp_path
+
+    monkeypatch.setattr("pantheon.settings.get_settings", lambda: FakeSettings())
+    ts = DesktopToolSet.__new__(DesktopToolSet)
+
+    first = asyncio.run(ts.desktop_sync_apps(
+        files={"viv/frontend/index.js": "one", "viv/manifest.json": "{}"},
+        manifest=["viv/frontend/index.js", "viv/manifest.json"]))
+    assert first["success"] and first["written"] == 2
+    root = tmp_path / ".pantheon" / "apps"
+    assert (root / "viv" / "frontend" / "index.js").read_text() == "one"
+    assert json.loads((root / ".sync-manifest.json").read_text()) == [
+        "viv/frontend/index.js", "viv/manifest.json"]
+
+    # The tree drops a file: the copy on the volume must go with it, or it
+    # keeps feeding the app state the code no longer produces.
+    second = asyncio.run(ts.desktop_sync_apps(
+        files={"viv/frontend/index.js": "two"},
+        manifest=["viv/frontend/index.js"]))
+    assert second["pruned"] == 1
+    assert not (root / "viv" / "manifest.json").exists()
+    assert (root / "viv" / "frontend" / "index.js").read_text() == "two"
+
+
+def test_app_sync_refuses_to_write_outside_the_app_tree(tmp_path, monkeypatch):
+    """It writes packages, not arbitrary files."""
+    import asyncio
+
+    from pantheon.toolsets.desktop.toolset import DesktopToolSet
+
+    class FakeSettings:
+        workspace = tmp_path
+
+    monkeypatch.setattr("pantheon.settings.get_settings", lambda: FakeSettings())
+    ts = DesktopToolSet.__new__(DesktopToolSet)
+
+    out = asyncio.run(ts.desktop_sync_apps(files={"../../escaped.txt": "no"}))
+    assert out["success"] and out["written"] == 0
+    assert out["refused"] == ["../../escaped.txt"]
+    assert not (tmp_path.parent / "escaped.txt").exists()

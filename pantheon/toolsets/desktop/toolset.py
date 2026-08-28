@@ -705,6 +705,87 @@ class DesktopToolSet(ToolSet):
         finally:
             self._pending_desktop.pop(request_id, None)
 
+    @tool(exclude=True)
+    async def desktop_sync_apps(
+        self, files: dict = {}, manifest: list | None = None,
+    ) -> dict:
+        """Write a batch of dev-app package files, in one call.
+
+        The desktop writes every package under its `apps/` tree to the pod on
+        connect, so the packaged path is exercised by the same session that is
+        editing it. Fifty-eight files at one RPC each — plus a directory
+        apiece and a sweep of what the tree no longer ships — is most of the
+        wait a user spends looking at "Preparing the desktop", and none of it
+        is work: it is round trips.
+
+        Paths are relative to the workspace's `.pantheon/apps`, and stay
+        there: this writes packages, not arbitrary files.
+
+        Passing `manifest` (the complete list of relative paths this sync
+        owns) also prunes what an earlier sync wrote and the tree no longer
+        ships. Unconditional write-through is deliberate — a Volume outlives
+        the code that wrote it, and "did it change" bookkeeping is how stale
+        state survives — so this makes the honest thing cheap rather than
+        replacing it with a guess.
+        """
+        import shutil
+        from pathlib import Path
+
+        from pantheon.settings import get_settings
+
+        root = Path(get_settings().workspace) / ".pantheon" / "apps"
+        base = str(root.resolve())
+
+        def _safe(rel: str) -> Path | None:
+            target = (root / rel).resolve()
+            return target if str(target).startswith(base) else None
+
+        def _write() -> dict:
+            written, refused = 0, []
+            for rel, content in (files or {}).items():
+                target = _safe(str(rel))
+                if target is None:
+                    refused.append(str(rel))
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(str(content), encoding="utf-8")
+                written += 1
+            pruned = 0
+            if manifest is not None:
+                keep = {str(r) for r in manifest}
+                record = root / ".sync-manifest.json"
+                try:
+                    before = json.loads(record.read_text())
+                except Exception:
+                    before = []
+                for rel in before:
+                    if rel in keep:
+                        continue
+                    stale = _safe(str(rel))
+                    if stale is not None and stale.exists():
+                        stale.unlink()
+                        pruned += 1
+                record.parent.mkdir(parents=True, exist_ok=True)
+                record.write_text(json.dumps(sorted(keep)))
+                # An earlier build wrote packages to the HOME scope, outside
+                # the served roots, where user-scope resolution still finds
+                # them. Take back what that code left behind.
+                home_apps = Path.home() / ".pantheon" / "apps"
+                for app_id in {r.split("/")[0] for r in keep if "/" in r}:
+                    victim = home_apps / app_id
+                    if victim.is_dir():
+                        shutil.rmtree(victim, ignore_errors=True)
+            return {"written": written, "pruned": pruned, "refused": refused}
+
+        try:
+            result = await asyncio.to_thread(_write)
+            if result["refused"]:
+                logger.warning("desktop: refused {} path(s) outside the app tree",
+                               len(result["refused"]))
+            return {"success": True, "root": str(root), **result}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     @tool
     async def desktop_apps(self) -> dict:
         """List the apps installed on the user's desktop — what you can open.
