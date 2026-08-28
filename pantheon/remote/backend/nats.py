@@ -516,6 +516,9 @@ class NATSRemoteWorker(RemoteWorker):
 
         # Auto-register ping function for connection checking
         self.register(self._ping)
+        # ...and the way to restart this agent without destroying the machine
+        # it runs on. See _restart_in_place.
+        self.register(self._restart_in_place)
 
     def set_activity_callback(self, callback: Callable[[], dict]):
         """Register a callback that returns activity status for _ping responses."""
@@ -531,6 +534,57 @@ class NATSRemoteWorker(RemoteWorker):
             except Exception:
                 pass
         return result
+
+    async def _restart_in_place(self) -> dict:
+        """Replace this agent with a fresh one, keeping the sandbox.
+
+        Restarting used to mean destroying the sandbox and building
+        another: eight seconds of waiting for the Volume's asynchronous
+        commit to land (a replacement created inside that window mounts a
+        pre-commit snapshot), then the platform's own create, then this
+        agent starting from nothing. The machine was never the problem —
+        the agent's state was.
+
+        Re-exec keeps the machine, the Volume as it is mounted, the
+        tunnel and its URLs, and the browser profile on local disk. PID 1
+        must not exit — the container ends with it — so this replaces the
+        process image rather than returning.
+
+        The reply goes out first; the caller is told the restart is
+        underway, not asked to wait for it.
+        """
+        import os
+        import signal
+
+        async def _go() -> None:
+            await asyncio.sleep(0.25)  # let the reply reach the caller
+            me = os.getpid()
+            # Everything else in this container belongs to the agent being
+            # replaced: Chromium, Xvfb, the MCP gateway, notebook kernels.
+            # Leaving them would strand an X display on :97 that the new
+            # agent cannot claim, and orphan browsers holding the profile.
+            for entry in os.listdir("/proc"):
+                if not entry.isdigit():
+                    continue
+                pid = int(entry)
+                if pid == me:
+                    continue
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except Exception:
+                    pass
+            try:
+                with open("/proc/self/cmdline", "rb") as fh:
+                    argv = [a.decode() for a in fh.read().split(b"\0") if a]
+                logger.info(f"[restart] re-exec: {' '.join(argv)}")
+                os.execv(argv[0], argv)
+            except Exception as e:  # noqa: BLE001
+                # Never leave PID 1 dead: if exec fails the sandbox is
+                # still alive and the caller can fall back to recreating it.
+                logger.error(f"[restart] re-exec failed: {e}")
+
+        asyncio.create_task(_go())
+        return {"status": "restarting", "service_id": self._service_id}
 
     def register(self, func: Callable, **kwargs):
         """Register function"""
