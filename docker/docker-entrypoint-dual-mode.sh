@@ -470,17 +470,31 @@ EOF
                 tail -n 20 "$SETUP_LOG" 2>/dev/null | sed 's/^/[setup]   /'
             fi
             cp "$SETUP_LOG" "${VOLUME_ROOT}/.pantheon/on-start.log" 2>/dev/null || true
+            # Tells the agent the guarantee below is satisfied. Written on
+            # every outcome, including failure: "the hook is not going to
+            # finish" is what a waiter needs to know, and a hook that failed
+            # is not going to install anything by being waited for.
+            : > /tmp/pantheon-on-start.done
         }
-        # Serial by default: "the hook has finished before the agent starts" is
-        # a guarantee users may rely on (install a tool, then ask the agent to
-        # use it). The background mode trades that guarantee for boot latency —
-        # a hook that only starts services or pre-pulls data can opt in.
-        if [ "${PANTHEON_SETUP_HOOK_BACKGROUND:-}" = "true" ]; then
-            echo "[setup] running $SETUP_HOOK in background (log: $SETUP_LOG) ..."
-            ( _run_setup_hook & )
-        else
+        # ALONGSIDE the boot, not before it. "The hook has finished before the
+        # agent starts" is a guarantee users rely on — install a tool, then
+        # ask the agent to use it — but only the caller that USES what it
+        # installs can observe it, and putting it ahead of the boot cost every
+        # boot four seconds (measured; the hook was re-installing a tool that
+        # was already on the Volume). The wait moved to the shell and the
+        # interpreter, which are where that guarantee is spent:
+        # pantheon/utils/start_hook.py.
+        #
+        # PANTHEON_SETUP_HOOK_SERIAL=true restores the old order for a hook
+        # that something outside those two paths depends on.
+        rm -f /tmp/pantheon-on-start.done
+        if [ "${PANTHEON_SETUP_HOOK_SERIAL:-}" = "true" ]; then
             echo "[setup] running $SETUP_HOOK (log: $SETUP_LOG) ..."
             _run_setup_hook
+        else
+            echo "[setup] running $SETUP_HOOK alongside the boot (log: $SETUP_LOG) ..."
+            : > /tmp/pantheon-on-start.running
+            ( _run_setup_hook & )
         fi
     fi
 

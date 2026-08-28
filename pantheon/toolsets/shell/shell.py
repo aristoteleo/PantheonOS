@@ -378,6 +378,14 @@ PANTHEON_ENV_EOF
             run_command(command="ls -la")
             run_command(command="R -e 'install(...)'", max_output=5000)
         """
+        # The workspace's on-start hook runs alongside the boot rather than
+        # before it. Whatever it installs has to be there by the time a
+        # command actually runs, which is here — and in the normal case it
+        # finished long ago and this is two stat calls.
+        from pantheon.utils.start_hook import wait_for_start_hook
+
+        await wait_for_start_hook()
+
         # Snapshot image files before execution so we can detect new ones
         pre_snapshot: dict[str, float] = {}
         if command and _PYTHON_CMD_RE.search(command):

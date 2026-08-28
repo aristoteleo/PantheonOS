@@ -268,6 +268,12 @@ class PythonInterpreterToolSet(ToolSet):
             code: The code to run.
             interpreter_id: The session to run it in.
         """
+        # Same reason as the shell toolset: the boot hook now runs alongside
+        # the agent, so the wait belongs where its result is used.
+        from pantheon.utils.start_hook import wait_for_start_hook
+
+        await wait_for_start_hook()
+
         await self._inject_runtime_context(interpreter_id)
         reply = await self.kernels.execute_request(code, interpreter_id)
 
