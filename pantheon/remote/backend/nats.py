@@ -517,6 +517,7 @@ class NATSRemoteWorker(RemoteWorker):
         # Auto-register ping function for connection checking
         self.register(self._ping)
         self.register(self._restart_in_place)
+        self._note_if_restarted()
 
     def set_activity_callback(self, callback: Callable[[], dict]):
         """Register a callback that returns activity status for _ping responses."""
@@ -532,6 +533,28 @@ class NATSRemoteWorker(RemoteWorker):
             except Exception:
                 pass
         return result
+
+    @staticmethod
+    def _note_if_restarted() -> None:
+        """Leave a mark on the other side of an in-place restart.
+
+        Without it, "the agent came back" and "the Hub built a new sandbox
+        that looks the same" are indistinguishable from the outside.
+        """
+        import glob
+        import os
+        import time as _time
+
+        for vol in glob.glob("/__modal/volumes/*"):
+            path = os.path.join(vol, ".pantheon", "restart-trace.log")
+            if os.path.exists(path):
+                try:
+                    with open(path, "a") as fh:
+                        fh.write(f"{_time.time():.3f} pid={os.getpid()} "
+                                 f"agent up again\n")
+                except Exception:
+                    pass
+                break
 
     async def _restart_in_place(self) -> dict:
         """Replace this agent with a fresh one, keeping the machine.
@@ -557,10 +580,32 @@ class NATSRemoteWorker(RemoteWorker):
         import signal
         import time as _time
 
+        def _trace_path() -> str:
+            """Somewhere that outlives the container.
+
+            /tmp does not: when this went wrong the sandbox ended and took
+            the only record of how far it got with it. The Volume is the
+            one filesystem here that survives the machine.
+            """
+            import glob
+
+            for vol in glob.glob("/__modal/volumes/*"):
+                try:
+                    d = os.path.join(vol, ".pantheon")
+                    os.makedirs(d, exist_ok=True)
+                    return os.path.join(d, "restart-trace.log")
+                except Exception:
+                    continue
+            return "/tmp/pantheon-restart.log"
+
+        trace_file = _trace_path()
+
         def _trace(line: str) -> None:
             try:
-                with open("/tmp/pantheon-restart.log", "a") as fh:
-                    fh.write(f"{_time.time():.3f} {line}\n")
+                with open(trace_file, "a") as fh:
+                    fh.write(f"{_time.time():.3f} pid={os.getpid()} {line}\n")
+                    fh.flush()
+                    os.fsync(fh.fileno())
             except Exception:
                 pass
 
