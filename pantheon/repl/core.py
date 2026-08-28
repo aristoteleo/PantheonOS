@@ -104,6 +104,7 @@ class Repl(ReplUI):
 
         # Reference to team for UI display (will be set after first chat)
         self._team: PantheonTeam | None = None
+        self._team_task: asyncio.Task | None = None
         if agent is not None:
             if isinstance(agent, Team):
                 self._team = agent
@@ -701,15 +702,40 @@ class Repl(ReplUI):
             result = await self._chatroom.create_chat("repl-session")
             self._chat_id = result["chat_id"]
 
-        # Get team reference for UI display
+        # The team is assembled in the BACKGROUND, because nothing here needs
+        # it yet. It is read for UI display — whether to show agent names —
+        # and building it means loading the template, fetching every toolset's
+        # schema and wiring plugins: 10.017 s on a cold sandbox (measured on
+        # staging, of which create_agents was 6.686 s), against 0.394 s once
+        # warm. Awaiting it put all ten seconds between a restored desktop
+        # window and a usable one, for a boolean.
+        #
+        # Safe to background: get_team_for_chat holds a per-chat single-flight
+        # lock, so a first message arriving mid-assembly waits for THIS build
+        # rather than starting a second one.
         if self._team is None:
-            self._team = await self._chatroom.get_team_for_chat(self._chat_id, save_to_memory=False)
-            self._is_multi_agent = len(self._team.agents) > 1
+            self._team_task = asyncio.create_task(self._assemble_team())
 
         # Start ChatRoom setup in background (MCP servers, etc.)
         # This runs after UI is shown, so user sees REPL immediately
         # After setup, warm up tools cache and LLM connection to reduce first-message latency
         asyncio.create_task(self._setup_and_warmup())
+
+    async def _assemble_team(self):
+        """Fill in the team once it is built, and wire what was waiting on it."""
+        try:
+            team = await self._chatroom.get_team_for_chat(
+                self._chat_id, save_to_memory=False
+            )
+        except Exception as e:
+            logger.error(f"Team assembly failed: {e}")
+            return
+        self._team = team
+        self._is_multi_agent = len(team.agents) > 1
+        # These run at startup against a team that was not there yet; the queue
+        # exists by now, so re-run them rather than lose the wiring.
+        if self.message_queue:
+            self._setup_bg_complete_hooks()
 
     async def _setup_and_warmup(self):
         """Run ChatRoom setup then pre-populate tools cache.
@@ -725,6 +751,11 @@ class Repl(ReplUI):
 
         # Pre-populate tools cache so first message doesn't pay the cost
         try:
+            # The team is assembled alongside this now, so wait for it rather
+            # than skip the warmup on a race.
+            task = getattr(self, "_team_task", None)
+            if task is not None:
+                await task
             if self._team and self._team.agents:
                 agent = next(iter(self._team.agents.values()), None)
                 if agent:

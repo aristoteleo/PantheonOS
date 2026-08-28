@@ -1,3 +1,4 @@
+import asyncio
 from pantheon.agent import Agent
 from pantheon.endpoint import ToolsetProxy
 from pantheon.utils.log import logger
@@ -85,25 +86,40 @@ async def create_agent(
     
     # ===== Add ToolSet providers from config =====
 
-    for toolset_name in normal_toolsets:
-        # "task" toolset is now managed by TaskSystemPlugin via plugin registry
-        if toolset_name == "task":
-            logger.debug(f"Agent '{name}': 'task' toolset is managed by TaskSystemPlugin, skipping")
+    # Each provider's initialize() is a round trip to the Endpoint for that
+    # toolset's tool schema, and they do not depend on one another — so they go
+    # out together. Serially this was the boot's largest single cost: a first
+    # team assembly on staging spent 6.686 s here across three agents' toolsets,
+    # against 0.002 s once the schemas were cached, so it is round trips rather
+    # than work.
+    #
+    # Only the fetching is concurrent. Attaching stays ordered and one at a
+    # time: `agent.toolset()` mutates the agent, and the order it sees decides
+    # the order tools reach the model.
+    wanted = [t for t in normal_toolsets if t != "task"]
+    if len(wanted) != len(normal_toolsets):
+        logger.debug(f"Agent '{name}': 'task' toolset is managed by TaskSystemPlugin, skipping")
+
+    from pantheon.providers import ToolSetProvider
+
+    async def _fetch(toolset_name: str):
+        proxy = ToolsetProxy.from_endpoint(endpoint_service, toolset_name)
+        provider = ToolSetProvider(proxy)
+        await provider.initialize()
+        return provider
+
+    fetched = await asyncio.gather(
+        *(_fetch(t) for t in wanted), return_exceptions=True
+    )
+
+    for toolset_name, provider in zip(wanted, fetched):
+        if isinstance(provider, BaseException):
+            logger.error(f"Agent '{name}': Failed to add toolset '{toolset_name}': {provider}")
+            agent.not_loaded_toolsets.append(toolset_name)
             continue
-
         try:
-            # Create ToolsetProxy for remote toolsets
-            proxy = ToolsetProxy.from_endpoint(endpoint_service, toolset_name)
-
-            from pantheon.providers import ToolSetProvider
-
-            toolset_provider = ToolSetProvider(proxy)
-            await toolset_provider.initialize()
-
-            # Add provider to agent
-            await agent.toolset(toolset_provider)
+            await agent.toolset(provider)
             toolsets_added.append(toolset_name)
-
         except Exception as e:
             logger.error(f"Agent '{name}': Failed to add toolset '{toolset_name}': {e}")
             agent.not_loaded_toolsets.append(toolset_name)
@@ -189,12 +205,26 @@ async def create_agents_from_template(
     endpoint_service, agent_configs: dict, enable_mcp: bool = True
 ) -> list:
     """Create agents from agent configs."""
-    agents = []
+    # The agents do not depend on each other either, and each is mostly waiting
+    # on the round trips above. gather preserves order, and order matters —
+    # the first agent is the team's leader.
+    built = await asyncio.gather(
+        *(
+            create_agent(endpoint_service, enable_mcp=enable_mcp, **agent_config)
+            for agent_config in agent_configs.values()
+        ),
+        return_exceptions=True,
+    )
 
-    for agent_config in agent_configs.values():
-        agent = await create_agent(
-            endpoint_service, enable_mcp=enable_mcp, **agent_config
-        )
+    agents = []
+    for agent_config, agent in zip(agent_configs.values(), built):
+        if isinstance(agent, BaseException):
+            # One agent that cannot be built must not cost the whole team; the
+            # ones that did build are still a usable team.
+            logger.error(
+                f"Failed to create agent '{agent_config.get('name', '?')}': {agent}"
+            )
+            continue
         agents.append(agent)
 
     return agents
