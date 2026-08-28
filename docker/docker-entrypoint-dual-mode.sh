@@ -6,13 +6,29 @@ echo "Pantheon Docker Container"
 echo "Mode: ${PANTHEON_MODE:-hub}"
 echo "========================================="
 
+# Everything this script starts in the background runs at a lower priority than
+# the agent it is starting. A sandbox has TWO cores, and by the time the real
+# interpreter begins importing there are up to four other jobs on them: this
+# import prewarm, the userspace re-derivation, the analysis-env repair, and the
+# user's own on-start hook. Measured 2026-08-28 across six boots: with a hook
+# that finished in 2 s the agent subscribed at 4.7 s, with the same hook taking
+# 5 s it subscribed at 8.2 s — and the entrypoint had reached `exec python` at
+# t=0 in both, so nothing was WAITING on the hook. It was competing with it.
+#
+# None of the background work is on anyone's critical path; the agent's import
+# is on everyone's. `nice` says exactly that and costs nothing when the cores
+# are free.
+NICE_BG="nice -n 10"
+
 # Warm the agent's import set in the background while the shell below does its
 # volume work. Modal lazy-loads image layers, so the first read of every .py
 # and .so pays a network fetch — measured as the difference between a 3-5.5 s
 # first import and a 0.84 s second one. Pulling the files now means the real
 # `python -m pantheon.chatroom` at the end imports from hot cache. Best effort
 # and fully detached: the boot never waits on it, and a failure costs nothing.
-( timeout 90 "${PANTHEON_RUNTIME_PYTHON:-python}" -c "import pantheon.chatroom" >/dev/null 2>&1 & )
+# Niced with the rest: what it is worth is the network fetch, not the CPU, and
+# the CPU is the one thing it can take from the interpreter it is warming for.
+( timeout 90 $NICE_BG "${PANTHEON_RUNTIME_PYTHON:-python}" -c "import pantheon.chatroom" >/dev/null 2>&1 & )
 
 # Point pip, npm, R and apt at the Volume, so software a user installs is still
 # there after the sandbox is recreated. Sourced (not run) so the exports reach
@@ -29,7 +45,7 @@ if [ -f /usr/local/bin/pantheon-userspace.sh ]; then
     # it from scratch in the background so drift the snapshot's own validity
     # guard cannot see still converges by the next boot. Detached; the boot
     # never waits on it.
-    ( PANTHEON_USERSPACE_REBUILD=1 bash -c '. /usr/local/bin/pantheon-userspace.sh' >/dev/null 2>&1 & )
+    ( PANTHEON_USERSPACE_REBUILD=1 $NICE_BG bash -c '. /usr/local/bin/pantheon-userspace.sh' >/dev/null 2>&1 & )
 fi
 
 # Build or repair the analysis env. In the BACKGROUND, and deliberately so: it
@@ -46,7 +62,7 @@ fi
 # idempotent and takes ~2 s when there is nothing to do (measured), against a
 # first build of ~20 s.
 if [ -x /usr/local/bin/pantheon-analysis-env ]; then
-    ( /usr/local/bin/pantheon-analysis-env > /tmp/pantheon-analysis-env.log 2>&1 || true ) &
+    ( $NICE_BG /usr/local/bin/pantheon-analysis-env > /tmp/pantheon-analysis-env.log 2>&1 || true ) &
 fi
 
 # ========== MODE DETECTION ==========
@@ -461,7 +477,7 @@ EOF
     if [ -f "$SETUP_HOOK" ]; then
         SETUP_LOG=/tmp/pantheon-on-start.log
         _run_setup_hook() {
-            if timeout "${PANTHEON_SETUP_TIMEOUT:-300}" bash "$SETUP_HOOK" > "$SETUP_LOG" 2>&1; then
+            if timeout "${PANTHEON_SETUP_TIMEOUT:-300}" $NICE_BG bash "$SETUP_HOOK" > "$SETUP_LOG" 2>&1; then
                 echo "[setup] ✓ finished"
             else
                 rc=$?
