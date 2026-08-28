@@ -516,6 +516,7 @@ class NATSRemoteWorker(RemoteWorker):
 
         # Auto-register ping function for connection checking
         self.register(self._ping)
+        self.register(self._restart_in_place)
 
     def set_activity_callback(self, callback: Callable[[], dict]):
         """Register a callback that returns activity status for _ping responses."""
@@ -531,6 +532,80 @@ class NATSRemoteWorker(RemoteWorker):
             except Exception:
                 pass
         return result
+
+    async def _restart_in_place(self) -> dict:
+        """Replace this agent with a fresh one, keeping the machine.
+
+        Rebuilding the sandbox to restart the agent costs the Volume settle
+        window — eight seconds, because a replacement created inside it
+        mounts a pre-commit snapshot — plus the platform's create. Neither
+        is about the agent, which is the only thing that needed restarting.
+
+        Three things this must respect, each learned by breaking it:
+
+        - The agent is PID **2**, under dumb-init. It must not exit: the
+          container ends with PID 1's child, so the process image is
+          replaced instead of returned from.
+        - Only what would COLLIDE with the new agent is cleared — Xvfb owns
+          :97 and Chromium owns the browser profile. An earlier version
+          killed everything else in the container and died before it
+          reached the exec, taking the container with it.
+        - The trace goes to a FILE. Whatever happens to stdout across an
+          exec, /tmp/pantheon-restart.log says how far this got.
+        """
+        import os
+        import signal
+        import time as _time
+
+        def _trace(line: str) -> None:
+            try:
+                with open("/tmp/pantheon-restart.log", "a") as fh:
+                    fh.write(f"{_time.time():.3f} {line}\n")
+            except Exception:
+                pass
+
+        def _cmdline(pid: int) -> str:
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                    return fh.read().replace(b"\0", b" ").decode(errors="replace")
+            except Exception:
+                return ""
+
+        async def _go() -> None:
+            await asyncio.sleep(0.25)  # let the reply reach the caller
+            me = os.getpid()
+            _trace(f"restart requested; agent pid={me}")
+            # Xvfb holds the display and Chromium holds the profile: a new
+            # agent cannot claim either while these live. Everything else in
+            # the container — dumb-init, the entrypoint's own work, fleet —
+            # is none of our business.
+            collides = ("Xvfb", "chrome-linux64/chrome", "playwright/driver")
+            for entry in os.listdir("/proc"):
+                if not entry.isdigit():
+                    continue
+                pid = int(entry)
+                if pid in (1, me):
+                    continue
+                line = _cmdline(pid)
+                if any(marker in line for marker in collides):
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                        _trace(f"killed {pid}: {line[:60]}")
+                    except Exception as e:
+                        _trace(f"could not kill {pid}: {e}")
+            try:
+                with open("/proc/self/cmdline", "rb") as fh:
+                    argv = [a.decode() for a in fh.read().split(b"\0") if a]
+                _trace(f"exec: {' '.join(argv)}")
+                os.execv(argv[0], argv)
+            except Exception as e:  # noqa: BLE001
+                # PID 2 stays alive on failure, so the sandbox can still be
+                # rebuilt the slow way.
+                _trace(f"exec failed: {e}")
+                logger.error(f"[restart] re-exec failed: {e}")
+
+        asyncio.create_task(_go())
+        return {"status": "restarting", "service_id": self._service_id}
 
     def register(self, func: Callable, **kwargs):
         """Register function"""
