@@ -132,12 +132,14 @@ def test_list_template_files_summary_returns_lightweight_team_metadata(tmp_path)
     assert "toolsets" not in room["agent_refs"][0]
 
 
-def test_single_cell_team_includes_fm_router(tmp_path):
+def test_single_cell_team_has_no_fm_router(tmp_path):
+    # fm_router routed for the SCFM toolset, removed in the 2026-08 toolset
+    # cleanup; the team must not reference an agent that no longer ships.
     manager = _make_manager(tmp_path)
     team = manager.get_template("single_cell_team")
     assert team is not None
     agent_ids = [a.id for a in team.agents]
-    assert "fm_router" in agent_ids
+    assert "fm_router" not in agent_ids
 
 
 def test_graph_maker_team_and_dedicated_agents_are_not_factory_defaults(tmp_path):

@@ -652,15 +652,10 @@ class ToolSetManager:
         """Prepare ToolSet instantiation arguments."""
         service_name = params.get("name", service_type)
         args = {"name": service_name}
-        if service_type in ("python_interpreter", "shell", "package", "pty"):
+        if service_type in ("python_interpreter", "shell", "pty"):
             args["workdir"] = str(self.path)
         elif service_type == "file_manager":
             args["path"] = str(self.path)
-        elif service_type == "vector_rag":
-            db_path = params.get("db_path")
-            if not db_path:
-                raise ValueError("db_path is required for vector_rag service")
-            args["db_path"] = db_path
         elif service_type == "workflow":
             workflow_path = params.get("workflow_path")
             if workflow_path:

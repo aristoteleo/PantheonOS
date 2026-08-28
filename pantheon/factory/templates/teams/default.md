@@ -18,7 +18,6 @@ leader:
   toolsets:
     - file_manager
     - shell
-    - package
     - task
     - integrated_notebook
     - web
