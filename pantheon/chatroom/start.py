@@ -271,6 +271,26 @@ async def _start_endpoint_embedded(
     # its own NATS connection (TCP-B) so the frontend's data channel
     # can target Endpoint directly without touching the ChatRoom
     # connection (TCP-A).
+    # The LLM path is warmed NOW, not after the endpoint's boot gate.
+    #
+    # It exists to absorb the cold path a fresh sandbox's first message
+    # pays — Modal egress, proxy ingress, TLS, and the proxy spinning up
+    # the target model's deployment — and almost all of that is WAITING on
+    # the network, not work this process does. Behind the gate it started
+    # six seconds after boot and finished twelve seconds in; a user who
+    # types sooner than that pays the cold path the warm was meant to
+    # absorb, and the first outbound connection from a fresh sandbox often
+    # fails and needs the retry runway. The gate is there so that heavy
+    # CPU work cannot delay the moment the user can talk, which this is
+    # not. (The MCP gateway stays behind it: its cost is imports.)
+    async def _warm_llm_early():
+        try:
+            await endpoint._warmup_llm_connection()
+        except Exception as e:  # noqa: BLE001 — boot must not depend on it
+            logger.info(f"[STARTUP] early LLM warm skipped: {e}")
+
+    asyncio.create_task(_warm_llm_early())
+
     async def _run_endpoint_background():
         if start_after is not None:
             logger.info("Endpoint background boot waiting for ChatRoom NATS readiness")

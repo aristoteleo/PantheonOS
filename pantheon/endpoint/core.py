@@ -242,7 +242,14 @@ class Endpoint(FileTransferToolSet):
 
         async def _start_post_ready_background():
             await _wait_for_worker_ready_before_background_startup()
-            asyncio.create_task(self._warmup_llm_connection())
+            # The LLM warm is kicked at boot now (chatroom/start.py): it is a
+            # network wait, and behind this gate it finished six seconds
+            # after the user could already be typing. Kept here as the
+            # fallback for embeddings that do not run that path — it is
+            # idempotent enough to be warmed twice and cheap when already
+            # warm.
+            if not getattr(self, "_llm_warm_started", False):
+                asyncio.create_task(self._warmup_llm_connection())
             await _start_gateway_background()
 
         # ===== Phase 2: Start Builtin ToolSet Services =====
@@ -290,6 +297,9 @@ class Endpoint(FileTransferToolSet):
     async def _warmup_llm_connection(self):
         """Best-effort warm of the sandbox→LLM-proxy path at boot.
 
+        Started at boot rather than after the endpoint's gate: see the note
+        at the call site in chatroom/start.py.
+
         A fresh sandbox's first real message pays ~10-13s of cold path: Modal
         egress + proxy ingress + TCP/TLS, PLUS the LiteLLM proxy spinning up the
         *target model's* deployment. This absorbs that here, before the user's
@@ -308,6 +318,8 @@ class Endpoint(FileTransferToolSet):
         Never raises — boot must not depend on it.
         """
         import time as _time
+
+        self._llm_warm_started = True
 
         # Pre-load the OpenRouter catalog in THIS process. Agents run their LLM calls here,
         # and platform-openrouter routing (canonical_openrouter_id) resolves a bare model
