@@ -10,12 +10,21 @@ This evaluator measures:
 The combined score balances these metrics for evolution.
 """
 
+import os
+os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+
 import numpy as np
 import pandas as pd
 import time
 import sys
-import os
 import importlib.util
+
+# Force CPU to avoid MPS crashes in subprocess evaluation
+try:
+    import torch
+    torch.backends.mps.is_available = lambda: False
+except ImportError:
+    pass
 from pathlib import Path
 from sklearn.cluster import KMeans
 from sklearn.neighbors import NearestNeighbors

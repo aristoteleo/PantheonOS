@@ -86,40 +86,36 @@ async def create_agent(
     
     # ===== Add ToolSet providers from config =====
 
-    # Each provider's initialize() is a round trip to the Endpoint for that
-    # toolset's tool schema, and they do not depend on one another — so they go
-    # out together. Serially this was the boot's largest single cost: a first
-    # team assembly on staging spent 6.686 s here across three agents' toolsets,
-    # against 0.002 s once the schemas were cached, so it is round trips rather
-    # than work.
+    # Serial, and measured to be right. These look like round trips to the
+    # Endpoint, so an earlier version fired them together — and a team that had
+    # taken 10.017 s took 18.798 s. The Endpoint runs EMBEDDED, in this same
+    # process (chatroom/start.py::_start_endpoint_embedded), so the request
+    # goes out to NATS and comes back to this event loop: the only thing
+    # concurrency can overlap is the hop itself, about 35 ms each, while the
+    # work — building each toolset's schema — is CPU that cannot be overlapped
+    # at all and only interleaves worse for being started twelve at a time.
     #
-    # Only the fetching is concurrent. Attaching stays ordered and one at a
-    # time: `agent.toolset()` mutates the agent, and the order it sees decides
-    # the order tools reach the model.
-    wanted = [t for t in normal_toolsets if t != "task"]
-    if len(wanted) != len(normal_toolsets):
-        logger.debug(f"Agent '{name}': 'task' toolset is managed by TaskSystemPlugin, skipping")
-
-    from pantheon.providers import ToolSetProvider
-
-    async def _fetch(toolset_name: str):
-        proxy = ToolsetProxy.from_endpoint(endpoint_service, toolset_name)
-        provider = ToolSetProvider(proxy)
-        await provider.initialize()
-        return provider
-
-    fetched = await asyncio.gather(
-        *(_fetch(t) for t in wanted), return_exceptions=True
-    )
-
-    for toolset_name, provider in zip(wanted, fetched):
-        if isinstance(provider, BaseException):
-            logger.error(f"Agent '{name}': Failed to add toolset '{toolset_name}': {provider}")
-            agent.not_loaded_toolsets.append(toolset_name)
+    # The second assembly in the same container takes 0.002 s, which says the
+    # cost is building those schemas once, not fetching them. Making it cheaper
+    # means caching them across containers, or not assembling here at all —
+    # not issuing the same work in parallel.
+    for toolset_name in normal_toolsets:
+        # "task" toolset is now managed by TaskSystemPlugin via plugin registry
+        if toolset_name == "task":
+            logger.debug(f"Agent '{name}': 'task' toolset is managed by TaskSystemPlugin, skipping")
             continue
+
         try:
-            await agent.toolset(provider)
+            proxy = ToolsetProxy.from_endpoint(endpoint_service, toolset_name)
+
+            from pantheon.providers import ToolSetProvider
+
+            toolset_provider = ToolSetProvider(proxy)
+            await toolset_provider.initialize()
+
+            await agent.toolset(toolset_provider)
             toolsets_added.append(toolset_name)
+
         except Exception as e:
             logger.error(f"Agent '{name}': Failed to add toolset '{toolset_name}': {e}")
             agent.not_loaded_toolsets.append(toolset_name)
@@ -205,27 +201,19 @@ async def create_agents_from_template(
     endpoint_service, agent_configs: dict, enable_mcp: bool = True
 ) -> list:
     """Create agents from agent configs."""
-    # The agents do not depend on each other either, and each is mostly waiting
-    # on the round trips above. gather preserves order, and order matters —
-    # the first agent is the team's leader.
-    built = await asyncio.gather(
-        *(
-            create_agent(endpoint_service, enable_mcp=enable_mcp, **agent_config)
-            for agent_config in agent_configs.values()
-        ),
-        return_exceptions=True,
-    )
-
+    # Serial for the same reason the toolsets above are: the Endpoint they call
+    # is this process. Kept from the parallel attempt: one agent that cannot be
+    # built no longer takes the whole team with it.
     agents = []
-    for agent_config, agent in zip(agent_configs.values(), built):
-        if isinstance(agent, BaseException):
-            # One agent that cannot be built must not cost the whole team; the
-            # ones that did build are still a usable team.
-            logger.error(
-                f"Failed to create agent '{agent_config.get('name', '?')}': {agent}"
+    for agent_config in agent_configs.values():
+        try:
+            agents.append(
+                await create_agent(endpoint_service, enable_mcp=enable_mcp, **agent_config)
             )
-            continue
-        agents.append(agent)
+        except Exception as e:
+            logger.error(
+                f"Failed to create agent '{agent_config.get('name', '?')}': {e}"
+            )
 
     return agents
 
