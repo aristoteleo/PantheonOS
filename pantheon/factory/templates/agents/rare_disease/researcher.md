@@ -5,7 +5,6 @@ icon: 🔎
 toolsets:
   - shell
   - web
-  - database_api
   - python_interpreter
   - file_manager
 mcp_servers:

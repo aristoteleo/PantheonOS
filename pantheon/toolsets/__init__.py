@@ -12,7 +12,6 @@ if TYPE_CHECKING:
         NotebookToolSet,
     )
     from .scraper import ScraperToolSet
-    from .database_api import DatabaseAPIQueryToolSet
     from .task import TaskToolSet
     from .evolution import EvolutionToolSet, EvaluatorToolSet
     from .desktop import DesktopToolSet, LiveViewToolSet
@@ -28,7 +27,6 @@ _TOOLSET_MAPPING = {
     "JupyterKernelToolSet": ".notebook",
     "NotebookToolSet": ".notebook",
     "ScraperToolSet": ".scraper",
-    "DatabaseAPIQueryToolSet": ".database_api",
     "TaskToolSet": ".task",
     "EvolutionToolSet": ".evolution",
     "EvaluatorToolSet": ".evolution",

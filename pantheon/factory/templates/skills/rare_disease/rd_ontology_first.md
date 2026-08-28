@@ -48,7 +48,7 @@ Typical normalized entities:
      - miss/ambiguous flags
 
 4. **Only then run online evidence retrieval**
-   - use BioMCP / web / database_api for latest literature & trial evidence
+   - use BioMCP / web for latest literature & trial evidence
    - keep ontology output as candidate anchor, avoid drifting synonyms
 
 ## Retrieval Pattern (Ontology-First)
@@ -61,7 +61,7 @@ When performing evidence or disease retrieval, follow this sequence:
    - If the database does not exist yet, build it: `python {skill_dir}/scripts/build_rd_ontology.py build --reset`
 
 2. **Literature and public evidence layer**
-   - Then retrieve evidence from PubMed/Crossref/Google-Scholar-like sources via `biomcp`, `web`, and `database_api`.
+   - Then retrieve evidence from PubMed/Crossref/Google-Scholar-like sources via `biomcp` and `web`.
    - Prefer recent and discriminative evidence (case reports, reviews, cohort papers) over generic disease summaries.
 
 3. **Evidence labeling and traceability**
