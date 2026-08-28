@@ -786,6 +786,80 @@ class DesktopToolSet(ToolSet):
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    @tool(exclude=True)
+    async def desktop_app_registry(self) -> dict:
+        """Every packaged app on this pod: manifest, directory, icon URL.
+
+        The desktop assembled this itself — list each scope, read each
+        app's atrium.json, then ask for each icon's URL — which is a couple
+        of dozen round trips, one after another, while the user watches
+        "Preparing the desktop". All of it is on local disk here.
+
+        Scopes are searched workspace, then user, then builtin, and the
+        first manifest to claim an id wins, which is the order the desktop
+        used. A scope that cannot be listed is reported rather than
+        silently treated as empty: booting with no apps and no complaint is
+        the failure this replaces.
+        """
+        from pathlib import Path
+
+        from pantheon.settings import get_settings
+
+        settings = get_settings()
+        roots = [
+            (Path(settings.workspace) / ".pantheon" / "apps", "workspace"),
+            (Path.home() / ".pantheon" / "apps", "user"),
+            (Path("/app/pantheon/factory/templates/apps"), "builtin"),
+        ]
+
+        def _scan() -> tuple[list[dict], list[str], int]:
+            apps: list[dict] = []
+            seen: set[str] = set()
+            failed: list[str] = []
+            looked = 0
+            for root, scope in roots:
+                try:
+                    if not root.is_dir():
+                        continue
+                    entries = sorted(p for p in root.iterdir() if p.is_dir())
+                    looked += 1
+                except Exception as e:
+                    failed.append(f"{root}: {e}")
+                    continue
+                for app_dir in entries:
+                    raw = app_dir / "atrium.json"
+                    try:
+                        manifest = json.loads(raw.read_text())
+                    except Exception:
+                        continue
+                    app_id = manifest.get("id")
+                    if not app_id or not manifest.get("entry") or app_id in seen:
+                        continue
+                    seen.add(app_id)
+                    apps.append({"manifest": manifest, "dir": str(app_dir),
+                                 "scope": scope,
+                                 "icon_path": (manifest.get("icon") or {}).get("path")})
+            return apps, failed, looked
+
+        try:
+            apps, failed, looked = await asyncio.to_thread(_scan)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+        # Icons are served, not read: minting the URL here saves the desktop
+        # a call per app, and an app whose icon will not serve still installs.
+        for app in apps:
+            rel = app.pop("icon_path", None)
+            if not rel:
+                continue
+            try:
+                served = await self.serve_local_data(f"{app['dir']}/{rel}")
+                if served.get("success") and served.get("url"):
+                    app["icon_url"] = served["url"]
+            except Exception:
+                pass
+        return {"success": True, "apps": apps, "scopes_read": looked,
+                "unreadable": failed}
+
     @tool
     async def desktop_apps(self) -> dict:
         """List the apps installed on the user's desktop — what you can open.

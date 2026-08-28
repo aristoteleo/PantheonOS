@@ -231,3 +231,40 @@ def test_app_sync_refuses_to_write_outside_the_app_tree(tmp_path, monkeypatch):
     assert out["success"] and out["written"] == 0
     assert out["refused"] == ["../../escaped.txt"]
     assert not (tmp_path.parent / "escaped.txt").exists()
+
+
+def test_the_registry_reads_every_scope_in_order(tmp_path, monkeypatch):
+    """Workspace wins over user wins over builtin, and a scope that cannot
+    be read is reported — booting with no apps and no complaint is the
+    failure this replaces."""
+    import asyncio
+    import json
+
+    from pantheon.toolsets.desktop.toolset import DesktopToolSet
+
+    ws = tmp_path / "ws"
+    home = tmp_path / "home"
+    for root, app_id, version in ((ws / ".pantheon/apps/viv", "viv", "2.0"),
+                                  (home / ".pantheon/apps/viv", "viv", "1.0"),
+                                  (home / ".pantheon/apps/igv", "igv", "1.0")):
+        root.mkdir(parents=True)
+        (root / "atrium.json").write_text(json.dumps(
+            {"id": app_id, "entry": "index.js", "version": version}))
+    # No manifest at all: not an app, and not a crash either.
+    (ws / ".pantheon/apps/rubbish").mkdir(parents=True)
+
+    class FakeSettings:
+        workspace = ws
+
+    monkeypatch.setattr("pantheon.settings.get_settings", lambda: FakeSettings())
+    monkeypatch.setattr("pathlib.Path.home", classmethod(lambda cls: home))
+    ts = DesktopToolSet.__new__(DesktopToolSet)
+
+    out = asyncio.run(ts.desktop_app_registry())
+    assert out["success"]
+    by_id = {a["manifest"]["id"]: a for a in out["apps"]}
+    assert set(by_id) == {"viv", "igv"}
+    assert by_id["viv"]["manifest"]["version"] == "2.0", "workspace wins"
+    assert by_id["viv"]["scope"] == "workspace"
+    assert by_id["igv"]["scope"] == "user"
+    assert out["scopes_read"] >= 2
