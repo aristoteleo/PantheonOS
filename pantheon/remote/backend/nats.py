@@ -638,6 +638,19 @@ class NATSRemoteWorker(RemoteWorker):
                         _trace(f"killed {pid}: {line[:60]}")
                     except Exception as e:
                         _trace(f"could not kill {pid}: {e}")
+            # The desktop's boot token names a GENERATION of agent state,
+            # and it is kept in a file so every process in the container
+            # agrees on it. Keeping the machine would keep the token, and
+            # every viewer would go on believing the page ids, served URLs
+            # and session subscription minted by the agent that is about to
+            # be replaced. Dropping it makes this look like what it is.
+            try:
+                os.unlink("/tmp/pantheon-desktop-boot")
+                _trace("dropped the boot token")
+            except FileNotFoundError:
+                pass
+            except Exception as e:
+                _trace(f"could not drop the boot token: {e}")
             try:
                 with open("/proc/self/cmdline", "rb") as fh:
                     argv = [a.decode() for a in fh.read().split(b"\0") if a]
