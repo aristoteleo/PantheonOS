@@ -469,7 +469,12 @@ class BrowserEngine:
             profile = Path.home() / ".pantheon" / "browser-profile"
             profile.mkdir(parents=True, exist_ok=True)
             self._clear_stale_locks(profile)
-            self._evict_volume_caches(profile)
+            # Off the loop: this deletes thousands of files on a NETWORK
+            # volume, and a loop that stops answering for long enough is a
+            # pod the hub's health check declares dead and destroys — which
+            # costs the user their sandbox and minutes of waiting for
+            # another. Nothing here is urgent enough to be worth that.
+            await asyncio.to_thread(self._evict_volume_caches, profile)
             cache_dir = Path("/tmp/pantheon-browser-cache")
             cache_dir.mkdir(parents=True, exist_ok=True)
             self._context = await self._pw.chromium.launch_persistent_context(
