@@ -38,6 +38,7 @@ PROVIDER_MENU = [
     ProviderMenuEntry("mistral", "Mistral", "MISTRAL_API_KEY", "MISTRAL_API_BASE"),
     ProviderMenuEntry("groq", "Groq", "GROQ_API_KEY", "GROQ_API_BASE"),
     ProviderMenuEntry("openrouter", "OpenRouter", "OPENROUTER_API_KEY", "OPENROUTER_API_BASE"),
+    ProviderMenuEntry("requesty", "Requesty", "REQUESTY_API_KEY", "REQUESTY_API_BASE"),
     ProviderMenuEntry("together_ai", "Together AI", "TOGETHER_API_KEY", "TOGETHER_API_BASE"),
     ProviderMenuEntry("qwen", "Qwen (DashScope)", "DASHSCOPE_API_KEY", "DASHSCOPE_API_BASE"),
     ProviderMenuEntry("cohere", "Cohere", "COHERE_API_KEY"),

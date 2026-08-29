@@ -34,6 +34,9 @@ _KNOWN_CHAT_COMPLETIONS_ONLY = {
     "ollama",
     # openrouter mostly proxies Chat Completions; mark conservatively.
     "openrouter",
+    # requesty is an OpenAI-compatible gateway that proxies Chat Completions;
+    # mark conservatively like openrouter.
+    "requesty",
 }
 
 
