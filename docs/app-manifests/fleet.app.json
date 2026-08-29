@@ -1,0 +1,296 @@
+{
+  "id": "fleet",
+  "name": "Fleet",
+  "version": "0.6.4",
+  "description": "Observe and drive the user's fleet of compute nodes.",
+  "runtime": "embedded",
+  "entry": {
+    "backend": "pantheon.toolsets.fleet:FleetToolSet"
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "broadcast",
+        "description": "Fan-out: copy one file from src_node to many dst_nodes at once.\n\n        Starts one Node->Node transfer per destination (all from src_node) and\n        returns immediately; poll transfer_status(transfer_id) for each.\n\n        Args:\n            src_node: Node that has the file.\n            src_path: Path of the file on src_node.\n            dst_nodes: List of destination Node ids (or a comma-separated string).\n            dst_path: Destination path on every dst_node.\n            verify: \"sha256\" (default) or \"none\".\n\n        Returns:\n            dict: {\"success\", \"count\", \"transfers\": {dst_node: transfer_id, ...}}.\n        ",
+        "params": [
+          {
+            "name": "src_node",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "src_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "dst_nodes",
+            "type": "list",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "dst_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "verify",
+            "type": "str",
+            "required": false,
+            "default": "sha256"
+          },
+          {
+            "name": "compress",
+            "type": "str",
+            "required": false,
+            "default": "none"
+          }
+        ]
+      },
+      {
+        "name": "fleet_list_nodes",
+        "description": "List every Node currently in your Fleet (from the Registry).\n\n        Returns a compact summary per Node — id, name, labels, online status,\n        OS/arch, CPU/GPU/RAM/free-disk, live load, and data-plane reachability —\n        so you can decide where to run code or move data.\n\n        One node may be marked ``\"is_self\": true`` — that is THIS machine (the one\n        you are running on). Use it only as a data-transfer endpoint (e.g.\n        transfer dst_node=\"local\"); to run commands here use the `shell` toolset,\n        NOT run_on_node against yourself.\n\n        Returns:\n            dict: {\"success\": bool, \"count\": int, \"nodes\": list[dict],\n                   \"self_node_id\": str | None}\n        "
+      },
+      {
+        "name": "fleet_node_info",
+        "description": "Get the full record for one Node: capability, live state, network.\n\n        Args:\n            node_id: The Node's id (from fleet_list_nodes).\n\n        Returns:\n            dict: {\"success\": bool, \"node\": dict} or {\"success\": False, \"error\": str}.\n        ",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      },
+      {
+        "name": "fleet_pick_node",
+        "description": "Pick the best online Node matching requirements (for placement).\n\n        Filters by capability, then ranks. Use this to let the Fleet choose where\n        to run a Task or land a Transfer instead of hard-coding a node.\n\n        Args:\n            min_cpu: Minimum CPU cores required.\n            min_ram_gb: Minimum RAM in GB required.\n            need_gpu: If True, only Nodes with a GPU qualify.\n            label: If set, only Nodes carrying this label qualify.\n            prefer: Tie-breaker — \"idle\" (lowest CPU load, default),\n                \"most_cpu\", or \"most_ram\".\n\n        Returns:\n            dict: {\"success\", \"node_id\", \"name\", \"candidates\", \"reason\"} or\n            {\"success\": False, \"error\": ...} if nothing qualifies.\n        ",
+        "params": [
+          {
+            "name": "min_cpu",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "min_ram_gb",
+            "type": "float",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "need_gpu",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "label",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "prefer",
+            "type": "str",
+            "required": false,
+            "default": "idle"
+          }
+        ]
+      },
+      {
+        "name": "fleet_status",
+        "description": "Summarize the whole Fleet: node counts, aggregate capacity, transfers.\n\n        Returns:\n            dict: totals (nodes, online, cpu cores, RAM), gpu node ids, and the\n            number of in-flight transfers this toolset has started.\n        "
+      },
+      {
+        "name": "gather",
+        "description": "Fan-in: pull a same-path file from many src_nodes onto one dst_node.\n\n        Each source's file lands in dst_dir as \"<src_node>_<basename>\" so they\n        don't collide. Non-blocking; poll transfer_status for each id.\n\n        Args:\n            src_nodes: List of source Node ids (or a comma-separated string).\n            src_path: Path of the file on each src_node.\n            dst_node: Node that should receive all the files.\n            dst_dir: Directory on dst_node to collect the files into.\n            verify: \"sha256\" (default) or \"none\".\n\n        Returns:\n            dict: {\"success\", \"count\", \"dst_dir\", \"transfers\": {src_node: id, ...}}.\n        ",
+        "params": [
+          {
+            "name": "src_nodes",
+            "type": "list",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "src_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "dst_node",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "dst_dir",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "verify",
+            "type": "str",
+            "required": false,
+            "default": "sha256"
+          },
+          {
+            "name": "compress",
+            "type": "str",
+            "required": false,
+            "default": "none"
+          }
+        ]
+      },
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "hidden": true
+      },
+      {
+        "name": "run_on_label",
+        "description": "Run the same code on every Node carrying a given label (e.g. \"gpu\").\n\n        For kind=\"shell\" the code runs in each Node's native shell (PowerShell on\n        Windows, POSIX shell elsewhere) — so only fan out to a label whose Nodes\n        share an OS, or use kind=\"python\" for a cross-OS command.\n\n        Args:\n            label: The label to match (a Node matches if it's in its labels list).\n            code: The shell command or Python source to run on each match.\n            kind: \"shell\" (default) or \"python\".\n            timeout: Per-Node timeout in seconds. Default 60.\n\n        Returns:\n            dict: {\"success\", \"label\", \"nodes\": [...], \"results\": {node_id: result}}.\n            success is True only if every matched Node succeeded.\n        ",
+        "params": [
+          {
+            "name": "label",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "code",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "kind",
+            "type": "str",
+            "required": false,
+            "default": "shell"
+          },
+          {
+            "name": "timeout",
+            "type": "int",
+            "required": false,
+            "default": 60
+          }
+        ]
+      },
+      {
+        "name": "run_on_node",
+        "description": "Run code on a specific Node and return its result.\n\n        For kind=\"shell\" the Node runs ``code`` in its NATIVE shell, so write it\n        in that Node's dialect — every fleet_list_nodes summary reports which one\n        as ``shell``: \"powershell\" for a Windows Node (use ``Get-ChildItem`` not\n        ``ls``, ``$env:VAR`` not ``$VAR``, ``Remove-Item`` not ``rm``) or \"posix\"\n        for a Linux/macOS Node (bash/sh). Sending bash to a \"powershell\" Node (or\n        vice-versa) will error or misbehave. kind=\"python\" runs the same source\n        on any OS — prefer it for cross-platform work.\n\n        Args:\n            node_id: Target Node id (from fleet_list_nodes).\n            code: The shell command or Python source to run on the Node. For\n                kind=\"shell\", write it in the target Node's shell dialect — match\n                the Node's ``shell`` field (\"powershell\" vs. \"posix\", see above).\n            kind: \"shell\" (default) or \"python\".\n            timeout: Seconds before the Node aborts the task. Default 60.\n\n        Returns:\n            dict: {\"success\", \"exit_code\", \"stdout\", \"stderr\", \"error\"} as\n            reported by the Node.\n        ",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "code",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "kind",
+            "type": "str",
+            "required": false,
+            "default": "shell"
+          },
+          {
+            "name": "timeout",
+            "type": "int",
+            "required": false,
+            "default": 60
+          }
+        ]
+      },
+      {
+        "name": "transfer",
+        "description": "Move a file directly Node->Node over the data plane (libp2p).\n\n        Non-blocking by default: returns a transfer_id immediately; poll\n        transfer_status(transfer_id) for progress. The source Node streams the\n        file to the destination over a direct (hole-punched) connection, falling\n        back to a relay when the two can't connect directly. sha256 is verified\n        end-to-end.\n\n        Args:\n            src_node: Node that has the file.\n            src_path: Path of the file on src_node.\n            dst_node: Node that should receive the file.\n            dst_path: Destination path on dst_node.\n            verify: \"sha256\" (default) or \"none\".\n            compress: \"none\" (default) or \"zstd\" — zstd compresses on the wire\n                (a win for compressible data like text/csv/h5ad; skip it for\n                already-compressed data). sha256 still covers the original bytes.\n            resume: If True and dst_node already holds a prefix of the file, only\n                the remaining bytes are sent (handy to retry an interrupted move).\n            wait: If True, block until the transfer finishes and return the final\n                record (incl. sha256 and whether it went \"direct\" or via \"relay\").\n            timeout: Max seconds for completion. Default 600.\n\n        Returns:\n            dict: {\"success\", \"transfer_id\", \"state\", ...}; the final record when\n            wait=True, otherwise an immediate {\"state\": \"started\"}.\n        ",
+        "params": [
+          {
+            "name": "src_node",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "src_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "dst_node",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "dst_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "verify",
+            "type": "str",
+            "required": false,
+            "default": "sha256"
+          },
+          {
+            "name": "compress",
+            "type": "str",
+            "required": false,
+            "default": "none"
+          },
+          {
+            "name": "resume",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "wait",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "timeout",
+            "type": "int",
+            "required": false,
+            "default": 600
+          }
+        ]
+      },
+      {
+        "name": "transfer_status",
+        "description": "Get the latest status of a transfer started by `transfer`.\n\n        Args:\n            transfer_id: The id returned by transfer().\n\n        Returns:\n            dict: latest progress — state (pending|connecting|transferring|done|\n            failed), bytes_done/total, rate_bps, path (direct|relay), sha256.\n        ",
+        "params": [
+          {
+            "name": "transfer_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      }
+    ]
+  },
+  "placement": {
+    "requires": [
+      "net"
+    ]
+  }
+}

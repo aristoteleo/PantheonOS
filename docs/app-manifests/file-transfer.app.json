@@ -1,0 +1,310 @@
+{
+  "id": "file-transfer",
+  "name": "FileTransfer",
+  "version": "0.6.4",
+  "description": "Chunked file transfer to the frontend.",
+  "entry": {
+    "backend": "pantheon.toolsets.file_transfer:FileTransferToolSet"
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "close_file",
+        "description": "Close a file with final flush (async).\n\n        Args:\n            handle_id: File handle ID from open_file_for_write or open_file_for_read.\n\n        Returns:\n            dict: {\"success\": True, \"total_size\": int, \"chunks_written\": int} on success (write mode)\n                  {\"success\": True} on success (read mode)\n                  {\"success\": False, \"error\": str} on failure\n        ",
+        "params": [
+          {
+            "name": "handle_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      },
+      {
+        "name": "create_directory",
+        "description": "Create one or more directories.\n\n        Args:\n            sub_dir: Directory path or list of directory paths to create.\n\n        Returns:\n            dict: Success status. For batch operations, includes results for each path.\n        ",
+        "params": [
+          {
+            "name": "sub_dir",
+            "type": "str | list[str]",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "delete_path",
+        "description": "Delete files or directories with optional recursion.\n\n        Args:\n            path: Single path or list of paths relative to the workspace root.\n            recursive: When True, directories are deleted recursively using rmtree.\n        ",
+        "params": [
+          {
+            "name": "path",
+            "type": "str | list[str]",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "recursive",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "get_cwd",
+        "description": "Get current working directory.",
+        "hidden": true
+      },
+      {
+        "name": "get_home_dir",
+        "description": "Return the runtime user home directory.\n\n        The frontend uses this to locate the **global** template/skill\n        store at ``~/.pantheon/`` and resolve the project-vs-global\n        scope toggle in TemplateDashboard. We used to derive home from\n        ``get_cwd``'s prefix (only matched ``/Users/*`` and ``/home/*``),\n        which silently failed inside Modal sandboxes where cwd is\n        ``/__modal/volumes/...`` and Path.home() is ``/root``. Reporting\n        it directly is more reliable than regex-sniffing.\n        ",
+        "hidden": true
+      },
+      {
+        "name": "list_files",
+        "description": "DEPRECATED: Use glob() or grep() instead.\n\n        This tool returns too much data and is inefficient.\n\n        Recommended alternatives:\n        - Use glob() to find files by pattern (e.g., glob(\"**/*.py\"))\n        - Use grep() to search file contents (e.g., grep(\"TODO\", file_pattern=\"**/*.py\"))\n\n        Original functionality:\n        List files and directories in the workspace.\n\n        Args:\n            sub_dir: Subdirectory to list (relative to workspace root).\n                     If not provided, lists the workspace root.\n            recursive: If True, list all files recursively as a tree structure.\n            max_depth: Maximum depth to recurse (only used when recursive=True).\n                       0 means only the target directory, 1 includes immediate children, etc.\n                       Default is 5.\n\n        Returns:\n            dict: {success: bool, files: list} with name, type, size, last_modified.\n        ",
+        "params": [
+          {
+            "name": "sub_dir",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "recursive",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "max_depth",
+            "type": "int",
+            "required": false,
+            "default": 5
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "hidden": true
+      },
+      {
+        "name": "manage_path",
+        "description": "Unified tool for managing files and directories.\n\n        This tool consolidates common file system operations into a single interface.\n        Use this instead of create_directory, delete_path, or move_file.\n\n        Args:\n            operation: The operation to perform. One of:\n                      - \"create_dir\": Create a directory (and parents if needed)\n                      - \"delete\": Delete a file or directory\n                      - \"move\": Move or rename a file/directory\n\n            path: The target path for the operation (relative to workspace root).\n                  For \"create_dir\" and \"delete\", this is the path to create/delete.\n                  For \"move\", this is the source path.\n\n            new_path: Required for \"move\" operation. The destination path.\n                     Ignored for other operations.\n\n            recursive: For \"delete\" operation only. When True, directories are\n                      deleted recursively. When False, only empty directories\n                      can be deleted. Default: False.\n\n        Returns:\n            dict: {\"success\": bool, ...} with operation-specific details.\n                 On error: {\"success\": False, \"error\": str}\n\n        Examples:\n            # Create a directory (parents created automatically)\n            await manage_path(\"create_dir\", \"src/components\")\n\n            # Delete a file\n            await manage_path(\"delete\", \"old_file.py\")\n\n            # Delete a directory recursively\n            await manage_path(\"delete\", \"old_folder\", recursive=True)\n\n            # Move/rename a file\n            await manage_path(\"move\", \"old_name.py\", new_path=\"new_name.py\")\n\n            # Move to different directory\n            await manage_path(\"move\", \"file.py\", new_path=\"backup/file.py\")\n        ",
+        "params": [
+          {
+            "name": "operation",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "new_path",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "recursive",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "move_file",
+        "description": "Move or rename a file.\n\n        Args:\n            old_path: Current path of the file (relative to workspace root).\n            new_path: New path for the file (relative to workspace root).\n\n        Returns:\n            dict: {success: bool} or {success: False, error: str}\n        ",
+        "params": [
+          {
+            "name": "old_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "new_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "open_file_for_read",
+        "description": "Open a file for chunked reading (async). Returns handle_id and total_size.\n\n        Args:\n            file_path: Relative path to the file (cannot contain '..')\n\n        Returns:\n            dict: {\"success\": True, \"handle_id\": str, \"total_size\": int} on success\n                  {\"success\": False, \"error\": str} on failure\n        ",
+        "params": [
+          {
+            "name": "file_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      },
+      {
+        "name": "open_file_for_write",
+        "description": "Open a file for writing (async).\n\n        Args:\n            file_path: Relative path to the file (cannot contain '..')\n\n        Returns:\n            dict: {\"success\": True, \"handle_id\": str} on success\n                  {\"success\": False, \"error\": str} on failure\n        ",
+        "params": [
+          {
+            "name": "file_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      },
+      {
+        "name": "read_chunk",
+        "description": "Read a chunk from an open file handle (async).\n\n        Args:\n            handle_id: File handle ID from open_file_for_read.\n            size: Number of bytes to read (before base64 encoding). Default: 512KB.\n\n        Returns:\n            dict: {\"success\": True, \"data\": str (base64), \"bytes_read\": int, \"eof\": bool}\n                  {\"success\": False, \"error\": str} on failure\n        ",
+        "params": [
+          {
+            "name": "handle_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "size",
+            "type": "int",
+            "required": false,
+            "default": 524288
+          }
+        ]
+      },
+      {
+        "name": "read_chunk_at",
+        "description": "Atomic positional read — doesn't move the file cursor.\n\n        Use this when the client wants to fire multiple concurrent reads\n        on the same handle (e.g. to download a file in parallel slices).\n        Built on os.pread, which is a single atomic POSIX syscall so\n        overlapping calls don't step on each other.\n\n        Args:\n            handle_id: File handle ID from open_file_for_read.\n            offset: Byte offset from the start of the file.\n            size: Number of bytes to read. Default: 2 MiB.\n\n        Returns:\n            dict: {\"success\": True, \"data\": str (base64), \"bytes_read\": int,\n                   \"offset\": int, \"eof\": bool} on success.\n                  {\"success\": False, \"error\": str} on failure.\n                  ``eof`` is True when the chunk reaches or passes the file\n                  end (or returned an empty read).\n        ",
+        "params": [
+          {
+            "name": "handle_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "offset",
+            "type": "int",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "size",
+            "type": "int",
+            "required": false,
+            "default": 2097152
+          }
+        ]
+      },
+      {
+        "name": "read_file",
+        "description": "Read a file (streaming or non-streaming mode).\n\n        Args:\n            file_path: Relative path to the file (cannot contain '..')\n            receive_chunk: Optional callback for streaming mode (direct connections)\n            chunk_size: Chunk size for streaming mode. Default: 1KB.\n\n        Returns:\n            Non-streaming: {\"success\": True, \"data\": str (base64), \"total_size\": int, \"encoding\": \"base64\"}\n            Streaming: {\"success\": True}\n            Error: {\"success\": False, \"error\": str}\n        ",
+        "params": [
+          {
+            "name": "file_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "receive_chunk",
+            "required": false
+          },
+          {
+            "name": "chunk_size",
+            "type": "int",
+            "required": false,
+            "default": 1024
+          }
+        ]
+      },
+      {
+        "name": "reload_workspace_volume",
+        "description": "Force a fresh snapshot of the Modal Volume mounted at /workspace.\n\n        Modal Volumes are not auto-synced across containers — writes made by\n        another container (e.g. the data-share copy worker) are invisible\n        here until we explicitly call ``Volume.reload()``. The frontend\n        invokes this after a share accept completes so the file panel can\n        immediately show the dropped files without the user having to\n        restart their sandbox.\n\n        Args:\n            volume_name: Optional explicit volume name. If omitted, derive\n                from env: ``MODAL_VOLUME_PREFIX`` + ``user-`` +\n                sanitized(``USER_ID``) + ``-workspace`` — same convention\n                pantheon-hub's PodNamingUtils.get_pvc_name uses.\n\n        Returns:\n            ``{\"success\": True, \"volume_name\": <name>}`` on success, or\n            ``{\"success\": False, \"error\": <reason>}`` if Modal SDK is\n            unavailable / no env / reload fails.\n        ",
+        "params": [
+          {
+            "name": "volume_name",
+            "type": "str | None",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "stream_read",
+        "description": "Stream a file by PUSHING binary chunks to the caller's inbox.\n\n        Unlike read_chunk_at (one request → one reply), this opens the file and\n        spawns a background task that publishes a sequence of small binary\n        chunks straight to ``reply_to``, flushing each. That removes the\n        per-chunk caller↔agent round-trip (the throughput limiter in the\n        request/reply path) while keeping every wire message small and\n        one-in-flight — the only pattern that doesn't jam the\n        Modal→DO-LB→nginx→NATS egress (≥128 KiB or concurrency → ~6 MiB freeze;\n        see fileManager.ts streamFileToDisk for the measurements).\n\n        Wire format per chunk message (RAW binary — no base64/JSON, so no 33%\n        bloat):\n            bytes[0:4] = big-endian uint32 sequence number (0-based)\n            bytes[4]   = flags: bit0 = EOF (no payload), bit1 = ERROR\n            bytes[5:]  = raw file bytes (absent for EOF / ERROR markers)\n\n        Flow control: the caller publishes an ack (big-endian uint32 = highest\n        contiguous seq received) to ``ack_subject`` every ~1 MiB. The streamer\n        blocks if it gets ``window`` chunks ahead of the last ack, bounding\n        unacked data to window*chunk_size (<< NATS max_pending 256 MiB). Ack\n        value 0xFFFFFFFF cancels. No ack for 15 s while blocked → abort\n        (self-cleaning; no orphan tasks).\n\n        Returns immediately with {\"success\": True, \"total_size\": int}; bytes\n        flow over ``reply_to`` independently.\n        ",
+        "params": [
+          {
+            "name": "file_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "reply_to",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "ack_subject",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "offset",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "chunk_size",
+            "type": "int",
+            "required": false,
+            "default": 65536
+          },
+          {
+            "name": "window",
+            "type": "int",
+            "required": false,
+            "default": 192
+          }
+        ]
+      },
+      {
+        "name": "write_chunk",
+        "description": "Write a chunk to a file with smart flush strategy.\n\n        Args:\n            handle_id: File handle ID from open_file_for_write.\n            data: Binary data as bytes (from cloudpickle) or\n                  base64-encoded string (from JSON/frontend clients).\n\n        Returns:\n            dict: {\"success\": True, \"bytes_written\": int} on success\n                  {\"success\": False, \"error\": str} on failure\n        ",
+        "params": [
+          {
+            "name": "handle_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "data",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      }
+    ]
+  },
+  "placement": {
+    "requires": [
+      "fs:workspace",
+      "net"
+    ]
+  }
+}

@@ -9,8 +9,10 @@ if TYPE_CHECKING:
     from .notebook import (
         IntegratedNotebookToolSet,
         JupyterKernelToolSet,
-        NotebookToolSet,
+        NotebookContentsToolSet,
     )
+    from .image import ImageGenerationToolSet
+    from .file_transfer import FileTransferToolSet
     from .scraper import ScraperToolSet
     from .task import TaskToolSet
     from .evolution import EvolutionToolSet, EvaluatorToolSet
@@ -25,7 +27,9 @@ _TOOLSET_MAPPING = {
     "WebToolSet": ".web",
     "IntegratedNotebookToolSet": ".notebook",
     "JupyterKernelToolSet": ".notebook",
-    "NotebookToolSet": ".notebook",
+    "NotebookContentsToolSet": ".notebook",
+    "ImageGenerationToolSet": ".image",
+    "FileTransferToolSet": ".file_transfer",
     "ScraperToolSet": ".scraper",
     "TaskToolSet": ".task",
     "EvolutionToolSet": ".evolution",

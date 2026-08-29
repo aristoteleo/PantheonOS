@@ -1,0 +1,115 @@
+{
+  "id": "pty",
+  "name": "Pty",
+  "version": "0.6.4",
+  "description": "Interactive terminal sessions (the Terminal app's backend).",
+  "entry": {
+    "backend": "pantheon.toolsets.pty:PtyToolSet"
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "hidden": true
+      },
+      {
+        "name": "pty_attach",
+        "description": "Rejoin a live session instead of starting a shell.\n\n        A closed tab does not kill the shell — sessions live until the idle\n        reaper takes them (an hour untouched) — so a reloaded desktop can pick\n        its terminal back up: everything typed, every running process, still\n        there. Replays the capped scrollback so the window is not blank, then\n        the stream carries on as usual.\n\n        Args:\n            session_id: The session to rejoin.\n            cols: New width, when the window came back a different size.\n            rows: New height.\n\n        Returns:\n            On success: ``scrollback`` (base64) to paint first, plus the same\n            session fields ``pty_open`` returns. ``{\"success\": False}`` when\n            the session is gone — callers fall back to ``pty_open``.\n        ",
+        "params": [
+          {
+            "name": "cols",
+            "type": "int | None",
+            "required": false
+          },
+          {
+            "name": "rows",
+            "type": "int | None",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "pty_close",
+        "description": "End a session and reap its shell.",
+        "hidden": true
+      },
+      {
+        "name": "pty_list",
+        "description": "Sessions this toolset is holding.",
+        "hidden": true
+      },
+      {
+        "name": "pty_open",
+        "description": "Start a shell on a new pseudo-terminal.\n\n        Args:\n            cols: Terminal width in columns.\n            rows: Terminal height in rows.\n            cwd: Working directory. Defaults to the toolset's workdir.\n            shell: Shell to run. Defaults to bash where present.\n\n        Returns:\n            dict with success, session_id, stream_id — the NATS stream to\n            subscribe to for output — and initial_output, base64 bytes the\n            shell produced before the caller could possibly have subscribed.\n            Write those to the terminal first, then attach to the stream.\n        ",
+        "params": [
+          {
+            "name": "cols",
+            "type": "int",
+            "required": false,
+            "default": 80
+          },
+          {
+            "name": "rows",
+            "type": "int",
+            "required": false,
+            "default": 24
+          },
+          {
+            "name": "cwd",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "shell",
+            "type": "str | None",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "pty_resize",
+        "description": "Tell the shell the window changed size.\n\n        Without this the shell keeps wrapping at the old width, so a resized\n        window redraws its prompt in the wrong place.\n        ",
+        "params": [
+          {
+            "name": "cols",
+            "type": "int",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "rows",
+            "type": "int",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "pty_write",
+        "description": "Send keystrokes to a session.\n\n        Args:\n            session_id: id from pty_open.\n            data: base64-encoded bytes, exactly as the terminal produced them\n                (control characters and escape sequences included).\n        ",
+        "params": [
+          {
+            "name": "data",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      }
+    ]
+  },
+  "placement": {
+    "requires": [
+      "proc",
+      "fs:workspace"
+    ],
+    "prefer": [
+      "sandbox"
+    ]
+  }
+}

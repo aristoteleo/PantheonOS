@@ -1,0 +1,103 @@
+{
+  "id": "python-interpreter",
+  "name": "PythonInterpreter",
+  "version": "0.6.4",
+  "description": "Execute Python in the workspace (Jupyter-kernel backed).",
+  "entry": {
+    "backend": "pantheon.toolsets.python:PythonInterpreterToolSet"
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "delete_interpreter",
+        "description": "Delete a session.\n\n        Args:\n            interpreter_id: The id of the session to delete.\n        ",
+        "params": [
+          {
+            "name": "interpreter_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "list_interpreters",
+        "description": "List all sessions.",
+        "hidden": true
+      },
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "hidden": true
+      },
+      {
+        "name": "manage_interpreters",
+        "description": "Manage Python sessions.\n\n        Args:\n            operation: One of \"create\", \"list\", \"delete\".\n            interpreter_id: The session to delete. Required for \"delete\".\n        ",
+        "params": [
+          {
+            "name": "operation",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "interpreter_id",
+            "type": "str | None",
+            "required": false
+          }
+        ]
+      },
+      {
+        "name": "new_interpreter",
+        "description": "Start a new Python session and return its id.",
+        "hidden": true
+      },
+      {
+        "name": "run_code_in_interpreter",
+        "description": "Run code in a specific session.\n\n        Args:\n            code: The code to run.\n            interpreter_id: The session to run it in.\n        ",
+        "params": [
+          {
+            "name": "code",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "interpreter_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "run_python_code",
+        "description": "Run Python code and return the result.\n\n        This tool automatically manages a Python session for you. Variables and\n        state are preserved between calls in the same session.\n\n        To get a value back, print it or leave it as the last expression.\n\n        Args:\n            code: The Python code to run.\n            interpreter_id: Optional. A specific session to run in. Only set\n                this if you are deliberately keeping several independent\n                sessions; otherwise the session for the current chat is used.\n\n        Returns:\n            dict: {\"success\": bool, \"result\": str | None, \"stdout\": str, \"stderr\": str}\n        ",
+        "params": [
+          {
+            "name": "code",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "interpreter_id",
+            "type": "str | None",
+            "required": false
+          }
+        ]
+      }
+    ]
+  },
+  "placement": {
+    "requires": [
+      "proc",
+      "fs:workspace"
+    ],
+    "prefer": [
+      "sandbox"
+    ]
+  }
+}

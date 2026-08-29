@@ -1,0 +1,84 @@
+{
+  "id": "scraper",
+  "name": "Scraper",
+  "version": "0.6.4",
+  "description": "ScraperAPI search/scrape (API key required).",
+  "runtime": "embedded",
+  "entry": {
+    "backend": "pantheon.toolsets.scraper:ScraperToolSet"
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "fetch_web_page",
+        "description": "Fetch web pages using ScraperAPI.\n\n        Args:\n            urls: List of URLs to fetch.\n            output_format: Output format (markdown, html, text) (default: markdown).\n            timeout: Timeout for each request in seconds (default: 30.0).\n\n        Returns:\n            List of contents from the web pages.\n        ",
+        "params": [
+          {
+            "name": "urls",
+            "type": "typing.List[str]",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "output_format",
+            "type": "str",
+            "required": false,
+            "default": "markdown"
+          },
+          {
+            "name": "timeout",
+            "type": "float",
+            "required": false,
+            "default": 30.0
+          }
+        ]
+      },
+      {
+        "name": "google_search",
+        "description": "Search using ScraperAPI Google search.\n\n        Args:\n            query: The search query.\n            max_results: Maximum number of results to return (default: 10).\n            country: Country code for search (default: us).\n            language: Language code for search (default: en).\n            timeout: Timeout for the request in seconds (default: 30.0).\n\n        Returns:\n            Search results from ScraperAPI.\n        ",
+        "params": [
+          {
+            "name": "query",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "max_results",
+            "type": "int",
+            "required": false,
+            "default": 10
+          },
+          {
+            "name": "country",
+            "type": "str",
+            "required": false,
+            "default": "us"
+          },
+          {
+            "name": "language",
+            "type": "str",
+            "required": false,
+            "default": "en"
+          },
+          {
+            "name": "timeout",
+            "type": "float",
+            "required": false,
+            "default": 30.0
+          }
+        ]
+      },
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "hidden": true
+      }
+    ]
+  },
+  "placement": {
+    "requires": [
+      "net"
+    ]
+  }
+}

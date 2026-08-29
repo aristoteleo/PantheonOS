@@ -1,0 +1,134 @@
+{
+  "id": "task",
+  "name": "Task",
+  "version": "0.6.4",
+  "description": "Modal-workflow (PLANNING/EXECUTION/VERIFICATION) boundaries and prompt shaping. In-process agent pipeline hooks.",
+  "runtime": "embedded",
+  "entry": {
+    "backend": "pantheon.toolsets.task:TaskToolSet"
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "list_outputs",
+        "description": "List the registered output artifacts for the current conversation.\n\n        Returns every output registered via register_output, each tagged with\n        the task that produced it. Reads the persisted task state directly so it\n        is reliable regardless of which agent instance handles the call and for\n        conversations loaded from history.\n        "
+      },
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "hidden": true
+      },
+      {
+        "name": "notify_user",
+        "description": "\n        This tool is used to communicate with the user.\n\n        If you are currently in a task as set by the task_boundary tool, then this is the only way to communicate with the user. Other ways of sending messages while mid-task will not be visible.\n\n        When sending messages, be very careful to make this as concise as possible. If requesting review, do not be redundant with the file you are asking to be reviewed.\n        IMPORTANT: Format your message in github-style markdown to make your message easier for the USER to parse.\n\n        CONFIDENCE GRADING: Before setting confidence_score, answer these 6 questions (Yes/No):\n        (1) Gaps - any missing parts? (2) Assumptions - any unverified assumptions? (3) Complexity - complex logic with unknowns?\n        (4) Risk - non-trivial interactions with bug risk? (5) Ambiguity - unclear requirements forcing design choices? (6) Irreversible - difficult to revert?\n        SCORING: 0.8-1.0 = No to ALL questions; 0.5-0.7 = Yes to 1-2 questions; 0.0-0.4 = Yes to 3+ questions.\n\n        IMPORTANT: This tool should NEVER be called in parallel with other tools. Execution control will be returned to the user once this tool is called.\n\n        STRUCTURED QUESTIONS: You can include structured questions to gather specific user input beyond simple approval.\n        Pass an empty list [] if you don't need questions. Pass a list of question dicts if you do.\n\n        CRITICAL - When to use structured questions vs message text:\n        - ✅ USE questions parameter: When you need user to SELECT from options or PROVIDE specific input\n          Examples: \"Which library?\", \"What port number?\", \"Which features to implement?\"\n        - ❌ DO NOT put questions in message text: Questions in message are NOT interactive and user cannot answer them directly\n          The message field is for CONTEXT and EXPLANATION only, not for asking questions that need answers\n\n        Rule: If you need an answer to proceed, use the questions parameter. If you just want to inform the user, use message.\n\n        Args:\n            paths_to_review: List of ABSOLUTE paths to files that the user should be notified about. MUST populate this if requesting review.\n            blocked_on_user: Controls BOTH how this message renders AND whether it\n                interrupts. The deciding question is: are you ASKING the user for\n                something (true) or TELLING them something (false)?\n                - TRUE → renders as an APPROVAL / REVIEW gate (\"Awaiting Review\") and\n                  STOPS to wait for the user. Use ONLY when you genuinely need the user\n                  to approve, review, or decide something BEFORE you could continue\n                  (e.g. confirm which dataset to use, approve a risky/irreversible step).\n                  Providing `questions` is this case.\n                - FALSE → renders as a NOTIFICATION (a progress update or a \"Completed\"\n                  card) and does NOT block. Use it for a transient progress FYI\n                  (\"downloaded the data, now running the analysis\") AND for FINAL\n                  COMPLETION (\"analysis complete — here are the outputs\"): at the end you\n                  are DELIVERING a result, not asking permission, so it must read as\n                  Completed, NOT as an approval request. The run hands control back to the\n                  user on its own once there is nothing left to do — you do NOT need\n                  blocked_on_user=true to \"stop\" after finishing.\n                So a finished task is TELLING the user → blocked_on_user=FALSE (attach the\n                deliverables via paths_to_review). Reserve TRUE for genuine asks.\n                IMPORTANT: If you provide questions, the tool will automatically set interrupt=True regardless of this value,\n                as asking questions implies waiting for answers. You typically should set this to True when providing questions.\n            message: Required message to notify the user with, e.g to provide context or explanation. Use GitHub Flavored Markdown (GFM) format.\n                IMPORTANT: Do NOT put questions in this field. Questions here are NOT interactive. Use the questions parameter instead.\n            confidence_justification: Justification for the confidence score. MUST answer the 6 assessment questions with Yes/No.\n            confidence_score: Agent's confidence from 0.0-1.0. MUST follow scoring rules above.\n            questions: List of structured questions. REQUIRED parameter - pass [] if no questions needed.\n                IMPORTANT: Questions in the message text will NOT create interactive prompts. Only questions in this parameter will be rendered as interactive UI elements.\n                NOTE: Providing questions will automatically cause the tool to interrupt and wait for user response, even if blocked_on_user=False.\n                Each question is a dict with:\n                - question (str): The question text to ask the user\n                - header (str): Short label for the question (max 12 chars), e.g. \"Auth method\", \"Library\"\n                - input_type (str): Type of input - \"single_choice\", \"multiple_choice\", \"text_input\"\n                - options (list[dict], required for choice types): List of options, each with:\n                    - label (str): Display text for the option\n                    - description (str): Explanation of what this option means\n                    - value (str): Internal value to return when selected\n                - placeholder (str, optional for text_input): Placeholder text\n                - required (bool, optional): Whether this question must be answered (default: True)\n\n        Returns:\n            {\n                \"success\": bool,\n                \"interrupt\": bool,\n                \"message\": str,\n                \"paths\": list[str],\n                \"has_questions\": bool,\n                \"questions\": list[dict]\n            }\n\n        Examples:\n            # No questions - just notification\n            questions=[]\n\n            # Single choice question\n            questions=[{\n                \"question\": \"Which authentication method should we use?\",\n                \"header\": \"Auth method\",\n                \"input_type\": \"single_choice\",\n                \"options\": [\n                    {\"label\": \"JWT\", \"description\": \"JSON Web Tokens for stateless auth\", \"value\": \"jwt\"},\n                    {\"label\": \"Session\", \"description\": \"Server-side session storage\", \"value\": \"session\"},\n                    {\"label\": \"OAuth2\", \"description\": \"Third-party OAuth2 provider\", \"value\": \"oauth2\"}\n                ]\n            }]\n\n            # Multiple choice question\n            questions=[{\n                \"question\": \"Which features should we implement first?\",\n                \"header\": \"Features\",\n                \"input_type\": \"multiple_choice\",\n                \"options\": [\n                    {\"label\": \"Login\", \"description\": \"Basic login functionality\", \"value\": \"login\"},\n                    {\"label\": \"Registration\", \"description\": \"User registration flow\", \"value\": \"register\"},\n                    {\"label\": \"Password Reset\", \"description\": \"Forgot password feature\", \"value\": \"reset\"}\n                ]\n            }]\n\n            # Text input question\n            questions=[{\n                \"question\": \"What should we name the new API endpoint?\",\n                \"header\": \"Endpoint\",\n                \"input_type\": \"text_input\",\n                \"placeholder\": \"e.g. /api/v1/users\"\n            }]\n\n            # Mixed questions\n            questions=[\n                {\n                    \"question\": \"Which database should we use?\",\n                    \"header\": \"Database\",\n                    \"input_type\": \"single_choice\",\n                    \"options\": [\n                        {\"label\": \"PostgreSQL\", \"description\": \"Relational database\", \"value\": \"postgres\"},\n                        {\"label\": \"MongoDB\", \"description\": \"Document database\", \"value\": \"mongo\"}\n                    ]\n                },\n                {\n                    \"question\": \"What port should the service run on?\",\n                    \"header\": \"Port\",\n                    \"input_type\": \"text_input\",\n                    \"placeholder\": \"e.g. 8080\"\n                }\n            ]\n        ",
+        "params": [
+          {
+            "name": "paths_to_review",
+            "type": "list[str]",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "blocked_on_user",
+            "type": "bool",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "message",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "confidence_justification",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "confidence_score",
+            "type": "float",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "questions",
+            "type": "list[dict]",
+            "required": false,
+            "default": []
+          }
+        ]
+      },
+      {
+        "name": "register_output",
+        "description": "Register a user-facing deliverable so the user can find and browse it\n        in the Output panel. Call this whenever you produce something the user\n        should see.\n\n        IMPORTANT: This is the ONLY way outputs become visible in the Output\n        panel. In particular, files produced by RUNNING CODE (e.g. a plot saved\n        by a script, a generated CSV) are NOT tracked anywhere else — you must\n        register them here. Files you create with write_file should also be\n        registered if they are deliverables (not scratch/intermediate files).\n\n        Prefer organizing related deliverables into a folder and registering the\n        FOLDER (its live contents are shown as a browsable tree) — then you don't\n        have to register every file individually. You can also register single\n        important files with a title/description.\n\n        The output is automatically attributed to the task you are currently in\n        (your most recent task_boundary), so the user sees which task produced\n        what.\n\n        Args:\n            path: Path to the output file or directory (relative to your\n                workspace, or absolute). MUST already exist — create/produce it\n                first.\n            title: Short human-readable title, e.g. \"Hi-C contact matrix report\".\n            description: One-line description of what it is.\n            kind: Category for grouping/display: 'report' | 'figure' | 'data' |\n                'table' | 'dir' | 'other'. Defaults to 'dir' for directories,\n                else 'other'.\n        ",
+        "params": [
+          {
+            "name": "path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "title",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "description",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "kind",
+            "type": "typing.Optional[str]",
+            "required": false
+          }
+        ]
+      },
+      {
+        "name": "task_boundary",
+        "description": "\n        CRITICAL: You must ALWAYS call this tool as the VERY FIRST tool in your list of tool calls, before any other tools.\n        Indicate the start of a task or make an update to the current task. This should roughly correspond to the top-level items in your task.md.\n\n        The tool should also be used to update the status and summary periodically throughout the task. When updating the status or summary of the current task, you must use the exact same task_name as before.\n\n        To avoid repeating the same values, use the special string \"%SAME%\" for mode, task_name, task_status, task_summary, or output_dir to reuse the previous value.\n\n        Args:\n            task_name: Name of the task boundary. This is the identifier that groups steps together, should be human readable like 'Researching Existing Server Implementation'. This should correspond to a top-level item in task.md.\n            mode: The agent focus to switch to. Common modes: PLANNING/EXECUTION/VERIFICATION (coding) or RESEARCH/ANALYSIS/INTERPRETATION (research).\n            task_summary: Concise summary of what has been accomplished throughout the entire task so far. Should be at most 1-2 lines, past tense. Cite important files between backticks.\n            task_status: Active status of the current action, e.g 'Looking for files'. Should describe what you are GOING TO DO NEXT, not what you have done.\n            predicted_task_size: Your best estimation on how many tool calls are needed to fulfill this task.\n            output_dir: The workspace-relative folder where THIS task's outputs (notebook, figures, data, reports) will live — e.g. 'scatac_pbmc5k' or 'scatac_pbmc5k/'. DECLARE THIS when you first set up the task (during PLANNING), even before the folder exists. The UI live-previews this folder so the user sees results appear as you produce them, before you formally register deliverables. Use \"%SAME%\" or omit to keep the previously declared folder. Leave empty only if this task produces no files.\n        ",
+        "params": [
+          {
+            "name": "task_name",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "mode",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "task_summary",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "task_status",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "predicted_task_size",
+            "type": "int",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "output_dir",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      }
+    ]
+  }
+}
