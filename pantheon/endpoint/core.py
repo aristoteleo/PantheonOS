@@ -268,7 +268,11 @@ class Endpoint(FileTransferToolSet):
         )
 
         ready_t0 = time.perf_counter()
+        # Belt to the skip-unknown suspenders: readiness must never wedge the
+        # boot indefinitely — after the cap, proceed degraded and say so.
+        # A service that comes up late still registers through the manager.
         ready_checks = 0
+        max_ready_checks = 120
         while True:
             ready_checks += 1
             ready = await self.services_ready()
@@ -277,6 +281,12 @@ class Endpoint(FileTransferToolSet):
                     "Endpoint services_ready passed in "
                     f"{time.perf_counter() - ready_t0:.3f}s "
                     f"after {ready_checks} check(s)"
+                )
+                break
+            if ready_checks >= max_ready_checks:
+                logger.error(
+                    f"services_ready still false after {ready_checks} checks; "
+                    "proceeding degraded so the endpoint can register"
                 )
                 break
             await asyncio.sleep(1)
@@ -474,9 +484,16 @@ class Endpoint(FileTransferToolSet):
             True if endpoint setup is completed AND all builtin services are running.
         """
 
-        # Then check if all builtin services are running
+        # Then check if all builtin services are running. Services this build
+        # cannot provide (a retired toolset lingering in a volume's
+        # settings.json) are excluded — waiting for them would wedge readiness
+        # forever, taking the endpoint's NATS registration and everything
+        # behind it (files, terminal, desktop) down with it.
         builtin_services = self.config.get("builtin_services", [])
+        unavailable = getattr(self.toolset_manager, "_unavailable_services", set())
         for service_name in builtin_services:
+            if str(service_name) in unavailable:
+                continue
             if not await self.toolset_manager._is_service_running(service_name):
                 logger.debug(
                     f"services_ready: waiting for builtin service '{service_name}'"
