@@ -165,6 +165,7 @@ class DesktopToolSet(ToolSet):
         clients: list | None = None,
         visible: bool = True,
         active: bool = False,
+        ready: bool = False,
     ) -> dict:
         """UI-only: renew this page's leases, and read back who else is here.
 
@@ -178,6 +179,14 @@ class DesktopToolSet(ToolSet):
         happened: a background tab must not out-rank the window someone is
         typing in when the anchor is resolved.
         """
+        # `ready` is the desktop telling us its own boot is over. It is what
+        # Chromium's prewarm waits for: warming it any earlier put Playwright's
+        # driver — Python, in this process — against the agent's own startup
+        # for the GIL, and cost a real restart ten seconds. See set_data_endpoint.
+        if ready and not getattr(self, "_prewarming", False):
+            logger.info("browser: desktop reported ready; prewarming Chromium")
+            self._prewarm_browser()
+
         registry, changed = self._presence().announce(
             viewport_id=viewport_id, clients=clients,
             visible=visible, active=active)
@@ -637,15 +646,27 @@ class DesktopToolSet(ToolSet):
         server = await self._ensure_data_server()
         server.set_tunnel_base(tunnel_base)
         logger.info("desktop: data endpoint set to {}", tunnel_base)
-        # Start Chromium NOW, in the background. It takes a couple of
-        # seconds warm and much longer on a cold profile, and it used to be
-        # launched by the first page open itself — the prewarm that was
-        # supposed to prevent that ran in the same call, after it. So the
-        # first page a user opened always paid the full launch: measured at
-        # 3.6 s against 1.4 s for the next one. This hook runs once, when
-        # the hub hands over the tunnel, which is minutes before anybody
-        # clicks anything.
-        self._prewarm_browser()
+        # Chromium is prewarmed, but NOT here.
+        #
+        # Launching it early is right — the first page open costs 3.6 s cold
+        # against 1.4 s warm, and this hook fires minutes before anyone clicks.
+        # But "minutes before anyone clicks" was wrong about when it lands: the
+        # hub calls this the moment the pod answers, so the launch fell inside
+        # the boot, and Chromium comes up through Playwright's driver, whose
+        # protocol chatter is Python in THIS process. It does not block the
+        # agent's loop — the engine has its own — but it takes the GIL from it.
+        #
+        # Measured on a real restart: from the moment the team's toolsets were
+        # ensured to the moment its three agents finished was 10.6 s, and the
+        # agents' own work all completed in the last 30 ms of it. They were not
+        # doing anything for ten seconds; they were waiting behind this. And
+        # because it is one process, neither nice nor a fourth core moved it.
+        #
+        # So it waits for the desktop to say it is up (desktop_presence's
+        # `ready`), which is both later than the boot and a better sign that a
+        # browser will be wanted. A pod whose desktop nobody opens still gets
+        # one, on the fallback below, for the agent's own browsing.
+        self._schedule_prewarm_fallback()
         return {"success": True}
 
     # ── the desktop plane (app-spec: the agent interface, normalized) ──────
@@ -1168,6 +1189,25 @@ class DesktopToolSet(ToolSet):
             raise RuntimeError(
                 "the data server has no browser-reachable URL yet (tunnel not set)")
         return frame, inp
+
+    # How long a pod with no desktop waits before warming Chromium anyway. Long
+    # enough to be clear of the boot, short enough that an agent asked to browse
+    # a minute in does not pay the cold launch.
+    PREWARM_FALLBACK_S = 60.0
+
+    def _schedule_prewarm_fallback(self) -> None:
+        """Warm Chromium even if no desktop ever reports itself ready."""
+        if getattr(self, "_prewarm_scheduled", False):
+            return
+        self._prewarm_scheduled = True
+
+        async def _later() -> None:
+            await asyncio.sleep(self.PREWARM_FALLBACK_S)
+            if not getattr(self, "_prewarming", False):
+                logger.info("browser: no desktop reported ready; prewarming anyway")
+                self._prewarm_browser()
+
+        asyncio.ensure_future(_later())
 
     def _prewarm_browser(self) -> None:
         """Launch Chromium in the background, at most once."""
