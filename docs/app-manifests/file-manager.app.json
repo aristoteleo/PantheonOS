@@ -514,6 +514,20 @@
           }
         ]
       }
+    ],
+    "interfaces": [
+      {
+        "name": "fs",
+        "tools": [
+          "read_file",
+          "write_file",
+          "update_file",
+          "glob",
+          "grep",
+          "apply_patch",
+          "view_file_outline"
+        ]
+      }
     ]
   },
   "placement": {

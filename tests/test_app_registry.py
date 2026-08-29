@@ -195,3 +195,28 @@ def test_committed_manifests_are_fresh(tmp_path):
         "docs/app-manifests is stale; regenerate with "
         "`python -m pantheon.apps emit docs/app-manifests` and commit the diff"
     )
+
+
+# ---- interface contracts ----------------------------------------------------
+
+def test_go_batch_apps_declare_interfaces():
+    apps = {a.manifest.id: a.manifest for a in toolset_apps()}
+    assert [i.name for i in apps["shell"].provides.interfaces] == ["shell"]
+    assert [i.name for i in apps["pty"].provides.interfaces] == ["pty"]
+    assert [i.name for i in apps["file-manager"].provides.interfaces] == ["fs"]
+    # pty's interface covers hidden tools — the frontend's bus contract counts
+    pty_tools = {t.name: t for t in apps["pty"].provides.tools}
+    for member in apps["pty"].provides.interfaces[0].tools:
+        assert pty_tools[member].hidden
+
+
+def test_interface_members_must_exist_in_tools_face():
+    from pantheon.apps.registry import verify_interfaces
+    from pantheon.apps.schema import AppManifest, Interface, Provides, ToolSig
+
+    m = AppManifest(
+        id="x", name="X",
+        provides=Provides(tools=[ToolSig(name="real")],
+                          interfaces=[Interface(name="i", version=1, tools=["real", "ghost"])]),
+    )
+    assert verify_interfaces(m) == ["i@1:ghost"]

@@ -26,6 +26,7 @@ from pantheon.apps.schema import (
     MANIFEST_NAMES,
     AppManifest,
     Entry,
+    Interface,
     Placement,
     Provides,
     Runtime,
@@ -54,6 +55,11 @@ def toolset_app(entry: CatalogEntry) -> RegisteredApp:
     cls = _toolset_class(entry)
     from pantheon import __version__ as pantheon_version
 
+    tools = reflect_toolset_class(cls)
+    interfaces = [
+        Interface(name=name, version=version, tools=list(members))
+        for (name, version, members) in entry.interfaces
+    ]
     manifest = AppManifest(
         id=entry.app_id,
         name=entry.class_name.removesuffix("ToolSet"),
@@ -62,10 +68,28 @@ def toolset_app(entry: CatalogEntry) -> RegisteredApp:
         surface=Surface.headless,
         runtime=Runtime(entry.runtime),
         entry=Entry(backend=f"{entry.module}:{entry.class_name}"),
-        provides=Provides(tools=reflect_toolset_class(cls)),
+        provides=Provides(tools=tools, interfaces=interfaces),
         placement=Placement(requires=list(entry.requires), prefer=list(entry.prefer)),
     )
+    missing = verify_interfaces(manifest)
+    if missing:
+        raise ValueError(f"{entry.app_id}: interface members not in tools face: {missing}")
     return RegisteredApp(manifest=manifest, source="toolset", catalog=entry)
+
+
+def verify_interfaces(manifest: AppManifest) -> list[str]:
+    """Interface members that do not exist in the tools face (empty = OK).
+
+    An interface naming a tool the App no longer has is a broken promise —
+    the exact situation §06's contract checks exist to catch.
+    """
+    have = {t.name for t in manifest.provides.tools}
+    return [
+        f"{i.name}@{i.version}:{member}"
+        for i in manifest.provides.interfaces
+        for member in i.tools
+        if member not in have
+    ]
 
 
 def toolset_apps() -> list[RegisteredApp]:

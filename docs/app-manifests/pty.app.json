@@ -101,6 +101,19 @@
         ],
         "hidden": true
       }
+    ],
+    "interfaces": [
+      {
+        "name": "pty",
+        "tools": [
+          "pty_open",
+          "pty_attach",
+          "pty_write",
+          "pty_resize",
+          "pty_list",
+          "pty_close"
+        ]
+      }
     ]
   },
   "placement": {

@@ -104,6 +104,18 @@
         ],
         "hidden": true
       }
+    ],
+    "interfaces": [
+      {
+        "name": "shell",
+        "tools": [
+          "run_command",
+          "new_shell",
+          "run_command_in_shell",
+          "get_shell_output",
+          "close_shell"
+        ]
+      }
     ]
   },
   "placement": {

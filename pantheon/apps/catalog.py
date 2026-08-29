@@ -30,6 +30,10 @@ class CatalogEntry:
     runtime: str = "process"         # embedded | process | builtin
     requires: tuple[str, ...] = ()
     prefer: tuple[str, ...] = ()
+    #: Initial interface contracts (§06): (name, version, member tool names).
+    #: Members may be hidden tools — an interface protecting the frontend's
+    #: bus contract is exactly as load-bearing as one protecting the LLM's.
+    interfaces: tuple[tuple[str, int, tuple[str, ...]], ...] = ()
     description: str = ""
     parent: str | None = None        # for kind=component
     absorb_into: str | None = None   # for kind=absorb
@@ -48,18 +52,24 @@ CATALOG: tuple[CatalogEntry, ...] = (
         "shell", "ShellToolSet", "pantheon.toolsets.shell",
         kind="service", requires=("proc", "fs:workspace"), prefer=("sandbox",),
         builtin_target=True,
+        interfaces=(("shell", 1, ("run_command", "new_shell", "run_command_in_shell",
+                                  "get_shell_output", "close_shell")),),
         description="Run shell commands in the workspace.",
     ),
     CatalogEntry(
         "pty", "PtyToolSet", "pantheon.toolsets.pty",
         kind="service", requires=("proc", "fs:workspace"), prefer=("sandbox",),
         builtin_target=True,
+        interfaces=(("pty", 1, ("pty_open", "pty_attach", "pty_write", "pty_resize",
+                                "pty_list", "pty_close")),),
         description="Interactive terminal sessions (the Terminal app's backend).",
     ),
     CatalogEntry(
         "file-manager", "FileManagerToolSet", "pantheon.toolsets.file",
         kind="service", requires=("fs:workspace",), prefer=("sandbox",),
         builtin_target=True,
+        interfaces=(("fs", 1, ("read_file", "write_file", "update_file", "glob",
+                               "grep", "apply_patch", "view_file_outline")),),
         description="Workspace file operations, outlines and symbol reads.",
     ),
     CatalogEntry(
