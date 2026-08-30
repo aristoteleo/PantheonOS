@@ -103,3 +103,30 @@ class AppInstanceResolver:
             await self._nc.close()
             self._nc = None
             self._client = None
+
+
+# ---- process-wide shared resolver ------------------------------------------
+_shared: AppInstanceResolver | None = None
+_shared_built = False
+
+
+def get_shared_resolver(workdir: str | None = None) -> AppInstanceResolver | None:
+    """The one resolver every binding site shares (factory, ChatRoom proxy).
+
+    Built lazily from the environment on first ask; None means the flag is
+    off/unwired and callers take the endpoint route exactly as before.
+    """
+    global _shared, _shared_built
+    if not _shared_built:
+        _shared_built = True
+        _shared = AppInstanceResolver.from_env(workdir=workdir)
+        if _shared is not None:
+            logger.info("[apps] fleet App-instance binding is ON")
+    return _shared
+
+
+def reset_shared_resolver() -> None:
+    """Testing hook: forget the cached shared resolver."""
+    global _shared, _shared_built
+    _shared = None
+    _shared_built = False

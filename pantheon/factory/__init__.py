@@ -3,28 +3,16 @@ from pantheon.agent import Agent
 from pantheon.endpoint import ToolsetProxy
 from pantheon.utils.log import logger
 
-#: Process-wide resolver for the endpoint-free path (PANTHEON_APPS_VIA_FLEET).
-#: Built lazily on first toolset bind; None means the flag is off/unwired and
-#: everything routes through the endpoint exactly as before.
-_app_resolver = None
-_app_resolver_ready = False
-
-
 async def _resolve_toolset_proxy(endpoint_service, toolset_name: str):
     """The one binding decision (§08b P3): endpoint route, or a direct App
     instance dialed by service_id — same ToolsetProxy either way, so
     providers and agents cannot tell the difference."""
-    global _app_resolver, _app_resolver_ready
-    if not _app_resolver_ready:
-        _app_resolver_ready = True
-        from pantheon.apps.resolver import AppInstanceResolver
+    from pantheon.apps.resolver import get_shared_resolver
 
-        _app_resolver = AppInstanceResolver.from_env()
-        if _app_resolver is not None:
-            logger.info("[apps] toolset binding via fleet App instances is ON")
-    if _app_resolver is not None and _app_resolver.resolves(toolset_name):
+    resolver = get_shared_resolver()
+    if resolver is not None and resolver.resolves(toolset_name):
         try:
-            service_id = await _app_resolver.ensure_instance(toolset_name)
+            service_id = await resolver.ensure_instance(toolset_name)
             return ToolsetProxy.from_toolset(service_id)
         except Exception as e:
             logger.error(

@@ -1528,6 +1528,30 @@ class ChatRoom(ToolSet):
                 except Exception as e:
                     logger.debug(f"Could not inject workdir for session {session_id}: {e}")
 
+            # Endpoint-free route (PANTHEON_APPS_VIA_FLEET): a toolset the App
+            # registry serves is dialed directly on its own instance — no
+            # endpoint dispatch. Per-project workdir switching still rides the
+            # endpoint path until project-scoped instances land, so this only
+            # takes catalog toolsets; anything else (and any failure) falls
+            # through to the endpoint exactly as before.
+            if toolset_name:
+                from pantheon.apps.resolver import get_shared_resolver
+
+                resolver = get_shared_resolver()
+                if resolver is not None and resolver.resolves(toolset_name):
+                    try:
+                        from pantheon.endpoint import ToolsetProxy
+
+                        sid = await resolver.ensure_instance(toolset_name)
+                        return await ToolsetProxy.from_toolset(sid).invoke(
+                            method_name, args or {}
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"[apps] direct instance call {toolset_name}.{method_name} "
+                            f"failed ({e}); falling back to the endpoint route"
+                        )
+
             # Route to the chat's per-project endpoint (multi-project); falls
             # back to the default endpoint when the chat has no isolated project.
             endpoint_sid = await self._resolve_endpoint_for_chat(session_id)

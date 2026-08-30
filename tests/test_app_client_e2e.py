@@ -185,3 +185,22 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
                 p.wait(timeout=10)
             except Exception:
                 p.kill()
+
+
+async def test_shared_resolver_env_gating(monkeypatch):
+    """The shared resolver is None while unwired, builds once when wired."""
+    from pantheon.apps import resolver as R
+
+    R.reset_shared_resolver()
+    monkeypatch.delenv("PANTHEON_APPS_VIA_FLEET", raising=False)
+    assert R.get_shared_resolver() is None
+
+    R.reset_shared_resolver()
+    monkeypatch.setenv("PANTHEON_APPS_VIA_FLEET", "1")
+    monkeypatch.setenv("PANTHEON_FLEET_ID", "f")
+    monkeypatch.setenv("PANTHEON_FLEET_NODE_ID", "n")
+    monkeypatch.setenv("PANTHEON_USER_SEED", "s")
+    r = R.get_shared_resolver()
+    assert r is not None and r.resolves("shell") and not r.resolves("nope")
+    assert R.get_shared_resolver() is r  # cached
+    R.reset_shared_resolver()
