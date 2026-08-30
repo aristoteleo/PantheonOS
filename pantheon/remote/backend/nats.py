@@ -367,6 +367,31 @@ class NATSService(RemoteService):
             description="",
             functions_description={},
         )
+        # Wire format, negotiated lazily from the service's KV registration.
+        # Python workers take cloudpickle (the historical default); a service
+        # registered with "serialization": "json" (Go builtins, anything
+        # non-Python) gets JSON requests instead. None = not yet negotiated.
+        self._serialization: Optional[str] = None
+
+    async def _negotiate_serialization(self) -> str:
+        """The wire format this service accepts ("pickle" | "json").
+
+        Cached once a KV registration is seen; a MISSING registration does
+        not cache — the service may simply not have registered yet, and
+        locking in "pickle" then would permanently break a JSON-only service
+        that appears a moment later.
+        """
+        if self._serialization is not None:
+            return self._serialization
+        if self.kv_store is not None:
+            try:
+                entry = await self.kv_store.get(self.service_id)
+                data = json.loads(entry.value.decode("utf-8"))
+                self._serialization = data.get("serialization", "pickle")
+                return self._serialization
+            except Exception:
+                pass
+        return "pickle"
 
     async def invoke(
         self, method: str, parameters: Optional[Dict[str, Any]] = None
@@ -381,14 +406,22 @@ class NATSService(RemoteService):
 
         # Use ReverseCallContext to handle reverse call setup/teardown
         async with ReverseCallContext(self.nc, parameters) as processed_parameters:
-            message = NATSMessage(
-                method=method,
-                parameters=processed_parameters,
-                correlation_id=str(uuid.uuid4()),
-            )
+            wire = await self._negotiate_serialization()
+            if wire == "json":
+                payload = json.dumps({
+                    "method": method,
+                    "parameters": processed_parameters,
+                    "correlation_id": str(uuid.uuid4()),
+                }).encode("utf-8")
+            else:
+                message = NATSMessage(
+                    method=method,
+                    parameters=processed_parameters,
+                    correlation_id=str(uuid.uuid4()),
+                )
 
-            # Use cloudpickle first for backend-to-backend communication
-            payload = cloudpickle.dumps(message)
+                # Use cloudpickle first for backend-to-backend communication
+                payload = cloudpickle.dumps(message)
 
             try:
                 response = await self.nc.request(

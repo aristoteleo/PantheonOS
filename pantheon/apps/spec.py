@@ -55,6 +55,25 @@ def apphost_spec(
     if app_id not in known:
         raise ValueError(f"unknown app id {app_id!r} (known: {sorted(known)})")
     seed = instance_service_seed(user_seed, app_id, scope)
+    # Go builtin opt-in (§04c): apps named in PANTHEON_APPS_GO_BUILTIN run
+    # inside the fleet runner itself — no command line, no python on the
+    # node. Stays an env opt-in until check-compat parity certifies each app
+    # (then the catalog's runtime flips and this env becomes the override).
+    go_builtin = {
+        a.strip() for a in os.environ.get("PANTHEON_APPS_GO_BUILTIN", "").split(",")
+        if a.strip()
+    }
+    if app_id in go_builtin:
+        return {
+            "app_id": app_id,
+            "scope": scope,
+            "version": version,
+            "service_id": generate_service_id(seed),
+            "runtime": "builtin",
+            "command": [],
+            "dir": workdir,
+            "env": {},
+        }
     # The apphost process must find pantheon regardless of its own cwd (the
     # workdir) or whatever relative PYTHONPATH the caller inherited — inject
     # this pantheon's own location, absolute, ahead of anything given.

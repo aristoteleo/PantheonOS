@@ -208,6 +208,68 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
                     await asyncio.sleep(0.5)
             assert content and "in-project" in content, content
 
+            # --- Go builtin shell (§04c): no python process, in-runner ------
+            # The spec opts in via PANTHEON_APPS_GO_BUILTIN; the runner serves
+            # the shell@1 surface itself over appsvc (JSON wire, negotiated
+            # from the KV registration's serialization field).
+            monkeypatch.setenv("PANTHEON_APPS_GO_BUILTIN", "shell")
+            go_spec = apphost_spec("shell", user_seed=USER_SEED + "-go",
+                                   workdir=str(tmp_path))
+            assert go_spec["runtime"] == "builtin" and go_spec["command"] == []
+            resp = await client.start(node_id, go_spec)
+            assert resp.get("ok"), resp
+
+            go_proxy = ToolsetProxy.from_toolset(go_spec["service_id"])
+            go_res = None
+            for _ in range(40):
+                try:
+                    go_res = await asyncio.wait_for(
+                        go_proxy.invoke("run_command",
+                                        {"command": "echo go-builtin-works"}),
+                        timeout=3)
+                    break
+                except Exception:
+                    await asyncio.sleep(0.5)
+            assert go_res and go_res.get("success"), go_res
+            assert "go-builtin-works" in go_res["output"], go_res
+            assert go_res["status"] == "completed" and go_res["truncated"] is False
+
+            # session persistence across calls (same auto session)
+            await go_proxy.invoke("run_command", {"command": "export GOMARK=yes"})
+            go_res = await go_proxy.invoke("run_command", {"command": "echo mark=$GOMARK"})
+            assert "mark=yes" in go_res["output"], go_res
+
+            # hidden tools answer on the wire (the frontend's contract)
+            created = await go_proxy.invoke("new_shell", {})
+            assert created["success"] and created["shell_id"]
+            in_shell = await go_proxy.invoke("run_command_in_shell", {
+                "shell_id": created["shell_id"], "command": "echo manual-go"})
+            assert in_shell["success"] and "manual-go" in in_shell["output"]
+            closed = await go_proxy.invoke("close_shell",
+                                           {"shell_id": created["shell_id"]})
+            assert closed["success"], closed
+
+            # parity: the Go list_tools surface matches the Python
+            # ShellToolSet's reflected shell face (names + param names/types)
+            from pantheon.apps.reflect import reflect_toolset_class
+            from pantheon.toolsets.shell import ShellToolSet
+
+            go_tools = await go_proxy.invoke("list_tools", {})
+            assert go_tools["success"]
+            go_vis = {t["name"]: t for t in go_tools["tools"]}
+            py_manifest = reflect_toolset_class(ShellToolSet)
+            py_vis = {t.name: t for t in py_manifest if not t.hidden
+                      and t.name != "list_tools"}
+            assert set(go_vis) == set(py_vis), (set(go_vis), set(py_vis))
+            for name, py_tool in py_vis.items():
+                go_params = [(i["name"], i["type"]) for i in go_vis[name]["inputs"]]
+                py_params = [(p.name, p.type) for p in py_tool.params]
+                assert go_params == py_params, (name, go_params, py_params)
+
+            resp = await client.stop(node_id, "shell")
+            assert resp.get("ok"), resp
+            monkeypatch.delenv("PANTHEON_APPS_GO_BUILTIN")
+
             # stop both file-manager instances — the supervisor owns them, and
             # leaving them running is exactly the leak the RUN_TAG guards against
             await client.stop(node_id, "file-manager", scope=scope)
