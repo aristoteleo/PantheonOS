@@ -1030,6 +1030,22 @@ class ChatRoom(ToolSet):
         if not required_services:
             return
 
+        # Toolsets the App resolver serves are ensured at bind time on their
+        # own instances (PANTHEON_APPS_VIA_FLEET) — asking the endpoint to
+        # also start them would run every one twice.
+        if service_type == "toolset":
+            from pantheon.apps.resolver import get_shared_resolver
+
+            resolver = get_shared_resolver()
+            if resolver is not None:
+                skipped = [s for s in required_services if resolver.resolves(s)]
+                required_services = [s for s in required_services if not resolver.resolves(s)]
+                if skipped:
+                    logger.info(f"[apps] toolsets bound as App instances, "
+                                f"endpoint start skipped: {skipped}")
+                if not required_services:
+                    return
+
         service_name_plural = "MCP servers" if service_type == "mcp" else "ToolSets"
         service_name_past = "started" if service_type == "mcp" else "started"
 
