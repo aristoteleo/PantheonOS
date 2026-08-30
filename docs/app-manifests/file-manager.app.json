@@ -524,7 +524,12 @@
           "update_file",
           "glob",
           "grep",
-          "apply_patch",
+          "apply_patch"
+        ]
+      },
+      {
+        "name": "outline",
+        "tools": [
           "view_file_outline"
         ]
       }

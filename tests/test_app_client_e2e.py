@@ -328,12 +328,79 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
 
             resp = await client.stop(node_id, "pty")
             assert resp.get("ok"), resp
-            monkeypatch.delenv("PANTHEON_APPS_GO_BUILTIN")
 
-            # stop both file-manager instances — the supervisor owns them, and
-            # leaving them running is exactly the leak the RUN_TAG guards against
+            # --- Go builtin file-manager: the fs core, tree-sitter excluded -
+            # The python file-manager instances from the resolver legs hold
+            # the (app_id, scope) supervisor slots — stop them first, or the
+            # idempotent Start silently keeps the python ones.
             await client.stop(node_id, "file-manager", scope=scope)
             await client.stop(node_id, "file-manager")
+            monkeypatch.setenv("PANTHEON_APPS_GO_BUILTIN", "file-manager")
+            fm_spec = apphost_spec("file-manager", user_seed=USER_SEED + "-go",
+                                   workdir=str(tmp_path))
+            assert fm_spec["runtime"] == "builtin"
+            resp = await client.start(node_id, fm_spec)
+            assert resp.get("ok"), resp
+
+            fm_proxy = ToolsetProxy.from_toolset(fm_spec["service_id"])
+            written = None
+            for _ in range(40):
+                try:
+                    written = await asyncio.wait_for(
+                        fm_proxy.invoke("write_file", {
+                            "file_path": "go/fm.txt", "content": "alpha\nbeta\n"}),
+                        timeout=3)
+                    break
+                except Exception:
+                    await asyncio.sleep(0.5)
+            assert written and written.get("success"), written
+
+            got = await fm_proxy.invoke("read_file", {"file_path": "go/fm.txt"})
+            assert got["success"] and got["content"] == "alpha\nbeta\n"
+            assert got["total_lines"] == 2 and got["truncated"] is False
+
+            upd = await fm_proxy.invoke("update_file", {
+                "file_path": "go/fm.txt", "old_string": "beta", "new_string": "gamma"})
+            assert upd["success"] and upd["replacements"] == 1
+
+            patched = await fm_proxy.invoke("apply_patch", {"patch": (
+                "--- a/go/fm.txt\n+++ b/go/fm.txt\n@@ -1,2 +1,2 @@\n"
+                " alpha\n-gamma\n+delta\n")})
+            assert patched["success"], patched
+            assert patched["summary"]["modified"] == 1
+
+            found = await fm_proxy.invoke("glob", {"pattern": "**/*.txt"})
+            assert found["success"] and any(
+                f["path"] == "go/fm.txt" for f in found["files"]), found
+            hits = await fm_proxy.invoke("grep", {"pattern": "delta"})
+            assert hits["success"] and hits["total_matches"] >= 1, hits
+
+            # tree-sitter faces are excluded: symbol mode answers the python
+            # no-tree-sitter error; view_file_outline is not served at all
+            sym = await fm_proxy.invoke("read_file", {
+                "file_path": "go/fm.txt", "symbol": "X"})
+            assert sym == {"success": False,
+                           "error": "Code navigation requires tree-sitter"}
+            with pytest.raises(Exception, match="not found"):
+                await fm_proxy.invoke("view_file_outline", {"file_path": "go/fm.txt"})
+
+            # parity on the served visible subset: signatures match the
+            # Python FileManagerToolSet reflection exactly
+            from pantheon.toolsets.file import FileManagerToolSet
+
+            fm_tools = await fm_proxy.invoke("list_tools", {})
+            go_fm = {t["name"]: t for t in fm_tools["tools"]}
+            assert set(go_fm) == {"read_file", "write_file", "update_file",
+                                  "apply_patch", "glob", "grep"}, set(go_fm)
+            py_fm = {t.name: t for t in reflect_toolset_class(FileManagerToolSet)}
+            for name, go_tool in go_fm.items():
+                go_params = [(i["name"], i["type"]) for i in go_tool["inputs"]]
+                py_params = [(p.name, p.type) for p in py_fm[name].params]
+                assert go_params == py_params, (name, go_params, py_params)
+
+            resp = await client.stop(node_id, "file-manager")
+            assert resp.get("ok"), resp
+            monkeypatch.delenv("PANTHEON_APPS_GO_BUILTIN")
             await resolver.close()
         finally:
             await nc.close()

@@ -78,8 +78,12 @@ CATALOG: tuple[CatalogEntry, ...] = (
         "file-manager", "FileManagerToolSet", "pantheon.toolsets.file",
         kind="service", requires=("fs:workspace",), prefer=("sandbox",),
         builtin_target=True,
+        # fs@1 is the Go-implementable core; the tree-sitter outline lives in
+        # its own interface so a runner-builtin node can honestly claim fs@1
+        # without carrying cgo grammars (outline stays python-only for now).
         interfaces=(("fs", 1, ("read_file", "write_file", "update_file", "glob",
-                               "grep", "apply_patch", "view_file_outline")),),
+                               "grep", "apply_patch")),
+                    ("outline", 1, ("view_file_outline",))),
         description="Workspace file operations, outlines and symbol reads.",
     ),
     CatalogEntry(
