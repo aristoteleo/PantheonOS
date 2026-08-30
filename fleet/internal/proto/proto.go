@@ -119,6 +119,7 @@ type AppCommand struct {
 	Scope     string            `json:"scope,omitempty"`
 	Version   string            `json:"version,omitempty"`
 	ServiceID string            `json:"service_id,omitempty"`
+	Runtime   string            `json:"runtime,omitempty"` // ""|"process"|"builtin"
 	Command   []string          `json:"command,omitempty"`
 	Dir       string            `json:"dir,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`

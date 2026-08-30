@@ -221,6 +221,7 @@ func cmdUp(args []string) {
 	must(reg.Put(ctx, rec))
 
 	r := runner.New(nc, *fleetID, nodeID, reg, dp, &rec)
+	registerBuiltins(r, nc)
 	sub, err := r.Serve()
 	must(err)
 	defer sub.Unsubscribe() //nolint:errcheck

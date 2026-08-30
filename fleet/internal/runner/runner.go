@@ -70,7 +70,8 @@ func (r *Runner) Serve() (*nats.Subscription, error) {
 			a := *cmd.App
 			if err := r.apps.Start(apps.Spec{
 				AppID: a.AppID, Version: a.Version, Scope: a.Scope,
-				ServiceID: a.ServiceID, Command: a.Command, Dir: a.Dir, Env: a.Env,
+				ServiceID: a.ServiceID, Runtime: a.Runtime,
+				Command: a.Command, Dir: a.Dir, Env: a.Env,
 			}); err != nil {
 				r.replyErr(m, "app_start: "+err.Error())
 				return

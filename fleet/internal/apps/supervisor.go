@@ -24,10 +24,17 @@ type Spec struct {
 	Version   string            `json:"version,omitempty"`
 	Scope     string            `json:"scope,omitempty"` // app|window|node; keys the instance with AppID
 	ServiceID string            `json:"service_id,omitempty"`
-	Command   []string          `json:"command"` // argv; Command[0] resolved on PATH
+	Runtime   string            `json:"runtime,omitempty"` // ""|"process" spawn Command; "builtin" run in-runner
+	Command   []string          `json:"command"`           // argv; Command[0] resolved on PATH
 	Dir       string            `json:"dir,omitempty"`
 	Env       map[string]string `json:"env,omitempty"` // per-instance additions (e.g. scoped NATS creds)
 }
+
+// BuiltinFactory starts an in-runner implementation of an App (§04c
+// `builtin`) and returns its stop function. It must return once the
+// instance is serving; the supervisor holds it until Stop/shutdown and
+// restarts it with the same backoff policy a process gets.
+type BuiltinFactory func(ctx context.Context, spec Spec) (stop func(), err error)
 
 // Restart policy: exponential backoff, capped; after maxCrashes consecutive
 // fast failures the instance is marked crashed and left down.
@@ -59,10 +66,19 @@ type Supervisor struct {
 	mu        sync.Mutex
 	instances map[string]*instance // key: app_id + "\x00" + scope
 	onChange  func()               // optional: poked on any health transition
+	builtins  map[string]BuiltinFactory
 }
 
 func New(onChange func()) *Supervisor {
-	return &Supervisor{instances: map[string]*instance{}, onChange: onChange}
+	return &Supervisor{instances: map[string]*instance{}, onChange: onChange,
+		builtins: map[string]BuiltinFactory{}}
+}
+
+// RegisterBuiltin makes an app_id startable with Runtime "builtin".
+func (s *Supervisor) RegisterBuiltin(appID string, f BuiltinFactory) {
+	s.mu.Lock()
+	s.builtins[appID] = f
+	s.mu.Unlock()
 }
 
 func key(appID, scope string) string {
@@ -196,9 +212,13 @@ func health(inst *instance) string {
 	return inst.health
 }
 
-// runOnce starts the process and waits for it to exit.
+// runOnce starts the instance (in-runner builtin or child process) and
+// blocks until it stops.
 func (s *Supervisor) runOnce(ctx context.Context, inst *instance) error {
 	spec := inst.spec
+	if spec.Runtime == "builtin" {
+		return s.runBuiltinOnce(ctx, inst)
+	}
 	if len(spec.Command) == 0 {
 		inst.setHealth("crashed")
 		return nil
@@ -232,4 +252,26 @@ func (s *Supervisor) runOnce(ctx context.Context, inst *instance) error {
 		}
 	}(inst)
 	return cmd.Wait()
+}
+
+// runBuiltinOnce runs an in-runner App until the instance is stopped. A
+// factory error counts as a fast crash, so the supervise loop's backoff and
+// crash cap apply unchanged.
+func (s *Supervisor) runBuiltinOnce(ctx context.Context, inst *instance) error {
+	s.mu.Lock()
+	factory, ok := s.builtins[inst.spec.AppID]
+	s.mu.Unlock()
+	if !ok {
+		inst.setHealth("crashed")
+		return nil
+	}
+	stop, err := factory(ctx, inst.spec)
+	if err != nil {
+		return err
+	}
+	inst.setHealth("healthy")
+	s.changed()
+	<-ctx.Done()
+	stop()
+	return nil
 }
