@@ -375,9 +375,9 @@ RUN (curl -L --retry 3 --retry-delay 5 --max-time 60 \
 # re-uploaded binary would be silently served from the cached layer). Bump it
 # whenever fleet-linux-amd64 is rebuilt.
 RUN (curl -L --retry 3 --retry-delay 5 --max-time 60 \
-    https://github.com/aristoteleo/PantheonOS/releases/download/fleet-v0.1.0-alpha/fleet-linux-amd64 \
+    https://github.com/aristoteleo/PantheonOS/releases/download/fleet-v0.2.0-alpha/fleet-linux-amd64 \
     -o /usr/local/bin/fleet && \
-    echo "a5a40618c533c83113c44ac7d040daefe95f37a04eabd9c20fad1bf0515ad395  /usr/local/bin/fleet" | sha256sum -c - && \
+    echo "ee7e514c95a6c772dc1beef039c1dddbc6a0e5ea5cbcb2460a23fcd7c2e41fd5  /usr/local/bin/fleet" | sha256sum -c - && \
     chmod +x /usr/local/bin/fleet) || \
     echo "Warning: fleet node binary download/verify failed (fleet transfers unavailable)"
 
