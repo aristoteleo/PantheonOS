@@ -48,6 +48,7 @@ class AppInstanceResolver:
         self._state_dir = state_dir  # lazy runtime.json source when ids empty
         self._nc = None
         self._client = None
+        self._tmp_creds: str | None = None
         self._started: dict[tuple[str, str], str] = {}  # (service_type, scope) -> service_id
         # Circuit breaker: when the fleet path is wired but not actually
         # reachable (wrong creds, runner down), every bind would otherwise
@@ -116,42 +117,82 @@ class AppInstanceResolver:
             )
 
     async def _ensure_client(self):
+        if self._nc is not None and not self._nc.is_connected:
+            # Short-lived creds lapsed or the link dropped; nats-py won't
+            # re-read a creds file. Drop everything and rebuild below.
+            try:
+                await self._nc.close()
+            except Exception:
+                pass
+            self._nc = None
+            self._client = None
+            self._drop_tmp_creds()
         if self._client is None:
             import nats
 
             from pantheon.apps.client import AppClient
 
-            # The fleet control plane may live on a different NATS (and
-            # behind different auth) than the worker's own bus. The runner
-            # already joined it — reuse ITS coordinates and credentials from
-            # the shared state dir (same container, same trust domain):
-            # runtime.json carries nats_url, fleet.creds the scoped JWT the
-            # controller minted for this node. Dev runners have neither and
-            # fall back to NATS_SERVERS unauthenticated.
-            servers = os.environ.get("NATS_SERVERS", "nats://localhost:4222").split("|")
-            creds: str | None = None
-            if self._state_dir:
-                state = Path(self._state_dir)
-                try:
-                    info = json.loads((state / "runtime.json").read_text())
-                    if info.get("nats_url"):
-                        servers = [info["nats_url"]]
-                except Exception:
-                    pass
-                creds_path = state / "fleet.creds"
-                if creds_path.is_file():
-                    creds = str(creds_path)
-            connect_kwargs: dict = {"servers": servers, "connect_timeout": 5}
-            if creds:
-                connect_kwargs["user_credentials"] = creds
-                # Scoped fleet creds only allow subscriptions under the
-                # fleet's own inbox namespace (the runner connects with
-                # CustomInboxPrefix("_INBOX_"+fleet)) — requests made with
-                # the default _INBOX prefix would never see their replies.
-                connect_kwargs["inbox_prefix"] = f"_INBOX_{self._fleet}"
+            connect_kwargs: dict = {
+                "connect_timeout": 5,
+                "name": "pantheon-apps-resolver",
+            }
+            controller = os.environ.get("FLEET_CONTROLLER_URL")
+            key = os.environ.get("FLEET_KEY")
+            if controller and key:
+                # USER-scope join: the controller mints creds whose JWT
+                # allows publishing fleet.<fid>.> — commanding one's own
+                # nodes is the product semantics, and this resolver IS the
+                # user's binding hand. (Node creds deliberately cannot
+                # publish cmd subjects — even their own.)
+                import httpx
+
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.post(
+                        controller.rstrip("/") + "/join", json={"key": key}
+                    )
+                    r.raise_for_status()
+                    data = r.json()
+                self._fleet = data["fleet_id"]
+                connect_kwargs["servers"] = [data["nats_url"]]
+                if data.get("creds"):
+                    import tempfile
+
+                    tf = tempfile.NamedTemporaryFile(
+                        "w", suffix=".creds", delete=False
+                    )
+                    tf.write(data["creds"])
+                    tf.close()
+                    os.chmod(tf.name, 0o600)
+                    self._tmp_creds = tf.name
+                    connect_kwargs["user_credentials"] = tf.name
+                    # Match the JWT's per-fleet inbox scope (_INBOX_<fid>.>).
+                    connect_kwargs["inbox_prefix"] = b"_INBOX_" + self._fleet.encode()
+            else:
+                # Dev: the local runner's own NATS (unauthenticated).
+                servers = os.environ.get(
+                    "NATS_SERVERS", "nats://localhost:4222"
+                ).split("|")
+                if self._state_dir:
+                    try:
+                        info = json.loads(
+                            (Path(self._state_dir) / "runtime.json").read_text()
+                        )
+                        if info.get("nats_url"):
+                            servers = [info["nats_url"]]
+                    except Exception:
+                        pass
+                connect_kwargs["servers"] = servers
             self._nc = await nats.connect(**connect_kwargs)
             self._client = AppClient(self._nc, self._fleet)
         return self._client
+
+    def _drop_tmp_creds(self) -> None:
+        if getattr(self, "_tmp_creds", None):
+            try:
+                os.remove(self._tmp_creds)
+            except OSError:
+                pass
+            self._tmp_creds = None
 
     @staticmethod
     def project_scope(project_dir: str) -> str:
@@ -225,6 +266,7 @@ class AppInstanceResolver:
             await self._nc.close()
             self._nc = None
             self._client = None
+        self._drop_tmp_creds()
 
 
 # ---- process-wide shared resolver ------------------------------------------
