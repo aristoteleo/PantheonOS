@@ -6,6 +6,7 @@ import (
 
 	"github.com/aristoteleo/pantheon-fleet/internal/apps"
 	"github.com/aristoteleo/pantheon-fleet/internal/appsvc"
+	"github.com/aristoteleo/pantheon-fleet/internal/builtin/fmapp"
 	"github.com/aristoteleo/pantheon-fleet/internal/builtin/shellapp"
 	"github.com/aristoteleo/pantheon-fleet/internal/runner"
 	"github.com/nats-io/nats.go"
@@ -35,6 +36,20 @@ func registerBuiltins(r *runner.Runner, nc *nats.Conn) {
 			svc.Stop(context.Background())
 			app.Close()
 		}, nil
+	})
+
+	r.Apps().RegisterBuiltin("file-manager", func(ctx context.Context, spec apps.Spec) (func(), error) {
+		app := fmapp.NewApp(spec.Dir)
+		svc := appsvc.New(nc, spec.ServiceID, "file_manager",
+			"Workspace file operations (Go builtin, fs core).",
+			builtinVersion, prefix)
+		for _, t := range fmapp.Tools(app) {
+			svc.Register(t)
+		}
+		if err := svc.Start(ctx); err != nil {
+			return nil, err
+		}
+		return func() { svc.Stop(context.Background()) }, nil
 	})
 
 	registerPlatformBuiltins(r, nc, prefix)
