@@ -186,8 +186,31 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
                 pytest.fail(
                     f"content={content!r} last_err={last_err} instances={diag}\n"
                     f"--- runner output tail ---\n{runner_out[-3000:]}")
-            # stop the file-manager instance too — the supervisor owns it, and
-            # leaving it running is exactly the leak the RUN_TAG guards against
+            # --- P3 slice 3: a project-scoped instance is its own process ----
+            proj = tmp_path / "projA"
+            proj.mkdir()
+            (proj / "hello.txt").write_text("in-project")
+            scope = resolver.project_scope(str(proj))
+            sid_proj = await resolver.ensure_instance(
+                "file_manager", scope=scope, workdir=str(proj))
+            assert sid_proj != sid  # distinct instance from the app-scope one
+
+            proxy_proj = ToolsetProxy.from_toolset(sid_proj)
+            content = None
+            for _ in range(40):
+                try:
+                    res = await asyncio.wait_for(
+                        proxy_proj.invoke("read_file", {"file_path": "hello.txt"}),
+                        timeout=3)
+                    content = json.dumps(res, default=str)
+                    break
+                except Exception:
+                    await asyncio.sleep(0.5)
+            assert content and "in-project" in content, content
+
+            # stop both file-manager instances — the supervisor owns them, and
+            # leaving them running is exactly the leak the RUN_TAG guards against
+            await client.stop(node_id, "file-manager", scope=scope)
             await client.stop(node_id, "file-manager")
             await resolver.close()
         finally:

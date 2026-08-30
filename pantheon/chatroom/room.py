@@ -1546,10 +1546,11 @@ class ChatRoom(ToolSet):
 
             # Endpoint-free route (PANTHEON_APPS_VIA_FLEET): a toolset the App
             # registry serves is dialed directly on its own instance — no
-            # endpoint dispatch. Per-project workdir switching still rides the
-            # endpoint path until project-scoped instances land, so this only
-            # takes catalog toolsets; anything else (and any failure) falls
-            # through to the endpoint exactly as before.
+            # endpoint dispatch. A chat inside a project gets that project's
+            # OWN instance (scope=project, rooted in the project dir) — the
+            # App-model replacement for per-call cwd steering. Anything else
+            # (and any failure) falls through to the endpoint exactly as
+            # before.
             if toolset_name:
                 from pantheon.apps.resolver import get_shared_resolver
 
@@ -1558,7 +1559,15 @@ class ChatRoom(ToolSet):
                     try:
                         from pantheon.endpoint import ToolsetProxy
 
-                        sid = await resolver.ensure_instance(toolset_name)
+                        proj_dir = await self._project_dir_for_chat(session_id)
+                        if proj_dir:
+                            sid = await resolver.ensure_instance(
+                                toolset_name,
+                                scope=resolver.project_scope(proj_dir),
+                                workdir=proj_dir,
+                            )
+                        else:
+                            sid = await resolver.ensure_instance(toolset_name)
                         return await ToolsetProxy.from_toolset(sid).invoke(
                             method_name, args or {}
                         )

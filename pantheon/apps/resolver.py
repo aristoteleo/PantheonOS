@@ -55,7 +55,7 @@ class AppInstanceResolver:
         self._state_dir = state_dir  # lazy runtime.json source when ids empty
         self._nc = None
         self._client = None
-        self._started: dict[str, str] = {}  # service_type -> service_id
+        self._started: dict[tuple[str, str], str] = {}  # (service_type, scope) -> service_id
 
     @classmethod
     def from_env(cls, workdir: str | None = None) -> "AppInstanceResolver | None":
@@ -114,10 +114,35 @@ class AppInstanceResolver:
             self._client = AppClient(self._nc, self._fleet)
         return self._client
 
-    async def ensure_instance(self, service_type: str) -> str:
-        """Start (idempotently) and return the instance's service_id."""
-        if service_type in self._started:
-            return self._started[service_type]
+    @staticmethod
+    def project_scope(project_dir: str) -> str:
+        """The instance scope key for one project directory (§04: scope=project).
+
+        Deterministic across processes — every worker maps the same project to
+        the same instance.
+        """
+        import hashlib
+
+        h = hashlib.sha256(str(Path(project_dir).resolve()).encode()).hexdigest()
+        return f"proj{h[:10]}"
+
+    async def ensure_instance(
+        self,
+        service_type: str,
+        *,
+        scope: str = "app",
+        workdir: str | None = None,
+    ) -> str:
+        """Start (idempotently) and return the instance's service_id.
+
+        scope="app" is the user-wide default instance; a project-scoped call
+        (scope=project_scope(dir), workdir=dir) gets its OWN instance rooted
+        in that project — per-project isolation by separate processes rather
+        than per-call cwd steering.
+        """
+        key = (service_type, scope)
+        if key in self._started:
+            return self._started[key]
         self._ensure_coords()
         from pantheon.apps.catalog import by_service_type
         from pantheon.apps.spec import apphost_spec
@@ -127,17 +152,18 @@ class AppInstanceResolver:
         spec = apphost_spec(
             entry.app_id,
             user_seed=self._seed,
-            workdir=self._workdir,
+            workdir=workdir or self._workdir,
+            scope=scope,
             env={k: v for k, v in os.environ.items()
                  if k.startswith("NATS_") or k in ("PYTHONPATH", "PATH")},
         )
         resp = await client.start(self._node, spec)
         if not resp.get("ok"):
             raise RuntimeError(f"app_start {entry.app_id} on {self._node}: {resp}")
-        self._started[service_type] = spec["service_id"]
+        self._started[key] = spec["service_id"]
         logger.info(
             f"[apps] {service_type} -> app {entry.app_id} instance "
-            f"{spec['service_id'][:12]}… on node {self._node}"
+            f"{spec['service_id'][:12]}… scope={scope} on node {self._node}"
         )
         return spec["service_id"]
 
