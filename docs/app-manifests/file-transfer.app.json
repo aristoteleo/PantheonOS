@@ -4,7 +4,7 @@
   "version": "0.6.4",
   "description": "Chunked file transfer to the frontend.",
   "entry": {
-    "backend": "pantheon.toolsets.file_transfer:FileTransferToolSet"
+    "backend": "pantheon.apps.builtin.file_transfer:FileTransferToolSet"
   },
   "provides": {
     "tools": [

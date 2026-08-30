@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from pantheon.toolsets.mcp.gateway import UnifiedMCPGateway
+from pantheon.apps.builtin.mcp.gateway import UnifiedMCPGateway
 from pantheon.factory.template_io import FileBasedTemplateManager
 from pantheon.factory.template_manager import TemplateManager
 from pantheon.settings import load_jsonc

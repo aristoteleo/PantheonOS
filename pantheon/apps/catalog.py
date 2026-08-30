@@ -54,12 +54,12 @@ class CatalogEntry:
 CATALOG: tuple[CatalogEntry, ...] = (
     # ---- body-side services (need the sandbox) ----------------------------
     CatalogEntry(
-        "python-interpreter", "PythonInterpreterToolSet", "pantheon.toolsets.python",
+        "python-interpreter", "PythonInterpreterToolSet", "pantheon.apps.builtin.python",
         kind="service", requires=("proc", "fs:workspace"), prefer=("sandbox",),
         description="Execute Python in the workspace (Jupyter-kernel backed).",
     ),
     CatalogEntry(
-        "shell", "ShellToolSet", "pantheon.toolsets.shell",
+        "shell", "ShellToolSet", "pantheon.apps.builtin.shell",
         kind="service", requires=("proc", "fs:workspace"), prefer=("sandbox",),
         builtin_target=True,
         interfaces=(("shell", 1, ("run_command", "new_shell", "run_command_in_shell",
@@ -67,7 +67,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
         description="Run shell commands in the workspace.",
     ),
     CatalogEntry(
-        "pty", "PtyToolSet", "pantheon.toolsets.pty",
+        "pty", "PtyToolSet", "pantheon.apps.builtin.pty",
         kind="service", requires=("proc", "fs:workspace"), prefer=("sandbox",),
         builtin_target=True,
         interfaces=(("pty", 1, ("pty_open", "pty_attach", "pty_write", "pty_resize",
@@ -75,7 +75,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
         description="Interactive terminal sessions (the Terminal app's backend).",
     ),
     CatalogEntry(
-        "file-manager", "FileManagerToolSet", "pantheon.toolsets.file",
+        "file-manager", "FileManagerToolSet", "pantheon.apps.builtin.file",
         kind="service", requires=("fs:workspace",), prefer=("sandbox",),
         builtin_target=True,
         # fs@1 is the Go-implementable core; the tree-sitter outline lives in
@@ -87,22 +87,22 @@ CATALOG: tuple[CatalogEntry, ...] = (
         description="Workspace file operations, outlines and symbol reads.",
     ),
     CatalogEntry(
-        "integrated-notebook", "IntegratedNotebookToolSet", "pantheon.toolsets.notebook",
+        "integrated-notebook", "IntegratedNotebookToolSet", "pantheon.apps.builtin.notebook",
         kind="service", requires=("proc", "fs:workspace"), prefer=("sandbox",),
         description="Notebook editing and execution with streaming.",
     ),
     CatalogEntry(
-        "desktop", "DesktopToolSet", "pantheon.toolsets.desktop",
+        "desktop", "DesktopToolSet", "pantheon.apps.builtin.desktop",
         kind="service", requires=("proc", "fs:workspace", "display"), prefer=("sandbox",),
         description="The user's desktop: windows, apps, browser, data server.",
     ),
     CatalogEntry(
-        "evolution", "EvolutionToolSet", "pantheon.toolsets.evolution",
+        "evolution", "EvolutionToolSet", "pantheon.apps.builtin.evolution",
         kind="service", requires=("proc", "fs:workspace"), prefer=("sandbox",),
         description="Evolutionary experiment runs.",
     ),
     CatalogEntry(
-        "mcp-gateway", "MCPGatewayToolSet", "pantheon.toolsets.mcp",
+        "mcp-gateway", "MCPGatewayToolSet", "pantheon.apps.builtin.mcp",
         kind="service", requires=("proc", "net"), prefer=("sandbox",),
         interfaces=(("mcp", 1, ("get_uri", "list_servers", "get_server",
                                 "start_servers", "stop_servers")),),
@@ -112,24 +112,24 @@ CATALOG: tuple[CatalogEntry, ...] = (
     ),
     # ---- brain-side services (network only; embed in the agent process) ---
     CatalogEntry(
-        "web", "WebToolSet", "pantheon.toolsets.web",
+        "web", "WebToolSet", "pantheon.apps.builtin.web",
         kind="service", runtime="embedded", requires=("net",),
         description="Web search and page fetch.",
         notes="second Go-builtin batch candidate",
     ),
     CatalogEntry(
-        "scraper", "ScraperToolSet", "pantheon.toolsets.scraper",
+        "scraper", "ScraperToolSet", "pantheon.apps.builtin.scraper",
         kind="service", runtime="embedded", requires=("net",),
         description="ScraperAPI search/scrape (API key required).",
         notes="second Go-builtin batch candidate",
     ),
     CatalogEntry(
-        "image-generation", "ImageGenerationToolSet", "pantheon.toolsets.image",
+        "image-generation", "ImageGenerationToolSet", "pantheon.apps.builtin.image",
         kind="service", runtime="embedded", requires=("net",),
         description="Image generation via model APIs.",
     ),
     CatalogEntry(
-        "fleet", "FleetToolSet", "pantheon.toolsets.fleet",
+        "fleet", "FleetToolSet", "pantheon.apps.builtin.fleet",
         kind="service", runtime="embedded", requires=("net",),
         absorb_into="fleet-runner builtins",
         description="Observe and drive the user's fleet of compute nodes.",
@@ -137,7 +137,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
     ),
     # ---- agent plugins (embedded by nature) --------------------------------
     CatalogEntry(
-        "task", "TaskToolSet", "pantheon.toolsets.task",
+        "task", "TaskToolSet", "pantheon.apps.builtin.task",
         kind="plugin", runtime="embedded",
         description="Modal-workflow (PLANNING/EXECUTION/VERIFICATION) boundaries "
                     "and prompt shaping. In-process agent pipeline hooks.",
@@ -145,27 +145,27 @@ CATALOG: tuple[CatalogEntry, ...] = (
     ),
     # ---- scheduled absorptions --------------------------------------------
     CatalogEntry(
-        "file-transfer", "FileTransferToolSet", "pantheon.toolsets.file_transfer",
+        "file-transfer", "FileTransferToolSet", "pantheon.apps.builtin.file_transfer",
         kind="absorb", requires=("fs:workspace", "net"),
         absorb_into="fleet transfer (data plane)",
         description="Chunked file transfer to the frontend.",
     ),
     # ---- components (parts of other Apps; no App of their own) ------------
     CatalogEntry(
-        "jupyter-kernel", "JupyterKernelToolSet", "pantheon.toolsets.notebook",
+        "jupyter-kernel", "JupyterKernelToolSet", "pantheon.apps.builtin.notebook",
         kind="component", parent="integrated-notebook",
     ),
     CatalogEntry(
-        "notebook-contents", "NotebookContentsToolSet", "pantheon.toolsets.notebook",
+        "notebook-contents", "NotebookContentsToolSet", "pantheon.apps.builtin.notebook",
         kind="component", parent="integrated-notebook",
     ),
     CatalogEntry(
-        "evaluator", "EvaluatorToolSet", "pantheon.toolsets.evolution",
+        "evaluator", "EvaluatorToolSet", "pantheon.apps.builtin.evolution",
         kind="component", parent="evolution",
     ),
     # ---- legacy aliases ----------------------------------------------------
     CatalogEntry(
-        "live-view", "LiveViewToolSet", "pantheon.toolsets.desktop",
+        "live-view", "LiveViewToolSet", "pantheon.apps.builtin.desktop",
         kind="alias", parent="desktop",
         notes="saved agent configs may still name the old class",
     ),

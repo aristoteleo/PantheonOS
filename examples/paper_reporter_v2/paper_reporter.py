@@ -4,7 +4,7 @@ import os
 from pantheon.task import Task, TasksSolver
 from pantheon.agent import Agent
 from pantheon.smart_func import smart_func
-from pantheon.toolsets.web_browse import duckduckgo_search, web_crawl
+from pantheon.apps.builtin.web_browse import duckduckgo_search, web_crawl
 
 
 def write_file(content: str, file_path: str):

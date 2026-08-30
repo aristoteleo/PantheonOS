@@ -68,10 +68,10 @@ def test_placement_requires_vocabulary_is_enforced():
 # ---- catalog completeness ---------------------------------------------------
 
 def _shipped_toolset_classes() -> set[str]:
-    """Every ToolSet class shipped under pantheon/toolsets — from source, so a
-    new class cannot dodge triage by staying out of __init__'s exports."""
+    """Every ToolSet class shipped under pantheon/apps/builtin — from source,
+    so a new class cannot dodge triage by staying out of __init__'s exports."""
     import re
-    root = Path(__file__).resolve().parent.parent / "pantheon" / "toolsets"
+    root = Path(__file__).resolve().parent.parent / "pantheon" / "apps" / "builtin"
     classes: set[str] = set()
     for py in root.rglob("*.py"):
         for match in re.finditer(r"^class ([A-Za-z0-9]+ToolSet)\b", py.read_text(encoding="utf-8"), re.M):
@@ -107,7 +107,7 @@ def test_components_and_aliases_name_a_real_parent_app():
 
 def test_class_reflection_matches_live_instance():
     """The manifest's tools face must equal what a worker registers."""
-    from pantheon.toolsets import FileManagerToolSet, ShellToolSet, WebToolSet
+    from pantheon.apps.builtin import FileManagerToolSet, ShellToolSet, WebToolSet
 
     for cls, kwargs in (
         (ShellToolSet, {"name": "shell"}),
@@ -130,7 +130,7 @@ def test_reflection_finds_known_tools():
 
 
 def test_signature_diff_reports_breakage():
-    a = reflect_toolset_class(__import__("pantheon.toolsets.shell", fromlist=["ShellToolSet"]).ShellToolSet)
+    a = reflect_toolset_class(__import__("pantheon.apps.builtin.shell", fromlist=["ShellToolSet"]).ShellToolSet)
     b = [s for s in a if s.name != "run_command"]
     problems = signature_diff(a, b)
     assert problems == ["tool removed: run_command"]

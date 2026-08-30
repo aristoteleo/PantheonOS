@@ -4,7 +4,7 @@
   "version": "0.6.4",
   "description": "Run shell commands in the workspace.",
   "entry": {
-    "backend": "pantheon.toolsets.shell:ShellToolSet"
+    "backend": "pantheon.apps.builtin.shell:ShellToolSet"
   },
   "provides": {
     "tools": [

@@ -5,7 +5,7 @@
   "description": "Modal-workflow (PLANNING/EXECUTION/VERIFICATION) boundaries and prompt shaping. In-process agent pipeline hooks.",
   "runtime": "embedded",
   "entry": {
-    "backend": "pantheon.toolsets.task:TaskToolSet"
+    "backend": "pantheon.apps.builtin.task:TaskToolSet"
   },
   "provides": {
     "tools": [

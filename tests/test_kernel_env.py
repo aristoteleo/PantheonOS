@@ -10,7 +10,7 @@ jupyter_kernel._build_kernel_env / _is_same_interpreter.
 import os
 import sys
 
-from pantheon.toolsets.notebook.jupyter_kernel import JupyterKernelToolSet
+from pantheon.apps.builtin.notebook.jupyter_kernel import JupyterKernelToolSet
 
 
 def _bare_toolset():

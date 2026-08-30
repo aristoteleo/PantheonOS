@@ -56,7 +56,7 @@ def import_toolset_class(module_name: str):
             f"Module {module_name} has incorrect number of ToolSet classes: {toolset_classes}"
         )
     if class_name:
-        mod = importlib.import_module(f"pantheon.toolsets.{module_name}")
+        mod = importlib.import_module(f"pantheon.apps.builtin.{module_name}")
         return getattr(mod, class_name)
 
 
@@ -90,7 +90,7 @@ def detail(toolset_name: str):
     print()
     console.print("Start this toolset with:")
     print()
-    console.print(f"[bold]$[/bold] [dim]python -m pantheon.toolsets start {toolset_name}[/dim]")
+    console.print(f"[bold]$[/bold] [dim]python -m pantheon.apps.builtin start {toolset_name}[/dim]")
     print()
 
 

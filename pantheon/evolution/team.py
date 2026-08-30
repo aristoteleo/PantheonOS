@@ -297,9 +297,9 @@ class EvolutionTeam:
         from pantheon.agent import Agent
         from pantheon.internal.compression.plugin import CompressionPlugin
         from pantheon.team.pantheon import PantheonTeam
-        from pantheon.toolsets.file import FileManagerToolSet
-        from pantheon.toolsets.python import PythonInterpreterToolSet
-        from pantheon.toolsets.shell import ShellToolSet
+        from pantheon.apps.builtin.file import FileManagerToolSet
+        from pantheon.apps.builtin.python import PythonInterpreterToolSet
+        from pantheon.apps.builtin.shell import ShellToolSet
 
         base = self.config.workspace_path or tempfile.mkdtemp(prefix="evo_mut_")
         wt = Path(base) / "_mutation_wt"
@@ -858,7 +858,7 @@ class EvolutionTeam:
         # Add Python interpreter toolset if enabled
         if self.config.analyzer_use_python:
             if self._python_toolset is None:
-                from pantheon.toolsets.python import PythonInterpreterToolSet
+                from pantheon.apps.builtin.python import PythonInterpreterToolSet
 
                 workdir = self.config.analyzer_python_workdir or self.config.workspace_path
                 self._python_toolset = PythonInterpreterToolSet(

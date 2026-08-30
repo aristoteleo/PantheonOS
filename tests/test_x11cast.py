@@ -1,7 +1,7 @@
 """X11 capture: rectangle maths and tiling. (Capture itself needs a
 display, so the encode path is exercised end-to-end in the sandbox.)"""
 
-from pantheon.toolsets.desktop.x11cast import TilePool, X11Caster
+from pantheon.apps.builtin.desktop.x11cast import TilePool, X11Caster
 
 
 def test_odd_dimensions_crop_even():
@@ -96,7 +96,7 @@ def test_h264_stays_inside_the_link_budget():
     import numpy as np
     import av
 
-    from pantheon.toolsets.desktop.x11cast import CLOCK, H264_OPTS, LINK_BITRATE
+    from pantheon.apps.builtin.desktop.x11cast import CLOCK, H264_OPTS, LINK_BITRATE
 
     def measured_bps(params: str) -> float:
         w, h, fps, n = 1280, 720, 30, 45

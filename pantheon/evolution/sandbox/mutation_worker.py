@@ -38,9 +38,9 @@ async def main():
     from pantheon.internal.compression.plugin import CompressionPlugin
     from pantheon.internal.memory import Memory
     from pantheon.team.pantheon import PantheonTeam
-    from pantheon.toolsets.file import FileManagerToolSet
-    from pantheon.toolsets.python import PythonInterpreterToolSet
-    from pantheon.toolsets.shell import ShellToolSet
+    from pantheon.apps.builtin.file import FileManagerToolSet
+    from pantheon.apps.builtin.python import PythonInterpreterToolSet
+    from pantheon.apps.builtin.shell import ShellToolSet
 
     parent_files = json.loads(_dec("EVO_PARENT", "{}"))
     evaluator_code = _dec("EVO_EVALUATOR")

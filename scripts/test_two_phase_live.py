@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 async def run_scenario(name, task, make_checks, model="openai/gpt-4.1-mini"):
     from pantheon.agent import Agent
-    from pantheon.toolsets.file import FileManagerToolSet
+    from pantheon.apps.builtin.file import FileManagerToolSet
 
     with tempfile.TemporaryDirectory() as tmpdir:
         print(f"\n{'─' * 70}")

@@ -8,7 +8,7 @@ import asyncio
 
 import pytest
 
-from pantheon.toolsets.desktop.browser import (
+from pantheon.apps.builtin.desktop.browser import (
     WHEEL_MAX_DEBT_PX,
     WHEEL_STEP_PX,
     BrowserEngine,

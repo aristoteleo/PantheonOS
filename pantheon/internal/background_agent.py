@@ -31,7 +31,7 @@ async def create_background_agent(
         model: LLM model name or fallback chain
         workspace_path: Root directory for file_manager operations
     """
-    from pantheon.toolsets.file.file_manager import FileManagerToolSet
+    from pantheon.apps.builtin.file.file_manager import FileManagerToolSet
 
     agent = Agent(
         name=name,

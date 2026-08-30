@@ -853,7 +853,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
         # Symbol extraction mode: use tree-sitter to extract specific code item
         if symbol:
             try:
-                from pantheon.toolsets.file.tree_sitter_parser import get_code_item
+                from pantheon.apps.builtin.file.tree_sitter_parser import get_code_item
                 target_path = self._resolve_path(file_path)
                 if not target_path.exists():
                     return {"success": False, "error": "File does not exist"}
@@ -1031,7 +1031,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
             outline = await view_file_outline("lib/index.js")
         """
         try:
-            from pantheon.toolsets.file.tree_sitter_parser import get_file_outline
+            from pantheon.apps.builtin.file.tree_sitter_parser import get_file_outline
             target_path = self._resolve_path(file_path)
             if not target_path.exists():
                 return {"success": False, "error": "File does not exist"}
@@ -2088,7 +2088,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
             - images: List of file paths to generated images
             - error: Error message if failed
         """
-        from pantheon.toolsets.image import ImageGenerationToolSet
+        from pantheon.apps.builtin.image import ImageGenerationToolSet
 
         # Lazy initialization of image generation toolset
         if not hasattr(self, "_image_gen"):

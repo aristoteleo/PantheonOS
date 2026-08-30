@@ -5,7 +5,7 @@
   "description": "Image generation via model APIs.",
   "runtime": "embedded",
   "entry": {
-    "backend": "pantheon.toolsets.image:ImageGenerationToolSet"
+    "backend": "pantheon.apps.builtin.image:ImageGenerationToolSet"
   },
   "provides": {
     "tools": [

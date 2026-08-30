@@ -1,7 +1,7 @@
 import os
 import pytest
 from tempfile import TemporaryDirectory
-from pantheon.toolsets.file import FileManagerToolSet
+from pantheon.apps.builtin.file import FileManagerToolSet
 
 HAS_OPENAI = bool(os.environ.get("OPENAI_API_KEY"))
 
@@ -624,7 +624,7 @@ async def test_max_tokens_live_openai():
 # recycled the sandbox. These pin the two properties that prevent that:
 # the read is bounded, and it happens off the event loop.
 
-from pantheon.toolsets.file.file_manager import (  # noqa: E402
+from pantheon.apps.builtin.file.file_manager import (  # noqa: E402
     MAX_READ_CHARS,
     _read_lines_bounded,
 )

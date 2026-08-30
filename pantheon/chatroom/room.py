@@ -3805,7 +3805,7 @@ class ChatRoom(ToolSet):
                 "note": "No fleet configured on this backend.",
             }
         try:
-            from pantheon.toolsets.fleet import FleetToolSet
+            from pantheon.apps.builtin.fleet import FleetToolSet
 
             ts = getattr(self, "_fleet_ts", None)
             if ts is None:
@@ -3864,7 +3864,7 @@ class ChatRoom(ToolSet):
 
         # Already registered as a node? Nothing to do.
         try:
-            from pantheon.toolsets.fleet import FleetToolSet
+            from pantheon.apps.builtin.fleet import FleetToolSet
 
             ts = getattr(self, "_fleet_ts", None)
             if ts is None:

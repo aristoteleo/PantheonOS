@@ -5,7 +5,7 @@
   "description": "Web search and page fetch.",
   "runtime": "embedded",
   "entry": {
-    "backend": "pantheon.toolsets.web:WebToolSet"
+    "backend": "pantheon.apps.builtin.web:WebToolSet"
   },
   "provides": {
     "tools": [

@@ -4,7 +4,7 @@ import httpx
 import pytest
 from aiohttp import web
 
-from pantheon.toolsets.desktop.data_server import LiveViewDataServer
+from pantheon.apps.builtin.desktop.data_server import LiveViewDataServer
 
 
 @pytest.mark.asyncio
@@ -188,7 +188,7 @@ def test_app_sync_writes_a_batch_and_prunes_what_the_tree_dropped(tmp_path, monk
     import asyncio
     import json
 
-    from pantheon.toolsets.desktop.toolset import DesktopToolSet
+    from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
 
     class FakeSettings:
         workspace = tmp_path
@@ -219,7 +219,7 @@ def test_app_sync_refuses_to_write_outside_the_app_tree(tmp_path, monkeypatch):
     """It writes packages, not arbitrary files."""
     import asyncio
 
-    from pantheon.toolsets.desktop.toolset import DesktopToolSet
+    from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
 
     class FakeSettings:
         workspace = tmp_path
@@ -240,7 +240,7 @@ def test_the_registry_reads_every_scope_in_order(tmp_path, monkeypatch):
     import asyncio
     import json
 
-    from pantheon.toolsets.desktop.toolset import DesktopToolSet
+    from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
 
     ws = tmp_path / "ws"
     home = tmp_path / "home"

@@ -5,7 +5,7 @@
   "description": "ScraperAPI search/scrape (API key required).",
   "runtime": "embedded",
   "entry": {
-    "backend": "pantheon.toolsets.scraper:ScraperToolSet"
+    "backend": "pantheon.apps.builtin.scraper:ScraperToolSet"
   },
   "provides": {
     "tools": [

@@ -4,7 +4,7 @@
   "version": "0.6.4",
   "description": "Unified MCP gateway: configured MCP servers behind one HTTP URI.",
   "entry": {
-    "backend": "pantheon.toolsets.mcp:MCPGatewayToolSet"
+    "backend": "pantheon.apps.builtin.mcp:MCPGatewayToolSet"
   },
   "provides": {
     "tools": [

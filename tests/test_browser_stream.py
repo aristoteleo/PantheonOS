@@ -7,7 +7,7 @@ import pytest
 from aiohttp import WSMsgType, web
 from aiohttp.test_utils import TestClient, TestServer
 
-from pantheon.toolsets.desktop.browser import make_stream_handler
+from pantheon.apps.builtin.desktop.browser import make_stream_handler
 
 
 class FakeSession:

@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-FLEET_SRC = Path("/Users/weizexu/Projects/PantheonOS-fleet-app/fleet")
+FLEET_SRC = REPO / "fleet"
 NATS_PORT = 42431
 # Unique per run: `go run`'s grandchild survives terminate(), so a leaked
 # runner/apphost from an earlier run would re-register into a same-named
@@ -256,7 +256,7 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
             # parity: the Go list_tools surface matches the Python
             # ShellToolSet's reflected shell face (names + param names/types)
             from pantheon.apps.reflect import reflect_toolset_class
-            from pantheon.toolsets.shell import ShellToolSet
+            from pantheon.apps.builtin.shell import ShellToolSet
 
             go_tools = await go_proxy.invoke("list_tools", {})
             assert go_tools["success"]
@@ -390,7 +390,7 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
 
             # parity on the served visible subset: signatures match the
             # Python FileManagerToolSet reflection exactly
-            from pantheon.toolsets.file import FileManagerToolSet
+            from pantheon.apps.builtin.file import FileManagerToolSet
 
             fm_tools = await fm_proxy.invoke("list_tools", {})
             go_fm = {t["name"]: t for t in fm_tools["tools"]}

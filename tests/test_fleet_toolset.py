@@ -1,4 +1,4 @@
-"""Tests for the Fleet toolset (pantheon.toolsets.fleet.FleetToolSet).
+"""Tests for the Fleet toolset (pantheon.apps.builtin.fleet.FleetToolSet).
 
 Two layers:
   * structural / graceful-degradation tests — no infrastructure, always run.
@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from pantheon.toolsets import FleetToolSet
+from pantheon.apps.builtin import FleetToolSet
 
 EXPECTED_TOOLS = {
     "fleet_list_nodes",

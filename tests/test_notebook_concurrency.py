@@ -17,7 +17,7 @@ class TestExecutionLockBehavior:
     @pytest.mark.asyncio
     async def test_lock_helper_thread_safe(self):
         """Test that _get_execution_lock uses setdefault for thread safety."""
-        from pantheon.toolsets.notebook.jupyter_kernel import JupyterKernelToolSet
+        from pantheon.apps.builtin.notebook.jupyter_kernel import JupyterKernelToolSet
         
         with tempfile.TemporaryDirectory() as tmpdir:
             toolset = JupyterKernelToolSet(name="test", workdir=tmpdir)
@@ -34,7 +34,7 @@ class TestExecutionLockBehavior:
     @pytest.mark.asyncio
     async def test_lock_isolated_per_session(self):
         """Test that each session gets its own lock."""
-        from pantheon.toolsets.notebook.jupyter_kernel import JupyterKernelToolSet
+        from pantheon.apps.builtin.notebook.jupyter_kernel import JupyterKernelToolSet
         
         with tempfile.TemporaryDirectory() as tmpdir:
             toolset = JupyterKernelToolSet(name="test", workdir=tmpdir)
@@ -51,7 +51,7 @@ class TestNotebookFileLock:
     @pytest.mark.asyncio
     async def test_file_lock_helper_thread_safe(self):
         """Test that _get_notebook_lock uses setdefault for thread safety."""
-        from pantheon.toolsets.notebook.integrated_notebook import IntegratedNotebookToolSet
+        from pantheon.apps.builtin.notebook.integrated_notebook import IntegratedNotebookToolSet
         
         with tempfile.TemporaryDirectory() as tmpdir:
             toolset = IntegratedNotebookToolSet(
@@ -72,7 +72,7 @@ class TestNotebookFileLock:
     @pytest.mark.asyncio
     async def test_file_lock_isolated_per_notebook(self):
         """Test that each notebook gets its own lock."""
-        from pantheon.toolsets.notebook.integrated_notebook import IntegratedNotebookToolSet
+        from pantheon.apps.builtin.notebook.integrated_notebook import IntegratedNotebookToolSet
         
         with tempfile.TemporaryDirectory() as tmpdir:
             toolset = IntegratedNotebookToolSet(
@@ -93,7 +93,7 @@ class TestIntegrationConcurrency:
     @pytest.fixture
     async def notebook_toolset(self):
         """Create IntegratedNotebookToolSet for testing."""
-        from pantheon.toolsets.notebook.integrated_notebook import IntegratedNotebookToolSet
+        from pantheon.apps.builtin.notebook.integrated_notebook import IntegratedNotebookToolSet
         
         with tempfile.TemporaryDirectory() as tmpdir:
             toolset = IntegratedNotebookToolSet(
@@ -336,7 +336,7 @@ class TestStaleCellIdRecovery:
 
     @pytest.fixture
     async def notebook_toolset(self):
-        from pantheon.toolsets.notebook.integrated_notebook import IntegratedNotebookToolSet
+        from pantheon.apps.builtin.notebook.integrated_notebook import IntegratedNotebookToolSet
 
         with tempfile.TemporaryDirectory() as tmpdir:
             toolset = IntegratedNotebookToolSet(

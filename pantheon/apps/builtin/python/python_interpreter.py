@@ -33,7 +33,7 @@ import uuid
 from pathlib import Path
 
 from pantheon.toolset import tool, ToolSet
-from pantheon.toolsets.notebook.jupyter_kernel import JupyterKernelToolSet
+from pantheon.apps.builtin.notebook.jupyter_kernel import JupyterKernelToolSet
 from pantheon.internal.package_runtime.context import build_context_env
 from pantheon.utils.log import logger
 

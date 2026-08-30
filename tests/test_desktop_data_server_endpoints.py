@@ -4,7 +4,7 @@ import httpx
 import pytest
 from aiohttp import web
 
-from pantheon.toolsets.desktop.data_server import LiveViewDataServer
+from pantheon.apps.builtin.desktop.data_server import LiveViewDataServer
 
 
 @pytest.mark.asyncio

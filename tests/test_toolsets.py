@@ -5,9 +5,9 @@ import pytest
 
 from pantheon.toolset import tool, ToolSet
 from pantheon.remote import connect_remote
-from pantheon.toolsets.web import WebToolSet
-from pantheon.toolsets.python.python_interpreter import PythonInterpreterToolSet
-from pantheon.toolsets.shell import ShellToolSet
+from pantheon.apps.builtin.web import WebToolSet
+from pantheon.apps.builtin.python.python_interpreter import PythonInterpreterToolSet
+from pantheon.apps.builtin.shell import ShellToolSet
 from executor.engine import Engine, ProcessJob
 
 # Check if NATS server is available

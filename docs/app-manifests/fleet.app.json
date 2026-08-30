@@ -5,7 +5,7 @@
   "description": "Observe and drive the user's fleet of compute nodes.",
   "runtime": "embedded",
   "entry": {
-    "backend": "pantheon.toolsets.fleet:FleetToolSet"
+    "backend": "pantheon.apps.builtin.fleet:FleetToolSet"
   },
   "provides": {
     "tools": [

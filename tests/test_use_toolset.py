@@ -1,5 +1,5 @@
 from pantheon.agent import Agent
-from pantheon.toolsets.python import PythonInterpreterToolSet
+from pantheon.apps.builtin.python import PythonInterpreterToolSet
 
 
 async def test_agent_call_local_toolset():

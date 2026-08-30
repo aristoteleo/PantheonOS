@@ -52,7 +52,7 @@ class TestGetToolsets:
 
     @pytest.mark.asyncio
     async def test_returns_task_toolset_instance(self):
-        from pantheon.toolsets.task import TaskToolSet
+        from pantheon.apps.builtin.task import TaskToolSet
 
         plugin = TaskSystemPlugin()
         team = _make_team(["main"])

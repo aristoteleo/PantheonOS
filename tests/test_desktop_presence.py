@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from pantheon.toolsets.desktop.presence import TTL_S, Presence, PresenceStore
+from pantheon.apps.builtin.desktop.presence import TTL_S, Presence, PresenceStore
 
 
 @pytest.fixture

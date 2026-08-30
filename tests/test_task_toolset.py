@@ -12,7 +12,7 @@ class TestModeSemantics:
     """Test ModeSemantics class for multi-scenario support."""
     
     def test_plan_modes(self):
-        from pantheon.toolsets.task.task_state import ModeSemantics
+        from pantheon.apps.builtin.task.task_state import ModeSemantics
         
         # All plan modes should return True
         assert ModeSemantics.is_plan_mode("PLANNING") is True
@@ -28,7 +28,7 @@ class TestModeSemantics:
         assert ModeSemantics.is_plan_mode("ANALYSIS") is False
     
     def test_execute_modes(self):
-        from pantheon.toolsets.task.task_state import ModeSemantics
+        from pantheon.apps.builtin.task.task_state import ModeSemantics
         
         assert ModeSemantics.is_execute_mode("EXECUTION") is True
         assert ModeSemantics.is_execute_mode("ANALYSIS") is True
@@ -38,7 +38,7 @@ class TestModeSemantics:
         assert ModeSemantics.is_execute_mode("VERIFICATION") is False
     
     def test_verify_modes(self):
-        from pantheon.toolsets.task.task_state import ModeSemantics
+        from pantheon.apps.builtin.task.task_state import ModeSemantics
         
         assert ModeSemantics.is_verify_mode("VERIFICATION") is True
         assert ModeSemantics.is_verify_mode("INTERPRETATION") is True
@@ -48,7 +48,7 @@ class TestModeSemantics:
         assert ModeSemantics.is_verify_mode("EXECUTION") is False
     
     def test_known_modes(self):
-        from pantheon.toolsets.task.task_state import ModeSemantics
+        from pantheon.apps.builtin.task.task_state import ModeSemantics
         
         # All modes in any group should be known
         assert ModeSemantics.is_known_mode("PLANNING") is True
@@ -67,7 +67,7 @@ class TestArtifactRoles:
     """Test ArtifactRoles class for artifact detection."""
     
     def test_get_role_plan_artifacts(self):
-        from pantheon.toolsets.task.task_state import ArtifactRoles
+        from pantheon.apps.builtin.task.task_state import ArtifactRoles
         
         assert ArtifactRoles.get_role("implementation_plan.md") == "plan"
         assert ArtifactRoles.get_role("research_plan.md") == "plan"
@@ -75,33 +75,33 @@ class TestArtifactRoles:
         assert ArtifactRoles.get_role("/path/to/implementation_plan.md") == "plan"
     
     def test_get_role_summary_artifacts(self):
-        from pantheon.toolsets.task.task_state import ArtifactRoles
+        from pantheon.apps.builtin.task.task_state import ArtifactRoles
         
         assert ArtifactRoles.get_role("walkthrough.md") == "summary"
         assert ArtifactRoles.get_role("analysis_log.md") == "summary"
         assert ArtifactRoles.get_role("summary.md") == "summary"
     
     def test_get_role_other_artifacts(self):
-        from pantheon.toolsets.task.task_state import ArtifactRoles
+        from pantheon.apps.builtin.task.task_state import ArtifactRoles
         
         assert ArtifactRoles.get_role("task.md") == "task"
         assert ArtifactRoles.get_role("hypothesis_tracker.md") == "tracker"
     
     def test_get_role_unknown(self):
-        from pantheon.toolsets.task.task_state import ArtifactRoles
+        from pantheon.apps.builtin.task.task_state import ArtifactRoles
         
         assert ArtifactRoles.get_role("custom.md") is None
         assert ArtifactRoles.get_role("notes.md") is None
     
     def test_is_plan_artifact(self):
-        from pantheon.toolsets.task.task_state import ArtifactRoles
+        from pantheon.apps.builtin.task.task_state import ArtifactRoles
         
         assert ArtifactRoles.is_plan_artifact("/brain/x/implementation_plan.md") is True
         assert ArtifactRoles.is_plan_artifact("/brain/x/research_plan.md") is True
         assert ArtifactRoles.is_plan_artifact("/brain/x/task.md") is False
     
     def test_is_artifact_generic(self):
-        from pantheon.toolsets.task.task_state import ArtifactRoles
+        from pantheon.apps.builtin.task.task_state import ArtifactRoles
         
         brain_dir = "/brain/test"
         
@@ -118,7 +118,7 @@ class TestTaskInfo:
     """Test TaskInfo with semantic phase detection."""
     
     def test_plan_phase_detection(self):
-        from pantheon.toolsets.task.task_state import TaskInfo
+        from pantheon.apps.builtin.task.task_state import TaskInfo
         
         # PLANNING mode
         task = TaskInfo(name="Test", mode="PLANNING", status="", summary="")
@@ -132,7 +132,7 @@ class TestTaskInfo:
         assert task.is_execute_phase is False
     
     def test_execute_phase_detection(self):
-        from pantheon.toolsets.task.task_state import TaskInfo
+        from pantheon.apps.builtin.task.task_state import TaskInfo
         
         # EXECUTION mode
         task = TaskInfo(name="Test", mode="EXECUTION", status="", summary="")
@@ -145,7 +145,7 @@ class TestTaskInfo:
         assert task.is_plan_phase is False
     
     def test_verify_phase_detection(self):
-        from pantheon.toolsets.task.task_state import TaskInfo
+        from pantheon.apps.builtin.task.task_state import TaskInfo
         
         # VERIFICATION mode
         task = TaskInfo(name="Test", mode="VERIFICATION", status="", summary="")
@@ -160,7 +160,7 @@ class TestConversationState:
     """Test ConversationState dataclass."""
     
     def test_initial_state(self):
-        from pantheon.toolsets.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.task_state import ConversationState
         state = ConversationState()
         
         assert state.active_task is None
@@ -170,7 +170,7 @@ class TestConversationState:
         assert state.artifacts_modified_in_task == {}
         
     def test_on_task_boundary(self):
-        from pantheon.toolsets.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.task_state import ConversationState
         state = ConversationState()
         
         state.on_task_boundary("Test Task", "PLANNING", "Looking for files", "Started.")
@@ -182,7 +182,7 @@ class TestConversationState:
     
     def test_on_task_boundary_research_mode(self):
         """Test task boundary with RESEARCH mode."""
-        from pantheon.toolsets.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.task_state import ConversationState
         state = ConversationState()
         
         state.on_task_boundary("Research Task", "RESEARCH", "Analyzing", "Started.")
@@ -191,7 +191,7 @@ class TestConversationState:
         assert state.active_task.is_plan_phase is True
         
     def test_on_tool_call(self):
-        from pantheon.toolsets.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.task_state import ConversationState
         state = ConversationState()
         
         state.on_tool_call(3)
@@ -203,7 +203,7 @@ class TestConversationState:
         assert state.current_step == 5
         
     def test_on_artifact_created(self):
-        from pantheon.toolsets.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.task_state import ConversationState
         state = ConversationState()
         
         state.on_artifact_created("/path/to/task.md")
@@ -211,7 +211,7 @@ class TestConversationState:
         assert state.artifact_last_access["/path/to/task.md"] == 0
         
     def test_on_notify_user(self):
-        from pantheon.toolsets.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.task_state import ConversationState
         state = ConversationState()
         
         state.on_task_boundary("Test", "PLANNING", "Status", "Summary")
@@ -222,7 +222,7 @@ class TestConversationState:
     
     def test_on_artifact_modified_tracking(self):
         """Test artifact modification tracking by role."""
-        from pantheon.toolsets.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.task_state import ConversationState
         state = ConversationState()
         brain_dir = "/brain/test"
         
@@ -237,7 +237,7 @@ class TestConversationState:
     
     def test_on_artifact_modified_multiple_roles(self):
         """Test tracking artifacts of different roles."""
-        from pantheon.toolsets.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.task_state import ConversationState
         state = ConversationState()
         brain_dir = "/brain/test"
         
@@ -255,7 +255,7 @@ class TestConversationState:
     
     def test_new_task_resets_modifications(self):
         """Test that starting a new task resets modification tracking."""
-        from pantheon.toolsets.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.task_state import ConversationState
         state = ConversationState()
         brain_dir = "/brain/test"
         
@@ -273,8 +273,8 @@ class TestEphemeralMessage:
     """Test ephemeral message generation."""
     
     def test_no_artifacts_no_task(self):
-        from pantheon.toolsets.task.task_state import ConversationState
-        from pantheon.toolsets.task.ephemeral import generate_ephemeral_message
+        from pantheon.apps.builtin.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.ephemeral import generate_ephemeral_message
         
         state = ConversationState()
         msg = generate_ephemeral_message(state, ".pantheon/brain/test")
@@ -285,8 +285,8 @@ class TestEphemeralMessage:
         assert "You have not yet created any artifacts" in msg
         
     def test_with_task(self):
-        from pantheon.toolsets.task.task_state import ConversationState
-        from pantheon.toolsets.task.ephemeral import generate_ephemeral_message
+        from pantheon.apps.builtin.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.ephemeral import generate_ephemeral_message
         
         state = ConversationState()
         state.on_task_boundary("Test Task", "EXECUTION", "Building", "Completed design.")
@@ -300,8 +300,8 @@ class TestEphemeralMessage:
     
     def test_with_research_mode(self):
         """Test ephemeral message with RESEARCH mode."""
-        from pantheon.toolsets.task.task_state import ConversationState
-        from pantheon.toolsets.task.ephemeral import generate_ephemeral_message
+        from pantheon.apps.builtin.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.ephemeral import generate_ephemeral_message
         
         state = ConversationState()
         state.on_task_boundary("Research Task", "RESEARCH", "Analyzing", "Started.")
@@ -313,8 +313,8 @@ class TestEphemeralMessage:
     
     def test_plan_artifact_modified_reminder(self):
         """Test plan artifact modified reminder in plan phase."""
-        from pantheon.toolsets.task.task_state import ConversationState
-        from pantheon.toolsets.task.ephemeral import generate_ephemeral_message
+        from pantheon.apps.builtin.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.ephemeral import generate_ephemeral_message
         
         brain_dir = "/brain/test"
         state = ConversationState()
@@ -329,8 +329,8 @@ class TestEphemeralMessage:
     
     def test_artifacts_modified_reminder_non_plan_phase(self):
         """Test artifacts modified reminder in non-plan phase."""
-        from pantheon.toolsets.task.task_state import ConversationState
-        from pantheon.toolsets.task.ephemeral import generate_ephemeral_message
+        from pantheon.apps.builtin.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.ephemeral import generate_ephemeral_message
         
         brain_dir = "/brain/test"
         state = ConversationState()
@@ -345,8 +345,8 @@ class TestEphemeralMessage:
         assert "<plan_artifact_modified_reminder>" not in msg
         
     def test_stale_artifact_reminder(self):
-        from pantheon.toolsets.task.task_state import ConversationState
-        from pantheon.toolsets.task.ephemeral import generate_ephemeral_message
+        from pantheon.apps.builtin.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.ephemeral import generate_ephemeral_message
         
         state = ConversationState()
         state.on_artifact_created("/path/to/old.md")
@@ -364,8 +364,8 @@ class TestConfirmOpenChoicesReminder:
     'agent picked the dataset without asking'. Self-limits once it asks / leaves plan."""
 
     def test_fires_when_planning_and_not_yet_asked(self, tmp_path):
-        from pantheon.toolsets.task.ephemeral import generate_ephemeral_message
-        from pantheon.toolsets.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.ephemeral import generate_ephemeral_message
+        from pantheon.apps.builtin.task.task_state import ConversationState
         s = ConversationState()
         s.on_task_boundary("Plan it", "PLANNING", "status", "summary")
         em = generate_ephemeral_message(s, str(tmp_path))
@@ -373,8 +373,8 @@ class TestConfirmOpenChoicesReminder:
         assert "find some data" in em   # the loophole it must not rationalize past
 
     def test_silent_once_review_requested(self, tmp_path):
-        from pantheon.toolsets.task.ephemeral import generate_ephemeral_message
-        from pantheon.toolsets.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.ephemeral import generate_ephemeral_message
+        from pantheon.apps.builtin.task.task_state import ConversationState
         s = ConversationState()
         s.on_task_boundary("Plan it", "PLANNING", "status", "summary")
         s.pending_review_paths = ["/x/plan.md"]   # agent already asked the user
@@ -382,8 +382,8 @@ class TestConfirmOpenChoicesReminder:
         assert "<confirm_open_choices>" not in em
 
     def test_silent_in_execution_phase(self, tmp_path):
-        from pantheon.toolsets.task.ephemeral import generate_ephemeral_message
-        from pantheon.toolsets.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.ephemeral import generate_ephemeral_message
+        from pantheon.apps.builtin.task.task_state import ConversationState
         s = ConversationState()
         s.on_task_boundary("Do it", "EXECUTION", "status", "summary")
         em = generate_ephemeral_message(s, str(tmp_path))
@@ -395,7 +395,7 @@ class TestTaskToolSet:
     
     @pytest.mark.asyncio
     async def test_task_boundary_tool(self):
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         
         ts = TaskToolSet()
         result = await ts.task_boundary(
@@ -413,7 +413,7 @@ class TestTaskToolSet:
     @pytest.mark.asyncio
     async def test_task_boundary_research_mode(self):
         """Test task_boundary accepts RESEARCH mode."""
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         
         ts = TaskToolSet()
         result = await ts.task_boundary(
@@ -431,7 +431,7 @@ class TestTaskToolSet:
     @pytest.mark.asyncio
     async def test_task_boundary_analysis_mode(self):
         """Test task_boundary accepts ANALYSIS mode."""
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
 
         ts = TaskToolSet()
         ts.state.has_asked_user = True   # satisfy the pre-execution gate (tested separately)
@@ -450,7 +450,7 @@ class TestTaskToolSet:
     @pytest.mark.asyncio
     async def test_task_boundary_interpretation_mode(self):
         """Test task_boundary accepts INTERPRETATION mode."""
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         
         ts = TaskToolSet()
         result = await ts.task_boundary(
@@ -468,7 +468,7 @@ class TestTaskToolSet:
     @pytest.mark.asyncio
     async def test_task_boundary_empty_mode_fails(self):
         """Test that empty mode fails."""
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         
         ts = TaskToolSet()
         result = await ts.task_boundary(
@@ -485,7 +485,7 @@ class TestTaskToolSet:
     @pytest.mark.asyncio
     async def test_task_boundary_unknown_mode_warns_but_succeeds(self):
         """Test that unknown mode warns but still succeeds."""
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         
         ts = TaskToolSet()
         result = await ts.task_boundary(
@@ -503,7 +503,7 @@ class TestTaskToolSet:
     @pytest.mark.asyncio
     async def test_task_boundary_mode_case_normalization(self):
         """Test that mode is normalized to uppercase."""
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         
         ts = TaskToolSet()
         result = await ts.task_boundary(
@@ -519,7 +519,7 @@ class TestTaskToolSet:
         
     @pytest.mark.asyncio
     async def test_same_substitution(self):
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         
         ts = TaskToolSet()
         await ts.task_boundary("Initial", "PLANNING", "Summary", "Status", 5)
@@ -531,7 +531,7 @@ class TestTaskToolSet:
         
     @pytest.mark.asyncio
     async def test_notify_user_interrupt(self):
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         
         ts = TaskToolSet()
         result = await ts.notify_user(
@@ -546,7 +546,7 @@ class TestTaskToolSet:
         assert result["interrupt"] is True
         
     def test_get_ephemeral_prompt(self):
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         
         ts = TaskToolSet()
         eu = ts.get_ephemeral_prompt({"client_id": "test123"})
@@ -564,7 +564,7 @@ class TestBrainDirAnchor:
     """
 
     def test_prefers_project_root_over_workdir(self):
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         ts = TaskToolSet()
         # workdir is the (transient) endpoint hint; project_root is the anchor.
         brain = ts._get_brain_dir({
@@ -577,20 +577,20 @@ class TestBrainDirAnchor:
     def test_survives_workdir_being_popped(self):
         """The real failure mode: a later turn whose context has had `workdir`
         popped by proxy_toolset still resolves to the project, not global home."""
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         ts = TaskToolSet()
         brain = ts._get_brain_dir({"chat_id": "c1", "project_root": "/proj"})  # no workdir
         assert brain == "/proj/.pantheon/brain/c1"
 
     def test_falls_back_to_workdir_when_no_project_root(self):
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         ts = TaskToolSet()
         brain = ts._get_brain_dir({"chat_id": "c1", "workdir": "/legacy/iso"})
         assert brain == "/legacy/iso/.pantheon/brain/c1"
 
     def test_falls_back_to_settings_when_no_root(self):
         from unittest.mock import patch, MagicMock
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         ts = TaskToolSet()
         fake = MagicMock()
         fake.brain_dir = Path("/home/.pantheon/brain")
@@ -601,7 +601,7 @@ class TestBrainDirAnchor:
     def test_resolve_output_path_uses_project_root(self):
         """register_output's path resolution shares the same anchor — a relative
         deliverable must resolve under the project, never os.getcwd()."""
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         ts = TaskToolSet()
         abs_path, _exists, _is_dir, store_path = ts._resolve_output_path(
             "outputs/fig.png",
@@ -617,7 +617,7 @@ class TestTaskOutputDir:
 
     @pytest.mark.asyncio
     async def test_records_declared_output_dir(self):
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         ts = TaskToolSet()
         await ts.task_boundary("scATAC", "PLANNING", "sum", "status", 5,
                                output_dir="scatac_pbmc5k/")
@@ -626,7 +626,7 @@ class TestTaskOutputDir:
 
     @pytest.mark.asyncio
     async def test_output_dir_persists_when_omitted_on_update(self):
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         ts = TaskToolSet()
         await ts.task_boundary("scATAC", "PLANNING", "s", "st", 5, output_dir="scatac_pbmc5k")
         # A later update of the SAME task omits output_dir → keeps the declared one.
@@ -636,7 +636,7 @@ class TestTaskOutputDir:
 
     @pytest.mark.asyncio
     async def test_output_dir_same_sentinel_reuses(self):
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         ts = TaskToolSet()
         await ts.task_boundary("scATAC", "PLANNING", "s", "st", 5, output_dir="scatac_pbmc5k")
         await ts.task_boundary("%SAME%", "%SAME%", "%SAME%", "%SAME%", 5, output_dir="%SAME%")
@@ -645,14 +645,14 @@ class TestTaskOutputDir:
     @pytest.mark.asyncio
     async def test_second_task_gets_its_own_dir(self):
         """Two tasks in one chat → two folders, keyed by task (drives 'By task')."""
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         ts = TaskToolSet()
         await ts.task_boundary("scATAC", "PLANNING", "s", "st", 5, output_dir="scatac_pbmc5k")
         await ts.task_boundary("Visium", "PLANNING", "s", "st", 5, output_dir="visium_qc")
         assert ts.state.task_dirs == {"scATAC": "scatac_pbmc5k", "Visium": "visium_qc"}
 
     def test_state_roundtrip_preserves_dirs(self):
-        from pantheon.toolsets.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.task_state import ConversationState
         s = ConversationState()
         s.on_task_boundary("T", "PLANNING", "st", "sum", output_dir="folder_a")
         restored = ConversationState.from_dict(s.to_dict())
@@ -661,7 +661,7 @@ class TestTaskOutputDir:
 
     def test_backward_compat_old_state_without_dirs(self):
         """Pre-output_dir task_state.json must still load cleanly."""
-        from pantheon.toolsets.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.task_state import ConversationState
         old = {
             "active_task": {"name": "T", "mode": "PLANNING", "status": "s",
                             "summary": "x", "start_step": 3},
@@ -681,7 +681,7 @@ class TestExecutionGate:
 
     @pytest.mark.asyncio
     async def test_gates_first_execution_when_user_not_asked(self):
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         ts = TaskToolSet()
         r = await ts.task_boundary("Analyze", "EXECUTION", "sum", "status", 5)
         assert r["success"] is False
@@ -691,7 +691,7 @@ class TestExecutionGate:
 
     @pytest.mark.asyncio
     async def test_proceeds_on_retry_after_gate(self):
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         ts = TaskToolSet()
         await ts.task_boundary("Analyze", "EXECUTION", "s", "st", 5)      # gated (fires once)
         r = await ts.task_boundary("Analyze", "EXECUTION", "s", "st", 5)  # retry → passes
@@ -700,7 +700,7 @@ class TestExecutionGate:
 
     @pytest.mark.asyncio
     async def test_not_gated_after_notify_user(self):
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         ts = TaskToolSet()
         await ts.notify_user(
             paths_to_review=[], blocked_on_user=True, message="Which dataset?",
@@ -712,7 +712,7 @@ class TestExecutionGate:
 
     @pytest.mark.asyncio
     async def test_planning_is_never_gated(self):
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         ts = TaskToolSet()
         r = await ts.task_boundary("Plan", "PLANNING", "s", "st", 5)
         assert r["success"] is True
@@ -720,7 +720,7 @@ class TestExecutionGate:
 
     @pytest.mark.asyncio
     async def test_analysis_mode_also_gated(self):
-        from pantheon.toolsets.task.task_toolset import TaskToolSet
+        from pantheon.apps.builtin.task.task_toolset import TaskToolSet
         ts = TaskToolSet()
         r = await ts.task_boundary("Analyze", "ANALYSIS", "s", "st", 5)   # ANALYSIS = execute phase
         assert r["success"] is False

@@ -8,7 +8,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from pantheon.toolsets.desktop.vp8cast import Vp8Caster, make_cast_handler
+from pantheon.apps.builtin.desktop.vp8cast import Vp8Caster, make_cast_handler
 
 
 def jpeg_frame(w=320, h=200, shade=200):

@@ -41,7 +41,7 @@ class TestGetToolsets:
 
     @pytest.mark.asyncio
     async def test_returns_task_toolset_instance(self):
-        from pantheon.toolsets.task import TaskToolSet
+        from pantheon.apps.builtin.task import TaskToolSet
 
         plugin = TaskSystemPlugin()
         team = _make_team(["main"])
@@ -115,7 +115,7 @@ class TestToolTrackingHook:
     @pytest.mark.asyncio
     async def test_hook_delegates_to_process_tool_messages(self):
         from unittest.mock import patch
-        from pantheon.toolsets.task import TaskToolSet
+        from pantheon.apps.builtin.task import TaskToolSet
 
         plugin = TaskSystemPlugin()
         team = _make_team(["main"])
@@ -310,7 +310,7 @@ class TestUnfinishedTodosReminder:
     (and instead of spinning on a static 'no task is fine' reminder)."""
 
     def test_reads_only_open_checklist_items(self, tmp_path):
-        from pantheon.toolsets.task.ephemeral import _read_incomplete_todos
+        from pantheon.apps.builtin.task.ephemeral import _read_incomplete_todos
         (tmp_path / "task.md").write_text(
             "- [x] done item\n"
             "- [ ] open todo A\n"
@@ -324,12 +324,12 @@ class TestUnfinishedTodosReminder:
         ]
 
     def test_missing_task_md_returns_empty(self, tmp_path):
-        from pantheon.toolsets.task.ephemeral import _read_incomplete_todos
+        from pantheon.apps.builtin.task.ephemeral import _read_incomplete_todos
         assert _read_incomplete_todos(str(tmp_path)) == []
 
     def test_em_surfaces_open_todos_when_no_active_task(self, tmp_path):
-        from pantheon.toolsets.task.ephemeral import generate_ephemeral_message
-        from pantheon.toolsets.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.ephemeral import generate_ephemeral_message
+        from pantheon.apps.builtin.task.task_state import ConversationState
         (tmp_path / "task.md").write_text("- [x] done\n- [ ] finish the notebook\n")
         # Fresh state → no active task — exactly the "closed task, open todos" gap.
         em = generate_ephemeral_message(ConversationState(), str(tmp_path))
@@ -337,8 +337,8 @@ class TestUnfinishedTodosReminder:
         assert "finish the notebook" in em
 
     def test_em_silent_when_all_todos_done(self, tmp_path):
-        from pantheon.toolsets.task.ephemeral import generate_ephemeral_message
-        from pantheon.toolsets.task.task_state import ConversationState
+        from pantheon.apps.builtin.task.ephemeral import generate_ephemeral_message
+        from pantheon.apps.builtin.task.task_state import ConversationState
         (tmp_path / "task.md").write_text("- [x] done one\n- [x] done two\n")
         em = generate_ephemeral_message(ConversationState(), str(tmp_path))
         assert "<unfinished_todos_reminder>" not in em

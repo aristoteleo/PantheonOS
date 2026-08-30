@@ -13,7 +13,7 @@ import tempfile
 import os
 from pathlib import Path
 
-from pantheon.toolsets.notebook.integrated_notebook import IntegratedNotebookToolSet
+from pantheon.apps.builtin.notebook.integrated_notebook import IntegratedNotebookToolSet
 
 
 @pytest.fixture
@@ -185,7 +185,7 @@ class TestRMagicDetection:
     
     def test_detect_cell_magic(self):
         """Test %%R cell magic detection"""
-        from pantheon.toolsets.notebook.integrated_notebook import IntegratedNotebookToolSet
+        from pantheon.apps.builtin.notebook.integrated_notebook import IntegratedNotebookToolSet
         
         code = "%%R\nx <- 1"
         code_stripped = code.strip()

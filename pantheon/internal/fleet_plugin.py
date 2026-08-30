@@ -63,7 +63,7 @@ class FleetPlugin(TeamPlugin):
         if not _fleet_configured() or not team.team_agents:
             return []
         try:
-            from pantheon.toolsets.fleet import FleetToolSet
+            from pantheon.apps.builtin.fleet import FleetToolSet
         except Exception:  # toolset missing (e.g. image without the fleet code)
             return []
         primary = team.team_agents[0]

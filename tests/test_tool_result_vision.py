@@ -730,7 +730,7 @@ class TestObserveImagesRouting:
 
     @pytest.mark.asyncio
     async def test_native_mode_returns_content_blocks(self, sample_image, monkeypatch):
-        from pantheon.toolsets.file.file_manager import FileManagerToolSet
+        from pantheon.apps.builtin.file.file_manager import FileManagerToolSet
 
         fm = FileManagerToolSet(name="test_fm")
 
@@ -764,7 +764,7 @@ class TestObserveImagesRouting:
 
     @pytest.mark.asyncio
     async def test_subagent_mode_calls_call_agent(self, sample_image, monkeypatch):
-        from pantheon.toolsets.file.file_manager import FileManagerToolSet
+        from pantheon.apps.builtin.file.file_manager import FileManagerToolSet
         from pantheon.utils.llm_providers import (
             ProviderConfig,
             ProviderType,
@@ -808,7 +808,7 @@ class TestObserveImagesRouting:
 
     @pytest.mark.asyncio
     async def test_missing_image_returns_error(self, tmp_path, monkeypatch):
-        from pantheon.toolsets.file.file_manager import FileManagerToolSet
+        from pantheon.apps.builtin.file.file_manager import FileManagerToolSet
 
         fm = FileManagerToolSet(name="test_fm")
         monkeypatch.setattr(fm, "get_context", lambda: MagicMock())

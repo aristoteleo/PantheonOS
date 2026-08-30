@@ -2,7 +2,7 @@ import asyncio
 import tempfile
 import os
 from pathlib import Path
-from pantheon.toolsets.file.file_manager import FileManagerToolSet
+from pantheon.apps.builtin.file.file_manager import FileManagerToolSet
 
 
 async def test_apply_patch():

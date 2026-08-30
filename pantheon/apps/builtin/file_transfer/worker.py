@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 
 from pantheon.toolset import tool
-from pantheon.toolsets.file.file_manager import FileManagerToolSetBase
+from pantheon.apps.builtin.file.file_manager import FileManagerToolSetBase
 from pantheon.utils.log import logger
 
 

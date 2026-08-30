@@ -4,7 +4,7 @@
   "version": "0.6.4",
   "description": "Interactive terminal sessions (the Terminal app's backend).",
   "entry": {
-    "backend": "pantheon.toolsets.pty:PtyToolSet"
+    "backend": "pantheon.apps.builtin.pty:PtyToolSet"
   },
   "provides": {
     "tools": [

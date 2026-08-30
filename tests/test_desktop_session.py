@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from pantheon.toolsets.desktop.desktop_session import (
+from pantheon.apps.builtin.desktop.desktop_session import (
     DesktopSession,
     DesktopSessionStore,
 )
@@ -132,7 +132,7 @@ def test_lock_survives_a_reload(store):
     """The record is where the document lives between calls, so a field left
     out of it is a field deleted on the next read."""
     store.apply("nominal", {"w": 1280, "h": 800, "mode": "set"})
-    from pantheon.toolsets.desktop.desktop_session import DesktopSession
+    from pantheon.apps.builtin.desktop.desktop_session import DesktopSession
     back = DesktopSession.from_record(store.session.to_record())
     assert (back.nominal_w, back.nominal_h, back.nominal_locked) == (1280, 800, True)
 
