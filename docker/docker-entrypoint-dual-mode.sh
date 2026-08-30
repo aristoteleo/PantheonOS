@@ -276,8 +276,9 @@ else
         mkdir -p /root/.cache
     fi
 
-    # Default ID_HASH if not provided
-    ID_HASH=${ID_HASH:-"default"}
+    # Default ID_HASH if not provided; exported because the worker's App
+    # resolver reads it from the environment as the instance-seed fallback.
+    export ID_HASH=${ID_HASH:-"default"}
 
     echo "Environment:"
     echo "  ID_HASH: ${ID_HASH}"
