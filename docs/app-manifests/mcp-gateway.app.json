@@ -1,0 +1,83 @@
+{
+  "id": "mcp-gateway",
+  "name": "MCPGateway",
+  "version": "0.6.4",
+  "description": "Unified MCP gateway: configured MCP servers behind one HTTP URI.",
+  "entry": {
+    "backend": "pantheon.toolsets.mcp:MCPGatewayToolSet"
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "get_server",
+        "description": "One MCP server's status and connection info.\n\n        Args:\n            name: The server name from the pool config.\n        ",
+        "params": [
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      },
+      {
+        "name": "get_uri",
+        "description": "The unified gateway's HTTP URI (every mounted server, prefixed)."
+      },
+      {
+        "name": "list_servers",
+        "description": "List the gateway's MCP servers and their status."
+      },
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "hidden": true
+      },
+      {
+        "name": "start_servers",
+        "description": "Start (mount) MCP servers by name.\n\n        Args:\n            names: Server names from the pool config.\n        ",
+        "params": [
+          {
+            "name": "names",
+            "type": "list[str]",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      },
+      {
+        "name": "stop_servers",
+        "description": "Stop (unmount) MCP servers by name.\n\n        Args:\n            names: Server names to stop.\n        ",
+        "params": [
+          {
+            "name": "names",
+            "type": "list[str]",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      }
+    ],
+    "interfaces": [
+      {
+        "name": "mcp",
+        "tools": [
+          "get_uri",
+          "list_servers",
+          "get_server",
+          "start_servers",
+          "stop_servers"
+        ]
+      }
+    ]
+  },
+  "placement": {
+    "requires": [
+      "proc",
+      "net"
+    ],
+    "prefer": [
+      "sandbox"
+    ]
+  }
+}

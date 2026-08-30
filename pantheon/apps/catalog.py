@@ -97,6 +97,15 @@ CATALOG: tuple[CatalogEntry, ...] = (
         kind="service", requires=("proc", "fs:workspace"), prefer=("sandbox",),
         description="Evolutionary experiment runs.",
     ),
+    CatalogEntry(
+        "mcp-gateway", "MCPGatewayToolSet", "pantheon.toolsets.mcp",
+        kind="service", requires=("proc", "net"), prefer=("sandbox",),
+        interfaces=(("mcp", 1, ("get_uri", "list_servers", "get_server",
+                                "start_servers", "stop_servers")),),
+        description="Unified MCP gateway: configured MCP servers behind one "
+                    "HTTP URI.",
+        notes="was the endpoint's mcp_manager; spawns stdio servers, hence proc",
+    ),
     # ---- brain-side services (network only; embed in the agent process) ---
     CatalogEntry(
         "web", "WebToolSet", "pantheon.toolsets.web",

@@ -69,9 +69,14 @@ async def _run(args) -> None:
     toolset = cls(service_name, **kwargs)
     logger.info(f"[apphost] {args.app_id} ({entry.class_name}) starting "
                 f"as service {service_name!r}, workdir={workdir}")
-    # --no-remote: construct + run_setup, then exit — the smoke path tests and
-    # supervisors use to validate an app boots without needing a bus.
+    # --no-remote: construct + run_setup + cleanup, then exit — the smoke path
+    # tests and supervisors use to validate an app boots without needing a bus.
+    # (The bus path runs cleanup itself on worker shutdown; the embed path
+    # doesn't, and an app holding real resources — an HTTP gateway, kernels —
+    # would otherwise never let the process exit.)
     await toolset.run(remote=not args.no_remote)
+    if args.no_remote:
+        await toolset.cleanup()
 
 
 def main(argv: list[str] | None = None) -> None:

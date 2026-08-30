@@ -46,3 +46,15 @@ def test_cli_boots_app_without_bus(app_id, tmp_path):
         env=env, cwd=str(REPO), capture_output=True, text=True, timeout=120,
     )
     assert proc.returncode == 0, proc.stderr[-800:]
+
+
+def test_cli_boots_mcp_gateway(tmp_path):
+    """The mcp-gateway App's run_setup starts a real FastMCP gateway."""
+    pytest.importorskip("fastmcp")
+    env = dict(os.environ, PYTHONPATH=str(REPO))
+    proc = subprocess.run(
+        [sys.executable, "-m", "pantheon.apphost", "--app-id", "mcp-gateway",
+         "--workdir", str(tmp_path), "--no-remote"],
+        env=env, cwd=str(tmp_path), capture_output=True, text=True, timeout=120,
+    )
+    assert proc.returncode == 0, proc.stderr[-1200:]

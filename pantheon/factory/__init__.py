@@ -144,20 +144,39 @@ async def create_agent(
 
     # ===== Add MCP providers =====
     # Loop handles empty set naturally - no execution if set is empty
-    
+
+    # Endpoint-free route: when the resolver is wired, the mcp-gateway App
+    # instance answers everything the endpoint's mcp_manager used to —
+    # server starts here, the unified URI below. Failure falls back.
+    async def _gateway_call(method: str, call_args: dict) -> dict | None:
+        from pantheon.apps.resolver import get_shared_resolver
+
+        resolver = get_shared_resolver()
+        if resolver is None or not resolver.resolves("mcp_gateway"):
+            return None
+        try:
+            sid = await resolver.ensure_instance("mcp_gateway")
+            return await ToolsetProxy.from_toolset(sid).invoke(method, call_args)
+        except Exception as e:
+            logger.error(f"[apps] mcp-gateway {method} failed ({e}); "
+                         f"falling back to the endpoint route")
+            return None
+
     # First, ensure all required MCP servers are started
     if servers_to_start:
         try:
             from pantheon.utils.misc import call_endpoint_method
-            
+
             logger.info(f"Agent '{name}': Ensuring MCP servers are started: {servers_to_start}")
-            result = await call_endpoint_method(
-                endpoint_service,
-                endpoint_method_name="manage_service",
-                action="start",
-                service_type="mcp",
-                name=servers_to_start,
-            )
+            result = await _gateway_call("start_servers", {"names": servers_to_start})
+            if result is None:
+                result = await call_endpoint_method(
+                    endpoint_service,
+                    endpoint_method_name="manage_service",
+                    action="start",
+                    service_type="mcp",
+                    name=servers_to_start,
+                )
             if not result.get("success"):
                 logger.warning(
                     f"Agent '{name}': Failed to start some MCP servers: {result.get('errors', [])}"
@@ -179,22 +198,26 @@ async def create_agent(
         for server_name in all_mcp_servers:
             # Get URI on first iteration
             if unified_uri is None:
-                result = await call_endpoint_method(
-                    endpoint_service,
-                    endpoint_method_name="manage_service",
-                    action="get",
-                    service_type="mcp",
-                    name="mcp",
-                )
-
-                if not result.get("success"):
-                    raise UserWarning(
-                        f"Failed to get unified gateway: {result.get('message', 'Unknown error')}"
+                direct = await _gateway_call("get_uri", {})
+                if direct and direct.get("uri"):
+                    unified_uri = direct["uri"]
+                else:
+                    result = await call_endpoint_method(
+                        endpoint_service,
+                        endpoint_method_name="manage_service",
+                        action="get",
+                        service_type="mcp",
+                        name="mcp",
                     )
 
-                unified_uri = result.get("service", {}).get("uri")
-                if not unified_uri:
-                    raise UserWarning("Unified gateway has no URI configured")
+                    if not result.get("success"):
+                        raise UserWarning(
+                            f"Failed to get unified gateway: {result.get('message', 'Unknown error')}"
+                        )
+
+                    unified_uri = result.get("service", {}).get("uri")
+                    if not unified_uri:
+                        raise UserWarning("Unified gateway has no URI configured")
 
             # Add provider for this MCP server
             if server_name == "mcp":
