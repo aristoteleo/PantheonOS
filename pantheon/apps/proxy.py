@@ -71,9 +71,29 @@ class ToolsetProxy:
         raise Exception(f"Failed to list tools: {result.get('error', 'Unknown error')}")
 
     async def invoke(self, method_name: str, args: Optional[Dict] = None) -> Dict:
-        """Invoke one tool. Args are stripped of unpicklable live objects."""
+        """Invoke one tool. Args are stripped of unpicklable live objects.
+
+        A freshly-started instance answers a moment after app_start returns
+        (its bus registration is asynchronous); "no responders" means the
+        request reached NOBODY, so retrying it is always safe — and covers
+        exactly that window.
+        """
         await self._ensure_connected()
-        return await self.service.invoke(method_name, wire_safe_tool_args(args or {}))
+        safe_args = wire_safe_tool_args(args or {})
+        from nats.errors import NoRespondersError
+
+        delay = 0.5
+        for attempt in range(6):
+            try:
+                return await self.service.invoke(method_name, safe_args)
+            except Exception as e:
+                root = e.__cause__ or e
+                if not isinstance(root, NoRespondersError) or attempt == 5:
+                    raise
+                import asyncio
+
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 2.0)
 
     def __repr__(self) -> str:
         return f"ToolsetProxy(service_id={self.service_id[:12]}…)"
