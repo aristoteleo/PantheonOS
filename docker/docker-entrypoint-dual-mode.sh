@@ -570,6 +570,19 @@ EOF
     echo "[launch] PYTHONPATH  : ${PYTHONPATH:-unset}"
     echo "[launch] CONDA_PREFIX: ${CONDA_PREFIX:-unset}"
 
+    # Per-sandbox environment overrides from the Volume: KEY=VALUE lines in
+    # <Volume>/.pantheon/agent-env are exported into the worker. This is the
+    # per-user switch for flags the hub does not (yet) pass through — e.g.
+    # PANTHEON_APPS_VIA_FLEET=1 on one test sandbox. Same trust domain as
+    # on-start.sh (the user's own Volume driving the user's own sandbox).
+    AGENT_ENV_FILE="${WORKSPACE:-/workspace}/.pantheon/agent-env"
+    if [ -f "$AGENT_ENV_FILE" ]; then
+        echo "[launch] applying agent-env overrides from $AGENT_ENV_FILE"
+        set -a
+        . "$AGENT_ENV_FILE"
+        set +a
+    fi
+
     # Execute the command with ID_HASH parameter
     if [ $# -eq 0 ]; then
         # No arguments provided, use default command with ID_HASH

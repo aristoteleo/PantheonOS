@@ -474,6 +474,21 @@ async def test_resolver_lazy_coords_from_runtime_json(tmp_path, monkeypatch):
     assert AppInstanceResolver.from_env() is None
 
 
+async def test_resolver_circuit_breaker(tmp_path, monkeypatch):
+    """A wired-but-unreachable fleet path disables itself after MAX_FAILURES."""
+    from pantheon.apps.resolver import AppInstanceResolver
+
+    monkeypatch.setenv("PANTHEON_APPS_VIA_FLEET", "1")
+    monkeypatch.setenv("PANTHEON_USER_SEED", "seed")
+    monkeypatch.setenv("PANTHEON_FLEET_STATE_DIR", str(tmp_path))
+    r = AppInstanceResolver.from_env(workdir=str(tmp_path))
+    assert r is not None and r.resolves("shell")
+    for _ in range(AppInstanceResolver.MAX_FAILURES):
+        with pytest.raises(RuntimeError):
+            await r.ensure_instance("shell")  # runtime.json missing -> fails
+    assert r._disabled and not r.resolves("shell")
+
+
 def test_prestart_cli_gives_up_cleanly_without_runner(tmp_path):
     """prestart waits for runtime.json, then exits 1 without raising."""
     env = dict(os.environ, PYTHONPATH=str(REPO),

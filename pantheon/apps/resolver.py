@@ -56,6 +56,12 @@ class AppInstanceResolver:
         self._nc = None
         self._client = None
         self._started: dict[tuple[str, str], str] = {}  # (service_type, scope) -> service_id
+        # Circuit breaker: when the fleet path is wired but not actually
+        # reachable (wrong creds, runner down), every bind would otherwise
+        # pay the request timeout before falling back. After a few
+        # consecutive failures the resolver takes itself out of the path.
+        self._consecutive_failures = 0
+        self._disabled = False
 
     @classmethod
     def from_env(cls, workdir: str | None = None) -> "AppInstanceResolver | None":
@@ -97,11 +103,26 @@ class AppInstanceResolver:
         if not (self._fleet and self._node):
             raise RuntimeError(f"incomplete coordinates in {path}: {info}")
 
+    #: Consecutive ensure failures before the resolver disables itself.
+    MAX_FAILURES = 3
+
     def resolves(self, service_type: str) -> bool:
         """Whether this resolver can serve the named toolset as an App."""
+        if self._disabled:
+            return False
         from pantheon.apps.catalog import by_service_type
 
         return service_type in by_service_type()
+
+    def _note_failure(self) -> None:
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= self.MAX_FAILURES and not self._disabled:
+            self._disabled = True
+            logger.warning(
+                f"[apps] fleet App-instance path disabled after "
+                f"{self._consecutive_failures} consecutive failures; "
+                f"all binds take the endpoint route"
+            )
 
     async def _ensure_client(self):
         if self._client is None:
@@ -143,23 +164,37 @@ class AppInstanceResolver:
         key = (service_type, scope)
         if key in self._started:
             return self._started[key]
-        self._ensure_coords()
-        from pantheon.apps.catalog import by_service_type
-        from pantheon.apps.spec import apphost_spec
+        try:
+            self._ensure_coords()
+            from pantheon.apps.catalog import by_service_type
+            from pantheon.apps.spec import apphost_spec
 
-        entry = by_service_type()[service_type]
-        client = await self._ensure_client()
-        spec = apphost_spec(
-            entry.app_id,
-            user_seed=self._seed,
-            workdir=workdir or self._workdir,
-            scope=scope,
-            env={k: v for k, v in os.environ.items()
-                 if k.startswith("NATS_") or k in ("PYTHONPATH", "PATH")},
-        )
-        resp = await client.start(self._node, spec)
-        if not resp.get("ok"):
-            raise RuntimeError(f"app_start {entry.app_id} on {self._node}: {resp}")
+            entry = by_service_type()[service_type]
+            client = await self._ensure_client()
+            if not self._started:
+                # First ensure: prove the node's cmd subject actually answers
+                # before paying the longer app_start timeout — the fast "the
+                # creds don't reach fleet subjects" detector.
+                if not await client.ping(self._node, timeout=3.0):
+                    raise RuntimeError(
+                        f"node {self._node} does not answer on the fleet cmd "
+                        f"subject (creds/scope?)"
+                    )
+            spec = apphost_spec(
+                entry.app_id,
+                user_seed=self._seed,
+                workdir=workdir or self._workdir,
+                scope=scope,
+                env={k: v for k, v in os.environ.items()
+                     if k.startswith("NATS_") or k in ("PYTHONPATH", "PATH")},
+            )
+            resp = await client.start(self._node, spec)
+            if not resp.get("ok"):
+                raise RuntimeError(f"app_start {entry.app_id} on {self._node}: {resp}")
+        except Exception:
+            self._note_failure()
+            raise
+        self._consecutive_failures = 0
         self._started[key] = spec["service_id"]
         logger.info(
             f"[apps] {service_type} -> app {entry.app_id} instance "
