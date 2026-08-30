@@ -10,6 +10,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -141,6 +142,15 @@ func cmdUp(args []string) {
 	}
 	if *natsURL == "" || *fleetID == "" {
 		fatal("need --controller <url> --key <key>, or dev --nats <url> --fleet <id>")
+	}
+
+	// Runtime info file: local processes (the sandbox's Pantheon worker) learn
+	// this node's coordinates from here rather than guessing them — the runner
+	// boots asynchronously, so a file they can poll is the contract.
+	if info, err := json.Marshal(map[string]string{
+		"node_id": nodeID, "fleet_id": *fleetID, "nats_url": *natsURL,
+	}); err == nil {
+		_ = os.WriteFile(filepath.Join(*stateDir, "runtime.json"), append(info, '\n'), 0o644)
 	}
 
 	// Data plane (libp2p) — advertise its addresses in the Node record.
