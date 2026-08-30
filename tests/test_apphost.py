@@ -19,9 +19,9 @@ REPO = Path(__file__).resolve().parent.parent
 
 
 def test_resolve_backend_finds_catalog_apps():
-    cls, requires, entry = _resolve_backend("shell")
+    cls, requires, app = _resolve_backend("shell")
     assert cls.__name__ == "ShellToolSet"
-    assert "proc" in requires and entry.app_id == "shell"
+    assert "proc" in requires and app.manifest.id == "shell"
 
 
 def test_resolve_backend_refuses_unknown_id():

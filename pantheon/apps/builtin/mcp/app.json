@@ -79,5 +79,8 @@
     "prefer": [
       "sandbox"
     ]
-  }
+  },
+  "apiVersion": 2,
+  "kind": "service",
+  "notes": "was the endpoint's mcp_manager; spawns stdio servers, hence proc"
 }

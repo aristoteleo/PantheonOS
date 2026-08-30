@@ -115,14 +115,31 @@ class ExposedPort(BaseModel):
     protocol: str = Field(default="http", pattern="^(http|ws)$")
 
 
+class AppKind(str, Enum):
+    """What sort of App this manifest defines. Components and legacy aliases
+    are not Apps — they have no manifest of their own (see
+    pantheon/apps/catalog.py's residual table)."""
+
+    service = "service"
+    plugin = "plugin"    # agent-pipeline hook loaded in the brain process
+    absorb = "absorb"    # scheduled for absorption into other machinery
+
+
 class AppManifest(BaseModel):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
     name: str
     version: str = "0.0.0"
     apiVersion: int = API_VERSION
     description: Optional[str] = None
+    kind: AppKind = AppKind.service
     surface: Surface = Surface.headless
     runtime: Runtime = Runtime.process
+    #: absorb-kind apps: where the capability is headed.
+    absorbInto: Optional[str] = None
+    #: Go-rewrite batch marker: a runner-builtin implementation exists (or is
+    #: planned); runtime stays as-is until check-compat parity certifies it.
+    builtinTarget: bool = False
+    notes: Optional[str] = None
     entry: Entry = Field(default_factory=Entry)
     provides: Provides = Field(default_factory=Provides)
     placement: Placement = Field(default_factory=Placement)

@@ -542,5 +542,8 @@
     "prefer": [
       "sandbox"
     ]
-  }
+  },
+  "apiVersion": 2,
+  "kind": "service",
+  "builtinTarget": true
 }

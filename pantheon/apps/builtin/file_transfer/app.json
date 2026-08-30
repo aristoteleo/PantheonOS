@@ -306,5 +306,8 @@
       "fs:workspace",
       "net"
     ]
-  }
+  },
+  "apiVersion": 2,
+  "kind": "absorb",
+  "absorbInto": "fleet transfer (data plane)"
 }

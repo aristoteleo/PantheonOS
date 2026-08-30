@@ -3,24 +3,18 @@
     python -m pantheon.apphost --app-id shell --workdir /workspace/proj \\
         [--service-name NAME] [--id-hash HASH] [--set key=value ...]
 
-This is the shim that lets an existing ToolSet run unmodified as an App
-process: resolve the App in the registry (catalog toolset app, or a packaged
-app whose backend names a `module:Class` ToolSet), construct it with the
-arguments its manifest placement implies, and hand it to `ToolSet.run()` —
-the same NATS worker path every toolset already uses. The supervisor (today
-a human or a test; later the fleet runner) owns the process lifecycle;
-NATS credentials arrive via environment, injected per-instance by whoever
-spawned us.
-
-Deliberately additive: nothing in the existing runtime calls this. It exists
-so P3 can swap supervisors without inventing a new process contract.
+This is the shim that runs a ToolSet-backed App as a process: resolve the
+App's manifest in the registry, import entry.backend (`module:Class`),
+construct it with the arguments its placement implies, and hand it to
+`ToolSet.run()` — the NATS worker path every service uses. The fleet runner
+owns the process lifecycle; NATS credentials arrive via environment,
+injected per-instance by whoever spawned us.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import importlib
 import sys
 from pathlib import Path
 
@@ -44,14 +38,14 @@ def _construct_kwargs(app_id: str, requires: list[str], workdir: str) -> dict:
 
 
 def _resolve_backend(app_id: str):
-    from pantheon.apps.catalog import app_entries
+    from pantheon.apps.registry import backend_class, builtin_apps
 
-    for entry in app_entries():
-        if entry.app_id == app_id:
-            module = importlib.import_module(entry.module)
-            return getattr(module, entry.class_name), list(entry.requires), entry
-    raise SystemExit(f"apphost: unknown app id {app_id!r} "
-                     f"(known: {', '.join(e.app_id for e in app_entries())})")
+    apps = {a.manifest.id: a for a in builtin_apps()}
+    app = apps.get(app_id)
+    if app is None:
+        raise SystemExit(f"apphost: unknown app id {app_id!r} "
+                         f"(known: {', '.join(sorted(apps))})")
+    return backend_class(app.manifest), list(app.manifest.placement.requires), app
 
 
 async def _run(args) -> None:
@@ -67,7 +61,7 @@ async def _run(args) -> None:
         # same as every existing service (generate_service_id ignores names).
         kwargs["id_hash"] = args.id_hash
     toolset = cls(service_name, **kwargs)
-    logger.info(f"[apphost] {args.app_id} ({entry.class_name}) starting "
+    logger.info(f"[apphost] {args.app_id} ({cls.__name__}) starting "
                 f"as service {service_name!r}, workdir={workdir}")
     # --no-remote: construct + run_setup + cleanup, then exit — the smoke path
     # tests and supervisors use to validate an app boots without needing a bus.

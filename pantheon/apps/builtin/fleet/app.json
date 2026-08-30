@@ -292,5 +292,9 @@
     "requires": [
       "net"
     ]
-  }
+  },
+  "apiVersion": 2,
+  "kind": "service",
+  "absorbInto": "fleet-runner builtins",
+  "notes": "brain keeps an embedded client; node-side tools become runner builtins"
 }

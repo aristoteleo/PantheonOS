@@ -61,5 +61,8 @@
     "requires": [
       "net"
     ]
-  }
+  },
+  "apiVersion": 2,
+  "kind": "service",
+  "notes": "second Go-builtin batch candidate"
 }

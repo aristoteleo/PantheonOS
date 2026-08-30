@@ -130,5 +130,8 @@
         ]
       }
     ]
-  }
+  },
+  "apiVersion": 2,
+  "kind": "plugin",
+  "notes": "\"Modal\" here means workflow modes, not the Modal cloud — no SDK involved"
 }

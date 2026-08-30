@@ -1,14 +1,17 @@
 """The unified App model (design: "一切皆 App").
 
-P1 scope: describe, don't drive — the schema (app.json v2), the toolset
-triage catalog, signature reflection, and the read-only unified registry.
-Runtime behaviour is untouched until P3.
+An App is a directory whose root carries its definition (app.json). This
+package is the framework that serves them: schema, manifest-scanning
+registry, signature reflection (the manifest's honesty check), the
+instance resolver/client, the proxy, and the apphost process shim.
+First-party App implementations live under pantheon/apps/builtin/<dir>/.
 """
 
 from pantheon.apps.schema import (
     API_VERSION,
     CAPABILITIES,
     MANIFEST_NAMES,
+    AppKind,
     AppManifest,
     Interface,
     Runtime,
@@ -18,24 +21,31 @@ from pantheon.apps.schema import (
     json_schema,
     parse_manifest,
 )
-from pantheon.apps.catalog import CATALOG, CatalogEntry, app_entries, entries
+from pantheon.apps.catalog import NON_APP_CLASSES, NonAppClass, non_app_class_names
 from pantheon.apps.reflect import (
     reflect_toolset_class,
     reflect_toolset_instance,
     signature_diff,
 )
 from pantheon.apps.registry import (
+    BUILTIN_ROOT,
     RegisteredApp,
     all_apps,
-    emit_manifests,
+    backend_class,
+    builtin_apps,
+    by_app_id,
+    by_service_type,
     packaged_apps,
-    toolset_apps,
+    refresh_manifest,
+    service_type_of,
+    verify_interfaces,
 )
 
 __all__ = [
     "API_VERSION",
     "CAPABILITIES",
     "MANIFEST_NAMES",
+    "AppKind",
     "AppManifest",
     "Interface",
     "Runtime",
@@ -44,16 +54,21 @@ __all__ = [
     "ToolSig",
     "json_schema",
     "parse_manifest",
-    "CATALOG",
-    "CatalogEntry",
-    "app_entries",
-    "entries",
+    "NON_APP_CLASSES",
+    "NonAppClass",
+    "non_app_class_names",
     "reflect_toolset_class",
     "reflect_toolset_instance",
     "signature_diff",
+    "BUILTIN_ROOT",
     "RegisteredApp",
     "all_apps",
-    "emit_manifests",
+    "backend_class",
+    "builtin_apps",
+    "by_app_id",
+    "by_service_type",
     "packaged_apps",
-    "toolset_apps",
+    "refresh_manifest",
+    "service_type_of",
+    "verify_interfaces",
 ]

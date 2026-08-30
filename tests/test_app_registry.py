@@ -15,18 +15,16 @@ from pathlib import Path
 import pytest
 
 from pantheon.apps import (
-    CATALOG,
     all_apps,
-    app_entries,
-    emit_manifests,
+    backend_class,
+    builtin_apps,
+    non_app_class_names,
     packaged_apps,
     parse_manifest,
     reflect_toolset_class,
     reflect_toolset_instance,
     signature_diff,
-    toolset_apps,
 )
-from pantheon.apps.catalog import by_class_name
 
 
 # ---- schema ----------------------------------------------------------------
@@ -79,28 +77,33 @@ def _shipped_toolset_classes() -> set[str]:
     return classes
 
 
-def test_every_shipped_toolset_class_is_triaged():
-    triaged = set(by_class_name())
-    shipped = _shipped_toolset_classes()
-    untriaged = shipped - triaged
-    assert not untriaged, (
-        f"ToolSet classes with no catalog triage: {sorted(untriaged)} — "
-        "add them to pantheon/apps/catalog.py (service/plugin/component/alias/absorb)"
+def test_every_shipped_toolset_class_is_accounted_for():
+    """A class is either some app.json's entry.backend, or in the residual
+    non-app table (component/alias) — nothing ships untracked."""
+    app_backed = set()
+    for app in builtin_apps():
+        backend = app.manifest.entry.backend or ""
+        app_backed.add(backend.rsplit(":", 1)[-1])
+    accounted = app_backed | non_app_class_names()
+    unaccounted = _shipped_toolset_classes() - accounted
+    assert not unaccounted, (
+        f"ToolSet classes with no app.json and no non-app triage: "
+        f"{sorted(unaccounted)}"
     )
 
 
-def test_every_catalog_entry_resolves_to_a_real_class():
-    import importlib
-    for entry in CATALOG:
-        cls = getattr(importlib.import_module(entry.module), entry.class_name)
-        assert isinstance(cls, type), entry.class_name
+def test_every_manifest_backend_resolves_to_a_real_class():
+    for app in builtin_apps():
+        cls = backend_class(app.manifest)
+        assert isinstance(cls, type), app.manifest.id
 
 
-def test_components_and_aliases_name_a_real_parent_app():
-    ids = {e.app_id for e in app_entries()}
-    for entry in CATALOG:
-        if entry.kind in ("component", "alias"):
-            assert entry.parent in ids, f"{entry.app_id} parent {entry.parent!r} is not an app"
+def test_non_app_classes_name_a_real_parent_app():
+    from pantheon.apps import NON_APP_CLASSES
+
+    ids = {a.manifest.id for a in builtin_apps()}
+    for c in NON_APP_CLASSES:
+        assert c.parent in ids, f"{c.class_name} parent {c.parent!r} is not an app"
 
 
 # ---- reflection -------------------------------------------------------------
@@ -119,7 +122,7 @@ def test_class_reflection_matches_live_instance():
 
 
 def test_reflection_finds_known_tools():
-    apps = {a.manifest.id: a.manifest for a in toolset_apps()}
+    apps = {a.manifest.id: a.manifest for a in builtin_apps()}
     shell_tools = {t.name for t in apps["shell"].provides.tools}
     assert {"run_command", "new_shell", "close_shell"} <= shell_tools
     fm_tools = {t.name for t in apps["file-manager"].provides.tools}
@@ -138,9 +141,12 @@ def test_signature_diff_reports_breakage():
 
 # ---- registry ---------------------------------------------------------------
 
-def test_toolset_apps_cover_all_app_entries():
-    reflected = {a.manifest.id for a in toolset_apps()}
-    assert reflected == {e.app_id for e in app_entries()}
+def test_builtin_apps_all_parse_and_expose_tools():
+    apps = builtin_apps()
+    assert len(apps) == len(list((Path(__file__).resolve().parent.parent /
+                                  "pantheon" / "apps" / "builtin").glob("*/app.json")))
+    for app in apps:
+        assert app.manifest.provides.tools, f"{app.manifest.id} has no tools face"
 
 
 def test_packaged_apps_scan_precedence_and_resilience(tmp_path):
@@ -180,27 +186,25 @@ def test_packaged_app_cannot_shadow_builtin_toolset_app(tmp_path, monkeypatch):
     assert ids.count("shell") == 1
 
 
-# ---- committed manifests stay fresh ----------------------------------------
+# ---- manifests stay honest ---------------------------------------------------
 
-MANIFEST_DIR = Path(__file__).resolve().parent.parent / "docs" / "app-manifests"
+def test_manifest_tool_faces_match_code():
+    """Each app.json's provides.tools must equal what its entry.backend
+    reflects — a signature change without the manifest diff fails here.
+    Run `python -m pantheon.apps emit` and commit the diff."""
+    from pantheon.apps.registry import reflected_tools, verify_interfaces
 
-
-def test_committed_manifests_are_fresh(tmp_path):
-    """Regenerate and compare with docs/app-manifests/. A mismatch means a
-    tool signature changed without the manifest diff being committed — run
-    `python -m pantheon.apps emit docs/app-manifests` and review the diff."""
-    fresh = {p.name: p.read_text() for p in emit_manifests(tmp_path)}
-    committed = {p.name: p.read_text() for p in MANIFEST_DIR.glob("*.app.json")}
-    assert fresh == committed, (
-        "docs/app-manifests is stale; regenerate with "
-        "`python -m pantheon.apps emit docs/app-manifests` and commit the diff"
-    )
+    for app in builtin_apps():
+        diff = signature_diff(app.manifest.provides.tools,
+                              reflected_tools(app.manifest))
+        assert not diff, f"{app.manifest.id}: {diff}"
+        assert not verify_interfaces(app.manifest), app.manifest.id
 
 
 # ---- interface contracts ----------------------------------------------------
 
 def test_go_batch_apps_declare_interfaces():
-    apps = {a.manifest.id: a.manifest for a in toolset_apps()}
+    apps = {a.manifest.id: a.manifest for a in builtin_apps()}
     assert [i.name for i in apps["shell"].provides.interfaces] == ["shell"]
     assert [i.name for i in apps["pty"].provides.interfaces] == ["pty"]
     # fs@1 is the Go-implementable core; the tree-sitter outline is its own

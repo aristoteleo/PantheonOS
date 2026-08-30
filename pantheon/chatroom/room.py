@@ -1060,18 +1060,18 @@ class ChatRoom(ToolSet):
               an instance is already up).
         """
         try:
-            from pantheon.apps.catalog import by_service_type
+            from pantheon.apps.registry import by_service_type
             from pantheon.apps.resolver import get_shared_resolver
 
             resolver = get_shared_resolver()
             started = dict(getattr(resolver, "_started", {})) if resolver else {}
             services = []
-            for service_type, entry in sorted(by_service_type().items()):
+            for service_type, app in sorted(by_service_type().items()):
                 sid = started.get((service_type, "app"))
                 services.append({
                     "name": service_type,
-                    "app_id": entry.app_id,
-                    "description": entry.description,
+                    "app_id": app.manifest.id,
+                    "description": app.manifest.description,
                     "status": "running" if sid else "available",
                     "service_id": sid,
                 })

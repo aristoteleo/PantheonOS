@@ -101,7 +101,7 @@ class AppInstanceResolver:
         """Whether this resolver can serve the named toolset as an App."""
         if self._disabled:
             return False
-        from pantheon.apps.catalog import by_service_type
+        from pantheon.apps.registry import by_service_type
 
         return service_type in by_service_type()
 
@@ -157,10 +157,10 @@ class AppInstanceResolver:
             return self._started[key]
         try:
             self._ensure_coords()
-            from pantheon.apps.catalog import by_service_type
+            from pantheon.apps.registry import by_service_type
             from pantheon.apps.spec import apphost_spec
 
-            entry = by_service_type()[service_type]
+            app = by_service_type()[service_type]
             client = await self._ensure_client()
             if not self._started:
                 # First ensure: prove the node's cmd subject actually answers
@@ -172,7 +172,7 @@ class AppInstanceResolver:
                         f"subject (creds/scope?)"
                     )
             spec = apphost_spec(
-                entry.app_id,
+                app.manifest.id,
                 user_seed=self._seed,
                 workdir=workdir or self._workdir,
                 scope=scope,
@@ -181,14 +181,14 @@ class AppInstanceResolver:
             )
             resp = await client.start(self._node, spec)
             if not resp.get("ok"):
-                raise RuntimeError(f"app_start {entry.app_id} on {self._node}: {resp}")
+                raise RuntimeError(f"app_start {app.manifest.id} on {self._node}: {resp}")
         except Exception:
             self._note_failure()
             raise
         self._consecutive_failures = 0
         self._started[key] = spec["service_id"]
         logger.info(
-            f"[apps] {service_type} -> app {entry.app_id} instance "
+            f"[apps] {service_type} -> app {app.manifest.id} instance "
             f"{spec['service_id'][:12]}… scope={scope} on node {self._node}"
         )
         return spec["service_id"]

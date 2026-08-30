@@ -47,5 +47,7 @@
     "requires": [
       "net"
     ]
-  }
+  },
+  "apiVersion": 2,
+  "kind": "service"
 }

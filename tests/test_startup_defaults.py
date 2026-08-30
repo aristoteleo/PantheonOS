@@ -33,7 +33,7 @@ def test_default_team_has_no_retired_toolsets():
 
     # 'package' died with the toolset cleanup; every declared toolset must
     # be a catalog App (or the think pseudo-toolset)
-    from pantheon.apps.catalog import by_service_type
+    from pantheon.apps.registry import by_service_type
     known = set(by_service_type()) | {"think", "task"}
     assert set(leader.toolsets) <= known, set(leader.toolsets) - known
 

@@ -16,7 +16,7 @@ import os
 import sys
 from pathlib import Path
 
-from pantheon.apps.catalog import app_entries
+from pantheon.apps.registry import by_app_id
 from pantheon.utils.misc import generate_service_id
 
 
@@ -51,7 +51,7 @@ def apphost_spec(
         python: Interpreter for the apphost process (default: this one).
         env: Extra per-instance environment (e.g. scoped NATS creds).
     """
-    known = {e.app_id for e in app_entries()}
+    known = set(by_app_id())
     if app_id not in known:
         raise ValueError(f"unknown app id {app_id!r} (known: {sorted(known)})")
     seed = instance_service_seed(user_seed, app_id, scope)

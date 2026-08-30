@@ -2,7 +2,7 @@
 
 import pytest
 
-from pantheon.apps.catalog import app_entries
+from pantheon.apps.registry import builtin_apps
 from pantheon.apps.nodes import NodeCapability, NodeEntry, NodeKind, NodeSystem
 
 
@@ -33,11 +33,11 @@ def test_catalog_placement_maps_onto_node_kinds():
     needs the sandbox."""
     sandbox = _node(NodeKind.sandbox, SANDBOX)
     brain = _node(NodeKind.pod, BRAIN_POD)
-    for entry in app_entries():
-        requires = list(entry.requires)
-        assert sandbox.fits(requires) or requires == ["dom"], entry.app_id
+    for app in builtin_apps():
+        requires = list(app.manifest.placement.requires)
+        assert sandbox.fits(requires) or requires == ["dom"], app.manifest.id
         expects_brain = set(requires) <= {"net"}
-        assert brain.fits(requires) == expects_brain, entry.app_id
+        assert brain.fits(requires) == expects_brain, app.manifest.id
 
 
 def test_unknown_capability_is_refused():
