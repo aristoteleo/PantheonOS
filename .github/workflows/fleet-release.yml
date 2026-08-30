@@ -263,7 +263,11 @@ jobs:
       # tag is bootstrapped once by a maintainer; later promotions replace the
       # release assets. GITHUB_TOKEN cannot create the initial Release here.
       - name: Update Fleet latest alias
-        if: github.event_name == 'push' || inputs.update_latest
+        # Promotion is EXPLICIT-ONLY on this branch: tag pushes must never
+        # touch the public installer alias (fleet-latest) — a WIP tag from a
+        # development branch clobbering prod install assets is the incident
+        # this line prevents. Promote via workflow_dispatch with update_latest.
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.update_latest }}
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash

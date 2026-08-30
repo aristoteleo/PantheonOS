@@ -24,11 +24,22 @@ const (
 	TaskPython = "python"
 )
 
+// Node kinds — what class of place this Node is. The App placer treats them
+// as hints; hard placement runs on Capability.Caps (see the App design's
+// capability vocabulary).
+const (
+	KindSandbox  = "sandbox"  // a cloud sandbox holding the user's workspace
+	KindPod      = "pod"      // a k8s pod (e.g. the agent's brain)
+	KindMachine  = "machine"  // a user-joined machine: laptop, HPC, VM
+	KindFrontend = "frontend" // a browser session; dom-only
+)
+
 // Node is the record a Runner publishes into the Registry (JetStream KV) and
 // that the Agent reads to "see" the Fleet.
 type Node struct {
 	NodeID     string     `json:"node_id"`
 	Name       string     `json:"name"`
+	Kind       string     `json:"kind,omitempty"` // KindSandbox|KindPod|KindMachine|KindFrontend
 	Labels     []string   `json:"labels,omitempty"`
 	Capability Capability `json:"capability"`
 	State      State      `json:"state"`
@@ -41,18 +52,39 @@ type Node struct {
 type Capability struct {
 	OS         string   `json:"os"`
 	Arch       string   `json:"arch"`
+	Kernel     string   `json:"kernel,omitempty"`
 	CPUCores   int      `json:"cpu_cores"`
 	GPU        string   `json:"gpu,omitempty"`
 	RAMGB      float64  `json:"ram_gb"`
 	DiskFreeGB float64  `json:"disk_free_gb"`
 	Tools      []string `json:"tools,omitempty"`
+	// Runtimes maps runtime name to version ("python" -> "3.12.14",
+	// "runner" -> the fleet binary's own version). Placement refuses targets
+	// missing a runtime an App needs.
+	Runtimes map[string]string `json:"runtimes,omitempty"`
+	// Caps is the App placement vocabulary this Node offers:
+	// proc | fs:workspace | display | gpu | net | dom. Matched by set
+	// inclusion against an App's placement.requires.
+	Caps []string `json:"caps,omitempty"`
+}
+
+// AppInstance is one running App on this Node, as its supervisor reports it.
+// (P3: the runner becomes the supervisor; the field ships now so readers can
+// rely on its shape.)
+type AppInstance struct {
+	AppID     string `json:"app_id"`
+	Version   string `json:"version,omitempty"`
+	Scope     string `json:"scope,omitempty"` // app|window|node
+	ServiceID string `json:"service_id,omitempty"`
+	Health    string `json:"health"` // starting|healthy|degraded|stopped|crashed
 }
 
 // State is the live, frequently-changing part of a Node.
 type State struct {
-	Status       string   `json:"status"`
-	Load         Load     `json:"load"`
-	RunningTasks []string `json:"running_tasks,omitempty"`
+	Status       string        `json:"status"`
+	Load         Load          `json:"load"`
+	RunningTasks []string      `json:"running_tasks,omitempty"`
+	Instances    []AppInstance `json:"instances,omitempty"`
 }
 
 // Load is a normalized [0,1] resource-usage snapshot.
@@ -73,9 +105,24 @@ type Net struct {
 // Command is the envelope sent to a Node's cmd subject. A transfer command is
 // sent to the *source* Node, which then streams to the destination.
 type Command struct {
-	Type     string           `json:"type"` // run_task | transfer | cancel | ping
+	Type     string           `json:"type"` // run_task | transfer | cancel | ping | app_start | app_stop | app_list
 	Task     *Task            `json:"task,omitempty"`
 	Transfer *TransferRequest `json:"transfer,omitempty"`
+	App      *AppCommand      `json:"app,omitempty"`
+}
+
+// AppCommand carries the app_start/app_stop payload. Start sends the full
+// process spec (the control plane resolves the App's manifest into a concrete
+// command line); stop needs only the instance key.
+type AppCommand struct {
+	AppID     string            `json:"app_id"`
+	Scope     string            `json:"scope,omitempty"`
+	Version   string            `json:"version,omitempty"`
+	ServiceID string            `json:"service_id,omitempty"`
+	Runtime   string            `json:"runtime,omitempty"` // ""|"process"|"builtin"
+	Command   []string          `json:"command,omitempty"`
+	Dir       string            `json:"dir,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
 }
 
 // Task is a single code execution request (Agent -> Node).
