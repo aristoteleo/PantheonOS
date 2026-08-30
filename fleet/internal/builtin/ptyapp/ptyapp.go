@@ -67,7 +67,8 @@ type ptySession struct {
 	cwd       string
 	createdAt time.Time
 
-	chunks chan []byte // nil-sentinel-free; closed on EOF
+	chunks   chan []byte   // nil-sentinel-free; closed on EOF
+	waitDone chan struct{} // closed once the single Wait() returns
 
 	mu         sync.Mutex
 	lastActive time.Time
@@ -179,22 +180,17 @@ func (a *App) pump(s *ptySession) {
 		})
 	}
 
-	// EOF: the shell is gone.
-	state := make(chan int, 1)
-	go func() {
-		_ = s.cmd.Wait()
-		state <- s.cmd.ProcessState.ExitCode()
-	}()
-	var exitCode any
+	// EOF: the shell is gone. The waiter goroutine owns Wait; give it a
+	// moment to deliver the exit code.
 	select {
-	case code := <-state:
-		s.mu.Lock()
-		s.exitCode = &code
-		s.mu.Unlock()
-		exitCode = code
+	case <-s.waitDone:
 	case <-time.After(5 * time.Second):
 	}
+	var exitCode any
 	s.mu.Lock()
+	if s.exitCode != nil {
+		exitCode = *s.exitCode
+	}
 	s.exited = true
 	s.mu.Unlock()
 	a.publish(s, map[string]any{"type": "pty.exit", "exit_code": exitCode})
@@ -288,10 +284,23 @@ func (a *App) open(cols, rows int, cwd, shell string) map[string]any {
 		createdAt:  time.Now(),
 		lastActive: time.Now(),
 		chunks:     make(chan []byte, 1024),
+		waitDone:   make(chan struct{}),
 	}
 	a.mu.Lock()
 	a.sessions[s.id] = s
 	a.mu.Unlock()
+	// The ONE Wait for this process (Wait may only be called once); the
+	// exit code lands on the session, and everyone else observes waitDone.
+	go func() {
+		_ = cmd.Wait()
+		s.mu.Lock()
+		if cmd.ProcessState != nil {
+			code := cmd.ProcessState.ExitCode()
+			s.exitCode = &code
+		}
+		s.mu.Unlock()
+		close(s.waitDone)
+	}()
 	go s.readLoop()
 
 	// Whatever the shell says before the caller could possibly subscribe —
@@ -433,10 +442,8 @@ func (a *App) terminate(s *ptySession) {
 	if pgid, err := syscall.Getpgid(s.cmd.Process.Pid); err == nil {
 		_ = syscall.Kill(-pgid, syscall.SIGHUP)
 	}
-	done := make(chan struct{})
-	go func() { _ = s.cmd.Wait(); close(done) }()
 	select {
-	case <-done:
+	case <-s.waitDone:
 	case <-time.After(terminateTimeout):
 		_ = s.cmd.Process.Kill()
 	}

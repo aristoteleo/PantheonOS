@@ -23,10 +23,11 @@ import (
 // the marker; a timeout returns partial output and leaves the marker armed
 // so a later call can drain the rest.
 type session struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	lines  chan string
-	closed chan struct{}
+	cmd      *exec.Cmd
+	stdin    io.WriteCloser
+	lines    chan string
+	closed   chan struct{}
+	waitDone chan struct{} // closed once the single Wait() returns
 
 	mu            sync.Mutex
 	busy          bool
@@ -72,10 +73,11 @@ func startSession(workdir string) (*session, error) {
 		return nil, err
 	}
 	s := &session{
-		cmd:    cmd,
-		stdin:  stdin,
-		lines:  make(chan string, 4096),
-		closed: make(chan struct{}),
+		cmd:      cmd,
+		stdin:    stdin,
+		lines:    make(chan string, 4096),
+		closed:   make(chan struct{}),
+		waitDone: make(chan struct{}),
 	}
 	go func() {
 		defer close(s.closed)
@@ -95,7 +97,9 @@ func startSession(workdir string) (*session, error) {
 			}
 		}
 	}()
-	go func() { _ = cmd.Wait() }()
+	// The ONE Wait for this process — everything else observes waitDone.
+	// (Wait may only be called once; racing it corrupts exec.Cmd state.)
+	go func() { _ = cmd.Wait(); close(s.waitDone) }()
 	return s, nil
 }
 
@@ -105,7 +109,12 @@ func (s *session) alive() bool {
 		return false
 	default:
 	}
-	return s.cmd.ProcessState == nil
+	select {
+	case <-s.waitDone:
+		return false
+	default:
+	}
+	return true
 }
 
 func (s *session) idle() bool {
@@ -213,7 +222,7 @@ func (s *session) readUntil(marker string, timeout time.Duration) (string, bool)
 func (s *session) close() {
 	_, _ = io.WriteString(s.stdin, "exit\n")
 	select {
-	case <-s.closed:
+	case <-s.waitDone:
 	case <-time.After(2 * time.Second):
 		if s.cmd.Process != nil {
 			_ = s.cmd.Process.Kill()
