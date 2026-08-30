@@ -121,8 +121,30 @@ class AppInstanceResolver:
 
             from pantheon.apps.client import AppClient
 
+            # The fleet control plane may live on a different NATS (and
+            # behind different auth) than the worker's own bus. The runner
+            # already joined it — reuse ITS coordinates and credentials from
+            # the shared state dir (same container, same trust domain):
+            # runtime.json carries nats_url, fleet.creds the scoped JWT the
+            # controller minted for this node. Dev runners have neither and
+            # fall back to NATS_SERVERS unauthenticated.
             servers = os.environ.get("NATS_SERVERS", "nats://localhost:4222").split("|")
-            self._nc = await nats.connect(servers=servers)
+            creds: str | None = None
+            if self._state_dir:
+                state = Path(self._state_dir)
+                try:
+                    info = json.loads((state / "runtime.json").read_text())
+                    if info.get("nats_url"):
+                        servers = [info["nats_url"]]
+                except Exception:
+                    pass
+                creds_path = state / "fleet.creds"
+                if creds_path.is_file():
+                    creds = str(creds_path)
+            connect_kwargs: dict = {"servers": servers, "connect_timeout": 5}
+            if creds:
+                connect_kwargs["user_credentials"] = creds
+            self._nc = await nats.connect(**connect_kwargs)
             self._client = AppClient(self._nc, self._fleet)
         return self._client
 
