@@ -268,6 +268,66 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
 
             resp = await client.stop(node_id, "shell")
             assert resp.get("ok"), resp
+
+            # --- Go builtin pty: sessions + the frontend's stream protocol --
+            import base64 as b64
+
+            monkeypatch.setenv("PANTHEON_APPS_GO_BUILTIN", "pty")
+            pty_spec = apphost_spec("pty", user_seed=USER_SEED + "-go",
+                                    workdir=str(tmp_path))
+            assert pty_spec["runtime"] == "builtin"
+            resp = await client.start(node_id, pty_spec)
+            assert resp.get("ok"), resp
+
+            pty_proxy = ToolsetProxy.from_toolset(pty_spec["service_id"])
+            opened = None
+            for _ in range(40):
+                try:
+                    opened = await asyncio.wait_for(
+                        pty_proxy.invoke("pty_open", {"cols": 90, "rows": 28}),
+                        timeout=3)
+                    break
+                except Exception:
+                    await asyncio.sleep(0.5)
+            assert opened and opened.get("success"), opened
+            assert opened["cols"] == 90 and opened["stream_id"].startswith("pty_")
+            initial = b64.b64decode(opened["initial_output"])
+            assert b"agent operating system" in initial  # the banner
+
+            # frontend contract: pty.data frames arrive on the stream subject
+            frames: list[dict] = []
+            got_data = asyncio.Event()
+
+            async def on_stream(msg):
+                frames.append(json.loads(msg.data.decode()))
+                if any(f["data"].get("type") == "pty.data" for f in frames):
+                    got_data.set()
+
+            stream_sub = await nc.subscribe(
+                f"pantheon.stream.{opened['stream_id']}", cb=on_stream)
+            keys = b64.b64encode(b"echo pty-stream-works\r").decode()
+            wrote = await pty_proxy.invoke(
+                "pty_write", {"session_id": opened["session_id"], "data": keys})
+            assert wrote["success"], wrote
+            await asyncio.wait_for(got_data.wait(), timeout=10)
+            datas = b"".join(
+                b64.b64decode(f["data"]["data"]) for f in frames
+                if f["data"].get("type") == "pty.data")
+            assert b"pty-stream-works" in datas, datas[:200]
+            assert frames[0]["type"] == "custom"
+            assert frames[0]["session_id"] == opened["stream_id"]
+            await stream_sub.unsubscribe()
+
+            # attach replays scrollback; close reaps
+            att = await pty_proxy.invoke(
+                "pty_attach", {"session_id": opened["session_id"]})
+            assert att["success"] and b"pty-stream-works" in b64.b64decode(att["scrollback"])
+            closed = await pty_proxy.invoke(
+                "pty_close", {"session_id": opened["session_id"]})
+            assert closed["success"], closed
+
+            resp = await client.stop(node_id, "pty")
+            assert resp.get("ok"), resp
             monkeypatch.delenv("PANTHEON_APPS_GO_BUILTIN")
 
             # stop both file-manager instances — the supervisor owns them, and
