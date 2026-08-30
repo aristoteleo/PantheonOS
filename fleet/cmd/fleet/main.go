@@ -92,6 +92,10 @@ func cmdUp(args []string) {
 	joinToken := fs.String("join-token", "", "single-use join token (preferred over --key; from the Cluster panel)")
 	name := fs.String("name", node.DefaultName(), "friendly node name")
 	labelsCSV := fs.String("labels", "", "comma-separated labels (e.g. gpu,hpc)")
+	kind := fs.String("kind", envOr("FLEET_NODE_KIND", proto.KindMachine),
+		"node kind: sandbox|pod|machine|frontend")
+	capsCSV := fs.String("caps", os.Getenv("FLEET_NODE_CAPS"),
+		"app placement capabilities (proc,fs:workspace,display,gpu,net,dom); default derived from kind")
 	workDir := fs.String("workdir", ".", "working directory for Tasks")
 	controllerURL := fs.String("controller", "", "Controller URL — resolves --key to your Fleet")
 	natsURL := fs.String("nats", "", "NATS url (dev: bypass the Controller)")
@@ -151,9 +155,19 @@ func cmdUp(args []string) {
 	}
 
 	capa := node.DetectCapability(*workDir)
+	if capa.Runtimes == nil {
+		capa.Runtimes = map[string]string{}
+	}
+	capa.Runtimes["runner"] = version
+	if *capsCSV != "" {
+		capa.Caps = splitCSV(*capsCSV)
+	} else {
+		capa.Caps = node.DefaultCaps(*kind, capa)
+	}
 	rec := proto.Node{
 		NodeID:     nodeID,
 		Name:       *name,
+		Kind:       *kind,
 		Labels:     splitCSV(*labelsCSV),
 		Capability: capa,
 		State:      proto.State{Status: proto.StatusOnline, Load: node.LiveLoad()},
@@ -292,6 +306,14 @@ func defaultStateDir() string {
 		return filepath.Join(d, "pantheon-fleet")
 	}
 	return ".pantheon-fleet"
+}
+
+// envOr reads an environment variable with a fallback default.
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
 
 func splitCSV(s string) []string {

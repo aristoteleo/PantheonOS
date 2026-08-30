@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -36,7 +37,78 @@ func DetectCapability(workDir string) proto.Capability {
 	}
 	c.GPU = detectGPU()
 	c.Tools = detectTools()
+	c.Kernel = detectKernel()
+	c.Runtimes = detectRuntimes()
 	return c
+}
+
+// DefaultCaps derives the App placement capabilities for a node kind, from
+// what the machine actually offers. Explicit --caps overrides this entirely —
+// especially fs:workspace, which means "this node holds THE user's workspace
+// filesystem" and cannot be detected, only declared (the sandbox entrypoint
+// declares it).
+func DefaultCaps(kind string, cap proto.Capability) []string {
+	switch kind {
+	case proto.KindSandbox:
+		return []string{"proc", "fs:workspace", "display", "net"}
+	case proto.KindPod:
+		return []string{"net"}
+	case proto.KindFrontend:
+		return []string{"dom"}
+	default: // machine: a user's own box runs processes and reaches the net
+		caps := []string{"proc", "net"}
+		if os.Getenv("DISPLAY") != "" || runtime.GOOS == "darwin" {
+			caps = append(caps, "display")
+		}
+		if cap.GPU != "" {
+			caps = append(caps, "gpu")
+		}
+		return caps
+	}
+}
+
+// detectKernel reports the OS kernel release (uname -r style), best-effort.
+func detectKernel() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	b, err := exec.CommandContext(ctx, "uname", "-r").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// detectRuntimes probes versions of the runtimes Apps care about. The
+// runner's own version is stamped by the caller (it knows its build).
+func detectRuntimes() map[string]string {
+	out := map[string]string{}
+	probe := func(name string, args []string, trim func(string) string) {
+		path, err := exec.LookPath(args[0])
+		if err != nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		b, err := exec.CommandContext(ctx, path, args[1:]...).CombinedOutput()
+		if err != nil {
+			return
+		}
+		if v := trim(strings.TrimSpace(string(b))); v != "" {
+			out[name] = v
+		}
+	}
+	lastField := func(s string) string {
+		f := strings.Fields(strings.SplitN(s, "\n", 2)[0])
+		if len(f) == 0 {
+			return ""
+		}
+		return f[len(f)-1]
+	}
+	probe("python", []string{"python3", "--version"}, lastField)
+	probe("git", []string{"git", "--version"}, lastField)
+	probe("pantheon", []string{"python3", "-c", "import pantheon; print(pantheon.__version__)"},
+		func(s string) string { return strings.SplitN(s, "\n", 2)[0] })
+	return out
 }
 
 // LiveLoad samples normalized [0,1] CPU and memory usage.
