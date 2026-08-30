@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aristoteleo/pantheon-fleet/internal/dataplane"
+	"github.com/aristoteleo/pantheon-fleet/internal/apps"
 	fexec "github.com/aristoteleo/pantheon-fleet/internal/exec"
 	"github.com/aristoteleo/pantheon-fleet/internal/node"
 	"github.com/aristoteleo/pantheon-fleet/internal/proto"
@@ -24,12 +25,18 @@ type Runner struct {
 	reg   *registry.Registry
 	dp    *dataplane.Plane // may be nil if the data plane is disabled
 	rec   *proto.Node
+	apps  *apps.Supervisor
 }
 
 // New builds a Runner. dp may be nil (control-plane-only mode).
 func New(nc *nats.Conn, fleet, node string, reg *registry.Registry, dp *dataplane.Plane, rec *proto.Node) *Runner {
-	return &Runner{nc: nc, fleet: fleet, node: node, reg: reg, dp: dp, rec: rec}
+	r := &Runner{nc: nc, fleet: fleet, node: node, reg: reg, dp: dp, rec: rec}
+	r.apps = apps.New(nil)
+	return r
 }
+
+// Apps exposes the App supervisor (shutdown hooks, tests).
+func (r *Runner) Apps() *apps.Supervisor { return r.apps }
 
 // Serve subscribes to this Node's cmd subject and dispatches commands. Tasks
 // and Transfers run in their own goroutine so the subscription never blocks.
@@ -55,6 +62,29 @@ func (r *Runner) Serve() (*nats.Subscription, error) {
 			}
 			req := *cmd.Transfer
 			go r.handleTransfer(m, req)
+		case "app_start":
+			if cmd.App == nil {
+				r.replyErr(m, "app_start without app")
+				return
+			}
+			a := *cmd.App
+			if err := r.apps.Start(apps.Spec{
+				AppID: a.AppID, Version: a.Version, Scope: a.Scope,
+				ServiceID: a.ServiceID, Command: a.Command, Dir: a.Dir, Env: a.Env,
+			}); err != nil {
+				r.replyErr(m, "app_start: "+err.Error())
+				return
+			}
+			r.reply(m, map[string]any{"ok": true, "instances": r.apps.List()})
+		case "app_stop":
+			if cmd.App == nil {
+				r.replyErr(m, "app_stop without app")
+				return
+			}
+			r.apps.Stop(cmd.App.AppID, cmd.App.Scope)
+			r.reply(m, map[string]any{"ok": true, "instances": r.apps.List()})
+		case "app_list":
+			r.reply(m, map[string]any{"instances": r.apps.List()})
 		case "ping":
 			r.reply(m, map[string]string{"pong": r.node})
 		default:
@@ -142,6 +172,7 @@ func (r *Runner) Heartbeat(ctx context.Context, interval time.Duration) {
 			return
 		case <-t.C:
 			r.rec.State.Load = node.LiveLoad()
+			r.rec.State.Instances = r.apps.List()
 			// Refresh data-plane addresses: a relay (circuit) address only
 			// appears after AutoRelay reserves a slot, so the Registry must
 			// pick it up on a later heartbeat for peers to reach this Node.

@@ -105,9 +105,23 @@ type Net struct {
 // Command is the envelope sent to a Node's cmd subject. A transfer command is
 // sent to the *source* Node, which then streams to the destination.
 type Command struct {
-	Type     string           `json:"type"` // run_task | transfer | cancel | ping
+	Type     string           `json:"type"` // run_task | transfer | cancel | ping | app_start | app_stop | app_list
 	Task     *Task            `json:"task,omitempty"`
 	Transfer *TransferRequest `json:"transfer,omitempty"`
+	App      *AppCommand      `json:"app,omitempty"`
+}
+
+// AppCommand carries the app_start/app_stop payload. Start sends the full
+// process spec (the control plane resolves the App's manifest into a concrete
+// command line); stop needs only the instance key.
+type AppCommand struct {
+	AppID     string            `json:"app_id"`
+	Scope     string            `json:"scope,omitempty"`
+	Version   string            `json:"version,omitempty"`
+	ServiceID string            `json:"service_id,omitempty"`
+	Command   []string          `json:"command,omitempty"`
+	Dir       string            `json:"dir,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
 }
 
 // Task is a single code execution request (Agent -> Node).
