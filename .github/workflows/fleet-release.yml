@@ -1,0 +1,243 @@
+name: Fleet Release
+
+on:
+  push:
+    tags:
+      - 'fleet-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing Fleet tag to build and publish (for example fleet-v0.1.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fleet-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  validate:
+    name: Validate Fleet
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^fleet-v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Unsupported Fleet release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          git rev-parse --verify "refs/tags/$RELEASE_TAG" >/dev/null
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: fleet/go.mod
+          cache-dependency-path: fleet/go.sum
+
+      - name: Run Fleet tests
+        working-directory: fleet
+        run: go test ./... -count=1
+
+      - name: Run Fleet race tests
+        working-directory: fleet
+        run: go test -race ./... -count=1
+
+      - name: Run Fleet vet
+        working-directory: fleet
+        run: go vet ./...
+
+  build-cli:
+    name: Build Fleet CLI binaries
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: fleet/go.mod
+          cache-dependency-path: fleet/go.sum
+
+      - name: Build cross-platform runner binaries
+        working-directory: fleet
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          build_runner() {
+            local goos="$1"
+            local goarch="$2"
+            local suffix="$3"
+            local output="dist/fleet-${goos}-${goarch}${suffix}"
+            echo "Building ${goos}/${goarch} -> ${output}"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath -ldflags='-s -w' -o "$output" ./cmd/fleet
+          }
+
+          build_runner linux amd64 ''
+          build_runner linux arm64 ''
+          build_runner darwin amd64 ''
+          build_runner darwin arm64 ''
+          build_runner windows amd64 '.exe'
+          build_runner windows arm64 '.exe'
+
+      - name: Render tag-bound installers
+        working-directory: fleet
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed "s|fleet-v0.1.0-alpha|${RELEASE_TAG}|g" scripts/install.sh > dist/install.sh
+          sed "s|fleet-v0.1.0-alpha|${RELEASE_TAG}|g" scripts/install.ps1 > dist/install.ps1
+          chmod 0755 dist/install.sh
+          grep -q "$RELEASE_TAG" dist/install.sh
+          grep -q "$RELEASE_TAG" dist/install.ps1
+
+      - name: Upload CLI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fleet-release-cli
+          path: fleet/dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  build-macos-app:
+    name: Build macOS app bundles
+    needs: validate
+    runs-on: macos-14
+    steps:
+      - name: Check out release ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: fleet/go.mod
+          cache-dependency-path: fleet/go.sum
+
+      - name: Build Fleet.app bundles
+        working-directory: fleet
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for arch in arm64 amd64; do
+            app="dist/Fleet.app"
+            rm -rf "$app"
+            mkdir -p "$app/Contents/MacOS"
+            CGO_ENABLED=0 GOOS=darwin GOARCH="$arch" \
+              go build -trimpath -ldflags='-s -w' \
+              -o "$app/Contents/MacOS/fleet" ./cmd/fleet
+            cp packaging/darwin/Info.plist "$app/Contents/Info.plist"
+
+            # Hosted runners do not have our Developer ID certificate. Keep the
+            # bundle launchable and make the signing limitation explicit; a
+            # configured signing identity can replace this branch later.
+            codesign --force --deep --sign - --timestamp=none "$app"
+            codesign --verify --strict "$app"
+            (cd dist && ditto -c -k --keepParent Fleet.app "Fleet-${arch}.app.zip")
+            rm -rf "$app"
+          done
+
+      - name: Upload macOS app artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fleet-release-macos-app
+          path: fleet/dist/Fleet-*.app.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs:
+      - build-cli
+      - build-macos-app
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: fleet-release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify release asset set
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=(
+            Fleet-amd64.app.zip
+            Fleet-arm64.app.zip
+            fleet-darwin-amd64
+            fleet-darwin-arm64
+            fleet-linux-amd64
+            fleet-linux-arm64
+            fleet-windows-amd64.exe
+            fleet-windows-arm64.exe
+            install.sh
+            install.ps1
+          )
+          for asset in "${expected[@]}"; do
+            test -s "dist/$asset"
+          done
+          (cd dist && sha256sum "${expected[@]}" > SHA256SUMS)
+          ls -lh dist
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes="$(mktemp)"
+          cat > "$notes" <<EOF
+          Pantheon-Fleet ${RELEASE_TAG#fleet-}.
+
+          Assets include runner binaries for Linux, macOS, and Windows, macOS Fleet.app bundles, platform installers, and SHA256SUMS.
+
+          The hosted macOS job uses an ad-hoc signature because no Developer ID certificate is configured in GitHub Actions. Gatekeeper may require an explicit first-open approval; the raw Darwin binaries remain available.
+          EOF
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            case "$RELEASE_TAG" in
+              *-alpha*|*-beta*|*-rc*)
+                gh release create "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+                  --title "Pantheon-Fleet ${RELEASE_TAG#fleet-}" \
+                  --notes-file "$notes" --prerelease
+                ;;
+              *)
+                gh release create "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+                  --title "Pantheon-Fleet ${RELEASE_TAG#fleet-}" \
+                  --notes-file "$notes"
+                ;;
+            esac
+          fi
