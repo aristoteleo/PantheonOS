@@ -12,7 +12,9 @@ boundary is this JSON.
 
 from __future__ import annotations
 
+import os
 import sys
+from pathlib import Path
 
 from pantheon.apps.catalog import app_entries
 from pantheon.utils.misc import generate_service_id
@@ -53,6 +55,16 @@ def apphost_spec(
     if app_id not in known:
         raise ValueError(f"unknown app id {app_id!r} (known: {sorted(known)})")
     seed = instance_service_seed(user_seed, app_id, scope)
+    # The apphost process must find pantheon regardless of its own cwd (the
+    # workdir) or whatever relative PYTHONPATH the caller inherited — inject
+    # this pantheon's own location, absolute, ahead of anything given.
+    import pantheon as _pantheon
+
+    pantheon_root = str(Path(_pantheon.__file__).resolve().parent.parent)
+    merged_env = dict(env or {})
+    existing_pp = merged_env.get("PYTHONPATH", "")
+    parts = [pantheon_root] + [p for p in existing_pp.split(os.pathsep) if p and p != pantheon_root]
+    merged_env["PYTHONPATH"] = os.pathsep.join(parts)
     return {
         "app_id": app_id,
         "scope": scope,
@@ -66,5 +78,5 @@ def apphost_spec(
             "--id-hash", seed,
         ],
         "dir": workdir,
-        "env": dict(env or {}),
+        "env": merged_env,
     }

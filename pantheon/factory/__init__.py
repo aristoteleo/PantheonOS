@@ -2,6 +2,36 @@ import asyncio
 from pantheon.agent import Agent
 from pantheon.endpoint import ToolsetProxy
 from pantheon.utils.log import logger
+
+#: Process-wide resolver for the endpoint-free path (PANTHEON_APPS_VIA_FLEET).
+#: Built lazily on first toolset bind; None means the flag is off/unwired and
+#: everything routes through the endpoint exactly as before.
+_app_resolver = None
+_app_resolver_ready = False
+
+
+async def _resolve_toolset_proxy(endpoint_service, toolset_name: str):
+    """The one binding decision (§08b P3): endpoint route, or a direct App
+    instance dialed by service_id — same ToolsetProxy either way, so
+    providers and agents cannot tell the difference."""
+    global _app_resolver, _app_resolver_ready
+    if not _app_resolver_ready:
+        _app_resolver_ready = True
+        from pantheon.apps.resolver import AppInstanceResolver
+
+        _app_resolver = AppInstanceResolver.from_env()
+        if _app_resolver is not None:
+            logger.info("[apps] toolset binding via fleet App instances is ON")
+    if _app_resolver is not None and _app_resolver.resolves(toolset_name):
+        try:
+            service_id = await _app_resolver.ensure_instance(toolset_name)
+            return ToolsetProxy.from_toolset(service_id)
+        except Exception as e:
+            logger.error(
+                f"[apps] fleet instance for '{toolset_name}' failed ({e}); "
+                f"falling back to the endpoint route"
+            )
+    return ToolsetProxy.from_endpoint(endpoint_service, toolset_name)
 from .template_manager import get_template_manager
 from .models import TeamConfig, AgentConfig
 from pantheon.settings import get_settings
@@ -103,7 +133,7 @@ async def create_agent(
     from pantheon.providers import ToolSetProvider
 
     async def _fetch(toolset_name: str):
-        proxy = ToolsetProxy.from_endpoint(endpoint_service, toolset_name)
+        proxy = await _resolve_toolset_proxy(endpoint_service, toolset_name)
         provider = ToolSetProvider(proxy)
         await provider.initialize()
         return provider

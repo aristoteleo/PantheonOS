@@ -56,7 +56,10 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
         await asyncio.sleep(1.0)
 
-        # the Go runner, dev mode (no controller), data plane off for speed
+        # the Go runner, dev mode (no controller), data plane off for speed.
+        # Output to a file: reading a PIPE after terminate blocks while the
+        # go-run grandchild still holds it.
+        runner_log = open(tmp_path / "runner.log", "w")
         procs.append(subprocess.Popen(
             ["go", "run", "./cmd/fleet", "up",
              "--nats", f"nats://127.0.0.1:{NATS_PORT}", "--fleet", FLEET_ID,
@@ -64,7 +67,7 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
              "--workdir", str(tmp_path), "--no-dataplane",
              "--state-dir", str(tmp_path / "state"), "--kind", "sandbox"],
             cwd=str(FLEET_SRC), env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True))
+            stdout=runner_log, stderr=subprocess.STDOUT))
 
         import nats
 
@@ -92,7 +95,7 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
                     pass
                 await asyncio.sleep(0.5)
             if node_id is None:
-                out = procs[1].stdout.read() if procs[1].stdout else ""
+                out = (tmp_path / "runner.log").read_text(errors="replace")
                 pytest.fail(f"runner never registered; runner output:\n{out[-2000:]}")
 
             # the new registration fields are on the wire
@@ -135,6 +138,43 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
 
             resp = await client.stop(node_id, "shell")
             assert resp.get("ok"), resp
+
+            # --- P3 slice 1: the flag-ON binding path -----------------------
+            # The exact route create_agents_from_template takes when
+            # PANTHEON_APPS_VIA_FLEET is wired: resolver ensures the instance,
+            # ToolsetProxy.from_toolset dials it directly — no endpoint alive
+            # anywhere in this process tree.
+            monkeypatch.setenv("PANTHEON_APPS_VIA_FLEET", "1")
+            monkeypatch.setenv("PANTHEON_FLEET_ID", FLEET_ID)
+            monkeypatch.setenv("PANTHEON_FLEET_NODE_ID", node_id)
+            monkeypatch.setenv("PANTHEON_USER_SEED", "e2e-user")
+            from pantheon.apps.resolver import AppInstanceResolver
+            from pantheon.endpoint import ToolsetProxy
+
+            resolver = AppInstanceResolver.from_env(workdir=str(tmp_path))
+            assert resolver is not None and resolver.resolves("file_manager")
+            sid = await resolver.ensure_instance("file_manager")
+
+            proxy = ToolsetProxy.from_toolset(sid)
+            (tmp_path / "hello.txt").write_text("via-fleet")
+            content = None
+            last_err = None
+            for _ in range(40):
+                try:
+                    res = await asyncio.wait_for(
+                        proxy.invoke("read_file", {"file_path": "hello.txt"}), timeout=3)
+                    content = json.dumps(res, default=str)
+                    break
+                except Exception as e:
+                    last_err = f"{type(e).__name__}: {e}"
+                    await asyncio.sleep(0.5)
+            diag = await client.list(node_id)
+            if not (content and "via-fleet" in content):
+                runner_out = (tmp_path / "runner.log").read_text(errors="replace")
+                pytest.fail(
+                    f"content={content!r} last_err={last_err} instances={diag}\n"
+                    f"--- runner output tail ---\n{runner_out[-3000:]}")
+            await resolver.close()
         finally:
             await nc.close()
     finally:

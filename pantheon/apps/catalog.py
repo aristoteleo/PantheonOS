@@ -40,6 +40,16 @@ class CatalogEntry:
     builtin_target: bool = False     # Go-rewrite batch
     notes: str = ""
 
+    @property
+    def service_type(self) -> str:
+        """The snake_case service name templates use ('file_manager'),
+        derived from the class name the same way the endpoint's
+        _get_toolset_class reverses it."""
+        import re
+        name = self.class_name.removesuffix("ToolSet")
+        s1 = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", name)
+        return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
+
 
 CATALOG: tuple[CatalogEntry, ...] = (
     # ---- body-side services (need the sandbox) ----------------------------
@@ -162,3 +172,8 @@ def app_entries() -> tuple[CatalogEntry, ...]:
 
 def by_class_name() -> dict[str, CatalogEntry]:
     return {e.class_name: e for e in CATALOG}
+
+
+def by_service_type() -> dict[str, CatalogEntry]:
+    """Template service names ('shell', 'file_manager') -> catalog app entry."""
+    return {e.service_type: e for e in app_entries()}
