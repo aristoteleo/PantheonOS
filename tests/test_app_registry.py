@@ -203,7 +203,11 @@ def test_go_batch_apps_declare_interfaces():
     apps = {a.manifest.id: a.manifest for a in toolset_apps()}
     assert [i.name for i in apps["shell"].provides.interfaces] == ["shell"]
     assert [i.name for i in apps["pty"].provides.interfaces] == ["pty"]
-    assert [i.name for i in apps["file-manager"].provides.interfaces] == ["fs"]
+    # fs@1 is the Go-implementable core; the tree-sitter outline is its own
+    # interface so a runner-builtin node can claim fs without cgo grammars
+    assert [i.name for i in apps["file-manager"].provides.interfaces] == ["fs", "outline"]
+    fs = apps["file-manager"].provides.interfaces[0]
+    assert "view_file_outline" not in fs.tools
     # pty's interface covers hidden tools — the frontend's bus contract counts
     pty_tools = {t.name: t for t in apps["pty"].provides.tools}
     for member in apps["pty"].provides.interfaces[0].tools:
