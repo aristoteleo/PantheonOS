@@ -144,6 +144,11 @@ class AppInstanceResolver:
             connect_kwargs: dict = {"servers": servers, "connect_timeout": 5}
             if creds:
                 connect_kwargs["user_credentials"] = creds
+                # Scoped fleet creds only allow subscriptions under the
+                # fleet's own inbox namespace (the runner connects with
+                # CustomInboxPrefix("_INBOX_"+fleet)) — requests made with
+                # the default _INBOX prefix would never see their replies.
+                connect_kwargs["inbox_prefix"] = f"_INBOX_{self._fleet}"
             self._nc = await nats.connect(**connect_kwargs)
             self._client = AppClient(self._nc, self._fleet)
         return self._client
