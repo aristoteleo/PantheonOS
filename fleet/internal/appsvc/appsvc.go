@@ -123,10 +123,11 @@ func (s *Service) Start(ctx context.Context) error {
 		return err
 	}
 	s.sub = sub
+	// KV registration is discovery sugar, not the contract — clients
+	// negotiate via _ping and discover tools via list_tools, and a node's
+	// scoped NATS creds may not reach the JetStream API at all. Best effort.
 	if err := s.registerKV(ctx); err != nil {
-		_ = sub.Unsubscribe()
-		s.sub = nil
-		return fmt.Errorf("kv register: %w", err)
+		fmt.Printf("appsvc: kv registration skipped for %s: %v\n", s.serviceID[:12], err)
 	}
 	return nil
 }
@@ -209,8 +210,11 @@ func (s *Service) dispatch(data []byte) []byte {
 	}
 	switch req.Method {
 	case "_ping":
+		// "serialization" is the negotiation marker: a Python client probes
+		// with a JSON _ping and switches its wire format on seeing it.
 		b, _ := json.Marshal(map[string]any{"result": map[string]any{
 			"status": "ok", "service_id": s.serviceID, "version": s.version,
+			"serialization": "json",
 		}})
 		return b
 	case "list_tools":
