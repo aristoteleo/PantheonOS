@@ -29,8 +29,8 @@ def quote_path(path: str) -> str:
     if os.name == 'nt':  # Windows
         # Windows uses double quotes
         return f'"{path}"'
-    else:
-        return quote_path(path)
+    import shlex
+    return shlex.quote(path)
 
 
 class TestGatewayE2E:
@@ -39,7 +39,7 @@ class TestGatewayE2E:
     @pytest.fixture
     async def running_gateway(self):
         """Start a real gateway and yield it for tests."""
-        from pantheon.endpoint.gateway import UnifiedMCPGateway
+        from pantheon.toolsets.mcp.gateway import UnifiedMCPGateway
         
         gateway = UnifiedMCPGateway(port=3300)
         await gateway.start_gateway()
@@ -136,7 +136,7 @@ if __name__ == "__main__":
     @pytest.mark.asyncio
     async def test_stdio_server_mount_to_gateway(self, echo_server_script):
         """Test STDIO server starts and mounts to gateway correctly."""
-        from pantheon.endpoint.mcp import MCPManager
+        from pantheon.toolsets.mcp.manager import MCPManager
         from fastmcp import Client
         
         manager = MCPManager(port=3310)
@@ -181,7 +181,7 @@ if __name__ == "__main__":
     @pytest.mark.asyncio  
     async def test_mcp_provider_with_gateway(self, echo_server_script):
         """Test MCPProvider can connect to gateway and list tools."""
-        from pantheon.endpoint.mcp import MCPManager
+        from pantheon.toolsets.mcp.manager import MCPManager
         from pantheon.providers import MCPProvider
         
         MCPProvider.clear_instances()
@@ -242,7 +242,7 @@ if __name__ == "__main__":
     @pytest.mark.asyncio
     async def test_refresh_mcp_packages(self, sample_mcp_server, monkeypatch):
         """Test Package Runtime can discover MCP tools from gateway."""
-        from pantheon.endpoint.mcp import MCPManager
+        from pantheon.toolsets.mcp.manager import MCPManager
         from pantheon.internal.package_runtime.manager import PackageManager
         from pantheon.providers import MCPProvider
         import tempfile

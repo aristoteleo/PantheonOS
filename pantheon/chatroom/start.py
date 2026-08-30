@@ -8,8 +8,6 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlencode
 
-# Note: pantheon.endpoint import is deferred to after NATS configuration
-# This ensures environment variables are set before Endpoint reads them
 from pantheon.utils.misc import generate_service_id
 from pantheon.utils.log import logger
 
@@ -84,277 +82,13 @@ def _open_browser_url(url: str) -> bool:
     return bool(webbrowser.open(url))
 
 
-async def _start_endpoint_process(
-    endpoint_id_hash: str,
-    workspace_path: str,
-    log_dir: Path,
-) -> str:
-    from pantheon.remote import connect_remote
-
-    """
-    Start Endpoint in independent subprocess.
-
-    Args:
-        endpoint_id_hash: Hash to generate stable service_id
-        workspace_path: Endpoint workspace directory
-        log_dir: Directory to store endpoint logs
-
-    Returns:
-        endpoint_service_id for connecting to the endpoint
-
-    Raises:
-        RuntimeError: If endpoint fails to start within timeout
-    """
-    logger.info(
-        f"Starting Endpoint in independent subprocess with id_hash={endpoint_id_hash}"
-    )
-
-    # Create log file for subprocess
-    log_file = log_dir / "endpoint-subprocess.log"
-    log_dir.mkdir(parents=True, exist_ok=True)
-
-    # Build and print the command
-    cmd = [
-        sys.executable,
-        "-m",
-        "pantheon.endpoint",
-        "start",
-        "--workspace_path",
-        workspace_path,
-        "--id_hash",
-        endpoint_id_hash,
-    ]
-    cmd_str = " ".join(cmd)
-    logger.info(f"Executing command: {cmd_str}")
-
-    with open(log_file, "w", encoding="utf-8") as f:
-        # Start Endpoint in independent subprocess to avoid resource contention
-        endpoint_proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=f,
-            stderr=asyncio.subprocess.STDOUT,  # Combine stderr with stdout
-        )
-
-    logger.info(
-        f"Endpoint subprocess started with PID={endpoint_proc.pid}, logs: {log_file}"
-    )
-
-    # Generate the endpoint service_id based on the fixed id_hash
-    # Using generate_service_id() which matches NATSRemoteWorker logic
-    endpoint_service_id = generate_service_id(endpoint_id_hash)
-
-    # Wait for endpoint to be ready by polling the connection
-    logger.info(f"Waiting for Endpoint to be ready (service_id={endpoint_service_id})")
-    max_retries = 60  # Max 60 seconds
-    retry_count = 0
-    last_error = None
-
-    while retry_count < max_retries:
-        # Check if subprocess is still running
-        # asyncio.subprocess.Process uses returncode instead of poll()
-        if endpoint_proc.returncode is not None:
-            # Process has exited with error, read logs for diagnosis
-            logger.error(
-                f"✗ Endpoint subprocess exited with code {endpoint_proc.returncode}"
-            )
-            try:
-                with open(log_file, "r", encoding="utf-8") as f:
-                    logs = f.read()
-                    if logs:
-                        logger.error(f"Endpoint subprocess logs:\n{logs}")
-            except Exception as read_err:
-                logger.error(f"Could not read endpoint logs: {read_err}")
-            raise RuntimeError(
-                f"Endpoint subprocess exited with code {endpoint_proc.returncode}. "
-                f"Check logs at: {log_file}"
-            )
-
-        try:
-            # Try to connect to the endpoint
-            # connect_remote() will raise ConnectionError if unable to connect
-            remote = await asyncio.wait_for(
-                connect_remote(endpoint_service_id), timeout=1.0
-            )
-            logger.info(
-                f"✓ Endpoint is ready! Connected to service_id={endpoint_service_id}"
-            )
-            return endpoint_service_id
-        except (ConnectionError, asyncio.TimeoutError) as e:
-            # Connection not ready yet, continue retrying
-            last_error = e
-            retry_count += 1
-            if retry_count % 10 == 0:
-                logger.debug(
-                    f"Endpoint not ready (attempt {retry_count}/{max_retries}): {type(e).__name__}"
-                )
-            await asyncio.sleep(1)
-        except Exception as e:
-            # Unexpected error, fail immediately
-            logger.error(f"✗ Unexpected error connecting to endpoint: {e}")
-            endpoint_proc.terminate()
-            raise
-
-    # Timeout: subprocess still running but failed to connect within max_retries
-    logger.error(f"✗ Failed to connect to Endpoint within {max_retries} seconds")
-    logger.error(f"  Last error: {type(last_error).__name__}")
-    logger.error(f"  Endpoint logs: {log_file}")
-
-    endpoint_proc.terminate()
-    try:
-        await asyncio.sleep(2)
-        if endpoint_proc.returncode is None:
-            # Still running after terminate, force kill
-            endpoint_proc.kill()
-    except Exception:
-        pass
-
-    raise ConnectionError(
-        f"Unable to connect to Endpoint service_id '{endpoint_service_id}' "
-        f"within {max_retries} seconds. "
-        f"Check logs at: {log_file}"
-    )
-
-
-async def _start_endpoint_embedded(
-    endpoint_id_hash: str,
-    workspace_path: str,
-    log_level: str = "INFO",
-    enable_notebook_streaming: bool = False,
-    wait_for_setup: bool = True,
-    start_after: asyncio.Event | None = None,
-) -> "Endpoint":
-    """
-    Start Endpoint in embedded mode (same event loop).
-
-    Args:
-        endpoint_id_hash: Hash to generate stable service_id
-        workspace_path: Endpoint workspace directory
-        log_level: Log level for endpoint
-        enable_notebook_streaming: Enable NATS streaming for notebook (default: False)
-        wait_for_setup: Wait for Endpoint setup/NATS registration before returning.
-            Set to False when ChatRoom should register first and Endpoint can finish
-            booting in the background.
-        start_after: Optional gate for deferred background startup. When provided,
-            Endpoint.run waits for this event before starting setup.
-
-    Returns:
-        Endpoint instance (not service_id)
-
-    Raises:
-        RuntimeError: If endpoint fails to start within timeout
-    """
-    # Deferred import: ensure NATS environment variables are set before importing Endpoint
-    from pantheon.endpoint import Endpoint
-
-    logger.info(f"Starting Endpoint in embedded mode with id_hash={endpoint_id_hash}")
-
-    # Only set config if streaming is explicitly enabled
-    config = {"enable_notebook_streaming": True} if enable_notebook_streaming else None
-
-    endpoint = Endpoint(
-        config=config,
-        workspace_path=workspace_path,
-        id_hash=endpoint_id_hash
-    )
-    # Start endpoint in background as a full RemoteWorker — same process
-    # as ChatRoom, but with its own NATS connection subscribed to the
-    # endpoint's service subject.
-    #
-    # Why not remote=False (the historical default): with remote=False
-    # the Endpoint only sets up its toolsets and stays passive. Every
-    # file-transfer RPC has to come in through ChatRoom's
-    # proxy_toolset, which means chunk replies travel back on the
-    # ChatRoom NATS connection — the same TCP carrying chat tokens
-    # and other interactive responses. A multi-MiB PDF download
-    # head-of-line blocks every chat token queued behind it on that
-    # one TCP. Running Endpoint as a remote worker gives file traffic
-    # its own NATS connection (TCP-B) so the frontend's data channel
-    # can target Endpoint directly without touching the ChatRoom
-    # connection (TCP-A).
-    # The LLM path is warmed NOW, not after the endpoint's boot gate.
-    #
-    # It exists to absorb the cold path a fresh sandbox's first message
-    # pays — Modal egress, proxy ingress, TLS, and the proxy spinning up
-    # the target model's deployment — and almost all of that is WAITING on
-    # the network, not work this process does. Behind the gate it started
-    # six seconds after boot and finished twelve seconds in; a user who
-    # types sooner than that pays the cold path the warm was meant to
-    # absorb, and the first outbound connection from a fresh sandbox often
-    # fails and needs the retry runway. The gate is there so that heavy
-    # CPU work cannot delay the moment the user can talk, which this is
-    # not. (The MCP gateway stays behind it: its cost is imports.)
-    async def _warm_llm_early():
-        try:
-            await endpoint._warmup_llm_connection()
-        except Exception as e:  # noqa: BLE001 — boot must not depend on it
-            logger.info(f"[STARTUP] early LLM warm skipped: {e}")
-
-    asyncio.create_task(_warm_llm_early())
-
-    async def _run_endpoint_background():
-        if start_after is not None:
-            logger.info("Endpoint background boot waiting for ChatRoom NATS readiness")
-            await start_after.wait()
-        return await endpoint.run(remote=True, log_level=log_level)
-
-    endpoint_task = asyncio.create_task(_run_endpoint_background())
-
-    def _on_endpoint_done(task: asyncio.Task):
-        if task.cancelled():
-            return
-        try:
-            exc = task.exception()
-        except asyncio.CancelledError:
-            return
-        if exc:
-            logger.error(f"[STARTUP] Embedded Endpoint.run() failed: {exc}")
-
-    endpoint_task.add_done_callback(_on_endpoint_done)
-
-    if not wait_for_setup:
-        logger.info(
-            "Endpoint boot continues in background (embedded mode, "
-            f"service_id={generate_service_id(endpoint_id_hash)})"
-        )
-        return endpoint
-
-    # Wait for endpoint to be ready
-    logger.info("Waiting for Endpoint to be ready (embedded mode)")
-    max_retries = 300  # Max 30 seconds (300 * 0.1 second)
-    retry_count = 0
-
-    while retry_count < max_retries:
-        try:
-            # Check if endpoint is ready
-            if endpoint._setup_completed:
-                logger.info(
-                    f"✓ Endpoint initialized (embedded mode, service_id={endpoint.service_id})"
-                )
-                return endpoint
-        except Exception as e:
-            logger.debug(f"Endpoint not ready yet: {e}")
-
-        retry_count += 1
-        if retry_count % 5 == 0:
-            logger.debug(
-                f"Endpoint not ready yet (attempt {retry_count}/{max_retries})"
-            )
-        await asyncio.sleep(0.1)
-
-    # Timeout
-    logger.error(f"Failed to start Endpoint after {max_retries * 0.1} seconds")
-    raise RuntimeError(f"Endpoint failed to start within {max_retries * 0.1} seconds")
-
-
 async def start_services(
     service_name: str = None,
     memory_dir: str = None,
-    endpoint_service_id: str | None = None,
     workspace_path: str = None,
     log_level: str = None,
     speech_to_text_model: str = None,
     id_hash: str | None = None,
-    endpoint_mode: str = "embedded",
     nats_servers: str = None,
     auto_start_nats: bool = True,
     auto_ui: str | bool | None = True,
@@ -365,20 +99,17 @@ async def start_services(
     Args:
         service_name: The name of the service. (default from settings)
         memory_dir: The directory to store the memory. (default from settings)
-        endpoint_service_id: The service ID of the remote endpoint.
         workspace_path: The path to the workspace. (default from settings)
         log_level: The level of the log. (default from settings)
         speech_to_text_model: The model to use for speech to text. (default from settings)
         id_hash: Hash string to generate stable service_id (e.g., "alice", "bob"). If not provided, generates a unique UUID per instance.
-        endpoint_mode: How to start the endpoint. Options: "embedded" (same event loop),
-                      "process" (independent subprocess).
         nats_servers: NATS server URL(s). Supports WebSocket (wss://) and TCP (nats://).
                      Multiple servers separated by pipe (|). Overrides NATS_SERVERS env var.
                      Example: "wss://pantheon.aristoteleo.com/nats"
-        auto_start_nats: Automatically start local NATS server (only works with --endpoint-mode embedded).
+        auto_start_nats: Automatically start local NATS server.
                         Default: True (provides nats://localhost:4222 and ws://localhost:8080).
                         Disable with --no-auto-start-nats when connecting to an external NATS.
-        auto_ui: Automatically open browser with auto-connect config when endpoint is ready.
+        auto_ui: Automatically open browser with auto-connect config when ready.
                 Default: True (opens https://pantheon-ui.aristoteleo.com). Requires --auto-start-nats.
                 Pass a custom URL like --auto-ui "http://localhost:5173" to point at a local dev
                 frontend, or --no-auto-ui to suppress (e.g. headless / CI).
@@ -540,7 +271,7 @@ async def start_services(
 
     # ========== STARTUP ==========
     logger.info("[STARTUP] Starting chatroom service...")
-    logger.info(f"[STARTUP] Parameters: auto_start_nats={auto_start_nats}, endpoint_mode={endpoint_mode}")
+    logger.info(f"[STARTUP] Parameters: auto_start_nats={auto_start_nats}")
     logger.debug(f"[STARTUP] NATS_SERVERS env before: {os.environ.get('NATS_SERVERS', 'NOT SET')}")
 
     # Determine work directory once and create it
@@ -559,10 +290,9 @@ async def start_services(
         logger.info("[STARTUP] Auto-starting local NATS server...")
 
         # Validate: only supported in embedded mode
-        if endpoint_mode != "embedded":
+        if False:
             raise ValueError(
-                "Auto-start NATS is only supported with --endpoint-mode embedded.\n"
-                f"Current mode: {endpoint_mode}\n\n"
+                "unreachable\n"
                 "Please use embedded mode (default) or start NATS manually."
             )
 
@@ -720,62 +450,18 @@ async def start_services(
         else:
             logger.warning(f"[STARTUP] .env.example template not found at {env_template}")
 
-    # ===== Step 1: Start or connect Endpoint =====
-    endpoint = None
-    final_endpoint_service_id = endpoint_service_id
-    endpoint_start_gate = None
-
-    if final_endpoint_service_id is None:
-        # Generate id_hash if not provided
-        if id_hash is None:
-            # Use a unique UUID so each chatroom instance gets its own service_id,
-            # preventing conflicts when multiple instances run concurrently
-            id_hash = str(uuid.uuid4())
-
-        # Endpoint and ChatRoom must have DISTINCT id_hashes — generate_service_id
-        # is SHA256(id_hash) and ignores the service name, so reusing id_hash for
-        # both would land them on the same NATS subject. With Endpoint now running
-        # as its own NATS worker (remote=True, see _start_endpoint_embedded), two
-        # subscribers on the same subject means NATS queue-group load-balances
-        # incoming RPCs between them — every other create_chat / list_chats
-        # call would hit Endpoint, which doesn't have those methods, and fail.
-        # The "-endpoint" suffix is stable + deterministic so reconnects still
-        # land on the same service_id.
-        endpoint_id_hash = f"{id_hash}-endpoint"
-
-        # Start endpoint based on mode
-        if endpoint_mode == "embedded":
-            endpoint_start_gate = asyncio.Event()
-            # Embed mode: return Endpoint instance
-            endpoint = await _start_endpoint_embedded(
-                endpoint_id_hash=endpoint_id_hash,
-                workspace_path=workspace_path,
-                log_level=log_level,
-                enable_notebook_streaming=True,  # Enable streaming for chatroom
-                wait_for_setup=False,
-                start_after=endpoint_start_gate,
-            )
-        elif endpoint_mode == "process":
-            # Process mode: return service_id
-            log_dir = Path(memory_dir) / ".chatroom-logs"
-            final_endpoint_service_id = await _start_endpoint_process(
-                endpoint_id_hash=endpoint_id_hash,
-                workspace_path=workspace_path,
-                log_dir=log_dir,
-            )
-        else:
-            raise ValueError(
-                f"Invalid endpoint_mode: {endpoint_mode}. "
-                f"Must be 'process' or 'embedded'"
-            )
-    else:
-        # Using existing endpoint_service_id
-        endpoint_mode = "process"
+    # ===== Step 1: Identity =====
+    if id_hash is None:
+        # Unique per instance so concurrent chatrooms don't collide on a subject
+        id_hash = str(uuid.uuid4())
 
     # ===== Step 2: Create ChatRoom =====
+    # Toolsets are App instances placed by the fleet runner; there is no
+    # endpoint to boot. The resolver reads its coordinates lazily from the
+    # runner's runtime.json (PANTHEON_FLEET_STATE_DIR).
     chat_room = ChatRoom(
-        endpoint=endpoint if endpoint is not None else final_endpoint_service_id,
         memory_dir=memory_dir,
+        workspace_path=workspace_path,
         name=service_name,
         speech_to_text_model=speech_to_text_model,
         enable_nats_streaming=True,  # Enable NATS streaming for remote service
@@ -819,36 +505,6 @@ async def start_services(
 
     run_task = asyncio.create_task(chat_room.run(log_level=log_level, remote=True))
     run_task.add_done_callback(_on_run_error)
-
-    async def _release_endpoint_after_chatroom_ready():
-        if endpoint_start_gate is None:
-            return
-        ready_wait_task = asyncio.create_task(chat_room._worker_ready.wait())
-        try:
-            done, _ = await asyncio.wait(
-                {ready_wait_task, run_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if ready_wait_task in done and chat_room._worker_ready.is_set():
-                logger.info("[STARTUP] ChatRoom NATS ready; starting embedded Endpoint background boot.")
-            else:
-                logger.info("[STARTUP] ChatRoom run ended before readiness; releasing embedded Endpoint boot gate.")
-        except Exception as exc:
-            logger.warning(f"[STARTUP] Could not wait for ChatRoom readiness before Endpoint boot: {exc}")
-        finally:
-            if not ready_wait_task.done():
-                ready_wait_task.cancel()
-            endpoint_start_gate.set()
-
-    endpoint_release_task = None
-    if endpoint_start_gate is not None:
-        endpoint_release_task = asyncio.create_task(_release_endpoint_after_chatroom_ready())
-
-        def _release_endpoint_if_chatroom_exits(task: asyncio.Task):
-            if not endpoint_start_gate.is_set():
-                endpoint_start_gate.set()
-
-        run_task.add_done_callback(_release_endpoint_if_chatroom_exits)
 
     # ===== Step 3.5: Wait for worker to subscribe, then open browser / emit PANTHEON_READY =====
     if auto_start_nats and server_info is not None:

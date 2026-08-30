@@ -5,10 +5,9 @@ The endpoint-free path: given the service names templates already use
 via the fleet supervisor and hand back the service_id to dial directly
 (ToolsetProxy.from_toolset — the mode that has existed all along).
 
-Gated by environment, additive by construction: nothing uses this unless
-PANTHEON_APPS_VIA_FLEET is truthy and the fleet coordinates are present.
+The resolver is the ONLY binding path — the endpoint it once fell back to
+is gone. Coordinates come from the environment:
 
-    PANTHEON_APPS_VIA_FLEET=1
     PANTHEON_FLEET_ID=<fleet id>          (the user's fleet)
     PANTHEON_FLEET_NODE_ID=<node id>      (the node to place on — own sandbox)
     PANTHEON_USER_SEED=<id_hash>          (instance service-id seeds)
@@ -29,12 +28,6 @@ import os
 from pathlib import Path
 
 from pantheon.utils.log import logger
-
-
-def apps_via_fleet_enabled() -> bool:
-    return os.environ.get("PANTHEON_APPS_VIA_FLEET", "").strip().lower() in (
-        "1", "true", "on", "yes",
-    )
 
 
 class AppInstanceResolver:
@@ -66,16 +59,14 @@ class AppInstanceResolver:
     @classmethod
     def from_env(cls, workdir: str | None = None) -> "AppInstanceResolver | None":
         """The environment-configured resolver, or None when not wired."""
-        if not apps_via_fleet_enabled():
-            return None
         fleet_id = os.environ.get("PANTHEON_FLEET_ID", "")
         node_id = os.environ.get("PANTHEON_FLEET_NODE_ID", "")
         seed = os.environ.get("PANTHEON_USER_SEED") or os.environ.get("ID_HASH", "")
         state_dir = os.environ.get("PANTHEON_FLEET_STATE_DIR", "/tmp/fleet-node")
         if not seed:
             logger.warning(
-                "[apps] PANTHEON_APPS_VIA_FLEET set but no user seed "
-                "(PANTHEON_USER_SEED / ID_HASH)"
+                "[apps] no user seed (PANTHEON_USER_SEED / ID_HASH); "
+                "App instances unavailable"
             )
             return None
         if not (fleet_id and node_id):
@@ -121,7 +112,7 @@ class AppInstanceResolver:
             logger.warning(
                 f"[apps] fleet App-instance path disabled after "
                 f"{self._consecutive_failures} consecutive failures; "
-                f"all binds take the endpoint route"
+                f"tool binds will fail until the runner is reachable"
             )
 
     async def _ensure_client(self):

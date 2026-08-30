@@ -9,7 +9,6 @@ from contextvars import ContextVar
 from functools import partial, wraps
 from typing import Callable, Optional
 
-from executor.engine import Engine, ProcessJob
 from funcdesc import parse_func
 
 import pantheon.utils.log as log
@@ -477,37 +476,6 @@ class ToolSet(ABC):
         transport = mcp_kwargs.get("transport", "http")
         show_banner = mcp_kwargs.get("show_banner", True)
         await mcp.run_async(transport=transport, show_banner=show_banner)
-
-
-async def _run_toolset(toolset: ToolSet, log_level: str = "WARNING"):
-    await toolset.run(log_level)
-
-
-@asynccontextmanager
-async def run_toolsets(
-    toolsets: list[ToolSet],
-    engine: Engine | None = None,
-    log_level: str = "WARNING",
-):
-    logger.remove()
-    logger.add(sys.stderr, level=log_level)
-    if engine is None:
-        engine = Engine()
-    jobs = []
-    for toolset in toolsets:
-        job = ProcessJob(
-            _run_toolset,
-            args=(toolset, log_level),
-        )
-        jobs.append(job)
-    await engine.submit_async(*jobs)
-    for job in jobs:
-        await job.wait_until_status("running")
-    yield
-    for job in jobs:
-        await job.cancel()
-    await engine.wait_async()
-    engine.stop()
 
 
 def toolset_cli(toolset_type: type[ToolSet], default_service_name: str):

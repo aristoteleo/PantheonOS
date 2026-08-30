@@ -118,10 +118,9 @@ class MCPCommandHandler(CommandHandler):
         self.console.print()
     
     async def _get_mcp_manager(self):
-        """Get MCPManager from Endpoint via ChatRoom."""
-        chatroom = getattr(self.parent, '_chatroom', None)
-        if chatroom and hasattr(chatroom, '_endpoint'):
-            return chatroom._endpoint.mcp_manager
+        """Retired with the endpoint: MCP lives on the mcp-gateway App
+        instance now. TODO(R2): drive it via the instance's bus tools
+        (list_servers/start_servers/…, plus an add_server tool)."""
         return None
     
     async def _list_servers(self) -> str | None:
@@ -373,7 +372,7 @@ class MCPCommandHandler(CommandHandler):
             self.console.print("[red]MCP manager not available[/red]")
             return None
         
-        from pantheon.endpoint.mcp import MCPServerConfig, MCPServerType
+        from pantheon.toolsets.mcp.manager import MCPServerConfig, MCPServerType
         
         try:
             if server_type == "http":

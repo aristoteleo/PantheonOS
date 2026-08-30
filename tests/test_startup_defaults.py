@@ -3,8 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from pantheon.endpoint.core import Endpoint
-from pantheon.endpoint.gateway import UnifiedMCPGateway
+from pantheon.toolsets.mcp.gateway import UnifiedMCPGateway
 from pantheon.factory.template_io import FileBasedTemplateManager
 from pantheon.factory.template_manager import TemplateManager
 from pantheon.settings import load_jsonc
@@ -27,12 +26,16 @@ def test_factory_default_memory_selection_model_is_low():
     assert settings["memory_system"]["selection_model"] == "low"
 
 
-def test_default_team_keeps_package_for_lazy_dynamic_start():
+def test_default_team_has_no_retired_toolsets():
     parser = FileBasedTemplateManager(Path("/tmp")).parser
     team = parser.parse_team((TEMPLATES_DIR / "teams" / "default.md").read_text())
     leader = next(agent for agent in team.agents if agent.id == "leader")
 
-    assert "package" in leader.toolsets
+    # 'package' died with the toolset cleanup; every declared toolset must
+    # be a catalog App (or the think pseudo-toolset)
+    from pantheon.apps.catalog import by_service_type
+    known = set(by_service_type()) | {"think", "task"}
+    assert set(leader.toolsets) <= known, set(leader.toolsets) - known
 
 
 def test_factory_runtime_fallback_assets_are_included_in_package_metadata():
@@ -193,83 +196,6 @@ def test_global_template_sync_preserves_user_modified_files(monkeypatch, tmp_pat
     manager._ensure_default_templates()
 
     assert global_team.read_text(encoding="utf-8") == "user edited\n"
-
-
-@pytest.mark.asyncio
-async def test_endpoint_background_startup_waits_until_worker_ready(monkeypatch):
-    events: list[str] = []
-    gateway_can_finish = asyncio.Event()
-
-    class FakeSettings:
-        def get_mcp_config(self):
-            return {"servers": {}, "auto_start": []}
-
-    class FakeGateway:
-        async def start_gateway(self):
-            events.append("gateway_started")
-            await gateway_can_finish.wait()
-            events.append("gateway_finished")
-
-    class FakeMCPManager:
-        def __init__(self):
-            self._gateway = FakeGateway()
-            self.port = 3100
-
-        async def load_config(self, _config):
-            return {"errors": []}
-
-        def get_unified_uri(self):
-            return "http://localhost:3100/mcp"
-
-        async def start_services(self, _services):
-            events.append("mcp_services_started")
-            return {"success": True, "started": []}
-
-    class FakeToolSetManager:
-        async def start_services(self, services, local_retries=10, remote_retries=10):
-            events.append(f"builtin_started:{services}")
-            return {"success": True, "started": services, "errors": []}
-
-    endpoint = object.__new__(Endpoint)
-    endpoint.config = {"builtin_services": []}
-    endpoint.worker = object()
-    endpoint._worker_ready = asyncio.Event()
-    endpoint.mcp_manager = FakeMCPManager()
-    endpoint.toolset_manager = FakeToolSetManager()
-
-    async def services_ready():
-        return True
-
-    async def warmup():
-        events.append("warmup_started")
-
-    async def mount_endpoint_mcp():
-        events.append("endpoint_mcp_mounted")
-
-    endpoint.services_ready = services_ready
-    endpoint._warmup_llm_connection = warmup
-    endpoint._start_endpoint_mcp_server = mount_endpoint_mcp
-
-    monkeypatch.setattr("pantheon.endpoint.core.get_settings", lambda: FakeSettings())
-
-    await endpoint.run_setup()
-    await asyncio.sleep(0)
-
-    assert events == ["builtin_started:[]"]
-
-    endpoint._worker_ready.set()
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
-
-    assert "gateway_started" in events
-    assert "warmup_started" in events
-
-    gateway_can_finish.set()
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
-
-    assert "gateway_started" in events
-    assert "endpoint_mcp_mounted" in events
 
 
 @pytest.mark.asyncio

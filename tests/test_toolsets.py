@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-from pantheon.toolset import tool, ToolSet, run_toolsets
+from pantheon.toolset import tool, ToolSet
 from pantheon.remote import connect_remote
 from pantheon.toolsets.web import WebToolSet
 from pantheon.toolsets.python.python_interpreter import PythonInterpreterToolSet

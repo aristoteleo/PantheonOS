@@ -554,7 +554,7 @@ class DesktopSessionStore:
 # bug this module exists to fix, reintroduced one layer up.
 #
 # Process-wide was the second wrong answer. The toolset does not run in one
-# process either (`run_toolsets` submits a ProcessJob per toolset), so this is
+# process either, so this is
 # a CACHE of the record rather than the document itself — every call reloads it
 # if the file has moved on. What makes the desktop shared is the record; this
 # just saves re-parsing it when nothing has changed.

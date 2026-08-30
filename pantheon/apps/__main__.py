@@ -90,8 +90,8 @@ def _check() -> None:
 def _prestart(services: list[str], wait: float) -> None:
     """Warm App instances so the first bind doesn't pay the cold start.
 
-    Run by the sandbox entrypoint (background) when PANTHEON_APPS_VIA_FLEET
-    is wired. The local runner joins asynchronously, so this waits for its
+    Run by the sandbox entrypoint (background). The local runner joins
+    asynchronously, so this waits for its
     runtime.json up to --wait seconds, then ensures each instance. Failures
     are per-service and non-fatal: this is an optimization, the resolver
     still lazy-starts at bind time.
@@ -103,7 +103,7 @@ def _prestart(services: list[str], wait: float) -> None:
 
     resolver = get_shared_resolver()
     if resolver is None:
-        print("prestart: resolver not wired (PANTHEON_APPS_VIA_FLEET off) — nothing to do")
+        print("prestart: resolver not wired (no user seed) — nothing to do")
         return
 
     async def run() -> int:

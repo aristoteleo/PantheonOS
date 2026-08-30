@@ -1,32 +1,30 @@
 import asyncio
 from pantheon.agent import Agent
-from pantheon.endpoint import ToolsetProxy
+from pantheon.apps.proxy import ToolsetProxy
 from pantheon.utils.log import logger
 
-async def _resolve_toolset_proxy(endpoint_service, toolset_name: str):
-    """The one binding decision (§08b P3): endpoint route, or a direct App
-    instance dialed by service_id — same ToolsetProxy either way, so
-    providers and agents cannot tell the difference."""
+async def _resolve_toolset_proxy(toolset_name: str) -> ToolsetProxy:
+    """The one binding decision: every toolset is an App instance, ensured
+    on the user's node via the fleet runner and dialed by service_id.
+    There is no other route."""
     from pantheon.apps.resolver import get_shared_resolver
 
     resolver = get_shared_resolver()
-    if resolver is not None and resolver.resolves(toolset_name):
-        try:
-            service_id = await resolver.ensure_instance(toolset_name)
-            return ToolsetProxy.from_toolset(service_id)
-        except Exception as e:
-            logger.error(
-                f"[apps] fleet instance for '{toolset_name}' failed ({e}); "
-                f"falling back to the endpoint route"
-            )
-    return ToolsetProxy.from_endpoint(endpoint_service, toolset_name)
+    if resolver is None:
+        raise RuntimeError(
+            f"cannot bind toolset '{toolset_name}': the App resolver is not "
+            f"wired (no fleet runner coordinates in this environment)"
+        )
+    if not resolver.resolves(toolset_name):
+        raise RuntimeError(f"'{toolset_name}' is not a known App in the catalog")
+    service_id = await resolver.ensure_instance(toolset_name)
+    return ToolsetProxy.from_toolset(service_id)
 from .template_manager import get_template_manager
 from .models import TeamConfig, AgentConfig
 from pantheon.settings import get_settings
 
 
 async def create_agent(
-    endpoint_service,
     name: str,
     instructions: str,
     model: str,
@@ -40,7 +38,6 @@ async def create_agent(
     """Create an agent from a template with all providers (toolsets and MCP servers).
 
     Args:
-        endpoint_service: The endpoint service to use for the agent.
         name: The name of the agent.
         instructions: The instructions for the agent.
         model: The model to use for the agent.
@@ -121,7 +118,7 @@ async def create_agent(
     from pantheon.providers import ToolSetProvider
 
     async def _fetch(toolset_name: str):
-        proxy = await _resolve_toolset_proxy(endpoint_service, toolset_name)
+        proxy = await _resolve_toolset_proxy(toolset_name)
         provider = ToolSetProvider(proxy)
         await provider.initialize()
         return provider
@@ -145,38 +142,22 @@ async def create_agent(
     # ===== Add MCP providers =====
     # Loop handles empty set naturally - no execution if set is empty
 
-    # Endpoint-free route: when the resolver is wired, the mcp-gateway App
-    # instance answers everything the endpoint's mcp_manager used to —
-    # server starts here, the unified URI below. Failure falls back.
-    async def _gateway_call(method: str, call_args: dict) -> dict | None:
+    # The mcp-gateway App instance answers everything the endpoint's
+    # mcp_manager used to: server starts here, the unified URI below.
+    async def _gateway_call(method: str, call_args: dict) -> dict:
         from pantheon.apps.resolver import get_shared_resolver
 
         resolver = get_shared_resolver()
-        if resolver is None or not resolver.resolves("mcp_gateway"):
-            return None
-        try:
-            sid = await resolver.ensure_instance("mcp_gateway")
-            return await ToolsetProxy.from_toolset(sid).invoke(method, call_args)
-        except Exception as e:
-            logger.error(f"[apps] mcp-gateway {method} failed ({e}); "
-                         f"falling back to the endpoint route")
-            return None
+        if resolver is None:
+            raise RuntimeError("the App resolver is not wired; MCP unavailable")
+        sid = await resolver.ensure_instance("mcp_gateway")
+        return await ToolsetProxy.from_toolset(sid).invoke(method, call_args)
 
     # First, ensure all required MCP servers are started
     if servers_to_start:
         try:
-            from pantheon.utils.misc import call_endpoint_method
-
             logger.info(f"Agent '{name}': Ensuring MCP servers are started: {servers_to_start}")
             result = await _gateway_call("start_servers", {"names": servers_to_start})
-            if result is None:
-                result = await call_endpoint_method(
-                    endpoint_service,
-                    endpoint_method_name="manage_service",
-                    action="start",
-                    service_type="mcp",
-                    name=servers_to_start,
-                )
             if not result.get("success"):
                 logger.warning(
                     f"Agent '{name}': Failed to start some MCP servers: {result.get('errors', [])}"
@@ -190,7 +171,6 @@ async def create_agent(
     
     # Now add MCP providers
     try:
-        from pantheon.utils.misc import call_endpoint_method
         from pantheon.providers import MCPProvider
 
         # Get unified gateway URI (only if we'll use it)
@@ -199,25 +179,9 @@ async def create_agent(
             # Get URI on first iteration
             if unified_uri is None:
                 direct = await _gateway_call("get_uri", {})
-                if direct and direct.get("uri"):
-                    unified_uri = direct["uri"]
-                else:
-                    result = await call_endpoint_method(
-                        endpoint_service,
-                        endpoint_method_name="manage_service",
-                        action="get",
-                        service_type="mcp",
-                        name="mcp",
-                    )
-
-                    if not result.get("success"):
-                        raise UserWarning(
-                            f"Failed to get unified gateway: {result.get('message', 'Unknown error')}"
-                        )
-
-                    unified_uri = result.get("service", {}).get("uri")
-                    if not unified_uri:
-                        raise UserWarning("Unified gateway has no URI configured")
+                unified_uri = (direct or {}).get("uri")
+                if not unified_uri:
+                    raise UserWarning("Unified gateway has no URI configured")
 
             # Add provider for this MCP server
             if server_name == "mcp":
@@ -243,7 +207,7 @@ async def create_agent(
 
 
 async def create_agents_from_template(
-    endpoint_service, agent_configs: dict, enable_mcp: bool = True
+    agent_configs: dict, enable_mcp: bool = True
 ) -> list:
     """Create agents from agent configs."""
     # The agents do not depend on each other either, and each is mostly waiting
@@ -251,7 +215,7 @@ async def create_agents_from_template(
     # the first agent is the team's leader.
     built = await asyncio.gather(
         *(
-            create_agent(endpoint_service, enable_mcp=enable_mcp, **agent_config)
+            create_agent(enable_mcp=enable_mcp, **agent_config)
             for agent_config in agent_configs.values()
         ),
         return_exceptions=True,
@@ -272,7 +236,6 @@ async def create_agents_from_template(
 
 
 async def create_team_from_template(
-    endpoint_service,
     template_id: str,
     check_toolsets: bool = True,
     enable_mcp: bool = True,
@@ -287,12 +250,11 @@ async def create_team_from_template(
     1. Loads the team template by ID
     2. Prepares agent configurations
     3. Optionally checks toolset availability
-    4. Creates agents with endpoint connection
+    4. Creates agents bound to App instances
     5. Initializes plugins (memory, learning, compression)
     6. Returns a fully initialized PantheonTeam
 
     Args:
-        endpoint_service: The endpoint service for toolset/MCP connections
         template_id: Team template ID (e.g., "default", "data_research_team")
         check_toolsets: If True, warns about unavailable toolsets
         enable_mcp: If True, enables MCP server connections
@@ -304,7 +266,6 @@ async def create_team_from_template(
         ValueError: If template not found
     """
     from pantheon.team import PantheonTeam
-    from pantheon.utils.misc import call_endpoint_method
 
 
     # 2. Load template
@@ -325,9 +286,7 @@ async def create_team_from_template(
         logger.debug(f"Team '{template_id}' requires toolsets: {required_toolsets}")
 
     # 5. Create agents
-    agents = await create_agents_from_template(
-        endpoint_service, agent_configs, enable_mcp=enable_mcp
-    )
+    agents = await create_agents_from_template(agent_configs, enable_mcp=enable_mcp)
 
     # 6. Initialize plugins via centralized registry
     from pantheon.team.plugin_registry import create_plugins

@@ -13,7 +13,7 @@ from pantheon.team import Team
 from pantheon.utils.log import logger
 from pantheon.utils.vision import vision_input
 from pantheon.utils.misc import print_agent_message
-from pantheon.endpoint import ToolsetProxy
+from pantheon.apps.proxy import ToolsetProxy
 
 
 async def run_app(

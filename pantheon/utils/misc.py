@@ -36,28 +36,6 @@ def generate_service_id(id_hash: str) -> str:
     return hash_obj.hexdigest()
 
 
-async def call_endpoint_method(
-    endpoint_service: Any, endpoint_method_name: str, **kwargs
-) -> Any:
-    """
-    Call a method on endpoint service, supporting both Endpoint instances and remote services.
-
-    This function handles both:
-    - Direct Endpoint instances: calls method directly
-    - Remote services: uses invoke() for RPC
-    """
-    # Import here to avoid circular imports
-    from pantheon.endpoint.core import Endpoint
-
-    if isinstance(endpoint_service, Endpoint):
-        # Direct Endpoint instance - call method directly
-        method = getattr(endpoint_service, endpoint_method_name)
-        return await method(**kwargs)
-    else:
-        # Remote service - use invoke() for RPC
-        return await endpoint_service.invoke(endpoint_method_name, kwargs)
-
-
 async def run_func(func: Callable, *args, **kwargs):
     # Check if it's a regular coroutine function
     if inspect.iscoroutinefunction(func):

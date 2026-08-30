@@ -32,7 +32,7 @@ from .special_agents import get_suggestion_generator
 from .thread import Thread
 
 if TYPE_CHECKING:
-    from pantheon.endpoint import Endpoint
+    from pantheon.team import PantheonTeam
 
 
 DEFAULT_TOOLSETS = []
@@ -79,10 +79,8 @@ class ChatRoom(ToolSet):
     ChatRoom is a service that allows user to interact with a team of agents.
 
     Args:
-        endpoint: Endpoint instance (embed mode), service_id string (remote mode),
-                  or None (auto-create Endpoint in embed mode).
         memory_dir: The directory to store the memory.
-        workspace_path: Workspace path for auto-created Endpoint (only used when endpoint=None).
+        workspace_path: Workspace root for this chatroom (defaults to settings).
         name: The name of the chatroom.
         description: The description of the chatroom.
         speech_to_text_model: The model to use for speech to text.
@@ -96,7 +94,6 @@ class ChatRoom(ToolSet):
 
     def __init__(
         self,
-        endpoint: "Endpoint | str | None" = None,
         memory_dir: str = "./.pantheon/memory",
         workspace_path: str | None = None,
         name: str = "pantheon-chatroom",
@@ -117,63 +114,18 @@ class ChatRoom(ToolSet):
 
         self._started_monotonic = _t_boot.monotonic()
 
-        # ChatRoom specific initialization (before endpoint setup for workspace_path default)
-        # Convert to absolute path BEFORE Endpoint creation (Endpoint does os.chdir)
         self.memory_dir = Path(memory_dir).resolve()
         # Per-project memory routing: list/new follow the active project; per-chat
         # ops follow each chat to its own project's .pantheon/memory. The work_dir
         # is "home" (owns chats with no project of their own).
         self.memory_manager = ProjectRoutedMemoryManager(self.memory_dir)
 
-        # Determine endpoint connection mode based on type
-        if isinstance(endpoint, str):
-            # Remote mode: endpoint is a service_id string
-            self._endpoint_embed = False
-            self._endpoint = None
-            self.endpoint_service_id = endpoint
-            self._auto_created_endpoint = False
-        elif endpoint is None:
-            # Auto-create mode: create Endpoint instance automatically
-            from pantheon.endpoint import Endpoint
+        # Workspace root: every toolset App instance for this user is rooted
+        # here (per-project chats get project-scoped instances instead).
+        if workspace_path is None:
+            from pantheon.settings import get_settings
 
-            # Use workspace_path or default to .pantheon dir (where settings.json lives)
-            if workspace_path is None:
-                # settings is already loaded in __init__ via get_settings() call if needed,
-                # but better to get it fresh or via kwargs if possible.
-                # Actually, ChatRoom doesn't hold settings instance directly in __init__ args,
-                # but we can get it from the factory or create a new one.
-                # Since we want consistency, let's use the global settings instance.
-                from pantheon.settings import get_settings
-
-                settings = get_settings()
-                workspace_path = str(settings.workspace)
-
-            self._endpoint = Endpoint(
-                config=None,
-                workspace_path=workspace_path,
-            )
-            self._endpoint_embed = True
-            self.endpoint_service_id = None
-            self._auto_created_endpoint = True
-            logger.info(f"ChatRoom: auto-created Endpoint at {workspace_path}")
-        else:
-            # Embed mode: endpoint is an Endpoint instance
-            self._endpoint_embed = True
-            self._endpoint = endpoint
-            self.endpoint_service_id = None
-            self._auto_created_endpoint = False
-
-        self._endpoint_service = None
-        # Connection pool keyed by endpoint service_id (supports multiple
-        # endpoints, one per project). ChatRoom reaches endpoints over the
-        # INTERNAL backend (PANTHEON_INTERNAL_BACKEND, e.g. local TCP) while its
-        # own outward worker stays on the primary backend (NATS) for the frontend.
-        self._endpoint_services: dict = {}
-        self._internal_backend = None
-        # Per-project endpoint subprocesses: project_path -> {service_id, proc, log}
-        self._project_endpoints: dict = {}
-        # Per-project spawn locks so concurrent tool calls don't duplicate-spawn.
-        self._project_endpoint_locks: dict = {}
+            workspace_path = str(get_settings().workspace)
 
         # NATS streaming (optional)
         self._nats_adapter = None
@@ -253,137 +205,6 @@ class ChatRoom(ToolSet):
         # Plugin system (memory, learning, compression)
         self._init_plugins()
 
-    def _get_internal_backend(self):
-        """Backend ChatRoom uses to reach endpoints. Defaults to the global
-        backend, but PANTHEON_INTERNAL_BACKEND (e.g. "tcp") lets ChatRoom talk
-        to endpoints over a local transport while its own outward worker stays
-        on the primary backend (NATS) for the frontend."""
-        if self._internal_backend is None:
-            import os
-            from pantheon.remote import RemoteBackendFactory
-
-            internal = os.getenv("PANTHEON_INTERNAL_BACKEND")
-            if internal:
-                from pantheon.remote.factory import RemoteConfig
-
-                self._internal_backend = RemoteBackendFactory.create_backend(
-                    RemoteConfig.from_config(backend=internal)
-                )
-            else:
-                self._internal_backend = RemoteBackendFactory.create_backend()
-        return self._internal_backend
-
-    async def _get_endpoint_service(self, endpoint_service_id: str | None = None):
-        """Get endpoint service object (embedded instance or a pooled RemoteService).
-
-        Pass endpoint_service_id to route to a specific endpoint (multi-project);
-        defaults to self.endpoint_service_id.
-        """
-        sid = endpoint_service_id or self.endpoint_service_id
-        # Embedded fast-path only for the owned/default endpoint
-        if self._endpoint_embed and (endpoint_service_id is None or sid == self.endpoint_service_id):
-            return self._endpoint
-        # Connection pool keyed by service_id
-        svc = self._endpoint_services.get(sid)
-        if svc is None:
-            backend = self._get_internal_backend()
-            svc = await backend.connect(sid)
-            self._endpoint_services[sid] = svc
-        return svc
-
-    async def _ensure_project_endpoint(self, project_path: str) -> str:
-        """Lazily spawn a dedicated endpoint subprocess for a project directory
-        and return its service_id. Each project gets its own endpoint process
-        (own work_dir), so multiple projects run concurrently. The endpoint's
-        primary worker uses the internal backend (e.g. local TCP) for ChatRoom;
-        its secondary worker stays on NATS for the frontend (dual-channel).
-
-        A per-project lock serializes concurrent callers so the same project is
-        spawned exactly once (otherwise parallel tool calls race and create
-        duplicate endpoints that fight over the same service_id / registry)."""
-        project_path = str(Path(project_path).resolve())
-        lock = self._project_endpoint_locks.get(project_path)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._project_endpoint_locks[project_path] = lock
-        async with lock:
-            existing = self._project_endpoints.get(project_path)
-            if existing is not None:
-                proc = existing.get("proc")
-                if proc is None or proc.returncode is None:
-                    return existing["service_id"]
-                # process died — drop and respawn
-                self._project_endpoints.pop(project_path, None)
-                self._endpoint_services.pop(existing["service_id"], None)
-            return await self._spawn_project_endpoint(project_path)
-
-    async def _spawn_project_endpoint(self, project_path: str) -> str:
-        """Spawn a per-project endpoint subprocess and wait until ready.
-        Always called under the project's lock (see _ensure_project_endpoint)."""
-        import os
-        import sys
-        import hashlib
-
-        id_hash = "proj-" + hashlib.sha256(project_path.encode()).hexdigest()[:16]
-        sid = generate_service_id(id_hash)
-        Path(project_path).mkdir(parents=True, exist_ok=True)
-        log_dir = Path(project_path) / ".pantheon" / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / "endpoint-subprocess.log"
-
-        env = dict(os.environ)
-        internal = os.getenv("PANTHEON_INTERNAL_BACKEND", "tcp")
-        env["PANTHEON_REMOTE_BACKEND"] = internal  # endpoint primary = internal transport (ChatRoom side)
-        env.setdefault("PANTHEON_FRONTEND_BACKEND", "nats")  # endpoint secondary = frontend
-        # Safety net: a spawned endpoint must NEVER auto-open a browser. If the
-        # binary ever falls through to start_services, this still suppresses it.
-        env["PANTHEON_DISABLE_AUTO_UI"] = "1"
-
-        if getattr(sys, "frozen", False):
-            # PyInstaller bundle: `-m pantheon.endpoint` does NOT work — the exe's
-            # entry point is fixed to pantheon.chatroom, so `-m …` falls through to
-            # `start` and launches a second chatroom (wrong: opens a browser, wrong
-            # work dir). Use the chatroom exe's `endpoint` subcommand instead; it
-            # routes to the same start_endpoint() and is reachable from the binary.
-            cmd = [
-                sys.executable, "endpoint",
-                "--workspace_path", project_path, "--id_hash", id_hash,
-            ]
-        else:
-            cmd = [
-                sys.executable, "-m", "pantheon.endpoint", "start",
-                "--workspace_path", project_path, "--id_hash", id_hash,
-            ]
-        logger.info(f"[multi-project] spawning endpoint for {project_path} (sid={sid[:12]}…)")
-        log_fh = open(log_file, "w", encoding="utf-8")
-        proc = await asyncio.create_subprocess_exec(
-            *cmd, env=env, stdout=log_fh, stderr=asyncio.subprocess.STDOUT
-        )
-
-        backend = self._get_internal_backend()
-        ready = False
-        for _ in range(600):  # up to ~60s
-            if proc.returncode is not None:
-                raise RuntimeError(
-                    f"endpoint for {project_path} exited (code={proc.returncode}); see {log_file}"
-                )
-            try:
-                svc = await backend.connect(sid)
-                await svc.invoke("_ping")
-                ready = True
-                break
-            except Exception:
-                await asyncio.sleep(0.1)
-        if not ready:
-            proc.terminate()
-            raise TimeoutError(f"endpoint for {project_path} not ready in 60s; see {log_file}")
-
-        self._project_endpoints[project_path] = {
-            "service_id": sid, "proc": proc, "log": str(log_file),
-        }
-        logger.info(f"[multi-project] endpoint ready for {project_path} (sid={sid[:12]}…)")
-        return sid
-
     def _is_home_dir(self, p) -> bool:
         """Is `p` the home (work_dir) project? Home uses the default endpoint."""
         try:
@@ -392,50 +213,11 @@ class ChatRoom(ToolSet):
         except Exception:
             return False
 
-    async def _resolve_endpoint_for_chat(self, session_id: str | None) -> str | None:
-        """Resolve which endpoint a chat should use so its tools AND file panel
-        see the right project's files.
-
-        Priority: (1) the chat's explicit workspace_path dir, else (2) the project
-        that OWNS the chat's memory (per-project memory — concurrency-safe: a chat
-        running in A always routes to A even while you view B), else (3) for a
-        draft / no chat, the ACTIVE project you're currently "in". Home → None
-        (the default endpoint)."""
-        if session_id:
-            try:
-                memory = await run_func(self.memory_manager.get_memory, session_id)
-                project = memory.extra_data.get("project", {})
-                if isinstance(project, dict):
-                    wpath = project.get("workspace_path")
-                    if wpath and Path(wpath).is_dir() and not self._is_home_dir(wpath):
-                        return await self._ensure_project_endpoint(wpath)
-            except Exception as e:
-                logger.debug(f"[multi-project] resolve endpoint for {session_id}: {e}")
-            # No explicit workspace_path (e.g. legacy chat) → the project whose
-            # memory store holds this chat.
-            try:
-                mdir = self.memory_manager.mgr_for_chat(session_id).path
-                pdir = Path(mdir).parent.parent
-                if pdir.is_dir() and not self._is_home_dir(pdir):
-                    return await self._ensure_project_endpoint(str(pdir))
-            except Exception as e:
-                logger.debug(f"[multi-project] resolve by memory dir for {session_id}: {e}")
-            return None
-        # Draft / no chat → the active project (you're "in" it).
-        try:
-            active = self.project_manager.active_project
-            if active and active.path and Path(active.path).is_dir() and not self._is_home_dir(active.path):
-                return await self._ensure_project_endpoint(active.path)
-        except Exception as e:
-            logger.debug(f"[multi-project] resolve endpoint for active project: {e}")
-        return None
-
     async def _project_dir_for_chat(self, session_id: str | None) -> str | None:
         """Resolve a chat's PROJECT ROOT directory (workspace root) — the dir its
         files, task brain, and image outputs should all live under.
 
-        Mirrors _resolve_endpoint_for_chat's routing but returns the directory
-        (no endpoint spawn), and — unlike that method — resolves home chats to the
+        Resolves, in priority order, and — for home chats — falls through to the
         home dir too, so the brain/prompt are ALWAYS anchored to a concrete project
         instead of silently falling back to the global default brain dir.
 
@@ -472,57 +254,6 @@ class ChatRoom(ToolSet):
             pass
         return None
 
-    async def _shutdown_project_endpoints(self):
-        """Terminate all per-project endpoint subprocesses (cleanup)."""
-        for _path, entry in list(self._project_endpoints.items()):
-            proc = entry.get("proc")
-            if proc is not None and proc.returncode is None:
-                try:
-                    proc.terminate()
-                except Exception:
-                    pass
-            self._endpoint_services.pop(entry.get("service_id"), None)
-        self._project_endpoints.clear()
-
-    def _embedded_endpoint_ready(self) -> bool:
-        if not self._endpoint_embed or self._endpoint is None:
-            return True
-        return bool(getattr(self._endpoint, "_setup_completed", False))
-
-    def _embedded_endpoint_status(self) -> str:
-        return "ready" if self._embedded_endpoint_ready() else "starting"
-
-    def _endpoint_service_id_hint(self, endpoint=None) -> str:
-        endpoint = endpoint if endpoint is not None else self._endpoint
-        service_id = getattr(endpoint, "service_id", None)
-        if service_id:
-            return service_id
-        id_hash = getattr(endpoint, "id_hash", None)
-        if id_hash:
-            return generate_service_id(id_hash)
-        return self.endpoint_service_id or "unknown"
-
-    def _endpoint_not_ready_response(self) -> dict:
-        return {
-            "success": False,
-            "error": "endpoint_not_ready",
-            "code": "endpoint_not_ready",
-            "status": self._embedded_endpoint_status(),
-            "ready": False,
-        }
-
-    async def _call_endpoint_method(
-        self, endpoint_method_name: str, endpoint_service_id: str | None = None, **kwargs
-    ):
-        from pantheon.utils.misc import call_endpoint_method
-
-        endpoint_service = await self._get_endpoint_service(
-            endpoint_service_id=endpoint_service_id
-        )
-        return await call_endpoint_method(
-            endpoint_service, endpoint_method_name=endpoint_method_name, **kwargs
-        )
-
     def _init_plugins(self) -> None:
         """Initialize plugin config (lazy creation).
 
@@ -538,41 +269,10 @@ class ChatRoom(ToolSet):
     async def run_setup(self):
         """Setup the chatroom (ToolSet hook called before run).
         
-        This method is idempotent - Endpoint startup is guarded by _auto_created_endpoint flag.
+        Idempotent — toolset App instances are ensured lazily at bind time
+        (and warmed by the entrypoint's prestart), so there is nothing to
+        boot here beyond the chatroom's own machinery.
         """
-        # Start auto-created Endpoint if needed (one-time)
-        if self._auto_created_endpoint and self._endpoint is not None:
-            # Clear flag to prevent re-entry
-            self._auto_created_endpoint = False
-            
-            logger.info("ChatRoom: starting auto-created Endpoint...")
-            # Run the Endpoint as its own RemoteWorker (own NATS conn) so
-            # file-transfer RPCs can land on it directly, off the
-            # ChatRoom NATS connection that's also carrying chat token
-            # streams. See _start_endpoint_embedded for the long version.
-            asyncio.create_task(self._endpoint.run(remote=True))
-            # Wait for endpoint to be ready
-            max_retries = 30
-            for i in range(max_retries):
-                if self._endpoint._setup_completed:
-                    logger.info(
-                        f"ChatRoom: auto-created Endpoint ready (service_id={self._endpoint.service_id})"
-                    )
-                    break
-                await asyncio.sleep(0.1)
-            else:
-                logger.warning("ChatRoom: Endpoint startup timeout, continuing anyway")
-
-        # Log endpoint mode (always log if endpoint exists)
-        if self._endpoint is not None:
-            if self._endpoint_embed:
-                logger.info(
-                    f"ChatRoom: endpoint_mode=embed, endpoint_id={self._endpoint_service_id_hint()}"
-                )
-            else:
-                logger.info(
-                    f"ChatRoom: endpoint_mode=process, endpoint_id={self.endpoint_service_id}"
-                )
 
         # Log NATS streaming status
         if self._nats_adapter is not None:
@@ -700,28 +400,10 @@ class ChatRoom(ToolSet):
                         if t.status == "running"
                     )
 
-        # An in-progress file transfer (open read/write handle on the
-        # Endpoint) must count as active, or the hub's idle cleanup would
-        # reap the sandbox MID-DOWNLOAD. A download is raw Endpoint RPC
-        # traffic (open_file_for_read → read_chunk_at → close_file), not an
-        # agent thread/bg_task, so without this a slow multi-GB transfer in
-        # a backgrounded tab hits the 10-min tab-closed threshold and the
-        # pod is released out from under it. Only count handles opened in
-        # the last hour so a leaked handle (browser killed before
-        # close_file) can't pin the pod alive forever.
+        # File transfers ride the file-transfer App instance now; its open
+        # handles are that process's concern. TODO(R2): surface transfer
+        # activity from the instance so idle cleanup can respect it again.
         transfer_handles = 0
-        try:
-            import time as _t2
-            ep = getattr(self, "_endpoint", None)
-            finfo = getattr(ep, "_file_info", None) if ep is not None else None
-            if finfo:
-                _now = _t2.time()
-                transfer_handles = sum(
-                    1 for info in finfo.values()
-                    if _now - info.get("created_at", 0) < 3600
-                )
-        except Exception:
-            pass
 
         has_active_tasks = active_threads > 0 or bg_task_count > 0 or transfer_handles > 0
 
@@ -810,7 +492,7 @@ class ChatRoom(ToolSet):
 
         return metrics
 
-    async def _ensure_plugins(self, endpoint_service: object = None) -> list:
+    async def _ensure_plugins(self) -> list:
         """Lazily initialize plugins via centralized registry (idempotent)."""
         if self._plugins:
             return self._plugins
@@ -838,17 +520,10 @@ class ChatRoom(ToolSet):
     async def cleanup(self) -> None:
         """Clean up ChatRoom resources before exit.
         
-        Stops plugins, cancels background tasks, and cleans up the endpoint.
+        Stops plugins and cancels background tasks.
         """
         # Shutdown plugins
         self._plugins.clear()
-        
-        # Clean up endpoint if it exists
-        if hasattr(self, "_endpoint") and self._endpoint:
-            try:
-                await self._endpoint.cleanup()
-            except Exception:
-                pass
 
         # Cancel any pending background tasks
         for task in self._background_tasks:
@@ -943,7 +618,7 @@ class ChatRoom(ToolSet):
         # and the duplicate endpoint / MCP gateway fight over port 3100 —
         # either crashing the sandbox ("bind: address already in use") or
         # mis-registering MCP tools so ve_curator drops out of the agent's
-        # active toolset. Mirrors _ensure_project_endpoint's per-project lock.
+        # active toolset.
         lock = self._team_init_locks.get(chat_id)
         if lock is None:
             lock = asyncio.Lock()
@@ -1024,71 +699,41 @@ class ChatRoom(ToolSet):
         self,
         service_type: str,
         required_services: list[str],
-        endpoint_service_id: str | None = None,
     ):
-        """Ensure required services (MCP servers or ToolSets) are started."""
+        """Ensure required services are available in the App model.
+
+        Toolsets are ensured lazily at bind time on their own instances, so
+        only MCP servers need an explicit start — on the mcp-gateway App.
+        Unknown toolset names are reported, not started: there is nothing
+        left that could start them.
+        """
         if not required_services:
             return
 
-        # Toolsets the App resolver serves are ensured at bind time on their
-        # own instances (PANTHEON_APPS_VIA_FLEET) — asking the endpoint to
-        # also start them would run every one twice. MCP servers likewise
-        # start on the mcp-gateway App instance when it is wired.
+        from pantheon.apps.proxy import ToolsetProxy
+        from pantheon.apps.resolver import get_shared_resolver
+
+        resolver = get_shared_resolver()
+        if resolver is None:
+            logger.warning(
+                f"[apps] resolver not wired; cannot ensure {service_type}: "
+                f"{required_services}"
+            )
+            return
         if service_type == "mcp":
-            from pantheon.apps.resolver import get_shared_resolver
-
-            resolver = get_shared_resolver()
-            if resolver is not None and resolver.resolves("mcp_gateway"):
-                try:
-                    from pantheon.endpoint import ToolsetProxy
-
-                    sid = await resolver.ensure_instance("mcp_gateway")
-                    return await ToolsetProxy.from_toolset(sid).invoke(
-                        "start_servers", {"names": required_services}
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"[apps] mcp-gateway start_servers failed ({e}); "
-                        f"falling back to the endpoint route"
-                    )
-        if service_type == "toolset":
-            from pantheon.apps.resolver import get_shared_resolver
-
-            resolver = get_shared_resolver()
-            if resolver is not None:
-                skipped = [s for s in required_services if resolver.resolves(s)]
-                required_services = [s for s in required_services if not resolver.resolves(s)]
-                if skipped:
-                    logger.info(f"[apps] toolsets bound as App instances, "
-                                f"endpoint start skipped: {skipped}")
-                if not required_services:
-                    return
-
-        service_name_plural = "MCP servers" if service_type == "mcp" else "ToolSets"
-        service_name_past = "started" if service_type == "mcp" else "started"
-
-        try:
-            logger.info(
-                f"Ensuring {service_name_plural} are started: {required_services}"
-            )
-            result = await self._call_endpoint_method(
-                endpoint_method_name="manage_service",
-                endpoint_service_id=endpoint_service_id,
-                action="start",
-                service_type=service_type,
-                name=required_services,
-            )
-            if not result.get("success"):
-                logger.warning(
-                    f"Failed to start some {service_name_plural}: {result.get('errors', [])}"
+            try:
+                sid = await resolver.ensure_instance("mcp_gateway")
+                result = await ToolsetProxy.from_toolset(sid).invoke(
+                    "start_servers", {"names": required_services}
                 )
-            else:
-                logger.info(
-                    f"{service_name_plural} {service_name_past}: {result.get('started', [])}"
-                )
+                logger.info(f"MCP servers ensured: {result.get('started', result)}")
+            except Exception as e:
+                logger.warning(f"Error ensuring MCP servers: {e}")
+            return
 
-        except Exception as e:
-            logger.warning(f"Error ensuring {service_name_plural}: {e}")
+        unknown = [t for t in required_services if not resolver.resolves(t)]
+        if unknown:
+            logger.warning(f"[apps] not in the App catalog, unavailable: {unknown}")
 
     async def _create_team_from_template(
         self, team_config: TeamConfig, chat_id: str = None
@@ -1098,16 +743,6 @@ class ChatRoom(ToolSet):
         template_name = team_config.name or "unknown"
 
         logger.info(f"🏗️ Creating team from template '{template_name}'")
-
-        # Connect to endpoint service — route to the chat's per-project endpoint
-        endpoint_t0 = time.perf_counter()
-        endpoint_sid = await self._resolve_endpoint_for_chat(chat_id)
-        endpoint_service = await self._get_endpoint_service(endpoint_service_id=endpoint_sid)
-        log_startup_profile(
-            "ChatRoom team endpoint resolved in "
-            f"{time.perf_counter() - endpoint_t0:.3f}s "
-            f"(template={template_name}, chat_id={chat_id})"
-        )
 
         prepare_t0 = time.perf_counter()
         (
@@ -1124,14 +759,14 @@ class ChatRoom(ToolSet):
 
         # ===== STEP 2: Compute and ensure all required services =====
         ensure_mcp_t0 = time.perf_counter()
-        await self._ensure_services("mcp", list(required_mcp_servers), endpoint_service_id=endpoint_sid)
+        await self._ensure_services("mcp", list(required_mcp_servers))
         log_startup_profile(
             "ChatRoom team ensure MCP finished in "
             f"{time.perf_counter() - ensure_mcp_t0:.3f}s "
             f"(template={template_name}, mcp_servers={list(required_mcp_servers)})"
         )
         ensure_toolset_t0 = time.perf_counter()
-        await self._ensure_services("toolset", list(required_toolsets), endpoint_service_id=endpoint_sid)
+        await self._ensure_services("toolset", list(required_toolsets))
         log_startup_profile(
             "ChatRoom team ensure ToolSets finished in "
             f"{time.perf_counter() - ensure_toolset_t0:.3f}s "
@@ -1145,7 +780,7 @@ class ChatRoom(ToolSet):
 
         # ===== STEP 3: Create agents =====
         create_agents_t0 = time.perf_counter()
-        all_agents = await create_agents_from_template(endpoint_service, agent_configs)
+        all_agents = await create_agents_from_template(agent_configs)
         log_startup_profile(
             "ChatRoom team create_agents finished in "
             f"{time.perf_counter() - create_agents_t0:.3f}s "
@@ -1155,7 +790,7 @@ class ChatRoom(ToolSet):
 
         # ===== STEP 4: Ensure plugins are ready (and init learning team) =====
         plugins_t0 = time.perf_counter()
-        plugins = await self._ensure_plugins(endpoint_service=endpoint_service)
+        plugins = await self._ensure_plugins()
         log_startup_profile(
             "ChatRoom team ensure plugins finished in "
             f"{time.perf_counter() - plugins_t0:.3f}s "
@@ -1279,109 +914,48 @@ class ChatRoom(ToolSet):
 
     @tool
     async def get_endpoint(self, session_id: str | None = None) -> dict:
-        """Get the endpoint service info.
+        """The data-channel service for a session's files.
 
-        When ``session_id`` is given, resolve the PER-PROJECT endpoint that chat
-        (or, for a draft, the active project) uses — the same routing
-        ``proxy_toolset`` and the file tree use — so the file data-channel targets
-        the active project's files instead of the home endpoint's. Without it (or
-        for home), return the default/home endpoint.
+        Post-endpoint form: returns the file-manager App instance that serves
+        this session (project-scoped when the chat lives in a project). The
+        instance answers file tools (read_file, glob, …) directly on its own
+        service — there is no endpoint indirection anymore.
         """
         try:
-            # Route the data-channel to the active project's endpoint when known,
-            # so file reads resolve against the SAME project the tree lists from.
-            # The UI's '__global__' / '' sentinel means "no chat" → resolve the
-            # ACTIVE project (not a memory lookup that would fall back to home).
-            try:
-                sid = None if session_id in (None, "", "__global__") else session_id
-                proj_sid = await self._resolve_endpoint_for_chat(sid)
-                if proj_sid:
-                    return {
-                        "success": True,
-                        "service_name": "endpoint",
-                        "service_id": proj_sid,
-                        "ready": True,
-                        "status": "ready",
-                    }
-            except Exception as e:  # noqa: BLE001
-                logger.debug(f"[multi-project] get_endpoint resolve for {session_id}: {e}")
-            if self._endpoint_embed:
-                # Embed mode: directly access endpoint properties
-                endpoint = await self._get_endpoint_service()
-                ready = self._embedded_endpoint_ready()
-                return {
-                    "success": True,
-                    "service_name": endpoint.service_name
-                    if hasattr(endpoint, "service_name")
-                    else "endpoint",
-                    "service_id": self._endpoint_service_id_hint(endpoint),
-                    "ready": ready,
-                    "status": "ready" if ready else "starting",
-                }
+            from pantheon.apps.resolver import get_shared_resolver
+
+            resolver = get_shared_resolver()
+            if resolver is None:
+                return {"success": False, "message": "App resolver not wired"}
+            sid_arg = None if session_id in (None, "", "__global__") else session_id
+            proj_dir = await self._project_dir_for_chat(sid_arg)
+            if proj_dir:
+                service_id = await resolver.ensure_instance(
+                    "file_manager",
+                    scope=resolver.project_scope(proj_dir),
+                    workdir=proj_dir,
+                )
             else:
-                # Process mode: fetch through RPC
-                s = await self._get_endpoint_service()
-                try:
-                    info = await s.fetch_service_info()
-                    return {
-                        "success": True,
-                        "service_name": info.service_name
-                        if info
-                        else self.endpoint_service_id,
-                        "service_id": info.service_id
-                        if info
-                        else self.endpoint_service_id,
-                        "ready": True,
-                        "status": "ready",
-                    }
-                except Exception:
-                    # Fallback if fetch_service_info not available
-                    return {
-                        "success": True,
-                        "service_name": "endpoint",
-                        "service_id": self.endpoint_service_id,
-                        "ready": True,
-                        "status": "ready",
-                    }
+                service_id = await resolver.ensure_instance("file_manager")
+            return {
+                "success": True,
+                "service_name": "file_manager",
+                "service_id": service_id,
+                "ready": True,
+                "status": "ready",
+            }
         except Exception as e:
-            logger.error(f"Error getting endpoint service info: {e}")
+            logger.error(f"Error getting file service info: {e}")
             return {"success": False, "message": str(e)}
 
     @tool
     async def set_endpoint(self, endpoint_service_id: str) -> dict:
-        """Set the endpoint service ID.
-
-        Args:
-            endpoint_service_id: The service ID of the endpoint service.
-        """
-        try:
-            if not endpoint_service_id:
-                return {
-                    "success": False,
-                    "message": "endpoint_service_id is required",
-                }
-
-            # Switch to process/remote mode whenever endpoint ID is provided.
-            self._endpoint_embed = False
-            self._endpoint = None
-            self.endpoint_service_id = endpoint_service_id
-
-            # Force reconnection on next use and drop cached teams bound to the old endpoint.
-            self._endpoint_service = None
-            self._backend = None
-            self._endpoint_services.clear()
-            self.chat_teams.clear()
-
-            # Sanity-check connectivity immediately to fail fast.
-            await self._get_endpoint_service()
-
-            return {
-                "success": True,
-                "message": f"Endpoint service set to '{endpoint_service_id}'",
-            }
-        except Exception as e:
-            logger.error(f"Error setting endpoint service: {e}")
-            return {"success": False, "message": str(e)}
+        """Retired: services are App instances placed by the resolver."""
+        return {
+            "success": False,
+            "message": "set_endpoint is retired; services are App instances "
+                       "managed by the fleet runner",
+        }
 
     def _get_gateway_manager(self):
         if self._gateway_channel_manager is None:
@@ -1477,28 +1051,31 @@ class ChatRoom(ToolSet):
 
     @tool
     async def get_toolsets(self) -> dict:
-        """Get all available toolsets from the endpoint service.
+        """Get all available toolsets (the App catalog + live instances).
 
         Returns:
-            A dictionary with the following keys:
             - success: Whether the operation was successful.
-            - services: A list of available toolset services.
-            - error: Error message if operation failed.
+            - services: A list of available toolset services (one per catalog
+              App: name, app_id, status "running"|"available", service_id when
+              an instance is already up).
         """
         try:
-            if self._endpoint_embed and not self._embedded_endpoint_ready():
-                return self._endpoint_not_ready_response()
+            from pantheon.apps.catalog import by_service_type
+            from pantheon.apps.resolver import get_shared_resolver
 
-            result = await self._call_endpoint_method(
-                endpoint_method_name="manage_service",
-                action="list",
-                service_type="toolset",
-            )
-            if isinstance(result, dict) and "success" in result:
-                return result
-            else:
-                # If result is directly the services list
-                return {"success": True, "services": result}
+            resolver = get_shared_resolver()
+            started = dict(getattr(resolver, "_started", {})) if resolver else {}
+            services = []
+            for service_type, entry in sorted(by_service_type().items()):
+                sid = started.get((service_type, "app"))
+                services.append({
+                    "name": service_type,
+                    "app_id": entry.app_id,
+                    "description": entry.description,
+                    "status": "running" if sid else "available",
+                    "service_id": sid,
+                })
+            return {"success": True, "services": services}
         except Exception as e:
             logger.error(f"Error getting toolsets: {e}")
             return {"success": False, "error": str(e)}
@@ -1510,109 +1087,64 @@ class ChatRoom(ToolSet):
         args: dict | None = None,
         toolset_name: str | None = None,
     ) -> dict:
-        """Proxy call to any toolset method in the endpoint service or specific toolset.
+        """Invoke a tool on a toolset's App instance.
+
+        Every toolset is an App instance placed by the resolver; a chat
+        inside a project gets that project's own instance (scope=project,
+        rooted in the project dir).
 
         Args:
-            method_name: The name of the toolset method to call.
-            args: Arguments to pass to the method.
-            toolset_name: The name of the specific toolset to call. If None, calls endpoint directly.
+            method_name: The tool to call.
+            args: Arguments to pass to the tool.
+            toolset_name: The toolset (catalog service name) to call.
 
         Returns:
-            The result from the toolset method call.
+            The result from the tool call.
         """
         try:
-            # Add debug logging
             logger.debug(
                 f"chatroom proxy_toolset: method_name={method_name}, toolset_name={toolset_name}, args={args}"
             )
 
-            if self._endpoint_embed and not self._embedded_endpoint_ready():
-                return self._endpoint_not_ready_response()
+            if not toolset_name:
+                return {
+                    "success": False,
+                    "error": "toolset_name is required (the endpoint that used "
+                             "to answer bare calls is retired)",
+                }
 
-            # Steer the ENDPOINT toolset's cwd via `workdir` (isolated → workspace_path;
-            # project → clear so the endpoint falls back to its own project path). This
-            # mutates the SHARED per-task context, so it ONLY governs endpoint-side cwd.
-            # The LOCAL task toolset's brain/output anchor is `project_root` (set once in
-            # chat()), which we deliberately never touch here — popping workdir below must
-            # not relocate the brain.
+            from pantheon.apps.proxy import ToolsetProxy
+            from pantheon.apps.resolver import get_shared_resolver
+
+            resolver = get_shared_resolver()
+            if resolver is None:
+                return {"success": False, "error": "App resolver not wired"}
+            if not resolver.resolves(toolset_name):
+                return {
+                    "success": False,
+                    "error": f"'{toolset_name}' is not a known App in the catalog",
+                }
+
             session_id = (args or {}).get("session_id") or getattr(self, '_current_chat_id', None)
-            # Special '__global__' session_id: explicitly use project root (clear any workdir)
             if session_id == '__global__':
-                from pantheon.toolset import get_current_context_variables
-                ctx = get_current_context_variables()
-                if ctx is not None:
-                    ctx.pop("workdir", None)
                 session_id = None
-            if session_id:
-                try:
-                    memory = await run_func(self.memory_manager.get_memory, session_id)
-                    project = memory.extra_data.get("project", {})
-                    if isinstance(project, dict):
-                        workspace_mode = project.get("workspace_mode",
-                            "isolated" if project.get("workspace_path") else "project")
-                        workspace_path = project.get("workspace_path")
-                        from pantheon.toolset import get_current_context_variables
-                        ctx = get_current_context_variables()
-                        if ctx is not None:
-                            if workspace_mode == "isolated" and workspace_path:
-                                ctx["workdir"] = workspace_path
-                            else:
-                                # Clear workdir so toolset falls back to project root
-                                ctx.pop("workdir", None)
-                except Exception as e:
-                    logger.debug(f"Could not inject workdir for session {session_id}: {e}")
 
-            # Endpoint-free route (PANTHEON_APPS_VIA_FLEET): a toolset the App
-            # registry serves is dialed directly on its own instance — no
-            # endpoint dispatch. A chat inside a project gets that project's
-            # OWN instance (scope=project, rooted in the project dir) — the
-            # App-model replacement for per-call cwd steering. Anything else
-            # (and any failure) falls through to the endpoint exactly as
-            # before.
-            if toolset_name:
-                from pantheon.apps.resolver import get_shared_resolver
-
-                resolver = get_shared_resolver()
-                if resolver is not None and resolver.resolves(toolset_name):
-                    try:
-                        from pantheon.endpoint import ToolsetProxy
-
-                        proj_dir = await self._project_dir_for_chat(session_id)
-                        if proj_dir:
-                            sid = await resolver.ensure_instance(
-                                toolset_name,
-                                scope=resolver.project_scope(proj_dir),
-                                workdir=proj_dir,
-                            )
-                        else:
-                            sid = await resolver.ensure_instance(toolset_name)
-                        return await ToolsetProxy.from_toolset(sid).invoke(
-                            method_name, args or {}
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"[apps] direct instance call {toolset_name}.{method_name} "
-                            f"failed ({e}); falling back to the endpoint route"
-                        )
-
-            # Route to the chat's per-project endpoint (multi-project); falls
-            # back to the default endpoint when the chat has no isolated project.
-            endpoint_sid = await self._resolve_endpoint_for_chat(session_id)
-
-            # Use unified endpoint call method
-            result = await self._call_endpoint_method(
-                endpoint_method_name="proxy_toolset",
-                endpoint_service_id=endpoint_sid,
-                method_name=method_name,
-                args=args or {},
-                toolset_name=toolset_name,
+            proj_dir = await self._project_dir_for_chat(session_id)
+            if proj_dir:
+                sid = await resolver.ensure_instance(
+                    toolset_name,
+                    scope=resolver.project_scope(proj_dir),
+                    workdir=proj_dir,
+                )
+            else:
+                sid = await resolver.ensure_instance(toolset_name)
+            return await ToolsetProxy.from_toolset(sid).invoke(
+                method_name, args or {}
             )
-
-            return result
 
         except Exception as e:
             logger.error(
-                f"Error calling toolset method {method_name} on {toolset_name or 'endpoint'}: {e}"
+                f"Error calling toolset method {method_name} on {toolset_name}: {e}"
             )
             return {"success": False, "error": str(e)}
 
@@ -2822,26 +2354,9 @@ class ChatRoom(ToolSet):
             self.template_manager = get_template_manager(work_dir=Path(resolved))
             logger.info(f"[switch_project] templates reloaded")
 
-            # 6. Update all toolset workspace roots on Endpoint (if embedded)
-            # Also update Endpoint itself (it extends FileTransferToolSet)
-            if self._endpoint and hasattr(self._endpoint, 'path'):
-                self._endpoint.path = Path(resolved)
-            if self._endpoint and hasattr(self._endpoint, 'toolset_manager'):
-                tsm = self._endpoint.toolset_manager
-                def _update_workdir(obj):
-                    if hasattr(obj, 'path'):
-                        obj.path = Path(resolved)
-                    if hasattr(obj, 'workdir'):
-                        obj.workdir = Path(resolved) if isinstance(obj.workdir, Path) else resolved
-                for ts in tsm.local_toolsets.values():
-                    _update_workdir(ts)
-                    # Also update nested toolsets (e.g. IntegratedNotebook -> NotebookContents)
-                    for attr_name in dir(ts):
-                        if attr_name.startswith('_'):
-                            continue
-                        attr = getattr(ts, attr_name, None)
-                        if attr and hasattr(attr, 'workdir'):
-                            _update_workdir(attr)
+            # 6. Toolset workspace roots: nothing to mutate here anymore —
+            # instances are project-scoped by the resolver, so the switched
+            # project's chats land on instances rooted in the new directory.
 
             # 7. Reset memory + learning system singletons
             try:

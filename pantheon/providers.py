@@ -16,7 +16,7 @@ from fastmcp import Client
 from fastmcp.client.messages import MessageHandler
 
 from .agent import ToolInfo, ToolProvider
-from .endpoint.toolset_proxy import ToolsetProxy
+from .apps.proxy import ToolsetProxy
 from .utils.log import logger
 
 

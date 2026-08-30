@@ -157,16 +157,15 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
             assert resp.get("ok"), resp
 
             # --- P3 slice 1: the flag-ON binding path -----------------------
-            # The exact route create_agents_from_template takes when
-            # PANTHEON_APPS_VIA_FLEET is wired: resolver ensures the instance,
+            # The exact route create_agents_from_template takes: the
+            # resolver ensures the instance,
             # ToolsetProxy.from_toolset dials it directly — no endpoint alive
             # anywhere in this process tree.
-            monkeypatch.setenv("PANTHEON_APPS_VIA_FLEET", "1")
             monkeypatch.setenv("PANTHEON_FLEET_ID", FLEET_ID)
             monkeypatch.setenv("PANTHEON_FLEET_NODE_ID", node_id)
             monkeypatch.setenv("PANTHEON_USER_SEED", USER_SEED)
             from pantheon.apps.resolver import AppInstanceResolver
-            from pantheon.endpoint import ToolsetProxy
+            from pantheon.apps.proxy import ToolsetProxy
 
             resolver = AppInstanceResolver.from_env(workdir=str(tmp_path))
             assert resolver is not None and resolver.resolves("file_manager")
@@ -426,15 +425,15 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
 
 
 async def test_shared_resolver_env_gating(monkeypatch):
-    """The shared resolver is None while unwired, builds once when wired."""
+    """The resolver gates on identity: no user seed -> None; built once."""
     from pantheon.apps import resolver as R
 
     R.reset_shared_resolver()
-    monkeypatch.delenv("PANTHEON_APPS_VIA_FLEET", raising=False)
+    monkeypatch.delenv("PANTHEON_USER_SEED", raising=False)
+    monkeypatch.delenv("ID_HASH", raising=False)
     assert R.get_shared_resolver() is None
 
     R.reset_shared_resolver()
-    monkeypatch.setenv("PANTHEON_APPS_VIA_FLEET", "1")
     monkeypatch.setenv("PANTHEON_FLEET_ID", "f")
     monkeypatch.setenv("PANTHEON_FLEET_NODE_ID", "n")
     monkeypatch.setenv("PANTHEON_USER_SEED", "s")
@@ -450,7 +449,6 @@ async def test_resolver_lazy_coords_from_runtime_json(tmp_path, monkeypatch):
 
     from pantheon.apps.resolver import AppInstanceResolver
 
-    monkeypatch.setenv("PANTHEON_APPS_VIA_FLEET", "1")
     monkeypatch.delenv("PANTHEON_FLEET_ID", raising=False)
     monkeypatch.delenv("PANTHEON_FLEET_NODE_ID", raising=False)
     monkeypatch.setenv("PANTHEON_USER_SEED", "seed")
@@ -478,7 +476,6 @@ async def test_resolver_circuit_breaker(tmp_path, monkeypatch):
     """A wired-but-unreachable fleet path disables itself after MAX_FAILURES."""
     from pantheon.apps.resolver import AppInstanceResolver
 
-    monkeypatch.setenv("PANTHEON_APPS_VIA_FLEET", "1")
     monkeypatch.setenv("PANTHEON_USER_SEED", "seed")
     monkeypatch.setenv("PANTHEON_FLEET_STATE_DIR", str(tmp_path))
     r = AppInstanceResolver.from_env(workdir=str(tmp_path))
@@ -491,8 +488,7 @@ async def test_resolver_circuit_breaker(tmp_path, monkeypatch):
 
 def test_prestart_cli_gives_up_cleanly_without_runner(tmp_path):
     """prestart waits for runtime.json, then exits 1 without raising."""
-    env = dict(os.environ, PYTHONPATH=str(REPO),
-               PANTHEON_APPS_VIA_FLEET="1", PANTHEON_USER_SEED="seed",
+    env = dict(os.environ, PYTHONPATH=str(REPO), PANTHEON_USER_SEED="seed",
                PANTHEON_FLEET_STATE_DIR=str(tmp_path))
     env.pop("PANTHEON_FLEET_ID", None)
     env.pop("PANTHEON_FLEET_NODE_ID", None)
