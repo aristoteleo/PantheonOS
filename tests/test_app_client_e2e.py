@@ -12,9 +12,11 @@ import glob
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
 import pytest
@@ -22,7 +24,12 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 FLEET_SRC = Path("/Users/weizexu/Projects/PantheonOS-fleet-app/fleet")
 NATS_PORT = 42431
-FLEET_ID = "e2etest"
+# Unique per run: `go run`'s grandchild survives terminate(), so a leaked
+# runner/apphost from an earlier run would re-register into a same-named
+# fleet/service on the next run's NATS and answer with a stale workdir.
+RUN_TAG = uuid.uuid4().hex[:8]
+FLEET_ID = f"e2e{RUN_TAG}"
+USER_SEED = f"e2e-user-{RUN_TAG}"
 NODE_ID = "node-e2e"
 
 pytestmark = [
@@ -50,10 +57,14 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
     env = dict(os.environ, NATS_SERVERS=f"nats://127.0.0.1:{NATS_PORT}", PYTHONPATH=str(REPO))
     procs: list[subprocess.Popen] = []
     try:
+        # start_new_session: each subprocess leads its own process group, so
+        # teardown can killpg and take the go-run grandchild and any apphost
+        # children with it (terminate() alone leaks them).
         procs.append(subprocess.Popen(
             [_nats_server_bin(), "-p", str(NATS_PORT), "-js",
              "-sd", str(tmp_path / "js")],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True))
         await asyncio.sleep(1.0)
 
         # the Go runner, dev mode (no controller), data plane off for speed.
@@ -67,7 +78,8 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
              "--workdir", str(tmp_path), "--no-dataplane",
              "--state-dir", str(tmp_path / "state"), "--kind", "sandbox"],
             cwd=str(FLEET_SRC), env=env,
-            stdout=runner_log, stderr=subprocess.STDOUT))
+            stdout=runner_log, stderr=subprocess.STDOUT,
+            start_new_session=True))
 
         import nats
 
@@ -110,7 +122,7 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
             else:
                 pytest.fail("runner registered but never answered ping")
 
-            spec = apphost_spec("shell", user_seed="e2e-user", workdir=str(tmp_path),
+            spec = apphost_spec("shell", user_seed=USER_SEED, workdir=str(tmp_path),
                                 env={"NATS_SERVERS": f"nats://127.0.0.1:{NATS_PORT}",
                                      "PYTHONPATH": str(REPO)})
             resp = await client.start(node_id, spec)
@@ -147,7 +159,7 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
             monkeypatch.setenv("PANTHEON_APPS_VIA_FLEET", "1")
             monkeypatch.setenv("PANTHEON_FLEET_ID", FLEET_ID)
             monkeypatch.setenv("PANTHEON_FLEET_NODE_ID", node_id)
-            monkeypatch.setenv("PANTHEON_USER_SEED", "e2e-user")
+            monkeypatch.setenv("PANTHEON_USER_SEED", USER_SEED)
             from pantheon.apps.resolver import AppInstanceResolver
             from pantheon.endpoint import ToolsetProxy
 
@@ -174,17 +186,26 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
                 pytest.fail(
                     f"content={content!r} last_err={last_err} instances={diag}\n"
                     f"--- runner output tail ---\n{runner_out[-3000:]}")
+            # stop the file-manager instance too — the supervisor owns it, and
+            # leaving it running is exactly the leak the RUN_TAG guards against
+            await client.stop(node_id, "file-manager")
             await resolver.close()
         finally:
             await nc.close()
     finally:
         for p in reversed(procs):
-            p.terminate()
+            try:
+                os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+            except Exception:
+                p.terminate()
         for p in procs:
             try:
                 p.wait(timeout=10)
             except Exception:
-                p.kill()
+                try:
+                    os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                except Exception:
+                    p.kill()
 
 
 async def test_shared_resolver_env_gating(monkeypatch):
@@ -204,3 +225,33 @@ async def test_shared_resolver_env_gating(monkeypatch):
     assert r is not None and r.resolves("shell") and not r.resolves("nope")
     assert R.get_shared_resolver() is r  # cached
     R.reset_shared_resolver()
+
+
+async def test_resolver_lazy_coords_from_runtime_json(tmp_path, monkeypatch):
+    """Sandbox wiring: no explicit ids, coordinates read from runtime.json."""
+    import json as J
+
+    from pantheon.apps.resolver import AppInstanceResolver
+
+    monkeypatch.setenv("PANTHEON_APPS_VIA_FLEET", "1")
+    monkeypatch.delenv("PANTHEON_FLEET_ID", raising=False)
+    monkeypatch.delenv("PANTHEON_FLEET_NODE_ID", raising=False)
+    monkeypatch.setenv("PANTHEON_USER_SEED", "seed")
+    monkeypatch.setenv("PANTHEON_FLEET_STATE_DIR", str(tmp_path))
+
+    r = AppInstanceResolver.from_env(workdir=str(tmp_path))
+    assert r is not None  # deferred, not refused
+
+    # the runner hasn't joined yet -> a clear error, caller falls back
+    with pytest.raises(RuntimeError, match="not joined"):
+        r._ensure_coords()
+
+    (tmp_path / "runtime.json").write_text(
+        J.dumps({"node_id": "n_abc", "fleet_id": "f1", "nats_url": "nats://x"}))
+    r._ensure_coords()
+    assert r._fleet == "f1" and r._node == "n_abc"
+
+    # without a seed the resolver stays off entirely
+    monkeypatch.delenv("PANTHEON_USER_SEED", raising=False)
+    monkeypatch.delenv("ID_HASH", raising=False)
+    assert AppInstanceResolver.from_env() is None

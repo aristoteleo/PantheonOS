@@ -445,6 +445,9 @@ EOF
         export FLEET_NODE_CAPS="${FLEET_NODE_CAPS:-proc,fs:workspace,display,net}"
         echo "[fleet] joining fleet as node sandbox-${ID_HASH} ..."
         mkdir -p /tmp/fleet-node
+        # The runner writes runtime.json (node/fleet ids) here once joined;
+        # the App resolver reads it lazily when PANTHEON_APPS_VIA_FLEET is on.
+        export PANTHEON_FLEET_STATE_DIR=/tmp/fleet-node
         fleet up --controller "${FLEET_CONTROLLER_URL}" --key "${FLEET_KEY}" \
             --name "sandbox-${ID_HASH}" --state-dir /tmp/fleet-node \
             > /tmp/fleet-node.log 2>&1 &

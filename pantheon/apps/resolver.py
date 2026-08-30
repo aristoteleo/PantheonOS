@@ -12,11 +12,21 @@ PANTHEON_APPS_VIA_FLEET is truthy and the fleet coordinates are present.
     PANTHEON_FLEET_ID=<fleet id>          (the user's fleet)
     PANTHEON_FLEET_NODE_ID=<node id>      (the node to place on — own sandbox)
     PANTHEON_USER_SEED=<id_hash>          (instance service-id seeds)
+
+In a sandbox the local runner boots asynchronously and generates its own
+node id, so the id/fleet cannot be exported ahead of it. The runner writes
+<state-dir>/runtime.json ({node_id, fleet_id, nats_url}) once joined; when
+the explicit coordinates are absent, the resolver reads that file lazily at
+first use instead:
+
+    PANTHEON_FLEET_STATE_DIR=/tmp/fleet-node   (the runner's --state-dir)
 """
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 
 from pantheon.utils.log import logger
 
@@ -30,11 +40,19 @@ def apps_via_fleet_enabled() -> bool:
 class AppInstanceResolver:
     """Ensure-and-dial App instances for this user on one node."""
 
-    def __init__(self, fleet_id: str, node_id: str, user_seed: str, workdir: str):
+    def __init__(
+        self,
+        fleet_id: str,
+        node_id: str,
+        user_seed: str,
+        workdir: str,
+        state_dir: str | None = None,
+    ):
         self._fleet = fleet_id
         self._node = node_id
         self._seed = user_seed
         self._workdir = workdir
+        self._state_dir = state_dir  # lazy runtime.json source when ids empty
         self._nc = None
         self._client = None
         self._started: dict[str, str] = {}  # service_type -> service_id
@@ -47,13 +65,37 @@ class AppInstanceResolver:
         fleet_id = os.environ.get("PANTHEON_FLEET_ID", "")
         node_id = os.environ.get("PANTHEON_FLEET_NODE_ID", "")
         seed = os.environ.get("PANTHEON_USER_SEED") or os.environ.get("ID_HASH", "")
-        if not (fleet_id and node_id and seed):
+        state_dir = os.environ.get("PANTHEON_FLEET_STATE_DIR", "/tmp/fleet-node")
+        if not seed:
             logger.warning(
-                "[apps] PANTHEON_APPS_VIA_FLEET set but fleet coordinates missing "
-                "(PANTHEON_FLEET_ID / PANTHEON_FLEET_NODE_ID / PANTHEON_USER_SEED)"
+                "[apps] PANTHEON_APPS_VIA_FLEET set but no user seed "
+                "(PANTHEON_USER_SEED / ID_HASH)"
             )
             return None
+        if not (fleet_id and node_id):
+            # The local runner's runtime.json fills these in lazily — it may
+            # not exist yet (the runner boots in the background).
+            return cls(fleet_id, node_id, seed, workdir or os.getcwd(),
+                       state_dir=state_dir)
         return cls(fleet_id, node_id, seed, workdir or os.getcwd())
+
+    def _ensure_coords(self) -> None:
+        """Fill fleet/node ids from the runner's runtime.json when deferred."""
+        if self._fleet and self._node:
+            return
+        path = Path(self._state_dir or "") / "runtime.json"
+        try:
+            info = json.loads(path.read_text())
+        except FileNotFoundError:
+            raise RuntimeError(
+                f"fleet runner not joined yet ({path} missing)"
+            ) from None
+        except Exception as e:
+            raise RuntimeError(f"unreadable {path}: {e}") from None
+        self._fleet = self._fleet or info.get("fleet_id", "")
+        self._node = self._node or info.get("node_id", "")
+        if not (self._fleet and self._node):
+            raise RuntimeError(f"incomplete coordinates in {path}: {info}")
 
     def resolves(self, service_type: str) -> bool:
         """Whether this resolver can serve the named toolset as an App."""
@@ -76,6 +118,7 @@ class AppInstanceResolver:
         """Start (idempotently) and return the instance's service_id."""
         if service_type in self._started:
             return self._started[service_type]
+        self._ensure_coords()
         from pantheon.apps.catalog import by_service_type
         from pantheon.apps.spec import apphost_spec
 
