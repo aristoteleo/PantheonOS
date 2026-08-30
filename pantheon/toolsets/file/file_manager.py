@@ -853,13 +853,13 @@ class FileManagerToolSet(FileManagerToolSetBase):
         # Symbol extraction mode: use tree-sitter to extract specific code item
         if symbol:
             try:
-                from pantheon.toolsets.code.tree_sitter_parser import get_code_item
+                from pantheon.toolsets.file.tree_sitter_parser import get_code_item
                 target_path = self._resolve_path(file_path)
                 if not target_path.exists():
                     return {"success": False, "error": "File does not exist"}
                 return get_code_item(target_path, symbol)
             except ImportError:
-                return {"success": False, "error": "Code navigation requires 'pantheon-agents[toolsets]'"}
+                return {"success": False, "error": "Code navigation requires tree-sitter"}
             except Exception as e:
                 return {"success": False, "error": str(e)}
 
@@ -1031,13 +1031,13 @@ class FileManagerToolSet(FileManagerToolSetBase):
             outline = await view_file_outline("lib/index.js")
         """
         try:
-            from pantheon.toolsets.code.tree_sitter_parser import get_file_outline
+            from pantheon.toolsets.file.tree_sitter_parser import get_file_outline
             target_path = self._resolve_path(file_path)
             if not target_path.exists():
                 return {"success": False, "error": "File does not exist"}
             return get_file_outline(target_path)
         except ImportError:
-            return {"success": False, "error": "Code navigation requires 'pantheon-agents[toolsets]'"}
+            return {"success": False, "error": "Code navigation requires tree-sitter"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

@@ -438,6 +438,11 @@ EOF
     # the background so the agent can transfer files to/from it over the data plane
     # via a single transfer() interface (dst_node="local" resolves to this node).
     if [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v fleet >/dev/null 2>&1; then
+        # Node identity for the App placer: this node IS the user's sandbox —
+        # it holds the workspace filesystem and a display stack. Read by
+        # runners >= feat/fleet-app-node via env; older binaries ignore them.
+        export FLEET_NODE_KIND="${FLEET_NODE_KIND:-sandbox}"
+        export FLEET_NODE_CAPS="${FLEET_NODE_CAPS:-proc,fs:workspace,display,net}"
         echo "[fleet] joining fleet as node sandbox-${ID_HASH} ..."
         mkdir -p /tmp/fleet-node
         fleet up --controller "${FLEET_CONTROLLER_URL}" --key "${FLEET_KEY}" \

@@ -1,0 +1,65 @@
+{
+  "id": "web",
+  "name": "Web",
+  "version": "0.6.4",
+  "description": "Web search and page fetch.",
+  "runtime": "embedded",
+  "entry": {
+    "backend": "pantheon.toolsets.web:WebToolSet"
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "duckduckgo_search",
+        "description": "Search the web for the query.\n\n        Args:\n            query: The query to search for.\n            max_results: The maximum number of results to return.\n            time_limit: The time limit for the search. d, w, m, y.\n                Defaults to None.\n        ",
+        "params": [
+          {
+            "name": "query",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "max_results",
+            "type": "int",
+            "required": false,
+            "default": 10
+          },
+          {
+            "name": "time_limit",
+            "type": "str | None",
+            "required": false
+          }
+        ]
+      },
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "hidden": true
+      },
+      {
+        "name": "web_crawl",
+        "description": "\n        Crawl the web and return the contents of the pages.\n        Result will be in markdown format.\n\n        Args:\n            urls: List of URLs to crawl.\n            timeout: Timeout for the web crawler.\n\n        Returns:\n            List of contents of the pages.\n        ",
+        "params": [
+          {
+            "name": "urls",
+            "type": "list[str]",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "timeout",
+            "type": "float",
+            "required": false,
+            "default": 20.0
+          }
+        ]
+      }
+    ]
+  },
+  "placement": {
+    "requires": [
+      "net"
+    ]
+  }
+}

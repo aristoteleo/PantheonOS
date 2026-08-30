@@ -5,7 +5,6 @@ name: Researcher
 toolsets:
   - web
   - file_manager
-  - code
 description: |
   Information-gathering specialist: codebase research, web & literature
   search, reading and structuring existing material. Use for "explore /

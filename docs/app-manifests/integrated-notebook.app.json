@@ -1,0 +1,447 @@
+{
+  "id": "integrated-notebook",
+  "name": "IntegratedNotebook",
+  "version": "0.6.4",
+  "description": "Notebook editing and execution with streaming.",
+  "entry": {
+    "backend": "pantheon.toolsets.notebook:IntegratedNotebookToolSet"
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "add_cell",
+        "description": "\n        Add a new cell to the notebook.\n\n        Args:\n            notebook_path: Path to notebook file\n            cell_type: Type of cell:\n                - \"code\": Executable code (Python, R via %%R, shell via %%bash, etc.)\n                - \"markdown\": Rich text with Markdown, LaTeX math ($...$)\n                - \"raw\": Unformatted text\n            content: Cell content/source code\n            cell_id: Optional cell identifier (auto-generated if not provided)\n            position: Insertion position.\n                     - None: Append to end\n                     - \"0\", \"1\", \"-1\": Insert at specific index (0-based)\n                     - \"cell_id\": Insert AFTER the cell with this ID\n            execute: Execute the cell after adding.\n                    **RECOMMENDED: Use execute=True for code cells** to avoid\n                    a separate execute_cell call. Skipped for markdown/raw cells.\n\n        Returns:\n            dict with:\n            - success: True if cell was added\n            - cell_id: The cell identifier\n            - notebook_path: Path to the notebook\n            - execution: (only when execute=True and cell_type=\"code\") Complete execution result dict containing:\n                - success: True if execution succeeded\n                - outputs: Execution outputs (list of nbformat output nodes)\n                - execution_count: Kernel execution count\n                - kernel_session_id: Kernel session ID\n                - cell_id: The cell identifier\n                - memory_hint: (optional) Memory warning if usage > 75%\n                - error: Error message if execution failed\n        \n        Note:\n            Only one execution can run at a time per kernel session. Concurrent\n            execution calls (execute_cell, add_cell(execute=True), update_cell(execute=True))\n            for the same notebook will return \"Kernel is busy\" error.\n        ",
+        "params": [
+          {
+            "name": "notebook_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "cell_type",
+            "type": "str",
+            "required": false,
+            "default": "code"
+          },
+          {
+            "name": "content",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "cell_id",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "position",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "execute",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "complete_request",
+        "description": "\n        Get code completion suggestions (Frontend only)\n\n        This tool is for interactive code editor features only.\n        Not exposed to LLM agents.\n\n        Args:\n            notebook_path: Path to notebook\n            code: Code to complete\n            cursor_pos: Cursor position in code\n\n        Returns:\n            dict with completion suggestions\n        ",
+        "params": [
+          {
+            "name": "notebook_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "code",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "cursor_pos",
+            "type": "int",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "create_notebook",
+        "description": "\n        Create or open a notebook file.\n\n        Args:\n            notebook_path: Path to notebook file\n            kernel_spec: Jupyter kernel name (default: \"python3\")\n\n        Returns:\n            dict with:\n            - success: True if notebook was created or already exists\n            - notebook_path: Path to the notebook\n            - action: \"created\" if new file was created, \"opened\" if already exists\n            - kernel_session_id: Present if notebook has an active kernel session\n        ",
+        "params": [
+          {
+            "name": "notebook_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "kernel_spec",
+            "type": "typing.Optional[str]",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "delete_cell",
+        "description": "\n        Delete a cell from the notebook.\n\n        Args:\n            notebook_path: Path to notebook file\n            cell_id: Cell identifier\n\n        Returns:\n            dict with:\n            - success: True if cell was deleted\n            - cell_id: The cell identifier\n            - notebook_path: Path to the notebook\n        ",
+        "params": [
+          {
+            "name": "notebook_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "cell_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "execute_cell",
+        "description": "\n        Execute a cell's existing content.\n\n        Supported syntax in code cells:\n        - Python code (default)\n        - R language: `%%R` (cell) or `%R` (line) magic\n          - Pass data: `%%R -i py_var` (Python→R), `%%R -o r_var` (R→Python)\n        - Shell commands: `%%bash` or `%%sh`\n        - Other magics: `%%time`, `%%html`, `%matplotlib inline`, etc.\n\n        Args:\n            notebook_path: Path to notebook file\n            cell_id: Cell identifier\n\n        Returns:\n            dict with:\n            - success: True if execution succeeded\n            - outputs: Execution results/outputs (list of nbformat output nodes)\n            - kernel_session_id: Kernel session ID\n        \n        Tips:\n            - Split long operations into multiple cells  (load → preprocess → compute)\n            - Use parallel computing when available (scanpy: n_jobs=-1 etc...)\n            - Use manage_kernel(action=\"interrupt\") to stop long-running cells\n            - IMPORTANT: To install R packages, use `%%R install.packages('pkg')`. Shell `Rscript` installs may not be visible.\n        \n        Note:\n            Only one execution can run at a time per kernel session. If you call\n            execute_cell, add_cell(execute=True), or update_cell(execute=True)\n            concurrently for the same notebook, subsequent calls will return a\n            \"Kernel is busy\" error. Wait for the current execution to complete\n            or use manage_kernel(action='interrupt') to stop it.\n        ",
+        "params": [
+          {
+            "name": "notebook_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "cell_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "inspect_request",
+        "description": "\n        Get hover documentation/inspection (Frontend only)\n\n        This tool is for interactive code editor features only.\n        Not exposed to LLM agents.\n\n        Args:\n            notebook_path: Path to notebook\n            code: Code to inspect\n            cursor_pos: Cursor position in code\n\n        Returns:\n            dict with inspection/documentation data\n        ",
+        "params": [
+          {
+            "name": "notebook_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "code",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "cursor_pos",
+            "type": "int",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "list_notebooks",
+        "description": "\n        List running notebooks for current session\n        ",
+        "hidden": true
+      },
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "hidden": true
+      },
+      {
+        "name": "manage_kernel",
+        "description": "\n        Manage kernel for a notebook (unified kernel operations)\n\n        Args:\n            notebook_path: Path to notebook\n            action: Kernel operation\n                - \"restart\": Restart kernel (clears all state)\n                              NOTE: Auto-creates kernel if it doesn't exist\n                - \"interrupt\": Interrupt running execution\n                - \"status\": Get kernel status information\n                - \"variables\": Get current kernel variables\n                - \"shutdown\": Shutdown kernel (context preserved, can restart later)\n                          **Memory best practice**: Shutdown kernels for completed notebooks\n                          to free memory. Running notebooks with loaded data (e.g., AnnData)\n                          consume significant memory. Too many open notebooks can exhaust memory.\n                - \"delete\": Delete context completely (shutdown kernel + remove from memory)\n\n        Returns:\n            dict with success status and action-specific data\n\n        ",
+        "params": [
+          {
+            "name": "notebook_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "action",
+            "type": "typing.Literal['restart', 'interrupt', 'status', 'variables', 'shutdown', 'delete']",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "move_cell",
+        "description": "\n        Move a cell to a different position in the notebook.\n\n        Args:\n            notebook_path: Path to notebook file\n            cell_id: Cell identifier to move\n            below_cell_id: Cell ID to move after (moves to top if not provided)\n\n        Returns:\n            dict with:\n            - success: True if cell was moved\n            - cell_id: The cell identifier\n            - notebook_path: Path to the notebook\n        ",
+        "params": [
+          {
+            "name": "notebook_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "cell_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "below_cell_id",
+            "type": "typing.Optional[str]",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "notebook_edit",
+        "description": "\n        Unified tool for notebook structure operations.\n\n        Args:\n            notebook_path: Path to notebook file\n            action: Operation to perform:\n                - \"create\": Create or open a notebook\n                - \"add_cell\": Add a new cell\n                - \"update_cell\": Update cell content\n                - \"delete_cell\": Delete a cell\n                - \"move_cell\": Move a cell to a different position\n            cell_id: Cell identifier (required for update/delete/move, optional for add)\n            cell_type: Cell type for add_cell: \"code\", \"markdown\", \"raw\" (default: \"code\")\n            content: Cell content for add_cell or update_cell\n            old_content: For update_cell partial replacement mode\n            position: Target position:\n                - For add_cell: None=append to end, \"0\"/\"1\"/\"-1\"=index, or a cell_id=insert after that cell\n                - For move_cell: None=move to top, or a cell_id=move after that cell\n            execute: For add_cell/update_cell: execute the cell after modification (recommended for code cells)\n            kernel_spec: For create: Jupyter kernel name to use (default: \"python3\").\n                         Use notebook_execute(action=\"list_kernels\") to see available kernels.\n\n        Returns:\n            dict with action-specific results\n\n        Examples:\n            # Create notebook with default kernel\n            notebook_edit(\"analysis.ipynb\", action=\"create\")\n\n            # Create notebook with a specific kernel\n            notebook_edit(\"analysis.ipynb\", action=\"create\", kernel_spec=\"my_env\")\n\n            # Add and execute a code cell\n            notebook_edit(\"analysis.ipynb\", action=\"add_cell\",\n                         content=\"import pandas as pd\", execute=True)\n\n            # Update cell content\n            notebook_edit(\"analysis.ipynb\", action=\"update_cell\",\n                         cell_id=\"abc123\", content=\"x = 2\", execute=True)\n\n            # Delete a cell\n            notebook_edit(\"analysis.ipynb\", action=\"delete_cell\", cell_id=\"abc123\")\n\n            # Move a cell after another\n            notebook_edit(\"analysis.ipynb\", action=\"move_cell\",\n                         cell_id=\"abc123\", position=\"def456\")\n        ",
+        "params": [
+          {
+            "name": "notebook_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "cell_id",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "cell_type",
+            "type": "str",
+            "required": false,
+            "default": "code"
+          },
+          {
+            "name": "content",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "old_content",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "position",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "execute",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "kernel_spec",
+            "type": "typing.Optional[str]",
+            "required": false
+          }
+        ]
+      },
+      {
+        "name": "notebook_execute",
+        "description": "\n        Execute cells and manage kernel lifecycle.\n\n        Args:\n            notebook_path: Path to notebook file (not required for list_kernels/setup_kernel)\n            action: Operation to perform:\n                - \"execute\": Execute a cell (requires cell_id)\n                - \"restart\": Restart kernel (clears all state)\n                - \"interrupt\": Interrupt running execution\n                - \"shutdown\": Shutdown kernel session\n                - \"list_kernels\": List all available Jupyter kernels and conda/venv environments\n                - \"setup_kernel\": Register a Python environment as a Jupyter kernel\n                                  (requires python_path; optional kernel_name, display_name)\n            cell_id: Cell identifier (required for \"execute\" action)\n            kernel_name: For setup_kernel: name for the new kernelspec (default: derived from path)\n            python_path: For setup_kernel: absolute path to the Python executable\n            display_name: For setup_kernel: display name for the kernel\n\n        Returns:\n            dict with execution results, kernel status, or kernel listing\n\n        Examples:\n            # Execute a cell\n            notebook_execute(\"analysis.ipynb\", action=\"execute\", cell_id=\"abc123\")\n\n            # List available kernels and environments\n            notebook_execute(action=\"list_kernels\")\n\n            # Register a conda env as a Jupyter kernel\n            notebook_execute(action=\"setup_kernel\",\n                python_path=\"/Users/me/micromamba/envs/my_env/bin/python\",\n                kernel_name=\"my_env\",\n                display_name=\"My Analysis Env\")\n\n            # Restart kernel (clears all variables)\n            notebook_execute(\"analysis.ipynb\", action=\"restart\")\n        ",
+        "params": [
+          {
+            "name": "notebook_path",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "execute"
+          },
+          {
+            "name": "cell_id",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "kernel_name",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "python_path",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "display_name",
+            "type": "typing.Optional[str]",
+            "required": false
+          }
+        ]
+      },
+      {
+        "name": "notebook_read",
+        "description": "\n        Read notebook content, list notebooks, or query kernel state.\n\n        Args:\n            notebook_path: Path to notebook file (required for read_cells and kernel queries)\n            action: Operation to perform:\n                - \"read_cells\": Read cells with execution status (default)\n                - \"list\": List running notebooks for current session\n                - \"kernel_status\": Get kernel status\n                - \"kernel_variables\": List kernel variables\n            include_details: For read_cells: include full source and outputs (default: False)\n            cell_ids: For read_cells: optional list of specific cell IDs to read\n\n        Returns:\n            dict with notebook data\n\n        Examples:\n            # Read all cells (summary mode)\n            notebook_read(\"analysis.ipynb\")\n\n            # Read specific cells with full details\n            notebook_read(\"analysis.ipynb\", include_details=True, cell_ids=[\"cell_1\"])\n\n            # List all running notebooks\n            notebook_read(action=\"list\")\n\n            # Check kernel status\n            notebook_read(\"analysis.ipynb\", action=\"kernel_status\")\n\n            # Get kernel variables\n            notebook_read(\"analysis.ipynb\", action=\"kernel_variables\")\n        ",
+        "params": [
+          {
+            "name": "notebook_path",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "read_cells"
+          },
+          {
+            "name": "include_details",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "cell_ids",
+            "type": "typing.Optional[list[str]]",
+            "required": false
+          }
+        ]
+      },
+      {
+        "name": "read_cells",
+        "description": "\n        Read cells in a notebook with execution status and optional content.\n\n        Args:\n            notebook_path: Path to notebook file\n            include_details: Include complete cell data (source, outputs).\n                When False (default): Returns cell summary (execution status, mime types).\n                When True: Returns full cell data (source, outputs).\n            cell_ids: Optional list of cell IDs to read. If None or empty, reads all cells.\n                Example: [\"cell_1\", \"cell_3\"] reads only those cells.\n\n        Returns:\n            dict with cell list and notebook info. Each cell includes:\n            - Always: cell_id, cell_index, cell_type, execution_count, execution_status, output_mime_types\n            - When include_details=False (default): source_preview (first 60 chars)\n            - When include_details=True: source, outputs\n            - When execution_status=\"error\": error_summary (ename, evalue)\n\n        Example:\n            # Get all cells with execution status only\n            result = await toolset.read_cells(\"notebook.ipynb\")\n\n            # Get all cells with full details\n            result = await toolset.read_cells(\"notebook.ipynb\", include_details=True)\n            for cell in result[\"cells\"]:\n                print(f\"{cell['cell_id']}: {cell['source']}\")\n\n            # Get only specific cells\n            result = await toolset.read_cells(\n                \"notebook.ipynb\",\n                include_details=True,\n                cell_ids=[\"cell_1\", \"cell_3\"]\n            )\n\n        Note:\n            For kernel variables, use manage_kernel(action=\"variables\") instead.\n            For advanced JSON queries on notebook files, use jq via shell:\n              jq '.cells[] | select(.id==\"abc123\")' notebook.ipynb  # Get cell by id\n              jq '.cells[] | select(.cell_type==\"code\") | .source' notebook.ipynb\n        ",
+        "params": [
+          {
+            "name": "notebook_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "include_details",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "cell_ids",
+            "type": "typing.Optional[list[str]]",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "read_notebook",
+        "description": "\n        Read full notebook JSON content (Frontend only)\n\n        This tool is for frontend/API use only. Not exposed to LLM agents.\n\n        For LLM agents: Use the standard file Read tool to read .ipynb files.\n        This matches VSCode's design where agents use built-in file operations\n        for full content reads.\n\n        for complete cell data retrieval.\n\n        Args:\n            notebook_path: Path to notebook\n            validate: Perform nbformat schema validation (default: False)\n                     Set True for initial load, False for periodic updates (faster)\n\n        Returns:\n            dict with notebook JSON structure\n\n        Performance note:\n            validation=False is recommended for periodic polling to reduce latency.\n            The frontend can validate on initial load with validation=True.\n        ",
+        "params": [
+          {
+            "name": "notebook_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "validate",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "read_notebook_output",
+        "description": "Fetch ONE full cell output on demand (Frontend only).\n\n        read_notebook returns a LEAN notebook — outputs above a size limit are\n        replaced with a marker + preview so the notebook crosses NATS fast. When\n        the user opens such an output, the frontend calls this to load the single\n        full output, addressed by its cell id and its index in that cell's outputs\n        list (both carried in the marker). Not exposed to LLM agents.\n        ",
+        "params": [
+          {
+            "name": "notebook_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "cell_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "output_index",
+            "type": "int",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      },
+      {
+        "name": "update_cell",
+        "description": "\n        Update cell content (supports full replacement or partial replacement).\n\n        Args:\n            notebook_path: Path to notebook file\n            cell_id: Cell identifier\n            content: New cell content\n            old_content: Optional. If provided, will replace old_content with content.\n                        If None/empty, will replace entire cell content.\n            execute: Execute the cell after updating.\n                    **RECOMMENDED: Use execute=True for code cells** to run the\n                    updated code immediately. Skipped for non-code cells.\n\n        Returns:\n            dict with:\n            - success: True if cell was updated\n            - cell_id: The cell identifier\n            - replacements: Number of replacements made (only when old_content provided)\n            - execution: (only when execute=True and cell is code type) Complete execution result dict containing:\n                - success: True if execution succeeded\n                - outputs: Execution outputs (list of nbformat output nodes)\n                - execution_count: Kernel execution count\n                - kernel_session_id: Kernel session ID\n                - cell_id: The cell identifier\n                - memory_hint: (optional) Memory warning if usage > 75%\n                - error: Error message if execution failed\n\n        Examples:\n            # Update and execute in one call (recommended)\n            update_cell(notebook_path, cell_id, content=\"x = 1\", execute=True)\n\n            # Partial replacement with execution\n            update_cell(notebook_path, cell_id, \n                       content=\"n_neighbors=30\",\n                       old_content=\"n_neighbors=15\",\n                       execute=True)\n            \n            # Update only (no execution)\n            update_cell(notebook_path, cell_id, content=\"x = 1\")\n        \n        Note:\n            Only one execution can run at a time per kernel session. Concurrent\n            execution calls (execute_cell, add_cell(execute=True), update_cell(execute=True))\n            for the same notebook will return \"Kernel is busy\" error.\n        ",
+        "params": [
+          {
+            "name": "notebook_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "cell_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "content",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "old_content",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "execute",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ],
+        "hidden": true
+      }
+    ]
+  },
+  "placement": {
+    "requires": [
+      "proc",
+      "fs:workspace"
+    ],
+    "prefer": [
+      "sandbox"
+    ]
+  }
+}

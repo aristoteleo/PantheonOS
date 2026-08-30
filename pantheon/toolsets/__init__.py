@@ -3,45 +3,37 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .python import PythonInterpreterToolSet
-    from .r import RInterpreterToolSet
-    from .julia import JuliaInterpreterToolSet
     from .shell import ShellToolSet
     from .file import FileManagerToolSet
     from .web import WebToolSet
     from .notebook import (
         IntegratedNotebookToolSet,
         JupyterKernelToolSet,
-        NotebookToolSet,
+        NotebookContentsToolSet,
     )
+    from .image import ImageGenerationToolSet
+    from .file_transfer import FileTransferToolSet
     from .scraper import ScraperToolSet
-    from .rag import VectorRAGToolSet
-    from .package import PackageToolSet
-    from .database_api import DatabaseAPIQueryToolSet
     from .task import TaskToolSet
     from .evolution import EvolutionToolSet, EvaluatorToolSet
-    from .scfm import SCFMToolSet
     from .desktop import DesktopToolSet, LiveViewToolSet
     from .pty import PtyToolSet
     from .fleet import FleetToolSet
 
 _TOOLSET_MAPPING = {
     "PythonInterpreterToolSet": ".python",
-    "RInterpreterToolSet": ".r",
-    "JuliaInterpreterToolSet": ".julia",
     "ShellToolSet": ".shell",
     "FileManagerToolSet": ".file",
     "WebToolSet": ".web",
     "IntegratedNotebookToolSet": ".notebook",
     "JupyterKernelToolSet": ".notebook",
-    "NotebookToolSet": ".notebook",
+    "NotebookContentsToolSet": ".notebook",
+    "ImageGenerationToolSet": ".image",
+    "FileTransferToolSet": ".file_transfer",
     "ScraperToolSet": ".scraper",
-    "VectorRAGToolSet": ".rag",
-    "PackageToolSet": ".package",
-    "DatabaseAPIQueryToolSet": ".database_api",
     "TaskToolSet": ".task",
     "EvolutionToolSet": ".evolution",
     "EvaluatorToolSet": ".evolution",
-    "SCFMToolSet": ".scfm",
     "DesktopToolSet": ".desktop",
     # The name before the toolset outgrew it. Kept so a saved agent
     # config naming the old class still resolves.

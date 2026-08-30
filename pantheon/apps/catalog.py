@@ -1,0 +1,164 @@
+"""The triage of every shipped ToolSet into the App model (P1 of §08).
+
+Each surviving toolset class is classified once, here, and this table is what
+the unified registry serves. Kinds:
+
+  service    a real App: gets a reflected headless manifest
+  plugin     agent-pipeline hook wearing a toolset's coat (runs embedded in
+             the brain; still an App, flagged so the loader knows)
+  component  an internal part of another App — no App of its own
+  alias      a legacy class name kept for saved configs — not an App
+  absorb     scheduled for deletion into other machinery (still a service
+             App until that lands; `absorb_into` names the destination)
+
+`runtime` is today's target execution form (§04c); `builtin_target=True`
+marks the Go-rewrite batch (compiled into the fleet runner) — it stays
+`process` until the Go implementation passes signature parity.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class CatalogEntry:
+    app_id: str
+    class_name: str
+    module: str                      # import path holding the class
+    kind: str                        # service | plugin | component | alias | absorb
+    runtime: str = "process"         # embedded | process | builtin
+    requires: tuple[str, ...] = ()
+    prefer: tuple[str, ...] = ()
+    #: Initial interface contracts (§06): (name, version, member tool names).
+    #: Members may be hidden tools — an interface protecting the frontend's
+    #: bus contract is exactly as load-bearing as one protecting the LLM's.
+    interfaces: tuple[tuple[str, int, tuple[str, ...]], ...] = ()
+    description: str = ""
+    parent: str | None = None        # for kind=component
+    absorb_into: str | None = None   # for kind=absorb
+    builtin_target: bool = False     # Go-rewrite batch
+    notes: str = ""
+
+
+CATALOG: tuple[CatalogEntry, ...] = (
+    # ---- body-side services (need the sandbox) ----------------------------
+    CatalogEntry(
+        "python-interpreter", "PythonInterpreterToolSet", "pantheon.toolsets.python",
+        kind="service", requires=("proc", "fs:workspace"), prefer=("sandbox",),
+        description="Execute Python in the workspace (Jupyter-kernel backed).",
+    ),
+    CatalogEntry(
+        "shell", "ShellToolSet", "pantheon.toolsets.shell",
+        kind="service", requires=("proc", "fs:workspace"), prefer=("sandbox",),
+        builtin_target=True,
+        interfaces=(("shell", 1, ("run_command", "new_shell", "run_command_in_shell",
+                                  "get_shell_output", "close_shell")),),
+        description="Run shell commands in the workspace.",
+    ),
+    CatalogEntry(
+        "pty", "PtyToolSet", "pantheon.toolsets.pty",
+        kind="service", requires=("proc", "fs:workspace"), prefer=("sandbox",),
+        builtin_target=True,
+        interfaces=(("pty", 1, ("pty_open", "pty_attach", "pty_write", "pty_resize",
+                                "pty_list", "pty_close")),),
+        description="Interactive terminal sessions (the Terminal app's backend).",
+    ),
+    CatalogEntry(
+        "file-manager", "FileManagerToolSet", "pantheon.toolsets.file",
+        kind="service", requires=("fs:workspace",), prefer=("sandbox",),
+        builtin_target=True,
+        interfaces=(("fs", 1, ("read_file", "write_file", "update_file", "glob",
+                               "grep", "apply_patch", "view_file_outline")),),
+        description="Workspace file operations, outlines and symbol reads.",
+    ),
+    CatalogEntry(
+        "integrated-notebook", "IntegratedNotebookToolSet", "pantheon.toolsets.notebook",
+        kind="service", requires=("proc", "fs:workspace"), prefer=("sandbox",),
+        description="Notebook editing and execution with streaming.",
+    ),
+    CatalogEntry(
+        "desktop", "DesktopToolSet", "pantheon.toolsets.desktop",
+        kind="service", requires=("proc", "fs:workspace", "display"), prefer=("sandbox",),
+        description="The user's desktop: windows, apps, browser, data server.",
+    ),
+    CatalogEntry(
+        "evolution", "EvolutionToolSet", "pantheon.toolsets.evolution",
+        kind="service", requires=("proc", "fs:workspace"), prefer=("sandbox",),
+        description="Evolutionary experiment runs.",
+    ),
+    # ---- brain-side services (network only; embed in the agent process) ---
+    CatalogEntry(
+        "web", "WebToolSet", "pantheon.toolsets.web",
+        kind="service", runtime="embedded", requires=("net",),
+        description="Web search and page fetch.",
+        notes="second Go-builtin batch candidate",
+    ),
+    CatalogEntry(
+        "scraper", "ScraperToolSet", "pantheon.toolsets.scraper",
+        kind="service", runtime="embedded", requires=("net",),
+        description="ScraperAPI search/scrape (API key required).",
+        notes="second Go-builtin batch candidate",
+    ),
+    CatalogEntry(
+        "image-generation", "ImageGenerationToolSet", "pantheon.toolsets.image",
+        kind="service", runtime="embedded", requires=("net",),
+        description="Image generation via model APIs.",
+    ),
+    CatalogEntry(
+        "fleet", "FleetToolSet", "pantheon.toolsets.fleet",
+        kind="service", runtime="embedded", requires=("net",),
+        absorb_into="fleet-runner builtins",
+        description="Observe and drive the user's fleet of compute nodes.",
+        notes="brain keeps an embedded client; node-side tools become runner builtins",
+    ),
+    # ---- agent plugins (embedded by nature) --------------------------------
+    CatalogEntry(
+        "task", "TaskToolSet", "pantheon.toolsets.task",
+        kind="plugin", runtime="embedded",
+        description="Modal-workflow (PLANNING/EXECUTION/VERIFICATION) boundaries "
+                    "and prompt shaping. In-process agent pipeline hooks.",
+        notes='"Modal" here means workflow modes, not the Modal cloud — no SDK involved',
+    ),
+    # ---- scheduled absorptions --------------------------------------------
+    CatalogEntry(
+        "file-transfer", "FileTransferToolSet", "pantheon.toolsets.file_transfer",
+        kind="absorb", requires=("fs:workspace", "net"),
+        absorb_into="fleet transfer (data plane)",
+        description="Chunked file transfer to the frontend.",
+    ),
+    # ---- components (parts of other Apps; no App of their own) ------------
+    CatalogEntry(
+        "jupyter-kernel", "JupyterKernelToolSet", "pantheon.toolsets.notebook",
+        kind="component", parent="integrated-notebook",
+    ),
+    CatalogEntry(
+        "notebook-contents", "NotebookContentsToolSet", "pantheon.toolsets.notebook",
+        kind="component", parent="integrated-notebook",
+    ),
+    CatalogEntry(
+        "evaluator", "EvaluatorToolSet", "pantheon.toolsets.evolution",
+        kind="component", parent="evolution",
+    ),
+    # ---- legacy aliases ----------------------------------------------------
+    CatalogEntry(
+        "live-view", "LiveViewToolSet", "pantheon.toolsets.desktop",
+        kind="alias", parent="desktop",
+        notes="saved agent configs may still name the old class",
+    ),
+)
+
+
+def entries(kind: str | None = None) -> tuple[CatalogEntry, ...]:
+    if kind is None:
+        return CATALOG
+    return tuple(e for e in CATALOG if e.kind == kind)
+
+
+def app_entries() -> tuple[CatalogEntry, ...]:
+    """Entries that become Apps: services, plugins, and pending absorptions."""
+    return tuple(e for e in CATALOG if e.kind in ("service", "plugin", "absorb"))
+
+
+def by_class_name() -> dict[str, CatalogEntry]:
+    return {e.class_name: e for e in CATALOG}

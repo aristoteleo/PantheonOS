@@ -116,8 +116,6 @@ filterwarnings = [
     # Ignore coroutine never awaited warnings from background task tests
     # These are false positives from pytest's test isolation and asyncio cleanup timing
     "ignore:coroutine.*was never awaited:RuntimeWarning",
-    # Ignore deprecation warning for scfm_router
-    "ignore:scfm_router is deprecated:DeprecationWarning",
 ]
 
 [project.optional-dependencies]
@@ -129,19 +127,6 @@ dev = [
 r = [
     # R language support for notebooks (requires R installed on system)
     "rpy2>=3.5.0",
-]
-knowledge = [
-    "llama-index-core>=0.11.0",
-    "llama-index-llms-openai",
-    "llama-index-vector-stores-qdrant>=0.3.0",
-    "qdrant-client>=1.12.0",
-    "llama-index-embeddings-openai>=0.2.0",
-    "llama-index-readers-file>=0.2.0",
-    "docx2txt>=0.8",
-    "fastembed>=0.2.0",
-    "llama-index-postprocessor-flashrank-rerank>=0.2.0",
-    "llama-index-postprocessor-cohere-rerank",
-    "nbconvert>=7.16.0",
 ]
 
 [dependency-groups]

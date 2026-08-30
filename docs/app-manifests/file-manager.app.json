@@ -1,0 +1,541 @@
+{
+  "id": "file-manager",
+  "name": "FileManager",
+  "version": "0.6.4",
+  "description": "Workspace file operations, outlines and symbol reads.",
+  "entry": {
+    "backend": "pantheon.toolsets.file:FileManagerToolSet"
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "apply_patch",
+        "description": "Apply patches to files with fuzzy matching support.\n\n        Automatically detects patch format (Unified Diff or V4A) and extracts file paths from headers.\n        Supports single-file and multi-file patches with create/update/delete operations.\n        Uses fuzzy matching to handle whitespace and minor differences.\n\n        Format recommendations: Use Unified Diff for most cases (industry standard). Use V4A for \n        complex multi-file operations with explicit create/delete markers. Set fuzzy_threshold=0.8 \n        for AI-generated patches.\n\n        Args:\n            patch: Patch content as string, format auto-detected.\n                   - Unified Diff (Git style): Industry standard, multi-file support, human-readable\n                   - V4A/Codex format: Explicit operation markers, good for complex multi-file changes\n\n            file_path: Optional explicit file path (default: extracted from patch headers).\n                       Can be relative to workspace or absolute.\n\n            fuzzy_threshold: Optional, matching tolerance 0.0-1.0 (default: 0.5).\n                            0.0 = exact match, 0.5 = balanced, 0.8 = tolerant for AI patches.\n\n        Returns:\n            dict: {\n                \"success\": bool,\n                \"message\": str,\n                \"summary\": {\n                    \"total_files\": int,\n                    \"modified\": int,\n                    \"created\": int,\n                    \"deleted\": int,\n                    \"failed\": int\n                },\n                \"files\": [\n                    {\n                        \"file\": str,\n                        \"action\": str,  # \"update\"|\"create\"|\"delete\"\n                        \"success\": bool,\n                        \"hunks_applied\": int,  # Number of changes applied (updates only)\n                        \"hunks_total\": int,  # Total changes in patch (updates only)\n                        \"exact_match\": bool,  # True if no fuzzy matching needed (updates only)\n                        \"lines_added\": int,  # Number of lines (creates only)\n                        \"error\": str  # Error message (failures only)\n                    }\n                ],\n                \"failed_files\": [str]\n            }\n\n        Examples:\n            # Unified Diff format - single file update\n            ```\n            --- a/hello.py\n            +++ b/hello.py\n            @@ -1,2 +1,2 @@\n             def hello():\n            -    return \"Hello\"\n            +    return \"Hello, World!\"\n            ```\n\n            # V4A format - multi-file with create/update/delete\n            ```\n            *** Begin Patch\n            *** Update File: config.py\n            - DEBUG = True\n            + DEBUG = False\n\n            *** Create File: new_module.py\n            + def new_feature():\n            +     pass\n\n            *** Delete File: legacy.py\n            *** End Patch\n            ```\n\n            # Using fuzzy_threshold parameter\n            fuzzy_threshold=0.8\n\n        Note:\n            Common issues: \"No valid operations\" = check format; \"No hunks applied\" = try higher fuzzy_threshold; \"File does not exist\" = file must exist for updates.\n        ",
+        "params": [
+          {
+            "name": "patch",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "file_path",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "fuzzy_threshold",
+            "type": "float",
+            "required": false,
+            "default": 0.5
+          }
+        ]
+      },
+      {
+        "name": "compile_latex",
+        "description": "Compile a LaTeX (.tex) file into a PDF.\n\n        Reads the .tex file from the given path, compiles it, and saves\n        the resulting PDF to the output directory.\n\n        Args:\n            file_path: Path to the .tex file to compile (absolute or relative to workspace).\n            compiler: LaTeX compiler to use. Options: \"pdflatex\" (default),\n                     \"tectonic\", \"xelatex\", \"lualatex\".\n\n        Returns:\n            dict: {\n                \"success\": bool,\n                \"pdf_path\": str (absolute path to generated PDF, if successful),\n                \"error\": str (compilation error message, if failed),\n                \"log\": str (compiler output, if failed)\n            }\n        ",
+        "params": [
+          {
+            "name": "file_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "compiler",
+            "type": "str",
+            "required": false,
+            "default": "pdflatex"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "create_directory",
+        "description": "Create one or more directories.\n\n        Args:\n            sub_dir: Directory path or list of directory paths to create.\n\n        Returns:\n            dict: Success status. For batch operations, includes results for each path.\n        ",
+        "params": [
+          {
+            "name": "sub_dir",
+            "type": "str | list[str]",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "delete_path",
+        "description": "Delete files or directories with optional recursion.\n\n        Args:\n            path: Single path or list of paths relative to the workspace root.\n            recursive: When True, directories are deleted recursively using rmtree.\n        ",
+        "params": [
+          {
+            "name": "path",
+            "type": "str | list[str]",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "recursive",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "fetch_image_base64",
+        "description": "Fetch an image and return the base64 encoded image. for frontend display\n\n        Args:\n            image_path: Path to the image file (relative to workspace)\n            max_size: Longest-edge cap in pixels before encoding. The\n                frontend passes a small value (e.g. 400) for chat\n                thumbnails and a larger one (e.g. 1024) for the right\n                sidebar preview; click-to-zoom goes through the chunked\n                full-resolution path instead and bypasses this RPC.\n\n        Returns:\n            Dict with success status and either data_uri or error message\n\n        Raises:\n            Returns error dict for invalid paths, unsupported formats, or file issues\n        ",
+        "params": [
+          {
+            "name": "image_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "max_size",
+            "type": "int",
+            "required": false,
+            "default": 1568
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "fetch_resources_batch",
+        "description": "Batch fetch multiple resources for HTML preview (frontend-only).\n        \n        This tool is designed for frontend HTML preview to efficiently load\n        multiple resources (images, CSS, JS) referenced in HTML files.\n        \n        Args:\n            resource_paths: List of resource paths. Can be:\n                           - Absolute paths (starting with /)\n                           - Relative paths (if base_path is provided)\n            base_path: Optional base directory for resolving relative paths.\n                      Should be the directory containing the HTML file.\n        \n        Returns:\n            dict: {\n                \"success\": bool,\n                \"resources\": [\n                    {\n                        \"path\": str,           # Original path from input\n                        \"resolved_path\": str,  # Resolved absolute path\n                        \"success\": bool,\n                        \"content\": str,        # base64 data URI for images, text for css/js\n                        \"mime_type\": str,\n                        \"error\": str           # Only present if success=False\n                    }\n                ],\n                \"total\": int,\n                \"loaded\": int,\n                \"failed\": int\n            }\n        \n        Example:\n            # Load resources with relative paths\n            fetch_resources_batch(\n                resource_paths=[\"./images/logo.png\", \"../styles/main.css\", \"js/app.js\"],\n                base_path=\"/workspace/project/pages\"\n            )\n            \n            # Load resources with absolute paths\n            fetch_resources_batch(\n                resource_paths=[\"/workspace/project/images/logo.png\"]\n            )\n        ",
+        "params": [
+          {
+            "name": "resource_paths",
+            "type": "list[str]",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "base_path",
+            "type": "str | None",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "generate_image",
+        "description": "Generate an image from a text description.\n\n        Use this tool to create images based on your description. You can also\n        provide reference images for style transfer or image editing.\n\n        Args:\n            prompt: Detailed image instruction. Include the subject,\n                setting/context, composition/layout, visual style,\n                colors/materials, lighting, camera/viewpoint, aspect-ratio\n                intent, and any required or forbidden text. For diagrams or\n                scientific figures, specify panels, labels, arrows, relative\n                placement, and visual hierarchy. For edits or reference images,\n                state what to preserve and what to change. Avoid vague prompts\n                like \"make it better\"; describe the exact desired result.\n                When using reference_images, refer to them by order in prompt:\n                \"first image\", \"second image\", etc.\n                Example: \"Combine the style of the first image with the subject of the second image\"\n            reference_images: File paths of existing images to use as reference.\n                Images are passed to the model in array order.\n                Example: [\"style.png\", \"subject.png\"]\n            model: Model selector for image generation.\n                Leave empty to use the configured default image model.\n                Use \"gemini\" to select the default Gemini image model.\n                Use \"openai\" to select the default OpenAI image model.\n                Use a concrete model name such as \"gpt-image-2\" or\n                \"gemini/gemini-3.1-flash-image-preview\" when you need a\n                specific model.\n                Use \"provider/model-name\" for other OpenAI-compatible image\n                endpoints; the tool will try that provider's configured\n                base_url and API key. Do not pass a provider name by itself\n                unless it is \"gemini\" or \"openai\".\n            model_args: Optional provider-specific image generation arguments.\n                For Gemini models, supported keys are:\n                - aspect_ratio: e.g. \"1:1\", \"16:9\", \"9:16\"\n                  Default: provider/model default, usually square.\n                - image_size: e.g. \"1K\", \"2K\", \"4K\" when supported by the model\n                  Default: provider/model default.\n                For OpenAI or OpenAI-compatible image endpoints, supported keys are:\n                - size: e.g. \"1024x1024\", \"1536x1024\", \"1024x1536\", \"auto\"\n                  Default: \"1024x1024\".\n                - quality: e.g. \"low\", \"medium\", \"high\", \"auto\"\n                  Default: provider/model default.\n                - output_format: e.g. \"png\", \"jpeg\", \"webp\"\n                  Default: provider/model default, usually PNG/base64.\n                - background: e.g. \"auto\", \"transparent\", \"opaque\"\n                  Default: provider/model default.\n                Unsupported keys return a structured error with available options.\n\n        Returns:\n            Dictionary with:\n            - success: Whether generation succeeded\n            - images: List of file paths to generated images\n            - error: Error message if failed\n        ",
+        "params": [
+          {
+            "name": "prompt",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "reference_images",
+            "type": "list[str] | None",
+            "required": false
+          },
+          {
+            "name": "model",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "model_args",
+            "type": "dict[str, typing.Any] | None",
+            "required": false
+          }
+        ]
+      },
+      {
+        "name": "get_cwd",
+        "description": "Get current working directory.",
+        "hidden": true
+      },
+      {
+        "name": "get_home_dir",
+        "description": "Return the runtime user home directory.\n\n        The frontend uses this to locate the **global** template/skill\n        store at ``~/.pantheon/`` and resolve the project-vs-global\n        scope toggle in TemplateDashboard. We used to derive home from\n        ``get_cwd``'s prefix (only matched ``/Users/*`` and ``/home/*``),\n        which silently failed inside Modal sandboxes where cwd is\n        ``/__modal/volumes/...`` and Path.home() is ``/root``. Reporting\n        it directly is more reliable than regex-sniffing.\n        ",
+        "hidden": true
+      },
+      {
+        "name": "glob",
+        "description": "Search for files and subdirectories within a specified directory using glob patterns.\n        \n        Search uses smart case and will ignore gitignored files by default.\n        To avoid overwhelming output, the results are capped at max_glob_results. \n        Use the various arguments to filter the search scope as needed.\n        Results will include the type, size, modification time, and relative path.\n\n        Args:\n            pattern: Glob pattern to search for, supports glob format:\n                     - \"*\" matches any characters except /\n                     - \"**\" matches any characters including /\n                     - \"?\" matches single character\n                     - \"[abc]\" matches any character in brackets\n                     - \"{py,js,ts}\" matches any of the extensions (brace expansion)\n                     Examples: \"*.py\", \"**/*.{js,ts}\", \"src/**/*.py\"\n\n            path: Optional directory to search from (default: workspace root).\n                  Can be relative (to workspace) or absolute path.\n\n            respect_git_ignore: Optional, whether to respect .gitignore patterns (default: True).\n                               Set to False to search ignored files.\n\n            type_filter: Optional, type filter, enum=file,directory,any.\n                        Default None means \"file\" for backward compatibility.\n\n            excludes: Optional, exclude files/directories that match the given glob patterns.\n\n            max_depth: Optional, maximum depth to search.\n\n        Returns:\n            dict: {\n                \"success\": bool,\n                \"files\": [\n                    {\n                        \"path\": str,        # Relative path from workspace root\n                        \"name\": str,        # File basename\n                        \"size\": int,        # Size in bytes\n                        \"modified\": str,    # ISO format timestamp\n                        \"type\": str         # \"file\" or \"directory\"\n                    }\n                ],\n                \"total\": int,\n                \"pattern\": str,\n                \"message\": str,\n                \"capped\": bool,\n                \"filters_applied\": {\n                    \"type\": str | None,\n                    \"excludes\": list[str] | None,\n                    \"max_depth\": int | None,\n                }\n            }\n\n        Examples:\n            # Find Python files, excluding virtual environments\n            pattern=\"**/*.py\", excludes=[\".venv/*\", \"**/__pycache__/*\"]\n\n            # Find configuration directories at top level\n            pattern=\"*config*\", type_filter=\"directory\", max_depth=1\n\n            # Complex search with multiple filters\n            pattern=\"**/*.{py,js}\", excludes=[\"node_modules/*\", \".venv/*\"], type_filter=\"file\", max_depth=3\n        ",
+        "params": [
+          {
+            "name": "pattern",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "path",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "respect_git_ignore",
+            "type": "bool",
+            "required": false,
+            "default": true
+          },
+          {
+            "name": "type_filter",
+            "type": "typing.Optional[typing.Literal['file', 'directory', 'any']]",
+            "required": false
+          },
+          {
+            "name": "excludes",
+            "type": "list[str] | None",
+            "required": false
+          },
+          {
+            "name": "max_depth",
+            "type": "int | None",
+            "required": false
+          }
+        ]
+      },
+      {
+        "name": "grep",
+        "description": "Search for text patterns within file contents.\n        \n        Search uses case-insensitive matching by default and will ignore gitignored files.\n        Searches recursively by default. Refine your pattern or use file_pattern to narrow scope.\n        Results are capped at max_glob_results to avoid overwhelming output.\n        Results will include file path, line number, line content, and optional context lines.\n\n        Args:\n            pattern: Text or regex pattern to search for, supports Rust regex syntax.\n                     Examples: \"TODO\", \"def\\s+\\w+\", \"class\\s+\\w+\"\n\n            path: Optional directory or file to search (default: workspace root).\n                  Can be relative or absolute.\n\n            file_pattern: Optional glob pattern to filter files.\n                         Examples: \"*.py\", \"*.{js,ts}\", \"src/**/*.py\"\n\n            context_lines: Optional, number of context lines before/after each match (default: 0).\n\n            case_sensitive: Optional, whether search is case-sensitive (default: False).\n\n            respect_git_ignore: Optional, whether to respect .gitignore patterns (default: True).\n\n        Returns:\n            dict: {\n                \"success\": bool,\n                \"matches\": [\n                    {\n                        \"file\": str,\n                        \"line_number\": int,\n                        \"line_content\": str,\n                        \"context_before\": [str],\n                        \"context_after\": [str],\n                        \"column\": int\n                    }\n                ],\n                \"total_matches\": int,\n                \"files_matched\": int,\n                \"pattern\": str,\n                \"message\": str\n            }\n\n        Examples:\n            # Find TODOs in Python files with context\n            pattern=\"TODO\", file_pattern=\"*.py\", context_lines=2\n\n            # Find function definitions using regex\n            pattern=\"def\\s+\\w+\", file_pattern=\"**/*.py\"\n\n            # Search in gitignored directory\n            pattern=\"version.*1.2.3\", path=\"node_modules\", respect_git_ignore=False\n        ",
+        "params": [
+          {
+            "name": "pattern",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "path",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "file_pattern",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "context_lines",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "case_sensitive",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "respect_git_ignore",
+            "type": "bool",
+            "required": false,
+            "default": true
+          }
+        ]
+      },
+      {
+        "name": "list_files",
+        "description": "DEPRECATED: Use glob() or grep() instead.\n\n        This tool returns too much data and is inefficient.\n\n        Recommended alternatives:\n        - Use glob() to find files by pattern (e.g., glob(\"**/*.py\"))\n        - Use grep() to search file contents (e.g., grep(\"TODO\", file_pattern=\"**/*.py\"))\n\n        Original functionality:\n        List files and directories in the workspace.\n\n        Args:\n            sub_dir: Subdirectory to list (relative to workspace root).\n                     If not provided, lists the workspace root.\n            recursive: If True, list all files recursively as a tree structure.\n            max_depth: Maximum depth to recurse (only used when recursive=True).\n                       0 means only the target directory, 1 includes immediate children, etc.\n                       Default is 5.\n\n        Returns:\n            dict: {success: bool, files: list} with name, type, size, last_modified.\n        ",
+        "params": [
+          {
+            "name": "sub_dir",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "recursive",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "max_depth",
+            "type": "int",
+            "required": false,
+            "default": 5
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "hidden": true
+      },
+      {
+        "name": "manage_path",
+        "description": "Unified tool for managing files and directories.\n\n        This tool consolidates common file system operations into a single interface.\n        Use this instead of create_directory, delete_path, or move_file.\n\n        Args:\n            operation: The operation to perform. One of:\n                      - \"create_dir\": Create a directory (and parents if needed)\n                      - \"delete\": Delete a file or directory\n                      - \"move\": Move or rename a file/directory\n\n            path: The target path for the operation (relative to workspace root).\n                  For \"create_dir\" and \"delete\", this is the path to create/delete.\n                  For \"move\", this is the source path.\n\n            new_path: Required for \"move\" operation. The destination path.\n                     Ignored for other operations.\n\n            recursive: For \"delete\" operation only. When True, directories are\n                      deleted recursively. When False, only empty directories\n                      can be deleted. Default: False.\n\n        Returns:\n            dict: {\"success\": bool, ...} with operation-specific details.\n                 On error: {\"success\": False, \"error\": str}\n\n        Examples:\n            # Create a directory (parents created automatically)\n            await manage_path(\"create_dir\", \"src/components\")\n\n            # Delete a file\n            await manage_path(\"delete\", \"old_file.py\")\n\n            # Delete a directory recursively\n            await manage_path(\"delete\", \"old_folder\", recursive=True)\n\n            # Move/rename a file\n            await manage_path(\"move\", \"old_name.py\", new_path=\"new_name.py\")\n\n            # Move to different directory\n            await manage_path(\"move\", \"file.py\", new_path=\"backup/file.py\")\n        ",
+        "params": [
+          {
+            "name": "operation",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "new_path",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "recursive",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "move_file",
+        "description": "Move or rename a file.\n\n        Args:\n            old_path: Current path of the file (relative to workspace root).\n            new_path: New path for the file (relative to workspace root).\n\n        Returns:\n            dict: {success: bool} or {success: False, error: str}\n        ",
+        "params": [
+          {
+            "name": "old_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "new_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "observe_images",
+        "description": "Observe images and answer a question about them.\n\n        When the active agent's provider supports native image content in tool\n        results (Anthropic, Gemini, OpenAI Responses API), the images are\n        returned directly so the main agent can see them and reason over\n        multiple turns. Otherwise, falls back to a vision sub-agent that\n        returns a text summary (OpenAI Chat Completions and compatible\n        providers that reject image_url in tool-role messages).\n\n        Args:\n            question: The question to answer.\n            image_paths: The paths to the images to view.",
+        "params": [
+          {
+            "name": "question",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "image_paths",
+            "type": "list[str]",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      },
+      {
+        "name": "observe_pdf_screenshots",
+        "description": "Observe the screenshots of the PDF file and answer a question about them.\n\n        Args:\n            question: The question to answer.\n            pdf_path: The path to the PDF file to observe.\n            page_numbers: The numbers of the pages to observe. If not provided, all pages will be observed.\n            dpi: The DPI of the screenshots. If not provided, the default value is 300.\n        ",
+        "params": [
+          {
+            "name": "question",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "pdf_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "page_numbers",
+            "type": "list[int] | None",
+            "required": false
+          },
+          {
+            "name": "dpi",
+            "type": "int",
+            "required": false,
+            "default": 300
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "read_file",
+        "description": "Read the contents of a text file.\n\n        Usage:\n        - Lines are 1-indexed (first line is line 1).\n        - start_line and end_line are inclusive.\n        - To read the entire file, do not pass start_line or end_line.\n        - To read a specific range, pass both start_line and end_line.\n        - max_chars: Optional character limit (default: 50000 from settings).\n        - symbol: Optional. Extract a specific class/function/method by name\n          (e.g., \"MyClass\", \"MyClass.my_method\", \"helper_func\").\n\n        Args:\n            file_path: Path to the file to read (relative to workspace root).\n            start_line: Optional. First line to read (1-indexed, inclusive).\n            end_line: Optional. Last line to read (1-indexed, inclusive).\n            max_chars: Optional. Maximum characters to return (for quick preview, use lower values like 5000).\n            symbol: Optional. Qualified name of a code symbol to extract (dot notation).\n                   Examples: \"MyClass\", \"MyClass.my_method\", \"helper_function\"\n\n        Returns:\n            dict: {success, content, total_lines, format, [truncated, truncation_info, suggestions]}\n        \n        Note:\n            Large files are limited to max_file_read_lines and max_file_read_chars.\n            Use start_line/end_line to paginate or max_chars to control output size.\n        ",
+        "params": [
+          {
+            "name": "file_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "start_line",
+            "type": "int | None",
+            "required": false
+          },
+          {
+            "name": "end_line",
+            "type": "int | None",
+            "required": false
+          },
+          {
+            "name": "max_chars",
+            "type": "int | None",
+            "required": false
+          },
+          {
+            "name": "symbol",
+            "type": "str | None",
+            "required": false
+          }
+        ]
+      },
+      {
+        "name": "read_pdf",
+        "description": "Read a PDF file. Extracts text by default, or analyzes page screenshots when a question is provided.\n\n        Args:\n            pdf_path: The path to the PDF file to read.\n            question: Optional. If provided, renders pages as images and answers the question\n                     using multimodal analysis (useful for PDFs with charts, tables, or images).\n            page_numbers: Optional. Specific page numbers to read (0-indexed).\n                         If not provided, reads all pages.\n            dpi: Resolution for screenshot mode (default: 300). Only used when question is provided.\n\n        Returns:\n            dict: Success status, content, and metadata about the PDF.\n        ",
+        "params": [
+          {
+            "name": "pdf_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "question",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "page_numbers",
+            "type": "list[int] | None",
+            "required": false
+          },
+          {
+            "name": "dpi",
+            "type": "int",
+            "required": false,
+            "default": 300
+          }
+        ]
+      },
+      {
+        "name": "reload_workspace_volume",
+        "description": "Force a fresh snapshot of the Modal Volume mounted at /workspace.\n\n        Modal Volumes are not auto-synced across containers — writes made by\n        another container (e.g. the data-share copy worker) are invisible\n        here until we explicitly call ``Volume.reload()``. The frontend\n        invokes this after a share accept completes so the file panel can\n        immediately show the dropped files without the user having to\n        restart their sandbox.\n\n        Args:\n            volume_name: Optional explicit volume name. If omitted, derive\n                from env: ``MODAL_VOLUME_PREFIX`` + ``user-`` +\n                sanitized(``USER_ID``) + ``-workspace`` — same convention\n                pantheon-hub's PodNamingUtils.get_pvc_name uses.\n\n        Returns:\n            ``{\"success\": True, \"volume_name\": <name>}`` on success, or\n            ``{\"success\": False, \"error\": <reason>}`` if Modal SDK is\n            unavailable / no env / reload fails.\n        ",
+        "params": [
+          {
+            "name": "volume_name",
+            "type": "str | None",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "update_file",
+        "description": "Use this tool to edit an existing file. Follow these rules:\n\n        1. Use this tool ONLY when making a SINGLE edit to a file. If you need to make\n           MULTIPLE different edits to one of multiple files, use `apply_patch` instead.\n        2. The old_string must EXACTLY MATCH the text in the file, including whitespace\n           and indentation. Copy the exact text you want to replace.\n        3. When old_string appears multiple times in the file, use start_line and end_line\n           to limit the search scope, OR set replace_all=True to replace all occurrences.\n        4. DO NOT use `write_file` to rewrite entire files when you only need small changes.\n           This tool is more efficient and safer.\n\n        Args:\n            file_path: Path to the file to update (relative to workspace root).\n            old_string: The exact string to find and replace.\n            new_string: The string to replace old_string with.\n            replace_all: If True, replace all occurrences. Default False (safer).\n            start_line: Optional. Limit search from this line (1-indexed, inclusive).\n            end_line: Optional. Limit search to this line (1-indexed, inclusive).\n\n        Returns:\n            dict: {success: bool, replacements: int} or {success: False, error: str}\n        ",
+        "params": [
+          {
+            "name": "file_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "old_string",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "new_string",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "replace_all",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "start_line",
+            "type": "int | None",
+            "required": false
+          },
+          {
+            "name": "end_line",
+            "type": "int | None",
+            "required": false
+          }
+        ]
+      },
+      {
+        "name": "view_file_outline",
+        "description": "Get a structured outline of classes and functions in a file.\n\n        Returns the \"skeleton\" of a source file: all top-level classes and\n        functions with their line ranges, signatures, and nested members.\n        Useful for understanding large files without reading all the code.\n\n        Args:\n            file_path: Path to the source file (relative to workspace or absolute).\n                      Supports: .py, .js, .ts, .jsx, .tsx\n\n        Returns:\n            dict: {\n                \"success\": bool,\n                \"file\": str,\n                \"language\": str,\n                \"total_lines\": int,\n                \"symbols\": [\n                    {\n                        \"name\": str,\n                        \"kind\": str,    # \"class\", \"function\", \"method\"\n                        \"start_line\": int,\n                        \"end_line\": int,\n                        \"signature\": str,\n                        \"docstring\": str,\n                        \"children\": [...]\n                    }\n                ]\n            }\n\n        Examples:\n            # View outline of a Python file\n            outline = await view_file_outline(\"src/utils.py\")\n\n            # View outline of a JavaScript file\n            outline = await view_file_outline(\"lib/index.js\")\n        ",
+        "params": [
+          {
+            "name": "file_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      },
+      {
+        "name": "write_file",
+        "description": "Create a new file, overwrite an existing one, or append to it.\n\n        Parent directories are created automatically if they do not exist.\n\n        For EDITING existing files, prefer `update_file` instead — it is\n        safer and more efficient for partial modifications.\n\n        Use this tool when:\n        - Creating a brand new file\n        - Completely rewriting a file from scratch\n        - Appending content to an existing file (set append=True)\n\n        Do NOT use this tool when:\n        - Making partial modifications to an existing file (use `update_file`)\n        - Changing a few lines in a large file (use `update_file`)\n\n        Args:\n            file_path: The path to the file to write.\n            content: The content to write to the file.\n            overwrite: When False, abort if the target file already exists (ignored when append=True).\n            append: When True, append content to the end of an existing file instead of overwriting.\n                    The file must already exist when using append mode.\n\n        Returns:\n            dict: Success status or error message.\n        ",
+        "params": [
+          {
+            "name": "file_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "content",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "overwrite",
+            "type": "bool",
+            "required": false,
+            "default": true
+          },
+          {
+            "name": "append",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ]
+      }
+    ],
+    "interfaces": [
+      {
+        "name": "fs",
+        "tools": [
+          "read_file",
+          "write_file",
+          "update_file",
+          "glob",
+          "grep",
+          "apply_patch",
+          "view_file_outline"
+        ]
+      }
+    ]
+  },
+  "placement": {
+    "requires": [
+      "fs:workspace"
+    ],
+    "prefer": [
+      "sandbox"
+    ]
+  }
+}

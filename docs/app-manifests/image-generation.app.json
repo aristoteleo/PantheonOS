@@ -1,0 +1,51 @@
+{
+  "id": "image-generation",
+  "name": "ImageGeneration",
+  "version": "0.6.4",
+  "description": "Image generation via model APIs.",
+  "runtime": "embedded",
+  "entry": {
+    "backend": "pantheon.toolsets.image:ImageGenerationToolSet"
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "generate_image",
+        "description": "Generate an image from a text description.\n\n        Use this tool to create images based on your description. You can also\n        provide reference images for style transfer or image editing.\n\n        Args:\n            prompt: Detailed image instruction. Include the subject,\n                setting/context, composition/layout, visual style,\n                colors/materials, lighting, camera/viewpoint, aspect-ratio\n                intent, and any required or forbidden text. For diagrams or\n                scientific figures, specify panels, labels, arrows, relative\n                placement, and visual hierarchy. For edits or reference images,\n                state what to preserve and what to change. Avoid vague prompts\n                like \"make it better\"; describe the exact desired result.\n                When using reference_images, refer to them by order in prompt:\n                \"first image\", \"second image\", etc.\n                Example: \"Combine the style of the first image with the subject of the second image\"\n            reference_images: File paths of existing images to use as reference.\n                Images are passed to the model in array order.\n                Example: [\"/path/to/style.png\", \"/path/to/subject.png\"]\n            model: Model selector for image generation.\n                Leave empty to use the configured default image model.\n                Use \"gemini\" to select the default Gemini image model.\n                Use \"openai\" to select the default OpenAI image model.\n                Use a concrete model name such as \"gpt-image-2\" or\n                \"gemini/gemini-3.1-flash-image-preview\" when you need a\n                specific model.\n                Use \"provider/model-name\" for other OpenAI-compatible image\n                endpoints; the tool will try that provider's configured\n                base_url and API key. Do not pass a provider name by itself\n                unless it is \"gemini\" or \"openai\".\n            model_args: Optional provider-specific image generation arguments.\n                For Gemini models, supported keys are:\n                - aspect_ratio: e.g. \"1:1\", \"16:9\", \"9:16\"\n                  Default: provider/model default, usually square.\n                - image_size: e.g. \"1K\", \"2K\", \"4K\" when supported by the model\n                  Default: provider/model default.\n                For OpenAI or OpenAI-compatible image endpoints, supported keys are:\n                - size: e.g. \"1024x1024\", \"1536x1024\", \"1024x1536\", \"auto\"\n                  Default: \"1024x1024\".\n                - quality: e.g. \"low\", \"medium\", \"high\", \"auto\"\n                  Default: provider/model default.\n                - output_format: e.g. \"png\", \"jpeg\", \"webp\"\n                  Default: provider/model default, usually PNG/base64.\n                - background: e.g. \"auto\", \"transparent\", \"opaque\"\n                  Default: provider/model default.\n                Unsupported keys return a structured error with available options.\n\n        Returns:\n            Dictionary with:\n            - success: Whether generation succeeded\n            - images: List of file paths to generated images\n            - error: Error message if failed\n        ",
+        "params": [
+          {
+            "name": "prompt",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "reference_images",
+            "type": "list[str] | None",
+            "required": false
+          },
+          {
+            "name": "model",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "model_args",
+            "type": "dict[str, typing.Any] | None",
+            "required": false
+          }
+        ]
+      },
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "hidden": true
+      }
+    ]
+  },
+  "placement": {
+    "requires": [
+      "net"
+    ]
+  }
+}

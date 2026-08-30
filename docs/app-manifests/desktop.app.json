@@ -1,0 +1,662 @@
+{
+  "id": "desktop",
+  "name": "Desktop",
+  "version": "0.6.4",
+  "description": "The user's desktop: windows, apps, browser, data server.",
+  "entry": {
+    "backend": "pantheon.toolsets.desktop:DesktopToolSet"
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "browser_act",
+        "description": "Act on a browser page by COORDINATE — what a hand would do.\n\n        `browser_click` needs a selector, which a canvas, a map, a PDF or a\n        chart does not have. This takes the same input path the user's\n        mouse and keyboard travel, so anything they can do here, so can an\n        agent — and the user watches it happen, because it is one browser.\n\n        Coordinates are CSS pixels of the page, the same ones\n        `browser_screenshot` is measured in. Actions, in order:\n\n            {\"t\": \"click\", \"x\": 400, \"y\": 220}     also dblclick, rightclick\n            {\"t\": \"move\" | \"down\" | \"up\", \"x\":…, \"y\":…, \"button\": 0}\n            {\"t\": \"drag\", \"x\":…, \"y\":…, \"to_x\":…, \"to_y\":…}\n            {\"t\": \"wheel\", \"dy\": 300, \"x\":…, \"y\":…}\n            {\"t\": \"key\", \"key\": \"Enter\"}           any Playwright key name\n            {\"t\": \"text\", \"text\": \"hello\"}\n            {\"t\": \"scroll\", \"y\": 1200}             absolute, in page pixels\n\n        A page the viewer is rendering NATIVELY (a sandbox-local file) is a\n        second copy of that file in this browser, not the copy on their\n        screen: the viewer is asked to reload afterwards, so anything the\n        action wrote to disk appears, but in-memory state will not.\n        ",
+        "params": [
+          {
+            "name": "actions",
+            "type": "list[dict]",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "page_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "browser_clear_data",
+        "description": "UI → backend: sign out of every site (clear cookies + storage).",
+        "hidden": true
+      },
+      {
+        "name": "browser_click",
+        "description": "Click an element on a browser page by CSS selector (or text=...,\n        role=... — any Playwright selector). 5s timeout when nothing matches.",
+        "params": [
+          {
+            "name": "selector",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "page_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "browser_close",
+        "description": "Close a browser page. The user's window for it (if any) goes blank\n        — prefer leaving pages open for the user unless they are truly done.",
+        "params": [
+          {
+            "name": "page_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      },
+      {
+        "name": "browser_goto",
+        "description": "Navigate a browser page (the newest one unless `page_id` says\n        otherwise). The user watching the window sees the navigation live.",
+        "params": [
+          {
+            "name": "url",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "page_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "browser_open",
+        "description": "Open a real browser page (Chromium in this sandbox) and, by default,\n        show it to the user as a Browser window on their desktop.\n\n        THE PAGE IS SHARED. The user sees it live and can click, type and log\n        in; you drive the SAME page with browser_goto / browser_click /\n        browser_type / browser_read. When a site needs a login, open it, ask\n        the user to sign in, then continue — the profile (cookies, sessions)\n        persists in the sandbox.\n\n        Args:\n            url: address to load (https:// is assumed when the scheme is\n                missing). Empty opens a blank page.\n            show: also open the desktop Browser window (needs an Atrium\n                desktop on this chat). Pass False to browse headlessly.\n            window_id: an EXISTING Browser window to open the page in — the\n                page appears there as a tab (taking over an empty New Tab)\n                instead of a new window. This is how \"search in THIS browser\n                window\" is done.\n\n        Returns `page_id` for the other browser_* tools, plus url/title, and\n        `window_id` when a desktop window was opened or reused.\n        ",
+        "params": [
+          {
+            "name": "url",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "show",
+            "type": "bool",
+            "required": false,
+            "default": true
+          },
+          {
+            "name": "window_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "browser_pages",
+        "description": "List open browser pages (newest last) with their ids and urls."
+      },
+      {
+        "name": "browser_read",
+        "description": "Read the visible text of a browser page (title, url, body text\n        truncated to ~8k chars). Your eyes on the shared page — use it after\n        navigating, or after asking the user to do something there.",
+        "params": [
+          {
+            "name": "page_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "browser_screenshot",
+        "description": "Screenshot a browser page to a workspace file (JPEG) and return its\n        path — observe_image it to see the page as pixels.",
+        "params": [
+          {
+            "name": "page_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "path",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "browser_scroll",
+        "description": "Scroll a browser page: by `dy`/`dx` pixels, or `to` \"top\"/\"bottom\".\n\n        A screenshot shows one screenful. This is how an agent reads the\n        rest of a page it is looking at rather than parsing it — and it is\n        the same scroll the user's wheel produces, on the page they can see.\n        ",
+        "params": [
+          {
+            "name": "dy",
+            "type": "float",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "dx",
+            "type": "float",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "to",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "page_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "browser_type",
+        "description": "Fill a field on a browser page (replaces its value). `submit`\n        presses Enter afterwards.",
+        "params": [
+          {
+            "name": "selector",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "text",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "submit",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "page_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "browser_ui_close",
+        "description": "UI → backend: the Browser window closed; drop its page.",
+        "params": [
+          {
+            "name": "page_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "browser_ui_nav",
+        "description": "UI → backend: toolbar navigation (goto/back/forward/reload/stop).",
+        "params": [
+          {
+            "name": "page_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "op",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "url",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "browser_ui_page",
+        "description": "UI → backend: create (or attach to) a page and get stream URLs.\n\n        The Atrium Browser window calls this on mount: with `page_id` when the\n        agent already opened the page (desktop.open state), without to start a\n        fresh page. Returns frame/input endpoint URLs plus the page's state.\n        ",
+        "params": [
+          {
+            "name": "url",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "page_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "desktop_anchor",
+        "description": "UI-only: which viewport this chat's directed requests should reach.\n\n        Exposed rather than kept internal because \"why that screen?\" is\n        otherwise unanswerable after the fact, and not being able to name the\n        copy that answered was the whole difficulty of debugging the session.\n        ",
+        "params": [
+          {
+            "name": "chat_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "desktop_app_registry",
+        "description": "Every packaged app on this pod: manifest, directory, icon URL.\n\n        The desktop assembled this itself — list each scope, read each\n        app's atrium.json, then ask for each icon's URL — which is a couple\n        of dozen round trips, one after another, while the user watches\n        \"Preparing the desktop\". All of it is on local disk here.\n\n        Scopes are searched workspace, then user, then builtin, and the\n        first manifest to claim an id wins, which is the order the desktop\n        used. A scope that cannot be listed is reported rather than\n        silently treated as empty: booting with no apps and no complaint is\n        the failure this replaces.\n        ",
+        "hidden": true
+      },
+      {
+        "name": "desktop_apps",
+        "description": "List the apps installed on the user's desktop — what you can open.\n\n        Each entry: `app_id` (what desktop_open's `app` takes), `name`,\n        `description`, `opens` (file extensions it claims), `actions`\n        (names for desktop_call), `backend` (whether app_call reaches a\n        backend process), and `skill` (the path of the doc describing its\n        state contract — read_file it before driving anything non-trivial).\n\n        Call this when you need to name an app explicitly, or to see what\n        can open a given file type.\n        "
+      },
+      {
+        "name": "desktop_broadcast",
+        "description": "UI-only: pass an EPHEMERAL value to the pod's other viewports.\n\n        The counterpart to `desktop_intent`, for state whose only interesting\n        version is the newest one — a camera mid-drag, a cursor, a selection\n        being scrubbed. It is relayed and forgotten: nothing is sequenced,\n        nothing is written to the record, and a viewport that joins later\n        learns none of it.\n\n        That is the point rather than a limitation. Putting a camera in the\n        session document would sequence and persist a value that changes at\n        pointer rates and that nobody should reload into — someone else's zoom\n        restored at boot is not a feature. What must survive a reload belongs\n        in an intent instead.\n        ",
+        "params": [
+          {
+            "name": "topic",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "payload",
+            "type": "dict | None",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "desktop_call",
+        "description": "Invoke a named action on a window — the same handlers its menus\n        trigger (defineAction). List a window's actions via desktop_windows.\n        Also accepts window ops: action \"$close\" closes the window.",
+        "params": [
+          {
+            "name": "window_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "args",
+            "type": "dict",
+            "required": false,
+            "default": {}
+          },
+          {
+            "name": "kwargs",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      },
+      {
+        "name": "desktop_intent",
+        "description": "UI-only: ask for a change to the desktop.\n\n        Clients send intents rather than state, so this is the only writer and\n        the order of two viewports' edits is decided in one place. The reply\n        carries whatever the caller needs back — a minted window id — and the\n        ops themselves, so the caller can show the result now instead of\n        waiting to hear its own broadcast come back. Applying by `seq` makes\n        that idempotent: the broadcast arrives, is not newer, and is dropped.\n        ",
+        "params": [
+          {
+            "name": "kind",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "args",
+            "type": "dict | None",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "desktop_open",
+        "description": "Open an app window on the desktop, the way a double-click would.\n\n        WINDOWS ARE LONG-LIVED. If something is wrong with what a window\n        shows, CORRECT IT IN PLACE — desktop_update (patch), desktop_set\n        (replace), desktop_call (an action), or this tool with `window_id`\n        to show a different file in that same window. Opening again is for a\n        genuinely new thing; the desktop is the user's, and a pile of\n        near-identical windows is a mess they have to clean up.\n\n        Args:\n            app: app id (e.g. \"molstar\", \"vitessce\"); desktop_apps() lists\n                them. Omit with `path` to route by file type, as a\n                double-click does.\n            path: file to open. The app's own open pipeline runs (backend\n                prepare, format conversion) — you do NOT need serve_local_data.\n            state: initial state instead of / merged over a file, for apps\n                driven by state (the contract each app's skill documents).\n            window_id: show it in THIS existing window instead of a new one.\n            module: a frontend ES-module SOURCE you wrote —\n                `export function setup(app, root) { … }` — to open as a BESPOKE\n                window with no install and no manifest. The app gets the full\n                bridge (app.onState / setState / defineAction / onSnapshot /\n                fs) and is drivable with desktop_read / update / set / call\n                exactly like a packaged app. This is the fast path for a\n                one-off UI. For something reusable, write a package under\n                `.pantheon/apps/<id>/` and open it by `app` id instead.\n            title: window title, used with `module`.\n\n        Returns `window_id`, and `reused: true` when it landed in a window\n        that was already showing that file.\n        ",
+        "params": [
+          {
+            "name": "app",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "path",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "state",
+            "type": "dict",
+            "required": false,
+            "default": {}
+          },
+          {
+            "name": "window_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "module",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "title",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ]
+      },
+      {
+        "name": "desktop_presence",
+        "description": "UI-only: renew this page's leases, and read back who else is here.\n\n        One call per page, on a heartbeat — a page has at most one viewport and\n        any number of chat clients, so sending them together keeps this to one\n        message rather than one per entity. The reply carries the whole live\n        registry, so a viewport that wants to draw other people's cursors does\n        not need a second round trip.\n\n        `active` means real user input since the last beat, not that the beat\n        happened: a background tab must not out-rank the window someone is\n        typing in when the anchor is resolved.\n        ",
+        "params": [
+          {
+            "name": "viewport_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "clients",
+            "type": "list | None",
+            "required": false
+          },
+          {
+            "name": "visible",
+            "type": "bool",
+            "required": false,
+            "default": true
+          },
+          {
+            "name": "active",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "desktop_presence_leave",
+        "description": "UI-only: give up leases on the way out (pagehide).\n\n        Best-effort by nature — it does not fire for a crash, a dropped\n        connection or a sleeping laptop, which is exactly why the lease exists.\n        This only saves the TTL in the common case.\n        ",
+        "params": [
+          {
+            "name": "viewport_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "client_ids",
+            "type": "list | None",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "desktop_read",
+        "description": "Read a window's current state (the same shape its skill documents).\n\n        Works on any packaged-app window, including ones the user opened.\n        ",
+        "params": [
+          {
+            "name": "window_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      },
+      {
+        "name": "desktop_screenshot",
+        "description": "See what a desktop window currently shows, as an image.\n\n        Works on any packaged-app window — including ones the user opened.\n        Returns the screenshot inline (vision-capable models) and saves it to\n        `path`. Use it to VERIFY after desktop_open / desktop_update: state\n        alone does not prove the view looks right.\n        ",
+        "params": [
+          {
+            "name": "window_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      },
+      {
+        "name": "desktop_session_get",
+        "description": "UI-only: the whole window document, for a viewport attaching or\n        recovering from a missed delta.",
+        "hidden": true
+      },
+      {
+        "name": "desktop_set",
+        "description": "Replace a window's state wholesale — the fix-in-place for apps\n        whose state IS a config (Vitessce, Gosling, IGV).\n\n        desktop_update deep-merges, so it can add and change but never\n        remove; when the config is wrong rather than incomplete, set the\n        whole corrected one here instead of opening another window.\n        ",
+        "params": [
+          {
+            "name": "window_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "state",
+            "type": "dict",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      },
+      {
+        "name": "desktop_sync_apps",
+        "description": "Write a batch of dev-app package files, in one call.\n\n        The desktop writes every package under its `apps/` tree to the pod on\n        connect, so the packaged path is exercised by the same session that is\n        editing it. Fifty-eight files at one RPC each — plus a directory\n        apiece and a sweep of what the tree no longer ships — is most of the\n        wait a user spends looking at \"Preparing the desktop\", and none of it\n        is work: it is round trips.\n\n        Paths are relative to the workspace's `.pantheon/apps`, and stay\n        there: this writes packages, not arbitrary files.\n\n        Passing `manifest` (the complete list of relative paths this sync\n        owns) also prunes what an earlier sync wrote and the tree no longer\n        ships. Unconditional write-through is deliberate — a Volume outlives\n        the code that wrote it, and \"did it change\" bookkeeping is how stale\n        state survives — so this makes the honest thing cheap rather than\n        replacing it with a guess.\n        ",
+        "params": [
+          {
+            "name": "files",
+            "type": "dict",
+            "required": false,
+            "default": {}
+          },
+          {
+            "name": "manifest",
+            "type": "list | None",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "desktop_update",
+        "description": "Deep-merge a patch into a window's state — for ANY packaged-app\n        window by window_id, however it was opened.\n\n        The first thing to reach for when a view is wrong: fix the window\n        you have rather than opening another one.\n\n        To show DIFFERENT DATA in a file window, patch ``path`` (the\n        workspace file). A path is durable: it lands in the session record,\n        every viewport re-opens the app from it, and it survives page\n        reloads and pod replacement (served URLs are re-derived fresh).\n        State patched WITHOUT a path — a raw ``url``, say — only changes the\n        live views and is gone after a reload.\n        ",
+        "params": [
+          {
+            "name": "window_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "patch",
+            "type": "dict",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      },
+      {
+        "name": "desktop_windows",
+        "description": "List every window on the user's desktop — whoever opened it.\n\n        The desktop has virtual spaces (mac-style, numbered from 1): the\n        top-level `active_space` / `space_count` describe them, and each\n        window carries its `space`. Focusing or opening a window on another\n        space carries the user there.\n\n        Each entry: `window_id`, `app_id` (manifest id for packaged apps),\n        `name`, `title`, `path` (the file it shows, when opened on one),\n        `controllable` (whether desktop_read/update/call can drive it — true\n        for packaged-app windows), `actions` it exposes, and `pty_session`\n        for a Terminal window.\n\n        This is how you reach windows the USER opened: find its window_id\n        here, then desktop_read / desktop_update / desktop_call it exactly\n        like a view you opened yourself.\n\n        A TERMINAL WINDOW IS ALSO DRIVABLE, by a different route. It is a\n        view onto a pty session on this pod, so `pty_write(pty_session,\n        base64(\"echo hi\n\"))` types into the terminal the user is looking\n        at — they see the command and its output in their own window. Prefer\n        that to running the command out of sight and pasting the result: it\n        is the difference between working in their terminal and describing\n        what you did somewhere else. (desktop_read/update/call will refuse\n        it — those are the packaged-app bridge, which a built-in app has no\n        part in. That refusal is not \"the Terminal cannot be driven\".)\n        "
+      },
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "hidden": true
+      },
+      {
+        "name": "manage_endpoints",
+        "description": "Manage dynamic LiveView endpoints (list, info, unregister).\n\n        This tool provides endpoint lifecycle management operations to\n        complement serve_endpoint. Use it to inspect registered endpoints\n        or clean up ones that are no longer needed.\n\n        Args:\n            action: Operation to perform:\n                - \"list\": List all registered endpoints with their URLs\n                - \"info\": Get details about a specific endpoint (requires name)\n                - \"unregister\": Remove an endpoint registration (requires name)\n            name: Endpoint name (required for \"info\" and \"unregister\" actions)\n\n        Returns:\n            dict with success status and operation-specific data:\n            - list: {\"success\": True, \"endpoints\": [{\"name\": ..., \"url\": ...}, ...]}\n            - info: {\"success\": True, \"name\": ..., \"url\": ..., \"exists\": True}\n            - unregister: {\"success\": True, \"removed\": True/False}\n\n        Examples:\n            manage_endpoints(\"list\")\n            manage_endpoints(\"info\", \"ab_track\")\n            manage_endpoints(\"unregister\", \"old_endpoint\")\n        ",
+        "params": [
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "name",
+            "type": "str | None",
+            "required": false
+          }
+        ]
+      },
+      {
+        "name": "report_desktop_result",
+        "description": "UI-only: the desktop answers a desktop.* request.",
+        "params": [
+          {
+            "name": "request_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "ok",
+            "type": "bool",
+            "required": false,
+            "default": true
+          },
+          {
+            "name": "value",
+            "type": "Any",
+            "required": false
+          },
+          {
+            "name": "error",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "report_snapshot",
+        "description": "UI → backend: deliver a captured snapshot, resolving the pending\n        desktop_screenshot.",
+        "params": [
+          {
+            "name": "request_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "ok",
+            "type": "bool",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "data_url",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "error",
+            "type": "str | None",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "serve_endpoint",
+        "description": "Expose a lightweight Python HTTP endpoint over the LiveView data server.\n\n        Any LiveView can fetch the returned URL: built-in viewer plugins\n        (Gosling, Cytoscape, IGV adapters, etc.) when their config accepts a\n        data URL, or a custom LiveView app that calls fetch(url). Use this\n        when the browser needs computed data rather than a file already on\n        disk (that case is serve_local_data).\n\n        The endpoint module must export either:\n            async def handle(request): ...\n        or:\n            def build(): return handle\n            def build(config): return handle\n\n        The handler receives an aiohttp.web.Request, so the frontend and server\n        coordinate through normal HTTP parameters: path segments (`tail`), query\n        params, headers, or POST JSON. `config` is only for registration-time\n        JSON constants passed to build(config), such as fixed paths or sample\n        names. Use request parameters for runtime controls and files for large\n        arrays or binary data.\n        Keep request handlers light: precompute heavy results before serving,\n        or run complex apps as separate processes and proxy them in a later\n        endpoint mode.\n\n        Args:\n            name: URL segment for the endpoint. Letters, numbers, \"_\" and \"-\"\n                only. Registering the same name replaces the handler.\n            path: Absolute path, or workspace-relative path, to a Python module.\n            config: Optional JSON-serializable constants for build(config).\n\n        Returns:\n            dict with success, base_url, and url (the endpoint base URL).\n        ",
+        "params": [
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "config",
+            "type": "dict | None",
+            "required": false
+          }
+        ]
+      },
+      {
+        "name": "serve_local_data",
+        "description": "Expose a local workspace file or directory over HTTP (CORS).\n\n        LiveView components run in the browser and fetch their data — and, for\n        agent-generated components, their own code — over HTTP. Local\n        workspace paths are not browser-fetchable; this lazily starts a\n        localhost CORS static server and returns a URL for `path`.\n\n        Use this to make data servable before referencing it from a view\n        config. To show a file, prefer desktop_open — it runs the app's whole\n        open pipeline; serving is for data an app will fetch by URL.\n\n        Args:\n            path: Absolute path, or path relative to the workspace, to a file\n                or directory to serve.\n\n        Returns:\n            dict with success, base_url, and url (the URL for `path`).\n        ",
+        "params": [
+          {
+            "name": "path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
+      },
+      {
+        "name": "set_data_endpoint",
+        "description": "Hub → backend: deliver the public HTTPS base for this sandbox's\n        LiveView data port (a Modal encrypted-tunnel URL).\n\n        In server mode the data server binds 0.0.0.0:<fixed port> and the hub\n        exposes it via a tunnel whose URL is only known *after* the sandbox is\n        created. The hub calls this once (after readiness) so url_for can mint\n        browser-reachable URLs instead of 127.0.0.1. The path token travels\n        separately as an env var injected at sandbox creation. See\n        docs/2026-06-10-live-view-server-mode.md (pantheon-hub).",
+        "params": [
+          {
+            "name": "tunnel_base",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      }
+    ]
+  },
+  "placement": {
+    "requires": [
+      "proc",
+      "fs:workspace",
+      "display"
+    ],
+    "prefer": [
+      "sandbox"
+    ]
+  }
+}

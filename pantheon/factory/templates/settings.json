@@ -44,15 +44,11 @@
         "builtin": [
             // === Tier 1: Core Services (recommended for all deployments) ===
             "file_manager" // File operations (read, write, list, delete, etc.)
-            // Other toolsets are lazy-started on first use. In particular, package
-            // discovery imports many system toolsets, so keeping it off the boot
-            // path avoids paying notebook/SCFM/RAG import cost during Endpoint ready.
-            // "package", // Read-only access to available packages
+            // Other toolsets are lazy-started on first use.
             // === Tier 2: Common Development Tools ===
             // "web", // Web search (using DDGS)
             // "python_interpreter", // Python code execution
             // "shell", // Shell command execution (use with caution)
-            // "knowledge", // Knowledge base/RAG
             // === Tier 3: Advanced Tools (enable as needed) ===
             // "integrated_notebook", // Integrated Notebook (with file operations)
             // "evolution",
@@ -60,16 +56,13 @@
             // === More Available Services (commented, enable as needed) ===
             // "file_editor",     // Advanced file editing (Claude Code style)
             // "jupyter_kernel",  // Standard Jupyter Kernel
-            // "r_interpreter",   // R code execution
-            // "julia_interpreter", // Julia code execution
             // "scraper",         // ScraperAPI search/scrape (requires API Key)
         ],
         // Service mode configuration
         // "default" is the default mode for services not explicitly specified
         "modes": {
             "default": "local"
-            // "python_interpreter": "local",  // Lightweight services suit local
-            // "julia_interpreter": "remote"   // Heavy computation may need isolation
+            // "python_interpreter": "local"  // Lightweight services suit local
         }
     },
     // ===== Remote Backend Configuration =====
@@ -115,18 +108,6 @@
         "ZAI_API_KEY": null,
         "SCRAPER_API_KEY": null, // ScraperAPI key
         "HUGGINGFACE_TOKEN": null
-    },
-    // ===== Knowledge/RAG Configuration =====
-    "knowledge": {
-        // Knowledge base storage path
-        "storage_path": "~/.pantheon-knowledge",
-        // Qdrant vector database configuration
-        "qdrant": {
-            "location": null, // Remote Qdrant URL
-            "path": null, // Local storage path
-            "api_key": null, // Qdrant Cloud API Key
-            "prefer_grpc": false // Whether to prefer gRPC
-        }
     },
     // ===== Model Selection Configuration =====
     // Smart model selection based on available API keys

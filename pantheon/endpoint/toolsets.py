@@ -84,6 +84,9 @@ class ToolSetManager:
         # Configuration from EndpointConfig (ToolSet-specific settings)
         self.service_modes: Dict[str, str] = config.get("service_modes", {})
         self.default_service_mode: str = self.service_modes.get("default", "local")
+        #: Service names requested (e.g. by a volume's stale settings.json)
+        #: that this build cannot provide. Excluded from readiness checks.
+        self._unavailable_services: set[str] = set()
         self.local_toolset_timeout: int = config.get("local_toolset_timeout", 60)
         self.local_toolset_execution_mode: str = config.get(
             "local_toolset_execution_mode", "direct"
@@ -279,11 +282,27 @@ class ToolSetManager:
                 "ToolSetManager.start_services requested: "
                 f"{required_services}"
             )
-            # Filter out already running services
+            # Filter out already running services — and services this build
+            # does not ship. A user volume's settings.json outlives releases:
+            # after a toolset is retired its name lingers in builtin lists,
+            # and treating that as a startable service would fail on every
+            # boot AND wedge services_ready (which waits for ALL builtins)
+            # into an endless loop. Unknown names are recorded and excluded
+            # from readiness instead.
             services_to_start = []
             already_running = []
 
             for service_name in required_services:
+                service_type, _ = self._parse_service_config(service_name)
+                if not self._service_type_available(service_type):
+                    if service_name not in self._unavailable_services:
+                        logger.warning(
+                            f"Service '{service_name}' is not shipped in this build "
+                            f"(retired toolset?); skipping — remove it from "
+                            f"settings.json services.builtin to silence this"
+                        )
+                        self._unavailable_services.add(service_name)
+                    continue
                 if await self._is_service_running(service_name):
                     already_running.append(service_name)
                 else:
@@ -609,6 +628,14 @@ class ToolSetManager:
         logger.warning(f"Could not detect service {expected_service} after 3 attempts")
         return False
 
+    def _service_type_available(self, service_type: str) -> bool:
+        """Whether this build ships a ToolSet class for the service type."""
+        try:
+            self._get_toolset_class(service_type)
+            return True
+        except Exception:
+            return False
+
     def _get_toolset_class(self, service_type: str):
         """Get ToolSet class by service type (snake_case → PascalCase)."""
         import pantheon.toolsets as toolsets
@@ -652,15 +679,10 @@ class ToolSetManager:
         """Prepare ToolSet instantiation arguments."""
         service_name = params.get("name", service_type)
         args = {"name": service_name}
-        if service_type in ("python_interpreter", "shell", "package", "pty"):
+        if service_type in ("python_interpreter", "shell", "pty"):
             args["workdir"] = str(self.path)
         elif service_type == "file_manager":
             args["path"] = str(self.path)
-        elif service_type == "vector_rag":
-            db_path = params.get("db_path")
-            if not db_path:
-                raise ValueError("db_path is required for vector_rag service")
-            args["db_path"] = db_path
         elif service_type == "workflow":
             workflow_path = params.get("workflow_path")
             if workflow_path:

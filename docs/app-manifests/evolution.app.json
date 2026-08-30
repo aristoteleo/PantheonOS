@@ -1,0 +1,355 @@
+{
+  "id": "evolution",
+  "name": "Evolution",
+  "version": "0.6.4",
+  "description": "Evolutionary experiment runs.",
+  "entry": {
+    "backend": "pantheon.toolsets.evolution:EvolutionToolSet"
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "cancel_evolution",
+        "description": "\n        Cancel a running evolution.\n\n        Args:\n            evolution_id: Evolution ID to cancel\n\n        Returns:\n            dict: Result with success status\n        ",
+        "params": [
+          {
+            "name": "evolution_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "evolution_manage",
+        "description": "\n        Manage and monitor evolution sessions.\n\n        Args:\n            evolution_id: Unique evolution identifier from evolve()\n            action: Operation to perform:\n                - \"status\": Get evolution status and progress (default)\n                - \"cancel\": Cancel a running evolution\n            include_code: For status action: include files and evaluator_code (default: False)\n\n        Returns:\n            dict with evolution status or cancellation result\n\n        Examples:\n            # Check progress\n            evolution_manage(evolution_id, action=\"status\")\n\n            # Get full results when completed\n            evolution_manage(evolution_id, action=\"status\", include_code=True)\n\n            # Cancel a running evolution\n            evolution_manage(evolution_id, action=\"cancel\")\n        ",
+        "params": [
+          {
+            "name": "evolution_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "status"
+          },
+          {
+            "name": "include_code",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ]
+      },
+      {
+        "name": "evolve",
+        "description": "\n        Evolve and optimize code using evolutionary algorithms with LLM-guided mutation.\n\n        Args:\n            type: Evolution type:\n                - \"code\": Optimize a single code string (requires `code` arg)\n                - \"codebase\": Optimize a multi-file project (requires `codebase_path` arg)\n\n            code: Initial code to optimize (required when type=\"code\")\n\n            codebase_path: Path to directory containing the codebase (required when type=\"codebase\")\n\n            evaluator_code: Python function: evaluate(workspace_path: str) -> Dict[str, float]\n                MUST return individual metrics (0-1 range) AND a \"fitness_weights\" dict.\n                Example:\n                ```python\n                def evaluate(workspace_path):\n                    import sys; sys.path.insert(0, workspace_path)\n                    from main import func\n                    correct = float(func(test_data) == expected)\n                    speed = 1.0 / (1.0 + elapsed)\n                    return {\n                        \"correctness\": correct,\n                        \"speed\": speed,\n                        \"fitness_weights\": {\"correctness\": 0.7, \"speed\": 0.3},\n                    }\n                ```\n\n            objective: Optimization goal (e.g., \"Optimize for speed\")\n\n            include_patterns: For codebase type: glob patterns for files (default: [\"**/*.py\"])\n\n            iterations: Max iterations (default: 50)\n\n            islands: Evolution islands for diversity (default: 3)\n\n            model: Mutation model quality (default: \"normal\", options: \"high\", \"normal\", \"low\")\n\n            output_path: For codebase type: path to save optimized codebase\n\n            async_mode: Run in background (default: True, RECOMMENDED for iterations > 20)\n\n            timeout: Timeout seconds for sync mode (default: auto-estimate)\n\n        Returns:\n            dict with evolution_id and status\n        ",
+        "params": [
+          {
+            "name": "type",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "evaluator_code",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "objective",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "code",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "codebase_path",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "include_patterns",
+            "type": "typing.Optional[typing.List[str]]",
+            "required": false
+          },
+          {
+            "name": "iterations",
+            "type": "typing.Optional[int]",
+            "required": false
+          },
+          {
+            "name": "islands",
+            "type": "typing.Optional[int]",
+            "required": false
+          },
+          {
+            "name": "model",
+            "type": "str",
+            "required": false,
+            "default": "normal"
+          },
+          {
+            "name": "output_path",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "async_mode",
+            "type": "bool",
+            "required": false,
+            "default": true
+          },
+          {
+            "name": "timeout",
+            "type": "typing.Optional[int]",
+            "required": false
+          }
+        ]
+      },
+      {
+        "name": "evolve_code",
+        "description": "\n        Evolve and optimize code using evolutionary algorithms with LLM-guided mutation.\n\n        Use when: Optimizing single-file code. For multi-file projects, use evolve_codebase.\n\n        Args:\n            code: Initial code to optimize (string)\n            \n            evaluator_code: Python function: evaluate(workspace_path: str) -> Dict[str, float]\n                MUST return individual metrics (0-1 range) AND a \"fitness_weights\" dict.\n                Do NOT compute combined_score yourself — the engine computes fitness automatically.\n                Example:\n                ```python\n                def evaluate(workspace_path):\n                    import sys; sys.path.insert(0, workspace_path)\n                    from main import func\n                    correct = float(func(test_data) == expected)  # 0 or 1\n                    speed = 1.0 / (1.0 + elapsed)  # 0-1 scale\n                    return {\n                        \"correctness\": correct,\n                        \"speed\": speed,\n                        \"fitness_weights\": {  # REQUIRED\n                            \"correctness\": 0.7,\n                            \"speed\": 0.3,\n                        },\n                    }\n                ```\n            \n            objective: Optimization goal (e.g., \"Optimize for speed\", \"Reduce memory usage\")\n            \n            iterations: Max iterations (default: 50)\n                Recommended: 10-20 for experiments, 50-100 for production\n            \n            islands: Evolution islands for diversity (default: 3, recommended: 3-5)\n            \n            model: Mutation model quality level (default: \"normal\", options: \"high\", \"normal\", \"low\")\n            \n            async_mode: Run in background (default: True, RECOMMENDED for iterations > 20)\n                True: Returns evolution_id immediately, monitor via get_evolution_status(evolution_id)\n                False: Waits for completion (only for quick tests <20 iterations)\n            \n            timeout: Timeout seconds for sync mode (default: auto-estimate)\n\n        Returns:\n            dict:\n                Async: {\"success\": bool, \"evolution_id\": str, \"status\": \"running\", \"estimated_time\": str}\n                Sync: {\"success\": bool, \"evolution_id\": str, \"status\": str, \"best_score\": float, \"improvement\": float, \"summary\": str}\n            \n            Key: SAVE evolution_id for tracking. Monitor via get_evolution_status(evolution_id) or Evolution UI (🧬).\n        ",
+        "params": [
+          {
+            "name": "code",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "evaluator_code",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "objective",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "iterations",
+            "type": "typing.Optional[int]",
+            "required": false
+          },
+          {
+            "name": "islands",
+            "type": "typing.Optional[int]",
+            "required": false
+          },
+          {
+            "name": "model",
+            "type": "str",
+            "required": false,
+            "default": "normal"
+          },
+          {
+            "name": "async_mode",
+            "type": "bool",
+            "required": false,
+            "default": true
+          },
+          {
+            "name": "timeout",
+            "type": "typing.Optional[int]",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "evolve_codebase",
+        "description": "\n        Evolve and optimize an entire codebase (multiple files).\n\n        Use when: Optimizing multi-file projects, libraries, or applications.\n        For single-file optimization, use evolve_code instead.\n\n        Args:\n            codebase_path: Path to directory containing the codebase (must exist)\n            \n            evaluator_code: Python function: evaluate(workspace_path: str) -> Dict[str, float]\n                MUST return individual metrics (0-1 range) AND a \"fitness_weights\" dict.\n                Do NOT compute combined_score yourself — the engine computes fitness automatically.\n                Should run project-level tests/benchmarks across all files.\n                Example:\n                ```python\n                def evaluate(workspace_path):\n                    import subprocess, sys\n                    sys.path.insert(0, workspace_path)\n\n                    # Run test suite\n                    result = subprocess.run(\n                        [\"python\", \"-m\", \"pytest\", workspace_path],\n                        capture_output=True, timeout=30, cwd=workspace_path\n                    )\n                    tests_pass = float(result.returncode == 0)\n\n                    # Run benchmarks\n                    from benchmarks import run_benchmark\n                    perf_score = run_benchmark()  # Returns 0-1\n\n                    return {\n                        \"tests_passed\": tests_pass,\n                        \"performance\": perf_score,\n                        \"fitness_weights\": {  # REQUIRED\n                            \"tests_passed\": 0.7,\n                            \"performance\": 0.3,\n                        },\n                    }\n                ```\n            \n            objective: Optimization goal (e.g., \"Optimize library performance\")\n            \n            include_patterns: Glob patterns for files to include (default: [\"**/*.py\"])\n                Examples: [\"src/**/*.py\"], [\"lib/*.py\", \"utils/*.py\"]\n            \n            iterations: Max iterations (default: 50, recommended: 20-100 for codebases)\n            \n            islands: Evolution islands (default: 3, recommended: 3-5)\n            \n            model: Mutation model quality level (default: \"normal\", options: \"high\", \"normal\", \"low\")\n            \n            output_path: Optional path to save optimized codebase\n            \n            async_mode: Run in background (default: True, HIGHLY RECOMMENDED for codebases)\n\n        Returns:\n            dict:\n                Async: {\"success\": bool, \"evolution_id\": str, \"status\": \"running\", \"file_count\": int, \"estimated_time\": str}\n                Sync: {\"success\": bool, \"evolution_id\": str, \"status\": str, \"file_count\": int, \"best_score\": float, \"improvement\": float, \"summary\": str}\n            \n            Key: ALWAYS use async_mode=True for codebases. Monitor via get_evolution_status(evolution_id).\n        ",
+        "params": [
+          {
+            "name": "codebase_path",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "evaluator_code",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "objective",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "include_patterns",
+            "type": "typing.Optional[typing.List[str]]",
+            "required": false
+          },
+          {
+            "name": "iterations",
+            "type": "typing.Optional[int]",
+            "required": false
+          },
+          {
+            "name": "islands",
+            "type": "typing.Optional[int]",
+            "required": false
+          },
+          {
+            "name": "model",
+            "type": "str",
+            "required": false,
+            "default": "normal"
+          },
+          {
+            "name": "output_path",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "async_mode",
+            "type": "bool",
+            "required": false,
+            "default": true
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "get_evolution_html_report",
+        "description": "\n        Get HTML visualization report of evolution\n        \n        Args:\n            evolution_id: Evolution ID\n        \n        Returns:\n            {\n                \"success\": bool,\n                \"html\": str,  # HTML content (if successful)\n                \"error\": str  # Error message (if failed)\n            }\n        ",
+        "params": [
+          {
+            "name": "evolution_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "get_evolution_monitor_data",
+        "description": "\n        Get all data needed for Evolution Monitor (aggregated API).\n        \n        This combines status, stats, and recent history into a single request\n        to reduce HTTP overhead and improve data consistency.\n        \n        Args:\n            evolution_id: Evolution ID\n            include_history_limit: Number of recent history points to include (default: 20)\n        \n        Returns:\n            Unified response with status, stats, and recent history\n        ",
+        "params": [
+          {
+            "name": "evolution_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "include_history_limit",
+            "type": "int",
+            "required": false,
+            "default": 20
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "get_evolution_status",
+        "description": "\n        Query evolution status by ID - Track progress of async evolutions.\n\n        Use when: Monitoring long-running evolutions started with async_mode=True.\n\n        Args:\n            evolution_id: Unique evolution identifier from evolve_code/evolve_codebase\n            \n            include_code: Whether to include files and evaluator_code (default: False)\n                False: Lightweight polling, returns progress metrics only\n                True: Complete data including input/output files (use when completed)\n\n        Returns:\n            dict:\n                Basic (include_code=False):\n                    {\"evolution_id\": str, \"evolution_type\": str, \"status\": str, \"iteration\": int, \n                     \"max_iterations\": int, \"best_score\": float, \"score_history\": list, \n                     \"improvements_found\": int, \"file_count\": int, \"error\": str|null, \n                     \"has_html_report\": bool, \"config\": dict}\n                \n                Complete (include_code=True):\n                    {...basic fields..., \n                     \"input\": {\"evaluator_code\": str, \"files\": dict, \"codebase_path\": str, \"include_patterns\": list},\n                     \"result\": {\"initial_score\": float, \"improvement\": float, \"summary\": str, \"files\": dict, \"output_path\": str}}\n            \n            Status values: \"pending\", \"running\", \"completed\", \"failed\", \"cancelled\", \"not_found\"\n\n        Usage:\n            # Start evolution\n            result = await evolve_code(..., async_mode=True)\n            evo_id = result[\"evolution_id\"]\n            \n            # Poll status\n            status = await get_evolution_status(evo_id)\n            progress = status[\"iteration\"] / status[\"max_iterations\"] * 100\n            \n            # Get full results when completed\n            if status[\"status\"] == \"completed\":\n                full = await get_evolution_status(evo_id, include_code=True)\n                optimized_code = full[\"result\"][\"files\"][\"main.py\"]\n        ",
+        "params": [
+          {
+            "name": "evolution_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "include_code",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "get_evolution_visualization_data",
+        "description": "\n        Get evolution visualization data for real-time frontend rendering.\n        \n        This tool provides access to the same data used by the HTML visualizer,\n        but in a structured format suitable for incremental updates.\n        \n        Args:\n            evolution_id: Evolution ID\n            data_type: Type of visualization data to retrieve:\n                - \"tree\": Evolution tree structure (parent-child relationships)\n                - \"history\": Score history over iterations\n                - \"heatmap\": MAP-Elites heatmap data\n                - \"programs\": Detailed program information\n                - \"stats\": Summary statistics\n            since_order: Optional. If provided, only return data for programs\n                        with order > since_order (for incremental updates)\n        \n        Returns:\n            {\n                \"success\": bool,\n                \"data\": {...},  # Data structure depends on data_type\n                \"latest_order\": int,  # Highest order in current data\n                \"total_programs\": int,  # Total number of programs\n                \"error\": str  # Error message if failed\n            }\n        ",
+        "params": [
+          {
+            "name": "evolution_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "data_type",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "since_order",
+            "type": "typing.Optional[int]",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "list_evolutions",
+        "description": "\n        List evolution sessions with pagination and filtering.\n        \n        Args:\n            limit: Maximum number of results to return (default: 50)\n            offset: Number of results to skip (default: 0)\n            status_filter: Filter by status (optional)\n            sort_by: Field to sort by (default: \"created_at\")\n            sort_order: Sort order \"asc\" or \"desc\" (default: \"desc\")\n        \n        Returns:\n            Unified response with paginated evolution list\n        ",
+        "params": [
+          {
+            "name": "limit",
+            "type": "int",
+            "required": false,
+            "default": 50
+          },
+          {
+            "name": "offset",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "status_filter",
+            "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "sort_by",
+            "type": "str",
+            "required": false,
+            "default": "created_at"
+          },
+          {
+            "name": "sort_order",
+            "type": "str",
+            "required": false,
+            "default": "desc"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "hidden": true
+      }
+    ]
+  },
+  "placement": {
+    "requires": [
+      "proc",
+      "fs:workspace"
+    ],
+    "prefer": [
+      "sandbox"
+    ]
+  }
+}

@@ -31,6 +31,10 @@ from .models import AgentConfig, TeamConfig
 RETIRED_TEMPLATES = (
     # The live view plane: skills for `live_view_*` tools that no longer exist.
     "skills/live_view",
+    # The SCFM toolset was removed (2026-08 toolset cleanup): its router agent
+    # and its skills document tools that no longer exist.
+    "agents/single_cell/fm_router.md",
+    "skills/omics/scfm",
 )
 
 

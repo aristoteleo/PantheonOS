@@ -683,33 +683,6 @@ class Settings:
             "subject_prefix": os.environ.get("NATS_SUBJECT_PREFIX"),
         }
 
-    def get_knowledge_config(self) -> Dict[str, Any]:
-        """
-        Get knowledge/RAG configuration.
-
-        Returns:
-            Knowledge config dict with qdrant settings
-        """
-        self._ensure_loaded()
-
-        knowledge = self._settings.get("knowledge", {})
-        qdrant = knowledge.get("qdrant", {})
-
-        # Environment variable overrides
-        return {
-            "storage_path": knowledge.get("storage_path", "~/.pantheon-knowledge"),
-            "qdrant": {
-                "location": os.environ.get("QDRANT_LOCATION") or qdrant.get("location"),
-                "path": os.environ.get("QDRANT_PATH") or qdrant.get("path"),
-                "api_key": os.environ.get("QDRANT_API_KEY") or qdrant.get("api_key"),
-                "prefer_grpc": (
-                    os.environ.get("QDRANT_PREFER_GRPC", "").lower() == "true"
-                    if os.environ.get("QDRANT_PREFER_GRPC")
-                    else qdrant.get("prefer_grpc", False)
-                ),
-            },
-        }
-
     def get_mcp_config(self) -> Dict[str, Any]:
         """
         Get MCP server configuration.

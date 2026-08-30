@@ -11,7 +11,7 @@ console = Console()
 
 
 def _toolset_class_name(module_name: str) -> str:
-    acronyms = {"api": "API", "rag": "RAG", "scfm": "SCFM"}
+    acronyms = {"api": "API"}
     return "".join(
         acronyms.get(word.lower(), word.capitalize())
         for word in module_name.split("_")

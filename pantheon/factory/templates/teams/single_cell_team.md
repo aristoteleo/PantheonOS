@@ -2,7 +2,7 @@
 category: bioinformatics
 description: |
   AI team for autonomous exploratory analysis of single-cell and spatial omics data.
-  Features 7 specialized agents for data analysis, scFM routing, hypothesis generation, and publication-quality reporting.
+  Features 6 specialized agents for data analysis, hypothesis generation, and publication-quality reporting.
 icon: 🧬
 id: single_cell_team
 name: Single Cell Analysis Team
@@ -10,7 +10,6 @@ type: team
 version: 1.0.0
 agents:
   - single_cell/leader
-  - single_cell/fm_router
   - single_cell/analysis_expert
   - single_cell/biologist
   - single_cell/reporter
@@ -29,7 +28,6 @@ A specialized AI team for autonomous exploratory analysis of single-cell and spa
 | Agent | Role | Key Capabilities |
 |-------|------|------------------|
 | **leader** | Orchestrator | Task delegation, workflow management, workdir organization |
-| **fm_router** | Router | scFM task routing, model selection, tool-call plan generation |
 | **analysis_expert** | Data Analyst | Python/notebook analysis, visualization, skills system |
 | **biologist** | Domain Expert | Hypothesis generation, biological interpretation |
 | **reporter** | Report Writer | LaTeX/PDF report generation, figure organization |
@@ -100,7 +98,7 @@ Legend:
   → : Can call / delegate to
   
 Call Patterns:
-  • leader          → fm_router, analysis_expert, biologist, reporter, system_manager
+  • leader          → analysis_expert, biologist, reporter, system_manager
   • analysis_expert → browser_use, system_manager
   • biologist       → browser_use
   • reporter        → analysis_expert, biologist, system_manager
@@ -145,10 +143,9 @@ graph TD
 
 | Caller Agent | Can Call | Purpose |
 |--------------|----------|---------|
-| **leader** | `fm_router`, `analysis_expert`, `biologist`, `reporter`, `system_manager` | Orchestrate entire workflow |
+| **leader** | `analysis_expert`, `biologist`, `reporter`, `system_manager` | Orchestrate entire workflow |
 | **analysis_expert** | `browser_use`, `system_manager` | Get information, install packages |
 | **biologist** | `browser_use` | Search literature and databases |
 | **reporter** | `analysis_expert`, `biologist`, `system_manager` | Adjust figures, get interpretations, install tools |
 | **browser_use** | `biologist` | Delegate large literature analysis |
 | **system_manager** | _(none)_ | Leaf node - provides services only |
-| **fm_router** | _(none)_ | Leaf node - provides routing decisions |

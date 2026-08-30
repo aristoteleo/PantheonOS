@@ -1,0 +1,130 @@
+{
+  "id": "shell",
+  "name": "Shell",
+  "version": "0.6.4",
+  "description": "Run shell commands in the workspace.",
+  "entry": {
+    "backend": "pantheon.toolsets.shell:ShellToolSet"
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "close_shell",
+        "description": "Close a shell.\n\n        Args:\n            shell_id: The id of the shell to close.\n        ",
+        "params": [
+          {
+            "name": "shell_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "get_shell_output",
+        "description": "Get output from a shell, used to check status of background commands.\n\n        When a command times out, it continues running in the background.\n        Use this tool with the shell_id returned from run_command to fetch\n        the remaining output and check if the command has completed.\n\n        Args:\n            shell_id: The shell ID returned from run_command when it timed out.\n            timeout: Seconds to wait for output. Default 5 seconds.\n            max_output: Optional maximum length for the output. If the output exceeds this,\n                it will be smartly truncated (head + tail).\n\n        Returns:\n            dict: {\n                \"output\": str,  # Command output since last read\n                \"status\": \"completed\" | \"timeout\"  # Whether command finished\n            }\n        ",
+        "params": [
+          {
+            "name": "shell_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "timeout",
+            "type": "int",
+            "required": false,
+            "default": 5
+          },
+          {
+            "name": "max_output",
+            "type": "int | None",
+            "required": false
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "list_tools",
+        "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
+        "hidden": true
+      },
+      {
+        "name": "new_shell",
+        "description": "Create a new shell and return its id.\n        Use `run_command` to run commands.",
+        "hidden": true
+      },
+      {
+        "name": "run_command",
+        "description": "Run a shell command and return the result.\n\n        This tool automatically manages shell sessions. Just provide the `command`\n        to execute. Environment variables and working directory are preserved\n        across commands in the same session.\n\n        For long-running commands (builds, training, data processing), set\n        _background=True, which provides incremental output tracking and\n        auto-notification on completion.\n\n        Args:\n            command: The command to run.\n            timeout: Optional timeout in seconds.\n            shell_id: Optional. Specify a particular shell ID to use.\n                If not provided, automatically uses an available shell.\n            max_output: Optional. Max output characters (for verbose commands like\n                R package install, npm install). Use smaller values to save tokens.\n\n        Returns:\n            dict: {\n                \"success\": bool,       # True if executed successfully\n                \"output\": str,         # Command output (stdout + stderr)\n                \"status\": str,         # \"completed\" or \"timeout\"\n            }\n\n        Tips:\n            - Limit output for paging commands (e.g. `git log -n 5`, `head -n 20`).\n            - Use `max_output` as a safety net for verbose commands.\n\n        Examples:\n            run_command(command=\"ls -la\")\n            run_command(command=\"R -e 'install(...)'\", max_output=5000)\n        ",
+        "params": [
+          {
+            "name": "command",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "shell_id",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "timeout",
+            "type": "int | None",
+            "required": false
+          },
+          {
+            "name": "max_output",
+            "type": "int | None",
+            "required": false
+          }
+        ]
+      },
+      {
+        "name": "run_command_in_shell",
+        "description": "Execute a command or fetch pending output from an existing shell.\n\n        Args:\n            shell_id: Identifier for the shell session (from `new_shell` or managed automatically by `run_command`).\n            command: Command string to run. If omitted, the tool drains buffered output from the shell (e.g., after a timeout).\n            timeout: Optional timeout in seconds. On timeout, the command keeps running and you can re-call this tool with\n                only the shell_id to fetch remaining output.\n\n        Returns:\n            dict: Structured result including success flag, `status` (\"completed\" or \"timeout\"), and the raw output text.\n        ",
+        "params": [
+          {
+            "name": "shell_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "command",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "timeout",
+            "type": "int | None",
+            "required": false
+          }
+        ],
+        "hidden": true
+      }
+    ],
+    "interfaces": [
+      {
+        "name": "shell",
+        "tools": [
+          "run_command",
+          "new_shell",
+          "run_command_in_shell",
+          "get_shell_output",
+          "close_shell"
+        ]
+      }
+    ]
+  },
+  "placement": {
+    "requires": [
+      "proc",
+      "fs:workspace"
+    ],
+    "prefer": [
+      "sandbox"
+    ]
+  }
+}
