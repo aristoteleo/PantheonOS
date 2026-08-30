@@ -36,4 +36,6 @@ func registerBuiltins(r *runner.Runner, nc *nats.Conn) {
 			app.Close()
 		}, nil
 	})
+
+	registerPlatformBuiltins(r, nc, prefix)
 }
