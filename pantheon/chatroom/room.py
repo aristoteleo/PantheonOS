@@ -1032,7 +1032,25 @@ class ChatRoom(ToolSet):
 
         # Toolsets the App resolver serves are ensured at bind time on their
         # own instances (PANTHEON_APPS_VIA_FLEET) — asking the endpoint to
-        # also start them would run every one twice.
+        # also start them would run every one twice. MCP servers likewise
+        # start on the mcp-gateway App instance when it is wired.
+        if service_type == "mcp":
+            from pantheon.apps.resolver import get_shared_resolver
+
+            resolver = get_shared_resolver()
+            if resolver is not None and resolver.resolves("mcp_gateway"):
+                try:
+                    from pantheon.endpoint import ToolsetProxy
+
+                    sid = await resolver.ensure_instance("mcp_gateway")
+                    return await ToolsetProxy.from_toolset(sid).invoke(
+                        "start_servers", {"names": required_services}
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"[apps] mcp-gateway start_servers failed ({e}); "
+                        f"falling back to the endpoint route"
+                    )
         if service_type == "toolset":
             from pantheon.apps.resolver import get_shared_resolver
 

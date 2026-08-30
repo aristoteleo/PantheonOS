@@ -4,6 +4,7 @@
     python -m pantheon.apps emit [DIR]      # write reflected app.json files
     python -m pantheon.apps schema          # print the manifest JSON Schema
     python -m pantheon.apps check           # reflection vs committed manifests
+    python -m pantheon.apps prestart S1,S2  # warm App instances (sandbox boot)
 """
 
 from __future__ import annotations
@@ -86,6 +87,53 @@ def _check() -> None:
     print(f"OK: {len(fresh)} app manifests match the committed contract.")
 
 
+def _prestart(services: list[str], wait: float) -> None:
+    """Warm App instances so the first bind doesn't pay the cold start.
+
+    Run by the sandbox entrypoint (background) when PANTHEON_APPS_VIA_FLEET
+    is wired. The local runner joins asynchronously, so this waits for its
+    runtime.json up to --wait seconds, then ensures each instance. Failures
+    are per-service and non-fatal: this is an optimization, the resolver
+    still lazy-starts at bind time.
+    """
+    import asyncio
+    import time
+
+    from pantheon.apps.resolver import get_shared_resolver
+
+    resolver = get_shared_resolver()
+    if resolver is None:
+        print("prestart: resolver not wired (PANTHEON_APPS_VIA_FLEET off) — nothing to do")
+        return
+
+    async def run() -> int:
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                resolver._ensure_coords()
+                break
+            except RuntimeError as e:
+                if time.monotonic() >= deadline:
+                    print(f"prestart: runner never joined ({e}); giving up")
+                    return 1
+                await asyncio.sleep(1.0)
+        failures = 0
+        for service in services:
+            if not resolver.resolves(service):
+                print(f"prestart: {service}: not in the App catalog, skipped")
+                continue
+            try:
+                sid = await resolver.ensure_instance(service)
+                print(f"prestart: {service} -> {sid[:12]}…")
+            except Exception as e:
+                failures += 1
+                print(f"prestart: {service}: {e}")
+        await resolver.close()
+        return 1 if failures else 0
+
+    sys.exit(asyncio.run(run()))
+
+
 def main() -> None:
     cmd = sys.argv[1] if len(sys.argv) > 1 else "list"
     if cmd == "list":
@@ -96,6 +144,11 @@ def main() -> None:
         _schema()
     elif cmd == "check":
         _check()
+    elif cmd == "prestart":
+        services = (sys.argv[2] if len(sys.argv) > 2
+                    else "shell,file_manager,desktop").split(",")
+        wait = float(sys.argv[3]) if len(sys.argv) > 3 else 60.0
+        _prestart([s.strip() for s in services if s.strip()], wait)
     else:
         print(__doc__)
         sys.exit(2)

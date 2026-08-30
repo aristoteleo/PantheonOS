@@ -452,6 +452,14 @@ EOF
         fleet up --controller "${FLEET_CONTROLLER_URL}" --key "${FLEET_KEY}" \
             --name "sandbox-${ID_HASH}" --state-dir /tmp/fleet-node \
             > /tmp/fleet-node.log 2>&1 &
+        # Warm the core App instances once the runner joins (background,
+        # non-fatal) so the first tool bind doesn't pay the cold start.
+        # The resolver lazy-starts at bind time either way.
+        if [ -n "${PANTHEON_APPS_VIA_FLEET:-}" ]; then
+            ( "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.apps prestart \
+                "${PANTHEON_APPS_PRESTART:-shell,file_manager,desktop}" 90 \
+                > /tmp/apps-prestart.log 2>&1 & )
+        fi
     fi
 
     # ── User setup hook ───────────────────────────────────────────────────

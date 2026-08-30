@@ -278,3 +278,18 @@ async def test_resolver_lazy_coords_from_runtime_json(tmp_path, monkeypatch):
     monkeypatch.delenv("PANTHEON_USER_SEED", raising=False)
     monkeypatch.delenv("ID_HASH", raising=False)
     assert AppInstanceResolver.from_env() is None
+
+
+def test_prestart_cli_gives_up_cleanly_without_runner(tmp_path):
+    """prestart waits for runtime.json, then exits 1 without raising."""
+    env = dict(os.environ, PYTHONPATH=str(REPO),
+               PANTHEON_APPS_VIA_FLEET="1", PANTHEON_USER_SEED="seed",
+               PANTHEON_FLEET_STATE_DIR=str(tmp_path))
+    env.pop("PANTHEON_FLEET_ID", None)
+    env.pop("PANTHEON_FLEET_NODE_ID", None)
+    proc = subprocess.run(
+        [sys.executable, "-m", "pantheon.apps", "prestart", "shell", "2"],
+        env=env, cwd=str(REPO), capture_output=True, text=True, timeout=60,
+    )
+    assert proc.returncode == 1, (proc.returncode, proc.stdout, proc.stderr)
+    assert "runner never joined" in proc.stdout
