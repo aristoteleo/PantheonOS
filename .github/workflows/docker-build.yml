@@ -14,9 +14,7 @@ on:
       - 'pyproject.toml'
       - 'uv.lock'
       - 'MANIFEST.in'
-      - 'executor/**'
       - 'funcdesc/**'
-      - 'cmd2func/**'
       - '.github/workflows/docker-build.yml'
   pull_request:
     branches:
@@ -28,9 +26,7 @@ on:
       - 'pyproject.toml'
       - 'uv.lock'
       - 'MANIFEST.in'
-      - 'executor/**'
       - 'funcdesc/**'
-      - 'cmd2func/**'
   workflow_dispatch:
     inputs:
       push_to_dockerhub:

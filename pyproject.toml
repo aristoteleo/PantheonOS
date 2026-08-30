@@ -28,15 +28,13 @@ dependencies = [
     "tomli>=2.0.1; python_version < '3.11'",
     "diff-match-patch>=20241021",
     "fire>=0.7.0",
-    # executor-engine, funcdesc and cmd2func are VENDORED in-tree at the repo root
-    # (./executor, ./funcdesc, ./cmd2func) instead of being pulled from PyPI: their
-    # PyPI releases were removed after the maintainer's account was compromised in the
-    # June 2026 "Hades" supply-chain attack (the GitHub sources are clean). The four
-    # deps below are their runtime requirements, listed explicitly because vendoring
-    # bypasses these packages' own dependency resolution.
-    "loky",
-    "fastavro",
-    "tokenizers",
+    # funcdesc is VENDORED in-tree at the repo root (./funcdesc) instead of being
+    # pulled from PyPI: its PyPI release was removed after the maintainer's account
+    # was compromised in the June 2026 "Hades" supply-chain attack (the GitHub
+    # source is clean). executor-engine and cmd2func — vendored for the same
+    # reason — were removed with the endpoint: nothing imports them anymore.
+    # TODO(R2): replace funcdesc with a small in-tree signature module keeping the
+    # same wire JSON shape (fleet/internal/appsvc mirrors it on the Go side).
     "pyyaml",
     "anthropic>=0.40.0",
     "google-genai>=1.0.0",
