@@ -54,6 +54,9 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
     # the test process itself dials the instance via pantheon.remote, which
     # reads NATS_SERVERS from the environment
     monkeypatch.setenv("NATS_SERVERS", f"nats://127.0.0.1:{NATS_PORT}")
+    # Production workers run with JetStream disabled — negotiation and
+    # discovery must work without the KV store, so the test does too.
+    monkeypatch.setenv("NATS_ENABLE_JETSTREAM", "false")
     env = dict(os.environ, NATS_SERVERS=f"nats://127.0.0.1:{NATS_PORT}", PYTHONPATH=str(REPO))
     procs: list[subprocess.Popen] = []
     try:
@@ -128,20 +131,22 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
             resp = await client.start(node_id, spec)
             assert resp.get("ok"), resp
 
-            # the instance's service becomes dialable
-            remote = None
+            # the instance's service becomes dialable. With JetStream off,
+            # connect_remote has no KV to validate against and returns
+            # immediately — readiness is proven by the invoke answering.
+            result = None
             for _ in range(60):
                 try:
                     remote = await asyncio.wait_for(
                         connect_remote(spec["service_id"]), timeout=1.0)
+                    result = await asyncio.wait_for(
+                        remote.invoke("run_command",
+                                      {"command": "echo p3-loop-works"}),
+                        timeout=30)
                     break
                 except Exception:
                     await asyncio.sleep(0.5)
-            assert remote is not None, "apphost service never registered on the bus"
-
-            result = await asyncio.wait_for(
-                remote.invoke("run_command", {"command": "echo p3-loop-works"}),
-                timeout=30)
+            assert result is not None, "apphost service never answered on the bus"
             assert "p3-loop-works" in json.dumps(result, default=str), result
 
             instances = await client.list(node_id)

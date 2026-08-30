@@ -333,6 +333,11 @@ class NATSBackend(RemoteBackend):
         return stream_channel
 
 
+# Process-wide negotiation cache: proxy objects are created per call on some
+# paths (ChatRoom's direct route), and one probe per SERVICE is enough.
+_WIRE_BY_SERVICE: Dict[str, str] = {}
+
+
 class NATSService(RemoteService):
     """NATS service client"""
 
@@ -376,22 +381,31 @@ class NATSService(RemoteService):
     async def _negotiate_serialization(self) -> str:
         """The wire format this service accepts ("pickle" | "json").
 
-        Cached once a KV registration is seen; a MISSING registration does
-        not cache — the service may simply not have registered yet, and
-        locking in "pickle" then would permanently break a JSON-only service
-        that appears a moment later.
+        Negotiated with one JSON `_ping` — every worker answers JSON
+        requests (the frontend path has always relied on that), and a
+        JSON-only service marks its ping result with "serialization":
+        "json". Deliberately NOT via the KV registration: production
+        workers run with NATS_ENABLE_JETSTREAM=false, so the KV store is
+        not there to read. A failed ping does not cache — the service may
+        simply not be up yet, and locking in "pickle" then would
+        permanently break a JSON-only service that appears a moment later.
         """
         if self._serialization is not None:
             return self._serialization
-        if self.kv_store is not None:
-            try:
-                entry = await self.kv_store.get(self.service_id)
-                data = json.loads(entry.value.decode("utf-8"))
-                self._serialization = data.get("serialization", "pickle")
-                return self._serialization
-            except Exception:
-                pass
-        return "pickle"
+        cached = _WIRE_BY_SERVICE.get(self.service_id)
+        if cached is not None:
+            self._serialization = cached
+            return cached
+        try:
+            probe = json.dumps({"method": "_ping", "parameters": {}}).encode("utf-8")
+            response = await self.nc.request(self.service_subject, probe, timeout=5)
+            result = json.loads(response.data.decode("utf-8"))
+            info = result.get("result") or {}
+            self._serialization = info.get("serialization", "pickle")
+            _WIRE_BY_SERVICE[self.service_id] = self._serialization
+            return self._serialization
+        except Exception:
+            return "pickle"
 
     async def invoke(
         self, method: str, parameters: Optional[Dict[str, Any]] = None
