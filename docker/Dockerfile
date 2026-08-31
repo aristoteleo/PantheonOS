@@ -377,7 +377,7 @@ RUN (curl -L --retry 3 --retry-delay 5 --max-time 60 \
 RUN (curl -L --retry 3 --retry-delay 5 --max-time 60 \
     https://github.com/aristoteleo/PantheonOS/releases/download/fleet-v0.2.0-alpha/fleet-linux-amd64 \
     -o /usr/local/bin/fleet && \
-    echo "576eea6455a15f1d58a9ffc98e3481ba4ad0525394d0522721a275474b0b439c  /usr/local/bin/fleet" | sha256sum -c - && \
+    echo "d29bbbc53bb582a486160e777fd6b73ea7ebfd36f81e3774497fc1f0a53555a5  /usr/local/bin/fleet" | sha256sum -c - && \
     chmod +x /usr/local/bin/fleet) || \
     echo "Warning: fleet node binary download/verify failed (fleet transfers unavailable)"
 
