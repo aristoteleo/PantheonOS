@@ -377,7 +377,19 @@ class DesktopToolSet(ToolSet):
             return {"success": False, "error": f"Path does not exist: {p}"}
 
         server = await self._ensure_data_server()
-        url = server.url_for(p)
+        from .data_server import TunnelNotReady
+
+        try:
+            url = server.url_for(p)
+        except TunnelNotReady:
+            return {
+                "success": False,
+                "error": (
+                    f"{p} is servable, but no tunnel base has arrived yet — "
+                    "a browser-reachable URL exists only after a desktop "
+                    "connects (set_data_endpoint). Retry once a shell is up."
+                ),
+            }
         if url is None:
             roots = ", ".join(str(r) for r in server.roots)
             return {
@@ -1033,7 +1045,12 @@ class DesktopToolSet(ToolSet):
         mod_path = (bespoke_dir / f"{slug}.jsx").resolve()
         mod_path.write_text(source, encoding="utf-8")
         server = await self._ensure_data_server()
-        return server.url_for(mod_path)
+        from .data_server import TunnelNotReady
+
+        try:
+            return server.url_for(mod_path)
+        except TunnelNotReady:
+            return None
 
     @tool
     async def desktop_set(self, window_id: str, state: dict) -> dict:

@@ -51,6 +51,12 @@ def _free_port() -> int:
         s.close()
 
 
+class TunnelNotReady(RuntimeError):
+    """The path is servable, but no tunnel base has been delivered yet —
+    a browser-reachable URL cannot be minted until a shell connects
+    (set_data_endpoint) or the hub pushes the base."""
+
+
 def _prefix_for(root: Path) -> str:
     """A short, stable URL prefix for a root (order-independent)."""
     return hashlib.sha1(str(root).encode()).hexdigest()[:10]
@@ -375,6 +381,10 @@ class LiveViewDataServer:
         Local mode: ``http://127.0.0.1:<port>/<prefix>/<rel>``.
         Server mode: ``<tunnel_base>/d/<token>/<prefix>/<rel>`` (tunnel_base must
         have been delivered by the hub via set_tunnel_base).
+
+        Raises TunnelNotReady when the path IS under a root but server mode
+        has no tunnel base yet — callers used to fold that into "outside the
+        roots", and the resulting error sent people hunting the wrong bug.
         """
         if self._base_url is None:
             return None
@@ -391,7 +401,7 @@ class LiveViewDataServer:
                         "live_view: server mode but no tunnel base delivered yet; "
                         "cannot emit a browser-reachable URL for {}", target,
                     )
-                    return None
+                    raise TunnelNotReady(str(target))
                 return f"{self._tunnel_base}/d/{self._token}/{rel_url}"
             return f"{self._base_url}/{rel_url}"
         return None
