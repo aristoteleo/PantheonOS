@@ -569,6 +569,10 @@ class SimpleTES(BaseMethod):
 
         # max_tokens matches upstream's default (EngineConfig.max_tokens = 32768). Left unset,
         # the gateway's own output cap decides whether a 43KB program can even be emitted whole,
-        # and that decision then wears the algorithm's name.
+        # and that decision then wears the algorithm's name. upstream_style pins the PROMPT to
+        # the authors' generation template too (no system message, their headers, full-program
+        # inspirations with full metrics) -- the operator's words are part of what SimpleTES is,
+        # same as its single-completion shape.
         return CompletionVariator(model=model, timeout=timeout, target_file=target_file,
-                                  score_key=self.score_key, max_tokens=32768)
+                                  score_key=self.score_key, max_tokens=32768,
+                                  upstream_style=True)
