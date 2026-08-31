@@ -30,6 +30,10 @@ from pathlib import Path
 from pantheon.utils.log import logger
 
 
+class NotJoinedError(RuntimeError):
+    """The local runner has not joined the fleet yet — wait, don't trip."""
+
+
 class AppInstanceResolver:
     """Ensure-and-dial App instances for this user on one node."""
 
@@ -54,9 +58,11 @@ class AppInstanceResolver:
         # Circuit breaker: when the fleet path is wired but not actually
         # reachable (wrong creds, runner down), every bind would otherwise
         # pay the request timeout before falling back. After a few
-        # consecutive failures the resolver takes itself out of the path.
+        # consecutive failures the resolver takes itself out of the path —
+        # but only for a cooldown: the body (the runner) joining late is a
+        # designed state, and the brain must pick it back up when it comes.
         self._consecutive_failures = 0
-        self._disabled = False
+        self._disabled_at: float | None = None
 
     @classmethod
     def from_env(cls, workdir: str | None = None) -> "AppInstanceResolver | None":
@@ -86,7 +92,7 @@ class AppInstanceResolver:
         try:
             info = json.loads(path.read_text())
         except FileNotFoundError:
-            raise RuntimeError(
+            raise NotJoinedError(
                 f"fleet runner not joined yet ({path} missing)"
             ) from None
         except Exception as e:
@@ -98,23 +104,35 @@ class AppInstanceResolver:
 
     #: Consecutive ensure failures before the resolver disables itself.
     MAX_FAILURES = 3
+    #: Seconds the breaker stays open before letting one probe through.
+    COOLDOWN_S = 30.0
 
     def resolves(self, service_type: str) -> bool:
         """Whether this resolver can serve the named toolset as an App."""
-        if self._disabled:
-            return False
+        if self._disabled_at is not None:
+            import time as _t
+
+            if _t.monotonic() - self._disabled_at < self.COOLDOWN_S:
+                return False
+            # Half-open: one attempt gets through; its failure re-opens the
+            # breaker immediately, its success closes it.
+            self._disabled_at = None
+            self._consecutive_failures = self.MAX_FAILURES - 1
+            logger.info("[apps] breaker half-open — probing the fleet path again")
         from pantheon.apps.registry import by_service_type
 
         return service_type in by_service_type()
 
     def _note_failure(self) -> None:
         self._consecutive_failures += 1
-        if self._consecutive_failures >= self.MAX_FAILURES and not self._disabled:
-            self._disabled = True
+        if self._consecutive_failures >= self.MAX_FAILURES and self._disabled_at is None:
+            import time as _t
+
+            self._disabled_at = _t.monotonic()
             logger.warning(
                 f"[apps] fleet App-instance path disabled after "
                 f"{self._consecutive_failures} consecutive failures; "
-                f"tool binds will fail until the runner is reachable"
+                f"retrying in {self.COOLDOWN_S:.0f}s"
             )
 
     async def _ensure_client(self):
@@ -359,10 +377,17 @@ class AppInstanceResolver:
             resp = await client.start(target, spec)
             if not resp.get("ok"):
                 raise RuntimeError(f"app_start {app.manifest.id} on {target}: {resp}")
+        except NotJoinedError:
+            # The body has not arrived yet — a designed state while the
+            # runner joins in the background, not a fault. Counting it
+            # toward the breaker made an early-asking brain lose its body
+            # permanently.
+            raise
         except Exception:
             self._note_failure()
             raise
         self._consecutive_failures = 0
+        self._disabled_at = None
         self._started[key] = spec["service_id"]
         logger.info(
             f"[apps] {service_type} -> app {app.manifest.id} instance "

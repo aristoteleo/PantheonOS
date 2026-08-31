@@ -243,3 +243,42 @@ def test_interface_members_must_exist_in_tools_face():
                           interfaces=[Interface(name="i", version=1, tools=["real", "ghost"])]),
     )
     assert verify_interfaces(m) == ["i@1:ghost"]
+
+
+# ── breaker: the brain must reacquire a late body ──────────────────────────
+
+def test_breaker_half_open_recovers(monkeypatch):
+    from pantheon.apps.resolver import AppInstanceResolver
+
+    r = AppInstanceResolver("f", "n", "seed", workdir=".")
+    for _ in range(3):
+        r._note_failure()
+    assert r.resolves("shell") is False  # open
+
+    # cooldown elapses -> half-open lets one probe through
+    r._disabled_at -= AppInstanceResolver.COOLDOWN_S + 1
+    assert r.resolves("shell") is True
+    # the probe failing re-opens immediately (one strike at half-open)
+    r._note_failure()
+    assert r.resolves("shell") is False
+
+    # and a success closes it fully
+    r._disabled_at -= AppInstanceResolver.COOLDOWN_S + 1
+    assert r.resolves("shell") is True
+    r._consecutive_failures = 0
+    r._disabled_at = None
+    assert r.resolves("shell") is True
+
+
+def test_not_joined_is_not_a_breaker_strike(tmp_path):
+    import asyncio
+
+    from pantheon.apps.resolver import AppInstanceResolver, NotJoinedError
+
+    r = AppInstanceResolver("", "", "seed", workdir=".", state_dir=str(tmp_path))
+    for _ in range(10):  # far past MAX_FAILURES
+        with pytest.raises(NotJoinedError):
+            asyncio.get_event_loop().run_until_complete(
+                r.ensure_instance("shell"))
+    assert r._disabled_at is None, "waiting for the body must never trip the breaker"
+    assert r.resolves("shell") is True
