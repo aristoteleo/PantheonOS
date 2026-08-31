@@ -242,7 +242,6 @@ async def _start_async(
 
         # Create ChatRoom (will read learning config from settings internally)
         chatroom = ChatRoom(
-            endpoint=None,
             memory_dir=memory_dir,
             workspace_path=workspace,
             enable_nats_streaming=False,
@@ -276,7 +275,6 @@ async def _start_async(
         # Default: auto-create everything with workspace set to original CWD
         # ChatRoom will read learning config from settings internally
         chatroom = ChatRoom(
-            endpoint=None,
             memory_dir=memory_dir,
             workspace_path=workspace,
             enable_nats_streaming=False,

@@ -118,10 +118,16 @@ class MCPCommandHandler(CommandHandler):
         self.console.print()
     
     async def _get_mcp_manager(self):
-        """Retired with the endpoint: MCP lives on the mcp-gateway App
-        instance now. TODO(R2): drive it via the instance's bus tools
-        (list_servers/start_servers/…, plus an add_server tool)."""
-        return None
+        """The mcp-gateway App instance, worn as the old manager interface.
+
+        The endpoint's in-process manager is gone; the gateway runs as its
+        own App and the REPL drives it over the bus through the chatroom's
+        proxy. The adapter keeps this handler's call sites unchanged.
+        """
+        room = getattr(self.parent, "_chatroom", None)
+        if room is None:
+            return None
+        return _GatewayClient(room)
     
     async def _list_servers(self) -> str | None:
         """List all MCP servers with status."""
@@ -433,3 +439,43 @@ class MCPCommandHandler(CommandHandler):
             self.console.print(f"[red]✗ {result.get('message')}[/red]")
         
         return None
+
+
+class _GatewayClient:
+    """The old MCP manager interface, answered by the mcp-gateway App.
+
+    Each method is one tool on the gateway instance; the chatroom proxy
+    resolves and places the instance exactly as it does for agent calls.
+    ``add_config`` flattens the MCPServerConfig dataclass to the wire.
+    """
+
+    def __init__(self, room):
+        self._room = room
+
+    async def _invoke(self, tool: str, args: dict | None = None) -> dict:
+        res = await self._room.proxy_toolset(tool, args or {}, "mcp_gateway")
+        if not isinstance(res, dict):
+            return {"success": True, "result": res}
+        return res
+
+    async def list_services(self) -> dict:
+        return await self._invoke("list_servers")
+
+    async def start_services(self, names: list) -> dict:
+        return await self._invoke("start_servers", {"names": list(names)})
+
+    async def stop_services(self, names: list) -> dict:
+        return await self._invoke("stop_servers", {"names": list(names)})
+
+    async def restart_service(self, name: str) -> dict:
+        return await self._invoke("restart_server", {"name": name})
+
+    async def add_config(self, config, persist: bool = False, auto_start: bool = False) -> dict:
+        from dataclasses import asdict
+
+        return await self._invoke("add_server", {
+            "config": asdict(config), "persist": persist, "auto_start": auto_start,
+        })
+
+    async def remove_config(self, name: str, persist: bool = False) -> dict:
+        return await self._invoke("remove_server", {"name": name, "persist": persist})

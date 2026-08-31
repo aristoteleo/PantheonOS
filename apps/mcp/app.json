@@ -9,6 +9,30 @@
   "provides": {
     "tools": [
       {
+        "name": "add_server",
+        "description": "Add an MCP server to the pool.\n\n        Args:\n            config: Server config — name, type (\"http\"|\"stdio\"), and\n                command (stdio) or uri (http); optional env, description,\n                mount_prefix.\n            persist: Save to mcp.json.\n            auto_start: Also start it when the gateway boots.\n        ",
+        "params": [
+          {
+            "name": "config",
+            "type": "dict",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "persist",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "auto_start",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ]
+      },
+      {
         "name": "get_server",
         "description": "One MCP server's status and connection info.\n\n        Args:\n            name: The server name from the pool config.\n        ",
         "params": [
@@ -32,6 +56,36 @@
         "name": "list_tools",
         "description": "\n        List all available tools in this toolset (for LLM consumption)\n\n        This method is used by ToolsetProxy to discover available tools.\n        Uses funcdesc for unified type extraction (same as local tools).\n        Named to match MCP's list_tools convention.\n\n        Note:\n            - Parses the original function signature (before @tool wrapping)\n            - Does NOT include session_id parameter (transparent to LLM)\n            - session_id is automatically injected by the framework\n\n        Returns:\n            dict: {\n                \"success\": True,\n                \"tools\": [\n                    {\n                        \"name\": \"method_name\",\n                        \"doc\": \"Method docstring\",\n                        \"inputs\": [\n                            {\n                                \"name\": \"param_name\",\n                                \"type\": {\"type\": \"str\"} or {\"type\": \"list\", \"args\": [...]},\n                                \"default\": value,\n                                \"doc\": \"\"\n                            }\n                        ]\n                    },\n                    ...\n                ]\n            }\n        ",
         "hidden": true
+      },
+      {
+        "name": "remove_server",
+        "description": "Remove an MCP server from the pool.\n\n        Args:\n            name: The server to remove.\n            persist: Also drop it from mcp.json.\n        ",
+        "params": [
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "persist",
+            "type": "bool",
+            "required": false,
+            "default": false
+          }
+        ]
+      },
+      {
+        "name": "restart_server",
+        "description": "Restart one MCP server.\n\n        Args:\n            name: The server name from the pool config.\n        ",
+        "params": [
+          {
+            "name": "name",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
       },
       {
         "name": "start_servers",

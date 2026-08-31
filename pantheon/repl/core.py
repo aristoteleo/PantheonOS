@@ -49,13 +49,11 @@ class Repl(ReplUI):
     Supports multiple initialization modes:
     - agent: Pass an Agent or Team directly (legacy mode, creates embedded ChatRoom)
     - chatroom: Pass an existing ChatRoom instance
-    - endpoint: Pass an Endpoint instance (creates ChatRoom with it)
-    - None: Auto-create ChatRoom with embedded Endpoint
+    - None: Auto-create a ChatRoom (services are App instances via the resolver)
 
     Args:
         agent: An Agent or Team instance (legacy mode).
         chatroom: An existing ChatRoom instance.
-        endpoint: An Endpoint instance to create ChatRoom with.
         memory_dir: Directory for chat persistence.
         chat_id: Specific chat ID to use (creates new if None).
     """
@@ -64,7 +62,6 @@ class Repl(ReplUI):
         self,
         agent: Agent | Team | None = None,
         chatroom: ChatRoom | None = None,
-        endpoint: "Endpoint | None" = None,
         memory_dir: str | None = None,
         chat_id: str | None = None,
     ):
@@ -80,21 +77,9 @@ class Repl(ReplUI):
         elif agent is not None:
             # Mode 2: Legacy - create ChatRoom from Agent/Team
             self._chatroom = self._create_chatroom_from_agent(agent, memory_dir)
-        elif endpoint is not None:
-            # Mode 3: Create ChatRoom with provided Endpoint
-            from pantheon.settings import get_settings
-            settings = get_settings()
-            self._chatroom = ChatRoom(
-                endpoint=endpoint,
-                memory_dir=memory_dir,
-                enable_nats_streaming=False,
-            )
         else:
-            # Mode 4: Auto-create everything
-            from pantheon.settings import get_settings
-            settings = get_settings()
+            # Mode 3: Auto-create everything
             self._chatroom = ChatRoom(
-                endpoint=None,  # Auto-create Endpoint
                 memory_dir=memory_dir,
                 enable_nats_streaming=False,
             )
@@ -207,10 +192,7 @@ class Repl(ReplUI):
             team = PantheonTeam([agent])
 
         # Create ChatRoom with default_team (bypasses template system)
-        from pantheon.settings import get_settings
-        settings = get_settings()
         return ChatRoom(
-            endpoint=None,  # Auto-create Endpoint
             memory_dir=memory_dir,
             enable_nats_streaming=False,
             default_team=team,

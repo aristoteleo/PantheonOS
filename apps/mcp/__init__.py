@@ -114,3 +114,46 @@ class MCPGatewayToolSet(ToolSet):
             names: Server names to stop.
         """
         return await self._manager.stop_services(names)
+
+    @tool
+    async def restart_server(self, name: str) -> dict:
+        """Restart one MCP server.
+
+        Args:
+            name: The server name from the pool config.
+        """
+        return await self._manager.restart_service(name)
+
+    @tool
+    async def add_server(
+        self,
+        config: dict,
+        persist: bool = False,
+        auto_start: bool = False,
+    ) -> dict:
+        """Add an MCP server to the pool.
+
+        Args:
+            config: Server config — name, type ("http"|"stdio"), and
+                command (stdio) or uri (http); optional env, description,
+                mount_prefix.
+            persist: Save to mcp.json.
+            auto_start: Also start it when the gateway boots.
+        """
+        from .manager import MCPServerConfig
+
+        try:
+            cfg = MCPServerConfig(**config)
+        except (TypeError, ValueError) as e:
+            return {"success": False, "message": str(e)}
+        return await self._manager.add_config(cfg, persist=persist, auto_start=auto_start)
+
+    @tool
+    async def remove_server(self, name: str, persist: bool = False) -> dict:
+        """Remove an MCP server from the pool.
+
+        Args:
+            name: The server to remove.
+            persist: Also drop it from mcp.json.
+        """
+        return await self._manager.remove_config(name, persist=persist)
