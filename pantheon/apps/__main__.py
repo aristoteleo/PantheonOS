@@ -5,6 +5,10 @@
     python -m pantheon.apps schema          # print the manifest JSON Schema
     python -m pantheon.apps check           # each app.json's tools face vs reflection
     python -m pantheon.apps prestart S1,S2  # warm App instances (sandbox boot)
+    python -m pantheon.apps check-compat OLD NEW   # gate: OLD/NEW = app dir or app.json
+    python -m pantheon.apps publish DIR     # check-compat vs last tag, then tag v<version>
+    python -m pantheon.apps fork SRC DSTROOT [NEWID]   # copy + git-init an App
+    python -m pantheon.apps install SRC DSTROOT        # clone/copy + dependency closure
 """
 
 from __future__ import annotations
@@ -150,6 +154,63 @@ def _prestart(services: list[str], wait: float) -> None:
     sys.exit(asyncio.run(run()))
 
 
+def _load_manifest_arg(arg: str):
+    """An app dir or a manifest file, either way the parsed manifest."""
+    from pantheon.apps.schema import parse_manifest
+
+    p = Path(arg)
+    if p.is_dir():
+        for name in ("app.json", "atrium.json"):
+            if (p / name).is_file():
+                p = p / name
+                break
+        else:
+            print(f"no app manifest under {arg}")
+            sys.exit(2)
+    return parse_manifest(json.loads(p.read_text()))
+
+
+def _check_compat(old_arg: str, new_arg: str) -> None:
+    from pantheon.apps.compat import check_compat
+
+    report = check_compat(_load_manifest_arg(old_arg), _load_manifest_arg(new_arg))
+    print(report.render())
+    sys.exit(0 if report.ok else 1)
+
+
+def _publish(app_dir: str) -> None:
+    from pantheon.apps.versioning import VersioningError, publish
+
+    try:
+        tag = publish(Path(app_dir))
+        print(f"published {tag}")
+    except VersioningError as e:
+        print(str(e))
+        sys.exit(1)
+
+
+def _fork(src: str, dst_root: str, new_id: str | None) -> None:
+    from pantheon.apps.versioning import VersioningError, fork
+
+    try:
+        dst = fork(Path(src), Path(dst_root), new_id)
+        print(f"forked to {dst}")
+    except VersioningError as e:
+        print(str(e))
+        sys.exit(1)
+
+
+def _install(src: str, dst_root: str) -> None:
+    from pantheon.apps.versioning import VersioningError, install
+
+    try:
+        for p in install(src, Path(dst_root)):
+            print(f"installed {p}")
+    except VersioningError as e:
+        print(str(e))
+        sys.exit(1)
+
+
 def main() -> None:
     cmd = sys.argv[1] if len(sys.argv) > 1 else "list"
     if cmd == "list":
@@ -165,6 +226,14 @@ def main() -> None:
                     else "shell,file_manager,desktop").split(",")
         wait = float(sys.argv[3]) if len(sys.argv) > 3 else 60.0
         _prestart([s.strip() for s in services if s.strip()], wait)
+    elif cmd == "check-compat" and len(sys.argv) >= 4:
+        _check_compat(sys.argv[2], sys.argv[3])
+    elif cmd == "publish" and len(sys.argv) >= 3:
+        _publish(sys.argv[2])
+    elif cmd == "fork" and len(sys.argv) >= 4:
+        _fork(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else None)
+    elif cmd == "install" and len(sys.argv) >= 4:
+        _install(sys.argv[2], sys.argv[3])
     else:
         print(__doc__)
         sys.exit(2)
