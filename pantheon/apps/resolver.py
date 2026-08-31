@@ -355,6 +355,18 @@ class AppInstanceResolver:
                 if set(requires) <= caps(n)
                 and (not need_python or "python" in runtimes(n))]
         if not fits:
+            # When the registry is readable and shows that the LOCAL node
+            # itself lacks the requirements, falling back to it would run
+            # the App somewhere its manifest forbids (a workspace App on a
+            # capless agent node, say) — wait for the right node instead:
+            # in a topology it is provisioning in the background. The
+            # fallback survives only for the cases it was built for: an
+            # unreadable registry, or a local node the registry does not
+            # (yet) describe.
+            local = next((n for n in nodes if n.get("node_id") == self._node), None)
+            if local is not None and not (set(requires) <= caps(local)):
+                raise NotJoinedError(
+                    f"no node offering {requires} has joined the fleet yet")
             if nodes:
                 logger.warning(
                     f"[apps] no node fits {app.manifest.id} "

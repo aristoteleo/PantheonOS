@@ -287,3 +287,46 @@ def test_not_joined_is_not_a_breaker_strike(tmp_path):
                 r.ensure_instance("shell"))
     assert r._disabled_at is None, "waiting for the body must never trip the breaker"
     assert r.resolves("shell") is True
+
+
+def test_placer_waits_instead_of_misplacing(monkeypatch):
+    """A workspace App must not fall back onto a capless local node."""
+    import asyncio
+
+    from pantheon.apps.registry import by_service_type
+    from pantheon.apps.resolver import AppInstanceResolver, NotJoinedError
+
+    r = AppInstanceResolver("f", "n_agent", "seed", workdir=".")
+    shell = by_service_type()["shell"]
+
+    async def fake_nodes(records):
+        async def _list(self=None):
+            return records
+        return _list
+
+    # registry knows the local node and it lacks fs:workspace -> wait
+    r._list_nodes = lambda: _ret([{"node_id": "n_agent", "kind": "pod",
+                                   "capability": {"caps": ["proc"]}}])
+    with pytest.raises(NotJoinedError, match="no node offering"):
+        asyncio.get_event_loop().run_until_complete(r._place(shell))
+
+    # the workspace node joins -> placed there
+    r._list_nodes = lambda: _ret([
+        {"node_id": "n_agent", "kind": "pod", "capability": {"caps": ["proc"]}},
+        {"node_id": "n_ws", "kind": "sandbox",
+         "capability": {"caps": ["proc", "fs:workspace", "display", "net"],
+                        "runtimes": {"python": "3.12"}}},
+    ])
+    placed = asyncio.get_event_loop().run_until_complete(r._place(shell))
+    assert placed == "n_ws"
+
+    # unreadable registry (empty) -> the old resilient fallback survives
+    r._list_nodes = lambda: _ret([])
+    placed = asyncio.get_event_loop().run_until_complete(r._place(shell))
+    assert placed == "n_agent"
+
+
+def _ret(value):
+    async def _coro():
+        return value
+    return _coro()
