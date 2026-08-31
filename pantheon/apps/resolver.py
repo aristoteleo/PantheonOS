@@ -323,6 +323,19 @@ class AppInstanceResolver:
             f"(requires {requires}; local node lacks them)")
         return chosen
 
+    def invalidate(self, service_type: str) -> None:
+        """Forget cached instances of one type — the dead-body eraser.
+
+        The ensure cache maps a toolset to a service_id forever; if the
+        instance's process (or its whole runner) dies, every later call
+        dials a subject nobody holds. Callers that exhaust the proxy's
+        no-responders retries invalidate and re-ensure: the supervisor
+        restarts what it still tracks, and a rejoined runner gets a fresh
+        app_start.
+        """
+        for key in [k for k in self._started if k[0] == service_type]:
+            del self._started[key]
+
     def started_instances(self, service_type: str) -> list[str]:
         """Service ids this resolver has ALREADY started for the type.
 

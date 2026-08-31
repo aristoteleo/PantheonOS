@@ -1195,17 +1195,35 @@ class ChatRoom(ToolSet):
                 session_id = None
 
             proj_dir = await self._project_dir_for_chat(session_id)
-            if proj_dir:
-                sid = await resolver.ensure_instance(
-                    toolset_name,
-                    scope=resolver.project_scope(proj_dir),
-                    workdir=proj_dir,
+
+            async def _ensure() -> str:
+                if proj_dir:
+                    return await resolver.ensure_instance(
+                        toolset_name,
+                        scope=resolver.project_scope(proj_dir),
+                        workdir=proj_dir,
+                    )
+                return await resolver.ensure_instance(toolset_name)
+
+            from nats.errors import NoRespondersError
+
+            sid = await _ensure()
+            try:
+                return await ToolsetProxy.from_toolset(sid).invoke(
+                    method_name, args or {}
                 )
-            else:
-                sid = await resolver.ensure_instance(toolset_name)
-            return await ToolsetProxy.from_toolset(sid).invoke(
-                method_name, args or {}
-            )
+            except NoRespondersError:
+                # The cached instance is gone — its process died, or its
+                # runner did. Forget it, ensure a fresh one (the runner
+                # restarts or recreates it), and dial once more.
+                logger.warning(
+                    f"[apps] instance {sid[:12]}… of '{toolset_name}' answers "
+                    f"nobody — re-ensuring")
+                resolver.invalidate(toolset_name)
+                sid = await _ensure()
+                return await ToolsetProxy.from_toolset(sid).invoke(
+                    method_name, args or {}
+                )
 
         except Exception as e:
             logger.error(
