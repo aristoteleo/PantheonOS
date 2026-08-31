@@ -9,6 +9,40 @@
   "provides": {
     "tools": [
       {
+        "name": "app_call",
+        "description": "Call a method on a packaged app's backend process.\n\n        The backend is spawned lazily under this pod's supervisor and\n        reused across calls; methods come from the app's own registration\n        (see `desktop_apps` for which apps have a backend, `app_registry`\n        for the exact method list). Errors carry the reason — an unknown\n        method is refused from the registration table, and a crashed\n        backend reports its stderr tail rather than a timeout.\n        ",
+        "params": [
+          {
+            "name": "app_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "method",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "args",
+            "type": "dict | None",
+            "required": false
+          },
+          {
+            "name": "timeout_s",
+            "type": "float",
+            "required": false,
+            "default": 60.0
+          }
+        ]
+      },
+      {
+        "name": "app_registry",
+        "description": "Every packaged-app backend: id, state, methods. Rescans scopes.\n\n        The launchpad and Interfaces views poll this for lifecycle dots and\n        the callable surface; the unconditional rescan is also the recovery\n        path when an install lands between scans.\n        ",
+        "hidden": true
+      },
+      {
         "name": "browser_act",
         "description": "Act on a browser page by COORDINATE — what a hand would do.\n\n        `browser_click` needs a selector, which a canvas, a map, a PDF or a\n        chart does not have. This takes the same input path the user's\n        mouse and keyboard travel, so anything they can do here, so can an\n        agent — and the user watches it happen, because it is one browser.\n\n        Coordinates are CSS pixels of the page, the same ones\n        `browser_screenshot` is measured in. Actions, in order:\n\n            {\"t\": \"click\", \"x\": 400, \"y\": 220}     also dblclick, rightclick\n            {\"t\": \"move\" | \"down\" | \"up\", \"x\":…, \"y\":…, \"button\": 0}\n            {\"t\": \"drag\", \"x\":…, \"y\":…, \"to_x\":…, \"to_y\":…}\n            {\"t\": \"wheel\", \"dy\": 300, \"x\":…, \"y\":…}\n            {\"t\": \"key\", \"key\": \"Enter\"}           any Playwright key name\n            {\"t\": \"text\", \"text\": \"hello\"}\n            {\"t\": \"scroll\", \"y\": 1200}             absolute, in page pixels\n\n        A page the viewer is rendering NATIVELY (a sandbox-local file) is a\n        second copy of that file in this browser, not the copy on their\n        screen: the viewer is asked to reload afterwards, so anything the\n        action wrote to disk appears, but in-memory state will not.\n        ",
         "params": [

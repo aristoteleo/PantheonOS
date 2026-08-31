@@ -74,6 +74,7 @@ class DesktopToolSet(ToolSet):
         self._nats = None  # lazy NATSStreamAdapter
         self._data_server = None  # lazy LiveViewDataServer
         self._browser_endpoints = False  # browser-frame/-input registered
+        self._apps_supervisor = None  # lazy AppSupervisor (packaged backends)
 
     # ── internals ─────────────────────────────────────────────────────────
 
@@ -804,6 +805,94 @@ class DesktopToolSet(ToolSet):
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    def _app_scope_roots(self) -> list:
+        """Where packaged apps live, in precedence order (first id wins).
+
+        Shared by the registry (what windows exist) and the backend
+        supervisor (what app_call reaches) — one list, or the two views of
+        "installed" drift.
+        """
+        from pathlib import Path
+
+        from pantheon.settings import get_settings
+
+        from pantheon.apps.registry import BUILTIN_ROOT
+
+        settings = get_settings()
+        return [
+            (Path(settings.workspace) / ".pantheon" / "apps", "workspace"),
+            (Path.home() / ".pantheon" / "apps", "user"),
+            # The first-party App tree: bundled headed apps live here with
+            # the same manifest format; only entries with a real frontend
+            # are windows the desktop can open (headless apps are services).
+            (BUILTIN_ROOT, "builtin"),
+            (Path("/app/pantheon/factory/templates/apps"), "builtin"),
+        ]
+
+    def _apps(self):
+        """The packaged-app backend supervisor, built on first use."""
+        if self._apps_supervisor is None:
+            from pathlib import Path
+
+            from pantheon.settings import get_settings
+
+            from .app_supervisor import AppSupervisor
+
+            async def _serve(path: str) -> str:
+                res = await self.serve_local_data(path)
+                if not res.get("success") or not res.get("url"):
+                    raise RuntimeError(res.get("error") or "serve_local_data refused")
+                return res["url"]
+
+            self._apps_supervisor = AppSupervisor(
+                workspace=Path(get_settings().workspace),
+                roots=self._app_scope_roots(),
+                serve=_serve,
+            )
+        return self._apps_supervisor
+
+    async def cleanup(self):
+        if self._apps_supervisor is not None:
+            await self._apps_supervisor.shutdown()
+        await super().cleanup()
+
+    @tool
+    async def app_call(
+        self,
+        app_id: str,
+        method: str,
+        args: dict | None = None,
+        timeout_s: float = 60.0,
+    ) -> dict:
+        """Call a method on a packaged app's backend process.
+
+        The backend is spawned lazily under this pod's supervisor and
+        reused across calls; methods come from the app's own registration
+        (see `desktop_apps` for which apps have a backend, `app_registry`
+        for the exact method list). Errors carry the reason — an unknown
+        method is refused from the registration table, and a crashed
+        backend reports its stderr tail rather than a timeout.
+        """
+        try:
+            result = await self._apps().call(app_id, method, args, timeout_s)
+            return {"success": True, "result": result}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool(exclude=True)
+    async def app_registry(self) -> dict:
+        """Every packaged-app backend: id, state, methods. Rescans scopes.
+
+        The launchpad and Interfaces views poll this for lifecycle dots and
+        the callable surface; the unconditional rescan is also the recovery
+        path when an install lands between scans.
+        """
+        try:
+            apps = await asyncio.to_thread(self._apps().scan)
+            return {"success": True, "apps": apps}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     @tool(exclude=True)
     async def desktop_app_registry(self) -> dict:
         """Every packaged app on this pod: manifest, directory, icon URL.
@@ -819,22 +908,7 @@ class DesktopToolSet(ToolSet):
         silently treated as empty: booting with no apps and no complaint is
         the failure this replaces.
         """
-        from pathlib import Path
-
-        from pantheon.settings import get_settings
-
-        from pantheon.apps.registry import BUILTIN_ROOT
-
-        settings = get_settings()
-        roots = [
-            (Path(settings.workspace) / ".pantheon" / "apps", "workspace"),
-            (Path.home() / ".pantheon" / "apps", "user"),
-            # The first-party App tree: bundled headed apps live here with
-            # the same manifest format; only entries with a real frontend
-            # are windows the desktop can open (headless apps are services).
-            (BUILTIN_ROOT, "builtin"),
-            (Path("/app/pantheon/factory/templates/apps"), "builtin"),
-        ]
+        roots = self._app_scope_roots()
 
         def _scan() -> tuple[list[dict], list[str], int]:
             apps: list[dict] = []
