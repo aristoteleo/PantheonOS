@@ -1,11 +1,12 @@
-"""Import-compat bridge into the repo-root App tree.
+"""Import-compat bridge into the App tree, wherever this install keeps it.
 
 The first-party App directories live at <repo>/apps — OUTSIDE the pantheon
 package, where the design wants them (each one a future git repo of its
-own). This module keeps the historical import paths working by pointing
-the package's search path there: `pantheon.apps.builtin.file` resolves to
-<repo>/apps/file. TODO(R2): migrate importers to the registry
-(backend_class / by_app_id) and retire this bridge.
+own). In a source checkout this module points the package's search path
+there: `pantheon.apps.builtin.file` resolves to <repo>/apps/file. In an
+installed wheel there is no repo root — setup.py copied the tree's runtime
+face INTO this package at build time, so the default search path (this
+directory) already resolves the same names.
 """
 
 import os as _os
@@ -14,7 +15,8 @@ from pathlib import Path as _Path
 _APPS_ROOT = _os.environ.get("PANTHEON_APPS_ROOT") or str(
     _Path(__file__).resolve().parents[3] / "apps"
 )
-__path__ = [_APPS_ROOT]
+if _Path(_APPS_ROOT).is_dir():
+    __path__ = [_APPS_ROOT]
 
 from typing import TYPE_CHECKING
 

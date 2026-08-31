@@ -1,26 +1,3 @@
-# Include package data
-recursive-include pantheon/factory/templates *.md *.json *.example *.js *.css *.py .gitkeep
-recursive-include pantheon/toolsets/database_api/schemas *.json
-include pantheon/data/*.json
-
-# Include documentation
-include README.md
-include LICENSE
-
-# Exclude unnecessary directories
-prune examples
-prune tmp
-prune try
-prune tests
-prune docs
-prune .github
-prune .venv
-prune *.egg-info
-
-# Exclude cache and build artifacts
-global-exclude __pycache__
-global-exclude *.py[cod]
-global-exclude *.so
-global-exclude .DS_Store
-global-exclude *.egg
-global-exclude .git*
+graft apps
+global-exclude *.go go.mod go.sum *.pyc __pycache__
+prune apps/text_viewer/frontend-src

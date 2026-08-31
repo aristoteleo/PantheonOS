@@ -140,7 +140,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = {find = {where = ["."], exclude = ["tests*", "examples*", "tmp*", "try*", "docs*"]}}
+packages = {find = {where = ["."], exclude = ["tests*", "examples*", "tmp*", "try*", "docs*", "apps*"]}}
 
 [tool.setuptools.package-data]
 "pantheon" = [

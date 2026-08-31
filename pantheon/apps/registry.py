@@ -37,10 +37,16 @@ import os
 
 #: Where the first-party App directories live: <repo>/apps — outside the
 #: pantheon package, one directory per App (each a future git repo of its
-#: own). PANTHEON_APPS_ROOT overrides for relocated installs.
-BUILTIN_ROOT = Path(
+#: own). PANTHEON_APPS_ROOT overrides for relocated installs; an installed
+#: wheel has no repo root, so it falls back to the copy setup.py folded
+#: into pantheon/apps/builtin at build time.
+_source_tree = Path(
     os.environ.get("PANTHEON_APPS_ROOT")
     or Path(__file__).resolve().parents[2] / "apps"
+)
+BUILTIN_ROOT = (
+    _source_tree if _source_tree.is_dir()
+    else Path(__file__).resolve().parent / "builtin"
 )
 
 
