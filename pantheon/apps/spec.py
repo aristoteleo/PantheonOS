@@ -56,7 +56,11 @@ def apphost_spec(
         raise ValueError(f"unknown app id {app_id!r} (known: {sorted(apps)})")
     seed = instance_service_seed(user_seed, app_id, scope)
     # The manifest's runtime decides the spec: builtin apps run inside the
-    # fleet runner itself — no command line, no python on the node.
+    # fleet runner itself — no command line, no python on the node. The env
+    # STILL travels: it carries the service-plane NATS coordinates
+    # (NATS_SERVERS/JWT/prefix) the runner's builtinConn dials — dropping it
+    # here left builtins registering on the runner's own fleet bus, healthy
+    # and unreachable (staging round 8).
     if apps[app_id].manifest.runtime.value == "builtin":
         return {
             "app_id": app_id,
@@ -66,7 +70,7 @@ def apphost_spec(
             "runtime": "builtin",
             "command": [],
             "dir": workdir,
-            "env": {},
+            "env": dict(env or {}),
         }
     # The apphost process must find pantheon regardless of its own cwd (the
     # workdir) or whatever relative PYTHONPATH the caller inherited — inject
