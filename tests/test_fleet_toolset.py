@@ -29,11 +29,16 @@ _FLEET_ENV = ("FLEET_NATS_URL", "FLEET_ID", "FLEET_CONTROLLER_URL", "FLEET_KEY",
 
 
 def test_fleet_toolset_lazy_import():
-    """FleetToolSet resolves via the package's lazy _TOOLSET_MAPPING."""
-    from pantheon import toolsets
+    """FleetToolSet resolves via the builtin package's lazy _TOOLSET_MAPPING.
 
-    assert "FleetToolSet" in toolsets.__all__
-    assert toolsets.FleetToolSet is FleetToolSet
+    (Formerly asserted against pantheon.toolsets, which no longer exists in
+    this tree — a stale editable install of the OLD layout could shadow it
+    and make this pass/fail for the wrong reasons.)
+    """
+    from pantheon.apps import builtin
+
+    assert "FleetToolSet" in builtin._TOOLSET_MAPPING
+    assert builtin.FleetToolSet is FleetToolSet
 
 
 def test_fleet_toolset_exposes_expected_tools():
