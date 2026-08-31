@@ -1120,9 +1120,27 @@ class ChatRoom(ToolSet):
             if resolver is None:
                 return {"success": False, "error": "App resolver not wired"}
             if not resolver.resolves(toolset_name):
+                # A packaged (user-scope) app is not a bus service: its
+                # backend runs credential-less under the desktop supervisor.
+                # Say so, or this reads as "not installed" to someone who
+                # can see the app on their desktop.
+                hint = ""
+                try:
+                    from pantheon.apps.registry import packaged_apps, default_scope_roots
+                    from pantheon.settings import get_settings
+                    from pathlib import Path
+
+                    ws = Path(get_settings().workspace)
+                    ids = {a.manifest.id for a in packaged_apps(default_scope_roots(ws))}
+                    if toolset_name in ids or toolset_name.replace("_", "-") in ids:
+                        hint = (" — it is installed as a packaged app; its backend "
+                                "is reached via the desktop toolset's app_call, "
+                                "not as a bus service")
+                except Exception:
+                    pass
                 return {
                     "success": False,
-                    "error": f"'{toolset_name}' is not a known App in the catalog",
+                    "error": f"'{toolset_name}' is not a known App in the catalog{hint}",
                 }
 
             session_id = (args or {}).get("session_id") or getattr(self, '_current_chat_id', None)

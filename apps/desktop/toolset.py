@@ -808,24 +808,25 @@ class DesktopToolSet(ToolSet):
     def _app_scope_roots(self) -> list:
         """Where packaged apps live, in precedence order (first id wins).
 
-        Shared by the registry (what windows exist) and the backend
-        supervisor (what app_call reaches) — one list, or the two views of
-        "installed" drift.
+        The user scopes come from the registry (one chain for every
+        loader), then the builtin App tree. Headed surfaces let workspace
+        shadow builtin — both ends are sandboxed (opaque iframe, no-creds
+        stdio child), and the shadow is how an app is forked for
+        development. The bus-service face keeps the opposite rule
+        (registry.all_apps drops shadowers) because there it would take
+        over credentials.
         """
         from pathlib import Path
 
         from pantheon.settings import get_settings
 
-        from pantheon.apps.registry import BUILTIN_ROOT
+        from pantheon.apps.registry import BUILTIN_ROOT, default_scope_roots
 
         settings = get_settings()
         return [
-            (Path(settings.workspace) / ".pantheon" / "apps", "workspace"),
-            (Path.home() / ".pantheon" / "apps", "user"),
-            # The first-party App tree: bundled headed apps live here with
-            # the same manifest format; only entries with a real frontend
-            # are windows the desktop can open (headless apps are services).
+            *default_scope_roots(Path(settings.workspace)),
             (BUILTIN_ROOT, "builtin"),
+            # Pre-unification install path, still on older volumes.
             (Path("/app/pantheon/factory/templates/apps"), "builtin"),
         ]
 
