@@ -128,7 +128,8 @@
   "placement": {
     "requires": [
       "proc",
-      "net"
+      "net",
+      "fs:workspace"
     ],
     "prefer": [
       "sandbox"

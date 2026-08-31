@@ -438,39 +438,45 @@ EOF
     # Pantheon-Fleet: when this sandbox is wired to a fleet, join it as a Node in
     # the background so the agent can transfer files to/from it over the data plane
     # via a single transfer() interface (dst_node="local" resolves to this node).
-    # PANTHEON_ROLE splits the brain from the body (one image, two roles):
-    #   brain — the agent worker on a fast host (k8s pod). No runner here:
-    #           this machine holds no workspace and must NOT register as a
-    #           sandbox node (the resolver discovers the real body in the
-    #           fleet registry instead). No prestart either — instances
-    #           belong on the body.
-    #   body  — the sandbox: runner + App instances, NO worker (the brain
-    #           owns the service subject).
-    #   unset — the classic single-container deployment: both halves.
-    if [ "${PANTHEON_ROLE:-}" = "brain" ]; then
-        echo "[fleet] brain role: no local runner; the body is discovered via the registry"
-    elif [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v fleet >/dev/null 2>&1; then
-        # Node identity for the App placer: this node IS the user's sandbox —
-        # it holds the workspace filesystem and a display stack. Read by
-        # runners >= feat/fleet-app-node via env; older binaries ignore them.
+    # A container is ONE NODE of the user's topology. What runs here is not
+    # a role but a list: PANTHEON_NODE_APPS names the Apps this node hosts
+    # (the topology config's per-node `apps`). Every node runs the fleet
+    # runner — that is the node substrate, not a role — and registers with
+    # whatever capabilities PANTHEON/FLEET_NODE_CAPS declares; the App
+    # placer routes each App by requires × caps from there. `chatroom` in
+    # the list means the agent worker itself runs here (it is an App like
+    # any other; until the runner supervises it, the tail of this script
+    # execs it). Unset keeps the classic single-node deployment: runner +
+    # default prestart + worker, all in this container.
+    NODE_APPS="${PANTHEON_NODE_APPS:-}"
+    if [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v fleet >/dev/null 2>&1; then
+        # Node identity for the App placer. Defaults describe the classic
+        # sandbox; the topology assembly overrides all three per node.
         export FLEET_NODE_KIND="${FLEET_NODE_KIND:-sandbox}"
         export FLEET_NODE_CAPS="${FLEET_NODE_CAPS:-proc,fs:workspace,display,net}"
-        echo "[fleet] joining fleet as node sandbox-${ID_HASH} ..."
+        NODE_NAME="${PANTHEON_NODE_NAME:-sandbox-${ID_HASH}}"
+        echo "[fleet] joining fleet as node ${NODE_NAME} (caps=${FLEET_NODE_CAPS}) ..."
         mkdir -p /tmp/fleet-node
         # The runner writes runtime.json (node/fleet ids) here once joined;
         # the App resolver reads it lazily at first bind.
         export PANTHEON_FLEET_STATE_DIR=/tmp/fleet-node
         fleet up --controller "${FLEET_CONTROLLER_URL}" --key "${FLEET_KEY}" \
-            --name "sandbox-${ID_HASH}" --state-dir /tmp/fleet-node \
+            --name "${NODE_NAME}" --state-dir /tmp/fleet-node \
             > /tmp/fleet-node.log 2>&1 &
-        if [ "${PANTHEON_ROLE:-}" != "body" ]; then
-            # Warm the core App instances once the runner joins (background,
-            # non-fatal) so the first tool bind doesn't pay the cold start.
-            # The resolver lazy-starts at bind time either way. The body
-            # skips this: its brain runs elsewhere and warms what it needs.
+        # Warm this node's Apps once the runner joins (background,
+        # non-fatal; the resolver lazy-starts at bind time either way).
+        # With a topology, the list is the node's `apps` minus chatroom —
+        # the placer still routes each one by requires × caps, so an App
+        # listed here but requiring caps this node lacks simply lands
+        # where it fits.
+        if [ -n "$NODE_APPS" ]; then
+            PRESTART=$(echo "$NODE_APPS" | tr ',' '\n' | grep -v '^chatroom$' | paste -sd, -)
+        else
+            PRESTART="${PANTHEON_APPS_PRESTART:-shell,file_manager,desktop}"
+        fi
+        if [ -n "$PRESTART" ]; then
             ( "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.apps prestart \
-                "${PANTHEON_APPS_PRESTART:-shell,file_manager,desktop}" 90 \
-                > /tmp/apps-prestart.log 2>&1 & )
+                "$PRESTART" 90 > /tmp/apps-prestart.log 2>&1 & )
         fi
     fi
 
@@ -595,16 +601,17 @@ EOF
         set +a
     fi
 
-    # Body role: no worker — the brain (a k8s pod) owns this user's service
-    # subject, and starting a second worker here would fight it for requests.
-    # The container's life is the runner's: when the runner dies, exit, so
-    # the platform sees a dead body instead of a zombie container.
-    if [ "${PANTHEON_ROLE:-}" = "body" ]; then
-        echo "[launch] body role: runner only, no agent worker"
+    # A node whose app list does NOT include chatroom hosts no agent
+    # worker — another node owns this user's service subject, and starting
+    # a second worker here would fight it for requests. The container's
+    # life is the runner's: when the runner dies, exit, so the platform
+    # sees a dead node instead of a zombie container.
+    if [ -n "$NODE_APPS" ] && ! echo ",$NODE_APPS," | grep -q ",chatroom,"; then
+        echo "[launch] node apps [$NODE_APPS]: no chatroom here — runner holds the node"
         while pgrep -f 'fleet up' >/dev/null 2>&1; do
             sleep 5
         done
-        echo "[launch] runner exited; body container stopping"
+        echo "[launch] runner exited; node container stopping"
         exit 0
     fi
 

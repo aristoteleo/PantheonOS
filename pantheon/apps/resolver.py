@@ -87,11 +87,10 @@ class AppInstanceResolver:
     async def _ensure_coords(self) -> None:
         """Fill fleet/node ids: local runtime.json, or the fleet registry.
 
-        Same-container deployment reads the runner's runtime.json. A brain
-        running OFF the body's machine (a k8s pod, a laptop) has no local
-        runner — it joins as the user and finds the user's sandbox node in
-        the registry instead. Neither being there yet is NotJoinedError:
-        the body is late, not broken.
+        A node with its own runner reads runtime.json. A process with no
+        runner beside it (a worker pod, a bare test process) joins as the
+        user and adopts a node from the registry instead. Neither being
+        there yet is NotJoinedError: the node is late, not broken.
         """
         if self._fleet and self._node:
             return
@@ -99,7 +98,7 @@ class AppInstanceResolver:
         try:
             info = json.loads(path.read_text())
         except FileNotFoundError:
-            await self._discover_body()
+            await self._discover_node()
             return
         except Exception as e:
             raise RuntimeError(f"unreadable {path}: {e}") from None
@@ -108,12 +107,15 @@ class AppInstanceResolver:
         if not (self._fleet and self._node):
             raise RuntimeError(f"incomplete coordinates in {path}: {info}")
 
-    async def _discover_body(self) -> None:
-        """Find the user's body node in the fleet registry (split brain).
+    async def _discover_node(self) -> None:
+        """No local runner: adopt a workspace-capable node from the registry.
 
-        Prefers the node named for this user's sandbox, then any
-        sandbox-kind node. Requires the user join (controller + key); a
-        same-container deployment without those keeps the old behavior.
+        A process with no runner beside it (a worker pod, a bare test
+        process) still needs a default node for its instances. The one
+        holding the user's workspace is that default — the placer routes
+        every App by requires × caps from there anyway. Requires the user
+        join (controller + key); a same-container deployment without those
+        keeps the old behavior.
         """
         if not (os.environ.get("FLEET_CONTROLLER_URL") and os.environ.get("FLEET_KEY")):
             raise NotJoinedError(
@@ -121,16 +123,19 @@ class AppInstanceResolver:
                 f"({Path(self._state_dir or '') / 'runtime.json'} missing)")
         await self._ensure_client()  # the user join fills self._fleet
         nodes = await self._list_nodes()
-        want = f"sandbox-{self._seed}"
-        cand = ([n for n in nodes if n.get("name") == want]
+
+        def caps(n: dict) -> set:
+            return set((n.get("capability") or {}).get("caps") or [])
+
+        cand = ([n for n in nodes if "fs:workspace" in caps(n)]
                 or [n for n in nodes if n.get("kind") == "sandbox"])
         if not cand:
             raise NotJoinedError(
-                "no body yet: no sandbox node registered in the fleet")
+                "no workspace node registered in the fleet yet")
         self._node = cand[0]["node_id"]
         logger.info(
-            f"[apps] split brain: body node {cand[0].get('name')} "
-            f"({self._node[:16]}…) discovered from the registry")
+            f"[apps] adopted node {cand[0].get('name')} "
+            f"({self._node[:16]}…) from the registry as this user's default")
 
     #: Consecutive ensure failures before the resolver disables itself.
     MAX_FAILURES = 3
@@ -427,12 +432,13 @@ class AppInstanceResolver:
                     )
             spec_env = {k: v for k, v in os.environ.items()
                         if k.startswith("NATS_") or k in ("PYTHONPATH", "PATH")}
-            # Split brain: this process reaches NATS by an address the body
-            # cannot (a cluster-internal service, say). The hub hands the
-            # body-facing address separately; the instance's env gets THAT.
-            body_nats = os.environ.get("PANTHEON_BODY_NATS_SERVERS")
-            if body_nats:
-                spec_env["NATS_SERVERS"] = body_nats
+            # Cross-node placement: this process may reach NATS by an
+            # address other nodes cannot (a cluster-internal service, say).
+            # The deployment hands the instance-facing address separately;
+            # the instance's env gets THAT.
+            instance_nats = os.environ.get("PANTHEON_INSTANCE_NATS_SERVERS")
+            if instance_nats:
+                spec_env["NATS_SERVERS"] = instance_nats
             spec = apphost_spec(
                 app.manifest.id,
                 user_seed=self._seed,
