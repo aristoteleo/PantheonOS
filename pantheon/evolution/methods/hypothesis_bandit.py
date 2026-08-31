@@ -46,6 +46,7 @@ from pantheon.utils.log import logger
 from ..core.individual import Individual, Ranking
 from ..core.method import BaseMethod, EvolveContext
 from ..core.work import Create, Failure, Measurement, PromptContext, Remeasure
+from ..variators.agent import AgentVariator
 
 HYP, CODE = "idea", "code"
 
@@ -68,6 +69,23 @@ HYP_FORMAT = (
     "expected_effect: <what should improve, and why>\n"
     "falsification: <what result would show this hypothesis is wrong>\n"
 )
+
+
+
+class EditAgentVariator(AgentVariator):
+    """HypothesisBandit's implement operator: the mutation agent, re-worded.
+
+    The words are the method's, so they live here: an implementation TESTS one stated
+    hypothesis by editing the incumbent -- it does not get to pick its own improvement. The
+    84%-wreckage lesson (FINDINGS_AHC039) is baked into "change only what the hypothesis
+    targets". Machinery -- workspace, submit/salvage, budgets -- is the base class's.
+    """
+
+    SYSTEM = (
+        "You are an expert algorithm engineer testing a specific hypothesis by EDITING an "
+        "existing program. Change only what the hypothesis targets; keep the rest of the "
+        "program intact. Verify your edit with the evaluator before submitting."
+    )
 
 
 class HypothesisGate:
@@ -474,11 +492,6 @@ class HypothesisBandit(BaseMethod):
         from ..variators.idea import IdeaCodeVariator, IdeaVariator
 
         idea = IdeaVariator(model=model, timeout=min(timeout, 300.0))
-        code_system = (
-            "You are an expert algorithm engineer testing a specific hypothesis by EDITING an "
-            "existing program. Change only what the hypothesis targets; keep the rest of the "
-            "program intact. Verify your edit with the evaluator before submitting."
-        )
         if evaluator is None:
             from ..variators.completion import CompletionVariator
 
@@ -487,15 +500,13 @@ class HypothesisBandit(BaseMethod):
                 "blind completion. Pass evaluator= for the operator this method is defined with."
             )
             code = CompletionVariator(model=model, timeout=timeout, target_file=target_file,
-                                      system_prompt=code_system)
+                                      system_prompt=EditAgentVariator.SYSTEM)
         else:
-            from ..variators.agent import AgentVariator
-
-            code = AgentVariator(evaluator=evaluator, model=model, timeout=timeout,
-                                 system_prompt=code_system, score_key=self.score_key,
-                                 workspace_root=kw.get("workspace_root"),
-                                 max_tool_calls=kw.get("max_tool_calls", 28),
-                                 max_evaluations=kw.get("max_evaluations"),
-                                 inner_fidelity=kw.get("inner_fidelity", "full"),
-                                 trace_path=kw.get("trace_path"))
+            code = EditAgentVariator(evaluator=evaluator, model=model, timeout=timeout,
+                                     score_key=self.score_key,
+                                     workspace_root=kw.get("workspace_root"),
+                                     max_tool_calls=kw.get("max_tool_calls", 28),
+                                     max_evaluations=kw.get("max_evaluations"),
+                                     inner_fidelity=kw.get("inner_fidelity", "full"),
+                                     trace_path=kw.get("trace_path"))
         return IdeaCodeVariator(idea_variator=idea, code_variator=code)

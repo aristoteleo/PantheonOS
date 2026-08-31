@@ -112,7 +112,15 @@ class EvolveBlock:
 
 
 class CompletionVariator:
-    """One prompt, `n=k` completions, one code block from each."""
+    """One prompt, `n=k` completions, one code block from each.
+
+    Shared machinery only: the call (with its n-shortfall fallback and usage booking), file
+    selection, EVOLVE-BLOCK splitting/merging, and a GENERIC prompt. A method whose operator
+    speaks differently subclasses this and overrides `SYSTEM` (`""` = send no system message)
+    and/or the prompt builders -- see `UpstreamCompletionVariator` in `methods/simpletes.py`.
+    """
+
+    SYSTEM = DEFAULT_SYSTEM
 
     def __init__(
         self,
@@ -125,21 +133,10 @@ class CompletionVariator:
         timeout: float = 600,
         score_key: str = "combined_score",
         max_parent_chars: int = 24000,
-        upstream_style: bool = False,
     ):
-        """`upstream_style=True` reproduces the SimpleTES authors' generation query for
-        marker-carrying seeds (their `GENERATION_PROMPT_TEMPLATE`, commit a19a54b1): no system
-        message at all, `Task:` header, a language-tagged reply instruction, inspirations as
-        FULL programs with their complete metric dicts, their section headers and their
-        4-bullet strategy. `system_prompt=""` also means "send no system message" on its own.
-        What it does NOT reproduce is upstream's per-node reflection paragraphs -- those are an
-        engine feature (one extra LLM call per evaluated node), not prompt text."""
         self.model = model
-        self.upstream_style = upstream_style
-        if system_prompt is not None:
-            self.system_prompt = system_prompt          # "" = no system message
-        else:
-            self.system_prompt = "" if upstream_style else DEFAULT_SYSTEM
+        # None -> the class's own words; "" -> send NO system message at all
+        self.system_prompt = self.SYSTEM if system_prompt is None else system_prompt
         self.target_file = target_file
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -222,74 +219,10 @@ class CompletionVariator:
         parts.append(f"\nReply with the complete new `{path}` in one fenced code block.")
         return "\n".join(parts)
 
-    def _upstream_inspiration(self, index: int, ind, code: str, tag: str) -> str:
-        """One inspiration, upstream's `INSPIRATION_TEMPLATE`: full metrics, full code."""
-        m = ind.metrics() or {}
-        lines = []
-        for k, v in m.items():
-            if k == "error":
-                lines.append(f"  {k}: {str(v)[:240]}")
-            elif isinstance(v, float):
-                lines.append(f"  {k}: {v:.6f}")
-            else:
-                lines.append(f"  {k}: {v}")
-        return (f"\n--- Inspiration {index} ---\n"
-                f"Score: {m.get(self.score_key)}\n"
-                f"Metrics:\n" + "\n".join(lines) +
-                f"\nCode:\n```{tag}\n{code}\n```\n")
-
-    def build_upstream_block_prompt(self, ctx: EvolveContext, item: Create, path: str,
-                                    eb: "EvolveBlock") -> str:
-        """The authors' `GENERATION_PROMPT_TEMPLATE`, reproduced: same headers, same rule list
-        (language-named), same inspiration blocks -- each parent as its FULL program with its
-        complete metric dict, sorted by score -- same failure-pattern section and the same
-        four-bullet strategy. No chain-history digest: upstream carries history through the
-        inspirations, so adding ours would be a departure, not a translation."""
-        c = item.context
-        lang_name, tag = self._lang(path)
-
-        def _sc(ind):
-            v = ind.metrics().get(self.score_key)
-            return v if v is not None else float("-inf")
-
-        insp = sorted(c.parents, key=_sc, reverse=True)
-        chunks = []
-        for i, pr in enumerate(insp, 1):
-            src = pr.genome.files.get(path) if isinstance(pr.genome, CodeGenome) else None
-            chunks.append(self._upstream_inspiration(i, pr, src or pr.genome.render(), tag))
-        failure_text = ""
-        if c.failures:
-            worst = sorted(c.failures.items(), key=lambda kv: -kv[1])[:5]
-            failure_text = ("\n[FAILURE PATTERNS] (common errors to avoid)\n" +
-                            "\n".join(f"- {k} (x{int(v)})" for k, v in worst) + "\n")
-        block_word = f"{lang_name} code block" if lang_name else "code block"
-        return (
-            f"Task: {c.instruction or ctx.objective}\n\n"
-            "Generation instruction (must follow exactly):\n"
-            f"1) Only the code between `{eb.start_line}` and `{eb.end_line}` is extracted.\n"
-            "2) The final program is reconstructed as EXACT_PREFIX + evolved_block + "
-            "EXACT_SUFFIX.\n"
-            "3) Keep marker lines exactly as written.\n"
-            f"4) Return one {block_word} that includes both EVOLVE-BLOCK markers.\n\n"
-            f"EXACT_PREFIX (kept unchanged):\n```{tag}\n{eb.prefix.rstrip(chr(10))}\n```\n\n"
-            f"EXACT_SUFFIX (kept unchanged):\n```{tag}\n{eb.suffix.rstrip(chr(10))}\n```\n\n"
-            "=== REFERENCE SOLUTIONS ===\n\n"
-            f"[SAMPLED INSPIRATIONS] ({len(insp)} solutions sampled for detailed reference)\n"
-            "Learn from these specific implementations - study their patterns and techniques.\n"
-            + "".join(chunks) + failure_text +
-            "\n=== GENERATION STRATEGY ===\n"
-            "- Prioritize NOVEL approaches not yet seen in the elite pool\n"
-            "- Only refine existing approaches if you identify clear improvement potential\n"
-            "- Combine insights from multiple solutions when beneficial\n"
-            "- Avoid the listed failure patterns\n\n"
-            "Generate an improved solution with higher score:\n")
-
     def build_block_prompt(self, ctx: EvolveContext, item: Create, path: str,
                            eb: "EvolveBlock") -> str:
-        """Upstream's generation prompt, for a marker-carrying program: the model regenerates
-        ONLY the evolve block; prefix and suffix are shown and kept verbatim."""
-        if self.upstream_style:
-            return self.build_upstream_block_prompt(ctx, item, path, eb)
+        """Generic block prompt for a marker-carrying program: the model regenerates ONLY the
+        evolve block; prefix and suffix are shown and kept verbatim."""
         c = item.context
 
         def _score(ind):

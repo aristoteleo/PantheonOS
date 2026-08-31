@@ -48,9 +48,11 @@ import random
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
+from ..core.genome import CodeGenome
 from ..core.individual import Individual, Ranking
 from ..core.method import BaseMethod, EvolveContext
 from ..core.work import Create, Failure, Measurement, PromptContext
+from ..variators.completion import CompletionVariator, EvolveBlock
 
 
 def score_of(ind: Individual, key: str) -> Optional[float]:
@@ -333,6 +335,85 @@ class _Batch:
     children: List[str] = field(default_factory=list)
 
 
+
+class UpstreamCompletionVariator(CompletionVariator):
+    """SimpleTES's operator, words and all: the authors' generation query reproduced
+    (their `GENERATION_PROMPT_TEMPLATE`, commit a19a54b1). No system message on the wire,
+    `Task:` header, a language-named reply rule, tagged fences, inspirations as FULL
+    programs with their complete metric dicts sorted by score, their section headers and
+    their four-bullet strategy. The base class contributes only machinery -- the call, the
+    n-shortfall fallback, EVOLVE-BLOCK splitting/merging.
+
+    Not reproduced: upstream's per-node reflection paragraphs -- an engine feature (one
+    extra LLM call per evaluated node), not prompt text. Marker-less seeds fall back to the
+    base whole-file prompt, which is upstream's behaviour for unmarked programs too.
+    """
+
+    SYSTEM = ""
+
+    def _inspiration(self, index: int, ind, code: str, tag: str) -> str:
+        """One inspiration, upstream's `INSPIRATION_TEMPLATE`: full metrics, full code."""
+        m = ind.metrics() or {}
+        lines = []
+        for k, v in m.items():
+            if k == "error":
+                lines.append(f"  {k}: {str(v)[:240]}")
+            elif isinstance(v, float):
+                lines.append(f"  {k}: {v:.6f}")
+            else:
+                lines.append(f"  {k}: {v}")
+        return (f"\n--- Inspiration {index} ---\n"
+                f"Score: {m.get(self.score_key)}\n"
+                f"Metrics:\n" + "\n".join(lines) +
+                f"\nCode:\n```{tag}\n{code}\n```\n")
+
+    def build_block_prompt(self, ctx: EvolveContext, item: Create, path: str,
+                                    eb: "EvolveBlock") -> str:
+        """The authors' `GENERATION_PROMPT_TEMPLATE`, reproduced: same headers, same rule list
+        (language-named), same inspiration blocks -- each parent as its FULL program with its
+        complete metric dict, sorted by score -- same failure-pattern section and the same
+        four-bullet strategy. No chain-history digest: upstream carries history through the
+        inspirations, so adding ours would be a departure, not a translation."""
+        c = item.context
+        lang_name, tag = self._lang(path)
+
+        def _sc(ind):
+            v = ind.metrics().get(self.score_key)
+            return v if v is not None else float("-inf")
+
+        insp = sorted(c.parents, key=_sc, reverse=True)
+        chunks = []
+        for i, pr in enumerate(insp, 1):
+            src = pr.genome.files.get(path) if isinstance(pr.genome, CodeGenome) else None
+            chunks.append(self._inspiration(i, pr, src or pr.genome.render(), tag))
+        failure_text = ""
+        if c.failures:
+            worst = sorted(c.failures.items(), key=lambda kv: -kv[1])[:5]
+            failure_text = ("\n[FAILURE PATTERNS] (common errors to avoid)\n" +
+                            "\n".join(f"- {k} (x{int(v)})" for k, v in worst) + "\n")
+        block_word = f"{lang_name} code block" if lang_name else "code block"
+        return (
+            f"Task: {c.instruction or ctx.objective}\n\n"
+            "Generation instruction (must follow exactly):\n"
+            f"1) Only the code between `{eb.start_line}` and `{eb.end_line}` is extracted.\n"
+            "2) The final program is reconstructed as EXACT_PREFIX + evolved_block + "
+            "EXACT_SUFFIX.\n"
+            "3) Keep marker lines exactly as written.\n"
+            f"4) Return one {block_word} that includes both EVOLVE-BLOCK markers.\n\n"
+            f"EXACT_PREFIX (kept unchanged):\n```{tag}\n{eb.prefix.rstrip(chr(10))}\n```\n\n"
+            f"EXACT_SUFFIX (kept unchanged):\n```{tag}\n{eb.suffix.rstrip(chr(10))}\n```\n\n"
+            "=== REFERENCE SOLUTIONS ===\n\n"
+            f"[SAMPLED INSPIRATIONS] ({len(insp)} solutions sampled for detailed reference)\n"
+            "Learn from these specific implementations - study their patterns and techniques.\n"
+            + "".join(chunks) + failure_text +
+            "\n=== GENERATION STRATEGY ===\n"
+            "- Prioritize NOVEL approaches not yet seen in the elite pool\n"
+            "- Only refine existing approaches if you identify clear improvement potential\n"
+            "- Combine insights from multiple solutions when beneficial\n"
+            "- Avoid the listed failure patterns\n\n"
+            "Generate an improved solution with higher score:\n")
+
+
 class SimpleTES(BaseMethod):
     """C chains x K candidates per step, commit best-of-K to the chain that produced them."""
 
@@ -565,14 +646,9 @@ class SimpleTES(BaseMethod):
         it commits changes the algorithm, not just its speed, so the method names its own operator
         instead of accepting whatever the caller wired up.
         """
-        from ..variators.completion import CompletionVariator
-
         # max_tokens matches upstream's default (EngineConfig.max_tokens = 32768). Left unset,
         # the gateway's own output cap decides whether a 43KB program can even be emitted whole,
-        # and that decision then wears the algorithm's name. upstream_style pins the PROMPT to
-        # the authors' generation template too (no system message, their headers, full-program
-        # inspirations with full metrics) -- the operator's words are part of what SimpleTES is,
-        # same as its single-completion shape.
-        return CompletionVariator(model=model, timeout=timeout, target_file=target_file,
-                                  score_key=self.score_key, max_tokens=32768,
-                                  upstream_style=True)
+        # and that decision then wears the algorithm's name.
+        return UpstreamCompletionVariator(model=model, timeout=timeout,
+                                          target_file=target_file,
+                                          score_key=self.score_key, max_tokens=32768)

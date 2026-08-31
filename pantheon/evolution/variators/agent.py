@@ -126,7 +126,15 @@ class _Session:
 
 
 class AgentVariator:
-    """One full-capability coding agent per mutation, editing an isolated workspace."""
+    """One full-capability coding agent per mutation, editing an isolated workspace.
+
+    This class is the shared MACHINERY -- workspace, toolsets, submit/salvage, budgets.
+    A method that wants different WORDS subclasses it and overrides `SYSTEM`; the words
+    are part of what that method's operator is, so they live in the method's module, not
+    behind a constructor parameter here.
+    """
+
+    SYSTEM = MUTATION_AGENT_SYSTEM_PROMPT
 
     def __init__(
         self,
@@ -150,7 +158,7 @@ class AgentVariator:
     ):
         self.evaluator = evaluator
         self.model = model
-        self.system_prompt = system_prompt or MUTATION_AGENT_SYSTEM_PROMPT
+        self.system_prompt = system_prompt or self.SYSTEM
         self.workspace_root = workspace_root
         self.max_evaluations = max_evaluations
         self.max_tool_calls = max_tool_calls

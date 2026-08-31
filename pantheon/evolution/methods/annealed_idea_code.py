@@ -64,9 +64,20 @@ from pantheon.utils.log import logger
 from ..core.individual import Individual, Ranking
 from ..core.method import BaseMethod, EvolveContext
 from ..core.work import Create, Failure, Measurement, PromptContext
+from ..variators.agent import AgentVariator
 
 IDEA, CODE = "idea", "code"
 NEW, REFINE, IMPL = "NEW", "REFINE", "IMPL"
+
+
+
+class ImplementAgentVariator(AgentVariator):
+    """Annealed's implement operator: build the approach you were handed, faithfully."""
+
+    SYSTEM = (
+        "You are an expert algorithm designer implementing a specified approach. Implement "
+        "the approach you were given -- not a different improvement you happen to prefer."
+    )
 
 
 class AnnealedIdeaCode(BaseMethod):
@@ -509,10 +520,7 @@ class AnnealedIdeaCode(BaseMethod):
         from ..variators.idea import IdeaCodeVariator, IdeaVariator
 
         idea = IdeaVariator(model=model, timeout=min(timeout, 300.0))
-        code_system = (
-            "You are an expert algorithm designer implementing a specified approach. Implement "
-            "the approach you were given -- not a different improvement you happen to prefer."
-        )
+        code_system = ImplementAgentVariator.SYSTEM
         if evaluator is None:
             from ..variators.completion import CompletionVariator
 
@@ -530,14 +538,14 @@ class AnnealedIdeaCode(BaseMethod):
             return IdeaCodeVariator(idea_variator=idea, code_variator=SandboxVariator(
                 evaluator_code=kw.get("evaluator_code", ""), model=model,
                 timeout=int(timeout)))
-        from ..variators.agent import AgentVariator, agent_kwargs
+        from ..variators.agent import agent_kwargs
 
         # Forwarded from the operator's signature rather than a list maintained here. Naming the
         # knobs one by one lost `max_tool_calls` once -- this method's agent then ran on an
         # unlimited action budget while every other arm ran on 14, and the comparison read as a
         # policy result when it was a budget result -- and later lost `inner_fidelity` and
         # `trace_path` the same way, silently.
-        return IdeaCodeVariator(idea_variator=idea, code_variator=AgentVariator(
+        return IdeaCodeVariator(idea_variator=idea, code_variator=ImplementAgentVariator(
             evaluator=evaluator, **{"model": model, "timeout": timeout,
                                     "score_key": self.score_key, **agent_kwargs(kw)}))
 

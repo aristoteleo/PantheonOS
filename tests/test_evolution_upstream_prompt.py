@@ -1,14 +1,16 @@
-"""The upstream-style generation prompt matches the SimpleTES authors' template.
+"""SimpleTES's own operator speaks the authors' template.
 
-Shape-pinned against `simpletes/templates/generation.py` at commit a19a54b1: their section
-headers, their rule list with the language named, inspirations as full programs with full
-metric dicts, and no system message on the wire.
+Shape-pinned against `simpletes/templates/generation.py` at commit a19a54b1. The prompt lives
+in `UpstreamCompletionVariator` -- a method-owned subclass, per the design rule that a method
+implements its OWN variator and inherits only machinery; the base `CompletionVariator` knows
+nothing about upstream.
 """
 from __future__ import annotations
 
 from types import SimpleNamespace
 
 from pantheon.evolution.core import CodeGenome, Individual, Measurement
+from pantheon.evolution.methods.simpletes import SimpleTES, UpstreamCompletionVariator
 from pantheon.evolution.variators.completion import CompletionVariator, EvolveBlock
 
 SEED = ("#include <bits/stdc++.h>\n"
@@ -35,7 +37,7 @@ def _prompt(v: CompletionVariator, parents, failures=None) -> str:
 
 
 def test_upstream_template_shape():
-    v = CompletionVariator(model="m", target_file="solution.cpp", upstream_style=True)
+    v = UpstreamCompletionVariator(model="m", target_file="solution.cpp")
     text = _prompt(v, [_parent(2.4), _parent(2.5)], failures={"timeout": 3})
     assert text.startswith("Task: Catch fish.")
     assert "4) Return one C++ code block that includes both EVOLVE-BLOCK markers." in text
@@ -51,24 +53,33 @@ def test_upstream_template_shape():
     assert text.rstrip().endswith("Generate an improved solution with higher score:")
 
 
-def test_upstream_style_sends_no_system_message():
-    v = CompletionVariator(model="m", upstream_style=True)
-    assert v.system_prompt == ""
-    explicit = CompletionVariator(model="m", system_prompt="be brief")
-    assert explicit.system_prompt == "be brief"
+def test_upstream_subclass_sends_no_system_message():
+    assert UpstreamCompletionVariator.SYSTEM == ""
+    assert UpstreamCompletionVariator(model="m").system_prompt == ""
+    assert CompletionVariator(model="m").system_prompt != ""      # base untouched
+    assert CompletionVariator(model="m", system_prompt="be brief").system_prompt == "be brief"
 
 
-def test_default_style_unchanged():
+def test_base_has_no_upstream_knowledge():
     v = CompletionVariator(model="m", target_file="solution.cpp")
     text = _prompt(v, [_parent(2.4)])
     assert not text.startswith("Task:")
-    assert v.system_prompt != ""
+    assert not hasattr(v, "upstream_style")
 
 
 def test_simpletes_owns_the_upstream_prompt():
-    from pantheon.evolution.methods import SimpleTES
-
     op = SimpleTES(seed=0).default_variator(model="m", target_file="solution.cpp")
-    assert op.upstream_style is True
+    assert type(op) is UpstreamCompletionVariator
     assert op.system_prompt == ""
     assert op.max_tokens == 32768
+
+
+def test_methods_own_their_agent_words():
+    from pantheon.evolution.methods.annealed_idea_code import ImplementAgentVariator
+    from pantheon.evolution.methods.hypothesis_bandit import EditAgentVariator
+    from pantheon.evolution.variators.agent import AgentVariator
+
+    assert "EDITING" in EditAgentVariator.SYSTEM
+    assert "approach you were given" in ImplementAgentVariator.SYSTEM
+    assert EditAgentVariator.SYSTEM != AgentVariator.SYSTEM
+    assert ImplementAgentVariator.SYSTEM != AgentVariator.SYSTEM
