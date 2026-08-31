@@ -374,12 +374,15 @@ RUN (curl -L --retry 3 --retry-delay 5 --max-time 60 \
 # the binary changes (the download URL is a static release tag, so without this a
 # re-uploaded binary would be silently served from the cached layer). Bump it
 # whenever fleet-linux-amd64 is rebuilt.
-RUN (curl -L --retry 3 --retry-delay 5 --max-time 60 \
-    https://github.com/aristoteleo/PantheonOS/releases/download/fleet-v0.2.0-alpha/fleet-linux-amd64 \
+# HARD failure on a bad download — the runner is the App-instance
+# supervisor now, not an optional transfer helper. The old `|| echo
+# Warning` fallthrough let a CDN "Not Found" page ship as /usr/local/bin/
+# fleet with a green build. The query string busts that CDN cache.
+RUN curl -fL --retry 3 --retry-delay 5 --max-time 60 \
+    "https://github.com/aristoteleo/PantheonOS/releases/download/fleet-v0.2.0-alpha/fleet-linux-amd64?v=a7417b7c" \
     -o /usr/local/bin/fleet && \
-    echo "0019dfc4b32d63c1392aa264aed2253c1e0c2fb09216f8e2cc269bbfb8bb49b5  /usr/local/bin/fleet" | sha256sum -c - && \
-    chmod +x /usr/local/bin/fleet) || \
-    echo "Warning: fleet node binary download/verify failed (fleet transfers unavailable)"
+    echo "a7417b7cfc4d5831782a540b3800bf01691f297a931ac57ac0e93c2085971c81  /usr/local/bin/fleet" | sha256sum -c - && \
+    chmod +x /usr/local/bin/fleet
 
 # Layer F — Workspace directory (stable)
 RUN mkdir -p /workspace
