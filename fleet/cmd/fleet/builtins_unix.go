@@ -14,26 +14,39 @@ import (
 
 // registerPlatformBuiltins adds the builtins that need a Unix kernel — pty
 // sessions have no Windows implementation yet.
-func registerPlatformBuiltins(r *runner.Runner, nc *nats.Conn, prefix string) {
+func registerPlatformBuiltins(r *runner.Runner, nc *nats.Conn) {
 	r.Apps().RegisterBuiltin("pty", func(ctx context.Context, spec apps.Spec) (func(), error) {
-		app := ptyapp.NewApp(nc, prefix, spec.Dir)
-		svc := appsvc.New(nc, spec.ServiceID, "pty",
+		svcNc, owned, err := builtinConn(spec, nc)
+		if err != nil {
+			return nil, err
+		}
+		prefix := builtinPrefix(spec)
+		// The stream frames (pantheon.stream.pty_*) ride the same
+		// service-plane connection the UI listens on.
+		app := ptyapp.NewApp(svcNc, prefix, spec.Dir)
+		svc := appsvc.New(svcNc, spec.ServiceID, "pty",
 			"Pseudo-terminal sessions for a terminal UI (Go builtin).",
 			builtinVersion, prefix)
 		tools, err := ptyapp.Tools(app)
+		if err == nil {
+			for _, t := range tools {
+				svc.Register(t)
+			}
+			err = svc.Start(ctx)
+		}
 		if err != nil {
 			app.Close()
-			return nil, err
-		}
-		for _, t := range tools {
-			svc.Register(t)
-		}
-		if err := svc.Start(ctx); err != nil {
+			if owned {
+				svcNc.Close()
+			}
 			return nil, err
 		}
 		return func() {
 			svc.Stop(context.Background())
 			app.Close()
+			if owned {
+				svcNc.Close()
+			}
 		}, nil
 	})
 }

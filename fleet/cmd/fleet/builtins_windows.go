@@ -9,4 +9,4 @@ import (
 
 // registerPlatformBuiltins: pty has no Windows implementation (no pty(7));
 // a ConPTY port can land here later.
-func registerPlatformBuiltins(_ *runner.Runner, _ *nats.Conn, _ string) {}
+func registerPlatformBuiltins(_ *runner.Runner, _ *nats.Conn) {}
