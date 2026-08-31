@@ -454,7 +454,9 @@ EOF
         # sandbox; the topology assembly overrides all three per node.
         export FLEET_NODE_KIND="${FLEET_NODE_KIND:-sandbox}"
         export FLEET_NODE_CAPS="${FLEET_NODE_CAPS:-proc,fs:workspace,display,net}"
-        NODE_NAME="${PANTHEON_NODE_NAME:-sandbox-${ID_HASH}}"
+        # The topology assembly names nodes by BASENAME (static per node
+        # definition); the user suffix is appended here where ID_HASH lives.
+        NODE_NAME="${PANTHEON_NODE_NAME:-${PANTHEON_NODE_BASENAME:-sandbox}-${ID_HASH}}"
         echo "[fleet] joining fleet as node ${NODE_NAME} (caps=${FLEET_NODE_CAPS}) ..."
         mkdir -p /tmp/fleet-node
         # The runner writes runtime.json (node/fleet ids) here once joined;
