@@ -1154,11 +1154,17 @@ class ChatRoom(ToolSet):
             )
 
             if not toolset_name:
-                return {
-                    "success": False,
-                    "error": "toolset_name is required (the endpoint that used "
-                             "to answer bare calls is retired)",
-                }
+                # Pre-bundling frontends call the packaged-app plane bare —
+                # these two names have exactly one home, so route them there
+                # instead of stranding every viewer window on older shells.
+                if method_name in ("app_call", "app_registry"):
+                    toolset_name = "desktop"
+                else:
+                    return {
+                        "success": False,
+                        "error": "toolset_name is required (the endpoint that "
+                                 "used to answer bare calls is retired)",
+                    }
 
             from pantheon.apps.proxy import ToolsetProxy
             from pantheon.apps.resolver import get_shared_resolver
