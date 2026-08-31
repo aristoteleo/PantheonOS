@@ -6,12 +6,61 @@
   "description": "View text and code files.",
   "surface": "dom",
   "entry": {
-    "frontend": "ui:text-viewer"
+    "frontend": "frontend/main.js"
   },
   "placement": {
     "requires": [
       "dom"
     ]
   },
-  "notes": "Frontend implementation lives in pantheon-ui (src/desktop/apps) until the UI phase moves it here; this manifest is the definition."
+  "notes": "Bundled headed App (CodeMirror, esbuild-built from frontend-src/ — see build.sh). Reads via the served URL, saves through the bridge fs broker.",
+  "opens": [
+    ".txt",
+    ".md",
+    ".log",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".cfg",
+    ".ini",
+    ".csv",
+    ".tsv",
+    ".py",
+    ".r",
+    ".jl",
+    ".sh",
+    ".js",
+    ".ts",
+    ".vue",
+    ".css",
+    ".html",
+    ".xml",
+    ".sql",
+    ".rs",
+    ".go",
+    ".c",
+    ".h",
+    ".cpp",
+    ".java",
+    ".gitignore",
+    ".env",
+    ".lock"
+  ],
+  "defaultFor": [],
+  "launcher": false,
+  "icon": {
+    "monochrome": true,
+    "tint": "#5a6273"
+  },
+  "defaultSize": {
+    "width": 820,
+    "height": 560
+  },
+  "caps": {
+    "fs": [
+      "read",
+      "write"
+    ]
+  }
 }

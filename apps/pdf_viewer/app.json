@@ -6,12 +6,27 @@
   "description": "View PDF documents.",
   "surface": "dom",
   "entry": {
-    "frontend": "ui:pdf-viewer"
+    "frontend": "frontend/main.js"
   },
   "placement": {
     "requires": [
       "dom"
     ]
   },
-  "notes": "Frontend implementation lives in pantheon-ui (src/desktop/apps) until the UI phase moves it here; this manifest is the definition."
+  "notes": "Bundled headed App — the browser's own PDF engine renders the served URL; no backend.",
+  "opens": [
+    ".pdf"
+  ],
+  "defaultFor": [
+    ".pdf"
+  ],
+  "launcher": false,
+  "icon": {
+    "monochrome": true,
+    "tint": "#a44b4e"
+  },
+  "defaultSize": {
+    "width": 820,
+    "height": 700
+  }
 }

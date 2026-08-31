@@ -151,6 +151,9 @@ class AppManifest(BaseModel):
     defaultFor: list[str] = Field(default_factory=list)
     launcher: bool = False
     icon: Optional[dict[str, Any]] = None
+    #: Preferred window size, `{"width": …, "height": …}`; the shell has a
+    #: default for apps that don't care.
+    defaultSize: Optional[dict[str, int]] = None
     actions: list[dict[str, Any]] = Field(default_factory=list)
     caps: Optional[dict[str, Any]] = None
     persistState: list[str] = Field(default_factory=list)
