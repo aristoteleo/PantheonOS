@@ -544,6 +544,5 @@
     ]
   },
   "apiVersion": 2,
-  "kind": "service",
-  "builtinTarget": true
+  "kind": "service"
 }

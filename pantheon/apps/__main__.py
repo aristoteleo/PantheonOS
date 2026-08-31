@@ -33,13 +33,24 @@ def _list() -> None:
 
 def _emit() -> None:
     """Refresh provides.tools in every builtin app.json from reflection."""
-    from pantheon.apps.registry import BUILTIN_ROOT, refresh_manifest
+    import json as _json
+
+    from pantheon.apps.registry import (
+        BUILTIN_ROOT,
+        parse_manifest,
+        refresh_manifest,
+        verifiable,
+    )
 
     for app_dir in sorted(BUILTIN_ROOT.iterdir()):
-        if not (app_dir / "app.json").is_file():
+        mf = app_dir / "app.json"
+        if not mf.is_file():
+            continue
+        if not verifiable(parse_manifest(_json.loads(mf.read_text()))):
+            print(f"skipped  {mf} (no python backend)")
             continue
         changed = refresh_manifest(app_dir)
-        print(f"{'updated' if changed else 'fresh  '}  {app_dir / 'app.json'}")
+        print(f"{'updated' if changed else 'fresh  '}  {mf}")
 
 
 def _schema() -> None:
@@ -61,12 +72,15 @@ def _check() -> None:
         BUILTIN_ROOT,
         builtin_apps,
         reflected_tools,
+        verifiable,
         verify_interfaces,
     )
 
     failed = False
     count = 0
     for app in builtin_apps():
+        if not verifiable(app.manifest):
+            continue
         count += 1
         try:
             fresh = reflected_tools(app.manifest)
@@ -82,14 +96,11 @@ def _check() -> None:
             for p in problems:
                 print(f"  {p}")
             failed = True
-    manifests = len(list(BUILTIN_ROOT.glob("*/app.json")))
-    if manifests != count:
-        print(f"{manifests - count} builtin manifest(s) failed to parse")
-        failed = True
+
     if failed:
         print("\nRun `python -m pantheon.apps emit` and review the diff.")
         sys.exit(1)
-    print(f"OK: {count} builtin app manifests match their code.")
+    print(f"OK: {count} python-backed app manifests match their code.")
 
 
 def _prestart(services: list[str], wait: float) -> None:

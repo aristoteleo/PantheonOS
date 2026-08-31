@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import importlib
 import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -51,13 +50,10 @@ class RegisteredApp:
 
 
 def service_type_of(manifest: AppManifest) -> str:
-    """The snake_case service name templates use ('file_manager'), derived
-    from the backend class name — the same derivation the old endpoint used
-    to reverse."""
-    backend = manifest.entry.backend or ""
-    cls = backend.rsplit(":", 1)[-1].removesuffix("ToolSet")
-    s1 = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", cls)
-    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
+    """The snake_case service name templates use ('file_manager'): the app
+    id with dashes underscored. One derivation for every runtime — a Go
+    builtin has no Python class to derive from."""
+    return manifest.id.replace("-", "_")
 
 
 def backend_class(manifest: AppManifest) -> type:
@@ -87,8 +83,13 @@ def builtin_apps() -> list[RegisteredApp]:
 
 
 def by_service_type() -> dict[str, RegisteredApp]:
-    """Template service names ('shell', 'file_manager') -> builtin App."""
-    return {app.service_type: app for app in builtin_apps()}
+    """Template service names ('shell', 'file_manager') -> builtin App.
+
+    Headless apps only — a headed app (frontend-only manifest) is not a
+    service anyone binds by name."""
+    return {app.service_type: app
+            for app in builtin_apps()
+            if app.manifest.entry.backend or app.manifest.runtime.value == "builtin"}
 
 
 def by_app_id() -> dict[str, RegisteredApp]:
@@ -112,8 +113,15 @@ def verify_interfaces(manifest: AppManifest) -> list[str]:
 
 def reflected_tools(manifest: AppManifest):
     """The live tools face of a manifest's backend class (embedded/process
-    apps; builtin-runtime Go faces are asserted by the e2e parity tests)."""
+    apps). Builtin-runtime apps have no Python backend — their Go
+    registration is held to the manifest by the e2e parity tests — and
+    headed apps have no tools face at all; neither is reflectable."""
     return reflect_toolset_class(backend_class(manifest))
+
+
+def verifiable(manifest: AppManifest) -> bool:
+    """Whether check/emit can hold this manifest to a Python backend."""
+    return bool(manifest.entry.backend) and manifest.runtime.value != "builtin"
 
 
 def refresh_manifest(app_dir: Path) -> bool:

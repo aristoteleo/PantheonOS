@@ -51,19 +51,13 @@ def apphost_spec(
         python: Interpreter for the apphost process (default: this one).
         env: Extra per-instance environment (e.g. scoped NATS creds).
     """
-    known = set(by_app_id())
-    if app_id not in known:
-        raise ValueError(f"unknown app id {app_id!r} (known: {sorted(known)})")
+    apps = by_app_id()
+    if app_id not in apps:
+        raise ValueError(f"unknown app id {app_id!r} (known: {sorted(apps)})")
     seed = instance_service_seed(user_seed, app_id, scope)
-    # Go builtin opt-in (§04c): apps named in PANTHEON_APPS_GO_BUILTIN run
-    # inside the fleet runner itself — no command line, no python on the
-    # node. Stays an env opt-in until check-compat parity certifies each app
-    # (then the catalog's runtime flips and this env becomes the override).
-    go_builtin = {
-        a.strip() for a in os.environ.get("PANTHEON_APPS_GO_BUILTIN", "").split(",")
-        if a.strip()
-    }
-    if app_id in go_builtin:
+    # The manifest's runtime decides the spec: builtin apps run inside the
+    # fleet runner itself — no command line, no python on the node.
+    if apps[app_id].manifest.runtime.value == "builtin":
         return {
             "app_id": app_id,
             "scope": scope,

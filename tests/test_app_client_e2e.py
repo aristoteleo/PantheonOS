@@ -125,9 +125,10 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
             else:
                 pytest.fail("runner registered but never answered ping")
 
-            spec = apphost_spec("shell", user_seed=USER_SEED, workdir=str(tmp_path),
-                                env={"NATS_SERVERS": f"nats://127.0.0.1:{NATS_PORT}",
-                                     "PYTHONPATH": str(REPO)})
+            # shell's manifest says runtime=builtin — the spec carries no
+            # command and the runner serves it in-process (no python at all)
+            spec = apphost_spec("shell", user_seed=USER_SEED, workdir=str(tmp_path))
+            assert spec["runtime"] == "builtin" and spec["command"] == []
             resp = await client.start(node_id, spec)
             assert resp.get("ok"), resp
 
@@ -213,10 +214,8 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
             assert content and "in-project" in content, content
 
             # --- Go builtin shell (§04c): no python process, in-runner ------
-            # The spec opts in via PANTHEON_APPS_GO_BUILTIN; the runner serves
-            # the shell@1 surface itself over appsvc (JSON wire, negotiated
-            # from the KV registration's serialization field).
-            monkeypatch.setenv("PANTHEON_APPS_GO_BUILTIN", "shell")
+            # The runner serves the shell@1 surface itself over appsvc
+            # (JSON wire, negotiated via the _ping marker).
             go_spec = apphost_spec("shell", user_seed=USER_SEED + "-go",
                                    workdir=str(tmp_path))
             assert go_spec["runtime"] == "builtin" and go_spec["command"] == []
@@ -253,22 +252,22 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
                                            {"shell_id": created["shell_id"]})
             assert closed["success"], closed
 
-            # parity: the Go list_tools surface matches the Python
-            # ShellToolSet's reflected shell face (names + param names/types)
-            from pantheon.apps.reflect import reflect_toolset_class
-            from pantheon.apps.builtin.shell import ShellToolSet
+            # parity: the Go list_tools surface matches the app.json
+            # contract (names + param names/types) — the manifest IS the
+            # definition the runner's registration is held to
+            from pantheon.apps.registry import by_app_id
 
             go_tools = await go_proxy.invoke("list_tools", {})
             assert go_tools["success"]
             go_vis = {t["name"]: t for t in go_tools["tools"]}
-            py_manifest = reflect_toolset_class(ShellToolSet)
-            py_vis = {t.name: t for t in py_manifest if not t.hidden
-                      and t.name != "list_tools"}
-            assert set(go_vis) == set(py_vis), (set(go_vis), set(py_vis))
-            for name, py_tool in py_vis.items():
+            manifest = by_app_id()["shell"].manifest
+            mf_vis = {t.name: t for t in manifest.provides.tools
+                      if not t.hidden and t.name != "list_tools"}
+            assert set(go_vis) == set(mf_vis), (set(go_vis), set(mf_vis))
+            for name, mf_tool in mf_vis.items():
                 go_params = [(i["name"], i["type"]) for i in go_vis[name]["inputs"]]
-                py_params = [(p.name, p.type) for p in py_tool.params]
-                assert go_params == py_params, (name, go_params, py_params)
+                mf_params = [(p.name, p.type) for p in mf_tool.params]
+                assert go_params == mf_params, (name, go_params, mf_params)
 
             resp = await client.stop(node_id, "shell")
             assert resp.get("ok"), resp
@@ -276,7 +275,6 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
             # --- Go builtin pty: sessions + the frontend's stream protocol --
             import base64 as b64
 
-            monkeypatch.setenv("PANTHEON_APPS_GO_BUILTIN", "pty")
             pty_spec = apphost_spec("pty", user_seed=USER_SEED + "-go",
                                     workdir=str(tmp_path))
             assert pty_spec["runtime"] == "builtin"
@@ -333,78 +331,35 @@ async def test_app_start_to_tool_call(tmp_path, monkeypatch):
             resp = await client.stop(node_id, "pty")
             assert resp.get("ok"), resp
 
-            # --- Go builtin file-manager: the fs core, tree-sitter excluded -
-            # The python file-manager instances from the resolver legs hold
-            # the (app_id, scope) supervisor slots — stop them first, or the
-            # idempotent Start silently keeps the python ones.
+            # --- file-manager: python apphost is THE implementation ------
+            # (its Go port was retired: one App, one implementation)
             await client.stop(node_id, "file-manager", scope=scope)
             await client.stop(node_id, "file-manager")
-            monkeypatch.setenv("PANTHEON_APPS_GO_BUILTIN", "file-manager")
-            fm_spec = apphost_spec("file-manager", user_seed=USER_SEED + "-go",
-                                   workdir=str(tmp_path))
-            assert fm_spec["runtime"] == "builtin"
+            fm_spec = apphost_spec("file-manager", user_seed=USER_SEED + "-py",
+                                   workdir=str(tmp_path),
+                                   env={"NATS_SERVERS": f"nats://127.0.0.1:{NATS_PORT}",
+                                        "PYTHONPATH": str(REPO)})
+            assert fm_spec.get("runtime") != "builtin" and fm_spec["command"]
             resp = await client.start(node_id, fm_spec)
             assert resp.get("ok"), resp
 
             fm_proxy = ToolsetProxy.from_toolset(fm_spec["service_id"])
             written = None
-            for _ in range(40):
+            for _ in range(60):
                 try:
                     written = await asyncio.wait_for(
                         fm_proxy.invoke("write_file", {
-                            "file_path": "go/fm.txt", "content": "alpha\nbeta\n"}),
+                            "file_path": "py/fm.txt", "content": "alpha\nbeta\n"}),
                         timeout=3)
                     break
                 except Exception:
                     await asyncio.sleep(0.5)
             assert written and written.get("success"), written
-
-            got = await fm_proxy.invoke("read_file", {"file_path": "go/fm.txt"})
+            got = await fm_proxy.invoke("read_file", {"file_path": "py/fm.txt"})
             assert got["success"] and got["content"] == "alpha\nbeta\n"
-            assert got["total_lines"] == 2 and got["truncated"] is False
-
-            upd = await fm_proxy.invoke("update_file", {
-                "file_path": "go/fm.txt", "old_string": "beta", "new_string": "gamma"})
-            assert upd["success"] and upd["replacements"] == 1
-
-            patched = await fm_proxy.invoke("apply_patch", {"patch": (
-                "--- a/go/fm.txt\n+++ b/go/fm.txt\n@@ -1,2 +1,2 @@\n"
-                " alpha\n-gamma\n+delta\n")})
-            assert patched["success"], patched
-            assert patched["summary"]["modified"] == 1
-
-            found = await fm_proxy.invoke("glob", {"pattern": "**/*.txt"})
-            assert found["success"] and any(
-                f["path"] == "go/fm.txt" for f in found["files"]), found
-            hits = await fm_proxy.invoke("grep", {"pattern": "delta"})
-            assert hits["success"] and hits["total_matches"] >= 1, hits
-
-            # tree-sitter faces are excluded: symbol mode answers the python
-            # no-tree-sitter error; view_file_outline is not served at all
-            sym = await fm_proxy.invoke("read_file", {
-                "file_path": "go/fm.txt", "symbol": "X"})
-            assert sym == {"success": False,
-                           "error": "Code navigation requires tree-sitter"}
-            with pytest.raises(Exception, match="not found"):
-                await fm_proxy.invoke("view_file_outline", {"file_path": "go/fm.txt"})
-
-            # parity on the served visible subset: signatures match the
-            # Python FileManagerToolSet reflection exactly
-            from pantheon.apps.builtin.file import FileManagerToolSet
-
-            fm_tools = await fm_proxy.invoke("list_tools", {})
-            go_fm = {t["name"]: t for t in fm_tools["tools"]}
-            assert set(go_fm) == {"read_file", "write_file", "update_file",
-                                  "apply_patch", "glob", "grep"}, set(go_fm)
-            py_fm = {t.name: t for t in reflect_toolset_class(FileManagerToolSet)}
-            for name, go_tool in go_fm.items():
-                go_params = [(i["name"], i["type"]) for i in go_tool["inputs"]]
-                py_params = [(p.name, p.type) for p in py_fm[name].params]
-                assert go_params == py_params, (name, go_params, py_params)
 
             resp = await client.stop(node_id, "file-manager")
             assert resp.get("ok"), resp
-            monkeypatch.delenv("PANTHEON_APPS_GO_BUILTIN")
             await resolver.close()
         finally:
             await nc.close()

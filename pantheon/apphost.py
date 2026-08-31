@@ -45,6 +45,9 @@ def _resolve_backend(app_id: str):
     if app is None:
         raise SystemExit(f"apphost: unknown app id {app_id!r} "
                          f"(known: {', '.join(sorted(apps))})")
+    if app.manifest.runtime.value == "builtin":
+        raise SystemExit(f"apphost: {app_id!r} is a runner builtin — the fleet "
+                         f"runner serves it in-process, there is no python backend")
     return backend_class(app.manifest), list(app.manifest.placement.requires), app
 
 

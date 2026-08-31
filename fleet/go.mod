@@ -2,9 +2,10 @@ module github.com/aristoteleo/pantheon-fleet
 
 go 1.26.4
 
+replace github.com/aristoteleo/pantheon-apps => ../pantheon/apps
+
 require (
-	github.com/bmatcuk/doublestar/v4 v4.9.1
-	github.com/creack/pty v1.1.24
+	github.com/aristoteleo/pantheon-apps v0.0.0-00010101000000-000000000000
 	github.com/google/uuid v1.6.0
 	github.com/klauspost/compress v1.18.5
 	github.com/libp2p/go-libp2p v0.48.0
@@ -13,7 +14,6 @@ require (
 	github.com/nats-io/nats.go v1.52.0
 	github.com/nats-io/nkeys v0.4.16
 	github.com/phuslu/iploc v1.0.20260701
-	github.com/sergi/go-diff v1.4.0
 	github.com/shirou/gopsutil/v4 v4.26.5
 )
 
@@ -23,6 +23,7 @@ require (
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/creack/pty v1.1.24 // indirect
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/dunglas/httpsfv v1.1.0 // indirect

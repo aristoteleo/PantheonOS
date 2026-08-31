@@ -92,8 +92,12 @@ def test_every_shipped_toolset_class_is_accounted_for():
     )
 
 
-def test_every_manifest_backend_resolves_to_a_real_class():
+def test_every_python_backend_resolves_to_a_real_class():
+    from pantheon.apps.registry import verifiable
+
     for app in builtin_apps():
+        if not verifiable(app.manifest):
+            continue
         cls = backend_class(app.manifest)
         assert isinstance(cls, type), app.manifest.id
 
@@ -110,10 +114,9 @@ def test_non_app_classes_name_a_real_parent_app():
 
 def test_class_reflection_matches_live_instance():
     """The manifest's tools face must equal what a worker registers."""
-    from pantheon.apps.builtin import FileManagerToolSet, ShellToolSet, WebToolSet
+    from pantheon.apps.builtin import FileManagerToolSet, WebToolSet
 
     for cls, kwargs in (
-        (ShellToolSet, {"name": "shell"}),
         (FileManagerToolSet, {"name": "fm", "path": "."}),
         (WebToolSet, {"name": "web"}),
     ):
@@ -133,10 +136,12 @@ def test_reflection_finds_known_tools():
 
 
 def test_signature_diff_reports_breakage():
-    a = reflect_toolset_class(__import__("pantheon.apps.builtin.shell", fromlist=["ShellToolSet"]).ShellToolSet)
-    b = [s for s in a if s.name != "run_command"]
-    problems = signature_diff(a, b)
-    assert problems == ["tool removed: run_command"]
+    from pantheon.apps.builtin.web import WebToolSet
+
+    a = reflect_toolset_class(WebToolSet)
+    removed = a[0].name
+    problems = signature_diff(a, a[1:])
+    assert problems == [f"tool removed: {removed}"]
 
 
 # ---- registry ---------------------------------------------------------------
@@ -146,6 +151,8 @@ def test_builtin_apps_all_parse_and_expose_tools():
     assert len(apps) == len(list((Path(__file__).resolve().parent.parent /
                                   "pantheon" / "apps" / "builtin").glob("*/app.json")))
     for app in apps:
+        if app.manifest.surface.value == "dom":
+            continue  # headed apps have windows, not tools
         assert app.manifest.provides.tools, f"{app.manifest.id} has no tools face"
 
 
@@ -194,7 +201,14 @@ def test_manifest_tool_faces_match_code():
     Run `python -m pantheon.apps emit` and commit the diff."""
     from pantheon.apps.registry import reflected_tools, verify_interfaces
 
+    from pantheon.apps.registry import verifiable
+
     for app in builtin_apps():
+        if not verifiable(app.manifest):
+            # builtin-runtime faces are held by the e2e parity tests; headed
+            # apps have no tools face
+            assert not verify_interfaces(app.manifest), app.manifest.id
+            continue
         diff = signature_diff(app.manifest.provides.tools,
                               reflected_tools(app.manifest))
         assert not diff, f"{app.manifest.id}: {diff}"

@@ -1,0 +1,25 @@
+{
+  "id": "terminal",
+  "name": "Terminal",
+  "version": "0.6.4",
+  "apiVersion": 2,
+  "description": "A pseudo-terminal on the sandbox (pty-backed).",
+  "surface": "dom",
+  "entry": {
+    "frontend": "ui:terminal"
+  },
+  "placement": {
+    "requires": [
+      "dom"
+    ]
+  },
+  "notes": "Frontend implementation lives in pantheon-ui (src/desktop/apps) until the UI phase moves it here; this manifest is the definition.",
+  "dependencies": {
+    "pty": {
+      "range": "*",
+      "uses": [
+        "pty@1"
+      ]
+    }
+  }
+}

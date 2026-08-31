@@ -40,7 +40,7 @@ async def main():
     from pantheon.team.pantheon import PantheonTeam
     from pantheon.apps.builtin.file import FileManagerToolSet
     from pantheon.apps.builtin.python import PythonInterpreterToolSet
-    from pantheon.apps.builtin.shell import ShellToolSet
+    from pantheon.evolution.local_shell import LocalShellToolSet
 
     parent_files = json.loads(_dec("EVO_PARENT", "{}"))
     evaluator_code = _dec("EVO_EVALUATOR")
@@ -125,7 +125,7 @@ async def main():
                   tools=[think, run_evaluator, submit], use_memory=True)
     await agent.toolset(FileManagerToolSet("evo-fm", wt))
     await agent.toolset(PythonInterpreterToolSet(name="evo-py", workdir=wt))
-    await agent.toolset(ShellToolSet("evo-sh", workdir=wt))
+    await agent.toolset(LocalShellToolSet("evo-sh", workdir=wt))
     team = PantheonTeam(agents=[agent], plugins=[CompressionPlugin(
         {"enable": True, "threshold": 0.8, "preserve_recent_messages": 5})])
 

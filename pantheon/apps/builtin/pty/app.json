@@ -3,9 +3,6 @@
   "name": "Pty",
   "version": "0.6.4",
   "description": "Interactive terminal sessions (the Terminal app's backend).",
-  "entry": {
-    "backend": "pantheon.apps.builtin.pty:PtyToolSet"
-  },
   "provides": {
     "tools": [
       {
@@ -127,5 +124,6 @@
   },
   "apiVersion": 2,
   "kind": "service",
-  "builtinTarget": true
+  "runtime": "builtin",
+  "notes": "Go implementation compiled into the fleet runner (this directory's .go files); the tools face below is the contract the runner's registration is held to."
 }

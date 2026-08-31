@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .python import PythonInterpreterToolSet
-    from .shell import ShellToolSet
     from .file import FileManagerToolSet
     from .web import WebToolSet
     from .notebook import (
@@ -17,12 +16,10 @@ if TYPE_CHECKING:
     from .task import TaskToolSet
     from .evolution import EvolutionToolSet, EvaluatorToolSet
     from .desktop import DesktopToolSet, LiveViewToolSet
-    from .pty import PtyToolSet
     from .fleet import FleetToolSet
 
 _TOOLSET_MAPPING = {
     "PythonInterpreterToolSet": ".python",
-    "ShellToolSet": ".shell",
     "FileManagerToolSet": ".file",
     "WebToolSet": ".web",
     "IntegratedNotebookToolSet": ".notebook",
@@ -38,7 +35,6 @@ _TOOLSET_MAPPING = {
     # The name before the toolset outgrew it. Kept so a saved agent
     # config naming the old class still resolves.
     "LiveViewToolSet": ".desktop",
-    "PtyToolSet": ".pty",
     "FleetToolSet": ".fleet",
 }
 

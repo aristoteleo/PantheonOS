@@ -1,0 +1,17 @@
+{
+  "id": "imagej",
+  "name": "ImageJ",
+  "version": "0.6.4",
+  "apiVersion": 2,
+  "description": "ImageJ imaging environment.",
+  "surface": "dom",
+  "entry": {
+    "frontend": "ui:imagej"
+  },
+  "placement": {
+    "requires": [
+      "dom"
+    ]
+  },
+  "notes": "Frontend implementation lives in pantheon-ui (src/desktop/apps) until the UI phase moves it here; this manifest is the definition."
+}

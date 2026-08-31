@@ -3,9 +3,6 @@
   "name": "Shell",
   "version": "0.6.4",
   "description": "Run shell commands in the workspace.",
-  "entry": {
-    "backend": "pantheon.apps.builtin.shell:ShellToolSet"
-  },
   "provides": {
     "tools": [
       {
@@ -129,5 +126,6 @@
   },
   "apiVersion": 2,
   "kind": "service",
-  "builtinTarget": true
+  "runtime": "builtin",
+  "notes": "Go implementation compiled into the fleet runner (this directory's .go files); the tools face below is the contract the runner's registration is held to."
 }

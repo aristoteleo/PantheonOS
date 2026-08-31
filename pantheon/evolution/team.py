@@ -299,7 +299,7 @@ class EvolutionTeam:
         from pantheon.team.pantheon import PantheonTeam
         from pantheon.apps.builtin.file import FileManagerToolSet
         from pantheon.apps.builtin.python import PythonInterpreterToolSet
-        from pantheon.apps.builtin.shell import ShellToolSet
+        from pantheon.evolution.local_shell import LocalShellToolSet
 
         base = self.config.workspace_path or tempfile.mkdtemp(prefix="evo_mut_")
         wt = Path(base) / "_mutation_wt"
@@ -410,7 +410,7 @@ class EvolutionTeam:
                       use_memory=True)
         await agent.toolset(FileManagerToolSet("evo-fm", str(wt)))
         await agent.toolset(PythonInterpreterToolSet(name="evo-py", workdir=str(wt)))
-        await agent.toolset(ShellToolSet("evo-sh", workdir=str(wt)))
+        await agent.toolset(LocalShellToolSet("evo-sh", workdir=str(wt)))
 
         # Action budget: charge every tool call EXCEPT submit against a per-mutation quota, surface a
         # live countdown on each result, and once spent make further tool calls FAIL (submit stays

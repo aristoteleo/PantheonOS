@@ -5,9 +5,9 @@ package main
 import (
 	"context"
 
+	ptyapp "github.com/aristoteleo/pantheon-apps/builtin/pty"
+	"github.com/aristoteleo/pantheon-fleet/appsvc"
 	"github.com/aristoteleo/pantheon-fleet/internal/apps"
-	"github.com/aristoteleo/pantheon-fleet/internal/appsvc"
-	"github.com/aristoteleo/pantheon-fleet/internal/builtin/ptyapp"
 	"github.com/aristoteleo/pantheon-fleet/internal/runner"
 	"github.com/nats-io/nats.go"
 )
