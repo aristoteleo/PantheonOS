@@ -94,6 +94,16 @@ the evaluation scale the same protocol demonstrably wins. Erdos and circle packi
 unaffected: their seeds are marker-less, where whole-file mode IS upstream's behaviour — and
 the packing record stood.
 
+**Closed (2026-08-31, wave3e):** the authors' own engine (github.com/wq-will/SimpleTES @
+a19a54b1, their `main.py` untouched), same model, same marked seed, same 150-case evaluator,
+60 generations x 2 runs: **0/60 and 1/60 children beat the seed** (the one by +0.0002 in
+harness units, inside the ~0.0018 noise floor). Identical outcome to the port — the
+implementation-layer hypothesis is eliminated; what fails at this budget is the single-shot
+blind-regeneration paradigm on a mature seed, in anyone's code. (Their runs are not drawn into
+`compare_ahc039.png`: the engine evaluates with 4 concurrent workers, which depresses every
+wall-clock-limited score ~4% uniformly — within-run comparisons hold, cross-engine absolute
+curves would mislead.)
+
 ## Caveats
 
 n = 2–3 per cell (5 for the reused MAP-Elites arms), one model, 30 items. The AHC039 ordering
