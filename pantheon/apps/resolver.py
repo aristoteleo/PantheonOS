@@ -50,6 +50,7 @@ class AppInstanceResolver:
         self._client = None
         self._tmp_creds: str | None = None
         self._started: dict[tuple[str, str], str] = {}  # (service_type, scope) -> service_id
+        self._nodes_cache: tuple[float, list[dict]] | None = None  # (monotonic, records)
         # Circuit breaker: when the fleet path is wired but not actually
         # reachable (wrong creds, runner down), every bind would otherwise
         # pay the request timeout before falling back. After a few
@@ -206,6 +207,104 @@ class AppInstanceResolver:
         h = hashlib.sha256(str(Path(project_dir).resolve()).encode()).hexdigest()
         return f"proj{h[:10]}"
 
+    # ── placement (P5) ──────────────────────────────────────────────────
+
+    async def _list_nodes(self) -> list[dict]:
+        """The fleet's node records, from the registry KV (10s cache).
+
+        Same read the fleet toolset does: an ordered LAST_PER_SUBJECT drain
+        with the stream named explicitly, so scoped credentials never need
+        $JS.API.STREAM.NAMES. Any failure returns [] — placement must
+        degrade to "local node", never take the bind path down.
+        """
+        import time as _t
+
+        if self._nodes_cache and _t.monotonic() - self._nodes_cache[0] < 10:
+            return self._nodes_cache[1]
+        records: list[dict] = []
+        try:
+            await self._ensure_client()
+            from nats.js import api
+
+            js = self._nc.jetstream()
+            bucket = f"FLEET_{self._fleet}_NODES"
+            sub = await js.subscribe(
+                f"$KV.{bucket}.>",
+                stream=f"KV_{bucket}",
+                ordered_consumer=True,
+                deliver_policy=api.DeliverPolicy.LAST_PER_SUBJECT,
+            )
+            by_id: dict[str, dict] = {}
+            try:
+                while True:
+                    try:
+                        msg = await sub.next_msg(timeout=1.0)
+                    except Exception:
+                        break
+                    if (msg.headers or {}).get("KV-Operation") in ("DEL", "PURGE"):
+                        continue
+                    try:
+                        rec = json.loads(msg.data)
+                    except Exception:
+                        continue
+                    nid = rec.get("node_id")
+                    if nid:
+                        by_id[nid] = rec
+            finally:
+                try:
+                    await sub.unsubscribe()
+                except Exception:
+                    pass
+            records = list(by_id.values())
+        except Exception as e:
+            logger.debug(f"[apps] node listing unavailable ({e}); placing locally")
+        self._nodes_cache = (_t.monotonic(), records)
+        return records
+
+    async def _place(self, app) -> str:
+        """Pick the node for an App instance (placement.requires × caps).
+
+        Local node first — it is where the user's files are; a remote node
+        only wins when the local one cannot host the App at all. `prefer`
+        breaks ties among remote candidates by kind or label. No candidate
+        (or no registry) falls back to local: a single-node fleet must
+        behave exactly as before this existed.
+        """
+        requires = list(app.manifest.placement.requires)
+        prefer = list(app.manifest.placement.prefer)
+        if not requires:
+            return self._node
+        nodes = await self._list_nodes()
+        need_python = app.manifest.runtime.value == "process"
+
+        def caps(n: dict) -> set:
+            return set((n.get("capability") or {}).get("caps") or [])
+
+        def runtimes(n: dict) -> dict:
+            return (n.get("capability") or {}).get("runtimes") or {}
+
+        fits = [n for n in nodes
+                if set(requires) <= caps(n)
+                and (not need_python or "python" in runtimes(n))]
+        if not fits:
+            if nodes:
+                logger.warning(
+                    f"[apps] no node fits {app.manifest.id} "
+                    f"(requires {requires}); trying the local node")
+            return self._node
+        for n in fits:
+            if n.get("node_id") == self._node:
+                return self._node
+        if prefer:
+            for n in fits:
+                if n.get("kind") in prefer or set(prefer) & set(n.get("labels") or []):
+                    return n["node_id"]
+        chosen = fits[0]["node_id"]
+        logger.info(
+            f"[apps] placing {app.manifest.id} on node {chosen[:16]}… "
+            f"(requires {requires}; local node lacks them)")
+        return chosen
+
     def started_instances(self, service_type: str) -> list[str]:
         """Service ids this resolver has ALREADY started for the type.
 
@@ -239,13 +338,14 @@ class AppInstanceResolver:
 
             app = by_service_type()[service_type]
             client = await self._ensure_client()
+            target = await self._place(app)
             if not self._started:
                 # First ensure: prove the node's cmd subject actually answers
                 # before paying the longer app_start timeout — the fast "the
                 # creds don't reach fleet subjects" detector.
-                if not await client.ping(self._node, timeout=3.0):
+                if not await client.ping(target, timeout=3.0):
                     raise RuntimeError(
-                        f"node {self._node} does not answer on the fleet cmd "
+                        f"node {target} does not answer on the fleet cmd "
                         f"subject (creds/scope?)"
                     )
             spec = apphost_spec(
@@ -256,9 +356,9 @@ class AppInstanceResolver:
                 env={k: v for k, v in os.environ.items()
                      if k.startswith("NATS_") or k in ("PYTHONPATH", "PATH")},
             )
-            resp = await client.start(self._node, spec)
+            resp = await client.start(target, spec)
             if not resp.get("ok"):
-                raise RuntimeError(f"app_start {app.manifest.id} on {self._node}: {resp}")
+                raise RuntimeError(f"app_start {app.manifest.id} on {target}: {resp}")
         except Exception:
             self._note_failure()
             raise
@@ -266,7 +366,7 @@ class AppInstanceResolver:
         self._started[key] = spec["service_id"]
         logger.info(
             f"[apps] {service_type} -> app {app.manifest.id} instance "
-            f"{spec['service_id'][:12]}… scope={scope} on node {self._node}"
+            f"{spec['service_id'][:12]}… scope={scope} on node {target}"
         )
         return spec["service_id"]
 
