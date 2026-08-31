@@ -254,6 +254,12 @@ class DesktopToolSet(ToolSet):
         roots.append(s.skills_dir)
         roots.append(s.global_skills_dir)
         roots.append(s.factory_skills_dir)
+        # First-party App tree (<repo>/apps): bundled headed apps' frontends
+        # (frontend/main.js + assets) are fetched by the shell over this
+        # server, exactly like a volume-installed packaged app's.
+        from pantheon.apps.registry import BUILTIN_ROOT
+
+        roots.append(BUILTIN_ROOT)
         return roots
 
     async def _ensure_data_server(self):
@@ -805,10 +811,16 @@ class DesktopToolSet(ToolSet):
 
         from pantheon.settings import get_settings
 
+        from pantheon.apps.registry import BUILTIN_ROOT
+
         settings = get_settings()
         roots = [
             (Path(settings.workspace) / ".pantheon" / "apps", "workspace"),
             (Path.home() / ".pantheon" / "apps", "user"),
+            # The first-party App tree: bundled headed apps live here with
+            # the same manifest format; only entries with a real frontend
+            # are windows the desktop can open (headless apps are services).
+            (BUILTIN_ROOT, "builtin"),
             (Path("/app/pantheon/factory/templates/apps"), "builtin"),
         ]
 
@@ -827,13 +839,22 @@ class DesktopToolSet(ToolSet):
                     failed.append(f"{root}: {e}")
                     continue
                 for app_dir in entries:
-                    raw = app_dir / "atrium.json"
+                    raw = next((app_dir / n for n in ("app.json", "atrium.json")
+                                if (app_dir / n).is_file()), None)
+                    if raw is None:
+                        continue
                     try:
                         manifest = json.loads(raw.read_text())
                     except Exception:
                         continue
                     app_id = manifest.get("id")
-                    if not app_id or not manifest.get("entry") or app_id in seen:
+                    frontend = (manifest.get("entry") or {}).get("frontend") or ""
+                    if not app_id or app_id in seen:
+                        continue
+                    # Only apps with a LOADABLE frontend are desktop windows:
+                    # headless services and not-yet-bundled placeholders
+                    # ("ui:<id>", still compiled into the shell) stay out.
+                    if not frontend or frontend.startswith("ui:"):
                         continue
                     seen.add(app_id)
                     apps.append({"manifest": manifest, "dir": str(app_dir),

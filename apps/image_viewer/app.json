@@ -6,12 +6,38 @@
   "description": "View images from the workspace.",
   "surface": "dom",
   "entry": {
-    "frontend": "ui:image-viewer"
+    "frontend": "frontend/main.js"
   },
   "placement": {
     "requires": [
       "dom"
     ]
   },
-  "notes": "Frontend implementation lives in pantheon-ui (src/desktop/apps) until the UI phase moves it here; this manifest is the definition."
+  "notes": "First shell builtin rebuilt as a packaged-app bundle — loaded by the app-host iframe from this directory, no shell compile.",
+  "opens": [
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".bmp",
+    ".svg"
+  ],
+  "defaultFor": [
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".bmp",
+    ".svg"
+  ],
+  "launcher": false,
+  "sharedState": [
+    "zoomed"
+  ],
+  "icon": {
+    "monochrome": true,
+    "tint": "#7aa5cc"
+  }
 }
