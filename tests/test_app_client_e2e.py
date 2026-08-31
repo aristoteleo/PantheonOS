@@ -428,17 +428,29 @@ async def test_resolver_lazy_coords_from_runtime_json(tmp_path, monkeypatch):
 
 
 async def test_resolver_circuit_breaker(tmp_path, monkeypatch):
-    """A wired-but-unreachable fleet path disables itself after MAX_FAILURES."""
-    from pantheon.apps.resolver import AppInstanceResolver
+    """A late body never trips the breaker; real faults do, with a cooldown.
+
+    runtime.json missing means the runner is still joining — a designed
+    state the brain waits through, not a failure (the old behavior locked
+    an early-asking brain out permanently). Genuine failures still open
+    the breaker, and it half-opens after the cooldown.
+    """
+    from pantheon.apps.resolver import AppInstanceResolver, NotJoinedError
 
     monkeypatch.setenv("PANTHEON_USER_SEED", "seed")
     monkeypatch.setenv("PANTHEON_FLEET_STATE_DIR", str(tmp_path))
     r = AppInstanceResolver.from_env(workdir=str(tmp_path))
     assert r is not None and r.resolves("shell")
+    for _ in range(AppInstanceResolver.MAX_FAILURES + 2):
+        with pytest.raises(NotJoinedError):
+            await r.ensure_instance("shell")  # runner not joined -> wait
+    assert r._disabled_at is None and r.resolves("shell")
+
     for _ in range(AppInstanceResolver.MAX_FAILURES):
-        with pytest.raises(RuntimeError):
-            await r.ensure_instance("shell")  # runtime.json missing -> fails
-    assert r._disabled and not r.resolves("shell")
+        r._note_failure()  # genuine faults
+    assert not r.resolves("shell")
+    r._disabled_at -= AppInstanceResolver.COOLDOWN_S + 1
+    assert r.resolves("shell")  # half-open after the cooldown
 
 
 def test_prestart_cli_gives_up_cleanly_without_runner(tmp_path):
