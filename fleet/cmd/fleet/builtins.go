@@ -25,7 +25,12 @@ func registerBuiltins(r *runner.Runner, nc *nats.Conn) {
 		svc := appsvc.New(nc, spec.ServiceID, "shell",
 			"Shell toolset for running shell commands (Go builtin).",
 			builtinVersion, prefix)
-		for _, t := range shellapp.Tools(app) {
+		tools, err := shellapp.Tools(app)
+		if err != nil {
+			app.Close()
+			return nil, err
+		}
+		for _, t := range tools {
 			svc.Register(t)
 		}
 		if err := svc.Start(ctx); err != nil {

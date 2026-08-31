@@ -20,7 +20,12 @@ func registerPlatformBuiltins(r *runner.Runner, nc *nats.Conn, prefix string) {
 		svc := appsvc.New(nc, spec.ServiceID, "pty",
 			"Pseudo-terminal sessions for a terminal UI (Go builtin).",
 			builtinVersion, prefix)
-		for _, t := range ptyapp.Tools(app) {
+		tools, err := ptyapp.Tools(app)
+		if err != nil {
+			app.Close()
+			return nil, err
+		}
+		for _, t := range tools {
 			svc.Register(t)
 		}
 		if err := svc.Start(ctx); err != nil {

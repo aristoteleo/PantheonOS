@@ -2,6 +2,7 @@ package shellapp
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"sync"
 	"time"
@@ -262,83 +263,36 @@ func (a *App) getShellOutput(shellID string, timeoutSec, maxOutput int) map[stri
 
 // ---- the bus surface (shell@1) --------------------------------------------
 
-func optStr(name string) appsvc.Param {
-	return appsvc.Param{Type: "str | None", Range: nil, Default: nil, Name: name, Doc: nil}
-}
-func optInt(name string) appsvc.Param {
-	return appsvc.Param{Type: "int | None", Range: nil, Default: nil, Name: name, Doc: nil}
-}
+//go:embed app.json
+var manifestJSON []byte
 
-// Tools returns the shell@1 surface wired to app. Signatures mirror
-// pantheon/toolsets/shell (the committed shell.app.json manifest is the
-// parity contract; the Python e2e compares against it).
-func Tools(app *App) []*appsvc.Tool {
-	return []*appsvc.Tool{
-		{
-			Name: "run_command",
-			Doc: "Run a shell command and return the result.\n\n" +
-				"This tool automatically manages shell sessions. Just provide the `command`\n" +
-				"to execute. Environment variables and working directory are preserved\n" +
-				"across commands in the same session.",
-			Inputs: []appsvc.Param{
-				optStr("command"), optStr("shell_id"), optInt("timeout"), optInt("max_output"),
-			},
-			Handler: func(_ context.Context, params map[string]any) (any, error) {
-				return app.runCommand(params)
-			},
+// Tools returns the shell@1 surface wired to app. Signatures come from the
+// embedded app.json — the same manifest `pantheon.apps check` keeps honest —
+// so Go contributes only the handlers; a wiring mismatch errors at startup.
+func Tools(app *App) ([]*appsvc.Tool, error) {
+	return appsvc.ManifestTools(manifestJSON, map[string]appsvc.Handler{
+		"run_command": func(_ context.Context, params map[string]any) (any, error) {
+			return app.runCommand(params)
 		},
-		{
-			Name:   "new_shell",
-			Doc:    "Create a new shell and return its id.\nUse `run_command` to run commands.",
-			Hidden: true,
-			Inputs: []appsvc.Param{},
-			Handler: func(_ context.Context, _ map[string]any) (any, error) {
-				return app.newShell()
-			},
+		"new_shell": func(_ context.Context, _ map[string]any) (any, error) {
+			return app.newShell()
 		},
-		{
-			Name:   "close_shell",
-			Doc:    "Close a shell.",
-			Hidden: true,
-			Inputs: []appsvc.Param{
-				{Type: "str", Range: nil, Default: appsvc.NotDefined, Name: "shell_id", Doc: nil},
-			},
-			Handler: func(_ context.Context, params map[string]any) (any, error) {
-				return app.closeShell(strParam(params, "shell_id")), nil
-			},
+		"close_shell": func(_ context.Context, params map[string]any) (any, error) {
+			return app.closeShell(strParam(params, "shell_id")), nil
 		},
-		{
-			Name:   "get_shell_output",
-			Doc:    "Get output from a shell, used to check status of background commands.",
-			Hidden: true,
-			Inputs: []appsvc.Param{
-				{Type: "str", Range: nil, Default: appsvc.NotDefined, Name: "shell_id", Doc: nil},
-				{Type: "int", Range: nil, Default: 5, Name: "timeout", Doc: nil},
-				optInt("max_output"),
-			},
-			Handler: func(_ context.Context, params map[string]any) (any, error) {
-				return app.getShellOutput(
-					strParam(params, "shell_id"),
-					intParam(params, "timeout"),
-					intParam(params, "max_output"),
-				), nil
-			},
+		"get_shell_output": func(_ context.Context, params map[string]any) (any, error) {
+			return app.getShellOutput(
+				strParam(params, "shell_id"),
+				intParam(params, "timeout"),
+				intParam(params, "max_output"),
+			), nil
 		},
-		{
-			Name:   "run_command_in_shell",
-			Doc:    "Execute a command or fetch pending output from an existing shell.",
-			Hidden: true,
-			Inputs: []appsvc.Param{
-				{Type: "str", Range: nil, Default: appsvc.NotDefined, Name: "shell_id", Doc: nil},
-				optStr("command"), optInt("timeout"),
-			},
-			Handler: func(_ context.Context, params map[string]any) (any, error) {
-				return app.runInShell(
-					strParam(params, "shell_id"),
-					strParam(params, "command"),
-					intParam(params, "timeout"),
-				), nil
-			},
+		"run_command_in_shell": func(_ context.Context, params map[string]any) (any, error) {
+			return app.runInShell(
+				strParam(params, "shell_id"),
+				strParam(params, "command"),
+				intParam(params, "timeout"),
+			), nil
 		},
-	}
+	})
 }
