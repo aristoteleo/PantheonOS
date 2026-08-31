@@ -19,4 +19,4 @@ require (
 	golang.org/x/sys v0.45.0 // indirect
 )
 
-replace github.com/aristoteleo/pantheon-fleet => ../../fleet
+replace github.com/aristoteleo/pantheon-fleet => ../fleet

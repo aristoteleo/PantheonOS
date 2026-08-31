@@ -69,7 +69,7 @@ def _shipped_toolset_classes() -> set[str]:
     """Every ToolSet class shipped under pantheon/apps/builtin — from source,
     so a new class cannot dodge triage by staying out of __init__'s exports."""
     import re
-    root = Path(__file__).resolve().parent.parent / "pantheon" / "apps" / "builtin"
+    from pantheon.apps.registry import BUILTIN_ROOT as root
     classes: set[str] = set()
     for py in root.rglob("*.py"):
         for match in re.finditer(r"^class ([A-Za-z0-9]+ToolSet)\b", py.read_text(encoding="utf-8"), re.M):
@@ -148,8 +148,9 @@ def test_signature_diff_reports_breakage():
 
 def test_builtin_apps_all_parse_and_expose_tools():
     apps = builtin_apps()
-    assert len(apps) == len(list((Path(__file__).resolve().parent.parent /
-                                  "pantheon" / "apps" / "builtin").glob("*/app.json")))
+    from pantheon.apps.registry import BUILTIN_ROOT
+
+    assert len(apps) == len(list(BUILTIN_ROOT.glob("*/app.json")))
     for app in apps:
         if app.manifest.surface.value == "dom":
             continue  # headed apps have windows, not tools

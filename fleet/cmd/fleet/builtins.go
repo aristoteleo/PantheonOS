@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	shellapp "github.com/aristoteleo/pantheon-apps/builtin/shell"
+	shellapp "github.com/aristoteleo/pantheon-apps/shell"
 	"github.com/aristoteleo/pantheon-fleet/appsvc"
 	"github.com/aristoteleo/pantheon-fleet/internal/apps"
 	"github.com/aristoteleo/pantheon-fleet/internal/runner"

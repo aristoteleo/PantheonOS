@@ -11,6 +11,7 @@ on:
     paths:
       - 'docker/**'
       - 'pantheon/**'
+      - 'apps/**'
       - 'pyproject.toml'
       - 'uv.lock'
       - 'MANIFEST.in'
@@ -23,6 +24,7 @@ on:
     paths:
       - 'docker/**'
       - 'pantheon/**'
+      - 'apps/**'
       - 'pyproject.toml'
       - 'uv.lock'
       - 'MANIFEST.in'

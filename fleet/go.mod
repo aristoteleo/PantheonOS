@@ -2,7 +2,7 @@ module github.com/aristoteleo/pantheon-fleet
 
 go 1.26.4
 
-replace github.com/aristoteleo/pantheon-apps => ../pantheon/apps
+replace github.com/aristoteleo/pantheon-apps => ../apps
 
 require (
 	github.com/aristoteleo/pantheon-apps v0.0.0-00010101000000-000000000000

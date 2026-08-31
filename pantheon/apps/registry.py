@@ -4,9 +4,9 @@ Every App is a directory whose root carries its definition — app.json.
 There are only two places such directories live, and they are read the
 same way:
 
-  * builtin apps  — pantheon/apps/builtin/<dir>/app.json, shipped with the
-    image (first-party; the store's git-forge repos will eventually replace
-    this vendoring);
+  * builtin apps  — <repo>/apps/<dir>/app.json, shipped with the image
+    (first-party; the store's git-forge repos will eventually replace this
+    vendoring);
   * packaged apps — app.json / atrium.json directories under the install
     scopes (workspace > user), exactly as the desktop discovers them.
 
@@ -33,8 +33,15 @@ from pantheon.apps.schema import (
 )
 from pantheon.utils.log import logger
 
-#: Where the first-party App directories live.
-BUILTIN_ROOT = Path(__file__).resolve().parent / "builtin"
+import os
+
+#: Where the first-party App directories live: <repo>/apps — outside the
+#: pantheon package, one directory per App (each a future git repo of its
+#: own). PANTHEON_APPS_ROOT overrides for relocated installs.
+BUILTIN_ROOT = Path(
+    os.environ.get("PANTHEON_APPS_ROOT")
+    or Path(__file__).resolve().parents[2] / "apps"
+)
 
 
 @dataclass
