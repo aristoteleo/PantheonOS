@@ -253,21 +253,26 @@ def test_breaker_half_open_recovers(monkeypatch):
     r = AppInstanceResolver("f", "n", "seed", workdir=".")
     for _ in range(3):
         r._note_failure()
-    assert r.resolves("shell") is False  # open
-
-    # cooldown elapses -> half-open lets one probe through
-    r._disabled_at -= AppInstanceResolver.COOLDOWN_S + 1
+    # the breaker gates NEW starts…
+    with pytest.raises(RuntimeError, match="cooling down"):
+        r._gate_new_starts()
+    # …but never the catalog answer (live cached instances keep serving)
     assert r.resolves("shell") is True
+
+    # cooldown elapses -> half-open lets one start attempt through
+    r._disabled_at -= AppInstanceResolver.COOLDOWN_S + 1
+    r._gate_new_starts()  # no raise: the probe is allowed
     # the probe failing re-opens immediately (one strike at half-open)
     r._note_failure()
-    assert r.resolves("shell") is False
+    with pytest.raises(RuntimeError, match="cooling down"):
+        r._gate_new_starts()
 
     # and a success closes it fully
     r._disabled_at -= AppInstanceResolver.COOLDOWN_S + 1
-    assert r.resolves("shell") is True
+    r._gate_new_starts()
     r._consecutive_failures = 0
     r._disabled_at = None
-    assert r.resolves("shell") is True
+    r._gate_new_starts()
 
 
 def test_not_joined_is_not_a_breaker_strike(tmp_path):

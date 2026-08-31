@@ -108,20 +108,35 @@ class AppInstanceResolver:
     COOLDOWN_S = 30.0
 
     def resolves(self, service_type: str) -> bool:
-        """Whether this resolver can serve the named toolset as an App."""
-        if self._disabled_at is not None:
-            import time as _t
+        """Whether this toolset is a catalog App this resolver can serve.
 
-            if _t.monotonic() - self._disabled_at < self.COOLDOWN_S:
-                return False
-            # Half-open: one attempt gets through; its failure re-opens the
-            # breaker immediately, its success closes it.
-            self._disabled_at = None
-            self._consecutive_failures = self.MAX_FAILURES - 1
-            logger.info("[apps] breaker half-open — probing the fleet path again")
+        Deliberately NOT breaker-gated: instances already running keep
+        answering while the fleet path heals — the kill-test showed the
+        old whole-face lock-out also took down the live python instance,
+        which was the only hand that could restart the runner.
+        """
         from pantheon.apps.registry import by_service_type
 
         return service_type in by_service_type()
+
+    def _gate_new_starts(self) -> None:
+        """The breaker, applied where it belongs: NEW instance starts.
+
+        Cache hits bypass it entirely. When open, waits out the cooldown;
+        then half-opens — one start attempt gets through, its failure
+        re-opens immediately, its success closes.
+        """
+        if self._disabled_at is None:
+            return
+        import time as _t
+
+        if _t.monotonic() - self._disabled_at < self.COOLDOWN_S:
+            raise RuntimeError(
+                "fleet App path is cooling down after repeated failures; "
+                f"retrying within {self.COOLDOWN_S:.0f}s")
+        self._disabled_at = None
+        self._consecutive_failures = self.MAX_FAILURES - 1
+        logger.info("[apps] breaker half-open — probing the fleet path again")
 
     def _note_failure(self) -> None:
         self._consecutive_failures += 1
@@ -362,6 +377,7 @@ class AppInstanceResolver:
         key = (service_type, scope)
         if key in self._started:
             return self._started[key]
+        self._gate_new_starts()
         try:
             self._ensure_coords()
             from pantheon.apps.registry import by_service_type

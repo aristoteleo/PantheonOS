@@ -448,9 +448,11 @@ async def test_resolver_circuit_breaker(tmp_path, monkeypatch):
 
     for _ in range(AppInstanceResolver.MAX_FAILURES):
         r._note_failure()  # genuine faults
-    assert not r.resolves("shell")
+    with pytest.raises(RuntimeError, match="cooling down"):
+        r._gate_new_starts()  # new starts blocked while cooling
+    assert r.resolves("shell")  # but the catalog face stays up
     r._disabled_at -= AppInstanceResolver.COOLDOWN_S + 1
-    assert r.resolves("shell")  # half-open after the cooldown
+    r._gate_new_starts()  # half-open after the cooldown
 
 
 def test_prestart_cli_gives_up_cleanly_without_runner(tmp_path):
