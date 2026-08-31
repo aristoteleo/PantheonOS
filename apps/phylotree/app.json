@@ -1,48 +1,54 @@
 {
   "id": "phylotree",
   "name": "PhyloTree",
-  "description": "Phylogenetic trees from Newick — linear or radial layouts (phylotree.js).",
   "version": "0.1.0",
+  "apiVersion": 2,
+  "description": "Phylogenetic trees from Newick — linear or radial layouts (phylotree.js).",
+  "kind": "service",
   "surface": "dom",
   "entry": {
     "frontend": "frontend/index.js"
+  },
+  "placement": {
+    "requires": [
+      "dom"
+    ]
   },
   "opens": [
     ".nwk",
     ".newick",
     ".tree"
   ],
-  "sync": {
-    "newick": {
-      "mode": "shared",
-      "rate": "commit"
-    },
-    "url": {
-      "mode": "shared",
-      "rate": "commit"
-    },
-    "layout": {
-      "mode": "shared",
-      "rate": "commit"
-    },
-    "show_labels": {
-      "mode": "shared",
-      "rate": "commit"
-    },
-    "show_scale": {
-      "mode": "shared",
-      "rate": "commit"
-    },
-    "align_tips": {
-      "mode": "shared",
-      "rate": "commit"
-    }
-  },
   "defaultFor": [],
   "launcher": false,
   "icon": {
     "tint": "#3f7d4e",
     "path": "assets/icon.svg"
+  },
+  "actions": [
+    {
+      "name": "setLayout",
+      "params": {
+        "layout": "linear | radial"
+      },
+      "description": "Tree layout"
+    },
+    {
+      "name": "toggleLabels",
+      "description": "Show/hide tip labels"
+    },
+    {
+      "name": "toggleAlign",
+      "description": "Align tips at the same depth"
+    },
+    {
+      "name": "toggleScale",
+      "description": "Show/hide the scale bar"
+    }
+  ],
+  "caps": {
+    "fs": [],
+    "net": true
   },
   "menus": [
     {
@@ -89,31 +95,31 @@
       ]
     }
   ],
-  "actions": [
-    {
-      "name": "setLayout",
-      "params": {
-        "layout": "linear | radial"
-      },
-      "description": "Tree layout"
-    },
-    {
-      "name": "toggleLabels",
-      "description": "Show/hide tip labels"
-    },
-    {
-      "name": "toggleAlign",
-      "description": "Align tips at the same depth"
-    },
-    {
-      "name": "toggleScale",
-      "description": "Show/hide the scale bar"
-    }
-  ],
-  "caps": {
-    "fs": [],
-    "net": true
-  },
   "skill": "skill/SKILL.md",
-  "apiVersion": 1
+  "sync": {
+    "newick": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "url": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "layout": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "show_labels": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "show_scale": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "align_tips": {
+      "mode": "shared",
+      "rate": "commit"
+    }
+  }
 }

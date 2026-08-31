@@ -1,32 +1,39 @@
 {
   "id": "rdkit",
   "name": "RDKit Molecules",
-  "description": "2D small-molecule depictions from SMILES / SDF (RDKit WebAssembly).",
   "version": "0.1.0",
+  "apiVersion": 2,
+  "description": "2D small-molecule depictions from SMILES / SDF (RDKit WebAssembly).",
+  "kind": "service",
   "surface": "dom",
   "entry": {
     "frontend": "frontend/index.js"
+  },
+  "placement": {
+    "requires": [
+      "dom"
+    ]
   },
   "opens": [
     ".sdf",
     ".mol",
     ".smi"
   ],
-  "sync": {
-    "molecules": {
-      "mode": "shared",
-      "rate": "commit"
-    },
-    "draw_options": {
-      "mode": "shared",
-      "rate": "commit"
-    }
-  },
   "defaultFor": [],
   "launcher": false,
   "icon": {
     "tint": "#eef1f7",
     "path": "assets/icon.svg"
+  },
+  "actions": [
+    {
+      "name": "toggleIndices",
+      "description": "Number every atom in the depiction"
+    }
+  ],
+  "caps": {
+    "fs": [],
+    "net": true
   },
   "menus": [
     {
@@ -48,16 +55,15 @@
       ]
     }
   ],
-  "actions": [
-    {
-      "name": "toggleIndices",
-      "description": "Number every atom in the depiction"
-    }
-  ],
-  "caps": {
-    "fs": [],
-    "net": true
-  },
   "skill": "skill/SKILL.md",
-  "apiVersion": 1
+  "sync": {
+    "molecules": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "draw_options": {
+      "mode": "shared",
+      "rate": "commit"
+    }
+  }
 }

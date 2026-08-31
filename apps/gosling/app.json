@@ -1,24 +1,30 @@
 {
   "id": "gosling",
   "name": "Gosling",
-  "description": "Declarative genomics visualizations from Gosling specs (gosling.js).",
   "version": "0.1.0",
+  "apiVersion": 2,
+  "description": "Declarative genomics visualizations from Gosling specs (gosling.js).",
+  "kind": "service",
   "surface": "dom",
   "entry": {
     "frontend": "frontend/index.js"
   },
-  "opens": [],
-  "sync": {
-    "spec": {
-      "mode": "shared",
-      "rate": "commit"
-    }
+  "placement": {
+    "requires": [
+      "dom"
+    ]
   },
+  "opens": [],
   "defaultFor": [],
   "launcher": false,
   "icon": {
     "tint": "#f6f1ea",
     "path": "assets/icon.svg"
+  },
+  "actions": [],
+  "caps": {
+    "fs": [],
+    "net": true
   },
   "menus": [
     {
@@ -31,11 +37,11 @@
       ]
     }
   ],
-  "actions": [],
-  "caps": {
-    "fs": [],
-    "net": true
-  },
   "skill": "skill/SKILL.md",
-  "apiVersion": 1
+  "sync": {
+    "spec": {
+      "mode": "shared",
+      "rate": "commit"
+    }
+  }
 }

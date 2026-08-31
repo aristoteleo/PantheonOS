@@ -1,34 +1,23 @@
 {
   "id": "vitessce",
   "name": "Vitessce",
-  "description": "Single-cell visual analytics for AnnData — embeddings, cell sets, heatmaps (Vitessce).",
   "version": "0.1.0",
+  "apiVersion": 2,
+  "description": "Single-cell visual analytics for AnnData — embeddings, cell sets, heatmaps (Vitessce).",
+  "kind": "service",
   "surface": "dom",
   "entry": {
     "frontend": "frontend/index.js",
     "backend": "backend/__init__.py"
   },
+  "placement": {
+    "requires": [
+      "dom"
+    ]
+  },
   "opens": [
     ".h5ad"
   ],
-  "sync": {
-    "datasets": {
-      "mode": "shared",
-      "rate": "commit"
-    },
-    "layout": {
-      "mode": "shared",
-      "rate": "commit"
-    },
-    "name": {
-      "mode": "shared",
-      "rate": "commit"
-    },
-    "coordinationSpace": {
-      "mode": "shared",
-      "rate": "stream"
-    }
-  },
   "defaultFor": [
     ".h5ad"
   ],
@@ -36,6 +25,23 @@
   "icon": {
     "tint": "#eef1f7",
     "path": "assets/icon.svg"
+  },
+  "actions": [
+    {
+      "name": "loadExample",
+      "description": "Show the bundled example dataset"
+    },
+    {
+      "name": "computeUmap",
+      "description": "Compute a UMAP embedding for the opened .h5ad (cached; the file itself is not modified)"
+    }
+  ],
+  "caps": {
+    "fs": [],
+    "net": true,
+    "python": {
+      "env": "pantheon-base"
+    }
   },
   "menus": [
     {
@@ -55,23 +61,24 @@
       ]
     }
   ],
-  "actions": [
-    {
-      "name": "loadExample",
-      "description": "Show the bundled example dataset"
-    },
-    {
-      "name": "computeUmap",
-      "description": "Compute a UMAP embedding for the opened .h5ad (cached; the file itself is not modified)"
-    }
-  ],
-  "caps": {
-    "fs": [],
-    "net": true,
-    "python": {
-      "env": "pantheon-base"
-    }
-  },
   "skill": "skill/SKILL.md",
-  "apiVersion": 1
+  "notes": "Path-form backend (atrium stdio process) — runner supervision and placement.requires for the backend land in R2.",
+  "sync": {
+    "datasets": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "layout": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "name": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "coordinationSpace": {
+      "mode": "shared",
+      "rate": "stream"
+    }
+  }
 }

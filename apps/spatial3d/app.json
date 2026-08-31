@@ -1,16 +1,68 @@
 {
   "id": "spatial3d",
   "name": "Spatial 3D",
-  "description": "3D spatial transcriptomics point clouds — cluster and gene colouring at 1M+ cells (deck.gl).",
   "version": "0.1.0",
+  "apiVersion": 2,
+  "description": "3D spatial transcriptomics point clouds — cluster and gene colouring at 1M+ cells (deck.gl).",
+  "kind": "service",
   "surface": "dom",
   "entry": {
     "frontend": "frontend/index.js",
     "backend": "backend/__init__.py"
   },
+  "placement": {
+    "requires": [
+      "dom"
+    ]
+  },
   "opens": [
     ".h5ad"
   ],
+  "defaultFor": [],
+  "launcher": false,
+  "icon": {
+    "tint": "#4a3f78",
+    "path": "assets/icon.svg"
+  },
+  "actions": [
+    {
+      "name": "loadExample",
+      "description": "Show a synthetic 3D tissue"
+    }
+  ],
+  "caps": {
+    "fs": [],
+    "net": true,
+    "python": {
+      "env": "pantheon-base"
+    }
+  },
+  "persistState": [
+    "mode",
+    "colorBy",
+    "gene",
+    "clusterKey",
+    "colormap",
+    "threshold",
+    "cluster",
+    "pointSize",
+    "opacity",
+    "slice",
+    "camera"
+  ],
+  "menus": [
+    {
+      "label": "Data",
+      "items": [
+        {
+          "label": "Load Example Data",
+          "action": "loadExample"
+        }
+      ]
+    }
+  ],
+  "skill": "skill/SKILL.md",
+  "notes": "Path-form backend (atrium stdio process) — runner supervision and placement.requires for the backend land in R2.",
   "sync": {
     "colorBy": {
       "mode": "shared",
@@ -44,50 +96,5 @@
       "mode": "shared",
       "rate": "stream"
     }
-  },
-  "defaultFor": [],
-  "launcher": false,
-  "icon": {
-    "tint": "#4a3f78",
-    "path": "assets/icon.svg"
-  },
-  "menus": [
-    {
-      "label": "Data",
-      "items": [
-        {
-          "label": "Load Example Data",
-          "action": "loadExample"
-        }
-      ]
-    }
-  ],
-  "actions": [
-    {
-      "name": "loadExample",
-      "description": "Show a synthetic 3D tissue"
-    }
-  ],
-  "caps": {
-    "fs": [],
-    "net": true,
-    "python": {
-      "env": "pantheon-base"
-    }
-  },
-  "skill": "skill/SKILL.md",
-  "persistState": [
-    "mode",
-    "colorBy",
-    "gene",
-    "clusterKey",
-    "colormap",
-    "threshold",
-    "cluster",
-    "pointSize",
-    "opacity",
-    "slice",
-    "camera"
-  ],
-  "apiVersion": 1
+  }
 }

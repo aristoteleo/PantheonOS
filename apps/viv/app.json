@@ -2,12 +2,28 @@
   "id": "viv",
   "name": "Viv - BioImage",
   "version": "0.1.0",
+  "apiVersion": 2,
+  "description": "Multiscale bioimage viewer for OME-TIFF/Zarr — pyramidal, multi-channel (Viv/deck.gl).",
+  "kind": "service",
   "surface": "dom",
   "entry": {
     "frontend": "frontend/index.js",
     "backend": "backend"
   },
+  "placement": {
+    "requires": [
+      "dom"
+    ]
+  },
   "opens": [
+    ".ome.tif",
+    ".ome.tiff",
+    ".ome.zarr",
+    ".zarr",
+    ".tif",
+    ".tiff"
+  ],
+  "defaultFor": [
     ".ome.tif",
     ".ome.tiff",
     ".ome.zarr",
@@ -34,7 +50,9 @@
       "env": "pantheon-base"
     }
   },
-  "skill": "skill/SKILL.md",
+  "persistState": [
+    "channels"
+  ],
   "menus": [
     {
       "label": "Data",
@@ -55,9 +73,8 @@
       ]
     }
   ],
-  "persistState": [
-    "channels"
-  ],
+  "skill": "skill/SKILL.md",
+  "notes": "Path-form backend (atrium stdio process) — runner supervision and placement.requires for the backend land in R2.",
   "sync": {
     "channels": {
       "mode": "shared",
@@ -67,15 +84,5 @@
       "mode": "shared",
       "rate": "stream"
     }
-  },
-  "defaultFor": [
-    ".ome.tif",
-    ".ome.tiff",
-    ".ome.zarr",
-    ".zarr",
-    ".tif",
-    ".tiff"
-  ],
-  "description": "Multiscale bioimage viewer for OME-TIFF/Zarr — pyramidal, multi-channel (Viv/deck.gl).",
-  "apiVersion": 1
+  }
 }

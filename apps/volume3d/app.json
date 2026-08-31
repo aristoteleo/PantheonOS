@@ -1,17 +1,56 @@
 {
   "id": "volume3d",
   "name": "Volume 3D",
-  "description": "Volumetric rendering of OME-NGFF pyramids — MIP and ISO surface (WebGL).",
   "version": "0.1.0",
+  "apiVersion": 2,
+  "description": "Volumetric rendering of OME-NGFF pyramids — MIP and ISO surface (WebGL).",
+  "kind": "service",
   "surface": "dom",
   "entry": {
     "frontend": "frontend/index.js",
     "backend": "backend/__init__.py"
   },
+  "placement": {
+    "requires": [
+      "dom"
+    ]
+  },
   "opens": [
     ".zarr",
     ".ome.zarr"
   ],
+  "defaultFor": [],
+  "launcher": false,
+  "icon": {
+    "tint": "#2f6f6a",
+    "path": "assets/icon.svg"
+  },
+  "actions": [
+    {
+      "name": "loadExample",
+      "description": "Show a synthetic volume"
+    }
+  ],
+  "caps": {
+    "fs": [],
+    "net": true,
+    "python": {
+      "env": "pantheon-base"
+    }
+  },
+  "menus": [
+    {
+      "label": "Data",
+      "items": [
+        {
+          "label": "Load Example Data",
+          "action": "loadExample"
+        }
+      ]
+    }
+  ],
+  "skill": "skill/SKILL.md",
+  "notes": "Path-form backend (atrium stdio process) — runner supervision and placement.requires for the backend land in R2.",
   "sync": {
     "mode": {
       "mode": "shared",
@@ -33,37 +72,5 @@
       "mode": "shared",
       "rate": "stream"
     }
-  },
-  "defaultFor": [],
-  "launcher": false,
-  "icon": {
-    "tint": "#2f6f6a",
-    "path": "assets/icon.svg"
-  },
-  "menus": [
-    {
-      "label": "Data",
-      "items": [
-        {
-          "label": "Load Example Data",
-          "action": "loadExample"
-        }
-      ]
-    }
-  ],
-  "actions": [
-    {
-      "name": "loadExample",
-      "description": "Show a synthetic volume"
-    }
-  ],
-  "caps": {
-    "fs": [],
-    "net": true,
-    "python": {
-      "env": "pantheon-base"
-    }
-  },
-  "skill": "skill/SKILL.md",
-  "apiVersion": 1
+  }
 }

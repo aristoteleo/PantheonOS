@@ -1,36 +1,46 @@
 {
   "id": "msa",
   "name": "MSA Viewer",
-  "description": "Multiple sequence alignments with Clustal or nucleotide colouring.",
   "version": "0.1.0",
+  "apiVersion": 2,
+  "description": "Multiple sequence alignments with Clustal or nucleotide colouring.",
+  "kind": "service",
   "surface": "dom",
   "entry": {
     "frontend": "frontend/index.js"
+  },
+  "placement": {
+    "requires": [
+      "dom"
+    ]
   },
   "opens": [
     ".aln",
     ".fasta",
     ".fa"
   ],
-  "sync": {
-    "sequences": {
-      "mode": "shared",
-      "rate": "commit"
-    },
-    "url": {
-      "mode": "shared",
-      "rate": "commit"
-    },
-    "color_scheme": {
-      "mode": "shared",
-      "rate": "commit"
-    }
-  },
   "defaultFor": [],
   "launcher": false,
   "icon": {
     "tint": "#2e3440",
     "path": "assets/icon.svg"
+  },
+  "actions": [
+    {
+      "name": "setColors",
+      "params": {
+        "scheme": "clustal | nucleotide"
+      },
+      "description": "Residue colour scheme"
+    },
+    {
+      "name": "toggleRuler",
+      "description": "Show/hide the column ruler"
+    }
+  ],
+  "caps": {
+    "fs": [],
+    "net": true
   },
   "menus": [
     {
@@ -69,23 +79,19 @@
       ]
     }
   ],
-  "actions": [
-    {
-      "name": "setColors",
-      "params": {
-        "scheme": "clustal | nucleotide"
-      },
-      "description": "Residue colour scheme"
-    },
-    {
-      "name": "toggleRuler",
-      "description": "Show/hide the column ruler"
-    }
-  ],
-  "caps": {
-    "fs": [],
-    "net": true
-  },
   "skill": "skill/SKILL.md",
-  "apiVersion": 1
+  "sync": {
+    "sequences": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "url": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "color_scheme": {
+      "mode": "shared",
+      "rate": "commit"
+    }
+  }
 }
