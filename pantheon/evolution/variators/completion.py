@@ -326,7 +326,18 @@ class CompletionVariator:
         for i, text in enumerate(texts[: item.k]):
             code = eb.merge(text) if eb.has_markers else extract_code(text)
             if not code:
-                logger.warning(f"[{item.id}#{i}] no code block in the reply")
+                # One fresh roll per failed candidate. Reasoning models sometimes spend the
+                # output budget thinking and end without a parseable block; that is a provider
+                # quirk, and a method comparison should not book it as the algorithm finding
+                # nothing -- the same reasoning as the n-shortfall fallback above.
+                logger.warning(f"[{item.id}#{i}] no code block in the reply; retrying once")
+                try:
+                    text = (await self._complete(prompt, 1))[0]
+                    code = eb.merge(text) if eb.has_markers else extract_code(text)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"[{item.id}#{i}] retry failed: {type(e).__name__}: {e}")
+            if not code:
+                logger.warning(f"[{item.id}#{i}] no code block after retry")
                 continue
             child = dict(files)
             child[path] = code
