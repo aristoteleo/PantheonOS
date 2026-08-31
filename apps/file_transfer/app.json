@@ -283,6 +283,11 @@
         ]
       },
       {
+        "name": "transfer_activity",
+        "description": "Open-handle counts, for the pod's idle-activity metrics.\n\n        `fresh_handles` counts handles touched within the last hour — the\n        window the idle reaper respects (a handle someone opened and forgot\n        must not keep a sandbox alive forever).\n        ",
+        "hidden": true
+      },
+      {
         "name": "write_chunk",
         "description": "Write a chunk to a file with smart flush strategy.\n\n        Args:\n            handle_id: File handle ID from open_file_for_write.\n            data: Binary data as bytes (from cloudpickle) or\n                  base64-encoded string (from JSON/frontend clients).\n\n        Returns:\n            dict: {\"success\": True, \"bytes_written\": int} on success\n                  {\"success\": False, \"error\": str} on failure\n        ",
         "params": [

@@ -206,6 +206,15 @@ class AppInstanceResolver:
         h = hashlib.sha256(str(Path(project_dir).resolve()).encode()).hexdigest()
         return f"proj{h[:10]}"
 
+    def started_instances(self, service_type: str) -> list[str]:
+        """Service ids this resolver has ALREADY started for the type.
+
+        A read of the cache — never starts anything. Metrics and idle
+        cleanup ask "is a transfer running?", and booting an instance to
+        answer that would be the tail wagging the dog.
+        """
+        return [sid for (st, _), sid in self._started.items() if st == service_type]
+
     async def ensure_instance(
         self,
         service_type: str,

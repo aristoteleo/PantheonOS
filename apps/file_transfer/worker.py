@@ -44,6 +44,24 @@ class FileTransferToolSet(FileManagerToolSetBase):
         self.FLUSH_INTERVAL_BYTES = 5 * 1024 * 1024  # Flush every 5MB
         self.FLUSH_INTERVAL_SECONDS = 2.0  # Flush every 2 seconds
 
+    @tool(exclude=True)
+    async def transfer_activity(self) -> dict:
+        """Open-handle counts, for the pod's idle-activity metrics.
+
+        `fresh_handles` counts handles touched within the last hour — the
+        window the idle reaper respects (a handle someone opened and forgot
+        must not keep a sandbox alive forever).
+        """
+        import time as _t
+
+        now = _t.time()
+        fresh = sum(
+            1 for info in self._file_info.values()
+            if now - float(info.get("created_at") or 0) < 3600
+        )
+        return {"success": True, "open_handles": len(self._handles),
+                "fresh_handles": fresh}
+
     @tool
     async def open_file_for_write(self, file_path: str):
         """Open a file for writing (async).

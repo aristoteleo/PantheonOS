@@ -384,6 +384,53 @@ class ChatRoom(ToolSet):
                 continue
         return used
 
+    def _transfer_handles_cached(self) -> int:
+        """Fresh-handle count from the file-transfer instance, cached.
+
+        The _ping path is synchronous and must not block, so this returns
+        the last sample and — at most every 30s — kicks an async refresh in
+        the background. No instance started yet means no transfer can be
+        running: the probe reads the resolver's cache and never boots one.
+        """
+        import time as _t
+
+        probe = getattr(self, "_transfer_probe", None)
+        if probe is None:
+            probe = self._transfer_probe = {"at": 0.0, "handles": 0, "task": None}
+        now = _t.monotonic()
+        task = probe["task"]
+        if now - probe["at"] > 30 and (task is None or task.done()):
+            probe["at"] = now  # stamp first: a failing probe also backs off
+            try:
+                loop = asyncio.get_running_loop()
+                probe["task"] = loop.create_task(self._refresh_transfer_handles())
+            except RuntimeError:
+                pass  # no loop on this thread — keep the last value
+        return int(probe["handles"])
+
+    async def _refresh_transfer_handles(self) -> None:
+        probe = self._transfer_probe
+        try:
+            from pantheon.apps.proxy import ToolsetProxy
+            from pantheon.apps.resolver import get_shared_resolver
+
+            resolver = get_shared_resolver()
+            if resolver is None:
+                probe["handles"] = 0
+                return
+            total = 0
+            for sid in resolver.started_instances("file_transfer"):
+                try:
+                    res = await asyncio.wait_for(
+                        ToolsetProxy(sid).invoke("transfer_activity", {}), 5
+                    )
+                    total += int((res or {}).get("fresh_handles") or 0)
+                except Exception:
+                    continue  # a dead instance holds nothing open
+            probe["handles"] = total
+        except Exception:
+            probe["handles"] = 0
+
     def _get_activity_status(self) -> dict:
         """Return current activity status for _ping responses.
 
@@ -400,10 +447,10 @@ class ChatRoom(ToolSet):
                         if t.status == "running"
                     )
 
-        # File transfers ride the file-transfer App instance now; its open
-        # handles are that process's concern. TODO(R2): surface transfer
-        # activity from the instance so idle cleanup can respect it again.
-        transfer_handles = 0
+        # File transfers ride the file-transfer App instance; ask it (from a
+        # cache — this path must not block) so idle cleanup respects a
+        # running transfer.
+        transfer_handles = self._transfer_handles_cached()
 
         has_active_tasks = active_threads > 0 or bg_task_count > 0 or transfer_handles > 0
 
