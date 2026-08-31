@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 from uuid import uuid4
 
 
-from funcdesc import parse_func
+from pantheon.funcdesc import parse_func
 from pydantic import BaseModel, create_model
 
 if TYPE_CHECKING:

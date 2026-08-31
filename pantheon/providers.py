@@ -433,7 +433,7 @@ class LocalProvider(ToolProvider):
 
         try:
             import json
-            from funcdesc.desc import Description
+            from pantheon.funcdesc.desc import Description
 
             from .utils.misc import desc_to_openai_dict
 
@@ -564,7 +564,7 @@ class ToolSetProvider(ToolProvider):
 
         try:
             import json
-            from funcdesc.desc import Description
+            from pantheon.funcdesc.desc import Description
             from .utils.misc import desc_to_openai_dict
 
             # Get tools from the toolset proxy

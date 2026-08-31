@@ -4,8 +4,8 @@ import inspect
 import json
 from typing import Any, Callable, List
 
-from funcdesc.desc import NotDef
-from funcdesc.pydantic import Description, desc_to_pydantic
+from pantheon.funcdesc.desc import NotDef
+from pantheon.funcdesc.pydantic import Description, desc_to_pydantic
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel

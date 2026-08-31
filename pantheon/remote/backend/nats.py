@@ -16,7 +16,7 @@ from typing import Any, Callable, Dict, List, Optional
 import cloudpickle
 import nats
 from nats.js.errors import NotFoundError, KeyNotFoundError
-from funcdesc import parse_func, Description
+from pantheon.funcdesc import parse_func, Description
 
 from pantheon.utils.log import logger
 from pantheon.utils.misc import run_func

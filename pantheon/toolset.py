@@ -9,7 +9,7 @@ from contextvars import ContextVar
 from functools import partial, wraps
 from typing import Callable, Optional
 
-from funcdesc import parse_func
+from pantheon.funcdesc import parse_func
 
 import pantheon.utils.log as log
 from pantheon.utils.log import logger

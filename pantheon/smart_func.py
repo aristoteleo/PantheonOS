@@ -3,8 +3,8 @@ from typing import Callable
 from functools import wraps, partial
 import inspect
 
-from funcdesc.parse import parse_func
-from funcdesc.pydantic import value_to_field
+from pantheon.funcdesc.parse import parse_func
+from pantheon.funcdesc.pydantic import value_to_field
 from pydantic import create_model
 
 from .agent import Agent

@@ -2,7 +2,7 @@ import typing as T
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Callable, Optional, AsyncGenerator, Union
 from dataclasses import dataclass
-from funcdesc import Description
+from pantheon.funcdesc import Description
 from enum import Enum
 
 

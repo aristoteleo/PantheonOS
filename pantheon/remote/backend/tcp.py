@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import cloudpickle
-from funcdesc import parse_func
+from pantheon.funcdesc import parse_func
 
 from pantheon.utils.log import logger
 from pantheon.utils.misc import run_func, generate_service_id
