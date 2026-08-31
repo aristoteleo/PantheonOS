@@ -204,6 +204,7 @@ def install(
     *,
     resolve: "callable[[str], str] | None" = None,
     check_scopes: list[Path] | None = None,
+    force: bool = False,
     _depth: int = 0,
 ) -> list[Path]:
     """Clone `source` into the scope, then install its dependency closure.
@@ -218,22 +219,50 @@ def install(
         raise VersioningError("dependency chain deeper than 16 — cycle?")
     dst_root.mkdir(parents=True, exist_ok=True)
 
+    def _land(new_dir: Path, cleanup: bool) -> Path:
+        """Place a fetched tree into the scope — the UPGRADE gate.
+
+        A same-id install over an existing version runs check-compat: a
+        new version that breaks the old one's promises without saying so
+        is refused here, before any running dependent can find out the
+        hard way. `force` skips the gate, not the report.
+        """
+        new_m = _read_manifest(new_dir)
+        dst = dst_root / new_m.id
+        if dst.exists():
+            old_m = _read_manifest(dst)
+            if old_m.version != new_m.version:
+                report = check_compat(old_m, new_m)
+                if not report.ok and not force:
+                    if cleanup:
+                        shutil.rmtree(new_dir, ignore_errors=True)
+                    raise VersioningError(
+                        f"upgrade {new_m.id} {old_m.version} -> {new_m.version} "
+                        f"refused:\n{report.render()}")
+                shutil.rmtree(dst)
+                if cleanup:
+                    new_dir.rename(dst)
+                else:
+                    shutil.copytree(new_dir, dst, ignore=shutil.ignore_patterns(
+                        "__pycache__", "*.pyc"))
+            elif cleanup:
+                shutil.rmtree(new_dir, ignore_errors=True)
+        elif cleanup:
+            new_dir.rename(dst)
+        else:
+            shutil.copytree(new_dir, dst, ignore=shutil.ignore_patterns(
+                "__pycache__", "*.pyc"))
+        return dst
+
     src = Path(source)
     if src.is_dir() and any((src / n).is_file() for n in MANIFEST_NAMES):
-        m = _read_manifest(src)
-        dst = dst_root / m.id
-        if not dst.exists():
-            shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        dst = _land(src, cleanup=False)
     else:
         tmp = dst_root / f".installing-{_depth}"
         shutil.rmtree(tmp, ignore_errors=True)
         _git("clone", "-q", "--depth", "1", str(source), str(tmp), cwd=dst_root)
-        m = _read_manifest(tmp)
-        dst = dst_root / m.id
-        if dst.exists():
-            shutil.rmtree(tmp)
-        else:
-            tmp.rename(dst)
+        dst = _land(tmp, cleanup=True)
+    m = _read_manifest(dst)
     installed = [dst]
 
     scopes = [dst_root, *(check_scopes or [])]
@@ -252,7 +281,8 @@ def install(
                 f"installed, and no source index was given")
         installed += install(
             resolve(dep_id), dst_root,
-            resolve=resolve, check_scopes=check_scopes, _depth=_depth + 1)
+            resolve=resolve, check_scopes=check_scopes, force=force,
+            _depth=_depth + 1)
         got = _installed_manifests(scopes).get(dep_id)
         if got is None or not _match_range(got.version, spec.range):
             raise VersioningError(

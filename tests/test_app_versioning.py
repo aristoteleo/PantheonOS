@@ -182,3 +182,32 @@ def test_install_without_index_requires_preinstalled(tmp_path):
     app = _mkapp(tmp_path / "src", "hello", deps={"libgreet": {"range": "*"}})
     with pytest.raises(VersioningError, match="no source index"):
         install(str(app), tmp_path / "scope")
+
+
+def test_upgrade_gate_refuses_silent_breakage(tmp_path):
+    v1 = _mkapp(tmp_path / "v1", "hello")
+    scope = tmp_path / "scope"
+    install(str(v1), scope)
+
+    # v2 removes a tool but only bumps patch — the upgrade gate refuses
+    v2 = _mkapp(tmp_path / "v2", "hello", version="1.0.1", tools=[
+        {"name": "greet", "params": [
+            {"name": "who", "type": "str", "required": True},
+            {"name": "loud", "type": "bool", "required": False},
+        ]},
+    ])
+    with pytest.raises(VersioningError, match="upgrade hello .* refused"):
+        install(str(v2), scope)
+    # the installed copy is untouched
+    assert json.loads((scope / "hello" / "app.json").read_text())["version"] == "1.0.0"
+
+    # force is the explicit escape hatch
+    install(str(v2), scope, force=True)
+    assert json.loads((scope / "hello" / "app.json").read_text())["version"] == "1.0.1"
+
+    # an honest major upgrade passes on its own
+    v3 = _mkapp(tmp_path / "v3", "hello", version="2.0.0", tools=[
+        {"name": "greet", "params": [{"name": "who", "type": "str", "required": True}]},
+    ], ifaces=[{"name": "greeting", "version": 2, "tools": ["greet"]}])
+    install(str(v3), scope)
+    assert json.loads((scope / "hello" / "app.json").read_text())["version"] == "2.0.0"
