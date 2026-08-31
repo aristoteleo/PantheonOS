@@ -10,7 +10,7 @@ this page: follow the links.
 | Erdős min overlap (↓) | Ψ | 0.5 | **0.380909** | AlphaEvolve 0.380924 · TogetherAI 0.380871 · SimpleTES 0.380868 | beats AlphaEvolve; SimpleTES & TogetherAI lower |
 | Mouse-heart gene panel (↑) | FFP | 0.688 (DE) | **0.778** | best published bench row 0.738 | beats the bench leader |
 | Breast-cancer panel, direct (↑) | quality | 0.5433 / 0.5880 | **0.5477 / 0.5928** | — | mechanism validated; lift small |
-| AHC039 purse-seine (↑) | mean/case | ~2.47 (5th place) | +0.022 best gain | contest leaderboard n/a | ablation campaign benchmark |
+| AHC039 purse-seine (↑) | official pts/case | ~3703 (5th place) | 3730 (+33/case best gain) | SimpleTES paper 3783 (official SOTA) | ablation campaign benchmark |
 
 ## Circle packing, n = 26
 
@@ -80,8 +80,8 @@ harmonypy, `evolution_topact`) are setups without headline claims.
 
 ## AHC039 (AtCoder Heuristic Contest 039)
 
-Chosen as the benchmark that can discriminate (eval noise 0.0018 vs improvement steps 0.01–0.1;
-the seed is a 5th-place solution). The 2026-08-12 campaign — 42 runs, four experiments, wholly
+Chosen as the benchmark that can discriminate (eval noise ~2.7 official pts/case vs improvement
+steps 15–150; the seed is a 5th-place solution scoring ~3703/case). The 2026-08-12 campaign — 42 runs, four experiments, wholly
 on Modal — established:
 
 - **Editing beats implementing on a mature seed**: MAP-Elites improved in 5/5 runs

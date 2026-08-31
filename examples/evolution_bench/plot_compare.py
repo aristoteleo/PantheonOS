@@ -26,6 +26,12 @@ COLORS = {"hypothesis_bandit": "#8250df", "agent_map_elites": "#0969da", "simple
 LABELS = {"hypothesis_bandit": "HypothesisBandit", "agent_map_elites": "AgentMapElites",
           "simpletes": "SimpleTES"}
 
+SCALE = {"ahc039": (1500.0, "mean official score per case  (×150 = platform total)")}
+"""Presentation scale per task. The harness's fitness for AHC039 is the per-case mean divided
+by 1500 (a normalisation inherited from the SimpleTES port -- evaluator.py); nobody reads
+2.48 fluently, so the FIGURES multiply it back out to the official per-case scale. Fitness
+values in summaries and method state stay in harness units."""
+
 plt.rcParams.update({
     "font.family": ["Helvetica Neue", "Helvetica", "Arial"],
     "text.color": INK, "axes.edgecolor": MUTED, "axes.labelcolor": SUB,
@@ -82,13 +88,16 @@ def main(paths, out):
         by_task[task_of(r)][method_of(r)].append(r)
 
     for task, methods in sorted(by_task.items()):
+        k, ylab = SCALE.get(task, (1.0, "best combined_score so far"))
         fig, (a1, a2) = plt.subplots(1, 2, figsize=(15, 6.2), dpi=150,
                                      gridspec_kw={"width_ratios": [2.1, 1]})
         fig.suptitle(f"{task} — best-so-far under one harness, same model, matched budget",
                      size=19, weight="bold", x=0.055, ha="left")
         for m, rs in sorted(methods.items()):
-            col = COLORS.get(m, MUTED)
-            curves = [best_so_far(r) for r in rs]
+            if m not in COLORS:
+                continue
+            col = COLORS[m]
+            curves = [[v * k for v in best_so_far(r)] for r in rs]
             curves = [c for c in curves if len(c) >= 2]
             for c in curves:
                 a1.plot(range(len(c)), c, color=col, lw=1.0, alpha=0.35)
@@ -97,12 +106,12 @@ def main(paths, out):
                 padded = np.array([c + [c[-1]] * (L - len(c)) for c in curves])
                 a1.plot(range(L), padded.mean(axis=0), color=col, lw=2.6,
                         label=f"{LABELS.get(m, m)} (n={len(rs)})")
-            finals = [r["best"] for r in rs]
-            x = list(COLORS).index(m) if m in COLORS else 3
+            finals = [r["best"] * k for r in rs]
+            x = list(COLORS).index(m)
             a2.scatter([x] * len(finals), finals, s=80, color=col, alpha=0.8, zorder=3)
             a2.hlines(np.mean(finals), x - 0.22, x + 0.22, color=INK, lw=2.2, zorder=4)
         a1.set_xlabel("measured programs (in order)")
-        a1.set_ylabel("best combined_score so far")
+        a1.set_ylabel(ylab)
         a1.legend(frameon=False, fontsize=11.5, loc="lower right")
         a2.set_xticks(range(len(COLORS)))
         a2.set_xticklabels([LABELS[m] for m in COLORS], size=10.5, rotation=12)

@@ -36,7 +36,7 @@ from manim import (DOWN, LEFT, RIGHT, UP, Create, DashedVMobject, FadeIn, FadeOu
                    LaggedStart, Line, MovingCameraScene, Rectangle, RoundedRectangle,
                    SurroundingRectangle, Transform, VGroup, VMobject, Write)
 
-from hb_data import (BEST_SCORE, CARD, COMPONENTS, ETA, EVENTS, FULL_CASES, HYPS, LAM,
+from hb_data import (BEST_SCORE, CARD, COMPONENTS, ETA, EVENTS, FULL_CASES, HYPS, K, LAM,
                      PRIOR_SIGMA, SCREEN_CASES, SEED_SCORE, TAU, WAVE4)
 from manim_kit import (BLUE, EDGE, GREEN, INK, Kit, MUTED, ORANGE, PANEL, PURPLE, RED, SUB, fit,
                        para, score_color, spoke, txt)
@@ -89,7 +89,7 @@ def chip(score: float, at) -> VGroup:
                            color=EDGE, fill_color=score_color(score, LO, HI),
                            fill_opacity=1.0).move_to(at)
     ink = "#ffffff" if score > LO + 0.55 * (HI - LO) else INK
-    return VGroup(box, txt(f"{score:.4f}", 12.5, ink).move_to(at))
+    return VGroup(box, txt(f"{score * K:.0f}", 12.5, ink).move_to(at))
 
 
 class HypothesisBanditRun(Kit, MovingCameraScene):
@@ -182,7 +182,7 @@ class HypothesisBanditRun(Kit, MovingCameraScene):
                          fill_color=GREEN if dR > 0 else RED, fill_opacity=0.85)
         tick.move_to([TICK_X0 + n * (TICK_W + TICK_GAP) + TICK_W / 2, y, 0])
         mean = sum(gs) / len(gs)
-        new = txt(f"A {mean:+.4f}", 12, GREEN if mean > 0 else RED)
+        new = txt(f"A {mean * K:+.1f}", 12, GREEN if mean > 0 else RED)
         new.move_to([MEAN_X, y, 0], aligned_edge=LEFT)
         anims = [FadeIn(tick, scale=1.6)]
         old = self.means.get(comp)
@@ -282,7 +282,7 @@ class HypothesisBanditRun(Kit, MovingCameraScene):
         self.blocks = {c: blocks[i] for i, c in enumerate(COMPONENTS)}
         blk_hdr = txt("the program — six components", 16, SUB, weight="BOLD")
         blk_hdr.move_to([BLK_X, BLK0_Y + 0.62, 0])
-        seed_tag = txt(f"seed  {SEED_SCORE:.4f}", 14, SUB)
+        seed_tag = txt(f"seed  {SEED_SCORE * K:.0f} per case", 14, SUB)
         seed_tag.move_to([BLK_X, BLK0_Y + 0.95, 0])
 
         # ledger
@@ -306,7 +306,7 @@ class HypothesisBanditRun(Kit, MovingCameraScene):
         yticks = VGroup()
         for v in (2.46, 2.47, 2.48):
             p = curve_pt(0, v)
-            yticks.add(txt(f"{v:.2f}", 10, MUTED).move_to([CURVE_X0 - 0.45, p[1], 0]))
+            yticks.add(txt(f"{v * K:.0f}", 10, MUTED).move_to([CURVE_X0 - 0.5, p[1], 0]))
         xlab = txt("full measurements →", 12, MUTED).move_to([(CURVE_X0 + CURVE_X1) / 2,
                                                              CURVE_Y0 - 0.28, 0])
         seed_dot = RoundedRectangle(width=0.1, height=0.1, corner_radius=0.05, stroke_width=0,
@@ -358,14 +358,14 @@ class HypothesisBanditRun(Kit, MovingCameraScene):
         ch = chip(ev["score"], [CHIP_X, blk_y(comp), 0])
         self.play(FadeIn(ch, scale=1.4), run_time=0.6 if slow else 0.35)
         if slow:
-            self.say(f"the verifier runs all {FULL_CASES} cases: {ev['score']:.4f} — "
-                     f"ΔR = {ev['dR']:+.4f} against its base", hold=1.4)
+            self.say(f"the verifier runs all {FULL_CASES} cases: mean {ev['score'] * K:.0f} per case — "
+                     f"ΔR = {ev['dR'] * K:+.1f} fish per case against its base", hold=1.4)
         star = None
         if ev.get("best"):
             star = txt("★ new best", 13, GREEN, weight="BOLD").next_to(ch, UP, buff=0.08)
             self.play(FadeIn(star, scale=1.3), run_time=0.5)
 
-        dtxt = txt(f"{ev['dR']:+.4f}", 13, GREEN if ev["dR"] > 0 else RED, weight="BOLD")
+        dtxt = txt(f"{ev['dR'] * K:+.1f}", 13, GREEN if ev["dR"] > 0 else RED, weight="BOLD")
         dtxt.next_to(ch, DOWN, buff=0.08)
         d2 = dtxt.copy()
         self.play(FadeIn(dtxt), run_time=0.4 if slow else 0.25)
@@ -384,7 +384,7 @@ class HypothesisBanditRun(Kit, MovingCameraScene):
         if slow:
             self.say("one number, two ledgers: the hypothesis earns EVIDENCE (its bar turns\n"
                      "blue), and the component it touched earns CREDIT", hold=1.8)
-            self.say("notice the bar DROPS anyway — spent novelty outweighs a +0.011 gain.\n"
+            self.say("notice the bar DROPS anyway — spent novelty outweighs a +16-point gain.\n"
                      "Priority keeps favouring the untried; where evidence really bites\n"
                      "is retirement. Watch.", hold=2.2)
 
@@ -427,7 +427,6 @@ class HypothesisBanditRun(Kit, MovingCameraScene):
                 row = self.make_row(hid, len(self.order) - 1)
                 self.play(FadeIn(row, shift=LEFT * 0.2), *self.panel_anims(), run_time=0.6)
                 continue
-            slow_after = False
             if ev.get("best"):
                 self.do_measure(ev)
                 self.say("the bay-fill hypothesis lands the run's best program — and RETIRES\n"
@@ -447,7 +446,6 @@ class HypothesisBanditRun(Kit, MovingCameraScene):
 
     # ---- act 5: headroom ---------------------------------------------------
     def act_headroom(self):
-        y = blk_y("numerical-optimization")
         halo = SurroundingRectangle(
             VGroup(self.blocks["numerical-optimization"], self.led_dashes["numerical-optimization"]),
             color=ORANGE, stroke_width=2.2, buff=0.09)
@@ -500,11 +498,11 @@ class HypothesisBanditRun(Kit, MovingCameraScene):
             hid = ev["hyp"]
             r = self.rows[hid]
             if ev["score"] < 2.0:
-                self.say(f"a {HYPS[hid]['comp']} candidate scores {ev['score']:.3f} against a "
-                         f"base of {ev['base']:.4f}\n— rejected. The {FULL_CASES}-case budget "
+                self.say(f"a {HYPS[hid]['comp']} candidate scores {ev['score'] * K:.0f} against a "
+                         f"base of {ev['base'] * K:.0f}\n— rejected. The {FULL_CASES}-case budget "
                          "is never spent on it")
             else:
-                self.say(f"a {HYPS[hid]['comp']} candidate: {ev['score']:.4f} — close, but "
+                self.say(f"a {HYPS[hid]['comp']} candidate: {ev['score'] * K:.0f} — close, but "
                          "short of\nthe promotion margin. Rejected too")
             ch = chip(ev["score"], [PROB_X + 0.35, r["y"], 0])
             self.play(FadeIn(ch, scale=1.3), run_time=0.4)
@@ -531,9 +529,8 @@ class HypothesisBanditRun(Kit, MovingCameraScene):
     # ---- act 7: close ------------------------------------------------------
     def act_close(self):
         self.drop_caption()
-        p = curve_pt(self.n_meas, self.best)
         star = txt("★", 20, GREEN).move_to(curve_pt(4, BEST_SCORE) + np.array([0, 0.22, 0]))
-        final = txt(f"best {BEST_SCORE:.4f}  ({BEST_SCORE - SEED_SCORE:+.4f} over the seed)",
+        final = txt(f"best {BEST_SCORE * K:.0f} per case  ({(BEST_SCORE - SEED_SCORE) * K:+.1f} over the seed)",
                     15, INK, weight="BOLD").move_to([(CURVE_X0 + CURVE_X1) / 2,
                                                      CURVE_Y1 + 0.42, 0])
         self.play(FadeIn(star), FadeIn(final), run_time=0.8)
@@ -547,10 +544,10 @@ class HypothesisBanditRun(Kit, MovingCameraScene):
 
         hb, me = WAVE4["hypothesis_bandit"], WAVE4["agent_map_elites"]
         board = VGroup(
-            txt("wave4 · AHC039 · three seeds · same model, same budget", 18, SUB),
-            VGroup(txt(f"HypothesisBandit   mean {hb['mean']:.4f}   "
+            txt("wave4 · AHC039 · three seeds · same model, same budget · official pts per case", 18, SUB),
+            VGroup(txt(f"HypothesisBandit   mean {hb['mean'] * K:.0f}   "
                        f"{hb['measured']} measured programs", 20, PURPLE, weight="BOLD"),
-                   txt(f"AgentMapElites      mean {me['mean']:.4f}   "
+                   txt(f"AgentMapElites      mean {me['mean'] * K:.0f}   "
                        f"{me['measured']} measured programs", 20, BLUE)).arrange(
                        DOWN, buff=0.22, aligned_edge=LEFT),
             para("the same place, at a third of the measurements —\n"

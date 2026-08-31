@@ -17,6 +17,12 @@ SEED_SCORE = 2.468969
 BEST_SCORE = 2.482058
 FULL_CASES, SCREEN_CASES = 150, 30
 
+K = 1500.0
+"""Display scale. The harness's fitness is the official per-case mean divided by 1500 (a
+normalisation inherited from the SimpleTES port); every dR and score in this file is in those
+harness units because the bandit's arithmetic (PRIOR_SIGMA, ETA, TAU) runs on them. The VIDEO
+shows official per-case points -- multiply by K at the glass, never in the state."""
+
 # priority(h) = mu + LAM*sigma + ETA*novelty; sigma = PRIOR_SIGMA/sqrt(1+n); novelty = 1/(1+n);
 # softmax at TAU. Retire when n >= 2 and mean(dR) <= 0, or after 2 screen fails.
 LAM, ETA, TAU, PRIOR_SIGMA = 1.0, 0.5, 0.35, 0.05

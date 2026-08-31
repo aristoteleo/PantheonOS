@@ -10,18 +10,23 @@ packing and AHC039 — same harness (`run_bench.py` on Modal), same model
 campaign's arms (MAP-Elites from `wave2/`, SimpleTES under both operator fixes from
 `wave3b/`); everything else is `wave4/`. Figures: `compare_{erdos,circle_packing,ahc039}.png`.
 
+Scale convention: AHC039 numbers here and in the figures are OFFICIAL per-case points (the
+platform total is this x150; the 5th-place seed sits at ~3703). The harness's internal fitness
+is per-case/1500 (a SimpleTES-port normalisation, seed ~2.469) and summaries/method state stay
+in those units — divide by 1500 to cross-reference raw artifacts.
+
 ## Final bests
 
 | task | HypothesisBandit | AgentMapElites | SimpleTES |
 |---|---|---|---|
-| AHC039 (↑, gain over own seed) | **+0.0131 / 0 / +0.0137** (2/3) | +0.0044..+0.0220 (5/5) | **0 / 0 / 0** |
+| AHC039 (↑, per-case gain over own seed) | **+19.7 / 0 / +20.6** (2/3) | +6.6..+33.0 (5/5) | **0 / 0 / 0** |
 | circle packing (↑, Σr) | 2.6311 / 2.6310 | 2.6328 (n=2 pending) | **2.6360 / 2.6360** |
 | Erdős (↓, Ψ) | 0.3810 / 0.3813 | 0.3812 / 0.3824 | 0.3810 / 0.3809 |
 
 ## What the three tasks each say
 
 **AHC039 — the discriminating benchmark — is the result.** HypothesisBandit's mean final best
-(2.4775) matches AgentMapElites' (2.4763) and its best-so-far curve rises FASTEST in the first
+(3716 per case) matches AgentMapElites' (3714) and its best-so-far curve rises FASTEST in the first
 ~10 measured programs — while spending part of its 30-item budget on hypotheses, i.e. it
 reaches parity with fewer program evaluations. This is where AnnealedIdeaCode — the previous
 idea-driven method — found nothing in 3 runs and wrecked 84% of its implementations. The two
@@ -58,7 +63,7 @@ prompt, prefix/suffix-preserving merge), the AHC039 seed marks its simulated-ann
 (lines 441–874; the KD-tree/scoring/IO scaffolding is fixed), and `wave3c/` re-ran the arms
 under it. The protocol verifiably worked — all 56 children preserve the markers and the fixed
 scaffolding, sizes 20–34KB — **and the result held: 0/3 runs improved, 29–30 of 30 children
-wrecked per run.** The best block-protocol child reached 2.01 against a ~2.47 seed. The claim
+wrecked per run.** The best block-protocol child reached ~3015 per case against a ~3703 seed. The claim
 that survives three rounds of harness correction is narrow and real: single-shot regeneration
 of a large (24KB) heavily tuned block, blind to execution, does not preserve incumbent quality
 within this budget — an agent that runs the evaluator before submitting does. One authoring
