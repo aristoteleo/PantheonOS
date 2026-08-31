@@ -414,11 +414,11 @@ async def test_resolver_lazy_coords_from_runtime_json(tmp_path, monkeypatch):
 
     # the runner hasn't joined yet -> a clear error, caller falls back
     with pytest.raises(RuntimeError, match="not joined"):
-        r._ensure_coords()
+        await r._ensure_coords()
 
     (tmp_path / "runtime.json").write_text(
         J.dumps({"node_id": "n_abc", "fleet_id": "f1", "nats_url": "nats://x"}))
-    r._ensure_coords()
+    await r._ensure_coords()
     assert r._fleet == "f1" and r._node == "n_abc"
 
     # without a seed the resolver stays off entirely

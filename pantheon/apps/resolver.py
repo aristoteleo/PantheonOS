@@ -84,23 +84,53 @@ class AppInstanceResolver:
                        state_dir=state_dir)
         return cls(fleet_id, node_id, seed, workdir or os.getcwd())
 
-    def _ensure_coords(self) -> None:
-        """Fill fleet/node ids from the runner's runtime.json when deferred."""
+    async def _ensure_coords(self) -> None:
+        """Fill fleet/node ids: local runtime.json, or the fleet registry.
+
+        Same-container deployment reads the runner's runtime.json. A brain
+        running OFF the body's machine (a k8s pod, a laptop) has no local
+        runner — it joins as the user and finds the user's sandbox node in
+        the registry instead. Neither being there yet is NotJoinedError:
+        the body is late, not broken.
+        """
         if self._fleet and self._node:
             return
         path = Path(self._state_dir or "") / "runtime.json"
         try:
             info = json.loads(path.read_text())
         except FileNotFoundError:
-            raise NotJoinedError(
-                f"fleet runner not joined yet ({path} missing)"
-            ) from None
+            await self._discover_body()
+            return
         except Exception as e:
             raise RuntimeError(f"unreadable {path}: {e}") from None
         self._fleet = self._fleet or info.get("fleet_id", "")
         self._node = self._node or info.get("node_id", "")
         if not (self._fleet and self._node):
             raise RuntimeError(f"incomplete coordinates in {path}: {info}")
+
+    async def _discover_body(self) -> None:
+        """Find the user's body node in the fleet registry (split brain).
+
+        Prefers the node named for this user's sandbox, then any
+        sandbox-kind node. Requires the user join (controller + key); a
+        same-container deployment without those keeps the old behavior.
+        """
+        if not (os.environ.get("FLEET_CONTROLLER_URL") and os.environ.get("FLEET_KEY")):
+            raise NotJoinedError(
+                f"fleet runner not joined yet "
+                f"({Path(self._state_dir or '') / 'runtime.json'} missing)")
+        await self._ensure_client()  # the user join fills self._fleet
+        nodes = await self._list_nodes()
+        want = f"sandbox-{self._seed}"
+        cand = ([n for n in nodes if n.get("name") == want]
+                or [n for n in nodes if n.get("kind") == "sandbox"])
+        if not cand:
+            raise NotJoinedError(
+                "no body yet: no sandbox node registered in the fleet")
+        self._node = cand[0]["node_id"]
+        logger.info(
+            f"[apps] split brain: body node {cand[0].get('name')} "
+            f"({self._node[:16]}…) discovered from the registry")
 
     #: Consecutive ensure failures before the resolver disables itself.
     MAX_FAILURES = 3
@@ -379,7 +409,7 @@ class AppInstanceResolver:
             return self._started[key]
         self._gate_new_starts()
         try:
-            self._ensure_coords()
+            await self._ensure_coords()
             from pantheon.apps.registry import by_service_type
             from pantheon.apps.spec import apphost_spec
 

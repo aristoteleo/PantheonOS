@@ -130,7 +130,7 @@ def _prestart(services: list[str], wait: float) -> None:
         deadline = time.monotonic() + wait
         while True:
             try:
-                resolver._ensure_coords()
+                await resolver._ensure_coords()
                 break
             except RuntimeError as e:
                 if time.monotonic() >= deadline:
