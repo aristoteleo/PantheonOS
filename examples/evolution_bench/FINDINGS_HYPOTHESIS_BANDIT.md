@@ -36,6 +36,18 @@ rebuilding from an idea, and hypothesis value is measured evidence instead of an
 opinion. Idea-level search is not the problem; rewrite-shaped implementation and
 opinion-shaped selection were.
 
+**Erratum (2026-08-31, fidelity threading + budget accounting).**
+`ProgramEvaluatorAdapter.measure` dropped its fidelity argument, so wave4's three
+"low-fidelity screens" ran — and cost — the full 150-case measurement while their Measurements
+said `low`. The rejections were real (they compared real scores); the savings were not.
+Counting screens at their true price, HypothesisBandit spent 13 full-price evaluations against
+MAP-Elites' ~28 — the fewer-evaluations claim survives the correction. Fixed, with a
+regression test, and two ledgers added so budget claims are numbers rather than suspicions:
+`summary.json` now carries `llm_usage` (calls/tokens/cost — the operator families spend the
+model very differently: one fat completion per SimpleTES candidate vs multi-call agent
+sessions) and `eval_usage` (every evaluator call by fidelity and case count, including the
+agent's inner probes, which `--max-inner-evals` now caps uniformly across agent arms).
+
 **Circle packing rewards the rewrite paradigm.** SimpleTES hit the 2.635983 record on both
 seeds — a small, self-contained numerical program is the best case for writing a whole fresh
 file per candidate — with HypothesisBandit and MAP-Elites ~0.004 behind. Consistent with the

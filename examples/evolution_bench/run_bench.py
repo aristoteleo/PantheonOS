@@ -118,13 +118,15 @@ async def main(a) -> None:
 
     variator = method.default_variator(
         evaluator=evaluator, model=a.model, timeout=a.mutation_timeout,
-        max_tool_calls=a.tool_budget, workspace_root=str(out / "_mut"),
+        max_tool_calls=a.tool_budget, max_evaluations=a.max_inner_evals,
+        workspace_root=str(out / "_mut"),
         target_file=evolve_file,
         inner_fidelity=a.inner_fidelity or cfg.get("inner_fidelity", "full"),
         trace_path=(str(out / "trace.jsonl") if a.trace else None))
     if a.code_variator and hasattr(variator, "code"):
         variator.code = (
             AgentVariator(evaluator=evaluator, model=a.model, max_tool_calls=a.tool_budget,
+                          max_evaluations=a.max_inner_evals,
                           timeout=a.mutation_timeout, workspace_root=str(out / "_mut"),
                           score_key="combined_score",
                           inner_fidelity=a.inner_fidelity
@@ -200,12 +202,13 @@ async def main(a) -> None:
     search = ({"judge": f"{a.judge}(n_min={a.judge_n_min})", "norm": method.norm,
                "t0": method.t0, "t1": method.t1, "beta0": method.beta0, "gamma": method.gamma}
               if a.method == "annealed" else {})
-    from pantheon.evolution.variators.usage import snapshot as llm_usage
+    from pantheon.evolution.variators.usage import eval_snapshot, snapshot as llm_usage
     json.dump({"task": a.task, "evolve": evolve_file, "method": method.name, "model": a.model, "seed": a.seed,
                "operator": operator, "search": search, "seed_sha": seed_sha,
                "items_run": res.items_run, "failures": res.failures,
                "best_combined_score": best_score, "seed_combined_score": seed_score,
-               "seconds": res.seconds, "llm_usage": llm_usage(), "history": history},
+               "seconds": res.seconds, "llm_usage": llm_usage(),
+               "eval_usage": eval_snapshot(), "history": history},
               open(out / "summary.json", "w"), indent=1)
     print(f"-> {out}/summary.json")
 
@@ -218,6 +221,10 @@ if __name__ == "__main__":
                             "pantheon_evo", "hypothesis_bandit"])
     p.add_argument("--iterations", type=int, default=40)
     p.add_argument("--model", default="openai/gpt-5.6-luna")
+    p.add_argument("--max-inner-evals", type=int, default=None,
+                   help="cap on an agent mutation's own run_evaluator calls; None = unlimited. "
+                        "Set it (uniformly) when comparing methods, or the agent operators get "
+                        "an unbounded hidden evaluation budget the completion operators lack.")
     p.add_argument("--workers", type=int, default=2)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--tool-budget", type=int, default=28)

@@ -478,11 +478,11 @@ class HypothesisBanditRun(Kit, MovingCameraScene):
             DashedVMobject(RoundedRectangle(width=2.3, height=0.62, corner_radius=0.1,
                                             stroke_width=2.0, color=ORANGE),
                            num_dashes=40),
-            para(f"{SCREEN_CASES}-case screen\n1/5 the cost", 12.5, ORANGE))
+            para(f"{SCREEN_CASES}-case screen\nreject before promotion", 12.5, ORANGE))
         gate[1].move_to(gate[0].get_center())
         gate.move_to([-0.75, -1.62, 0])
-        self.say(f"this task has a cheap fidelity: {SCREEN_CASES} cases instead of "
-                 f"{FULL_CASES}.\nEvery candidate faces it first", hold=0.6)
+        self.say(f"this task offers a cheap fidelity: {SCREEN_CASES} cases instead of "
+                 f"{FULL_CASES}.\nA candidate must clear the incumbent minus a margin to earn promotion", hold=0.6)
         self.play(FadeIn(gate), run_time=0.7)
         while self.ptr < len(EVENTS):
             ev = EVENTS[self.ptr]
@@ -500,7 +500,7 @@ class HypothesisBanditRun(Kit, MovingCameraScene):
             if ev["score"] < 2.0:
                 self.say(f"a {HYPS[hid]['comp']} candidate scores {ev['score'] * K:.0f} against a "
                          f"base of {ev['base'] * K:.0f}\n— rejected. The {FULL_CASES}-case budget "
-                         "is never spent on it")
+                         "is never spent promoting it")
             else:
                 self.say(f"a {HYPS[hid]['comp']} candidate: {ev['score'] * K:.0f} — close, but "
                          "short of\nthe promotion margin. Rejected too")
@@ -524,6 +524,9 @@ class HypothesisBanditRun(Kit, MovingCameraScene):
                 self.play(*self.panel_anims(), run_time=0.5)
                 self.say("two screen failures retire a hypothesis just like two bad\n"
                          "measurements — cheap evidence is still evidence", hold=1.4)
+        self.say("(one honest asterisk: in THIS recorded run a fidelity bug charged each\n"
+                 f"screen at the full {FULL_CASES} cases — the rejections are real, the\n"
+                 "savings were not. Found while auditing budgets; fixed since.)", hold=3.0)
         self.play(FadeOut(gate), run_time=0.5)
 
     # ---- act 7: close ------------------------------------------------------
@@ -536,7 +539,7 @@ class HypothesisBanditRun(Kit, MovingCameraScene):
         self.play(FadeIn(star), FadeIn(final), run_time=0.8)
         self.wait(1.2)
 
-        tally = para("this run:  7 hypotheses · 10 full measurements · 3 screened out\n"
+        tally = para("this run:  7 hypotheses · 13 measurements (3 at the gate)\n"
                      "4 hypotheses retired by their own evidence", 17, INK)
         tally.move_to(CAP_AT, aligned_edge=DOWN)
         self.play(FadeIn(tally), run_time=0.7)

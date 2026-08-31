@@ -60,3 +60,30 @@ def add_agent_messages(messages: Optional[list]) -> float:
 def snapshot() -> Dict[str, float]:
     with _LOCK:
         return dict(_USAGE)
+
+
+_EVAL: Dict[str, float] = {"calls": 0, "calls_low": 0, "case_executions": 0,
+                           "eval_seconds": 0.0}
+
+
+def add_eval(fidelity: str, metrics: Dict[str, Any]) -> None:
+    """Book one evaluator invocation, whoever asked for it.
+
+    The loop's recorded measurements, a method's cheap screens and an agent's inner
+    `run_evaluator` probes all pass through `evaluate_files`, so booking there counts every
+    verifier run a method causes -- the other half of a fair budget besides LLM spend.
+    `case_executions` (cases x repeats, from the task evaluator's own report) is the comparable
+    unit; tasks that do not report it still get call counts.
+    """
+    cases = int(metrics.get("num_cases", 0) or 0) * int(metrics.get("n_eval_runs", 1) or 1)
+    with _LOCK:
+        _EVAL["calls"] += 1
+        if fidelity and fidelity != "full":
+            _EVAL["calls_low"] += 1
+        _EVAL["case_executions"] += cases
+        _EVAL["eval_seconds"] += float(metrics.get("eval_time", 0.0) or 0.0)
+
+
+def eval_snapshot() -> Dict[str, float]:
+    with _LOCK:
+        return dict(_EVAL)

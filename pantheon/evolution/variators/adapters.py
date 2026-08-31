@@ -58,9 +58,12 @@ class ProgramEvaluatorAdapter:
         state = getattr(res, "state", None)
         if state is not None:
             self.last_state = state
+        metrics = dict(getattr(res, "metrics", {}) or {})
+        from .usage import add_eval
+        add_eval(fidelity, metrics)
         return {
             "success": bool(getattr(res, "success", False)),
-            "metrics": dict(getattr(res, "metrics", {}) or {}),
+            "metrics": metrics,
             "artifacts": dict(getattr(res, "artifacts", {}) or {}),
             "error": getattr(res, "error", None),
         }
@@ -70,7 +73,10 @@ class ProgramEvaluatorAdapter:
         t0 = time.time()
         genome = ind.genome
         files = genome.files if isinstance(genome, CodeGenome) else {"main.py": genome.render()}
-        out = await self.evaluate_files(files)
+        # fidelity MUST reach evaluate_files or it is only a label: this call once dropped it,
+        # and every "low-fidelity screen" issued by a method ran -- and billed -- at full price
+        # while its Measurement claimed otherwise (wave4's HypothesisBandit screens did).
+        out = await self.evaluate_files(files, fidelity)
         return Measurement(
             individual_id=ind.id,
             metrics=out["metrics"],

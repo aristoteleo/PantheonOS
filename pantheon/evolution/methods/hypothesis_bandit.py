@@ -495,6 +495,7 @@ class HypothesisBandit(BaseMethod):
                                  system_prompt=code_system, score_key=self.score_key,
                                  workspace_root=kw.get("workspace_root"),
                                  max_tool_calls=kw.get("max_tool_calls", 28),
+                                 max_evaluations=kw.get("max_evaluations"),
                                  inner_fidelity=kw.get("inner_fidelity", "full"),
                                  trace_path=kw.get("trace_path"))
         return IdeaCodeVariator(idea_variator=idea, code_variator=code)
