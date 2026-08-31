@@ -277,7 +277,7 @@ class AppInstanceResolver:
 
     # ── placement (P5) ──────────────────────────────────────────────────
 
-    async def _list_nodes(self) -> list[dict]:
+    async def _list_nodes(self, max_age: float = 10.0) -> list[dict]:
         """The fleet's node records, from the registry KV (10s cache).
 
         Same read the fleet toolset does: an ordered LAST_PER_SUBJECT drain
@@ -287,7 +287,7 @@ class AppInstanceResolver:
         """
         import time as _t
 
-        if self._nodes_cache and _t.monotonic() - self._nodes_cache[0] < 10:
+        if self._nodes_cache and _t.monotonic() - self._nodes_cache[0] < max_age:
             return self._nodes_cache[1]
         records: list[dict] = []
         try:

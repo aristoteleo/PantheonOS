@@ -537,7 +537,69 @@ class ChatRoom(ToolSet):
             except Exception:
                 pass  # filesystem walk failed — omit silently
 
+        nodes = self._fleet_nodes_snapshot()
+        if nodes:
+            metrics["fleet_nodes"] = nodes
+
         return metrics
+
+    _FLEET_NODES_TTL = 5.0
+
+    def _fleet_nodes_snapshot(self) -> list[dict]:
+        """Per-node load snapshot for _ping, from the fleet registry.
+
+        Runners heartbeat their Node record (incl. normalized CPU/mem load)
+        into the registry KV every 10s; this trims those records down to
+        what a status UI needs. Synchronous and non-blocking like the rest
+        of the activity path: reads a cache and kicks a single-flight async
+        refresh on the running loop when the cache is stale.
+        """
+        import time as _time
+
+        cached = getattr(self, "_fleet_nodes_cache", None)
+        now = _time.monotonic()
+        if (cached is None or now - cached[1] > self._FLEET_NODES_TTL) and not getattr(
+            self, "_fleet_nodes_refreshing", False
+        ):
+            try:
+                import asyncio as _asyncio
+
+                self._fleet_nodes_refreshing = True
+                _asyncio.get_running_loop().create_task(self._refresh_fleet_nodes())
+            except Exception:
+                self._fleet_nodes_refreshing = False
+        return cached[0] if cached is not None else []
+
+    async def _refresh_fleet_nodes(self) -> None:
+        import time as _time
+
+        try:
+            from pantheon.apps.resolver import get_shared_resolver
+
+            resolver = get_shared_resolver()
+            if resolver is None:
+                return
+            records = await resolver._list_nodes(max_age=self._FLEET_NODES_TTL)
+            trimmed = []
+            for rec in records:
+                cap = rec.get("capability") or {}
+                state = rec.get("state") or {}
+                load = state.get("load") or {}
+                trimmed.append({
+                    "name": rec.get("name"),
+                    "kind": rec.get("kind"),
+                    "caps": cap.get("caps") or [],
+                    "cpu_cores": cap.get("cpu_cores"),
+                    "ram_gb": cap.get("ram_gb"),
+                    "load_cpu": round(float(load.get("cpu") or 0.0), 3),
+                    "load_mem": round(float(load.get("mem") or 0.0), 3),
+                    "last_seen": rec.get("last_seen"),
+                })
+            self._fleet_nodes_cache = (trimmed, _time.monotonic())
+        except Exception:
+            pass  # registry unreadable — keep whatever snapshot we had
+        finally:
+            self._fleet_nodes_refreshing = False
 
     async def _ensure_plugins(self) -> list:
         """Lazily initialize plugins via centralized registry (idempotent)."""
