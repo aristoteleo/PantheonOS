@@ -1,0 +1,69 @@
+{
+  "id": "volume3d",
+  "name": "Volume 3D",
+  "description": "Volumetric rendering of OME-NGFF pyramids — MIP and ISO surface (WebGL).",
+  "version": "0.1.0",
+  "surface": "dom",
+  "entry": {
+    "frontend": "frontend/index.js",
+    "backend": "backend/__init__.py"
+  },
+  "opens": [
+    ".zarr",
+    ".ome.zarr"
+  ],
+  "sync": {
+    "mode": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "threshold": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "brightness": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "flipUp": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "camera": {
+      "mode": "shared",
+      "rate": "stream"
+    }
+  },
+  "defaultFor": [],
+  "launcher": false,
+  "icon": {
+    "tint": "#2f6f6a",
+    "path": "assets/icon.svg"
+  },
+  "menus": [
+    {
+      "label": "Data",
+      "items": [
+        {
+          "label": "Load Example Data",
+          "action": "loadExample"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "name": "loadExample",
+      "description": "Show a synthetic volume"
+    }
+  ],
+  "caps": {
+    "fs": [],
+    "net": true,
+    "python": {
+      "env": "pantheon-base"
+    }
+  },
+  "skill": "skill/SKILL.md",
+  "apiVersion": 1
+}

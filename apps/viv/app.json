@@ -1,0 +1,81 @@
+{
+  "id": "viv",
+  "name": "Viv - BioImage",
+  "version": "0.1.0",
+  "surface": "dom",
+  "entry": {
+    "frontend": "frontend/index.js",
+    "backend": "backend"
+  },
+  "opens": [
+    ".ome.tif",
+    ".ome.tiff",
+    ".ome.zarr",
+    ".zarr",
+    ".tif",
+    ".tiff"
+  ],
+  "launcher": true,
+  "icon": {
+    "path": "assets/icon.svg",
+    "tint": "#3fb27f"
+  },
+  "actions": [
+    {
+      "name": "showChannels",
+      "in": "frontend",
+      "description": "Reveal the channel controls panel."
+    }
+  ],
+  "caps": {
+    "fs": [],
+    "net": true,
+    "python": {
+      "env": "pantheon-base"
+    }
+  },
+  "skill": "skill/SKILL.md",
+  "menus": [
+    {
+      "label": "Data",
+      "items": [
+        {
+          "label": "Load Example Data",
+          "action": "$demo"
+        }
+      ]
+    },
+    {
+      "label": "View",
+      "items": [
+        {
+          "label": "Show Channels",
+          "action": "showChannels"
+        }
+      ]
+    }
+  ],
+  "persistState": [
+    "channels"
+  ],
+  "sync": {
+    "channels": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "viewState": {
+      "mode": "shared",
+      "rate": "stream"
+    }
+  },
+  "defaultFor": [
+    ".ome.tif",
+    ".ome.tiff",
+    ".ome.zarr",
+    ".zarr",
+    ".tif",
+    ".tiff"
+  ],
+  "description": "Multiscale bioimage viewer for OME-TIFF/Zarr — pyramidal, multi-channel (Viv/deck.gl).",
+  "apiVersion": 1
+}

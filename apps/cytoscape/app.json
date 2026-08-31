@@ -1,0 +1,95 @@
+{
+  "id": "cytoscape",
+  "name": "Cytoscape",
+  "description": "Interactive biological networks and pathways (Cytoscape.js).",
+  "version": "0.1.0",
+  "surface": "dom",
+  "entry": {
+    "frontend": "frontend/index.js"
+  },
+  "opens": [
+    ".cyjs"
+  ],
+  "sync": {
+    "elements": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "layout": {
+      "mode": "shared",
+      "rate": "commit"
+    }
+  },
+  "defaultFor": [],
+  "launcher": false,
+  "icon": {
+    "tint": "#f7df1e",
+    "path": "assets/icon.svg"
+  },
+  "menus": [
+    {
+      "label": "Data",
+      "items": [
+        {
+          "label": "Load Example Data",
+          "action": "$demo"
+        }
+      ]
+    },
+    {
+      "label": "View",
+      "items": [
+        {
+          "label": "Cose Layout",
+          "action": "setLayout",
+          "args": {
+            "name": "cose"
+          }
+        },
+        {
+          "label": "Circle Layout",
+          "action": "setLayout",
+          "args": {
+            "name": "circle"
+          }
+        },
+        {
+          "label": "Grid Layout",
+          "action": "setLayout",
+          "args": {
+            "name": "grid"
+          }
+        },
+        {
+          "label": "Breadth-first Layout",
+          "action": "setLayout",
+          "args": {
+            "name": "breadthfirst"
+          }
+        },
+        {
+          "label": "Concentric Layout",
+          "action": "setLayout",
+          "args": {
+            "name": "concentric"
+          }
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "name": "setLayout",
+      "params": {
+        "name": "cose | circle | grid | breadthfirst | concentric"
+      },
+      "description": "Re-run the graph layout"
+    }
+  ],
+  "caps": {
+    "fs": [],
+    "net": true
+  },
+  "skill": "skill/SKILL.md",
+  "apiVersion": 1
+}

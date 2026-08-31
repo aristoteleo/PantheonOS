@@ -127,8 +127,13 @@ def reflected_tools(manifest: AppManifest):
 
 
 def verifiable(manifest: AppManifest) -> bool:
-    """Whether check/emit can hold this manifest to a Python backend."""
-    return bool(manifest.entry.backend) and manifest.runtime.value != "builtin"
+    """Whether check/emit can hold this manifest to a Python backend.
+
+    Only module:Class backends reflect; a path-form backend
+    ("backend/__init__.py") is an atrium stdio process — no @tool face to
+    diff — and builtin runtimes have no Python at all."""
+    backend = manifest.entry.backend or ""
+    return ":" in backend and manifest.runtime.value != "builtin"
 
 
 def refresh_manifest(app_dir: Path) -> bool:

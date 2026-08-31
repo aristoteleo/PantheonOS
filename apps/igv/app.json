@@ -1,0 +1,45 @@
+{
+  "id": "igv",
+  "name": "IGV",
+  "description": "Genome tracks — alignments, variants and signal around any locus (igv.js).",
+  "version": "0.1.0",
+  "surface": "dom",
+  "entry": {
+    "frontend": "frontend/index.js"
+  },
+  "opens": [],
+  "sync": {
+    "genome": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "locus": {
+      "mode": "shared",
+      "rate": "stream"
+    }
+  },
+  "defaultFor": [],
+  "launcher": false,
+  "icon": {
+    "tint": "#2f4f9b",
+    "path": "assets/icon.svg"
+  },
+  "menus": [
+    {
+      "label": "Data",
+      "items": [
+        {
+          "label": "Load Example Data",
+          "action": "$demo"
+        }
+      ]
+    }
+  ],
+  "actions": [],
+  "caps": {
+    "fs": [],
+    "net": true
+  },
+  "skill": "skill/SKILL.md",
+  "apiVersion": 1
+}

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!--
+    Viv has no official mark (hms-dbmi/viv ships no logo, not even a favicon),
+    so this is ours: a three-channel fluorescence merge, which is the one image
+    every microscopist reads instantly. Screen blending is what a merge
+    actually is — red, green and blue adding to white where all three overlap
+    — and it is also exactly how Viv composites its channels.
+  -->
+  <defs>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="1.1" />
+    </filter>
+  </defs>
+  <g filter="url(#soft)">
+    <circle cx="32" cy="23" r="15" fill="#ff2d55" style="mix-blend-mode:screen" />
+    <circle cx="22.5" cy="39" r="15" fill="#25e06a" style="mix-blend-mode:screen" />
+    <circle cx="41.5" cy="39" r="15" fill="#2d7bff" style="mix-blend-mode:screen" />
+  </g>
+</svg>

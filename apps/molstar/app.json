@@ -1,0 +1,49 @@
+{
+  "id": "molstar",
+  "name": "Mol*",
+  "description": "3D macromolecular structures — PDB/mmCIF, cartoons to surfaces (Mol*).",
+  "version": "0.1.0",
+  "surface": "dom",
+  "entry": {
+    "frontend": "frontend/index.js"
+  },
+  "opens": [
+    ".pdb",
+    ".cif",
+    ".mmcif"
+  ],
+  "sync": {
+    "pdbId": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "format": {
+      "mode": "shared",
+      "rate": "commit"
+    }
+  },
+  "defaultFor": [],
+  "launcher": false,
+  "icon": {
+    "tint": "#ffffff",
+    "path": "assets/icon.svg"
+  },
+  "menus": [
+    {
+      "label": "Data",
+      "items": [
+        {
+          "label": "Load Example Data",
+          "action": "$demo"
+        }
+      ]
+    }
+  ],
+  "actions": [],
+  "caps": {
+    "fs": [],
+    "net": true
+  },
+  "skill": "skill/SKILL.md",
+  "apiVersion": 1
+}

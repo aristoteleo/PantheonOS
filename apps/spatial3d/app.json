@@ -1,0 +1,93 @@
+{
+  "id": "spatial3d",
+  "name": "Spatial 3D",
+  "description": "3D spatial transcriptomics point clouds — cluster and gene colouring at 1M+ cells (deck.gl).",
+  "version": "0.1.0",
+  "surface": "dom",
+  "entry": {
+    "frontend": "frontend/index.js",
+    "backend": "backend/__init__.py"
+  },
+  "opens": [
+    ".h5ad"
+  ],
+  "sync": {
+    "colorBy": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "cluster": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "colormap": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "mode": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "opacity": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "pointSize": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "slice": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "camera": {
+      "mode": "shared",
+      "rate": "stream"
+    }
+  },
+  "defaultFor": [],
+  "launcher": false,
+  "icon": {
+    "tint": "#4a3f78",
+    "path": "assets/icon.svg"
+  },
+  "menus": [
+    {
+      "label": "Data",
+      "items": [
+        {
+          "label": "Load Example Data",
+          "action": "loadExample"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "name": "loadExample",
+      "description": "Show a synthetic 3D tissue"
+    }
+  ],
+  "caps": {
+    "fs": [],
+    "net": true,
+    "python": {
+      "env": "pantheon-base"
+    }
+  },
+  "skill": "skill/SKILL.md",
+  "persistState": [
+    "mode",
+    "colorBy",
+    "gene",
+    "clusterKey",
+    "colormap",
+    "threshold",
+    "cluster",
+    "pointSize",
+    "opacity",
+    "slice",
+    "camera"
+  ],
+  "apiVersion": 1
+}

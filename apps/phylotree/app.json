@@ -1,0 +1,119 @@
+{
+  "id": "phylotree",
+  "name": "PhyloTree",
+  "description": "Phylogenetic trees from Newick — linear or radial layouts (phylotree.js).",
+  "version": "0.1.0",
+  "surface": "dom",
+  "entry": {
+    "frontend": "frontend/index.js"
+  },
+  "opens": [
+    ".nwk",
+    ".newick",
+    ".tree"
+  ],
+  "sync": {
+    "newick": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "url": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "layout": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "show_labels": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "show_scale": {
+      "mode": "shared",
+      "rate": "commit"
+    },
+    "align_tips": {
+      "mode": "shared",
+      "rate": "commit"
+    }
+  },
+  "defaultFor": [],
+  "launcher": false,
+  "icon": {
+    "tint": "#3f7d4e",
+    "path": "assets/icon.svg"
+  },
+  "menus": [
+    {
+      "label": "Data",
+      "items": [
+        {
+          "label": "Load Example Data",
+          "action": "$demo"
+        }
+      ]
+    },
+    {
+      "label": "View",
+      "items": [
+        {
+          "label": "Linear Layout",
+          "action": "setLayout",
+          "args": {
+            "layout": "linear"
+          }
+        },
+        {
+          "label": "Radial Layout",
+          "action": "setLayout",
+          "args": {
+            "layout": "radial"
+          }
+        },
+        {
+          "separator": true
+        },
+        {
+          "label": "Toggle Labels",
+          "action": "toggleLabels"
+        },
+        {
+          "label": "Toggle Aligned Tips",
+          "action": "toggleAlign"
+        },
+        {
+          "label": "Toggle Scale Bar",
+          "action": "toggleScale"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "name": "setLayout",
+      "params": {
+        "layout": "linear | radial"
+      },
+      "description": "Tree layout"
+    },
+    {
+      "name": "toggleLabels",
+      "description": "Show/hide tip labels"
+    },
+    {
+      "name": "toggleAlign",
+      "description": "Align tips at the same depth"
+    },
+    {
+      "name": "toggleScale",
+      "description": "Show/hide the scale bar"
+    }
+  ],
+  "caps": {
+    "fs": [],
+    "net": true
+  },
+  "skill": "skill/SKILL.md",
+  "apiVersion": 1
+}
