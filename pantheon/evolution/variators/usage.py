@@ -27,6 +27,7 @@ def add(calls: int = 0, prompt_tokens: int = 0, completion_tokens: int = 0,
         _USAGE["prompt_tokens"] += prompt_tokens
         _USAGE["completion_tokens"] += completion_tokens
         _USAGE["cost_usd"] += cost_usd
+        _mark("llm")
 
 
 def add_response(resp: Any) -> None:
@@ -82,8 +83,35 @@ def add_eval(fidelity: str, metrics: Dict[str, Any]) -> None:
             _EVAL["calls_low"] += 1
         _EVAL["case_executions"] += cases
         _EVAL["eval_seconds"] += float(metrics.get("eval_time", 0.0) or 0.0)
+        _mark("eval")
 
 
 def eval_snapshot() -> Dict[str, float]:
     with _LOCK:
         return dict(_EVAL)
+
+
+_TIMELINE: list = []
+
+
+def _mark(kind: str) -> None:
+    """One timeline row per booking: when it happened and where both ledgers stood.
+
+    Exists for budget-axis evolution curves (score vs cumulative LLM calls / evaluator calls).
+    Run totals alone cannot place a measurement on those axes; wave5 had to reconstruct them by
+    time-share, and this is the fix. Appended under the same lock as the ledgers, so a row is
+    always a consistent read of both.
+    """
+    import time as _time
+
+    _TIMELINE.append({"t": _time.time(), "kind": kind,
+                      "llm_calls": _USAGE["calls"],
+                      "prompt_tokens": _USAGE["prompt_tokens"],
+                      "completion_tokens": _USAGE["completion_tokens"],
+                      "eval_calls": _EVAL["calls"], "eval_calls_low": _EVAL["calls_low"],
+                      "case_executions": _EVAL["case_executions"]})
+
+
+def timeline() -> list:
+    with _LOCK:
+        return list(_TIMELINE)
