@@ -266,6 +266,8 @@ class CompletionVariator:
         if self.max_tokens:
             kwargs["max_tokens"] = self.max_tokens
         resp = await client.chat.completions.create(**kwargs)
+        from .usage import add_response
+        add_response(resp)
         return [(ch.message.content or "") for ch in (resp.choices or [])]
 
     async def create(self, ctx: EvolveContext, item: Create) -> List[Produced]:

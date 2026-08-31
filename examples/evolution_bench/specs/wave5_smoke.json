@@ -1,0 +1,5 @@
+[
+  {"out": "wave5/smoke_dsflash",
+   "argv": ["--task", "ahc039", "--method", "simpletes", "--iterations", "2", "--seed", "0",
+            "--model", "~deepseek/deepseek-v4-flash-latest"]}
+]

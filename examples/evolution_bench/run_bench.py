@@ -200,11 +200,12 @@ async def main(a) -> None:
     search = ({"judge": f"{a.judge}(n_min={a.judge_n_min})", "norm": method.norm,
                "t0": method.t0, "t1": method.t1, "beta0": method.beta0, "gamma": method.gamma}
               if a.method == "annealed" else {})
+    from pantheon.evolution.variators.usage import snapshot as llm_usage
     json.dump({"task": a.task, "evolve": evolve_file, "method": method.name, "model": a.model, "seed": a.seed,
                "operator": operator, "search": search, "seed_sha": seed_sha,
                "items_run": res.items_run, "failures": res.failures,
                "best_combined_score": best_score, "seed_combined_score": seed_score,
-               "seconds": res.seconds, "history": history},
+               "seconds": res.seconds, "llm_usage": llm_usage(), "history": history},
               open(out / "summary.json", "w"), indent=1)
     print(f"-> {out}/summary.json")
 

@@ -81,15 +81,17 @@ def agent_kwargs(kw: Dict[str, Any]) -> Dict[str, Any]:
 def extract_cost(response: Any) -> float:
     """Cost in USD for one agent run.
 
-    It is carried on the last assistant message's `_metadata.current_cost`, not as an attribute of
-    the response -- the response object has no cost field at all, so looking for one silently
-    returns zero and every cost report reads $0.0000.
+    It is carried per-call on each assistant message's `_metadata.current_cost`, not as an
+    attribute of the response -- the response object has no cost field at all, so looking for one
+    silently returns zero and every cost report reads $0.0000. SUMMED over the session's
+    messages: an earlier version read only the last message and undercounted every multi-turn
+    session by however many turns came before. Booking into the run-wide usage ledger happens
+    here too, so the summary's totals and the per-child costs come from the same read.
     """
     try:
         if response and response.details and response.details.messages:
-            for msg in reversed(response.details.messages):
-                if msg.get("role") == "assistant" and "_metadata" in msg:
-                    return float(msg.get("_metadata", {}).get("current_cost", 0.0) or 0.0)
+            from .usage import add_agent_messages
+            return add_agent_messages(response.details.messages)
     except Exception:  # noqa: BLE001
         pass
     return 0.0

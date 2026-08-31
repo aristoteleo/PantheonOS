@@ -94,6 +94,8 @@ class IdeaVariator:
         if self.temperature is not None:
             kwargs["temperature"] = self.temperature
         resp = await client.chat.completions.create(**kwargs)
+        from .usage import add_response
+        add_response(resp)
         return [(ch.message.content or "").strip() for ch in (resp.choices or [])]
 
     async def create(self, ctx: EvolveContext, item: Create) -> List[Produced]:
@@ -186,6 +188,8 @@ class IdeaJudge:
                 messages=[{"role": "system", "content": self.system_prompt},
                           {"role": "user", "content": prompt}],
             )
+            from .usage import add_response
+            add_response(resp)
             text = (resp.choices[0].message.content or "").strip()
         except Exception as e:  # noqa: BLE001
             logger.warning(f"idea judge failed: {type(e).__name__}: {e}")
