@@ -438,7 +438,18 @@ EOF
     # Pantheon-Fleet: when this sandbox is wired to a fleet, join it as a Node in
     # the background so the agent can transfer files to/from it over the data plane
     # via a single transfer() interface (dst_node="local" resolves to this node).
-    if [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v fleet >/dev/null 2>&1; then
+    # PANTHEON_ROLE splits the brain from the body (one image, two roles):
+    #   brain — the agent worker on a fast host (k8s pod). No runner here:
+    #           this machine holds no workspace and must NOT register as a
+    #           sandbox node (the resolver discovers the real body in the
+    #           fleet registry instead). No prestart either — instances
+    #           belong on the body.
+    #   body  — the sandbox: runner + App instances, NO worker (the brain
+    #           owns the service subject).
+    #   unset — the classic single-container deployment: both halves.
+    if [ "${PANTHEON_ROLE:-}" = "brain" ]; then
+        echo "[fleet] brain role: no local runner; the body is discovered via the registry"
+    elif [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v fleet >/dev/null 2>&1; then
         # Node identity for the App placer: this node IS the user's sandbox —
         # it holds the workspace filesystem and a display stack. Read by
         # runners >= feat/fleet-app-node via env; older binaries ignore them.
@@ -452,12 +463,15 @@ EOF
         fleet up --controller "${FLEET_CONTROLLER_URL}" --key "${FLEET_KEY}" \
             --name "sandbox-${ID_HASH}" --state-dir /tmp/fleet-node \
             > /tmp/fleet-node.log 2>&1 &
-        # Warm the core App instances once the runner joins (background,
-        # non-fatal) so the first tool bind doesn't pay the cold start.
-        # The resolver lazy-starts at bind time either way.
-        ( "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.apps prestart \
-            "${PANTHEON_APPS_PRESTART:-shell,file_manager,desktop}" 90 \
-            > /tmp/apps-prestart.log 2>&1 & )
+        if [ "${PANTHEON_ROLE:-}" != "body" ]; then
+            # Warm the core App instances once the runner joins (background,
+            # non-fatal) so the first tool bind doesn't pay the cold start.
+            # The resolver lazy-starts at bind time either way. The body
+            # skips this: its brain runs elsewhere and warms what it needs.
+            ( "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.apps prestart \
+                "${PANTHEON_APPS_PRESTART:-shell,file_manager,desktop}" 90 \
+                > /tmp/apps-prestart.log 2>&1 & )
+        fi
     fi
 
     # ── User setup hook ───────────────────────────────────────────────────
@@ -579,6 +593,19 @@ EOF
         set -a
         . "$AGENT_ENV_FILE"
         set +a
+    fi
+
+    # Body role: no worker — the brain (a k8s pod) owns this user's service
+    # subject, and starting a second worker here would fight it for requests.
+    # The container's life is the runner's: when the runner dies, exit, so
+    # the platform sees a dead body instead of a zombie container.
+    if [ "${PANTHEON_ROLE:-}" = "body" ]; then
+        echo "[launch] body role: runner only, no agent worker"
+        while pgrep -f 'fleet up' >/dev/null 2>&1; do
+            sleep 5
+        done
+        echo "[launch] runner exited; body container stopping"
+        exit 0
     fi
 
     # Execute the command with ID_HASH parameter

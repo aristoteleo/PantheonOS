@@ -425,13 +425,20 @@ class AppInstanceResolver:
                         f"node {target} does not answer on the fleet cmd "
                         f"subject (creds/scope?)"
                     )
+            spec_env = {k: v for k, v in os.environ.items()
+                        if k.startswith("NATS_") or k in ("PYTHONPATH", "PATH")}
+            # Split brain: this process reaches NATS by an address the body
+            # cannot (a cluster-internal service, say). The hub hands the
+            # body-facing address separately; the instance's env gets THAT.
+            body_nats = os.environ.get("PANTHEON_BODY_NATS_SERVERS")
+            if body_nats:
+                spec_env["NATS_SERVERS"] = body_nats
             spec = apphost_spec(
                 app.manifest.id,
                 user_seed=self._seed,
                 workdir=workdir or self._workdir,
                 scope=scope,
-                env={k: v for k, v in os.environ.items()
-                     if k.startswith("NATS_") or k in ("PYTHONPATH", "PATH")},
+                env=spec_env,
             )
             resp = await client.start(target, spec)
             if not resp.get("ok"):
