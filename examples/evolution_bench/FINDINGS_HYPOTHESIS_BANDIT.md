@@ -80,7 +80,12 @@ that survives three rounds of harness correction is narrow and real: single-shot
 of a large (24KB) heavily tuned block, blind to execution, does not preserve incumbent quality
 within this budget — an agent that runs the evaluator before submitting does. One authoring
 caveat: the block's SCOPE is the task author's choice; we marked the whole SA core, and a
-smaller block (say, only the parameter schedule) might behave differently.
+smaller block (say, only the parameter schedule) might behave differently. **Resolved
+(2026-09-01):** the authors' own AHC039 init program (`datasets/ahc/ahc039/init_program.py`
+at a19a54b1) puts the markers at line 1 and the last line -- the ENTIRE 43KB program is their
+evolve block, regenerated whole on every call. Our 24KB SA-core block is the EASIER variant of
+their protocol (scaffolding held fixed), so the wreckage result is conservative, not inflated
+by block scope.
 
 **Erratum (2026-08-13):** an earlier revision of this paragraph said upstream published no
 AHC-class results. Wrong — the SimpleTES paper's Table 9 reports AHC039 = 567,503 (official
