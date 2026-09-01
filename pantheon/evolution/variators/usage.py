@@ -63,11 +63,11 @@ def snapshot() -> Dict[str, float]:
         return dict(_USAGE)
 
 
-_EVAL: Dict[str, float] = {"calls": 0, "calls_low": 0, "case_executions": 0,
-                           "eval_seconds": 0.0}
+_EVAL: Dict[str, float] = {"calls": 0, "calls_low": 0, "calls_harness": 0,
+                           "case_executions": 0, "eval_seconds": 0.0}
 
 
-def add_eval(fidelity: str, metrics: Dict[str, Any]) -> None:
+def add_eval(fidelity: str, metrics: Dict[str, Any], source: str = "search") -> None:
     """Book one evaluator invocation, whoever asked for it.
 
     The loop's recorded measurements, a method's cheap screens and an agent's inner
@@ -79,6 +79,10 @@ def add_eval(fidelity: str, metrics: Dict[str, Any]) -> None:
     cases = int(metrics.get("num_cases", 0) or 0) * int(metrics.get("n_eval_runs", 1) or 1)
     with _LOCK:
         _EVAL["calls"] += 1
+        if source != "search":
+            # warm-up reads and drift probes are the harness measuring ITSELF; kept out of
+            # the search's budget arithmetic and out of the budget-axis curves
+            _EVAL["calls_harness"] += 1
         if fidelity and fidelity != "full":
             _EVAL["calls_low"] += 1
         _EVAL["case_executions"] += cases
@@ -109,6 +113,7 @@ def _mark(kind: str) -> None:
                       "prompt_tokens": _USAGE["prompt_tokens"],
                       "completion_tokens": _USAGE["completion_tokens"],
                       "eval_calls": _EVAL["calls"], "eval_calls_low": _EVAL["calls_low"],
+                      "eval_calls_harness": _EVAL["calls_harness"],
                       "case_executions": _EVAL["case_executions"]})
 
 

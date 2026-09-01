@@ -50,19 +50,27 @@ def method_of(r):
 
 
 def spend_at(r, t, key):
-    """Cumulative `key` ('llm_calls' | 'eval_calls') at run-relative second t."""
+    """Cumulative SEARCH spend of `key` ('llm_calls' | 'eval_calls') at run-relative second t.
+
+    Harness overhead (warm-up read, drift probes) is subtracted where the timeline tags it --
+    those measurements exist to audit the machine, not to advance the search, and charging
+    them to the method would skew the eval axis for the longest-running arms most."""
     tl = r.get("usage_timeline") or []
     if tl:
-        t0 = tl[0]["t"]
+        t0 = r.get("t0_epoch") or tl[0]["t"]
         best = 0
         for row in tl:
             if row["t"] - t0 <= t:
-                best = row[key]
+                best = row[key] - (row.get("eval_calls_harness", 0)
+                                   if key == "eval_calls" else 0)
             else:
                 break
         return best
-    total = (r.get("llm_usage", {}).get("calls", 0) if key == "llm_calls"
-             else r.get("eval_usage", {}).get("calls", 0))
+    if key == "llm_calls":
+        total = r.get("llm_usage", {}).get("calls", 0)
+    else:
+        eu = r.get("eval_usage", {})
+        total = eu.get("calls", 0) - eu.get("calls_harness", 0)
     T = max(float(r.get("seconds") or 1.0), 1e-6)
     return total * min(t, T) / T
 
@@ -120,7 +128,8 @@ def curve_fig(rows, key, xlabel, exact, out_png, tag):
 
 def box_fig(rows, out_png, tag):
     cap_llm = min(r.get("llm_usage", {}).get("calls", 0) or 1 for r in rows)
-    cap_eval = min(r.get("eval_usage", {}).get("calls", 0) or 1 for r in rows)
+    cap_eval = min((r.get("eval_usage", {}).get("calls", 0)
+                    - r.get("eval_usage", {}).get("calls_harness", 0)) or 1 for r in rows)
     by_m = defaultdict(list)
     for r in rows:
         pts_l = run_points(r, "llm_calls")

@@ -46,8 +46,8 @@ class ProgramEvaluatorAdapter:
     behaviour, which is what every existing task does.
     """
 
-    async def evaluate_files(self, files: Dict[str, str],
-                             fidelity: str = "full") -> Dict[str, Any]:
+    async def evaluate_files(self, files: Dict[str, str], fidelity: str = "full",
+                             book_as: str = "search") -> Dict[str, Any]:
         # On wall-clock-scored tasks two concurrent measurements steal CPU from each other and
         # both readings drop -- `serialize=True` runs them one at a time instead. LLM waits
         # still overlap, so worker concurrency keeps paying where it is safe to.
@@ -57,11 +57,11 @@ class ProgramEvaluatorAdapter:
             if self._eval_lock is None:
                 self._eval_lock = asyncio.Lock()
             async with self._eval_lock:
-                return await self._evaluate_files_now(files, fidelity)
-        return await self._evaluate_files_now(files, fidelity)
+                return await self._evaluate_files_now(files, fidelity, book_as)
+        return await self._evaluate_files_now(files, fidelity, book_as)
 
-    async def _evaluate_files_now(self, files: Dict[str, str],
-                                  fidelity: str = "full") -> Dict[str, Any]:
+    async def _evaluate_files_now(self, files: Dict[str, str], fidelity: str = "full",
+                                  book_as: str = "search") -> Dict[str, Any]:
         from ..program import CodebaseSnapshot, Program
 
         payload = dict(files)
@@ -77,7 +77,7 @@ class ProgramEvaluatorAdapter:
             self.last_state = state
         metrics = dict(getattr(res, "metrics", {}) or {})
         from .usage import add_eval
-        add_eval(fidelity, metrics)
+        add_eval(fidelity, metrics, source=book_as)
         return {
             "success": bool(getattr(res, "success", False)),
             "metrics": metrics,

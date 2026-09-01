@@ -168,6 +168,16 @@ async def main(a) -> None:
         history.append({"t": round(time.time() - t0, 1), "n": len(history) + 1, "score": s,
                         "id": data.get("id"),
                         "valid": data.get("metrics", {}).get("validity")})
+        if len(history) % 5 == 0:
+            from pantheon.evolution.variators.usage import (eval_snapshot as _pe,
+                                                            snapshot as _pl, timeline as _pt)
+            try:
+                json.dump({"partial": True, "t0_epoch": t0, "history": history,
+                           "llm_usage": _pl(), "eval_usage": _pe(),
+                           "usage_timeline": _pt(), "drift": drift},
+                          open(out / "partial_summary.json", "w"))
+            except Exception:  # noqa: BLE001
+                pass
         best = max(h["score"] for h in history)
         print(f"  [{len(history):>3}] {time.time()-t0:6.0f}s  score={s:.6f}  best={best:.6f}",
               flush=True)
@@ -179,7 +189,8 @@ async def main(a) -> None:
     # higher. One discarded warm-up read moves every arm's recorded seed onto a warm machine.
     warmup_score = None
     if cfg.get("warmup_eval"):
-        w = await evaluator.evaluate_files({evolve_file: seed_src}, "full")
+        w = await evaluator.evaluate_files({evolve_file: seed_src}, "full",
+                                           book_as="harness")
         warmup_score = w.get("metrics", {}).get("combined_score")
         print(f"warm-up eval (discarded): {warmup_score}", flush=True)
 
@@ -192,7 +203,8 @@ async def main(a) -> None:
         while True:
             await asyncio.sleep(1200)
             try:
-                o = await evaluator.evaluate_files({evolve_file: seed_src}, "full")
+                o = await evaluator.evaluate_files({evolve_file: seed_src}, "full",
+                                                   book_as="harness")
                 drift.append({"t": round(time.time() - t0, 1),
                               "score": o.get("metrics", {}).get("combined_score")})
             except Exception:  # noqa: BLE001
@@ -205,9 +217,8 @@ async def main(a) -> None:
     def _over_budget() -> bool:
         if a.max_llm_calls and _llm()["calls"] >= a.max_llm_calls:
             return True
-        # drift probes and the warm-up are harness overhead, not method spend
-        overhead = len(drift) + (1 if warmup_score is not None else 0)
-        if a.max_eval_calls and (_ev()["calls"] - overhead) >= a.max_eval_calls:
+        ev = _ev()
+        if a.max_eval_calls and (ev["calls"] - ev["calls_harness"]) >= a.max_eval_calls:
             return True
         return False
 
@@ -272,7 +283,7 @@ async def main(a) -> None:
                "best_combined_score": best_score, "seed_combined_score": seed_score,
                "best_child_combined_score": best_child_score,
                "seed_remeasures": max(0, len(seed_ms) - 1),
-               "warmup_score": warmup_score, "drift": drift,
+               "warmup_score": warmup_score, "drift": drift, "t0_epoch": t0,
                "seconds": res.seconds, "llm_usage": llm_usage(),
                "eval_usage": eval_snapshot(), "usage_timeline": timeline(),
                "history": history},
