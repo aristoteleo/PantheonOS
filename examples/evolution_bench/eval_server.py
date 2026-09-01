@@ -21,9 +21,16 @@ caller is ours without minting a new secret or sending the key itself.
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import modal
 
-from modal_exp import image
+# Deployed, this module runs from /root while the repo (and modal_exp) live in the image
+# mount -- the sibling import needs the mount on the path there, and the local dir here.
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, "/repo/examples/evolution_bench")
+from modal_exp import image  # noqa: E402
 
 app = modal.App("evolve-eval-server")
 
@@ -71,11 +78,20 @@ class EvalServer:
     def _evaluate_fn(self, task: str):
         if task not in self._mods:
             import importlib.util
+            import json
             import os
 
             task_dir = f"/repo/examples/evolution_bench/tasks/{task}"
             os.environ["AHC_TASK_DIR"] = task_dir
             os.environ["TASK_DIR"] = task_dir
+            # the task's own env (AHC_EVAL_RUNS=1, timeouts) -- run_bench applies these on the
+            # arms, and skipping them here silently ran full fidelity at the evaluator's 3-repeat
+            # default: 50s per eval instead of ~17, and means-of-3 nobody else measures with
+            cfg_path = f"{task_dir}/task.json"
+            if os.path.exists(cfg_path):
+                for k, v in (json.load(open(cfg_path)).get("env") or {}).items():
+                    if k != "AHC_CASE_WORKERS":         # ours is sized for this box
+                        os.environ.setdefault(k, str(v))
             spec = importlib.util.spec_from_file_location(
                 f"eval_{task}", f"{task_dir}/evaluator.py")
             mod = importlib.util.module_from_spec(spec)

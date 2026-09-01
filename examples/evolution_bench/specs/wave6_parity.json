@@ -21,7 +21,7 @@
    "--max-eval-calls",
    "500",
    "--eval-server",
-   "EVAL_SERVER_URL_PLACEHOLDER"
+   "https://spateo-viewer--evolve-eval-server-evalserver-evaluate.modal.run"
   ],
   "small": true
  },
@@ -47,7 +47,7 @@
    "--max-eval-calls",
    "500",
    "--eval-server",
-   "EVAL_SERVER_URL_PLACEHOLDER"
+   "https://spateo-viewer--evolve-eval-server-evalserver-evaluate.modal.run"
   ],
   "small": true
  },
@@ -73,7 +73,7 @@
    "--max-eval-calls",
    "500",
    "--eval-server",
-   "EVAL_SERVER_URL_PLACEHOLDER"
+   "https://spateo-viewer--evolve-eval-server-evalserver-evaluate.modal.run"
   ],
   "small": true
  },
@@ -99,7 +99,7 @@
    "--max-eval-calls",
    "500",
    "--eval-server",
-   "EVAL_SERVER_URL_PLACEHOLDER"
+   "https://spateo-viewer--evolve-eval-server-evalserver-evaluate.modal.run"
   ],
   "small": true
  },
@@ -125,7 +125,7 @@
    "--max-eval-calls",
    "500",
    "--eval-server",
-   "EVAL_SERVER_URL_PLACEHOLDER"
+   "https://spateo-viewer--evolve-eval-server-evalserver-evaluate.modal.run"
   ],
   "small": true
  },
@@ -151,7 +151,7 @@
    "--max-eval-calls",
    "500",
    "--eval-server",
-   "EVAL_SERVER_URL_PLACEHOLDER"
+   "https://spateo-viewer--evolve-eval-server-evalserver-evaluate.modal.run"
   ],
   "small": true
  },
@@ -177,7 +177,7 @@
    "--max-eval-calls",
    "500",
    "--eval-server",
-   "EVAL_SERVER_URL_PLACEHOLDER"
+   "https://spateo-viewer--evolve-eval-server-evalserver-evaluate.modal.run"
   ],
   "small": true
  },
@@ -203,7 +203,7 @@
    "--max-eval-calls",
    "500",
    "--eval-server",
-   "EVAL_SERVER_URL_PLACEHOLDER"
+   "https://spateo-viewer--evolve-eval-server-evalserver-evaluate.modal.run"
   ],
   "small": true
  },
@@ -229,7 +229,7 @@
    "--max-eval-calls",
    "500",
    "--eval-server",
-   "EVAL_SERVER_URL_PLACEHOLDER"
+   "https://spateo-viewer--evolve-eval-server-evalserver-evaluate.modal.run"
   ],
   "small": true
  }
