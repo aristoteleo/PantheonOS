@@ -222,7 +222,11 @@ async def main(a) -> None:
     from pantheon.evolution.variators.usage import eval_snapshot as _ev, snapshot as _llm
 
     def _over_budget() -> bool:
-        if a.max_llm_calls and _llm()["calls"] >= a.max_llm_calls:
+        lu = _llm()
+        if a.max_llm_calls and lu["calls"] >= a.max_llm_calls:
+            return True
+        if a.max_llm_tokens and (lu["prompt_tokens"] + lu["completion_tokens"]
+                                 ) >= a.max_llm_tokens:
             return True
         ev = _ev()
         if a.max_eval_calls and (ev["calls"] - ev["calls_harness"]) >= a.max_eval_calls:
@@ -230,7 +234,8 @@ async def main(a) -> None:
         return False
 
     budget = Budget(max_items=a.iterations,
-                    stop_when=(_over_budget if (a.max_llm_calls or a.max_eval_calls) else None))
+                    stop_when=(_over_budget if (a.max_llm_calls or a.max_eval_calls
+                                                or a.max_llm_tokens) else None))
     res = await evolve(method=method, variator=variator,
                        evaluators={"code": evaluator},
                        seeds=[CodeGenome(files={evolve_file: seed_src})],
@@ -313,6 +318,8 @@ if __name__ == "__main__":
     p.add_argument("--max-llm-calls", type=int, default=None,
                    help="stop issuing items once the run's LLM-call ledger reaches this; the "
                         "spend-parity budget for cross-method comparison")
+    p.add_argument("--max-llm-tokens", type=int, default=None,
+                   help="stop once prompt+completion tokens reach this; the third parity axis")
     p.add_argument("--max-eval-calls", type=int, default=None,
                    help="companion ceiling on evaluator calls (warm-up/drift probes excluded)")
     p.add_argument("--max-inner-evals", type=int, default=None,
