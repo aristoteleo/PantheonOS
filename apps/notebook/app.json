@@ -1,6 +1,6 @@
 {
   "id": "integrated-notebook",
-  "name": "IntegratedNotebook",
+  "name": "Jupyter",
   "version": "0.6.4",
   "description": "Notebook editing and execution with streaming.",
   "entry": {
@@ -456,7 +456,8 @@
   ],
   "launcher": true,
   "icon": {
-    "tint": "#e8712b"
+    "path": "assets/icon.svg",
+    "tint": "#f37726"
   },
   "caps": {
     "fs": [],
