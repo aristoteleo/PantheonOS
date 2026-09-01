@@ -4,7 +4,8 @@
   "version": "0.6.4",
   "description": "Notebook editing and execution with streaming.",
   "entry": {
-    "backend": "pantheon.apps.builtin.notebook:IntegratedNotebookToolSet"
+    "backend": "pantheon.apps.builtin.notebook:IntegratedNotebookToolSet",
+    "frontend": "frontend/index.js"
   },
   "provides": {
     "tools": [
@@ -445,5 +446,24 @@
     ]
   },
   "apiVersion": 2,
-  "kind": "service"
+  "kind": "service",
+  "surface": "dom",
+  "opens": [
+    ".ipynb"
+  ],
+  "defaultFor": [
+    ".ipynb"
+  ],
+  "launcher": true,
+  "icon": {
+    "tint": "#e8712b"
+  },
+  "caps": {
+    "fs": [],
+    "net": false
+  },
+  "defaultSize": {
+    "width": 1080,
+    "height": 760
+  }
 }
