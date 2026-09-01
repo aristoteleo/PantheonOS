@@ -45,8 +45,17 @@ plt.rcParams.update({
 
 
 def method_of(r):
-    m = r.get("method", "?")
+    m = r.get("method") or r.get("_method_hint", "?")
     return "hypothesis_bandit" if m == "pantheon_evo" else m
+
+
+def infer_method(path: str):
+    base = os.path.basename(path)
+    for pat, m in (("hypbandit", "hypothesis_bandit"), ("mapelites", "agent_map_elites"),
+                   ("simpletes", "simpletes")):
+        if pat in base:
+            return m
+    return None
 
 
 def spend_at(r, t, key):
@@ -61,13 +70,20 @@ def spend_at(r, t, key):
         best = 0
         for row in tl:
             if row["t"] - t0 <= t:
-                best = row[key] - (row.get("eval_calls_harness", 0)
-                                   if key == "eval_calls" else 0)
+                if key == "tokens":
+                    best = row.get("prompt_tokens", 0) + row.get("completion_tokens", 0)
+                elif key == "eval_calls":
+                    best = row[key] - row.get("eval_calls_harness", 0)
+                else:
+                    best = row[key]
             else:
                 break
         return best
     if key == "llm_calls":
         total = r.get("llm_usage", {}).get("calls", 0)
+    elif key == "tokens":
+        lu = r.get("llm_usage", {})
+        total = lu.get("prompt_tokens", 0) + lu.get("completion_tokens", 0)
     else:
         eu = r.get("eval_usage", {})
         total = eu.get("calls", 0) - eu.get("calls_harness", 0)
@@ -102,21 +118,39 @@ def curve_fig(rows, key, xlabel, exact, out_png, tag):
         if m not in COLORS:
             continue
         col = COLORS[m]
-        curves = [run_points(r, key) for r in rs]
-        curves = [c for c in curves if len(c) >= 2]
-        for c in curves:
+        done = [run_points(r, key) for r in rs if not r.get("partial")]
+        part = [run_points(r, key) for r in rs if r.get("partial")]
+        done = [c for c in done if len(c) >= 2]
+        part = [c for c in part if len(c) >= 2]
+        for c in done:
             xs, ys = zip(*c)
             ax.step(xs, [y * K for y in ys], where="post", color=col, lw=1.1, alpha=0.4)
-        if curves:
-            grid = np.linspace(0, max(x for c in curves for x, _ in c), 200)
+        for c in part:
+            # still-running arms: dashed, thinner, excluded from the mean
+            xs, ys = zip(*c)
+            ax.step(xs, [y * K for y in ys], where="post", color=col, lw=1.0, alpha=0.35,
+                    linestyle="--")
+        if done:
+            grid = np.linspace(0, max(x for c in done for x, _ in c), 200)
             vals = []
-            for c in curves:
+            for c in done:
                 xs, ys = zip(*c)
                 vals.append(np.interp(grid, xs, [y * K for y in ys]))
             ax.plot(grid, np.mean(vals, axis=0), color=col, lw=2.6,
-                    label=f"{LABELS[m]} (n={len(curves)})")
+                    label=f"{LABELS[m]} (n={len(done)} done"
+                          + (f" + {len(part)} running, dashed)" if part else ")"))
+        elif part:
+            ax.plot([], [], color=col, lw=1.0, linestyle="--",
+                    label=f"{LABELS[m]} ({len(part)} running, dashed)")
     ax.set_xlabel(xlabel + ("" if exact else "   (estimated by time-share: total × t/T)"))
     ax.set_ylabel("best official score per case")
+    # clamp to the decision-relevant band: a wrecked first child on a partial (no seed anchor)
+    # otherwise stretches the axis 2000 points down and flattens every real difference
+    finals = [c[-1][1] * K for rs in by_m.values() for r in rs
+              for c in [run_points(r, key)] if len(c) >= 2]
+    if finals:
+        top = max(finals)
+        ax.set_ylim(top - 160, top + 18)
     ax.legend(frameon=False, fontsize=11.5, loc="lower right")
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
@@ -180,7 +214,11 @@ if __name__ == "__main__":
             r = json.load(open(f))
         except Exception:
             continue
-        if r.get("items_run", 0) > 0 and (r.get("history") or []):
+        if r.get("method") is None:
+            hint = infer_method(f)
+            if hint:
+                r["_method_hint"] = hint
+        if (r.get("items_run", 0) > 0 or r.get("partial")) and (r.get("history") or []):
             rows.append(r)
     if not rows:
         raise SystemExit("no completed summaries among inputs")
@@ -190,6 +228,10 @@ if __name__ == "__main__":
     exact = all(r.get("usage_timeline") for r in rows)
     curve_fig(rows, "llm_calls", "cumulative LLM calls", exact,
               str(out / f"budget_llm_{a.tag}.png"), a.tag)
-    curve_fig(rows, "eval_calls", "cumulative evaluator calls", exact,
+    curve_fig(rows, "eval_calls", "cumulative evaluator calls (search only)", exact,
               str(out / f"budget_eval_{a.tag}.png"), a.tag)
-    box_fig(rows, str(out / f"budget_box_{a.tag}.png"), a.tag)
+    curve_fig(rows, "tokens", "cumulative LLM tokens (prompt + completion)", exact,
+              str(out / f"budget_tokens_{a.tag}.png"), a.tag)
+    complete = [r for r in rows if not r.get("partial")]
+    if complete:
+        box_fig(complete, str(out / f"budget_box_{a.tag}.png"), a.tag)
