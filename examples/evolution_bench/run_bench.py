@@ -94,10 +94,17 @@ async def main(a) -> None:
     out = Path(a.output or (HERE / "results" / f"{a.task}_{a.method}_s{a.seed}")).resolve()
     out.mkdir(parents=True, exist_ok=True)
 
-    evaluator = CodeEvaluator(evaluator_code=(task_dir / "evaluator.py").read_text(),
-                              timeout=a.eval_timeout or cfg.get("eval_timeout", 400),
-                              workspace_path=str(out / "_eval"),
-                              serialize=bool(cfg.get("serialize_evals")))
+    if a.eval_server:
+        # every measurement of the wave on ONE dedicated machine; the server also serializes,
+        # so the local lock stays off (see eval_server.py for what this buys and what it not)
+        from remote_eval import RemoteEvalAdapter
+
+        evaluator = RemoteEvalAdapter(a.eval_server, a.task)
+    else:
+        evaluator = CodeEvaluator(evaluator_code=(task_dir / "evaluator.py").read_text(),
+                                  timeout=a.eval_timeout or cfg.get("eval_timeout", 400),
+                                  workspace_path=str(out / "_eval"),
+                                  serialize=bool(cfg.get("serialize_evals")))
 
     judge = None
     if a.method == "annealed":
@@ -284,6 +291,8 @@ async def main(a) -> None:
                "best_child_combined_score": best_child_score,
                "seed_remeasures": max(0, len(seed_ms) - 1),
                "warmup_score": warmup_score, "drift": drift, "t0_epoch": t0,
+               "eval_server": a.eval_server or None,
+               "eval_server_boots": getattr(evaluator, "boot_ids", None),
                "seconds": res.seconds, "llm_usage": llm_usage(),
                "eval_usage": eval_snapshot(), "usage_timeline": timeline(),
                "history": history},
@@ -299,6 +308,8 @@ if __name__ == "__main__":
                             "pantheon_evo", "hypothesis_bandit"])
     p.add_argument("--iterations", type=int, default=40)
     p.add_argument("--model", default="openai/gpt-5.6-luna")
+    p.add_argument("--eval-server", default=os.environ.get("EVAL_SERVER_URL", ""),
+                   help="URL of the shared evaluation server; empty = evaluate locally")
     p.add_argument("--max-llm-calls", type=int, default=None,
                    help="stop issuing items once the run's LLM-call ledger reaches this; the "
                         "spend-parity budget for cross-method comparison")

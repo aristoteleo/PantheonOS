@@ -19,8 +19,11 @@
    "--max-llm-calls",
    "480",
    "--max-eval-calls",
-   "500"
-  ]
+   "500",
+   "--eval-server",
+   "EVAL_SERVER_URL_PLACEHOLDER"
+  ],
+  "small": true
  },
  {
   "out": "wave6/ahc039_hypbandit_s1",
@@ -42,8 +45,11 @@
    "--max-llm-calls",
    "480",
    "--max-eval-calls",
-   "500"
-  ]
+   "500",
+   "--eval-server",
+   "EVAL_SERVER_URL_PLACEHOLDER"
+  ],
+  "small": true
  },
  {
   "out": "wave6/ahc039_hypbandit_s2",
@@ -65,8 +71,11 @@
    "--max-llm-calls",
    "480",
    "--max-eval-calls",
-   "500"
-  ]
+   "500",
+   "--eval-server",
+   "EVAL_SERVER_URL_PLACEHOLDER"
+  ],
+  "small": true
  },
  {
   "out": "wave6/ahc039_mapelites_s0",
@@ -88,8 +97,11 @@
    "--max-llm-calls",
    "480",
    "--max-eval-calls",
-   "500"
-  ]
+   "500",
+   "--eval-server",
+   "EVAL_SERVER_URL_PLACEHOLDER"
+  ],
+  "small": true
  },
  {
   "out": "wave6/ahc039_mapelites_s1",
@@ -111,8 +123,11 @@
    "--max-llm-calls",
    "480",
    "--max-eval-calls",
-   "500"
-  ]
+   "500",
+   "--eval-server",
+   "EVAL_SERVER_URL_PLACEHOLDER"
+  ],
+  "small": true
  },
  {
   "out": "wave6/ahc039_mapelites_s2",
@@ -134,8 +149,11 @@
    "--max-llm-calls",
    "480",
    "--max-eval-calls",
-   "500"
-  ]
+   "500",
+   "--eval-server",
+   "EVAL_SERVER_URL_PLACEHOLDER"
+  ],
+  "small": true
  },
  {
   "out": "wave6/ahc039_simpletes_s0",
@@ -157,8 +175,11 @@
    "--max-llm-calls",
    "480",
    "--max-eval-calls",
-   "500"
-  ]
+   "500",
+   "--eval-server",
+   "EVAL_SERVER_URL_PLACEHOLDER"
+  ],
+  "small": true
  },
  {
   "out": "wave6/ahc039_simpletes_s1",
@@ -180,8 +201,11 @@
    "--max-llm-calls",
    "480",
    "--max-eval-calls",
-   "500"
-  ]
+   "500",
+   "--eval-server",
+   "EVAL_SERVER_URL_PLACEHOLDER"
+  ],
+  "small": true
  },
  {
   "out": "wave6/ahc039_simpletes_s2",
@@ -203,7 +227,10 @@
    "--max-llm-calls",
    "480",
    "--max-eval-calls",
-   "500"
-  ]
+   "500",
+   "--eval-server",
+   "EVAL_SERVER_URL_PLACEHOLDER"
+  ],
+  "small": true
  }
 ]

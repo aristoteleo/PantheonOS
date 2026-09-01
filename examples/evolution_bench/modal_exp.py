@@ -50,6 +50,7 @@ vol = modal.Volume.from_name("evolve-exp-results", create_if_missing=True)
 image = (
     modal.Image.from_registry("yimjk/ale-bench:cpp20-202301", add_python="3.12")
     .pip_install_from_pyproject(str(REPO / "pyproject.toml"))
+    .pip_install("fastapi[standard]")   # the eval server's endpoint; layered before the mount
     .env({"AHC_EXEC": "direct", "PYTHONUNBUFFERED": "1", "PYTHONPATH": "/repo"})
     .add_local_dir(
         str(REPO), "/repo",
@@ -102,6 +103,17 @@ def run_arm(argv: list, out_rel: str,
 
 
 @app.function(image=image, secrets=[modal.Secret.from_name("evolve-exp-openrouter")],
+              volumes={"/results": vol}, cpu=2.0, memory=4096, timeout=24 * 3600,
+              max_containers=12)
+def run_arm_small(argv: list, out_rel: str,
+                  script: str = "examples/evolution_bench/run_bench.py") -> dict:
+    """An arm that measures NOTHING locally: with --eval-server, the loop is LLM orchestration
+    plus the agent's own file edits and compiles, and 2 cores cover that. Official scores no
+    longer depend on this box at all -- that is the point."""
+    return _run_one(argv, f"/results/{out_rel}", script=script)
+
+
+@app.function(image=image, secrets=[modal.Secret.from_name("evolve-exp-openrouter")],
               volumes={"/results": vol}, cpu=8.0, memory=16384, timeout=20 * 3600)
 def run_chain(stages: list, judge_state_rel: str) -> list:
     """Sequential runs sharing one judge-state file. 20h cap: three full runs plus slack."""
@@ -126,9 +138,10 @@ def main(spec: str = "", collect: str = ""):
             c = run_chain.spawn(arm["chain"], arm["judge_state"])
             name = arm["chain"][0]["out"] + f" (chain of {len(arm['chain'])})"
         else:
-            c = run_arm.spawn(arm["argv"], arm["out"],
-                              script=arm.get("script",
-                                             "examples/evolution_bench/run_bench.py"))
+            fn = run_arm_small if arm.get("small") else run_arm
+            c = fn.spawn(arm["argv"], arm["out"],
+                         script=arm.get("script",
+                                        "examples/evolution_bench/run_bench.py"))
             name = arm["out"]
         calls.append((name, c))
         print(f"spawned {name:42} {c.object_id}")
