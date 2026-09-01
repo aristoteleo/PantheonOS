@@ -54,9 +54,13 @@ class NotebookContentsToolSet(ToolSet):
 
         resolved_path = self._resolve_path(file_path)
 
-        # Check if path is within workspace (for security)
+        # Check if path is within workspace (for security). Compare through
+        # realpath: on workspace nodes /workspace is a symlink to the volume
+        # mount (/__modal/volumes/<id>), so a caller's /workspace/... and an
+        # instance workdir given as the mount path are the SAME tree spelled
+        # two ways — plain relative_to called that an escape.
         try:
-            resolved_path.relative_to(self._get_root())
+            resolved_path.resolve().relative_to(self._get_root().resolve())
         except ValueError:
             return False, f"Path must be within workspace: {self._get_root()}", None
 

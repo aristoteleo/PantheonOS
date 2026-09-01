@@ -750,9 +750,12 @@ class FileManagerToolSet(FileManagerToolSetBase):
                 result["resolved_path"] = str(target_path)
                 
                 # Security check: Ensure resolved path is within workspace
-                # This prevents path traversal attacks (e.g., ../../etc/passwd)
+                # This prevents path traversal attacks (e.g., ../../etc/passwd).
+                # Through realpath: /workspace is a symlink to the volume
+                # mount on workspace nodes, so the same tree has two
+                # spellings and a literal prefix check rejects one of them.
                 try:
-                    target_path.relative_to(self.path)
+                    target_path.resolve().relative_to(Path(self.path).resolve())
                 except ValueError:
                     result["error"] = "Resource path escapes workspace boundary"
                     failed_count += 1
