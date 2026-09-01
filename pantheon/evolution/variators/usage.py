@@ -120,3 +120,18 @@ def _mark(kind: str) -> None:
 def timeline() -> list:
     with _LOCK:
         return list(_TIMELINE)
+
+
+def restore(llm: Dict[str, Any] | None, ev: Dict[str, Any] | None,
+            tl: list | None) -> None:
+    """Reload a previous session's ledgers, so a resumed run CONTINUES its budget.
+
+    Without this, a resume restarts every ceiling from zero and a "480-call run" done in two
+    sessions costs 960 calls. Called once at startup, before any booking."""
+    with _LOCK:
+        for k in _USAGE:
+            _USAGE[k] = (llm or {}).get(k, 0) or 0
+        for k in _EVAL:
+            _EVAL[k] = (ev or {}).get(k, 0) or 0
+        _TIMELINE.clear()
+        _TIMELINE.extend(tl or [])

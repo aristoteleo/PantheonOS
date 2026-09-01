@@ -172,7 +172,8 @@ async def main(a) -> None:
         s = data.get("metrics", {}).get("combined_score")
         if s is None:
             return
-        history.append({"t": round(time.time() - t0, 1), "n": len(history) + 1, "score": s,
+        history.append({"t": round(prev_seconds + time.time() - t0, 1),
+                        "n": len(history) + 1, "score": s,
                         "id": data.get("id"),
                         "valid": data.get("metrics", {}).get("validity")})
         if len(history) % 5 == 0:
@@ -194,6 +195,28 @@ async def main(a) -> None:
     # Wall-clock tasks: the very first evaluation on a fresh container lands on a machine
     # still settling, and wave5 showed later reads on the same container running 100+ points
     # higher. One discarded warm-up read moves every arm's recorded seed onto a warm machine.
+    prev_hist, prev_seconds, prev_drift = [], 0.0, []
+    if a.resume:
+        # A continued run must CONTINUE its budget and its curves: reload the previous
+        # session's ledgers and history, so ceilings are cumulative and the budget axes
+        # keep their positions across sessions.
+        prev = None
+        for name in ("summary.json", "partial_summary.json"):
+            fp = out / name
+            if fp.exists():
+                prev = json.loads(fp.read_text())
+                break
+        if prev:
+            from pantheon.evolution.variators.usage import restore as _restore
+            _restore(prev.get("llm_usage"), prev.get("eval_usage"),
+                     prev.get("usage_timeline"))
+            prev_hist = list(prev.get("history") or [])
+            prev_drift = list(prev.get("drift") or [])
+            prev_seconds = float(prev.get("seconds") or
+                                 (prev_hist[-1]["t"] if prev_hist else 0.0))
+            print(f"resume: restored {len(prev_hist)} history rows, "
+                  f"llm={prev.get('llm_usage')}", flush=True)
+
     warmup_score = None
     if cfg.get("warmup_eval"):
         w = await evaluator.evaluate_files({evolve_file: seed_src}, "full",
@@ -236,6 +259,8 @@ async def main(a) -> None:
     budget = Budget(max_items=a.iterations,
                     stop_when=(_over_budget if (a.max_llm_calls or a.max_eval_calls
                                                 or a.max_llm_tokens) else None))
+    history[:0] = prev_hist
+    drift[:0] = prev_drift
     res = await evolve(method=method, variator=variator,
                        evaluators={"code": evaluator},
                        seeds=[CodeGenome(files={evolve_file: seed_src})],
@@ -298,7 +323,7 @@ async def main(a) -> None:
                "warmup_score": warmup_score, "drift": drift, "t0_epoch": t0,
                "eval_server": a.eval_server or None,
                "eval_server_boots": getattr(evaluator, "boot_ids", None),
-               "seconds": res.seconds, "llm_usage": llm_usage(),
+               "seconds": prev_seconds + res.seconds, "llm_usage": llm_usage(),
                "eval_usage": eval_snapshot(), "usage_timeline": timeline(),
                "history": history},
               open(out / "summary.json", "w"), indent=1)
