@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+# Boot profiling: every stage below stamps a millisecond offset so a slow
+# cold start can be read off the container log instead of guessed at.
+BOOT_MS=$(( $(date +%s%N) / 1000000 ))
+_ts() { echo "[boot +$(( $(date +%s%N)/1000000 - BOOT_MS ))ms] $*"; }
+
 echo "========================================="
 echo "Pantheon Docker Container"
 echo "Mode: ${PANTHEON_MODE:-hub}"
@@ -28,7 +33,19 @@ NICE_BG="nice -n 10"
 # and fully detached: the boot never waits on it, and a failure costs nothing.
 # Niced with the rest: what it is worth is the network fetch, not the CPU, and
 # the CPU is the one thing it can take from the interpreter it is warming for.
-( timeout 90 $NICE_BG "${PANTHEON_RUNTIME_PYTHON:-python}" -c "import pantheon.chatroom" >/dev/null 2>&1 & )
+# …but ONLY on nodes that will actually run the worker. A topology
+# workspace node (PANTHEON_NODE_APPS without `chatroom`) never execs it,
+# and on a 2-8 core sandbox this 90s import was the single largest CPU
+# competitor of the apps the node DOES run.
+case ",${PANTHEON_NODE_APPS:-chatroom}," in
+  *,chatroom,*)
+    _ts "worker import preheat: started (background)"
+    ( timeout 90 $NICE_BG "${PANTHEON_RUNTIME_PYTHON:-python}" -c "import pantheon.chatroom" >/dev/null 2>&1 & )
+    ;;
+  *)
+    _ts "worker import preheat: skipped (node apps: ${PANTHEON_NODE_APPS})"
+    ;;
+esac
 
 # Point pip, npm, R and apt at the Volume, so software a user installs is still
 # there after the sandbox is recreated. Sourced (not run) so the exports reach
@@ -287,6 +304,26 @@ else
     echo "  WORKSPACE: $(pwd)"
     echo ""
 
+    # Join the fleet FIRST. The runner is the node substrate: its heartbeat
+    # is what tells the placer, the status UI and the Files tree that this
+    # node exists — and it depends on nothing below (state lives in /tmp,
+    # not the Volume), while everything below (layout migration, template
+    # and env checks) used to stand between boot and the join for no
+    # reason. App prestart stays later: those touch the Volume and must
+    # wait for the layout migration.
+    NODE_APPS="${PANTHEON_NODE_APPS:-}"
+    if [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v fleet >/dev/null 2>&1; then
+        export FLEET_NODE_KIND="${FLEET_NODE_KIND:-sandbox}"
+        export FLEET_NODE_CAPS="${FLEET_NODE_CAPS:-proc,fs:workspace,display,net}"
+        NODE_NAME="${PANTHEON_NODE_NAME:-${PANTHEON_NODE_BASENAME:-sandbox}-${ID_HASH}}"
+        _ts "[fleet] joining fleet as node ${NODE_NAME} (caps=${FLEET_NODE_CAPS})"
+        mkdir -p /tmp/fleet-node
+        export PANTHEON_FLEET_STATE_DIR=/tmp/fleet-node
+        fleet up --controller "${FLEET_CONTROLLER_URL}" --key "${FLEET_KEY}" \
+            --name "${NODE_NAME}" --state-dir /tmp/fleet-node \
+            > /tmp/fleet-node.log 2>&1 &
+    fi
+
     # Wait for NATS server (if NATS_MONITOR_URL is set)
     if [ -n "$NATS_MONITOR_URL" ]; then
         echo "Waiting for NATS server at $NATS_MONITOR_URL..."
@@ -335,7 +372,7 @@ else
             echo "✓ Migration v2 complete ($moved item(s) now under default_workspace)"
         fi
         mkdir -p /workspace/.pantheon "$DEFAULT_WS/.pantheon"
-        echo "✓ Global store /workspace/.pantheon + default workspace $DEFAULT_WS ready"
+        _ts "✓ Global store /workspace/.pantheon + default workspace $DEFAULT_WS ready"
 
         # The global factory cache is kept fresh by template_manager's
         # smart-overwrite: .factory_hashes.json records what the factory last
@@ -448,35 +485,19 @@ EOF
     # any other; until the runner supervises it, the tail of this script
     # execs it). Unset keeps the classic single-node deployment: runner +
     # default prestart + worker, all in this container.
-    NODE_APPS="${PANTHEON_NODE_APPS:-}"
+    # The runner joined at the top of this branch (before the layout
+    # migration); here — after the Volume is in its final shape — warm this
+    # node's Apps (background, non-fatal; the resolver lazy-starts at bind
+    # time either way). With a topology, the list is the node's `apps`
+    # minus chatroom — the placer still routes each one by requires × caps.
     if [ -n "${FLEET_CONTROLLER_URL:-}" ] && command -v fleet >/dev/null 2>&1; then
-        # Node identity for the App placer. Defaults describe the classic
-        # sandbox; the topology assembly overrides all three per node.
-        export FLEET_NODE_KIND="${FLEET_NODE_KIND:-sandbox}"
-        export FLEET_NODE_CAPS="${FLEET_NODE_CAPS:-proc,fs:workspace,display,net}"
-        # The topology assembly names nodes by BASENAME (static per node
-        # definition); the user suffix is appended here where ID_HASH lives.
-        NODE_NAME="${PANTHEON_NODE_NAME:-${PANTHEON_NODE_BASENAME:-sandbox}-${ID_HASH}}"
-        echo "[fleet] joining fleet as node ${NODE_NAME} (caps=${FLEET_NODE_CAPS}) ..."
-        mkdir -p /tmp/fleet-node
-        # The runner writes runtime.json (node/fleet ids) here once joined;
-        # the App resolver reads it lazily at first bind.
-        export PANTHEON_FLEET_STATE_DIR=/tmp/fleet-node
-        fleet up --controller "${FLEET_CONTROLLER_URL}" --key "${FLEET_KEY}" \
-            --name "${NODE_NAME}" --state-dir /tmp/fleet-node \
-            > /tmp/fleet-node.log 2>&1 &
-        # Warm this node's Apps once the runner joins (background,
-        # non-fatal; the resolver lazy-starts at bind time either way).
-        # With a topology, the list is the node's `apps` minus chatroom —
-        # the placer still routes each one by requires × caps, so an App
-        # listed here but requiring caps this node lacks simply lands
-        # where it fits.
         if [ -n "$NODE_APPS" ]; then
             PRESTART=$(echo "$NODE_APPS" | tr ',' '\n' | grep -v '^chatroom$' | paste -sd, -)
         else
             PRESTART="${PANTHEON_APPS_PRESTART:-shell,file_manager,desktop}"
         fi
         if [ -n "$PRESTART" ]; then
+            _ts "apps prestart: ${PRESTART} (background)"
             ( "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.apps prestart \
                 "$PRESTART" 90 > /tmp/apps-prestart.log 2>&1 & )
         fi
@@ -610,6 +631,7 @@ EOF
     # sees a dead node instead of a zombie container.
     if [ -n "$NODE_APPS" ] && ! echo ",$NODE_APPS," | grep -q ",chatroom,"; then
         echo "[launch] node apps [$NODE_APPS]: no chatroom here — runner holds the node"
+        _ts "node ready: holding on the fleet runner (no worker on this node)"
         while pgrep -f 'fleet up' >/dev/null 2>&1; do
             sleep 5
         done
@@ -620,6 +642,7 @@ EOF
     # Execute the command with ID_HASH parameter
     if [ $# -eq 0 ]; then
         # No arguments provided, use default command with ID_HASH
+        _ts "exec worker (chatroom)"
         exec "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.chatroom --id_hash="${ID_HASH}" ${SYNC_FLAG}
     else
         # Arguments provided, pass them to pantheon.chatroom with ID_HASH
