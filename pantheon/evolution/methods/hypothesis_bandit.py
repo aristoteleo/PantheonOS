@@ -491,7 +491,8 @@ class HypothesisBandit(BaseMethod):
         """Prose for hypotheses, an EDIT-shaped coding agent for implementations."""
         from ..variators.idea import IdeaCodeVariator, IdeaVariator
 
-        idea = IdeaVariator(model=model, timeout=min(timeout, 300.0))
+        idea = IdeaVariator(model=model, timeout=min(timeout, 300.0),
+                            reasoning_max_tokens=kw.get("reasoning_max_tokens"))
         if evaluator is None:
             from ..variators.completion import CompletionVariator
 
@@ -500,7 +501,8 @@ class HypothesisBandit(BaseMethod):
                 "blind completion. Pass evaluator= for the operator this method is defined with."
             )
             code = CompletionVariator(model=model, timeout=timeout, target_file=target_file,
-                                      system_prompt=EditAgentVariator.SYSTEM)
+                                      system_prompt=EditAgentVariator.SYSTEM,
+                                      reasoning_max_tokens=kw.get("reasoning_max_tokens"))
         else:
             code = EditAgentVariator(evaluator=evaluator, model=model, timeout=timeout,
                                      score_key=self.score_key,

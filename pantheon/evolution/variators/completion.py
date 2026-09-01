@@ -133,7 +133,16 @@ class CompletionVariator:
         timeout: float = 600,
         score_key: str = "combined_score",
         max_parent_chars: int = 24000,
+        reasoning_max_tokens: Optional[int] = None,
     ):
+        self.reasoning_max_tokens = reasoning_max_tokens
+        """Cap on a reasoning model's internal thinking, when the provider supports it.
+
+        Not a style preference -- a liveness fix. On the Erdos task deepseek-v4-flash spends
+        its ENTIRE 32768-token output budget thinking (measured: 101k characters of reasoning,
+        `finish_reason=length`) and emits zero characters of program, every call. Reserving
+        room for the answer is the same class of provider accommodation as `max_tokens`
+        itself, and the token ledger records what it actually cost."""
         self.model = model
         # None -> the class's own words; "" -> send NO system message at all
         self.system_prompt = self.SYSTEM if system_prompt is None else system_prompt
@@ -283,6 +292,8 @@ class CompletionVariator:
             kwargs["temperature"] = self.temperature
         if self.max_tokens:
             kwargs["max_tokens"] = self.max_tokens
+        if self.reasoning_max_tokens:
+            kwargs["extra_body"] = {"reasoning": {"max_tokens": self.reasoning_max_tokens}}
         resp = await client.chat.completions.create(**kwargs)
         from .usage import add_response
         add_response(resp)
