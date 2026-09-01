@@ -257,6 +257,10 @@ when you're about to perform a task that matches a saved workflow.</how_to_use>
 
 File path: `.pantheon/memory-store/<type>_<slug>.md`
 
+**Spell the directory exactly `.pantheon`** — copy it, don't retype it. A
+typo (.panthon, .panthem, …) creates a stray directory and strands the
+memory where nothing will ever read it.
+
 ```
 ---
 id: <type>-<slug>

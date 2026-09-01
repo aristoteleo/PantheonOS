@@ -279,10 +279,24 @@ class FileManagerToolSetBase(ToolSet):
         workdir = self._get_effective_workdir()
         return Path(workdir) if workdir else self.path
 
+    _PANTHEON_TYPO = re.compile(r"(^|/)\.panth[a-z]*(?=/|$)")
+
     def _resolve_path(self, file_path: str) -> Path:
         """Resolve a file path: absolute paths pass through, paths starting
         with ~ expand to the user's home, relative paths resolve against the
-        effective workspace root (workdir or self.path)."""
+        effective workspace root (workdir or self.path).
+
+        One normalization on the way in: agents WRITE these paths by hand
+        (the memory skill says "put it under .pantheon/memory-store/…"),
+        and model typos of `.pantheon` (.panthem, .pantheton, .panthon, …)
+        were conjuring shadow directories, each holding one stranded
+        memory file. Any path segment shaped like the typo snaps to the
+        real name — `.pantheon` itself matches and maps to itself.
+        """
+        fixed = self._PANTHEON_TYPO.sub(lambda m: m.group(1) + ".pantheon", file_path)
+        if fixed != file_path:
+            logger.info(f"[file_manager] corrected .pantheon typo: {file_path!r} -> {fixed!r}")
+        file_path = fixed
         if file_path.startswith("~"):
             return Path(file_path).expanduser()
         if os.path.isabs(file_path):
