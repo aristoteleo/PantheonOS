@@ -292,8 +292,13 @@ class CompletionVariator:
             kwargs["temperature"] = self.temperature
         if self.max_tokens:
             kwargs["max_tokens"] = self.max_tokens
+        extra: Dict[str, Any] = {"usage": {"include": True}}
+        """OpenRouter returns the call's actual price under `usage.cost` when asked. Without
+        it the OpenAI-protocol response carries no price at all, so every completion-operator
+        run reported $0.00 spend -- SimpleTES looked free next to agent arms billed at $4-25."""
         if self.reasoning_max_tokens:
-            kwargs["extra_body"] = {"reasoning": {"max_tokens": self.reasoning_max_tokens}}
+            extra["reasoning"] = {"max_tokens": self.reasoning_max_tokens}
+        kwargs["extra_body"] = extra
         resp = await client.chat.completions.create(**kwargs)
         from .usage import add_response
         add_response(resp)

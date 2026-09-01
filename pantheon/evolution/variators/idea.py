@@ -99,8 +99,10 @@ class IdeaVariator:
             kwargs["temperature"] = self.temperature
         if getattr(self, "max_tokens", None):
             kwargs["max_tokens"] = self.max_tokens
+        extra: Dict[str, Any] = {"usage": {"include": True}}
         if getattr(self, "reasoning_max_tokens", None):
-            kwargs["extra_body"] = {"reasoning": {"max_tokens": self.reasoning_max_tokens}}
+            extra["reasoning"] = {"max_tokens": self.reasoning_max_tokens}
+        kwargs["extra_body"] = extra
         resp = await client.chat.completions.create(**kwargs)
         from .usage import add_response
         add_response(resp)

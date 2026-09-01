@@ -31,11 +31,19 @@ def add(calls: int = 0, prompt_tokens: int = 0, completion_tokens: int = 0,
 
 
 def add_response(resp: Any) -> None:
-    """Book one OpenAI-protocol response (the completion/idea paths)."""
+    """Book one OpenAI-protocol response (the completion/idea paths).
+
+    `usage.cost` is present when the gateway was asked for usage accounting (OpenRouter);
+    absent elsewhere, in which case cost stays 0 and the token columns carry the comparison.
+    """
     u = getattr(resp, "usage", None)
+    cost = getattr(u, "cost", None)
+    if cost is None:
+        cost = (getattr(u, "model_extra", None) or {}).get("cost") if u else None
     add(calls=1,
         prompt_tokens=int(getattr(u, "prompt_tokens", 0) or 0),
-        completion_tokens=int(getattr(u, "completion_tokens", 0) or 0))
+        completion_tokens=int(getattr(u, "completion_tokens", 0) or 0),
+        cost_usd=float(cost or 0.0))
 
 
 def add_agent_messages(messages: Optional[list]) -> float:
