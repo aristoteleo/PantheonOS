@@ -292,9 +292,15 @@ async def main(a) -> None:
     seed_ind = next((v for v in res.store if not v.parent_ids), None)
     seed_ms = _valid_full(seed_ind) if seed_ind else []
     seed_score = seed_ms[0] if seed_ms else 0.0
+    # FIRST read per individual, never the max over its re-measurements. Re-reads of one
+    # unchanged program differ by ~12 points of wall-clock noise here, so max-over-k-reads is
+    # biased upward by about the size of the between-method differences this bench exists to
+    # measure -- and the arms that re-read most (an agent resubmitting identical code, a seed
+    # re-measured 12 times) would win on luck. `rebuild_from_stores.py` already used first-read;
+    # this makes the live summary agree with it.
     per_ind = {v.id: _valid_full(v) for v in res.store}
-    best_score = max((max(ms) for ms in per_ind.values() if ms), default=0.0)
-    best_child_score = max((max(ms) for i, ms in per_ind.items()
+    best_score = max((ms[0] for ms in per_ind.values() if ms), default=0.0)
+    best_child_score = max((ms[0] for i, ms in per_ind.items()
                             if ms and seed_ind is not None and i != seed_ind.id),
                            default=None)
     print("\n" + "=" * 78)
