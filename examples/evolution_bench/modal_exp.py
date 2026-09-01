@@ -103,7 +103,7 @@ def run_arm(argv: list, out_rel: str,
 
 
 @app.function(image=image, secrets=[modal.Secret.from_name("evolve-exp-openrouter")],
-              volumes={"/results": vol}, cpu=2.0, memory=4096, timeout=24 * 3600,
+              volumes={"/results": vol}, cpu=2.0, memory=8192, timeout=24 * 3600,
               max_containers=12)
 def run_arm_small(argv: list, out_rel: str,
                   script: str = "examples/evolution_bench/run_bench.py") -> dict:
