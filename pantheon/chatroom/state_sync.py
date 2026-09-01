@@ -35,15 +35,18 @@ from pantheon.utils.log import logger
 #: layer otherwise). Whichever exist are packed.
 STATE_DIRS = (".pantheon", "default_workspace/.pantheon")
 
-#: Path substrings that never belong in a snapshot: runtime droppings,
-#: caches, and machine-local material that the image or the workspace node
-#: provides. agent-env is a whole venv; factory hashes must stay with the
-#: image that stamped them or template resync goes blind.
-EXCLUDES = (
-    ".nats-", "__pycache__", ".lock", "desktop-presence",
-    ".factory_hashes", ".factory_fingerprint", "agent-env",
-    "skills-runtime", "atrium-upload-probe", "chatroom/",
-)
+#: WHITELIST of what counts as worker state, relative to a state root.
+#: .pantheon on a long-lived volume accumulates non-state bulk — pip
+#: packages, browser profiles, exports (100s of MB) — so packing is
+#: opt-in, not opt-out. New durable worker state must be added here.
+#: Keep in sync with pantheon_hub/api/user_state.py.
+INCLUDE_DIRS = ("memory/", "memory-store/", "agents/", "teams/",
+                "prompts/", "skills/", "apps/", "brain/")
+INCLUDE_FILES = ("settings.json", "mcp.json", "projects.json",
+                 "MEMORY.md", "on-start.sh")
+
+#: Junk that can appear inside whitelisted dirs.
+DENY = (".nats-", "__pycache__", ".lock", ".tmp")
 
 MAX_TAR_BYTES = 64 * 1024 * 1024
 PUSH_INTERVAL_SECS = 15.0
@@ -55,8 +58,20 @@ def _config() -> tuple[str, str] | None:
     return (url, token) if url and token else None
 
 
+def _state_rel(rel: str) -> str | None:
+    """Path relative to its state root, or None if outside every root."""
+    for root in STATE_DIRS:
+        pfx = root + "/"
+        if rel.startswith(pfx):
+            return rel[len(pfx):]
+    return None
+
+
 def _keep(rel: str) -> bool:
-    return not any(x in rel for x in EXCLUDES)
+    sub = _state_rel(rel)
+    if sub is None or any(x in sub for x in DENY):
+        return False
+    return sub in INCLUDE_FILES or any(sub.startswith(d) for d in INCLUDE_DIRS)
 
 
 def _walk(home: Path):
@@ -114,6 +129,13 @@ def _request(method: str, url: str, token: str, body: bytes | None = None,
     return urllib.request.urlopen(req, timeout=timeout)  # noqa: S310 (hub URL from env)
 
 
+#: Whether a restore round-trip has SUCCEEDED (204-no-snapshot counts:
+#: the Hub answered authoritatively). While False, pushing would risk
+#: writing a snapshot that predates the state we failed to fetch, so the
+#: push loop re-tries the restore first.
+_restored = False
+
+
 def restore(home: Path | None = None) -> bool:
     """Unpack the last snapshot from the Hub into home. Never deletes.
 
@@ -121,6 +143,7 @@ def restore(home: Path | None = None) -> bool:
     opens the restored store, not an empty one. A missing snapshot (new
     user) and any transport error both leave the tree as-is.
     """
+    global _restored
     cfg = _config()
     if cfg is None:
         return False
@@ -131,6 +154,7 @@ def restore(home: Path | None = None) -> bool:
         with _request("GET", url, token) as resp:
             if resp.status == 204:
                 logger.info("[state-sync] no snapshot yet (fresh user)")
+                _restored = True
                 return False
             data = resp.read()
     except Exception as e:
@@ -142,6 +166,7 @@ def restore(home: Path | None = None) -> bool:
         logger.info(
             f"[state-sync] restored {len(data)/1024:.0f}KB of state in "
             f"{time.monotonic()-t0:.1f}s")
+        _restored = True
         return True
     except Exception as e:
         logger.error(f"[state-sync] snapshot unpack failed: {e}")
@@ -164,6 +189,17 @@ async def push_loop(home: Path | None = None) -> None:
             cur = await asyncio.to_thread(_digest, home)
             if cur == last:
                 continue
+            # Never push over state we failed to fetch: a snapshot written
+            # now would predate what's on the volume and shadow it forever
+            # (the Hub only falls back to loose files while NO snapshot
+            # exists). Re-try the restore until the Hub answers.
+            if not _restored:
+                await asyncio.to_thread(restore, home)
+                if not _restored:
+                    logger.warning("[state-sync] holding push until a "
+                                   "restore round-trip succeeds")
+                    continue
+                cur = await asyncio.to_thread(_digest, home)
             data = await asyncio.to_thread(_pack, home)
             if data is None:
                 last = cur  # don't retry an oversized tree every tick
