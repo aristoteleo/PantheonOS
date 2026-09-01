@@ -102,6 +102,8 @@ def run_points(r, key):
         s, t = h.get("score"), h.get("t")
         if s is None or (h.get("valid", 1) or 0) <= 0:
             continue
+        if h.get("fidelity", "full") != "full":
+            continue          # cheap screens are decisions, not scores
         best = s if best is None else max(best, s)
         pts.append((spend_at(r, float(t or 0.0), key), best))
     return pts

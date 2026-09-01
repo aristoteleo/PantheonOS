@@ -174,9 +174,12 @@ async def main(a) -> None:
         s = data.get("metrics", {}).get("combined_score")
         if s is None:
             return
+        # fidelity is load-bearing, not decoration: a method's cheap screens fire this event
+        # too, and a lucky 30-case read outscores the true 150-case measurement often enough
+        # that a history without it reports screens as records (wave6 did, for two arms).
         history.append({"t": round(prev_seconds + time.time() - t0, 1),
                         "n": len(history) + 1, "score": s,
-                        "id": data.get("id"),
+                        "id": data.get("id"), "fidelity": data.get("fidelity", "full"),
                         "valid": data.get("metrics", {}).get("validity")})
         if len(history) % 5 == 0:
             from pantheon.evolution.variators.usage import (eval_snapshot as _pe,

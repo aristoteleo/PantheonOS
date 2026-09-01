@@ -273,7 +273,8 @@ async def evolve(
                         budget.cost_used += m.cost
                         await method.on_measured(ctx, ind, m)
                         if on_event:
-                            on_event("measured", {"id": ind.id, "metrics": m.metrics})
+                            on_event("measured", {"id": ind.id, "metrics": m.metrics,
+                                                  "fidelity": m.fidelity})
                 since_checkpoint += 1
                 if checkpoint_every and since_checkpoint >= checkpoint_every:
                     checkpoint()
