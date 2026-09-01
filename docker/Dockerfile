@@ -379,9 +379,9 @@ RUN (curl -L --retry 3 --retry-delay 5 --max-time 60 \
 # Warning` fallthrough let a CDN "Not Found" page ship as /usr/local/bin/
 # fleet with a green build. The query string busts that CDN cache.
 RUN curl -fL --retry 3 --retry-delay 5 --max-time 60 \
-    "https://github.com/aristoteleo/PantheonOS/releases/download/fleet-v0.2.0-alpha/fleet-linux-amd64?v=a7417b7c" \
+    "https://github.com/aristoteleo/PantheonOS/releases/download/fleet-v0.2.0-alpha/fleet-linux-amd64?v=90517926" \
     -o /usr/local/bin/fleet && \
-    echo "a7417b7cfc4d5831782a540b3800bf01691f297a931ac57ac0e93c2085971c81  /usr/local/bin/fleet" | sha256sum -c - && \
+    echo "90517926fa9284b44f0c5a353cfbdba011757335c63fb600e362fe17d46ae237  /usr/local/bin/fleet" | sha256sum -c - && \
     chmod +x /usr/local/bin/fleet
 
 # Layer F — Workspace directory (stable)
