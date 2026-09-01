@@ -492,7 +492,8 @@ class HypothesisBandit(BaseMethod):
         from ..variators.idea import IdeaCodeVariator, IdeaVariator
 
         idea = IdeaVariator(model=model, timeout=min(timeout, 300.0),
-                            reasoning_max_tokens=kw.get("reasoning_max_tokens"))
+                            reasoning_max_tokens=kw.get("reasoning_max_tokens"),
+                            max_tokens=kw.get("max_output_tokens"))
         if evaluator is None:
             from ..variators.completion import CompletionVariator
 

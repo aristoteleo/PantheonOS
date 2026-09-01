@@ -651,6 +651,7 @@ class SimpleTES(BaseMethod):
         # and that decision then wears the algorithm's name.
         return UpstreamCompletionVariator(model=model, timeout=timeout,
                                           target_file=target_file,
-                                          score_key=self.score_key, max_tokens=32768,
+                                          score_key=self.score_key,
+                                          max_tokens=kw.get("max_output_tokens") or 32768,
                                           reasoning_max_tokens=kw.get(
                                               "reasoning_max_tokens"))

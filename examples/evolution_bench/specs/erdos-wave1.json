@@ -21,7 +21,9 @@
    "--workers",
    "2",
    "--model",
-   "openrouter/~deepseek/deepseek-v4-flash-latest"
+   "openrouter/~deepseek/deepseek-v4-flash-latest",
+   "--max-output-tokens",
+   "64000"
   ]
  },
  {
@@ -46,7 +48,9 @@
    "--workers",
    "2",
    "--model",
-   "openrouter/~deepseek/deepseek-v4-flash-latest"
+   "openrouter/~deepseek/deepseek-v4-flash-latest",
+   "--max-output-tokens",
+   "64000"
   ]
  },
  {
@@ -71,7 +75,9 @@
    "--workers",
    "2",
    "--model",
-   "openrouter/~deepseek/deepseek-v4-flash-latest"
+   "openrouter/~deepseek/deepseek-v4-flash-latest",
+   "--max-output-tokens",
+   "64000"
   ]
  },
  {
@@ -96,7 +102,9 @@
    "--workers",
    "2",
    "--model",
-   "openrouter/~deepseek/deepseek-v4-flash-latest"
+   "openrouter/~deepseek/deepseek-v4-flash-latest",
+   "--max-output-tokens",
+   "64000"
   ]
  },
  {
@@ -121,7 +129,9 @@
    "--workers",
    "2",
    "--model",
-   "openrouter/~deepseek/deepseek-v4-flash-latest"
+   "openrouter/~deepseek/deepseek-v4-flash-latest",
+   "--max-output-tokens",
+   "64000"
   ]
  },
  {
@@ -146,7 +156,9 @@
    "--workers",
    "2",
    "--model",
-   "openrouter/~deepseek/deepseek-v4-flash-latest"
+   "openrouter/~deepseek/deepseek-v4-flash-latest",
+   "--max-output-tokens",
+   "64000"
   ]
  },
  {
@@ -171,7 +183,9 @@
    "--workers",
    "2",
    "--model",
-   "openrouter/~deepseek/deepseek-v4-flash-latest"
+   "openrouter/~deepseek/deepseek-v4-flash-latest",
+   "--max-output-tokens",
+   "64000"
   ]
  },
  {
@@ -196,7 +210,9 @@
    "--workers",
    "2",
    "--model",
-   "openrouter/~deepseek/deepseek-v4-flash-latest"
+   "openrouter/~deepseek/deepseek-v4-flash-latest",
+   "--max-output-tokens",
+   "64000"
   ]
  },
  {
@@ -221,7 +237,9 @@
    "--workers",
    "2",
    "--model",
-   "openrouter/~deepseek/deepseek-v4-flash-latest"
+   "openrouter/~deepseek/deepseek-v4-flash-latest",
+   "--max-output-tokens",
+   "64000"
   ]
  }
 ]

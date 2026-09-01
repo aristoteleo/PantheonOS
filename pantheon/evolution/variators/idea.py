@@ -54,12 +54,14 @@ class IdeaVariator:
 
     def __init__(self, *, model: str = "high", system_prompt: Optional[str] = None,
                  timeout: float = 300, temperature: float = 1.0,
-                 reasoning_max_tokens: Optional[int] = None):
+                 reasoning_max_tokens: Optional[int] = None,
+                 max_tokens: Optional[int] = None):
         self.model = model
         self.system_prompt = system_prompt or IDEA_SYSTEM
         self.timeout = timeout
         self.temperature = temperature
         self.reasoning_max_tokens = reasoning_max_tokens
+        self.max_tokens = max_tokens
 
     def build_prompt(self, ctx: EvolveContext, item: Create) -> str:
         c = item.context
@@ -95,6 +97,8 @@ class IdeaVariator:
             kwargs["n"] = k
         if self.temperature is not None:
             kwargs["temperature"] = self.temperature
+        if getattr(self, "max_tokens", None):
+            kwargs["max_tokens"] = self.max_tokens
         if getattr(self, "reasoning_max_tokens", None):
             kwargs["extra_body"] = {"reasoning": {"max_tokens": self.reasoning_max_tokens}}
         resp = await client.chat.completions.create(**kwargs)

@@ -127,6 +127,7 @@ async def main(a) -> None:
     variator = method.default_variator(
         evaluator=evaluator, model=a.model, timeout=a.mutation_timeout,
         reasoning_max_tokens=a.reasoning_max_tokens,
+        max_output_tokens=a.max_output_tokens,
         max_tool_calls=a.tool_budget, max_evaluations=a.max_inner_evals,
         workspace_root=str(out / "_mut"),
         target_file=evolve_file,
@@ -344,6 +345,13 @@ if __name__ == "__main__":
     p.add_argument("--max-llm-calls", type=int, default=None,
                    help="stop issuing items once the run's LLM-call ledger reaches this; the "
                         "spend-parity budget for cross-method comparison")
+    p.add_argument("--max-output-tokens", type=int, default=None,
+                   help="per-call output ceiling for the completion operators. Upstream "
+                        "SimpleTES uses 32768, which fits gpt-oss; deepseek-v4-flash needs "
+                        "~26k of THINKING on erdos before it writes anything, so 32768 leaves "
+                        "no room for the program and it returns none at all. Raising the "
+                        "ceiling preserves the model's behaviour where capping its reasoning "
+                        "would not.")
     p.add_argument("--reasoning-max-tokens", type=int, default=None,
                    help="cap a reasoning model's thinking so it leaves room to answer; "
                         "deepseek-v4-flash spends all 32768 output tokens thinking on erdos "
