@@ -164,8 +164,9 @@ async def main(a) -> None:
         s = data.get("metrics", {}).get("combined_score")
         if s is None:
             return
-        history.append({"t": round(time.time() - t0, 1), "n": len(history) + 1,
-                        "score": s, "valid": data.get("metrics", {}).get("validity")})
+        history.append({"t": round(time.time() - t0, 1), "n": len(history) + 1, "score": s,
+                        "id": data.get("id"),
+                        "valid": data.get("metrics", {}).get("validity")})
         best = max(h["score"] for h in history)
         print(f"  [{len(history):>3}] {time.time()-t0:6.0f}s  score={s:.6f}  best={best:.6f}",
               flush=True)
@@ -180,8 +181,27 @@ async def main(a) -> None:
                        checkpoint_path=str(out), checkpoint_every=2, resume=a.resume)
 
     best = res.best
-    best_score = best.metrics().get("combined_score", 0.0) if best else 0.0
-    seed_score = history[0]["score"] if history else 0.0
+    # Summary scores come from the STORE, not the event log. Three lessons paid for in wave5:
+    # the seed's measurement fires no "measured" event, so history[0] is the FIRST CHILD and
+    # reading it as the seed mislabels every gain; `metrics()` returns an individual's LATEST
+    # measurement, so on a wall-clock task a lucky-early individual can report an unlucky-late
+    # score; and the dedup store books re-measurements of an UNCHANGED genome (agents
+    # resubmitting identical code) onto one individual, whose peaks are then re-reads of the
+    # same program, not improvements.
+    def _valid_full(v):
+        return [m.metrics["combined_score"] for m in v.measurements
+                if m.ok and m.fidelity == "full"
+                and (m.metrics.get("validity", 1) or 0) > 0
+                and m.metrics.get("combined_score") is not None]
+
+    seed_ind = next((v for v in res.store if not v.parent_ids), None)
+    seed_ms = _valid_full(seed_ind) if seed_ind else []
+    seed_score = seed_ms[0] if seed_ms else 0.0
+    per_ind = {v.id: _valid_full(v) for v in res.store}
+    best_score = max((max(ms) for ms in per_ind.values() if ms), default=0.0)
+    best_child_score = max((max(ms) for i, ms in per_ind.items()
+                            if ms and seed_ind is not None and i != seed_ind.id),
+                           default=None)
     print("\n" + "=" * 78)
     print(f"best {best_score:.6f}   items {res.items_run}   failures {res.failures}   "
           f"{res.seconds:.0f}s")
@@ -208,6 +228,8 @@ async def main(a) -> None:
                "operator": operator, "search": search, "seed_sha": seed_sha,
                "items_run": res.items_run, "failures": res.failures,
                "best_combined_score": best_score, "seed_combined_score": seed_score,
+               "best_child_combined_score": best_child_score,
+               "seed_remeasures": max(0, len(seed_ms) - 1),
                "seconds": res.seconds, "llm_usage": llm_usage(),
                "eval_usage": eval_snapshot(), "usage_timeline": timeline(),
                "history": history},
