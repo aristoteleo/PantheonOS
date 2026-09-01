@@ -132,19 +132,32 @@ def curve_fig(rows, key, xlabel, exact, out_png, tag):
             xs, ys = zip(*c)
             ax.step(xs, [y * K for y in ys], where="post", color=col, lw=1.0, alpha=0.35,
                     linestyle="--")
-        if done:
-            grid = np.linspace(0, max(x for c in done for x, _ in c), 200)
+        every = done + part
+        if every:
+            # Mean over EVERY arm, finished or not -- excluding the running ones left a method
+            # with no mean line at all and nothing to compare. Past an arm's last measurement
+            # its best-so-far is held flat (monotone, so this is a lower bound), and the mean
+            # is drawn SOLID only while every arm still contributes; beyond the shortest arm
+            # the sample thins and the line fades to say so.
+            ends = [max(x for x, _ in c) for c in every]
+            grid = np.linspace(0, max(ends), 240)
             vals = []
-            for c in done:
+            for c in every:
                 xs, ys = zip(*c)
                 vals.append(np.interp(grid, xs, [y * K for y in ys]))
-            ax.plot(grid, np.mean(vals, axis=0), color=col, lw=2.6,
+            mean = np.mean(vals, axis=0)
+            full = grid <= min(ends)
+            ax.plot(grid[full], mean[full], color=col, lw=2.6,
                     label=f"{LABELS[m]} (n={len(done)} done"
-                          + (f" + {len(part)} running, dashed)" if part else ")"))
-        elif part:
-            ax.plot([], [], color=col, lw=1.0, linestyle="--",
-                    label=f"{LABELS[m]} ({len(part)} running, dashed)")
+                          + (f" + {len(part)} running)" if part else ")"))
+            if (~full).any():
+                thin = grid >= min(ends)
+                ax.plot(grid[thin], mean[thin], color=col, lw=2.0, alpha=0.45)
     ax.set_xlabel(xlabel + ("" if exact else "   (estimated by time-share: total × t/T)"))
+    if any(r.get("partial") for rs in by_m.values() for r in rs):
+        ax.set_title("thin lines = individual arms (dashed = still running); bold = method mean, "
+                     "faded where fewer arms have reached that budget",
+                     size=10, color=SUB, loc="left")
     ax.set_ylabel("best official score per case")
     # clamp to the decision-relevant band: a wrecked first child on a partial (no seed anchor)
     # otherwise stretches the axis 2000 points down and flattens every real difference
