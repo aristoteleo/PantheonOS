@@ -461,7 +461,14 @@ async def start_services(
     # ChatRoom exists so the memory manager opens the restored store.
     from pantheon.chatroom import state_sync
 
-    _state_home = Path(workspace_path).resolve() if workspace_path else Path.cwd()
+    # Snapshot members are relative to the VOLUME root, which under the
+    # default_workspace layout is the parent of the cwd — so the anchor
+    # comes from the hub (PANTHEON_STATE_HOME), not from where we run.
+    _state_home = Path(
+        os.environ.get("PANTHEON_STATE_HOME")
+        or workspace_path
+        or Path.cwd()
+    ).resolve()
     state_sync.restore(_state_home)
 
     # ===== Step 2: Create ChatRoom =====

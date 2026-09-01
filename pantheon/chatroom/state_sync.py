@@ -167,10 +167,45 @@ def restore(home: Path | None = None) -> bool:
             f"[state-sync] restored {len(data)/1024:.0f}KB of state in "
             f"{time.monotonic()-t0:.1f}s")
         _restored = True
+        _promote_root_layer(home)
         return True
     except Exception as e:
         logger.error(f"[state-sync] snapshot unpack failed: {e}")
         return False
+
+
+def _promote_root_layer(home: Path) -> None:
+    """Move root-layer state up to the default_workspace layer.
+
+    Snapshots taken while a user was on the root layout carry members
+    under ``.pantheon/`` — which, once the default_workspace layout is
+    on, is the GLOBAL layer the agent never reads. After a restore,
+    whatever whitelisted state exists at the root but not in the project
+    layer moves up, so pre-layout chats survive the layout flip. Item-
+    level and idempotent: the next push snapshots the promoted paths, so
+    later restores land directly in the project layer and this no-ops.
+    """
+    if os.environ.get("PANTHEON_DEFAULT_WORKSPACE", "").lower() != "true":
+        return
+    root = home / ".pantheon"
+    dw = home / "default_workspace" / ".pantheon"
+    if not root.is_dir():
+        return
+    moved = 0
+    try:
+        for name in INCLUDE_DIRS + INCLUDE_FILES:
+            name = name.rstrip("/")
+            src, dst = root / name, dw / name
+            if not src.exists() or dst.exists():
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            src.rename(dst)
+            moved += 1
+        if moved:
+            logger.info(f"[state-sync] promoted {moved} root-layer item(s) "
+                        "into default_workspace")
+    except Exception as e:
+        logger.warning(f"[state-sync] root-layer promotion failed: {e}")
 
 
 async def push_loop(home: Path | None = None) -> None:
