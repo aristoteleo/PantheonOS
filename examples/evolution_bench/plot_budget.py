@@ -31,6 +31,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 INK, SUB, MUTED = "#1f2328", "#57606a", "#8c959f"
+EDGE_GRID = "#d8dee4"
 COLORS = {"hypothesis_bandit": "#8250df", "agent_map_elites": "#0969da", "simpletes": "#bc4c00"}
 LABELS = {"hypothesis_bandit": "HypothesisBandit", "agent_map_elites": "AgentMapElites",
           "simpletes": "SimpleTES"}
@@ -159,13 +160,19 @@ def curve_fig(rows, key, xlabel, exact, out_png, tag):
                      "faded where fewer arms have reached that budget",
                      size=10, color=SUB, loc="left")
     ax.set_ylabel("best official score per case")
-    # clamp to the decision-relevant band: a wrecked first child on a partial (no seed anchor)
-    # otherwise stretches the axis 2000 points down and flattens every real difference
-    finals = [c[-1][1] * K for rs in by_m.values() for r in rs
+    # Frame the band the curves actually occupy. These are best-so-far curves, so each one's
+    # lowest point is where it starts and its highest is where it ends -- the interesting range
+    # is exactly [lowest start, highest end]. A fixed-width window instead left most of the
+    # figure empty and squeezed 30 points of real difference into a few pixels.
+    curves = [c for rs in by_m.values() for r in rs
               for c in [run_points(r, key)] if len(c) >= 2]
-    if finals:
-        top = max(finals)
-        ax.set_ylim(top - 160, top + 18)
+    if curves:
+        lo = min(c[0][1] for c in curves) * K
+        hi = max(c[-1][1] for c in curves) * K
+        pad = max((hi - lo) * 0.12, 4.0)
+        ax.set_ylim(lo - pad, hi + pad)
+    ax.grid(axis="y", color=EDGE_GRID, lw=0.6, alpha=0.6)
+    ax.set_axisbelow(True)
     ax.legend(frameon=False, fontsize=11.5, loc="lower right")
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
