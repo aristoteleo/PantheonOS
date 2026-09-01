@@ -26,8 +26,19 @@ func DetectCapability(workDir string) proto.Capability {
 		Arch:     runtime.GOARCH,
 		CPUCores: runtime.NumCPU(),
 	}
+	// In a runc container /proc is the host's; the cgroup carries what
+	// this node actually owns. Report the allocation when one is set.
+	if cores := cgroupCPULimitCores(); cores > 0 {
+		c.CPUCores = int(cores + 0.5)
+		if c.CPUCores < 1 {
+			c.CPUCores = 1
+		}
+	}
 	if vm, err := mem.VirtualMemory(); err == nil {
 		c.RAMGB = bytesToGB(vm.Total)
+	}
+	if limit := cgroupMemLimitBytes(); limit > 0 {
+		c.RAMGB = bytesToGB(limit)
 	}
 	if workDir == "" {
 		workDir = "."
@@ -119,6 +130,14 @@ func LiveLoad() proto.Load {
 	}
 	if vm, err := mem.VirtualMemory(); err == nil {
 		l.Mem = vm.UsedPercent / 100.0
+	}
+	// Container-truthful overrides: in a runc pod the numbers above are
+	// the HOST's. When the cgroup can answer, its answer wins.
+	if cpuLoad, ok := cgroupCPULoad(runtime.NumCPU()); ok {
+		l.CPU = cpuLoad
+	}
+	if memLoad, ok := cgroupMemLoad(); ok {
+		l.Mem = memLoad
 	}
 	return l
 }
