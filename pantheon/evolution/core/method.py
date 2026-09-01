@@ -35,12 +35,17 @@ class Budget:
     items_used: int = 0
     cost_used: float = 0.0
     seconds_used: float = 0.0
+    stop_when: Optional[Any] = None
+    """Caller-supplied predicate, checked alongside the built-in ceilings. Exists so a budget
+    can be denominated in whatever the CALLER meters -- LLM calls, evaluator calls, dollars --
+    without the core importing anyone's ledger. Wave6's spend-parity arms stop on this."""
 
     def exhausted(self) -> bool:
         return (
             (self.max_items is not None and self.items_used >= self.max_items)
             or (self.max_cost is not None and self.cost_used >= self.max_cost)
             or (self.max_seconds is not None and self.seconds_used >= self.max_seconds)
+            or (self.stop_when is not None and bool(self.stop_when()))
         )
 
     def remaining_items(self) -> Optional[int]:

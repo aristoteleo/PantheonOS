@@ -28,10 +28,7 @@ class _RecordingInner:
 
 def _adapter():
     inner = _RecordingInner()
-    a = ProgramEvaluatorAdapter.__new__(ProgramEvaluatorAdapter)
-    a.inner = inner
-    a.kind = "code"
-    a.last_state = None
+    a = ProgramEvaluatorAdapter(inner)
     return a, inner
 
 

@@ -96,7 +96,8 @@ async def main(a) -> None:
 
     evaluator = CodeEvaluator(evaluator_code=(task_dir / "evaluator.py").read_text(),
                               timeout=a.eval_timeout or cfg.get("eval_timeout", 400),
-                              workspace_path=str(out / "_eval"))
+                              workspace_path=str(out / "_eval"),
+                              serialize=bool(cfg.get("serialize_evals")))
 
     judge = None
     if a.method == "annealed":
@@ -173,12 +174,53 @@ async def main(a) -> None:
 
     # Only the problem's evaluator: a method that owns an idea judge registers it itself through
     # `default_evaluators()`.
+    # Wall-clock tasks: the very first evaluation on a fresh container lands on a machine
+    # still settling, and wave5 showed later reads on the same container running 100+ points
+    # higher. One discarded warm-up read moves every arm's recorded seed onto a warm machine.
+    warmup_score = None
+    if cfg.get("warmup_eval"):
+        w = await evaluator.evaluate_files({evolve_file: seed_src}, "full")
+        warmup_score = w.get("metrics", {}).get("combined_score")
+        print(f"warm-up eval (discarded): {warmup_score}", flush=True)
+
+    # Drift probes: re-measure the SEED every 20 minutes, off to the side. Not shown to the
+    # method, not part of the search -- a ruler for how much this container's readings move,
+    # so per-arm error bars come from data instead of assumption.
+    drift: list = []
+
+    async def _drift_probe():
+        while True:
+            await asyncio.sleep(1200)
+            try:
+                o = await evaluator.evaluate_files({evolve_file: seed_src}, "full")
+                drift.append({"t": round(time.time() - t0, 1),
+                              "score": o.get("metrics", {}).get("combined_score")})
+            except Exception:  # noqa: BLE001
+                pass
+
+    probe = asyncio.create_task(_drift_probe()) if cfg.get("drift_probe") else None
+
+    from pantheon.evolution.variators.usage import eval_snapshot as _ev, snapshot as _llm
+
+    def _over_budget() -> bool:
+        if a.max_llm_calls and _llm()["calls"] >= a.max_llm_calls:
+            return True
+        # drift probes and the warm-up are harness overhead, not method spend
+        overhead = len(drift) + (1 if warmup_score is not None else 0)
+        if a.max_eval_calls and (_ev()["calls"] - overhead) >= a.max_eval_calls:
+            return True
+        return False
+
+    budget = Budget(max_items=a.iterations,
+                    stop_when=(_over_budget if (a.max_llm_calls or a.max_eval_calls) else None))
     res = await evolve(method=method, variator=variator,
                        evaluators={"code": evaluator},
                        seeds=[CodeGenome(files={evolve_file: seed_src})],
-                       objective=objective, budget=Budget(max_items=a.iterations),
+                       objective=objective, budget=budget,
                        concurrency=a.workers, on_event=on_event,
                        checkpoint_path=str(out), checkpoint_every=2, resume=a.resume)
+    if probe is not None:
+        probe.cancel()
 
     best = res.best
     # Summary scores come from the STORE, not the event log. Three lessons paid for in wave5:
@@ -230,6 +272,7 @@ async def main(a) -> None:
                "best_combined_score": best_score, "seed_combined_score": seed_score,
                "best_child_combined_score": best_child_score,
                "seed_remeasures": max(0, len(seed_ms) - 1),
+               "warmup_score": warmup_score, "drift": drift,
                "seconds": res.seconds, "llm_usage": llm_usage(),
                "eval_usage": eval_snapshot(), "usage_timeline": timeline(),
                "history": history},
@@ -245,6 +288,11 @@ if __name__ == "__main__":
                             "pantheon_evo", "hypothesis_bandit"])
     p.add_argument("--iterations", type=int, default=40)
     p.add_argument("--model", default="openai/gpt-5.6-luna")
+    p.add_argument("--max-llm-calls", type=int, default=None,
+                   help="stop issuing items once the run's LLM-call ledger reaches this; the "
+                        "spend-parity budget for cross-method comparison")
+    p.add_argument("--max-eval-calls", type=int, default=None,
+                   help="companion ceiling on evaluator calls (warm-up/drift probes excluded)")
     p.add_argument("--max-inner-evals", type=int, default=None,
                    help="cap on an agent mutation's own run_evaluator calls; None = unlimited. "
                         "Set it (uniformly) when comparing methods, or the agent operators get "

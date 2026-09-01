@@ -26,9 +26,12 @@ class ProgramEvaluatorAdapter:
 
     kind = "code"
 
-    def __init__(self, inner: Any, kind: str = "code"):
+    def __init__(self, inner: Any, kind: str = "code", serialize: bool = False):
         self.inner = inner
         self.kind = kind
+        self.serialize = serialize
+        self._eval_lock = None
+        """Created lazily on first use so the adapter can be built outside an event loop."""
         self.last_state: Any = None
         """The evaluator's produced solution, when it returns one. Read by the variator to persist
         a warm-start file into the child's genome."""
@@ -45,6 +48,20 @@ class ProgramEvaluatorAdapter:
 
     async def evaluate_files(self, files: Dict[str, str],
                              fidelity: str = "full") -> Dict[str, Any]:
+        # On wall-clock-scored tasks two concurrent measurements steal CPU from each other and
+        # both readings drop -- `serialize=True` runs them one at a time instead. LLM waits
+        # still overlap, so worker concurrency keeps paying where it is safe to.
+        if self.serialize:
+            import asyncio
+
+            if self._eval_lock is None:
+                self._eval_lock = asyncio.Lock()
+            async with self._eval_lock:
+                return await self._evaluate_files_now(files, fidelity)
+        return await self._evaluate_files_now(files, fidelity)
+
+    async def _evaluate_files_now(self, files: Dict[str, str],
+                                  fidelity: str = "full") -> Dict[str, Any]:
         from ..program import CodebaseSnapshot, Program
 
         payload = dict(files)
@@ -97,7 +114,7 @@ class CodeEvaluator(ProgramEvaluatorAdapter):
 
     def __init__(self, evaluator_code: str, *, timeout: int = 600,
                  workspace_path: Optional[str] = None, kind: str = "code",
-                 llm_weight: float = 0.0, max_parallel: int = 4):
+                 llm_weight: float = 0.0, max_parallel: int = 4, serialize: bool = False):
         from ..evaluator import HybridEvaluator
 
         super().__init__(HybridEvaluator(
@@ -107,4 +124,4 @@ class CodeEvaluator(ProgramEvaluatorAdapter):
             max_parallel=max_parallel,
             timeout=timeout,
             workspace_base=workspace_path,
-        ), kind=kind)
+        ), kind=kind, serialize=serialize)
