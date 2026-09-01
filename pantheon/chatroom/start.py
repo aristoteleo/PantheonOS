@@ -455,6 +455,15 @@ async def start_services(
         # Unique per instance so concurrent chatrooms don't collide on a subject
         id_hash = str(uuid.uuid4())
 
+    # ===== Step 1.5: Restore durable state (topology brains) =====
+    # On an ephemeral-disk node the chats/memory/settings under .pantheon
+    # come from the last snapshot via the Hub. Must happen BEFORE the
+    # ChatRoom exists so the memory manager opens the restored store.
+    from pantheon.chatroom import state_sync
+
+    _state_home = Path(workspace_path).resolve() if workspace_path else Path.cwd()
+    state_sync.restore(_state_home)
+
     # ===== Step 2: Create ChatRoom =====
     # Toolsets are App instances placed by the fleet runner; there is no
     # endpoint to boot. The resolver reads its coordinates lazily from the
@@ -475,6 +484,9 @@ async def start_services(
         asyncio.create_task(refresh_ollama_cache(force=True))
     except Exception as exc:
         logger.debug("[STARTUP] Failed to prewarm Ollama detection: {}", exc)
+
+    # Persist state changes back through the Hub (no-op unless configured).
+    asyncio.create_task(state_sync.push_loop(_state_home))
 
     # ===== Step 2.5: Verify NATS TCP connectivity (diagnostic) =====
     if auto_start_nats and server_info is not None:
