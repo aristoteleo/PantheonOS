@@ -37,6 +37,24 @@ COLORS = {"hypothesis_bandit": "#8250df", "agent_map_elites": "#0969da", "simple
 LABELS = {"hypothesis_bandit": "HypothesisBandit", "agent_map_elites": "AgentMapElites",
           "simpletes": "SimpleTES", "lab_notebook": "LabNotebook"}
 K = 1500.0
+TASKS = {
+    # display transform per task: `scale` multiplies the harness score; `flip` shows 1 - score
+    # (Erdos records Psi, lower is better, and the axis is inverted so up still means better)
+    "ahc039": {"title": "ahc039", "scale": 1500.0, "flip": False, "pad": 4.0,
+               "ylabel": "best official score per case", "ref": None},
+    "circle_packing": {"title": "circle packing (n=26)", "scale": 1.0, "flip": False,
+                       "pad": 0.002, "ylabel": "best sum of radii",
+                       "ref": (2.635983, "published record 2.635983")},
+    "erdos": {"title": "Erdős minimum overlap", "scale": 1.0, "flip": True, "pad": 0.0002,
+              "ylabel": "best Ψ  (lower is better; axis inverted so up = better)",
+              "ref": (0.380909, "our record Ψ = 0.380909")},
+}
+TASK = TASKS["ahc039"]
+
+
+def disp(y):
+    """Harness score -> what the axis shows for the current task."""
+    return (1.0 - y) if TASK["flip"] else y * TASK["scale"]
 
 plt.rcParams.update({
     "font.family": ["Helvetica Neue", "Helvetica", "Arial"],
@@ -113,8 +131,8 @@ def run_points(r, key):
 
 def curve_fig(rows, key, xlabel, exact, out_png, tag):
     fig, ax = plt.subplots(figsize=(11, 6.2), dpi=150)
-    fig.suptitle(f"ahc039 ({tag}) — best-so-far vs {xlabel}", size=17, weight="bold",
-                 x=0.06, ha="left")
+    fig.suptitle(f"{TASK['title']} ({tag}) — best-so-far vs {xlabel}", size=17,
+                 weight="bold", x=0.06, ha="left")
     by_m = defaultdict(list)
     for r in rows:
         by_m[method_of(r)].append(r)
@@ -128,11 +146,11 @@ def curve_fig(rows, key, xlabel, exact, out_png, tag):
         part = [c for c in part if len(c) >= 2]
         for c in done:
             xs, ys = zip(*c)
-            ax.step(xs, [y * K for y in ys], where="post", color=col, lw=1.1, alpha=0.4)
+            ax.step(xs, [disp(y) for y in ys], where="post", color=col, lw=1.1, alpha=0.4)
         for c in part:
             # still-running arms: dashed, thinner, excluded from the mean
             xs, ys = zip(*c)
-            ax.step(xs, [y * K for y in ys], where="post", color=col, lw=1.0, alpha=0.35,
+            ax.step(xs, [disp(y) for y in ys], where="post", color=col, lw=1.0, alpha=0.35,
                     linestyle="--")
         every = done + part
         if every:
@@ -146,7 +164,7 @@ def curve_fig(rows, key, xlabel, exact, out_png, tag):
             vals = []
             for c in every:
                 xs, ys = zip(*c)
-                vals.append(np.interp(grid, xs, [y * K for y in ys]))
+                vals.append(np.interp(grid, xs, [disp(y) for y in ys]))
             mean = np.mean(vals, axis=0)
             full = grid <= min(ends)
             ax.plot(grid[full], mean[full], color=col, lw=2.6,
@@ -160,7 +178,7 @@ def curve_fig(rows, key, xlabel, exact, out_png, tag):
         ax.set_title("thin lines = individual arms (dashed = still running); bold = method mean, "
                      "faded where fewer arms have reached that budget",
                      size=10, color=SUB, loc="left")
-    ax.set_ylabel("best official score per case")
+    ax.set_ylabel(TASK["ylabel"])
     # Frame the band the curves actually occupy. These are best-so-far curves, so each one's
     # lowest point is where it starts and its highest is where it ends -- the interesting range
     # is exactly [lowest start, highest end]. A fixed-width window instead left most of the
@@ -168,10 +186,19 @@ def curve_fig(rows, key, xlabel, exact, out_png, tag):
     curves = [c for rs in by_m.values() for r in rs
               for c in [run_points(r, key)] if len(c) >= 2]
     if curves:
-        lo = min(c[0][1] for c in curves) * K
-        hi = max(c[-1][1] for c in curves) * K
-        pad = max((hi - lo) * 0.12, 4.0)
+        starts = [disp(c[0][1]) for c in curves]
+        ends = [disp(c[-1][1]) for c in curves]
+        lo, hi = min(starts + ends), max(starts + ends)
+        if TASK["ref"]:
+            lo, hi = min(lo, TASK["ref"][0]), max(hi, TASK["ref"][0])
+        pad = max((hi - lo) * 0.12, TASK["pad"])
         ax.set_ylim(lo - pad, hi + pad)
+        if TASK["flip"]:
+            ax.invert_yaxis()
+    if TASK["ref"]:
+        ax.axhline(TASK["ref"][0], color=INK, lw=1.0, ls=":", alpha=0.7)
+        ax.text(0.995, TASK["ref"][0], TASK["ref"][1] + " ", transform=ax.get_yaxis_transform(),
+                ha="right", va="bottom" if not TASK["flip"] else "top", size=9.5, color=SUB)
     ax.grid(axis="y", color=EDGE_GRID, lw=0.6, alpha=0.6)
     ax.set_axisbelow(True)
     ax.legend(frameon=False, fontsize=11.5, loc="lower right")
@@ -196,10 +223,10 @@ def box_fig(rows, out_png, tag):
             if bl <= cap_llm and be <= cap_eval:
                 best = s if best is None else max(best, s)
         if best is not None:
-            by_m[method_of(r)].append(best * K)
+            by_m[method_of(r)].append(disp(best))
 
     fig, ax = plt.subplots(figsize=(8.5, 6.2), dpi=150)
-    fig.suptitle(f"ahc039 ({tag}) — final best under matched budgets", size=17,
+    fig.suptitle(f"{TASK['title']} ({tag}) — final best under matched budgets", size=17,
                  weight="bold", x=0.07, ha="left")
     ax.set_title(f"every run truncated at ≤{cap_llm} LLM calls AND ≤{cap_eval} evaluator calls"
                  " — the minimum any run consumed", size=10.5, color=SUB, loc="left")
@@ -214,7 +241,11 @@ def box_fig(rows, out_png, tag):
         ax.scatter([i + 0.02] * len(ys), ys, s=90, color=COLORS[m], alpha=0.85, zorder=3)
     ax.set_xticks(range(len(ms)))
     ax.set_xticklabels([LABELS[m] for m in ms], size=11)
-    ax.set_ylabel("best official score per case within budget")
+    ax.set_ylabel(TASK["ylabel"] + " within budget")
+    if TASK["flip"]:
+        ax.invert_yaxis()
+    if TASK["ref"]:
+        ax.axhline(TASK["ref"][0], color=INK, lw=1.0, ls=":", alpha=0.7)
     for sp in ("top", "right"):
         ax.spines[sp].set_visible(False)
     fig.tight_layout(rect=[0, 0, 1, 0.90])
@@ -229,7 +260,9 @@ if __name__ == "__main__":
     ap.add_argument("--summaries", nargs="+", required=True)
     ap.add_argument("--out", default=os.path.expanduser("~/Downloads"))
     ap.add_argument("--tag", default="wave5")
+    ap.add_argument("--task", default="ahc039", choices=sorted(TASKS))
     a = ap.parse_args()
+    TASK = TASKS[a.task]
     files = [f for pat in a.summaries for f in glob.glob(os.path.expanduser(pat))]
     rows = []
     for f in files:
