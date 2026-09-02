@@ -42,9 +42,11 @@ class FakeVariator:
             src = next(iter(parent.genome.files.values()))
             base = float(src.split("value=")[1].split()[0])
             bump = 0.02 if "faster" in item.context.instruction else 0.005
+            # the two candidates of one prompt score IDENTICALLY: ties are routine in the real
+            # run and a tuple-max over (score, Individual) raised on exactly this
             out.append(Produced(
                 genome=CodeGenome(files={"solution.py":
-                                         f"# v{self.serial} value={base + bump * (j + 1)}\n"}),
+                                         f"# v{self.serial} value={base + bump}\n"}),
                 item_id=item.id, batch_id=item.batch_id,
                 parent_ids=list(item.parent_ids), anchor_id=item.anchor_id))
         return out

@@ -400,8 +400,8 @@ class LabNotebook(BaseMethod):
             f"{d['delta']:+.5f}, adherence {d.get('adherence', '?')})\n"
             f"outcome: {d.get('outcome', '')}\nwhy: {d.get('why', '')}\n"
             f"lesson: {d.get('lesson', '')}" for d in digests)
-        best_ref = max(((self._score(ctx.store.get(i)) or -math.inf), i)
-                       for i in self.references)
+        best_ref = max(((self._score(ctx.store.get(i)) if self._score(ctx.store.get(i))
+                         is not None else -math.inf), i) for i in self.references)
         prompt = (f"# Problem\n{ctx.objective}\n\n"
                   f"# Notebook before this cycle\n{self.understanding}\n\n"
                   f"# This cycle's experiments (cycle {self.cycle}, parent score "
@@ -422,8 +422,12 @@ class LabNotebook(BaseMethod):
         # every candidate the trajectory measured, not only the committed ones
         all_kids = [c for c in ctx.store.of_kind(CODE) if c.anchor_id == t.idea_id]
         scored = [(self._score(c), c) for c in all_kids]
-        best_s, best = max(((s if s is not None else -math.inf), c) for s, c in scored) \
-            if scored else (-math.inf, None)
+        # key-based, never a tuple max: equal scores are routine (two candidates from one
+        # prompt, or two invalid ones at 0) and a tuple tie falls through to comparing the
+        # Individuals themselves, which raises
+        best_s, best = (max(scored, key=lambda sc: sc[0] if sc[0] is not None else -math.inf)
+                        if scored else (None, None))
+        best_s = best_s if best_s is not None else -math.inf
         if best is not None and best_s > -math.inf:
             if best.id not in self.references:
                 self.references.append(best.id)
