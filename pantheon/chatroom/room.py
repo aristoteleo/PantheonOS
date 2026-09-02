@@ -2,6 +2,7 @@ import asyncio
 import copy
 import dataclasses
 import io
+import os
 import time
 try:
     import psutil as _psutil
@@ -1271,7 +1272,18 @@ class ChatRoom(ToolSet):
                         scope=resolver.project_scope(proj_dir),
                         workdir=proj_dir,
                     )
-                return await resolver.ensure_instance(toolset_name)
+                # No chat/project context (desktop UI calls, global tools):
+                # land on the DEFAULT workspace's instance — the very one
+                # prestart warmed — never a parallel app-scoped twin. Two
+                # desktops for one user split every piece of per-display
+                # state (and the second Chromium dies on the first one's
+                # profile lock).
+                cwd = os.getcwd()
+                return await resolver.ensure_instance(
+                    toolset_name,
+                    scope=resolver.project_scope(cwd),
+                    workdir=cwd,
+                )
 
             from nats.errors import NoRespondersError
 
