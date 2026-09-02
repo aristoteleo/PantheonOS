@@ -945,6 +945,22 @@ class BrowserEngine:
             return None
         w = max(2, int(session.width * session.dsf))
         h = max(2, int(session.height * session.dsf))
+        if self._staged_page and self._staged_page != session.id:
+            # An xpra stage owns the display and tile 0 IS the origin: a
+            # freshly tiled window would sit on top of the staged one and
+            # the shadow would show it instead. Park it; the JPEG paths
+            # (which don't need a window rectangle) carry its viewers, and
+            # unstage re-tiles everyone.
+            try:
+                info = await session.cdp.send("Browser.getWindowForTarget")
+                await self._park_window(session, info["windowId"], w,
+                                        h + WINDOW_CHROME_PX)
+            except Exception as e:
+                logger.info("browser: parking {} during stage failed: {}",
+                            session.id, e)
+            self._tiles.release(session.id)
+            session.rect = None
+            return None
         try:
             info = await session.cdp.send("Browser.getWindowForTarget")
             # The window carries the viewport PLUS Chromium's own chrome;
@@ -1141,10 +1157,20 @@ class BrowserEngine:
         if previous and previous != page_id:
             old = self.pages.get(previous)
             if old is not None and old.windowed:
-                # The outgoing page still owns an OS window; it keeps it,
-                # parked outside the shrunken framebuffer by its old tile
-                # coordinates until someone views it again.
+                # The outgoing page's window sits AT THE ORIGIN — exactly
+                # where the incoming one goes. Park it off the framebuffer,
+                # or whichever is higher in the X stacking order is what the
+                # shadow shows, and that has been the wrong one.
                 old.rect = None
+                try:
+                    info_old = await old.cdp.send("Browser.getWindowForTarget")
+                    await self._park_window(
+                        old, info_old["windowId"],
+                        max(2, int(old.width * old.dsf)),
+                        max(2, int(old.height * old.dsf)) + WINDOW_CHROME_PX)
+                except Exception as e:
+                    logger.info("browser: parking staged-out {} failed: {}",
+                                previous, e)
         self._tiles.release(session.id)
         session.rect = None  # the X11 grab must not aim at a staged window
         await self.reshape(session, width, height, float(RASTER_SCALE))
