@@ -267,12 +267,18 @@ class AppInstanceResolver:
     def project_scope(project_dir: str) -> str:
         """The instance scope key for one project directory (§04: scope=project).
 
-        Deterministic across processes — every worker maps the same project to
-        the same instance.
+        Deterministic across processes AND nodes. The user volume mounts at
+        /workspace on one node and under /__modal/volumes/<id> on another,
+        and resolve() bakes that difference into the hash — the same project
+        then got a second instance per node that named it differently. Hash
+        the volume-relative form instead.
         """
         import hashlib
+        import re
 
-        h = hashlib.sha256(str(Path(project_dir).resolve()).encode()).hexdigest()
+        p = str(Path(project_dir).resolve())
+        p = re.sub(r"^/__modal/volumes/[^/]+", "/workspace", p)
+        h = hashlib.sha256(p.encode()).hexdigest()
         return f"proj{h[:10]}"
 
     # ── placement (P5) ──────────────────────────────────────────────────

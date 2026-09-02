@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -138,12 +139,18 @@ def _prestart(services: list[str], wait: float) -> None:
                     return 1
                 await asyncio.sleep(1.0)
         failures = 0
+        # The very instances the runtime will ask for: workers bind
+        # project-scoped instances rooted in the active layout (room.py),
+        # so warming the app-scoped ones just started a SECOND set.
+        cwd = os.getcwd()
+        scope = resolver.project_scope(cwd)
         for service in services:
             if not resolver.resolves(service):
                 print(f"prestart: {service}: not in the App catalog, skipped")
                 continue
             try:
-                sid = await resolver.ensure_instance(service)
+                sid = await resolver.ensure_instance(
+                    service, scope=scope, workdir=cwd)
                 print(f"prestart: {service} -> {sid[:12]}…")
             except Exception as e:
                 failures += 1

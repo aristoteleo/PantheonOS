@@ -166,6 +166,11 @@ class DesktopToolSet(ToolSet):
         clients: list | None = None,
         visible: bool = True,
         active: bool = False,
+        # The page reports when its desktop finished coming up (frontends
+        # ship this already); accepted so a newer page never turns every
+        # heartbeat into a TypeError against an older pod.
+        ready: bool = False,
+        **_future: object,
     ) -> dict:
         """UI-only: renew this page's leases, and read back who else is here.
 
