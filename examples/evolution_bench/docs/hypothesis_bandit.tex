@@ -68,6 +68,17 @@ empirical reasons for each design choice, and reports what it does and does not 
 \texttt{meta["component"]}. The cycle $h \to p \to E(p) \to \text{ledgers} \to h'$ is the whole
 method; everything below is how each arrow is implemented.
 
+\paragraph{The component vocabulary $V$.} A fixed list of six generic labels, identical for every
+task and \emph{not} derived from the program's source:
+\begin{center}\small
+\texttt{initialization} $\cdot$ \texttt{core-algorithm} $\cdot$ \texttt{search-strategy} $\cdot$
+\texttt{numerical-optimization} $\cdot$ \texttt{parameters} $\cdot$ \texttt{output-construction}
+\end{center}
+No static analysis is involved. Each hypothesis \emph{declares} its target by opening with
+\texttt{target\_component:\ <one of the six>}; the gate rejects cards that do not, and the child
+program inherits that label. The labels are deliberately generic because the point of credit
+assignment is to \emph{learn}, per task, which one is worth touching.
+
 \section{Algorithm}
 
 \begin{algorithm}[H]
@@ -75,33 +86,71 @@ method; everything below is how each arrow is implemented.
 \DontPrintSemicolon
 \KwIn{seed program $p_0$, component vocabulary $V$, budget $B$}
 \KwOut{best measured program}
-$H \gets \emptyset$;\quad $G_h \gets \emptyset\ \forall h$ \tcp*{per-hypothesis $\Delta R$ list}
-$C_v \gets \emptyset\ \forall v \in V$ \tcp*{per-component $\Delta R$ list}
+$H \gets \emptyset$ \tcp*{the hypothesis archive}
+$G_h \gets \emptyset$ for each $h$ \tcp*{list of $\Delta R$ measured for $h$}
+$C_v \gets \emptyset$ for each $v \in V$ \tcp*{list of $\Delta R$ observed when $v$ was edited}
+$L \gets \{h \in H : h \text{ not retired}\}$ \tcp*{the live set, recomputed each turn}
 \While{budget remains}{
-  \eIf{$|\{h : \text{live}\}| < H_{\min}$ \textbf{or} draw says propose}{
-    $v^\star \gets \arg\max_{v \in V} \big[ A(v) + \lambda\,\sigma_v \big]$
-      \tcp*{highest-headroom component}
-    $h \gets \textsc{ProposeHypothesis}(v^\star, \text{diagnostics})$\;
-    \lIf{$\textsc{StructuralGate}(h)$}{$H \gets H \cup \{h\}$ \textbf{with} $G_h \gets \emptyset$}
-  }{
-    $h \gets \textsc{SoftmaxSample}\big(\{\text{live } h\},\ \text{priority},\ \tau\big)$\;
-    $p \gets \textsc{EditImplement}(h, \textsc{BestCode}(h))$
+  \uIf(\tcp*[f]{too few live claims: must propose}){$|L| < H_{\min}$}{
+    $h \gets \textsc{Propose}\big(v^\star,\, \textsc{Diagnostics}\big)$,\quad
+      $v^\star = \arg\max_{v \in V}\big[A(v) + \lambda\sigma_v\big]$\;
+    \If{$\textsc{StructuralGate}(h)$}{
+      $H \gets H \cup \{h\}$;\quad $G_h \gets \emptyset$ \tcp*{admit, with an empty ledger}
+    }
+  }
+  \uElseIf(\tcp*[f]{20\% coin: sharpen a claim that is working}){$|L| < H_{\max}$
+      \textbf{and} $\exists\, h' \in L$ with $|G_{h'}| \ge 2, \sum G_{h'} > 0$
+      \textbf{and} $\textsc{Bernoulli}(0.2)$}{
+    $h \gets \textsc{Propose}(v(h'),\, \textsc{Refine}(h'))$;\quad
+      admit as above\;
+  }
+  \Else(\tcp*[f]{otherwise: spend on an existing claim}){
+    $h \gets \textsc{SoftmaxSample}\big(L,\ \text{priority},\ \tau\big)$\;
+    $p \gets \textsc{EditImplement}\big(h,\ \textsc{BestCode}(h)\big)$
       \tcp*{change only $v(h)$}
-    \If{task has a cheap fidelity}{
+    \If(\tcp*[f]{e.g.\ 30 of 150 test cases}){$E_{\text{low}}$ exists for this task}{
       $r_{\text{low}} \gets E_{\text{low}}(p)$\;
-      \lIf{$r_{\text{low}} < R^\star - \delta$}{\textbf{reject}; $\text{fails}_h {+}{=} 1$;
+      \lIf{$r_{\text{low}} < R^\star - \delta$}{\textbf{reject};\ $\text{fails}_h {+}{=} 1$;\
         \textbf{continue}}
     }
     $r \gets E_{\text{full}}(p)$;\quad $\Delta R \gets r - R(\text{base}(p))$\;
     $G_h \gets G_h \cup \{\Delta R\}$;\quad $C_{v(h)} \gets C_{v(h)} \cup \{\Delta R\}$
       \tcp*{one number, two ledgers}
-    \If{$|G_h| \ge 2$ \textbf{and} $\overline{G_h} \le 0$ \textbf{or} $\text{fails}_h \ge 2$}{
+    \If{$\big(|G_h| \ge 2 \ \wedge\ \operatorname{mean}(G_h) \le 0\big)\ \vee\
+        \text{fails}_h \ge 2$}{
       retire $h$ \tcp*{evidence, not opinion}
     }
   }
 }
-\caption{HypothesisBandit}
+\caption{HypothesisBandit. $R^\star$ = best full-fidelity score so far (the incumbent);
+$v(h)$ = the component $h$ targets; $\operatorname{mean}(G_h)$ = average measured gain of $h$.}
 \end{algorithm}
+
+\paragraph{Symbols used above.}
+\begin{center}\small
+\begin{tabular}{ll}
+\toprule
+$H$, $L$ & the hypothesis archive, and its live (non-retired) subset \\
+$G_h$ & list of measured gains $\Delta R$ produced by $h$'s implementations \\
+$C_v$ & list of gains observed whenever an edit touched component $v$ \\
+$v(h)$ & the single component $h$ declares as its target \\
+$R^\star$ & best full-fidelity score so far (the incumbent) \\
+$R(\text{base}(p))$ & score of the program $p$ was edited from \\
+$E_{\text{low}}, E_{\text{full}}$ & cheap and authoritative evaluation (30 vs 150 cases on AHC039) \\
+$\delta$ & promotion margin at the cheap gate (0.02) \\
+$\text{fails}_h$ & count of $h$'s candidates rejected by the cheap gate \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{\textsc{Diagnostics}} are rule-based, not model-generated: the last five recorded
+failure reasons from this run's own event log, e.g.\ \texttt{"low-fidelity screen: 1.168 vs base
+2.4821"}. They are pasted into the proposal prompt together with the credit table and the list of
+live hypotheses (so the model does not re-propose one).
+
+\paragraph{\textsc{StructuralGate}} certifies form, never merit. A card is admitted iff it names
+one of the six components and contains a \texttt{mechanism} field --- nothing scores it. Its value
+is established only by what its implementations measure.
 
 \section{The controller}
 
