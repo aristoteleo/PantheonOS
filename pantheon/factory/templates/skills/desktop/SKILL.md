@@ -162,20 +162,21 @@ file write IS the install (workspace scope), discovered on the next
 
 ```
 .pantheon/apps/<id>/
-  atrium.json          # manifest (below)
+  app.json             # manifest (below)
   frontend/index.js    # export function setup(app, root)  — same contract as A
   backend/__init__.py  # optional: def register(ctx): @ctx.method async def …
   skill/SKILL.md       # optional: how you (the agent) drive it later
 ```
 
-Minimal `atrium.json`:
+Minimal `app.json` (the current manifest protocol; older `atrium.json`
+packages still load, but never write new ones):
 
 ```json
 {
   "id": "my-app",
   "name": "My App",
   "version": "0.1.0",
-  "atriumApi": 1,
+  "apiVersion": 2,
   "surface": "dom",
   "entry": { "frontend": "frontend/index.js" },
   "launcher": true,
