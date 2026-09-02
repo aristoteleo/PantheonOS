@@ -28,7 +28,8 @@ COMPLETION_PRICE = 0.00000009996
 def method_of(name: str) -> str:
     return ("hypothesis_bandit" if "hypbandit" in name else
             "agent_map_elites" if "mapelites" in name else
-            "simpletes" if "simpletes" in name else "?")
+            "simpletes" if "simpletes" in name else
+            "lab_notebook" if "labnotebook" in name else "?")
 
 
 if __name__ == "__main__":

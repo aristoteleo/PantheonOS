@@ -36,7 +36,8 @@ TASKS = HERE / "tasks"
 def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=None,
                  low_fidelity: bool = False):
     from pantheon.evolution.methods import (
-        AnnealedIdeaCode, HypothesisBandit, IdeaCodeAlternating, AgentMapElites, SimpleTES)
+        AnnealedIdeaCode, HypothesisBandit, IdeaCodeAlternating, AgentMapElites,
+        LabNotebook, SimpleTES)
 
     if name in ("hypothesis_bandit", "pantheon_evo"):   # old token accepted
         # low_fidelity follows the task: staged promotion only where a cheap fidelity exists.
@@ -59,6 +60,11 @@ def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=N
     if name == "simpletes":
         return SimpleTES(num_chains=2, k_candidates=2, num_inspirations=2,
                          selector="rpucg", seed=seed)
+    if name == "lab_notebook":
+        # Inner steps use SimpleTES's k=2 / 2-inspiration settings above, so the two arms differ
+        # only in the outer loop: K short trajectories per cycle instead of two long chains.
+        return LabNotebook(ideas_per_cycle=4, steps_per_trajectory=2, k_candidates=2,
+                           num_inspirations=2, seed=seed)
     raise SystemExit(f"unknown method {name!r}")
 
 
@@ -346,7 +352,7 @@ if __name__ == "__main__":
     p.add_argument("--task", required=True)
     p.add_argument("--method", default="agent_map_elites",
                    choices=["agent_map_elites", "map_elites", "simpletes", "idea_code", "annealed",
-                            "pantheon_evo", "hypothesis_bandit"])
+                            "pantheon_evo", "hypothesis_bandit", "lab_notebook"])
     p.add_argument("--iterations", type=int, default=40)
     p.add_argument("--model", default="openai/gpt-5.6-luna")
     p.add_argument("--eval-server", default=os.environ.get("EVAL_SERVER_URL", ""),

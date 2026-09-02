@@ -32,9 +32,10 @@ import numpy as np
 
 INK, SUB, MUTED = "#1f2328", "#57606a", "#8c959f"
 EDGE_GRID = "#d8dee4"
-COLORS = {"hypothesis_bandit": "#8250df", "agent_map_elites": "#0969da", "simpletes": "#bc4c00"}
+COLORS = {"hypothesis_bandit": "#8250df", "agent_map_elites": "#0969da", "simpletes": "#bc4c00",
+          "lab_notebook": "#1a7f37"}
 LABELS = {"hypothesis_bandit": "HypothesisBandit", "agent_map_elites": "AgentMapElites",
-          "simpletes": "SimpleTES"}
+          "simpletes": "SimpleTES", "lab_notebook": "LabNotebook"}
 K = 1500.0
 
 plt.rcParams.update({
@@ -53,7 +54,7 @@ def method_of(r):
 def infer_method(path: str):
     base = os.path.basename(path)
     for pat, m in (("hypbandit", "hypothesis_bandit"), ("mapelites", "agent_map_elites"),
-                   ("simpletes", "simpletes")):
+                   ("simpletes", "simpletes"), ("labnotebook", "lab_notebook")):
         if pat in base:
             return m
     return None

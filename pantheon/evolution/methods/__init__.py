@@ -17,6 +17,7 @@ from .hypothesis_bandit import HypothesisBandit
 PantheonEvo = HypothesisBandit
 """The working name during development; runs recorded under `pantheon_evo` load fine."""
 from .simpletes import PUCTSelector, RPUCGSelector, Selector, SimpleTES
+from .lab_notebook import LabNotebook
 
 __all__ = [
     "AgentMapElites",
@@ -27,4 +28,5 @@ __all__ = [
     "HypothesisBandit",
     "PantheonEvo",
     "SimpleTES", "Selector", "PUCTSelector", "RPUCGSelector",
+    "LabNotebook",
 ]
