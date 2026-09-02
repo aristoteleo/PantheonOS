@@ -172,6 +172,13 @@ class DesktopToolSet(ToolSet):
         ready: bool = False,
         **_future: object,
     ) -> dict:
+        if ready:
+            # The heartbeat is the one delivery that always arrives (the
+            # set_data_endpoint hook can land before this app exists and is
+            # never retried) — so it is what reliably starts Chromium ahead
+            # of the first page open, which otherwise pays the whole cold
+            # launch and times out the UI's RPC. Idempotent: at most once.
+            self._prewarm_browser()
         """UI-only: renew this page's leases, and read back who else is here.
 
         One call per page, on a heartbeat — a page has at most one viewport and
