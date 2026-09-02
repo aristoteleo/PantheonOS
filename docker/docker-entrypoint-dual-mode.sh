@@ -498,7 +498,12 @@ EOF
         fi
         if [ -n "$PRESTART" ]; then
             _ts "apps prestart: ${PRESTART} (background)"
-            ( "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.apps prestart \
+            # From the ACTIVE layout, not the Volume root: the resolver keys
+            # instances by workdir, and a root-cwd prestart booted a second
+            # desktop/file_manager next to the default_workspace ones — two
+            # BrowserEngines split the xpra stage between them.
+            ( if [ "$DW_ENABLED" = "true" ]; then cd "$DEFAULT_WS" 2>/dev/null || true; fi; \
+              "${PANTHEON_RUNTIME_PYTHON:-python}" -m pantheon.apps prestart \
                 "$PRESTART" 90 > /tmp/apps-prestart.log 2>&1 & )
         fi
     fi
