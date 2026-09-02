@@ -464,8 +464,14 @@ class LabNotebook(BaseMethod):
                      + "\n".join(f"- {k} (x{int(v)})" for k, v in t.failures.items()) + "\n\n"
                      if t.failures else "")
                   + "Write the digest as JSON.")
-        text = await self._llm_safe(DIGEST_SYSTEM, prompt, "digest")
-        parsed = _extract_json(text, "object") or {}
+        parsed: Dict[str, Any] = {}
+        for _attempt in range(2):
+            # one retry: the digest is the outer loop's evidence, and in the smoke run one of
+            # four came back as prose the parser could not use
+            text = await self._llm_safe(DIGEST_SYSTEM, prompt, "digest")
+            parsed = _extract_json(text, "object") or {}
+            if parsed.get("outcome"):
+                break
         try:
             adh = float(parsed.get("adherence", 0.0) or 0.0)
         except (TypeError, ValueError):
