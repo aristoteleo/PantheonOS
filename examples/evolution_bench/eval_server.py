@@ -21,6 +21,7 @@ caller is ours without minting a new secret or sending the key itself.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -32,7 +33,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, "/repo/examples/evolution_bench")
 from modal_exp import image  # noqa: E402
 
-app = modal.App("evolve-eval-server")
+app = modal.App(os.environ.get("EVAL_SERVER_APP", "evolve-eval-server"))
+"""One app = one machine = one ruler. A second campaign that must not queue behind the first
+(or share its container's wall-clock offset) deploys its own under another name:
+
+    EVAL_SERVER_APP=evolve-eval-server-pro modal deploy eval_server.py
+"""
 
 CASE_WORKERS = "24"
 """On 64 dedicated cores: 24 concurrent cases x (1 solution thread + tester) stays well under
