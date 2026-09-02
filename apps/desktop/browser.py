@@ -475,109 +475,136 @@ class BrowserEngine:
         if self._launch_error:
             raise RuntimeError(self._launch_error)
         try:
-            from playwright.async_api import async_playwright
-
-            display = await self._ensure_xvfb()
-            self._pw = await async_playwright().start()
-            profile = Path.home() / ".pantheon" / "browser-profile"
-            profile.mkdir(parents=True, exist_ok=True)
-            self._clear_stale_locks(profile)
-            # Off the loop: this deletes thousands of files on a NETWORK
-            # volume, and a loop that stops answering for long enough is a
-            # pod the hub's health check declares dead and destroys — which
-            # costs the user their sandbox and minutes of waiting for
-            # another. Nothing here is urgent enough to be worth that.
-            await asyncio.to_thread(self._evict_volume_caches, profile)
-            cache_dir = Path("/tmp/pantheon-browser-cache")
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            self._context = await self._pw.chromium.launch_persistent_context(
-                user_data_dir=str(profile),
-                # Headful under Xvfb when the image carries one (the capture
-                # stack needs a real display; headful is also the least
-                # fingerprintable form there is). Otherwise: new headless,
-                # which renders like a real Chrome and passes most login
-                # checks. A realistic UA + turning off the
-                # AutomationControlled blink feature removes the remaining
-                # obvious tells either way.
-                headless=display is None,
-                env={**os.environ, "DISPLAY": display} if display else None,
-                # A pod's first minutes are a boot storm (pip prewarms, app
-                # installs); a headful first paint under that load can blow
-                # playwright's default 30s.
-                timeout=120_000,
-                channel="chromium",
-                user_agent=(
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
-                ),
-                locale="en-US",
-                viewport={"width": VIEW_W, "height": VIEW_H},
-                args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--disable-blink-features=AutomationControlled",
-                    # Raster every surface at 2x. The screencast captures the
-                    # raster (it ignores Emulation.setDeviceMetricsOverride —
-                    # verified empirically), so this is what makes Retina-
-                    # density frames possible at all. Per-viewer density then
-                    # only picks the screencast's max dims: 2x viewers get the
-                    # raster 1:1, 1x viewers get a supersampled downscale.
-                    # Coordinates stay CSS pixels throughout.
-                    "--force-device-scale-factor=2",
-                    # Occlusion detection stays ON. Turning it off kept
-                    # every open tab painting at full rate, and five tabs —
-                    # three of them animated interstitials — starved the
-                    # encoder down to 9 fps on the one being watched. The
-                    # window that IS watched is brought to front when the
-                    # capture aims at it, which is what tells Chromium to
-                    # keep painting it; the rest may sleep, exactly as they
-                    # would in a browser on a desk.
-                    "--disable-features=CalculateNativeWinOcclusion",
-                    # Caches on LOCAL disk, never on the volume. The profile
-                    # is on a network volume so logins survive a restart;
-                    # caches need to survive nothing and are nearly all of
-                    # its bulk, and every navigation pays for them twice
-                    # over the network. Measured in a real sandbox: nine
-                    # seconds to open a page with the cache on the volume.
-                    f"--disk-cache-dir={cache_dir / 'http'}",
-                    f"--media-cache-dir={cache_dir / 'media'}",
-                ],
-            )
-            ctx = self._context
-            ctx.on("close",
-                   lambda: self._context_died() if self._context is ctx else None)
-            # Warm the xpra shadow so the first stage_page doesn't wait on
-            # its startup; a missing binary makes this a cheap no-op.
-            asyncio.ensure_future(self._ensure_xpra())
-            # navigator.webdriver=true is the single biggest automation tell;
-            # drop it (and normalise a couple of headless quirks) before any
-            # page script runs.
-            await self._context.add_init_script(
-                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
-                "window.chrome = window.chrome || { runtime: {} };"
-                "Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});"
-            )
-            # The persistent context opens with a blank page. Headless: close
-            # it so the page registry is the single source of what exists.
-            # HEADFUL: keep it — closing the last window makes Chrome refuse
-            # Target.createTarget ("Failed to open a new tab") or exit
-            # outright, which bricked every later page open. The blank page
-            # is never registered, never streamed, and holds the window open.
-            if display is None:
-                for p in list(self._context.pages):
-                    try:
-                        await p.close()
-                    except Exception:
-                        pass
-            else:
-                await self._park_keeper()
-            logger.info("browser: chromium up (profile {}, display {})",
-                        profile, display or "headless")
+            await self._launch_browser_once()
+            return
         except Exception as e:
+            # Restart overlap: the OLD sandbox's Chromium can still hold the
+            # volume profile's ProcessSingleton while this one boots. That is
+            # a moment, not a state — wait it out, clear the locks it left,
+            # and go again.
+            if not any(k in str(e) for k in ("ProcessSingleton", "SingletonLock")):
+                self._launch_error = f"chromium unavailable: {e}"
+                logger.error("browser: launch failed: {}", e)
+                raise RuntimeError(self._launch_error) from e
+            logger.warning(
+                "browser: profile locked by a previous sandbox; retrying once")
+        await asyncio.sleep(3.0)
+        try:
+            await self._launch_browser_once()
+        except Exception as e:
+            if any(k in str(e) for k in ("ProcessSingleton", "SingletonLock")):
+                # NOT sticky: the old holder dies within seconds of its
+                # sandbox — the next attempt may simply find it gone.
+                logger.error("browser: profile still locked: {}", e)
+                raise RuntimeError(
+                    "the browser profile is still locked by a previous "
+                    "sandbox; it usually frees within seconds — try again"
+                ) from e
             self._launch_error = f"chromium unavailable: {e}"
             logger.error("browser: launch failed: {}", e)
             raise RuntimeError(self._launch_error) from e
+
+    async def _launch_browser_once(self) -> None:
+        from playwright.async_api import async_playwright
+
+        display = await self._ensure_xvfb()
+        if self._pw is None:
+            self._pw = await async_playwright().start()
+        profile = Path.home() / ".pantheon" / "browser-profile"
+        profile.mkdir(parents=True, exist_ok=True)
+        self._clear_stale_locks(profile)
+        # Off the loop: this deletes thousands of files on a NETWORK
+        # volume, and a loop that stops answering for long enough is a
+        # pod the hub's health check declares dead and destroys — which
+        # costs the user their sandbox and minutes of waiting for
+        # another. Nothing here is urgent enough to be worth that.
+        await asyncio.to_thread(self._evict_volume_caches, profile)
+        cache_dir = Path("/tmp/pantheon-browser-cache")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        self._context = await self._pw.chromium.launch_persistent_context(
+            user_data_dir=str(profile),
+            # Headful under Xvfb when the image carries one (the capture
+            # stack needs a real display; headful is also the least
+            # fingerprintable form there is). Otherwise: new headless,
+            # which renders like a real Chrome and passes most login
+            # checks. A realistic UA + turning off the
+            # AutomationControlled blink feature removes the remaining
+            # obvious tells either way.
+            headless=display is None,
+            env={**os.environ, "DISPLAY": display} if display else None,
+            # A pod's first minutes are a boot storm (pip prewarms, app
+            # installs); a headful first paint under that load can blow
+            # playwright's default 30s.
+            timeout=120_000,
+            channel="chromium",
+            user_agent=(
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+            ),
+            locale="en-US",
+            viewport={"width": VIEW_W, "height": VIEW_H},
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-blink-features=AutomationControlled",
+                # Raster every surface at 2x. The screencast captures the
+                # raster (it ignores Emulation.setDeviceMetricsOverride —
+                # verified empirically), so this is what makes Retina-
+                # density frames possible at all. Per-viewer density then
+                # only picks the screencast's max dims: 2x viewers get the
+                # raster 1:1, 1x viewers get a supersampled downscale.
+                # Coordinates stay CSS pixels throughout.
+                "--force-device-scale-factor=2",
+                # Occlusion detection stays ON. Turning it off kept
+                # every open tab painting at full rate, and five tabs —
+                # three of them animated interstitials — starved the
+                # encoder down to 9 fps on the one being watched. The
+                # window that IS watched is brought to front when the
+                # capture aims at it, which is what tells Chromium to
+                # keep painting it; the rest may sleep, exactly as they
+                # would in a browser on a desk.
+                "--disable-features=CalculateNativeWinOcclusion",
+                # Caches on LOCAL disk, never on the volume. The profile
+                # is on a network volume so logins survive a restart;
+                # caches need to survive nothing and are nearly all of
+                # its bulk, and every navigation pays for them twice
+                # over the network. Measured in a real sandbox: nine
+                # seconds to open a page with the cache on the volume.
+                f"--disk-cache-dir={cache_dir / 'http'}",
+                f"--media-cache-dir={cache_dir / 'media'}",
+            ],
+        )
+        ctx = self._context
+        ctx.on("close",
+               lambda: self._context_died() if self._context is ctx else None)
+        # Warm the xpra shadow so the first stage_page doesn't wait on
+        # its startup; a missing binary makes this a cheap no-op.
+        asyncio.ensure_future(self._ensure_xpra())
+        # navigator.webdriver=true is the single biggest automation tell;
+        # drop it (and normalise a couple of headless quirks) before any
+        # page script runs.
+        await self._context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+            "window.chrome = window.chrome || { runtime: {} };"
+            "Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});"
+        )
+        # The persistent context opens with a blank page. Headless: close
+        # it so the page registry is the single source of what exists.
+        # HEADFUL: keep it — closing the last window makes Chrome refuse
+        # Target.createTarget ("Failed to open a new tab") or exit
+        # outright, which bricked every later page open. The blank page
+        # is never registered, never streamed, and holds the window open.
+        if display is None:
+            for p in list(self._context.pages):
+                try:
+                    await p.close()
+                except Exception:
+                    pass
+        else:
+            await self._park_keeper()
+        logger.info("browser: chromium up (profile {}, display {})",
+                    profile, display or "headless")
 
     async def reshape(self, session: PageSession,
                       w: int, h: int, s: float) -> None:
