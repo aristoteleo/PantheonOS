@@ -200,6 +200,15 @@ WHEEL_MAX_DEBT_PX = 4000
 # short enough that a page nobody watches goes quiet.
 SCREENCAST_LINGER_S = 8.0
 
+# xpra shadow of the Xvfb display: the html5 client rides the sandbox
+# tunnel directly, so page text stays picture-sharp (webp, no chroma
+# subsampling) and there is no gateway hop. Shadow serves the WHOLE
+# display as one desktop window, so staging shrinks the framebuffer to
+# exactly the staged window — every other window lands outside it. One
+# staged page at a time; anything else streams over the JPEG paths.
+XPRA_PORT = 14500
+XPRA_PASSWORD_FILE = "/tmp/pantheon-xpra-pass"
+
 LONG_POLL_S = 20.0
 READ_LIMIT = 8000
 
@@ -304,6 +313,10 @@ class BrowserEngine:
         self._cold_start = True
         self._launch_lock = asyncio.Lock()
         self.pages: dict[str, PageSession] = {}
+        # xpra shadow state: one staged page owns the (shrunken) display.
+        self._xpra_proc = None
+        self._xpra_password: str | None = None
+        self._staged_page: str | None = None
 
     # ── the daemon loop ──────────────────────────────────────────────────
 
@@ -534,6 +547,9 @@ class BrowserEngine:
             ctx = self._context
             ctx.on("close",
                    lambda: self._context_died() if self._context is ctx else None)
+            # Warm the xpra shadow so the first stage_page doesn't wait on
+            # its startup; a missing binary makes this a cheap no-op.
+            asyncio.ensure_future(self._ensure_xpra())
             # navigator.webdriver=true is the single biggest automation tell;
             # drop it (and normalise a couple of headless quirks) before any
             # page script runs.
@@ -578,7 +594,11 @@ class BrowserEngine:
             session.width, session.height = w, h
             session.dsf = s
             await self.set_metrics(session, w, h, s)
-            if session.windowed:
+            if self._staged_page == session.id:
+                # Staged for xpra: the window lives at the origin and the
+                # framebuffer is cut to it — never back onto a tile.
+                await self._stage_place(session)
+            elif session.windowed:
                 # The OS window must follow, or the X11 grab keeps aiming
                 # at the rectangle the window has left.
                 await self.place_window(session)
@@ -1012,6 +1032,152 @@ class BrowserEngine:
             session.rect = None
             return None
 
+    # ── xpra shadow (engine loop only) ───────────────────────────────────
+
+    def _xpra_alive(self) -> bool:
+        return self._xpra_proc is not None and self._xpra_proc.poll() is None
+
+    async def _ensure_xpra(self) -> bool:
+        """Start (or confirm) the xpra shadow of the Xvfb display.
+
+        Degrades exactly like Xvfb itself: no binary on the image means no
+        xpra transport, and every viewer keeps the JPEG/WebRTC paths.
+        """
+        import shutil
+
+        if self._xvfb_display is None or shutil.which("xpra") is None:
+            return False
+        if self._xpra_alive():
+            return True
+        import secrets
+        import subprocess
+
+        if not self._xpra_password:
+            self._xpra_password = secrets.token_urlsafe(18)
+        try:
+            self._xpra_proc = subprocess.Popen(
+                ["xpra", "shadow", self._xvfb_display,
+                 f"--bind-ws=0.0.0.0:{XPRA_PORT}",
+                 "--html=on", "--daemon=no",
+                 # TLS ends at the tunnel edge; the socket here is plain ws.
+                 f"--ws-auth=password:value={self._xpra_password}",
+                 # The framebuffer is this engine's to size (stage/unstage);
+                 # a client resize must not fight it.
+                 "--resize-display=no",
+                 "--notifications=no", "--pulseaudio=no", "--mdns=no",
+                 "--webcam=no", "--printing=no"],
+                env={**os.environ, "DISPLAY": self._xvfb_display},
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            # Ready when the WebSocket port answers HTTP.
+            import urllib.request
+            for _ in range(60):
+                if not self._xpra_alive():
+                    break
+                try:
+                    urllib.request.urlopen(
+                        f"http://127.0.0.1:{XPRA_PORT}/", timeout=1)
+                    logger.info("browser: xpra shadow up on :{}", XPRA_PORT)
+                    return True
+                except Exception:
+                    await asyncio.sleep(0.5)
+            logger.warning("browser: xpra shadow never answered")
+        except Exception as e:
+            logger.warning("browser: xpra launch failed: {}", e)
+        return False
+
+    def _set_fb(self, w: int, h: int) -> None:
+        """Resize the X framebuffer (physical px). Shrinking is always legal
+        (the Xvfb was born at full tile size, which is RANDR's maximum);
+        xrandr may still grumble about the output's crtc on stderr while the
+        framebuffer itself resizes — verify the result, not the exit code."""
+        import subprocess
+
+        subprocess.run(
+            ["xrandr", "-d", self._xvfb_display or ":97",
+             "--fb", f"{w}x{h}"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+        )
+        probe = subprocess.run(
+            ["xrandr", "-d", self._xvfb_display or ":97"],
+            capture_output=True, text=True, check=False,
+        )
+        if f"current {w} x {h}" not in (probe.stdout or ""):
+            raise RuntimeError(f"framebuffer did not take {w}x{h}")
+
+    async def _stage_place(self, session: PageSession) -> None:
+        """Cut the framebuffer to this page's window and pin it at the origin.
+
+        The shadow serves the whole display as ONE desktop window, so the
+        display must BE the staged window: everything else (parked windows,
+        other pages' tiles) falls outside the framebuffer and out of frame.
+        """
+        w = max(2, int(session.width * session.dsf))
+        h = max(2, int(session.height * session.dsf))
+        outer_h = (h + WINDOW_CHROME_PX) & ~1
+        await asyncio.to_thread(self._set_fb, w, outer_h)
+        info = await session.cdp.send("Browser.getWindowForTarget")
+        await session.cdp.send("Browser.setWindowBounds", {
+            "windowId": info["windowId"],
+            "bounds": {
+                "left": 0, "top": 0,
+                "width": w // RASTER_SCALE,
+                "height": outer_h // RASTER_SCALE,
+                "windowState": "normal",
+            },
+        })
+
+    async def stage_page(self, page_id: str, width: int, height: int) -> dict:
+        """Make this page THE xpra-visible one (one stage; latecomer wins).
+
+        Returns what the viewer needs to connect and crop; raises if the
+        transport is unavailable so the caller can fall back to JPEG paths.
+        """
+        session = self.get(page_id)
+        if not await self._ensure_xpra():
+            raise RuntimeError("xpra transport unavailable")
+        previous = self._staged_page
+        self._staged_page = page_id
+        if previous and previous != page_id:
+            old = self.pages.get(previous)
+            if old is not None and old.windowed:
+                # The outgoing page still owns an OS window; it keeps it,
+                # parked outside the shrunken framebuffer by its old tile
+                # coordinates until someone views it again.
+                old.rect = None
+        self._tiles.release(session.id)
+        session.rect = None  # the X11 grab must not aim at a staged window
+        await self.reshape(session, width, height, float(RASTER_SCALE))
+        await self.focus_page(session)
+        import getpass
+
+        return {
+            "password": self._xpra_password,
+            "username": getpass.getuser(),
+            "chrome_px": WINDOW_CHROME_PX,
+            "fb_width": max(2, int(width * RASTER_SCALE)),
+            "fb_height": (max(2, int(height * RASTER_SCALE))
+                          + WINDOW_CHROME_PX) & ~1,
+        }
+
+    async def unstage_page(self, page_id: str) -> None:
+        """This page stops owning the display; restore the tiled world."""
+        if self._staged_page != page_id:
+            return
+        self._staged_page = None
+        from .x11cast import SCREEN_H, SCREEN_W
+
+        try:
+            await asyncio.to_thread(self._set_fb, SCREEN_W, SCREEN_H)
+        except Exception as e:
+            logger.warning("browser: framebuffer restore failed: {}", e)
+        session = self.pages.get(page_id)
+        if session is not None and session.windowed:
+            try:
+                await self.place_window(session)
+            except Exception as e:
+                logger.info("browser: re-tiling after unstage failed: {}", e)
+
     async def clear_data(self) -> None:
         """Sign out of every site: drop cookies and stored credentials."""
         if self._context is None:
@@ -1049,6 +1215,16 @@ class BrowserEngine:
         session = self.pages.pop(page_id, None)
         if session is None:
             return
+        if self._staged_page == page_id:
+            # The staged page owned the (shrunken) display; give the tiled
+            # world its framebuffer back for whoever streams next.
+            self._staged_page = None
+            from .x11cast import SCREEN_H, SCREEN_W
+
+            try:
+                await asyncio.to_thread(self._set_fb, SCREEN_W, SCREEN_H)
+            except Exception as e:
+                logger.info("browser: framebuffer restore failed: {}", e)
         # Give the tile back, or a busy session walks the slot index off
         # the display and every later window loses the fast path.
         self._tiles.release(page_id)

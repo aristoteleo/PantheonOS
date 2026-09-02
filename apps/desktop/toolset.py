@@ -1643,6 +1643,8 @@ class DesktopToolSet(ToolSet):
 
                 session = await engine.call(engine.open_page(normalize_url(url)))
             frame_url, input_url = await self._browser_urls()
+            import shutil as _shutil
+
             return {
                 "success": True,
                 **await self._browser_page_info(session),
@@ -1650,6 +1652,10 @@ class DesktopToolSet(ToolSet):
                 "input_url": input_url,
                 "width": session.width,
                 "height": session.height,
+                # The xpra transport needs the binary AND a real display;
+                # the UI uses this to pick its first path, then falls back.
+                "xpra": bool(_shutil.which("xpra")
+                             and engine._xvfb_display is not None),
             }
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -1671,6 +1677,41 @@ class DesktopToolSet(ToolSet):
         try:
             engine = self._browser_engine()
             await engine.call(engine.close_page(page_id))
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool(exclude=True)
+    async def browser_ui_stage(self, page_id: str, width: int = 0,
+                               height: int = 0) -> dict:
+        """UI → backend: stream this page over xpra (sharp, low-latency).
+
+        One page owns the display at a time — a latecomer takes it over, and
+        every other viewport is told through `browser.stage` so it can fall
+        back to the JPEG paths. Returns connection material for the html5
+        client, or success=False when the transport is unavailable.
+        """
+        try:
+            engine = self._browser_engine()
+            from .browser import VIEW_H, VIEW_W
+
+            info = await engine.call(engine.stage_page(
+                page_id, int(width) or VIEW_W, int(height) or VIEW_H))
+            await self._publish_desktop({
+                "type": "desktop.broadcast",
+                "topic": "browser.stage",
+                "payload": {"page_id": page_id},
+            })
+            return {"success": True, **info}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool(exclude=True)
+    async def browser_ui_unstage(self, page_id: str) -> dict:
+        """UI → backend: this page stops using the xpra transport."""
+        try:
+            engine = self._browser_engine()
+            await engine.call(engine.unstage_page(page_id))
             return {"success": True}
         except Exception as e:
             return {"success": False, "error": str(e)}

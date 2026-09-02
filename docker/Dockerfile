@@ -300,6 +300,35 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     x11-utils \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+# xpra v6 (xpra.org repo — Debian's 3.x is 2020-era): shadows the Xvfb
+# display for the Browser app's sharp low-latency stream; the html5 client
+# rides the sandbox tunnel directly, no WebRTC gateway hop. Split packages
+# keep it small — the metapackage would drag in audio/printing/GStreamer
+# (~840MB). xpra-client/-client-gtk3 look wrong on a server install but the
+# accept path imports xpra.client.gui via net/mmap: missing them fails at
+# CONNECT time, not startup. gir1.2-gtk-3.0 is the shadow backend's GTK
+# typelib ("shadow backend auto is not available" without it), dbus is
+# spawned at startup, x11-xserver-utils ships xrandr for stage/unstage
+# framebuffer sizing. The stock CSP says frame-ancestors 'self', which
+# blanks the client inside the desktop's iframe — relax just that.
+RUN curl -fsSL https://xpra.org/xpra.asc -o /usr/share/keyrings/xpra.asc \
+    && echo 'deb [signed-by=/usr/share/keyrings/xpra.asc] https://xpra.org/ bookworm main' > /etc/apt/sources.list.d/xpra.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    xpra-server \
+    xpra-x11 \
+    xpra-codecs \
+    xpra-html5 \
+    xpra-client \
+    xpra-client-gtk3 \
+    dbus \
+    dbus-x11 \
+    gir1.2-gtk-3.0 \
+    python3-gi \
+    x11-xserver-utils \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+    && printf "Content-Security-Policy: script-src 'self' 'unsafe-inline' ; font-src 'self' ; object-src 'none' ; child-src 'self' ; worker-src 'self' ; frame-ancestors * ; form-action 'self'\n" \
+       > /etc/xpra/http-headers/10_content_security_policy.txt
+
 # ============================================
 # Layer D — MCP Server Caches (~150-300MB, stable)
 # ============================================
