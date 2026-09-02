@@ -135,13 +135,13 @@ if __name__ == "__main__":
     ap.add_argument("--erdos", required=True)
     ap.add_argument("--out", default=os.path.expanduser("~/Downloads"))
     ap.add_argument("--tag", default="all")
+    ap.add_argument("--title", default="Four methods × three tasks — best per arm, and what it cost")
     a = ap.parse_args()
     data = {"ahc039": load(a.ahc), "circle_packing": load(a.packing), "erdos": load(a.erdos)}
 
     fig, axes = plt.subplots(2, 3, figsize=(15, 8.2), dpi=150,
                              gridspec_kw={"height_ratios": [3, 1.15]})
-    fig.suptitle("Four methods × three tasks — best per arm, and what it cost",
-                 size=17, weight="bold", x=0.04, ha="left")
+    fig.suptitle(a.title, size=17, weight="bold", x=0.04, ha="left")
     for j, (task, ylabel, scale, flip, ref) in enumerate(PANELS):
         ms, by_m = panel(axes[0][j], data[task], scale, flip, ref, ylabel)
         cost_panel(axes[1][j], ms, by_m)
