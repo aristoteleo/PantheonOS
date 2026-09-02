@@ -71,8 +71,18 @@ def _run_one(argv: list, out: str, judge_state: str | None = None,
     if judge_state:
         os.makedirs(os.path.dirname(judge_state), exist_ok=True)
         cmd += ["--judge-state", judge_state]
+    # Modal re-runs a call whose container was preempted, from the top. Four arms of one
+    # campaign restarted that way in a day, each losing hours of progress that was already
+    # checkpointed on the volume beside this log. A retry that finds a checkpoint continues
+    # the run instead: same budget total, same curves, the open step lost and nothing else.
+    resumed = (os.path.exists(f"{out}/store.json") and "--resume" not in cmd
+               and script.endswith("run_bench.py"))
+    if resumed:
+        cmd.append("--resume")
     t0 = time.time()
-    with open(f"{out}/run.log", "w") as lf:
+    with open(f"{out}/run.log", "a" if resumed else "w") as lf:
+        if resumed:
+            lf.write("\n\n===== container restarted; resuming from checkpoint =====\n")
         lf.write(" ".join(cmd) + "\n\n")
         lf.flush()
         p = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT, text=True)
