@@ -143,7 +143,7 @@ VIEW_W, VIEW_H = 1280, 800
 # all-red page and finding the first red row: 180 at
 # --force-device-scale-factor=2. Tied to that flag — the browser UI
 # scales with it. Too small and the stream wears a sliver of tab strip.
-WINDOW_CHROME_PX = 180
+WINDOW_CHROME_PX = 90
 # Chromium rasters everything at this scale (the launch flag below), and
 # Browser.setWindowBounds speaks DIP — bounds divided by it. Passing
 # physical pixels there made every window exactly twice its intended size:
@@ -151,7 +151,7 @@ WINDOW_CHROME_PX = 180
 # rectangle that was mostly chrome and empty desk, and a scroll changed
 # almost nothing on screen. Capture rectangles stay in physical pixels,
 # because that is what x11grab reads.
-RASTER_SCALE = 2
+RASTER_SCALE = 1
 JPEG_QUALITY = 70
 # The tunnel out of the sandbox caps at ~20 Mbps (measured; shared across
 # connections, so striping cannot help) — fps is bytes-bound. Dense (Retina)
@@ -548,14 +548,15 @@ class BrowserEngine:
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
                 "--disable-blink-features=AutomationControlled",
-                # Raster every surface at 2x. The screencast captures the
-                # raster (it ignores Emulation.setDeviceMetricsOverride —
-                # verified empirically), so this is what makes Retina-
-                # density frames possible at all. Per-viewer density then
-                # only picks the screencast's max dims: 2x viewers get the
-                # raster 1:1, 1x viewers get a supersampled downscale.
-                # Coordinates stay CSS pixels throughout.
-                "--force-device-scale-factor=2",
+                # 1x, matched end-to-end: the xpra iframe presents the
+                # framebuffer 1:1 — every scaling trick between them
+                # (transform:scale broke the client's canvas painting,
+                # zoom broke its devicePixelRatio accounting) put the
+                # window out of view. The JPEG/WebRTC fallbacks lose
+                # their supersampled 2x here; xpra is the primary path
+                # now and correctness wins. RASTER_SCALE and
+                # WINDOW_CHROME_PX above are matched to this flag.
+                "--force-device-scale-factor=1",
                 # Occlusion detection stays ON. Turning it off kept
                 # every open tab painting at full rate, and five tabs —
                 # three of them animated interstitials — starved the
