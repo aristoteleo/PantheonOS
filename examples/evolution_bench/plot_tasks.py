@@ -197,7 +197,7 @@ if __name__ == "__main__":
         raise SystemExit("nothing to draw: pass --ahc/--packing/--erdos or --panel TASK=GLOB")
     data = {task: load(pat) for task, pat in panels}
 
-    fig, axes = plt.subplots(2, len(panels), figsize=(5.0 * len(panels), 8.2), dpi=150, squeeze=False,
+    fig, axes = plt.subplots(2, len(panels), figsize=(5.6 * len(panels), 8.2), dpi=150, squeeze=False,
                              gridspec_kw={"height_ratios": [3, 1.15]})
     fig.suptitle(a.title, size=17, weight="bold", x=0.04, ha="left")
     for j, (task, _) in enumerate(panels):
