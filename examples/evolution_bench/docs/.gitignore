@@ -1,3 +1,6 @@
 *.aux
 *.log
 *.out
+benchmarks_figs/*
+!benchmarks_figs/overview_map.png
+!benchmarks_figs/papers.json
