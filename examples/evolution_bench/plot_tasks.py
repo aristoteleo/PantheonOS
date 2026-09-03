@@ -2,6 +2,8 @@
 
     uv run python plot_tasks.py --ahc 'w6/*.json' --erdos 'ep/erdos-wave1_*.json' \\
         --packing 'ep/packing-wave1_*.json' --out ~/Downloads --tag all
+    uv run python plot_tasks.py --panel circle_packing_32='ae/p32_*.json' \\
+        --panel autocorr_first='ae/c1_*.json' --tag ae   # any tasks known to PANELS
 
 Three panels, one per task, x = method, y = the task's own display unit (official points per
 case; sum of radii; Psi with the axis inverted so up is better everywhere). Filled markers are
@@ -29,13 +31,34 @@ import numpy as np
 from plot_budget import COLORS, LABELS, INK, SUB, EDGE_GRID, infer_method, method_of
 
 ORDER = ["hypothesis_bandit", "agent_map_elites", "simpletes", "lab_notebook"]
-PANELS = [
-    # (task, title, scale, flip, record, per-replicate label format or None)
-    ("ahc039", "AHC039 (official points / case)", 1500.0, False, None, None),
-    ("circle_packing", "circle packing (sum of radii)", 1.0, False, (2.635983, "record"), "{:.6f}"),
-    ("erdos", "Erdős  Ψ  (lower is better, axis inverted)", 1.0, True,
-     (0.380909, "our record"), "{:.6f}"),
-]
+def _inv(b):
+    return 1.0 / b if b else float("nan")
+
+
+# task -> (title, display transform of the harness score, invert the axis, reference line, label fmt)
+# References: the closest published point is the dotted line; the current record is in the title.
+PANELS = {
+    "ahc039": ("AHC039 (official points / case)", lambda b: b * 1500.0, False, None, None),
+    "circle_packing": ("circle packing (sum of radii)", lambda b: b, False, (2.635983, "record"), "{:.6f}"),
+    "erdos": ("Erdős  Ψ  (lower is better, axis inverted)", lambda b: 1 - b, True,
+              (0.380909, "our record"), "{:.6f}"),
+    # AlphaEvolve-suite (SimpleTES contract): the harness score is converted back to the paper's unit
+    "circle_packing_32": ("circle packing n=32 (sum of radii; record 2.939572)", lambda b: b, False,
+                          (2.939572, "record"), "{:.6f}"),
+    "autocorr_first": ("C1 upper bound (lower is better, inverted; record 1.50287)", _inv, True,
+                       (1.5053, "AlphaEvolve v1"), "{:.5f}"),
+    "autocorr_second": ("C2 lower bound (record 0.9627)", lambda b: b, False,
+                        (0.8962, "AlphaEvolve v1"), "{:.4f}"),
+    "autocorr_third": ("C3 upper bound (lower is better, inverted; record 1.45368)",
+                       lambda b: 1.4556 / b if b else float("nan"), True, (1.4556, "AlphaEvolve"), "{:.5f}"),
+    "sums_diffs": ("sums vs differences  C(A)", lambda b: b, False, (1.1449, "SimpleTES"), "{:.4f}"),
+    "hadamard29": ("Hadamard order 29  |det| / reference", lambda b: b, False, None, "{:.4f}"),
+    # AlphaEvolve-suite (CodeEvolve instances): score = benchmark ratio, 1.0 = AlphaEvolve
+    **{t: (f"{lab}  (ratio to AlphaEvolve)", (lambda b: b), False, (1.0, "AlphaEvolve"), "{:.4f}")
+       for t, lab in [("kissing11", "kissing number, d=11"), ("heilbronn_tri11", "Heilbronn triangle, n=11"),
+                      ("heilbronn_conv13", "Heilbronn convex, n=13"), ("minmax2d16", "min/max distance ratio, n=16"),
+                      ("packing_rect21", "circles in a rectangle, n=21"), ("hexagon11", "hexagons in a hexagon, n=11")]},
+}
 
 
 def load(pattern: str):
@@ -80,16 +103,17 @@ def load(pattern: str):
     return list(rows.values())
 
 
-def panel(ax, rows, scale, flip, ref, ylabel, label_fmt=None):
+def panel(ax, rows, disp, invert, ref, ylabel, label_fmt=None):
     by_m = defaultdict(list)
     for r in rows:
-        if r["method"] in COLORS:
+        if r["method"] in COLORS and np.isfinite(disp(r["best"])):
             by_m[r["method"]].append(r)
     ms = [m for m in ORDER if m in by_m]
-    all_y = [((1 - r["best"]) if flip else r["best"] * scale) for m in ms for r in by_m[m]]
+    flip = invert
+    all_y = [disp(r["best"]) for m in ms for r in by_m[m]]
     span = (max(all_y) - min(all_y)) or 1.0
     for i, m in enumerate(ms):
-        ys = [(1 - r["best"]) if flip else r["best"] * scale for r in by_m[m]]
+        ys = [disp(r["best"]) for r in by_m[m]]
         dn = [r["done"] for r in by_m[m]]
         xs = i + np.linspace(-0.16, 0.16, len(ys)) if len(ys) > 1 else [i]
         for x, y, d in zip(xs, ys, dn):
@@ -154,20 +178,31 @@ def cost_panel(ax, ms, by_m):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ahc", required=True)
-    ap.add_argument("--packing", required=True)
-    ap.add_argument("--erdos", required=True)
+    ap.add_argument("--ahc", help="summaries glob for AHC039")
+    ap.add_argument("--packing", help="summaries glob for circle packing n=26")
+    ap.add_argument("--erdos", help="summaries glob for Erdős")
+    ap.add_argument("--panel", action="append", default=[], metavar="TASK=GLOB",
+                    help="any task known to PANELS; repeatable, in panel order")
     ap.add_argument("--out", default=os.path.expanduser("~/Downloads"))
     ap.add_argument("--tag", default="all")
     ap.add_argument("--title", default="Four methods × three tasks — best per arm, and what it cost")
     a = ap.parse_args()
-    data = {"ahc039": load(a.ahc), "circle_packing": load(a.packing), "erdos": load(a.erdos)}
+    panels = [(t, g) for t, g in (("ahc039", a.ahc), ("circle_packing", a.packing), ("erdos", a.erdos)) if g]
+    for spec in a.panel:
+        task, pat = spec.split("=", 1)
+        if task not in PANELS:
+            raise SystemExit(f"unknown task {task!r}; known: {', '.join(sorted(PANELS))}")
+        panels.append((task, pat))
+    if not panels:
+        raise SystemExit("nothing to draw: pass --ahc/--packing/--erdos or --panel TASK=GLOB")
+    data = {task: load(pat) for task, pat in panels}
 
-    fig, axes = plt.subplots(2, 3, figsize=(15, 8.2), dpi=150,
+    fig, axes = plt.subplots(2, len(panels), figsize=(5.0 * len(panels), 8.2), dpi=150, squeeze=False,
                              gridspec_kw={"height_ratios": [3, 1.15]})
     fig.suptitle(a.title, size=17, weight="bold", x=0.04, ha="left")
-    for j, (task, ylabel, scale, flip, ref, fmt) in enumerate(PANELS):
-        ms, by_m = panel(axes[0][j], data[task], scale, flip, ref, ylabel, label_fmt=fmt)
+    for j, (task, _) in enumerate(panels):
+        title, disp, invert, ref, fmt = PANELS[task]
+        ms, by_m = panel(axes[0][j], data[task], disp, invert, ref, title, label_fmt=fmt)
         cost_panel(axes[1][j], ms, by_m)
     n_live = sum(1 for rs in data.values() for r in rs if not r["done"])
     fig.text(0.04, 0.925,
