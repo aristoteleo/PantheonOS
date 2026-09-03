@@ -290,7 +290,12 @@ class PythonInterpreterToolSet(ToolSet):
             raise ValueError(f"Interpreter {interpreter_id} not found")
         # logger.info(f"[DEBUG] Running code in interpreter {interpreter_id}")
         g = self.interpreters[interpreter_id]
-        result, stdout, stderr = await g.asend((code, result_var_name))
+        try:
+            result, stdout, stderr = await g.asend((code, result_var_name))
+        except SystemExit as e:
+            # only reachable if the interpreter loop itself did not catch it; never let a
+            # program's exit() propagate into the host process
+            raise PythonInterpreterError(f"SystemExit({e.code}) raised by the executed code") from None
         if isinstance(result, PythonInterpreterError):
             raise result
         return {
@@ -362,7 +367,9 @@ class PythonInterpreterToolSet(ToolSet):
                 try:
                     with redirect_stdout(__stdout), redirect_stderr(__stderr):
                         exec_with_echo(code, globals())
-                except Exception:
+                except (Exception, SystemExit):
+                    # SystemExit is a BaseException: code that calls exit()/sys.exit() would
+                    # otherwise close this generator and take the whole process down with it.
                     traceback_str = traceback.format_exc()
                     __res = PythonInterpreterError(traceback_str)
                     continue
