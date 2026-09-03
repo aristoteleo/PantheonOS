@@ -69,21 +69,19 @@ if __name__ == "__main__":
     for m, log in logs.items():
         t = [x["elapsed"] / 60 for x in log]
         p = [x["psi"] for x in log]
-        ax.plot(t, p, color=COLORS[m], lw=2.2, marker="o", ms=3.5, label=LABELS[m])
-        # mark upsamples
-        for i in range(1, len(log)):
-            if log[i]["K"] != log[i - 1]["K"]:
-                ax.annotate(f"K={log[i]['K']}", (t[i], p[i]), textcoords="offset points",
-                            xytext=(4, -9), size=7.5, color=COLORS[m])
+        ax.plot(t, p, color=COLORS[m], lw=2.2, marker="o", ms=3.5,
+                label=f"{LABELS[m]}  (K {log[0]['K']} → {log[-1]['K']})")
+        ax.annotate(f"K={log[-1]['K']}", (t[-1], p[-1]), textcoords="offset points",
+                    xytext=(5, -3), size=8, color=COLORS[m], va="center")
     ax.axhline(LAB_NOTE_START, color=COLORS["lab_notebook"], lw=2.2, ls="--",
-               label="LabNotebook (K=960; no round completed)")
-    for v, name in REFS[:3]:
-        ax.axhline(v, color=INK, lw=0.8, ls=":", alpha=0.6)
-        ax.text(0.99, v, name + " ", transform=ax.get_yaxis_transform(), ha="right", va="top",
-                size=8, color=SUB)
+               label="LabNotebook  (K 960; no round completed)")
+    lo_ref, hi_ref = min(v for v, _ in REFS), max(v for v, _ in REFS)
+    ax.axhspan(lo_ref, hi_ref, color=INK, alpha=0.08, lw=0)
+    ax.text(0.01, hi_ref, f" published records {lo_ref:.6f}–{hi_ref:.6f} (SimpleTES paper … Haugland)",
+            transform=ax.get_yaxis_transform(), va="top", size=8, color=SUB)
     ax.set_xlabel("accumulated polish time (min); rounds of ≤120 s each")
     ax.set_ylabel("Ψ  (lower is better; axis inverted)")
-    ax.set_ylim(0.3822, 0.38085)
+    ax.set_ylim(0.3822, 0.38080)
     ax.set_title("polish trajectories (one fixed polisher, all methods)", size=11, loc="left")
     ax.legend(frameon=False, fontsize=9, loc="lower right")
 
@@ -102,13 +100,11 @@ if __name__ == "__main__":
         ax.scatter([e], [i], s=80, color=COLORS[m], zorder=3)
         ax.text(min(s, e) - 0.00008, i + 0.22, f"{s - e:+.1e}" if s != e else "no change",
                 size=8.5, color=SUB, ha="right")
-    for v, name in REFS:
-        ax.axvline(v, color=INK, lw=0.8, ls=":", alpha=0.6)
-        ax.text(v, len(rows) - 0.55, name, rotation=90, size=7.5, color=SUB, ha="right", va="top")
+    ax.axvspan(lo_ref, hi_ref, color=INK, alpha=0.08, lw=0)
+    ax.text(hi_ref, -0.45, " published records", size=8, color=SUB, ha="left", va="center")
     ax.set_yticks(range(len(rows)))
     ax.set_yticklabels([LABELS[m] for m, _, _ in rows], size=9.5)
-    ax.set_xlim(0.3808, 0.38225)
-    ax.invert_xaxis()
+    ax.set_xlim(0.38225, 0.38075)
     ax.set_xlabel("Ψ  (hollow = search result under the 120 s rule; filled = after equal polish)")
     ax.set_title("what equal polish changes", size=11, loc="left")
 
@@ -125,8 +121,7 @@ if __name__ == "__main__":
             for k, p, sec in lst:
                 ax.scatter([k], [p], s=55, color=COLORS[m] if sec <= 120 else "white",
                            edgecolors=COLORS[m], linewidths=1.6, zorder=3)
-    for v, name in REFS[:3]:
-        ax.axhline(v, color=INK, lw=0.8, ls=":", alpha=0.6)
+    ax.axhspan(lo_ref, hi_ref, color=INK, alpha=0.08, lw=0)
     ax.set_xscale("log", base=2)
     ax.set_xlabel("K (cells);  each program at its own K and at 2.5×K")
     ax.set_ylabel("Ψ (axis inverted)")
