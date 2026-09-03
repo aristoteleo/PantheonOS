@@ -552,8 +552,12 @@ class BrowserEngine:
             "SyncDisabled": True,
             "MetricsReportingEnabled": False,
         }
-        for base in ("/etc/opt/chrome", "/etc/chromium",
-                     "/etc/opt/chrome-for-testing", "/etc/chrome"):
+        # The path is compiled into the binary and is branding-specific:
+        # Chrome for Testing (what Playwright ships) reads
+        # /etc/opt/chrome_for_testing — underscores. `strings <chrome> |
+        # grep policies` says which, if this ever moves again.
+        for base in ("/etc/opt/chrome_for_testing", "/etc/opt/chrome",
+                     "/etc/chromium", "/etc/chrome"):
             try:
                 d = Path(base) / "policies" / "managed"
                 d.mkdir(parents=True, exist_ok=True)
