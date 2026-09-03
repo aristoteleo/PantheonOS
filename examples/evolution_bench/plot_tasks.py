@@ -30,10 +30,11 @@ from plot_budget import COLORS, LABELS, INK, SUB, EDGE_GRID, infer_method, metho
 
 ORDER = ["hypothesis_bandit", "agent_map_elites", "simpletes", "lab_notebook"]
 PANELS = [
-    ("ahc039", "AHC039 (official points / case)", 1500.0, False, None),
-    ("circle_packing", "circle packing (sum of radii)", 1.0, False, (2.635983, "record")),
+    # (task, title, scale, flip, record, per-replicate label format or None)
+    ("ahc039", "AHC039 (official points / case)", 1500.0, False, None, None),
+    ("circle_packing", "circle packing (sum of radii)", 1.0, False, (2.635983, "record"), "{:.6f}"),
     ("erdos", "Erdős  Ψ  (lower is better, axis inverted)", 1.0, True,
-     (0.380909, "our record")),
+     (0.380909, "our record"), "{:.6f}"),
 ]
 
 
@@ -79,12 +80,14 @@ def load(pattern: str):
     return list(rows.values())
 
 
-def panel(ax, rows, scale, flip, ref, ylabel):
+def panel(ax, rows, scale, flip, ref, ylabel, label_fmt=None):
     by_m = defaultdict(list)
     for r in rows:
         if r["method"] in COLORS:
             by_m[r["method"]].append(r)
     ms = [m for m in ORDER if m in by_m]
+    all_y = [((1 - r["best"]) if flip else r["best"] * scale) for m in ms for r in by_m[m]]
+    span = (max(all_y) - min(all_y)) or 1.0
     for i, m in enumerate(ms):
         ys = [(1 - r["best"]) if flip else r["best"] * scale for r in by_m[m]]
         dn = [r["done"] for r in by_m[m]]
@@ -93,6 +96,25 @@ def panel(ax, rows, scale, flip, ref, ylabel):
             ax.scatter([x], [y], s=110, color=COLORS[m] if d else "white",
                        edgecolors=COLORS[m], linewidths=1.8, zorder=3)
         ax.plot([i - 0.28, i + 0.28], [np.mean(ys)] * 2, color=COLORS[m], lw=2.6, zorder=2)
+        if label_fmt:
+            # one value per replicate, listed to the right of the cluster; when values sit
+            # within a few percent of the axis span the labels are pushed apart so tight
+            # clusters (the record-matching arms) stay legible
+            step = 0.045 * span
+            order = sorted(range(len(ys)), key=lambda j: -ys[j])       # top first (better on top)
+            if flip:
+                order = sorted(range(len(ys)), key=lambda j: ys[j])     # inverted axis: smaller Psi is higher
+            last = None
+            for j in order:
+                y_lab = ys[j]
+                if last is not None:
+                    if flip:
+                        y_lab = max(y_lab, last + step)
+                    else:
+                        y_lab = min(y_lab, last - step)
+                last = y_lab
+                ax.text(i + 0.31, y_lab, label_fmt.format(ys[j]) + ("" if dn[j] else " ·"),
+                        size=7.2, color=COLORS[m], ha="left", va="center", family="monospace")
     if ref:
         ax.axhline(ref[0], color=INK, lw=1.0, ls=":", alpha=0.7)
         ax.text(-0.45, ref[0], ref[1], ha="left", size=9, color=SUB,
@@ -100,6 +122,8 @@ def panel(ax, rows, scale, flip, ref, ylabel):
     ax.set_xticks(range(len(ms)))
     ax.set_xticklabels([LABELS[m].replace("Hypothesis", "Hypothesis\n").replace(
         "AgentMap", "AgentMap\n") for m in ms], size=9.5)
+    if label_fmt:
+        ax.set_xlim(-0.5, len(ms) - 0.5 + 0.45)
     ax.set_title(ylabel, size=11, loc="left", color=INK)
     if flip:
         ax.invert_yaxis()
@@ -142,12 +166,12 @@ if __name__ == "__main__":
     fig, axes = plt.subplots(2, 3, figsize=(15, 8.2), dpi=150,
                              gridspec_kw={"height_ratios": [3, 1.15]})
     fig.suptitle(a.title, size=17, weight="bold", x=0.04, ha="left")
-    for j, (task, ylabel, scale, flip, ref) in enumerate(PANELS):
-        ms, by_m = panel(axes[0][j], data[task], scale, flip, ref, ylabel)
+    for j, (task, ylabel, scale, flip, ref, fmt) in enumerate(PANELS):
+        ms, by_m = panel(axes[0][j], data[task], scale, flip, ref, ylabel, label_fmt=fmt)
         cost_panel(axes[1][j], ms, by_m)
     n_live = sum(1 for rs in data.values() for r in rs if not r["done"])
     fig.text(0.04, 0.925,
-             "filled = finished arm · hollow = still running (best so far, a lower bound) · "
+             "filled = finished arm · hollow = still running (best so far, a lower bound; · after a label) · "
              "bar = method mean · dotted = record"
              + (f"   ({n_live} arms still running)" if n_live else ""),
              size=10, color=SUB)
