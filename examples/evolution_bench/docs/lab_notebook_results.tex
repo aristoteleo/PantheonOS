@@ -71,10 +71,10 @@ packing arms, and the tightest replicate spread.}
 \end{figure}
 
 \begin{figure}[H]\centering
-\includegraphics[width=\textwidth]{lab_notebook_figs/budget_llm_ahc039_flash.png}
-\caption{AHC039, flash: best-so-far against cumulative LLM calls. LabNotebook's curve rises in
+\includegraphics[width=\textwidth]{lab_notebook_figs/budget_tokens_ahc039_flash.png}
+\caption{AHC039, flash: best-so-far against cumulative LLM tokens. LabNotebook's curve rises in
 steps --- each step is a cycle whose best trajectory beat the champion --- and keeps rising past
-300 calls where the other methods have flattened.}
+10~M tokens where the other methods have flattened.}
 \end{figure}
 
 \subsection{Pro campaign}
@@ -124,14 +124,14 @@ inner optimizer reaches.}
 \end{figure}
 
 \begin{figure}[H]\centering
-\includegraphics[width=\textwidth]{lab_notebook_figs/budget_llm_ahc039_pro.png}
-\caption{AHC039, pro: best-so-far against cumulative LLM calls.}
+\includegraphics[width=\textwidth]{lab_notebook_figs/budget_tokens_ahc039_pro.png}
+\caption{AHC039, pro: best-so-far against cumulative LLM tokens.}
 \end{figure}
 
 \subsection{Erd\H{o}s: the 0.381 floor, and two ways past it}
 
 \begin{figure}[H]\centering
-\includegraphics[width=\textwidth]{lab_notebook_figs/budget_llm_erdos_flash.png}
+\includegraphics[width=\textwidth]{lab_notebook_figs/budget_tokens_erdos_flash.png}
 \caption{Erd\H{o}s, flash: every method converges to $\Psi\approx0.381$ and stops. The barrier
 is the evaluation rule, not the search: a construction is rebuilt from scratch in 120 s, and at
 the discretisation that fits in 120 s the local minimax optima sit at 0.381. The published
