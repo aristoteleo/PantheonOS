@@ -360,6 +360,21 @@ class AppInstanceResolver:
         fits = [n for n in nodes
                 if set(requires) <= caps(n)
                 and (not need_python or "python" in runtimes(n))]
+        if not fits and need_python:
+            # `caps` is what a node was DECLARED to offer (FLEET_NODE_CAPS);
+            # `runtimes` is what its runner PROBED at join time, and the
+            # probe misses: the Modal sandbox's runner reports git+runner
+            # only. A process App that only that node can host (display,
+            # fs:workspace) was then unplaceable from the agent pod — every
+            # desktop call failed with "no node offering ... has joined"
+            # while the node sat there, capable. When the probe is the only
+            # objection, trust the declaration.
+            fits = [n for n in nodes if set(requires) <= caps(n)]
+            if fits:
+                logger.warning(
+                    f"[apps] {app.manifest.id}: node {fits[0].get('name')} "
+                    f"declares {requires} but its runner probe lists no "
+                    f"python runtime; trusting the declared caps")
         if not fits:
             # When the registry is readable and shows that the LOCAL node
             # itself lacks the requirements, falling back to it would run

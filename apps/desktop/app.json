@@ -289,6 +289,44 @@
         "hidden": true
       },
       {
+        "name": "browser_ui_stage",
+        "description": "UI → backend: stream this page over xpra (sharp, low-latency).\n\n        One page owns the display at a time — a latecomer takes it over, and\n        every other viewport is told through `browser.stage` so it can fall\n        back to the JPEG paths. Returns connection material for the html5\n        client, or success=False when the transport is unavailable.\n        ",
+        "params": [
+          {
+            "name": "page_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "width",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "height",
+            "type": "int",
+            "required": false,
+            "default": 0
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "browser_ui_unstage",
+        "description": "UI → backend: this page stops using the xpra transport.",
+        "params": [
+          {
+            "name": "page_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
         "name": "desktop_anchor",
         "description": "UI-only: which viewport this chat's directed requests should reach.\n\n        Exposed rather than kept internal because \"why that screen?\" is\n        otherwise unanswerable after the fact, and not being able to name the\n        copy that answered was the whole difficulty of debugging the session.\n        ",
         "params": [
@@ -419,7 +457,6 @@
       },
       {
         "name": "desktop_presence",
-        "description": "UI-only: renew this page's leases, and read back who else is here.\n\n        One call per page, on a heartbeat — a page has at most one viewport and\n        any number of chat clients, so sending them together keeps this to one\n        message rather than one per entity. The reply carries the whole live\n        registry, so a viewport that wants to draw other people's cursors does\n        not need a second round trip.\n\n        `active` means real user input since the last beat, not that the beat\n        happened: a background tab must not out-rank the window someone is\n        typing in when the anchor is resolved.\n        ",
         "params": [
           {
             "name": "viewport_id",
@@ -443,6 +480,18 @@
             "type": "bool",
             "required": false,
             "default": false
+          },
+          {
+            "name": "ready",
+            "type": "bool",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "_future",
+            "type": "object",
+            "required": false,
+            "default": "not_defined"
           }
         ],
         "hidden": true
