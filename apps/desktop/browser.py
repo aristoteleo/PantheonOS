@@ -1108,6 +1108,10 @@ class BrowserEngine:
                  # The framebuffer is this engine's to size (stage/unstage);
                  # a client resize must not fight it.
                  "--resize-display=no",
+                 # Two viewports (a restored window, a second screen) must
+                 # coexist; without this the server boots the earlier client
+                 # whenever a new one connects.
+                 "--sharing=yes",
                  "--notifications=no", "--pulseaudio=no", "--mdns=no",
                  "--webcam=no", "--printing=no"],
                 env={**os.environ, "DISPLAY": self._xvfb_display},
