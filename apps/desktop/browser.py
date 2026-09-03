@@ -212,6 +212,9 @@ XPRA_PASSWORD_FILE = "/tmp/pantheon-xpra-pass"
 # A sandbox browser opening on about:blank is a white void with nothing to do
 # in it; this is the browser's home. Both are overridable per deployment, and
 # the search URL takes Chromium's {searchTerms} placeholder.
+# How much page text browser_read hands back in one call.
+READ_LIMIT = 8000
+
 HOME_URL = os.environ.get("BROWSER_HOME_URL") or "https://duckduckgo.com/"
 SEARCH_URL = (os.environ.get("BROWSER_SEARCH_URL")
               or "https://duckduckgo.com/?q={searchTerms}")
@@ -426,6 +429,14 @@ class BrowserEngine:
             # listener.
             self._xvfb_proc = subprocess.Popen(
                 ["Xvfb", display, "-screen", "0", f"{SCREEN_W}x{SCREEN_H}x24",
+                 # No software cursor. Xvfb has no hardware one, so it PAINTS
+                 # the pointer into the framebuffer — and a framebuffer is
+                 # exactly what the shadow streams, so the viewer saw a second
+                 # arrow sitting wherever the display's pointer had last been,
+                 # beside their own. The client draws the real cursor from the
+                 # server's cursor packets, in the right place, in the right
+                 # shape.
+                 "-nocursor",
                  "-nolisten", "tcp"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
