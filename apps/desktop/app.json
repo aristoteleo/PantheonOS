@@ -271,7 +271,7 @@
       },
       {
         "name": "browser_ui_page",
-        "description": "UI → backend: create (or attach to) a page and get stream URLs.\n\n        The Atrium Browser window calls this on mount: with `page_id` when the\n        agent already opened the page (desktop.open state), without to start a\n        fresh page. Returns frame/input endpoint URLs plus the page's state.\n        ",
+        "description": "UI → backend: create (or attach to) a page, and read its state.\n\n        The Atrium Browser window calls this on mount: with `page_id` when the\n        agent already opened the page (desktop.open state), without to start a\n        fresh page. The picture itself comes from the xpra stage, not from\n        here — this is the page's identity and where it has got to.\n        ",
         "params": [
           {
             "name": "url",

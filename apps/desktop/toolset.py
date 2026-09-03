@@ -73,7 +73,6 @@ class DesktopToolSet(ToolSet):
         self._pending_desktop: dict[str, asyncio.Future] = {}
         self._nats = None  # lazy NATSStreamAdapter
         self._data_server = None  # lazy LiveViewDataServer
-        self._browser_endpoints = False  # browser-frame/-input registered
         self._apps_supervisor = None  # lazy AppSupervisor (packaged backends)
 
     # ── internals ─────────────────────────────────────────────────────────
@@ -1266,34 +1265,6 @@ class DesktopToolSet(ToolSet):
 
         return BrowserEngine.instance()
 
-    async def _browser_urls(self) -> tuple[str, str]:
-        """Register the stream endpoints (once) and return their URLs."""
-        server = await self._ensure_data_server()
-        from .browser import make_frame_handler, make_input_handler, make_stream_handler
-        from .vp8cast import make_cast_handler
-
-        engine = self._browser_engine()
-        if not self._browser_endpoints:
-            await server.register_endpoint("browser-frame", make_frame_handler(engine))
-            await server.register_endpoint("browser-input", make_input_handler(engine))
-            # Push variant: frames stream, input rides back — one socket, no
-            # per-frame round trip. The WebRTC gateway consumes this.
-            await server.register_endpoint("browser-stream", make_stream_handler(engine))
-            # VP8 variant: same contract, ~5x fewer bytes through the
-            # ~20 Mbps tunnel. The gateway prefers it and repackages the
-            # packets into RTP without re-encoding.
-            await server.register_endpoint("browser-cast", make_cast_handler(engine))
-            self._browser_endpoints = True
-            # Belt and braces: the boot hook normally has Chromium up long
-            # before this runs.
-            self._prewarm_browser()
-        frame = server.url_for_endpoint("browser-frame")
-        inp = server.url_for_endpoint("browser-input")
-        if not frame or not inp:
-            raise RuntimeError(
-                "the data server has no browser-reachable URL yet (tunnel not set)")
-        return frame, inp
-
     def _prewarm_browser(self) -> None:
         """Launch Chromium in the background, at most once."""
         if getattr(self, "_prewarming", False):
@@ -1528,8 +1499,7 @@ class DesktopToolSet(ToolSet):
             if not events:
                 return {"success": False, "error": "no actions"}
             await engine.call(engine.dispatch(session.id, events))
-            return {"success": True, **await self._browser_page_info(session),
-                    **await self._nudge_native_viewer(session)}
+            return {"success": True, **await self._browser_page_info(session)}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -1557,36 +1527,9 @@ class DesktopToolSet(ToolSet):
                 await engine.call(engine.dispatch(
                     session.id, [{"t": "wheel", "dx": float(dx), "dy": float(dy),
                                   "x": 0, "y": 0}]))
-            return {"success": True, **await self._browser_page_info(session),
-                    **await self._nudge_native_viewer(session)}
+            return {"success": True, **await self._browser_page_info(session)}
         except Exception as e:
             return {"success": False, "error": str(e)}
-
-    async def _nudge_native_viewer(self, session) -> dict:
-        """Tell viewers showing this page as a local file to reload it.
-
-        A `file:` page is served to the viewer directly and rendered by
-        their own browser — faster and sharper than streaming it, and a
-        SEPARATE copy from the one in the sandbox that an agent acts on.
-        Reloading is what carries an effect that reached the disk across
-        that gap; nothing carries in-memory state, so the answer says which
-        kind of page this was.
-        """
-        try:
-            url = session.url or ""
-        except Exception:
-            url = ""
-        if not url.startswith("file:"):
-            return {"viewer": "streamed"}
-        await self._publish_desktop({
-            "type": "desktop.broadcast",
-            "topic": "browser.refresh",
-            "payload": {"page_id": session.id},
-        })
-        return {"viewer": "native",
-                "note": "the viewer renders this file itself; it was asked to "
-                        "reload, so changes on disk appear but in-page state "
-                        "does not"}
 
     @tool
     async def browser_screenshot(self, page_id: str = "", path: str = "") -> dict:
@@ -1640,11 +1583,12 @@ class DesktopToolSet(ToolSet):
 
     @tool(exclude=True)
     async def browser_ui_page(self, url: str = "", page_id: str = "") -> dict:
-        """UI → backend: create (or attach to) a page and get stream URLs.
+        """UI → backend: create (or attach to) a page, and read its state.
 
         The Atrium Browser window calls this on mount: with `page_id` when the
         agent already opened the page (desktop.open state), without to start a
-        fresh page. Returns frame/input endpoint URLs plus the page's state.
+        fresh page. The picture itself comes from the xpra stage, not from
+        here — this is the page's identity and where it has got to.
         """
         try:
             engine = self._browser_engine()
@@ -1654,18 +1598,16 @@ class DesktopToolSet(ToolSet):
                 from .browser import normalize_url
 
                 session = await engine.call(engine.open_page(normalize_url(url)))
-            frame_url, input_url = await self._browser_urls()
+            self._prewarm_browser()
             import shutil as _shutil
 
             return {
                 "success": True,
                 **await self._browser_page_info(session),
-                "frame_url": frame_url,
-                "input_url": input_url,
                 "width": session.width,
                 "height": session.height,
-                # The xpra transport needs the binary AND a real display;
-                # the UI uses this to pick its first path, then falls back.
+                # The stage needs the xpra binary AND a real display. Without
+                # them there is no picture to show at all.
                 "xpra": bool(_shutil.which("xpra")
                              and engine._xvfb_display is not None),
             }

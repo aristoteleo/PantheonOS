@@ -3,11 +3,11 @@
 One headless Chromium (Playwright, persistent profile) runs in the sandbox.
 Every page in it is visible to BOTH sides at once:
 
-  * the **user**, through the Atrium Browser app — frames stream out of CDP
-    ``Page.startScreencast`` and are served by the LiveView data server's
-    ``browser-frame`` endpoint (long-poll: a request parks until the page
-    repaints, so idle pages cost nothing and busy pages feel live); pointer
-    and keyboard events come back through ``browser-input``.
+  * the **user**, through the Atrium Browser app — one page at a time holds
+    "the stage": the X framebuffer is fitted to that page's Chromium window
+    and an xpra shadow of the display streams it, native chrome and all, to
+    the html5 client in the app's iframe. Input goes straight into that
+    client, so the user drives Chromium itself.
   * the **agent**, through the ``browser_*`` tools on the live_view toolset
     (navigate / read / click / type / screenshot).
 
@@ -25,8 +25,6 @@ of caller marshal in via ``run_coroutine_threadsafe``.
 from __future__ import annotations
 
 import asyncio
-import base64
-import json
 import os
 import re
 import threading
@@ -34,9 +32,6 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
-
-from aiohttp import web
 
 from pantheon.utils.log import logger
 
@@ -152,39 +147,16 @@ WINDOW_CHROME_PX = 90
 # almost nothing on screen. Capture rectangles stay in physical pixels,
 # because that is what x11grab reads.
 RASTER_SCALE = 1
-JPEG_QUALITY = 70
-# The tunnel out of the sandbox caps at ~20 Mbps (measured; shared across
-# connections, so striping cannot help) — fps is bytes-bound. Dense (Retina)
-# frames carry 4x the pixels, so they trade JPEG quality for rate; the
-# artifacts hide in the pixel density.
-JPEG_QUALITY_DENSE = 55
-
-
-def _cast_quality(dsf: float) -> int:
-    return JPEG_QUALITY if dsf <= 1.2 else JPEG_QUALITY_DENSE
-
-
-# What the capture pipeline can actually keep up with, in device pixels per
-# frame. Measured in this sandbox on a scrolling page, per frame: grab
-# ~10 ms, colour convert ~13 ms, H.264 encode ~8 ms at 11 Mpx — 30 fps with
-# room to spare, where VP8's 29 ms encode held it to 18. 9 Mpx leaves that
-# headroom for the agent's own work while keeping a full-size window near
-# 2x. The client applies the same budget; the pod enforces it, because an
-# old or buggy client must not be able to ask for a stream nobody can
-# encode.
-CAST_PIXEL_BUDGET = 9_000_000
+# The virtual display. Big enough that any window fits at any size the
+# viewer's desktop can be, with a row at the bottom to park the windows
+# that are not on the stage — off the framebuffer, so the shadow cannot
+# show them.
+SCREEN_W, SCREEN_H = 12288, 6912
+PARK_Y = SCREEN_H - 80
 
 
 def _clamp_debt(v: float) -> float:
     return max(-WHEEL_MAX_DEBT_PX, min(WHEEL_MAX_DEBT_PX, v))
-
-
-def cap_density(width: int, height: int, dsf: float) -> float:
-    """Lower the density until the frame fits the encoder's budget."""
-    if width <= 0 or height <= 0:
-        return dsf
-    fit = (CAST_PIXEL_BUDGET / float(width * height)) ** 0.5
-    return max(1.0, min(dsf, round(fit, 2)))
 # Wheel smoothing: the size of one step of owed scroll, and how long the
 # drain task waits between steps. 40 px every 10 ms is ~4000 px/s — faster
 # than anyone scrolls, so the debt never grows, while still giving the
@@ -195,59 +167,43 @@ WHEEL_STEP_S = 0.010
 # than showing every pixel of the journey.
 WHEEL_MAX_DEBT_PX = 4000
 
-# How long a page keeps painting after its last viewer leaves. Long enough
-# that a long-poll's next request finds the screencast still running,
-# short enough that a page nobody watches goes quiet.
-SCREENCAST_LINGER_S = 8.0
-
 # xpra shadow of the Xvfb display: the html5 client rides the sandbox
 # tunnel directly, so page text stays picture-sharp (webp, no chroma
 # subsampling) and there is no gateway hop. Shadow serves the WHOLE
 # display as one desktop window, so staging shrinks the framebuffer to
 # exactly the staged window — every other window lands outside it. One
-# staged page at a time; anything else streams over the JPEG paths.
+# staged page at a time; every other window is parked off the framebuffer.
 XPRA_PORT = 14500
 XPRA_PASSWORD_FILE = "/tmp/pantheon-xpra-pass"
-
-LONG_POLL_S = 20.0
-READ_LIMIT = 8000
 
 _BUTTONS = {0: "left", 1: "middle", 2: "right"}
 
 
 class PageSession:
-    """One Chromium page: its screencast state and navigation status."""
+    """One Chromium page: the window it lives in, and its nav status."""
 
     def __init__(self, page_id: str, page: Any) -> None:
         self.id = page_id
         self.page = page
         self.cdp: Any = None
-        self.frame: bytes = b""
-        self.seq = 0
         self.width = VIEW_W
         self.height = VIEW_H
         # Rendering density, set by the viewing client from its display
         # (capped at 2). Pixels scale by it; CSS-pixel geometry — viewport,
         # input coordinates, agent screenshots — does not.
         self.dsf = 1.0
-        # This page owns an OS window (so X11 capture can see it), and where
-        # that window sits on the virtual display.
+        # This page owns an OS window of its own (rather than being a tab in
+        # someone else's), which is what makes it stageable.
         self.windowed = False
         self.rect: tuple[int, int, int, int] | None = None
-        # How many consumers want screencast frames right now. Zero means
-        # the JPEG encoder is off — the X11 path never turns it on at all.
-        self.viewers = 0
-        self.casting = False
-        self.linger: Any = None
+        # The page that opened this one, if it arrived as a popup: a popup of
+        # the staged page belongs ON the stage (that is how a login window
+        # behaves), not parked off the framebuffer with everything else.
+        self.opener: str | None = None
         self.loading = False
         self.can_back = False
         self.can_forward = False
         self.favicon = ""
-        # page ids of popups this page spawned, not yet claimed by the UI —
-        # drained onto the next frame response as X-Popup so the Browser can
-        # open them as tabs (this is how "Log in with Google" pop-ups land).
-        self.pending_popups: list[str] = []
-        self.new_frame = asyncio.Condition()
         self.input_lock = asyncio.Lock()
         # Sizing the page and sizing its window are two awaits apart, and a
         # second resize arriving in between used to interleave with the
@@ -302,9 +258,6 @@ class BrowserEngine:
         self._open_lock = asyncio.Lock()
         self._xvfb_display: str | None = None
         self._xvfb_proc = None
-        from .x11cast import TilePool
-
-        self._tiles = TilePool()
         # Which page owns which OS window, so a page that opened as a
         # TAB in another page's window never moves that window.
         self._windows: dict[int, str] = {}
@@ -428,8 +381,6 @@ class BrowserEngine:
             # other). The size lives with the tiling code that depends on
             # it — a literal here once drifted from it. 24-bit, no TCP
             # listener.
-            from .x11cast import SCREEN_H, SCREEN_W
-
             self._xvfb_proc = subprocess.Popen(
                 ["Xvfb", display, "-screen", "0", f"{SCREEN_W}x{SCREEN_H}x24",
                  "-nolisten", "tcp"],
@@ -560,10 +511,8 @@ class BrowserEngine:
                 # framebuffer 1:1 — every scaling trick between them
                 # (transform:scale broke the client's canvas painting,
                 # zoom broke its devicePixelRatio accounting) put the
-                # window out of view. The JPEG/WebRTC fallbacks lose
-                # their supersampled 2x here; xpra is the primary path
-                # now and correctness wins. RASTER_SCALE and
-                # WINDOW_CHROME_PX above are matched to this flag.
+                # window out of view. RASTER_SCALE and WINDOW_CHROME_PX
+                # above are matched to this flag.
                 "--force-device-scale-factor=1",
                 # Occlusion detection stays ON. Turning it off kept
                 # every open tab painting at full rate, and five tabs —
@@ -689,8 +638,6 @@ class BrowserEngine:
         wrong window. Park it in the same off-screen row as any other
         window that has no tile, and the overlap cannot happen at all.
         """
-        from .x11cast import PARK_Y
-
         try:
             keeper = next(iter(self._context.pages), None)  # type: ignore[union-attr]
             if keeper is None:
@@ -711,36 +658,10 @@ class BrowserEngine:
             logger.warning("browser: could not park the keeper window: {}", e)
 
     async def _attach(self, session: PageSession) -> None:
-        """Wire screencast + navigation events for a page."""
+        """Wire navigation events for a page."""
         page = session.page
         cdp = await self._context.new_cdp_session(page)  # type: ignore[union-attr]
         session.cdp = cdp
-
-        def on_frame(params: dict) -> None:
-            data = params.get("data")
-            sid = params.get("sessionId")
-
-            async def _handle() -> None:
-                try:
-                    if data:
-                        session.frame = base64.b64decode(data)
-                        session.seq += 1
-                        async with session.new_frame:
-                            session.new_frame.notify_all()
-                    if sid is not None:
-                        await cdp.send("Page.screencastFrameAck", {"sessionId": sid})
-                except Exception:
-                    pass  # page is closing
-
-            asyncio.ensure_future(_handle())
-
-        cdp.on("Page.screencastFrame", on_frame)
-        # NOT started here. A screencast runs the JPEG encoder continuously
-        # for as long as it is on, and every page used to start one the
-        # moment it opened and keep it forever — so N open pages cost N
-        # encoders whether or not anyone was watching, and at 2x density
-        # each frame is four times the work. That is why opening the fifth
-        # page took seconds. Consumers acquire it now (acquire_viewer).
 
         async def refresh_history() -> None:
             try:
@@ -780,18 +701,19 @@ class BrowserEngine:
         page.on("load", on_load)
         page.on("domcontentloaded", on_load)
 
-        # A popup becomes its own tab: it is adopted as a real page, attached
-        # (screencast + events), and announced to the UI via the opener's
-        # pending_popups. This is what makes OAuth pop-ups ("Continue with
-        # Google/GitHub") work — the user finishes the login in the new tab
-        # and the opener, on the SAME shared browser, sees the result.
+        # A popup is adopted as a real page so the agent can address it, and
+        # placed ON the stage rather than parked: it is its own Chromium
+        # window, and the user has to finish the login in it. This is what
+        # makes "Continue with Google/GitHub" work — the opener, on the SAME
+        # shared browser, sees the result.
         def on_popup(popup: Any) -> None:
             async def _adopt() -> None:
                 try:
                     child = PageSession(uuid.uuid4().hex[:12], popup)
+                    child.opener = session.id
                     self.pages[child.id] = child
                     await self._attach(child)
-                    session.pending_popups.append(child.id)
+                    await self.place_window(child)
                 except Exception as e:
                     logger.warning("browser: popup adopt failed: {}", e)
 
@@ -900,64 +822,9 @@ class BrowserEngine:
                     "window" if windowed else "tab")
         return session
 
-    async def acquire_viewer(self, session: PageSession) -> None:
-        """Someone wants frames: make sure the screencast is running."""
-        if session.linger is not None:
-            session.linger.cancel()
-            session.linger = None
-        session.viewers += 1
-        if session.viewers == 1 and not session.casting:
-            await self._set_screencast(session, True)
-
-    async def release_viewer(self, session: PageSession) -> None:
-        """The last consumer left — stop, but not instantly.
-
-        The long-poll acquires for one frame at a time, so stopping the
-        moment it returns would start and stop the screencast on every
-        single poll: thrash, and a first frame that has to wait for the
-        next repaint. Linger instead, and let a page nobody is watching go
-        quiet a few seconds later.
-        """
-        session.viewers = max(0, session.viewers - 1)
-        if session.viewers:
-            return
-        if session.linger is not None:
-            session.linger.cancel()
-
-        async def _stop_soon() -> None:
-            try:
-                await asyncio.sleep(SCREENCAST_LINGER_S)
-            except asyncio.CancelledError:
-                return
-            if session.viewers == 0:
-                await self._set_screencast(session, False)
-
-        session.linger = asyncio.ensure_future(_stop_soon())
-
-    async def _set_screencast(self, session: PageSession, on: bool) -> None:
-        if session.cdp is None:
-            return
-        try:
-            if on:
-                await session.cdp.send("Page.startScreencast", {
-                    "format": "jpeg",
-                    "quality": _cast_quality(session.dsf),
-                    "maxWidth": min(4096, int(session.width * session.dsf)),
-                    "maxHeight": min(4096, int(session.height * session.dsf)),
-                    "everyNthFrame": 1,
-                })
-            else:
-                await session.cdp.send("Page.stopScreencast")
-            session.casting = on
-        except Exception as e:
-            logger.info("browser: screencast {} failed: {}",
-                        "start" if on else "stop", e)
-
     async def _park_window(self, session: PageSession, window_id: int,
                            w: int, h: int) -> None:
         """Move a window off the display so it cannot cover a tile."""
-        from .x11cast import PARK_Y, SCREEN_H, SCREEN_W
-
         try:
             await session.cdp.send("Browser.setWindowBounds", {
                 "windowId": window_id,
@@ -971,118 +838,62 @@ class BrowserEngine:
         except Exception as e:
             logger.info("browser: parking failed: {}", e)
 
-    async def place_window(self, session: PageSession) -> tuple[int, int, int, int] | None:
-        """Park this page's OS window on its own tile and remember the rect.
+    # Where a popup opens inside the staged window: far enough in to read as
+    # a window of its own, close enough that it cannot fall outside the crop.
+    POPUP_INSET = 48
 
-        Tiles are disjoint because an X11 grab of overlapping windows would
-        capture whichever is on top — someone else's pixels.
+    async def place_window(self, session: PageSession) -> None:
+        """Put a non-staged window where it belongs: off the framebuffer.
+
+        The stage is the whole picture — the framebuffer is fitted to the
+        staged window at the origin — so any other window either overlaps it
+        (and the shadow shows the wrong one) or sits outside the framebuffer
+        and is simply not there. Park is the default.
+
+        A popup of the staged page is the exception: it is its own Chromium
+        window, and the login it carries has to be visible and clickable, so
+        it goes ON the stage, inset like a popup anywhere else.
         """
         if not session.windowed or session.cdp is None:
-            return None
+            return
         w = max(2, int(session.width * session.dsf))
         h = max(2, int(session.height * session.dsf))
-        if self._staged_page and self._staged_page != session.id:
-            # An xpra stage owns the display and tile 0 IS the origin: a
-            # freshly tiled window would sit on top of the staged one and
-            # the shadow would show it instead. Park it; the JPEG paths
-            # (which don't need a window rectangle) carry its viewers, and
-            # unstage re-tiles everyone.
-            try:
-                info = await session.cdp.send("Browser.getWindowForTarget")
-                await self._park_window(session, info["windowId"], w,
-                                        h + WINDOW_CHROME_PX)
-            except Exception as e:
-                logger.info("browser: parking {} during stage failed: {}",
-                            session.id, e)
-            self._tiles.release(session.id)
-            session.rect = None
-            return None
+        outer_h = (h + WINDOW_CHROME_PX) & ~1
         try:
             info = await session.cdp.send("Browser.getWindowForTarget")
-            # The window carries the viewport PLUS Chromium's own chrome;
-            # sized to the viewport alone, the page would be clipped by the
-            # height of the tab strip.
-            # Even: Chromium rounds odd DIP heights down, and the read-back
-            # then disagrees with the placement by one pixel forever.
-            outer_h = (h + WINDOW_CHROME_PX) & ~1
-            owner = self._windows.get(info["windowId"])
-            if owner is not None and owner != session.id:
-                # This page opened as a TAB in another page's window rather
-                # than a window of its own. Moving it would drag the other
-                # page's window off its rectangle, and that page would then
-                # stream bare desk. A tab in someone else's window cannot be
-                # captured separately at all, so take the screencast path.
-                logger.info("browser: {} shares window {} with {}; JPEG path",
-                            session.id, info["windowId"], owner)
-                self._tiles.release(session.id)
-                session.windowed = False
-                session.rect = None
-                return None
-            self._windows[info["windowId"]] = session.id
-            spot = self._tiles.place(session.id, w, outer_h)  # physical px
-            if spot is None:
-                # No disjoint room left. A window with nowhere to go must be
-                # PARKED off the bottom of the display, not left where
-                # Chromium first put it: the default position lands on top of
-                # tile 0, and an X11 grab takes whatever is on top — so the
-                # tiled page streamed the parked page's blank window, and
-                # scrolling appeared to do nothing at all.
-                self._tiles.release(session.id)
-                session.windowed = False
-                session.rect = None
-                await self._park_window(session, info["windowId"], w, outer_h)
-                from .x11cast import SCREEN_H, SCREEN_W
-
-                logger.info(
-                    "browser: no room for {} ({}x{} px) on a {}x{} display; "
-                    "parked, JPEG path", session.id, w, outer_h,
-                    SCREEN_W, SCREEN_H)
-                return None
-            left, top = spot
-            await session.cdp.send("Browser.setWindowBounds", {
-                "windowId": info["windowId"],
-                "bounds": {
-                    # DIP, not pixels — see RASTER_SCALE.
-                    "left": left // RASTER_SCALE, "top": top // RASTER_SCALE,
-                    "width": w // RASTER_SCALE,
-                    "height": outer_h // RASTER_SCALE,
-                    "windowState": "normal",
-                },
-            })
-            # Read the bounds back. Capturing a rectangle the window is not
-            # actually in is the single most confusing failure this system
-            # has: the stream is perfectly healthy — 30 fps, low latency,
-            # right size — and shows bare desk or somebody else's window,
-            # which looks like every transport bug in the book and is none
-            # of them. If the browser did not put the window where we asked,
-            # the log has to say so.
-            got = await session.cdp.send("Browser.getWindowBounds",
-                                         {"windowId": info["windowId"]})
-            b = got.get("bounds", {})
-            actual = (b.get("left", 0) * RASTER_SCALE,
-                      b.get("top", 0) * RASTER_SCALE,
-                      b.get("width", 0) * RASTER_SCALE,
-                      b.get("height", 0) * RASTER_SCALE)
-            if actual != (left, top, w, outer_h):
-                logger.warning(
-                    "browser: window {} for {} sits at {} but was placed at "
-                    "{}; the capture would show the wrong pixels",
-                    info["windowId"], session.id, actual,
-                    (left, top, w, outer_h))
-                left, top = actual[0], actual[1]
-                w, outer_h = actual[2] or w, actual[3] or outer_h
-                h = max(2, outer_h - WINDOW_CHROME_PX)
-            # Capture the page area only — below the tab strip and toolbar.
-            session.rect = (left, top + WINDOW_CHROME_PX, w, h)
-            logger.info("browser: {} -> window {} at {},{} {}x{}",
-                        session.id, info["windowId"], left, top, w, outer_h)
-            return session.rect
         except Exception as e:
-            logger.info("browser: window placement failed: {}", e)
-            self._tiles.release(session.id)
+            logger.info("browser: no window for {}: {}", session.id, e)
+            return
+        owner = self._windows.get(info["windowId"])
+        if owner is not None and owner != session.id:
+            # A TAB in another page's window. Moving it would drag that
+            # page's window off the stage, so leave it exactly where it is.
             session.windowed = False
             session.rect = None
-            return None
+            return
+        self._windows[info["windowId"]] = session.id
+        staged = self._staged_page
+        if staged and session.opener == staged and self._stage_fb:
+            fb_w, fb_h = self._stage_fb
+            left = min(self.POPUP_INSET, max(0, fb_w - w))
+            top = min(self.POPUP_INSET, max(0, fb_h - outer_h))
+            try:
+                await session.cdp.send("Browser.setWindowBounds", {
+                    "windowId": info["windowId"],
+                    "bounds": {  # DIP, not pixels — see RASTER_SCALE.
+                        "left": left // RASTER_SCALE, "top": top // RASTER_SCALE,
+                        "width": min(w, fb_w) // RASTER_SCALE,
+                        "height": min(outer_h, fb_h) // RASTER_SCALE,
+                        "windowState": "normal",
+                    },
+                })
+                session.rect = (left, top + WINDOW_CHROME_PX, w, h)
+                logger.info("browser: popup {} placed on the stage", session.id)
+                return
+            except Exception as e:
+                logger.info("browser: popup placement failed: {}", e)
+        session.rect = None
+        await self._park_window(session, info["windowId"], w, outer_h)
 
     # ── xpra shadow (engine loop only) ───────────────────────────────────
 
@@ -1092,8 +903,8 @@ class BrowserEngine:
     async def _ensure_xpra(self) -> bool:
         """Start (or confirm) the xpra shadow of the Xvfb display.
 
-        Degrades exactly like Xvfb itself: no binary on the image means no
-        xpra transport, and every viewer keeps the JPEG/WebRTC paths.
+        No binary on the image (or no display) means no stage, and the
+        Browser app says so instead of showing a picture.
         """
         import shutil
 
@@ -1171,8 +982,6 @@ class BrowserEngine:
         w = max(2, int(session.width * session.dsf))
         h = max(2, int(session.height * session.dsf))
         outer_h = (h + WINDOW_CHROME_PX) & ~1
-        from .x11cast import SCREEN_H, SCREEN_W
-
         cur = self._stage_fb or (0, 0)
         fb_w = min(SCREEN_W, max(w, cur[0], self._stage_min_fb[0]))
         fb_h = min(SCREEN_H, max(outer_h, cur[1], self._stage_min_fb[1] & ~1))
@@ -1226,8 +1035,7 @@ class BrowserEngine:
                 except Exception as e:
                     logger.info("browser: parking staged-out {} failed: {}",
                                 previous, e)
-        self._tiles.release(session.id)
-        session.rect = None  # the X11 grab must not aim at a staged window
+        session.rect = None
         await self.reshape(session, width, height, float(RASTER_SCALE))
         # Undecorate the staged window. The html5 client adds its own frame
         # around a decorated window; window+frame then exceeds the viewer's
@@ -1235,7 +1043,13 @@ class BrowserEngine:
         # viewer sees the middle of the page (an all-white nothing for
         # about:blank) instead of the window. No decorations, no overflow.
         await asyncio.to_thread(self._strip_decorations)
-        await self.focus_page(session)
+        if previous != page_id:
+            # Only when the stage CHANGES page. Page.bringToFront activates a
+            # tab, and the user's own tabs (opened inside the streamed
+            # Chromium, which this side never hears about) live in the same
+            # window — so doing it on every geometry re-stage yanked the view
+            # back to our first tab on each window resize.
+            await self.focus_page(session)
         import getpass
 
         fb = self._stage_fb or (
@@ -1293,8 +1107,6 @@ class BrowserEngine:
         self._staged_page = None
         self._stage_fb = None
         self._stage_min_fb = (0, 0)
-        from .x11cast import SCREEN_H, SCREEN_W
-
         try:
             await asyncio.to_thread(self._set_fb, SCREEN_W, SCREEN_H)
         except Exception as e:
@@ -1302,9 +1114,9 @@ class BrowserEngine:
         session = self.pages.get(page_id)
         if session is not None and session.windowed:
             try:
-                await self.place_window(session)
+                await self.place_window(session)   # back off the framebuffer
             except Exception as e:
-                logger.info("browser: re-tiling after unstage failed: {}", e)
+                logger.info("browser: parking after unstage failed: {}", e)
 
     async def clear_data(self) -> None:
         """Sign out of every site: drop cookies and stored credentials."""
@@ -1349,15 +1161,10 @@ class BrowserEngine:
             self._staged_page = None
             self._stage_fb = None
             self._stage_min_fb = (0, 0)
-            from .x11cast import SCREEN_H, SCREEN_W
-
             try:
                 await asyncio.to_thread(self._set_fb, SCREEN_W, SCREEN_H)
             except Exception as e:
                 logger.info("browser: framebuffer restore failed: {}", e)
-        # Give the tile back, or a busy session walks the slot index off
-        # the display and every later window loses the fast path.
-        self._tiles.release(page_id)
         for wid, owner in list(self._windows.items()):
             if owner == page_id:
                 self._windows.pop(wid, None)
@@ -1441,17 +1248,6 @@ class BrowserEngine:
                         await page.keyboard.up(ev["key"])
                     elif t == "text":
                         await page.keyboard.insert_text(ev["text"])
-                    elif t == "resize":
-                        w = max(320, min(2560, int(ev["w"])))
-                        h = max(240, min(1600, int(ev["h"])))
-                        s = max(1.0, min(2.0, float(ev.get("s") or 1)))
-                        s = cap_density(w, h, s)
-                        prev_s = session.dsf
-                        if (w, h, s) != (session.width, session.height, prev_s):
-                            await self.reshape(session, w, h, s)
-                            if session.viewers:
-                                await self._set_screencast(session, False)
-                                await self._set_screencast(session, True)
                 except Exception as e:
                     logger.debug("browser: input {} failed: {}", t, e)
 
@@ -1484,173 +1280,3 @@ class BrowserEngine:
                 await asyncio.sleep(WHEEL_STEP_S)
         finally:
             session.wheel_task = None
-
-    async def status_headers(self, session: PageSession) -> dict[str, str]:
-        """Navigation state as latin-1-safe response headers."""
-        headers = {
-            "X-Seq": str(session.seq),
-            "X-Url": quote(session.url, safe=""),
-            "X-Title": quote(await session.title(), safe=""),
-            "X-Loading": "1" if session.loading else "0",
-            "X-Back": "1" if session.can_back else "0",
-            "X-Fwd": "1" if session.can_forward else "0",
-            "X-Favicon": quote(session.favicon, safe=""),
-            "X-W": str(session.width),
-            "X-H": str(session.height),
-        }
-        # Scroll metrics for the UI's own scrollbar overlay — headless Chromium
-        # paints no native scrollbar, so the frontend draws one from these.
-        # `scrollY,scrollHeight,innerHeight`; cheap eval, only on repaints.
-        try:
-            m = await session.page.evaluate(
-                "() => [Math.round(scrollY),"
-                " Math.round(document.documentElement.scrollHeight),"
-                " Math.round(innerHeight)]"
-            )
-            headers["X-Scroll"] = f"{m[0]},{m[1]},{m[2]}"
-        except Exception:
-            pass
-        # Report each spawned popup once, then forget it — the UI opens a tab.
-        if session.pending_popups:
-            headers["X-Popup"] = ",".join(session.pending_popups)
-            session.pending_popups = []
-        return headers
-
-    async def wait_frame(self, session: PageSession, since: int) -> bool:
-        """Park until the page paints past `since` (or the poll times out)."""
-        if session.seq > since:
-            return True
-        deadline = time.monotonic() + LONG_POLL_S
-        while session.seq <= since:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return False
-            async with session.new_frame:
-                try:
-                    await asyncio.wait_for(
-                        session.new_frame.wait(), timeout=min(remaining, 5.0),
-                    )
-                except asyncio.TimeoutError:
-                    continue
-        return True
-
-
-# ── data-server endpoint handlers ────────────────────────────────────────────
-# These run on the DATA SERVER's loop; every engine touch marshals over.
-
-
-def make_frame_handler(engine: BrowserEngine):
-    async def handler(request: web.Request) -> web.StreamResponse:
-        page_id = request.query.get("page", "")
-        since = int(request.query.get("since", "0") or 0)
-        session = engine.pages.get(page_id)
-        if session is None:
-            return web.Response(status=404, text="no such page")
-        await engine.call(engine.acquire_viewer(session))
-        try:
-            fresh = await engine.call(engine.wait_frame(session, since))
-        finally:
-            await engine.call(engine.release_viewer(session))
-        headers = await engine.call(engine.status_headers(session))
-        if not fresh or not session.frame:
-            return web.Response(status=204, headers=headers)
-        return web.Response(
-            body=session.frame,
-            content_type="image/jpeg",
-            headers=headers,
-        )
-
-    return handler
-
-
-def make_stream_handler(engine: BrowserEngine):
-    """One WebSocket = one page's live feed plus its input backchannel.
-
-    The long-poll endpoint pays a full HTTP round trip per frame, which is
-    the whole reason the remote browser feels like a slideshow. Here frames
-    PUSH as the page paints (latest-wins: a consumer that falls behind skips
-    straight to the newest), a JSON status line precedes each frame, and
-    input events ride back on the same socket. The WebRTC gateway is the
-    primary consumer; anything that prefers push over poll may connect.
-    """
-
-    async def handler(request: web.Request) -> web.StreamResponse:
-        page_id = request.query.get("page", "")
-        session = engine.pages.get(page_id)
-        if session is None:
-            return web.Response(status=404, text="no such page")
-        ws = web.WebSocketResponse(heartbeat=20.0, max_msg_size=16 * 1024 * 1024)
-        await ws.prepare(request)
-        await engine.call(engine.acquire_viewer(session))
-
-        stop = asyncio.Event()
-
-        async def pump() -> None:
-            since = 0
-            while not stop.is_set() and not ws.closed:
-                try:
-                    fresh = await engine.call(engine.wait_frame(session, since))
-                except Exception:
-                    break
-                if stop.is_set() or ws.closed:
-                    break
-                if not fresh:
-                    continue  # poll window elapsed with no paint; heartbeats cover us
-                since = session.seq
-                frame = session.frame
-                if frame is None:
-                    continue
-                try:
-                    headers = await engine.call(engine.status_headers(session))
-                    status = {
-                        k.lower().replace("x-", "", 1): v
-                        for k, v in headers.items() if k != "X-Seq"
-                    }
-                    status.update({"t": "status", "seq": since})
-                    await ws.send_json(status)
-                    await ws.send_bytes(frame)
-                except Exception:
-                    break
-
-        pump_task = asyncio.create_task(pump())
-        try:
-            async for msg in ws:
-                if msg.type == web.WSMsgType.TEXT:
-                    try:
-                        payload = json.loads(msg.data)
-                    except Exception:
-                        continue
-                    events = payload.get("events") or []
-                    if events and page_id in engine.pages:
-                        try:
-                            await engine.call(engine.dispatch(page_id, events))
-                        except Exception:
-                            pass
-                elif msg.type in (web.WSMsgType.ERROR, web.WSMsgType.CLOSE, web.WSMsgType.CLOSING):
-                    break
-        finally:
-            stop.set()
-            pump_task.cancel()
-            await engine.call(engine.release_viewer(session))
-        return ws
-
-    return handler
-
-
-def make_input_handler(engine: BrowserEngine):
-    async def handler(request: web.Request) -> web.StreamResponse:
-        if request.method != "POST":
-            return web.Response(status=405)
-        try:
-            payload = await request.json()
-        except Exception:
-            return web.Response(status=400, text="bad json")
-        page_id = payload.get("page", "")
-        events = payload.get("events", [])
-        if page_id not in engine.pages:
-            return web.Response(status=404, text="no such page")
-        if events:
-            await engine.call(engine.dispatch(page_id, events))
-        return web.Response(status=204)
-
-    return handler
