@@ -1,0 +1,5 @@
+{
+  "evolve": "solution.py",
+  "eval_timeout": 300,
+  "note": "CodeEvolve AlphaEvolve-suite instance; verifier from alphaevolve_results; fitness = m/593."
+}
