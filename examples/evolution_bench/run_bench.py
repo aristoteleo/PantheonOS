@@ -69,7 +69,7 @@ def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=N
 
 
 async def main(a) -> None:
-    from pantheon.evolution.core import Budget, CodeGenome
+    from pantheon.evolution.core import Budget, CodeGenome, Store
     from pantheon.evolution.core.loop import evolve
     from pantheon.evolution.variators import (
         AgentVariator, CodeEvaluator, CompletionVariator)
@@ -169,11 +169,27 @@ async def main(a) -> None:
     t0 = time.time()
     history: list = []
     fails: dict = {}
+    seed_score_live = None
+    """The seed's first read, captured when it lands so partial summaries can anchor their
+    curves; without it a live arm's curve starts at its first child."""
 
+    def _capture_seed(store):
+        nonlocal seed_score_live
+        for v in store:
+            if not v.parent_ids and v.measurements:
+                m = v.measurements[0].metrics
+                if m.get("combined_score") is not None:
+                    seed_score_live = m["combined_score"]
+                break
+
+    live_store = Store()
     def on_event(kind: str, data: dict) -> None:
         if kind == "failed":
             k = f'{data.get("stage")}: {data.get("reason")}'
             fails[k] = fails.get(k, 0) + 1
+            return
+        if kind == "seeded":
+            _capture_seed(live_store)
             return
         if kind != "measured":
             return
@@ -192,6 +208,7 @@ async def main(a) -> None:
                                                             snapshot as _pl, timeline as _pt)
             try:
                 json.dump({"partial": True, "t0_epoch": t0, "history": history,
+                           "seed_combined_score": seed_score_live,
                            "llm_usage": _pl(), "eval_usage": _pe(),
                            "usage_timeline": _pt(), "drift": drift},
                           open(out / "partial_summary.json", "w"))
@@ -275,7 +292,7 @@ async def main(a) -> None:
     res = await evolve(method=method, variator=variator,
                        evaluators={"code": evaluator},
                        seeds=[CodeGenome(files={evolve_file: seed_src})],
-                       objective=objective, budget=budget,
+                       objective=objective, budget=budget, store=live_store,
                        concurrency=a.workers, on_event=on_event,
                        checkpoint_path=str(out), checkpoint_every=2, resume=a.resume)
     if probe is not None:

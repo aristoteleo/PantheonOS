@@ -186,7 +186,12 @@ def curve_fig(rows, key, xlabel, exact, out_png, tag):
     curves = [c for rs in by_m.values() for r in rs
               for c in [run_points(r, key)] if len(c) >= 2]
     if curves:
-        starts = [disp(c[0][1]) for c in curves]
+        # a start is informative only when it is the SEED (finished arms; partials without a
+        # seed score begin at their first child, and a wrecked first child would stretch the
+        # frame to nothing useful) -- ends always count
+        anchored = [c for rs in by_m.values() for r in rs if r.get("seed_combined_score")
+                    for c in [run_points(r, key)] if len(c) >= 2]
+        starts = [disp(c[0][1]) for c in anchored] or [disp(c[-1][1]) for c in curves]
         ends = [disp(c[-1][1]) for c in curves]
         lo, hi = min(starts + ends), max(starts + ends)
         if TASK["ref"]:
