@@ -317,6 +317,14 @@ class BrowserEngine:
         self._xpra_proc = None
         self._xpra_password: str | None = None
         self._staged_page: str | None = None
+        # The framebuffer while a stage lasts, and the floor the viewer asked
+        # for it (its whole desktop, typically). Every framebuffer change
+        # makes the shadow tear its desktop window down and re-create it —
+        # seconds of stale picture in the corner of the frame — so within a
+        # stage it only ever grows; a resize then moves the Chromium window,
+        # which is plain damage.
+        self._stage_fb: tuple[int, int] | None = None
+        self._stage_min_fb: tuple[int, int] = (0, 0)
 
     # ── the daemon loop ──────────────────────────────────────────────────
 
@@ -1163,7 +1171,14 @@ class BrowserEngine:
         w = max(2, int(session.width * session.dsf))
         h = max(2, int(session.height * session.dsf))
         outer_h = (h + WINDOW_CHROME_PX) & ~1
-        await asyncio.to_thread(self._set_fb, w, outer_h)
+        from .x11cast import SCREEN_H, SCREEN_W
+
+        cur = self._stage_fb or (0, 0)
+        fb_w = min(SCREEN_W, max(w, cur[0], self._stage_min_fb[0]))
+        fb_h = min(SCREEN_H, max(outer_h, cur[1], self._stage_min_fb[1] & ~1))
+        if (fb_w, fb_h) != cur:
+            await asyncio.to_thread(self._set_fb, fb_w, fb_h)
+            self._stage_fb = (fb_w, fb_h)
         info = await session.cdp.send("Browser.getWindowForTarget")
         await session.cdp.send("Browser.setWindowBounds", {
             "windowId": info["windowId"],
@@ -1175,15 +1190,23 @@ class BrowserEngine:
             },
         })
 
-    async def stage_page(self, page_id: str, width: int, height: int) -> dict:
+    async def stage_page(self, page_id: str, width: int, height: int,
+                         fb_width: int = 0, fb_height: int = 0) -> dict:
         """Make this page THE xpra-visible one (one stage; latecomer wins).
 
-        Returns what the viewer needs to connect and crop; raises if the
-        transport is unavailable so the caller can fall back to JPEG paths.
+        `fb_width`/`fb_height` is the floor for the framebuffer — the viewer's
+        whole desktop, so the window can grow up to it without the
+        framebuffer (and the shadow's window) ever changing. Returns what
+        the viewer needs to connect and crop; raises if the transport is
+        unavailable so the caller can fall back to JPEG paths.
         """
         session = self.get(page_id)
         if not await self._ensure_xpra():
             raise RuntimeError("xpra transport unavailable")
+        self._stage_min_fb = (
+            max(self._stage_min_fb[0], max(0, int(fb_width or 0))),
+            max(self._stage_min_fb[1], max(0, int(fb_height or 0))),
+        )
         previous = self._staged_page
         self._staged_page = page_id
         if previous and previous != page_id:
@@ -1215,13 +1238,19 @@ class BrowserEngine:
         await self.focus_page(session)
         import getpass
 
+        fb = self._stage_fb or (
+            max(2, int(width * RASTER_SCALE)),
+            (max(2, int(height * RASTER_SCALE)) + WINDOW_CHROME_PX) & ~1)
         return {
             "password": self._xpra_password,
             "username": getpass.getuser(),
             "chrome_px": WINDOW_CHROME_PX,
-            "fb_width": max(2, int(width * RASTER_SCALE)),
-            "fb_height": (max(2, int(height * RASTER_SCALE))
-                          + WINDOW_CHROME_PX) & ~1,
+            "fb_width": fb[0],
+            "fb_height": fb[1],
+            # The window inside that framebuffer, for the viewer's crop.
+            "win_width": max(2, int(width * RASTER_SCALE)),
+            "win_height": (max(2, int(height * RASTER_SCALE))
+                           + WINDOW_CHROME_PX) & ~1,
         }
 
     def _strip_decorations(self) -> None:
@@ -1262,6 +1291,8 @@ class BrowserEngine:
         if self._staged_page != page_id:
             return
         self._staged_page = None
+        self._stage_fb = None
+        self._stage_min_fb = (0, 0)
         from .x11cast import SCREEN_H, SCREEN_W
 
         try:
@@ -1316,6 +1347,8 @@ class BrowserEngine:
             # The staged page owned the (shrunken) display; give the tiled
             # world its framebuffer back for whoever streams next.
             self._staged_page = None
+            self._stage_fb = None
+            self._stage_min_fb = (0, 0)
             from .x11cast import SCREEN_H, SCREEN_W
 
             try:

@@ -309,6 +309,18 @@
             "type": "int",
             "required": false,
             "default": 0
+          },
+          {
+            "name": "fb_width",
+            "type": "int",
+            "required": false,
+            "default": 0
+          },
+          {
+            "name": "fb_height",
+            "type": "int",
+            "required": false,
+            "default": 0
           }
         ],
         "hidden": true

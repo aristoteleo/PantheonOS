@@ -1695,7 +1695,8 @@ class DesktopToolSet(ToolSet):
 
     @tool(exclude=True)
     async def browser_ui_stage(self, page_id: str, width: int = 0,
-                               height: int = 0) -> dict:
+                               height: int = 0, fb_width: int = 0,
+                               fb_height: int = 0) -> dict:
         """UI → backend: stream this page over xpra (sharp, low-latency).
 
         One page owns the display at a time — a latecomer takes it over, and
@@ -1708,7 +1709,8 @@ class DesktopToolSet(ToolSet):
             from .browser import VIEW_H, VIEW_W
 
             info = await engine.call(engine.stage_page(
-                page_id, int(width) or VIEW_W, int(height) or VIEW_H))
+                page_id, int(width) or VIEW_W, int(height) or VIEW_H,
+                int(fb_width or 0), int(fb_height or 0)))
             await self._publish_desktop({
                 "type": "desktop.broadcast",
                 "topic": "browser.stage",
