@@ -1,0 +1,5 @@
+{
+  "evolve": "solution.py",
+  "eval_timeout": 300,
+  "note": "AlphaEvolve-suite task in SimpleTES's contract; record 2.939572. Strict 1e-12 feasibility so results compare to SimpleTES and (nearly) AlphaEvolve's zero tolerance."
+}

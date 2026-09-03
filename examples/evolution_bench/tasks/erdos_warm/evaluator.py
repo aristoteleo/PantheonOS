@@ -55,6 +55,12 @@ def _warm_shared(workspace_path: str) -> str:
     return os.path.join(os.path.dirname(os.path.abspath(workspace_path)), WARM)
 
 
+def _in_harness(workspace_path: str) -> bool:
+    """Persist only inside the harness's per-evaluation workspaces (`workspace_<n>/`). A test
+    that evaluates the seed in its task directory must not leave a warm_start.json behind."""
+    return os.path.basename(os.path.abspath(workspace_path)).startswith("workspace_")
+
+
 def _warm_copy_in(workspace_path: str) -> None:
     import shutil
     shared = _warm_shared(workspace_path)
@@ -95,7 +101,8 @@ def _warm_update(workspace_path: str, seq: np.ndarray, psi: float) -> None:
 def evaluate(workspace_path: str, fidelity: str = "full") -> Dict[str, Any]:
     t0 = time.time()
     path = os.path.join(workspace_path, "solution.py")
-    _warm_copy_in(workspace_path)
+    if _in_harness(workspace_path):
+        _warm_copy_in(workspace_path)
     try:
         spec = importlib.util.spec_from_file_location("solution", path)
         mod = importlib.util.module_from_spec(spec)
@@ -109,7 +116,8 @@ def evaluate(workspace_path: str, fidelity: str = "full") -> Dict[str, Any]:
         return _fail(reason, time.time() - t0)
     seq = np.clip(seq, 0.0, 1.0)
     psi = compute_upper_bound(seq)
-    _warm_update(workspace_path, seq, psi)
+    if _in_harness(workspace_path):
+        _warm_update(workspace_path, seq, psi)
     return {"overlap": psi, "K": len(seq), "validity": 1.0,
             "combined_score": 1.0 - psi, "eval_time": time.time() - t0,
             "fitness_weights": {"combined_score": 1.0}}

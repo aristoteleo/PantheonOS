@@ -1,0 +1,5 @@
+{
+  "evolve": "solution.py",
+  "eval_timeout": 300,
+  "note": "AlphaEvolve-suite task, SimpleTES verifier. SimpleTES's rule is 1100 s per evaluation; here 300 s -- state this beside any comparison to their number."
+}
