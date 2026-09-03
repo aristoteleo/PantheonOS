@@ -98,10 +98,12 @@ if __name__ == "__main__":
         ax.plot([s, e], [i, i], color=COLORS[m], lw=2.5)
         ax.scatter([s], [i], s=70, color="white", edgecolors=COLORS[m], linewidths=2, zorder=3)
         ax.scatter([e], [i], s=80, color=COLORS[m], zorder=3)
-        ax.text(min(s, e) - 0.00008, i + 0.22, f"{s - e:+.1e}" if s != e else "no change",
-                size=8.5, color=SUB, ha="right")
+        ax.text(min(s, e) - 0.00008, i - 0.28, f"{s - e:+.1e}" if s != e else "no change",
+                size=8.5, color=SUB, ha="right", va="center")
     ax.axvspan(lo_ref, hi_ref, color=INK, alpha=0.08, lw=0)
-    ax.text(hi_ref, -0.45, " published records", size=8, color=SUB, ha="left", va="center")
+    ax.text(hi_ref, len(rows) - 0.55, " published\n records", size=8, color=SUB, ha="left", va="top")
+    ax.set_ylim(-0.6, len(rows) - 0.4)
+    ax.invert_yaxis()
     ax.set_yticks(range(len(rows)))
     ax.set_yticklabels([LABELS[m] for m, _, _ in rows], size=9.5)
     ax.set_xlim(0.38225, 0.38075)
