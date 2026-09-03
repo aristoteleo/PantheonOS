@@ -48,6 +48,27 @@ TASKS = {
     "erdos": {"title": "Erdős minimum overlap", "scale": 1.0, "flip": True, "pad": 0.0002,
               "ylabel": "best Ψ  (lower is better; axis inverted so up = better)",
               "ref": (0.380909, "our record Ψ = 0.380909")},
+    # AlphaEvolve-suite tasks. The bench scores each one exactly as SimpleTES / CodeEvolve do, so
+    # the reference line is the published AlphaEvolve result in the same units.
+    "circle_packing_32": {"title": "circle packing (n=32)", "scale": 1.0, "flip": False, "pad": 0.002,
+                          "ylabel": "best sum of radii", "ref": (2.939572, "record 2.939572 (AlphaEvolve V2)")},
+    "autocorr_first": {"title": "first autocorrelation inequality", "scale": 1.0, "flip": False, "pad": 0.002,
+                       "ylabel": "best 1/(1e-8 + C1)  (SimpleTES's score; higher = smaller C1)",
+                       "ref": (1.0 / 1.5053, "AlphaEvolve C1 = 1.5053")},
+    "autocorr_second": {"title": "second autocorrelation inequality", "scale": 1.0, "flip": False, "pad": 0.002,
+                        "ylabel": "best C2 lower bound", "ref": (0.8962, "AlphaEvolve C2 = 0.8962")},
+    "autocorr_third": {"title": "third autocorrelation inequality", "scale": 1.0, "flip": False, "pad": 0.01,
+                       "ylabel": "best 1.4556 / C3  (1.0 = AlphaEvolve)", "ref": (1.0, "AlphaEvolve C3 = 1.4556")},
+    "sums_diffs": {"title": "sums vs differences", "scale": 1.0, "flip": False, "pad": 0.002,
+                   "ylabel": "best C(A)", "ref": (1.1449, "SimpleTES 1.1449")},
+    "hadamard29": {"title": "Hadamard maximal determinant, order 29", "scale": 1.0, "flip": False, "pad": 0.01,
+                   "ylabel": "best |det| / reference", "ref": None},
+    **{k: {"title": t, "scale": 1.0, "flip": False, "pad": 0.01,
+           "ylabel": "best benchmark ratio  (1.0 = AlphaEvolve's reported result)",
+           "ref": (1.0, "AlphaEvolve")}
+       for k, t in (("kissing11", "kissing number, dimension 11"), ("heilbronn_tri11", "Heilbronn triangle n=11"),
+                    ("heilbronn_conv13", "Heilbronn convex n=13"), ("minmax2d16", "min–max distance ratio 2-D n=16"),
+                    ("packing_rect21", "circle packing in a rectangle n=21"), ("hexagon11", "hexagon packing n=11"))},
 }
 TASK = TASKS["ahc039"]
 
