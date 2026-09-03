@@ -1,0 +1,292 @@
+\section{Results}
+\label{sec:results}
+
+Everything below is measured in one harness (\texttt{run\_bench.py}) with the same seed program,
+the same evaluator and the same budgets for every method; the four methods differ only in how
+they spend the budget. Three arms (\texttt{--seed 0/1/2}) per method and task; the seed only
+drives the method's own draws (parents, inspirations, ideas) --- the model's sampling is not
+seeded, so arms are independent runs, not a paired design. A finished arm reports its best
+program's \emph{first} full-fidelity read; a still-running arm ($^\circ$ in the tables, hollow in
+the figures) reports its best so far, a lower bound.
+
+\begin{center}\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{24mm}>{\raggedright\arraybackslash}p{44mm}>{\raggedright\arraybackslash}p{34mm}>{\raggedright\arraybackslash}p{46mm}@{}}
+\toprule
+& AHC039 & circle packing $n{=}26$ & Erd\H{o}s minimum overlap \\
+\midrule
+score & official points per case (mean of 150 cases, 2 s each) & sum of radii & $\Psi$, lower is better \\
+seed program & a 5th-place contest solution ($\approx$3700) & a plain grid (1.8045) & uniform ($\Psi=0.5$) \\
+evaluation rule & shared eval server, C++ time limits & feasibility to $10^{-12}$ & 120 s from scratch, no warm start \\
+reference & --- & record 2.635983 & 0.380909 (ours, earlier) / 0.380924 (AlphaEvolve) \\
+LLM budget & 480 calls (no token cap) & 160 calls, 3.5 M tokens & 160 calls, 3.5 M tokens \\
+evaluator budget & 500 calls & 100 calls & 150 calls \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Models: \texttt{deepseek-v4-flash} (the flash campaign, \S\ref{sec:flash}) and
+\texttt{deepseek-v4-pro-0813} (\S\ref{sec:pro}), both through OpenRouter at 64k output tokens.
+The pro campaign used the same budgets with two workers instead of four; its AHC039 arms ran on a
+separate eval server.
+
+\subsection{Flash campaign: three tasks, four methods}
+\label{sec:flash}
+
+\begin{table}[H]\centering\small
+\caption{deepseek-v4-flash. Best per arm (s0 / s1 / s2), method mean, and mean LLM tokens spent
+(millions). $^\circ$ = still running after a Modal preemption restarted the arm (lower bound).}
+\label{tab:flash}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\multicolumn{6}{@{}l}{\textbf{AHC039} --- official points per case, higher is better} \\
+method & s0 & s1 & s2 & mean & tokens \\
+\midrule
+HypothesisBandit & 3724 & 3714 & 3730 & 3723 & 15.8 \\
+AgentMapElites & 3709 & 3726 & 3723 & 3719 & 16.5 \\
+SimpleTES & 3712 & 3700$^\circ$ & 3722$^\circ$ & 3711 & 15.7 \\
+\textbf{LabNotebook} & \textbf{3744} & 3722 & 3733 & \textbf{3733} & 17.4 \\
+\midrule
+\multicolumn{6}{@{}l}{\textbf{circle packing $n{=}26$} --- sum of radii, record 2.635983} \\
+\midrule
+HypothesisBandit & 2.635896 & 2.615307 & 2.622878 & 2.624694 & 3.3 \\
+AgentMapElites & 1.804524 & 1.804524 & 2.433600 & 2.014216 & 3.8 \\
+SimpleTES & 2.634292 & 2.634292$^\circ$ & 2.634293 & 2.634292 & 2.4 \\
+\textbf{LabNotebook} & \textbf{2.635983} & \textbf{2.635983} & \textbf{2.635983} & \textbf{2.635983} & 3.4 \\
+\midrule
+\multicolumn{6}{@{}l}{\textbf{Erd\H{o}s} --- $\Psi$, lower is better, record 0.380909} \\
+\midrule
+HypothesisBandit & 0.387629 & 0.382043 & 0.382516 & 0.384063 & 3.2 \\
+AgentMapElites & 0.383916 & 0.500000 & 0.381835 & 0.421917 & 3.7 \\
+SimpleTES & 0.381340 & 0.381359 & 0.381293 & 0.381331 & 3.6 \\
+\textbf{LabNotebook} & \textbf{0.381031} & 0.381077 & 0.381411 & \textbf{0.381173} & 3.5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{lab_notebook_figs/overview_flash.png}
+\caption{Flash campaign: one marker per arm, bar = method mean, dotted = record; the lower row is
+what each arm spent. LabNotebook holds the best mean on all three tasks, the record on 3/3
+packing arms, and the tightest replicate spread.}
+\end{figure}
+
+\begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{lab_notebook_figs/budget_llm_ahc039_flash.png}
+\caption{AHC039, flash: best-so-far against cumulative LLM calls. LabNotebook's curve rises in
+steps --- each step is a cycle whose best trajectory beat the champion --- and keeps rising past
+300 calls where the other methods have flattened.}
+\end{figure}
+
+\subsection{Pro campaign}
+\label{sec:pro}
+
+\begin{table}[H]\centering\small
+\caption{deepseek-v4-pro-0813, same budgets. AHC039 ran on its own eval server, so its points are
+comparable within this table, not with Table~\ref{tab:flash}. The three SimpleTES AHC039 arms
+and one HypothesisBandit arm were restarted after preemptions and are lower bounds.}
+\label{tab:pro}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\multicolumn{6}{@{}l}{\textbf{AHC039}} \\
+method & s0 & s1 & s2 & mean & tokens \\
+\midrule
+HypothesisBandit & 3707 & 3720$^\circ$ & 3706 & 3711 & 10.5 \\
+AgentMapElites & 3721 & 3733 & 3703 & 3719 & 17.2 \\
+SimpleTES & 3701$^\circ$ & 3712$^\circ$ & 3574$^\circ$ & 3663 & 21.8 \\
+\textbf{LabNotebook} & 3747 & 3759 & \textbf{3776} & \textbf{3761} & 20.4 \\
+\midrule
+\multicolumn{6}{@{}l}{\textbf{circle packing $n{=}26$}} \\
+\midrule
+HypothesisBandit & 2.627800 & 2.622606 & 2.631937 & 2.627448 & 3.1 \\
+AgentMapElites & 2.630175 & 2.630058 & 2.635983 & 2.632072 & 3.9 \\
+SimpleTES & 2.635983 & 2.635983 & 2.634292 & 2.635420 & 3.6 \\
+LabNotebook & 2.634292 & 2.635985$^\dagger$ & 2.635983 & 2.635420 & 3.3 \\
+\midrule
+\multicolumn{6}{@{}l}{\textbf{Erd\H{o}s}} \\
+\midrule
+HypothesisBandit & 0.381893 & \textbf{0.380981} & 0.382323 & 0.381732 & 3.5 \\
+AgentMapElites & 0.381450 & 0.381243 & 0.381165 & 0.381286 & 3.6 \\
+SimpleTES & 0.381181 & 0.381205 & 0.381065 & 0.381150 & 3.6 \\
+\textbf{LabNotebook} & 0.381139 & 0.381118 & 0.381081 & \textbf{0.381113} & 3.5 \\
+\bottomrule
+\end{tabular}
+
+\smallskip\footnotesize $^\dagger$ 2.635985 exceeds the record only through the verifier's
+$10^{-12}$ tolerance; at zero tolerance it is 2.635983.
+\end{table}
+
+\begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{lab_notebook_figs/overview_pro.png}
+\caption{Pro campaign. On AHC039 every LabNotebook arm is above every finished arm of every
+other method; 3776 is the best score of both campaigns. Packing and Erd\H{o}s are ties within
+replicate spread --- both are problems where the answer is a known local optimum that any good
+inner optimizer reaches.}
+\end{figure}
+
+\begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{lab_notebook_figs/budget_llm_ahc039_pro.png}
+\caption{AHC039, pro: best-so-far against cumulative LLM calls.}
+\end{figure}
+
+\subsection{Erd\H{o}s: the 0.381 floor, and two ways past it}
+
+\begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{lab_notebook_figs/budget_llm_erdos_flash.png}
+\caption{Erd\H{o}s, flash: every method converges to $\Psi\approx0.381$ and stops. The barrier
+is the evaluation rule, not the search: a construction is rebuilt from scratch in 120 s, and at
+the discretisation that fits in 120 s the local minimax optima sit at 0.381. The published
+0.3809 values were reached by accumulating polish across many runs.}
+\end{figure}
+
+\paragraph{Protocol A --- search, then equal polish.} Each method's best \emph{construction}
+was given the same fixed block-coordinate SLP polisher, in rounds of $\le 120$ s, so the comparison
+measures the shape the search found rather than the optimizer its program contained.
+
+\begin{center}\small
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+method & search ($\Psi$) & after polish & note \\
+\midrule
+LabNotebook & 0.381032 & 0.381032 & no round improved it: already a local minimax optimum \\
+SimpleTES & 0.381293 & 0.381060 & \\
+HypothesisBandit & 0.382044 & 0.381348 & \\
+AgentMapElites & 0.381880 & 0.381639 & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{lab_notebook_figs/polish_erdos.png}
+\caption{Protocol A: polish trajectories (left), search $\to$ polished (middle), and the same
+program re-run at $2.5\times$ its resolution under a 500 s cap (right). Only LabNotebook's
+program benefits from more resolution ($0.380942$ at $K{=}2400$); the others' constructions are
+local optima at any resolution.}
+\end{figure}
+
+\paragraph{Protocol B --- a persisted warm start.} The Erd\H{o}s wave re-run with each arm's
+best construction persisted between evaluations (the published records' setting). This is the one
+setting where SimpleTES beats LabNotebook: given a good incumbent, SimpleTES's exploit-heavy
+chain polishes it, while LabNotebook keeps spending trajectories on new ideas.
+
+\begin{table}[H]\centering\small
+\caption{Protocol B (flash). Warm-start $\Psi$ per arm and mean; the last column is the same
+method's cold-start mean from Table~\ref{tab:flash}.}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+method & s0 & s1 & s2 & mean (warm) & mean (cold) \\
+\midrule
+HypothesisBandit & 0.383857 & 0.381503 & 0.396447 & 0.387269 & 0.384063 \\
+AgentMapElites & 0.381143 & 0.500000 & \textbf{0.380999} & 0.420714 & 0.421917 \\
+SimpleTES & 0.381051 & 0.381075 & 0.381005 & \textbf{0.381044} & 0.381331 \\
+LabNotebook & \textbf{0.380999} & 0.381341 & 0.382348 & 0.381563 & 0.381173 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]\centering
+\includegraphics[width=0.85\textwidth]{lab_notebook_figs/overview_erdos_warm.png}
+\caption{Protocol B, per arm. Two arms reach 0.380999, the first values below 0.381 in this
+harness; the 0.380909 record was not reached by any method under either protocol.}
+\end{figure}
+
+\subsection{AlphaEvolve-suite tasks, batch A}
+\label{sec:ae}
+
+Three tasks from the AlphaEvolve suite under SimpleTES's task contract, run with our model
+(\texttt{deepseek-v4-flash}) and harness at 160 LLM calls, 3.5 M tokens and 100 evaluations
+(60 for the autocorrelation tasks) per arm, with a 300 s evaluation cap. The published systems
+used different models and two to three orders of magnitude more compute (TTT-Discover: gpt-oss-120b,
+$50\times512$ rollouts, $\approx\$500$ per run; ThetaEvolve: $\approx$300k programs; SimpleTES:
+gpt-oss-120b with an 1100 s evaluation cap), so their numbers are context, not competitors. The
+harness score for $C_1$ is $1/C_1$; the table reports $C_1$ itself.
+
+\begin{table}[H]\centering\small
+\caption{Batch A: per-arm results in the papers' units, with the published values. Arms still
+running are marked $^\circ$; a dash is an arm that had not started when the table was made.}
+\label{tab:ae}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\multicolumn{6}{@{}l}{\textbf{circle packing $n{=}32$} --- sum of radii, higher is better} \\
+method & s0 & s1 & s2 & mean & tokens \\
+\midrule
+HypothesisBandit & 1.722894 & 2.751149 & 2.395420 & 2.289821 & 3.3 \\
+AgentMapElites & 2.515664 & 2.918279 & 2.474720 & 2.636221 & 3.8 \\
+SimpleTES & 2.939573 & 2.933651$^\circ$ & 2.939573 & 2.937599 & 3.3 \\
+LabNotebook & 2.939572$^\circ$ & 2.939573$^\circ$ & 2.939573 & 2.939573 & 2.5 \\
+\multicolumn{6}{@{}l}{\footnotesize published: best human 2.936 $\cdot$ AlphaEvolve v1 2.937944 $\cdot$ record 2.939572} \\
+\multicolumn{6}{@{}l}{\footnotesize \phantom{published: }(AlphaEvolve V2, TTT-Discover, SimpleTES)} \\
+\midrule
+\multicolumn{6}{@{}l}{\textbf{$C_1$, first autocorrelation inequality} --- upper bound, lower is better} \\
+\midrule
+HypothesisBandit & 1.51589 & 1.51589 & --- & 1.51589 & 2.7 \\
+AgentMapElites & 1.51450 & 1.51273 & --- & 1.51362 & 3.8 \\
+SimpleTES & \textbf{1.50941} & 1.51148 & 1.51248$^\circ$ & 1.51112 & 2.4 \\
+LabNotebook & 1.51063 & 1.51267 & 1.50947$^\circ$ & \textbf{1.51093} & 2.0 \\
+\multicolumn{6}{@{}l}{\footnotesize published: best human 1.50973 $\cdot$ AlphaEvolve v1 1.5053 $\cdot$ ThetaEvolve 1.50314} \\
+\multicolumn{6}{@{}l}{\footnotesize \phantom{published: }AlphaEvolve V2 1.50317 $\cdot$ TTT-Discover 1.50287 (record)} \\
+\midrule
+\multicolumn{6}{@{}l}{\textbf{$C_2$, second autocorrelation inequality} --- lower bound, higher is better} \\
+\midrule
+HypothesisBandit & 0.9098 & 0.9057 & 0.9062 & 0.9072 & 3.9 \\
+AgentMapElites & 0.9127 & 0.9086 & --- & 0.9107 & 3.9 \\
+SimpleTES & 0.9101$^\circ$ & 0.9079 & 0.9139$^\circ$ & 0.9106 & 2.5 \\
+\textbf{LabNotebook} & \textbf{0.9248} & 0.9099$^\circ$ & 0.9185 & \textbf{0.9177} & 1.9 \\
+\multicolumn{6}{@{}l}{\footnotesize published: best human 0.9015 $\cdot$ AlphaEvolve v1 0.8962 $\cdot$ ThetaEvolve 0.9469} \\
+\multicolumn{6}{@{}l}{\footnotesize \phantom{published: }TTT-Discover 0.9591 $\cdot$ AlphaEvolve V2 0.9610 $\cdot$ SimpleTES 0.9627 (record)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{lab_notebook_figs/overview_ae_batchA.png}
+\caption{Batch A with every published bound drawn. Packing $n{=}32$: three arms sit on the record.
+$C_1$: our best arms fall between the human record and AlphaEvolve v1, with the 2026 systems a
+clear band above. $C_2$: above AlphaEvolve v1 and the human best, well below the 2026 band.}
+\end{figure}
+
+\subsection{Cost}
+
+\begin{center}\small
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+& \multicolumn{3}{c}{flash} & \multicolumn{3}{c}{pro} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+\$ per finished arm (arms) & AHC039 & packing & Erd\H{o}s & AHC039 & packing & Erd\H{o}s \\
+\midrule
+HypothesisBandit & \$0.79{\scriptsize\,(3)} & \$0.17{\scriptsize\,(3)} & \$0.16{\scriptsize\,(3)} & \$9.66{\scriptsize\,(2)} & \$2.07{\scriptsize\,(3)} & \$2.35{\scriptsize\,(3)} \\
+AgentMapElites & \$0.82{\scriptsize\,(3)} & \$0.19{\scriptsize\,(3)} & \$0.19{\scriptsize\,(3)} & \$11.36{\scriptsize\,(3)} & \$2.55{\scriptsize\,(3)} & \$2.41{\scriptsize\,(3)} \\
+SimpleTES & \$1.59{\scriptsize\,(1)} & \$0.28{\scriptsize\,(2)} & \$0.32{\scriptsize\,(3)} & --- & \$5.42{\scriptsize\,(3)} & \$5.97{\scriptsize\,(3)} \\
+LabNotebook & \$1.26{\scriptsize\,(3)} & \$0.29{\scriptsize\,(3)} & \$0.31{\scriptsize\,(3)} & \$25.41{\scriptsize\,(3)} & \$5.20{\scriptsize\,(3)} & \$5.89{\scriptsize\,(3)} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Token-priced at OpenRouter's rates (flash \$0.05/\$0.10 per M prompt/completion; pro
+\$0.66/\$1.98), finished arms only, so the pro SimpleTES AHC039 column is empty. LabNotebook is
+not cheaper than the others: on the small tasks all four methods spend to the same token ceiling,
+and on AHC039 --- where nothing but the call cap binds --- LabNotebook and SimpleTES are the two
+methods that keep spending to the end. The five notebook calls per cycle are a small share of
+that; the cost is the $K\,T\,k=16$ operator completions per cycle. An earlier note in this document
+called LabNotebook the cheapest method; that was read from partial arms and is withdrawn.
+
+\subsection{Reading the results}
+
+\begin{itemize}
+\item \textbf{Where the idea loop pays: the open-ended task.} On AHC039 all six LabNotebook arms
+  beat every finished arm of every other method, with both models; the pro arms average 40 points
+  above the next method. This is the task whose search space is structured enough that scoring an
+  \emph{idea} by the best of a short local search, and keeping a notebook of what has been tried,
+  changes what gets explored.
+\item \textbf{Where it is a tie: known optima.} Circle packing and Erd\H{o}s reduce to finding a
+  known local optimum; once the inner optimizer is right, every method lands on it. LabNotebook is
+  never worse and its replicates are tighter (3/3 record on flash packing; pro Erd\H{o}s within
+  0.00006), which in practice means fewer wasted runs.
+\item \textbf{Where SimpleTES is better: exploiting an incumbent.} Under a warm start SimpleTES
+  improves on every seed and LabNotebook gets worse on two of three. The fix is cheap
+  ($p_{\text{best}}\to1$ and a smaller $K$ when a warm start is present) but has not been run.
+\item \textbf{AlphaEvolve suite.} Record on packing $n{=}32$; $C_2$ is LabNotebook's, $C_1$ a
+  tie; both behind the 2026 systems by margins their extra compute explains.
+\item \textbf{Limits of the evidence.} Three arms per cell; model sampling unseeded; the SimpleTES
+  AHC039 arms are lower bounds after preemptions; and the ablation that would attribute the effect
+  --- LabNotebook with random ideas and no notebook, same budget --- has not been run.
+\end{itemize}

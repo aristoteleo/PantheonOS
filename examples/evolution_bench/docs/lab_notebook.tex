@@ -9,6 +9,8 @@
 \usepackage{tikz}
 \usepackage{xcolor}
 \usepackage{listings}
+\usepackage{graphicx}
+\usepackage{float}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage[colorlinks=true,linkcolor=black,citecolor=black,urlcolor=blue]{hyperref}
@@ -52,8 +54,9 @@ cycle picks a parent, proposes $K$ distinct ideas, runs one short SimpleTES traj
 \emph{in parallel}, digests each trajectory against its idea, and updates the notebook. The
 structural bet is that \textbf{an idea is scored by the best of a local search, not by one
 implementation}. This document gives the algorithm, every prompt the method sends, exactly how an
-idea is injected into a trajectory, how a trajectory is digested into understanding, and every
-parameter with its default.
+idea is injected into a trajectory, how a trajectory is digested into understanding, every
+parameter with its default, and the benchmark results against three other methods on three tasks,
+two models, and the AlphaEvolve suite (\S\ref{sec:results}).
 \end{abstract}
 
 \section{Overview}
@@ -545,17 +548,7 @@ the run. State (\,$U$, $H$, $R$, ideas, trajectories, cycle\,) is checkpointed w
 on resume, batches that were in flight are dropped and each trajectory continues from the step
 it had completed, so a preempted container costs the open step and nothing else.
 
-\section{Interim results}
-
-At the time of writing the flash-model campaign is still running (all figures are lower bounds
-for unfinished arms). Circle packing: all three LabNotebook arms reached the published record
-2.635983 exactly, within 64--82 of their 160 calls; the previous wave's best was one arm in nine.
-Erd\H{o}s: the best method mean of the four ($\Psi$ 0.3812--0.3827), still above the 0.380909
-record --- the basin holds for every method. AHC039: 3707--3720 at half budget against
-finished arms at 3714--3730; not yet comparable. On every task LabNotebook's token spend is the
-lowest of the four methods. The ablation that would attribute the packing result --- plain
-SimpleTES vs LabNotebook vs LabNotebook with random ideas and no notebook, same budget --- has
-not been run.
+\input{lab_notebook_results}
 
 \vfill
 \noindent\footnotesize Source: \texttt{pantheon/evolution/methods/lab\_notebook.py}\\
