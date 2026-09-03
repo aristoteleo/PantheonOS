@@ -35,26 +35,38 @@ def _inv(b):
     return 1.0 / b if b else float("nan")
 
 
-# task -> (title, display transform of the harness score, invert the axis, reference line, label fmt)
-# References: the closest published point is the dotted line; the current record is in the title.
+# task -> (title, display transform of the harness score, invert the axis, reference lines, label fmt)
+# Reference lines name the system that holds each published value, record first.
 PANELS = {
     "ahc039": ("AHC039 (official points / case)", lambda b: b * 1500.0, False, None, None),
-    "circle_packing": ("circle packing (sum of radii)", lambda b: b, False, (2.635983, "record"), "{:.6f}"),
+    "circle_packing": ("circle packing n=26 (sum of radii)", lambda b: b, False,
+                       [(2.635983, "record 2.635983 · TTT-Discover, ours")], "{:.6f}"),
     "erdos": ("Erdős  Ψ  (lower is better, axis inverted)", lambda b: 1 - b, True,
-              (0.380909, "our record"), "{:.6f}"),
+              [(0.380909, "our record 0.380909 (warm-off) · AlphaEvolve 0.380924")], "{:.6f}"),
     # AlphaEvolve-suite (SimpleTES contract): the harness score is converted back to the paper's unit
-    "circle_packing_32": ("circle packing n=32 (sum of radii; record 2.939572)", lambda b: b, False,
-                          (2.939572, "record"), "{:.6f}"),
-    "autocorr_first": ("C1 upper bound (lower is better, inverted; record 1.50287)", _inv, True,
-                       (1.5053, "AlphaEvolve v1"), "{:.5f}"),
-    "autocorr_second": ("C2 lower bound (record 0.9627)", lambda b: b, False,
-                        (0.8962, "AlphaEvolve v1"), "{:.4f}"),
-    "autocorr_third": ("C3 upper bound (lower is better, inverted; record 1.45368)",
-                       lambda b: 1.4556 / b if b else float("nan"), True, (1.4556, "AlphaEvolve"), "{:.5f}"),
-    "sums_diffs": ("sums vs differences  C(A)", lambda b: b, False, (1.1449, "SimpleTES"), "{:.4f}"),
+    "circle_packing_32": ("circle packing n=32 (sum of radii)", lambda b: b, False,
+                          [(2.939572, "record 2.939572 · AlphaEvolve V2, TTT-Discover, SimpleTES"),
+                           (2.937944, "AlphaEvolve v1 2.937944")], "{:.6f}"),
+    "autocorr_first": ("C1 upper bound (lower is better, axis inverted)", _inv, True,
+                       [(1.50287, "record 1.50287 · TTT-Discover"),
+                        (1.50314, "ThetaEvolve 1.50314 · AlphaEvolve V2 1.50317"),
+                        (1.5053, "AlphaEvolve v1 1.5053"),
+                        (1.50973, "best human 1.50973")], "{:.5f}"),
+    "autocorr_second": ("C2 lower bound", lambda b: b, False,
+                        [(0.9627, "record 0.9627 · SimpleTES"),
+                         (0.9610, "AlphaEvolve V2 0.9610"),
+                         (0.9591, "TTT-Discover 0.9591"),
+                         (0.9469, "ThetaEvolve 0.9469"),
+                         (0.9015, "best human 0.9015"),
+                         (0.8962, "AlphaEvolve v1 0.8962")], "{:.4f}"),
+    "autocorr_third": ("C3 upper bound (lower is better, axis inverted)",
+                       lambda b: 1.4556 / b if b else float("nan"), True,
+                       [(1.453675, "record 1.45368 · SimpleTES"), (1.454555, "TTT-Discover 1.45456"),
+                        (1.4556, "AlphaEvolve 1.4556")], "{:.5f}"),
+    "sums_diffs": ("sums vs differences  C(A)", lambda b: b, False, [(1.1449, "SimpleTES 1.1449")], "{:.4f}"),
     "hadamard29": ("Hadamard order 29  |det| / reference", lambda b: b, False, None, "{:.4f}"),
     # AlphaEvolve-suite (CodeEvolve instances): score = benchmark ratio, 1.0 = AlphaEvolve
-    **{t: (f"{lab}  (ratio to AlphaEvolve)", (lambda b: b), False, (1.0, "AlphaEvolve"), "{:.4f}")
+    **{t: (f"{lab}  (ratio to AlphaEvolve)", (lambda b: b), False, [(1.0, "AlphaEvolve = 1.0")], "{:.4f}")
        for t, lab in [("kissing11", "kissing number, d=11"), ("heilbronn_tri11", "Heilbronn triangle, n=11"),
                       ("heilbronn_conv13", "Heilbronn convex, n=13"), ("minmax2d16", "min/max distance ratio, n=16"),
                       ("packing_rect21", "circles in a rectangle, n=21"), ("hexagon11", "hexagons in a hexagon, n=11")]},
@@ -140,9 +152,18 @@ def panel(ax, rows, disp, invert, ref, ylabel, label_fmt=None):
                 ax.text(i + 0.31, y_lab, label_fmt.format(ys[j]) + ("" if dn[j] else " ·"),
                         size=7.2, color=COLORS[m], ha="left", va="center", family="monospace")
     if ref:
-        ax.axhline(ref[0], color=INK, lw=1.0, ls=":", alpha=0.7)
-        ax.text(-0.45, ref[0], ref[1], ha="left", size=9, color=SUB,
-                va="top" if flip else "bottom")
+        refs = ref if isinstance(ref, list) else [ref]
+        for v, _ in refs:
+            ax.axhline(v, color=INK, lw=1.0, ls=":", alpha=0.7)
+        # one label per line, named for its holder; labels are pushed apart where lines sit
+        # within a few percent of the panel's span (the 2026 systems cluster tightly)
+        vals = all_y + [v for v, _ in refs]
+        step = 0.04 * ((max(vals) - min(vals)) or 1.0)
+        last = None
+        for v, lab in sorted(refs, key=lambda t: t[0], reverse=not flip):   # top of the panel first
+            y = v if last is None else (max(v, last + step) if flip else min(v, last - step))
+            last = y
+            ax.text(-0.45, y, lab, ha="left", va="bottom", size=8.3, color=SUB)   # just above its line
     ax.set_xticks(range(len(ms)))
     ax.set_xticklabels([LABELS[m].replace("Hypothesis", "Hypothesis\n").replace(
         "AgentMap", "AgentMap\n") for m in ms], size=9.5)
