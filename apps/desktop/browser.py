@@ -208,6 +208,16 @@ WHEEL_MAX_DEBT_PX = 4000
 XPRA_PORT = 14500
 XPRA_PASSWORD_FILE = "/tmp/pantheon-xpra-pass"
 
+# Where a page with no URL of its own starts, and what the omnibox searches.
+# A sandbox browser opening on about:blank is a white void with nothing to do
+# in it; this is the browser's home. Both are overridable per deployment, and
+# the search URL takes Chromium's {searchTerms} placeholder.
+HOME_URL = os.environ.get("BROWSER_HOME_URL") or "https://duckduckgo.com/"
+SEARCH_URL = (os.environ.get("BROWSER_SEARCH_URL")
+              or "https://duckduckgo.com/?q={searchTerms}")
+SEARCH_SUGGEST_URL = (os.environ.get("BROWSER_SEARCH_SUGGEST_URL")
+                      or "https://ac.duckduckgo.com/ac/?q={searchTerms}&type=list")
+
 _BUTTONS = {0: "left", 1: "middle", 2: "right"}
 
 
@@ -496,9 +506,54 @@ class BrowserEngine:
             logger.error("browser: launch failed: {}", e)
             raise RuntimeError(self._launch_error) from e
 
+    @staticmethod
+    def _write_policies() -> None:
+        """Give Chromium its home page and search engine, before it starts.
+
+        A managed policy is the only way to set the omnibox's search engine
+        from outside the profile — and it survives a profile that was created
+        before we cared. Written to every directory this build might read;
+        the extra files are inert where they are not.
+        """
+        import json as _json
+
+        host = ""
+        try:
+            from urllib.parse import urlparse
+
+            host = (urlparse(SEARCH_URL).hostname or "").removeprefix("www.")
+        except Exception:
+            pass
+        policy = {
+            "DefaultSearchProviderEnabled": True,
+            "DefaultSearchProviderName": host or "Search",
+            "DefaultSearchProviderKeyword": (host.split(".")[0] if host else "s"),
+            "DefaultSearchProviderSearchURL": SEARCH_URL,
+            "DefaultSearchProviderSuggestURL": SEARCH_SUGGEST_URL,
+            "HomepageLocation": HOME_URL,
+            "HomepageIsNewTabPage": False,
+            "NewTabPageLocation": HOME_URL,
+            "ShowHomeButton": True,
+            # Nothing here should nag a user who cannot act on it: this
+            # browser is not going to become anyone's default, and it has no
+            # account to sync to.
+            "DefaultBrowserSettingEnabled": False,
+            "SyncDisabled": True,
+            "MetricsReportingEnabled": False,
+        }
+        for base in ("/etc/opt/chrome", "/etc/chromium",
+                     "/etc/opt/chrome-for-testing", "/etc/chrome"):
+            try:
+                d = Path(base) / "policies" / "managed"
+                d.mkdir(parents=True, exist_ok=True)
+                (d / "pantheon.json").write_text(_json.dumps(policy, indent=2))
+            except Exception as e:
+                logger.debug("browser: policy write to {} failed: {}", base, e)
+
     async def _launch_browser_once(self) -> None:
         from playwright.async_api import async_playwright
 
+        await asyncio.to_thread(self._write_policies)
         display = await self._ensure_xvfb()
         if self._pw is None:
             self._pw = await async_playwright().start()
@@ -830,6 +885,8 @@ class BrowserEngine:
 
     async def open_page(self, url: str = "") -> PageSession:
         t_open = time.monotonic()
+        # A page with nowhere to go opens at home, not on a white void.
+        url = url or HOME_URL
         await self._ensure_browser()
         page = await self._open_windowed(url)
         windowed = page is not None
