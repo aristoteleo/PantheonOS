@@ -1663,6 +1663,23 @@ class DesktopToolSet(ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool(exclude=True)
+    async def browser_ui_key(self, events: list | None = None) -> dict:
+        """UI → backend: the viewer's keystrokes, injected on the display.
+
+        The xpra shadow carries the picture and the pointer; its own keyboard
+        injection never reaches Chromium on this image (the packets arrive,
+        the keycodes resolve, XTest is called, and nothing lands), so the
+        viewer sends key events here instead. `events` are
+        {code, key, down} in the browser's own vocabulary.
+        """
+        try:
+            engine = self._browser_engine()
+            sent = await engine.call(engine.send_keys(list(events or [])))
+            return {"success": True, "sent": sent}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool(exclude=True)
     async def browser_ui_unstage(self, page_id: str) -> dict:
         """UI → backend: this page stops using the xpra transport."""
         try:

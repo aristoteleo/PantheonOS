@@ -130,9 +130,14 @@ RUN echo "Installing single-cell packages (venv: ${VENV_PATH})" && \
 RUN echo "Installing paper/figure rendering packages (venv: ${VENV_PATH})" && \
     uv pip install --python ${VENV_PATH}/bin/python --no-cache \
     weasyprint \
-    svgutils && \
+    svgutils \
+    # X11 client: the Browser injects the viewer's keystrokes on the sandbox
+    # display with it (apps/desktop/browser.py send_keys), because the xpra
+    # shadow's own key injection never reaches Chromium on this image.
+    # Installed here rather than in pyproject so `uv sync` cannot prune it.
+    python-xlib && \
     echo "Verifying paper/figure rendering packages installation..." && \
-    ${VENV_PATH}/bin/python -c "import weasyprint, svgutils; print('Paper/figure rendering packages verified successfully')"
+    ${VENV_PATH}/bin/python -c "import weasyprint, svgutils, Xlib; print('Paper/figure rendering packages verified successfully')"
 
 # ── Layer 3.7: Install pip in venv ──────────────────────────────────────────
 # uv creates venvs without pip by design (recommends using 'uv pip' instead).

@@ -39,6 +39,38 @@ from pantheon.utils.log import logger
 _SCHEME_NO_SLASH = re.compile(r"^(data|about|blob|view-source|file):", re.I)
 
 
+#: Browser `KeyboardEvent.code` -> X keysym name. Position, not meaning: the
+#: display's keymap decides what the key produces, so shift/altgr behave the
+#: way they do on a real keyboard.
+KEYSYM_BY_CODE: dict[str, str] = {
+    **{f"Key{c}": c.lower() for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"},
+    **{f"Digit{d}": d for d in "0123456789"},
+    **{f"Numpad{d}": f"KP_{d}" for d in "0123456789"},
+    **{f"F{i}": f"F{i}" for i in range(1, 25)},
+    "Enter": "Return", "NumpadEnter": "KP_Enter", "Tab": "Tab",
+    "Space": "space", "Backspace": "BackSpace", "Escape": "Escape",
+    "Delete": "Delete", "Insert": "Insert",
+    "Home": "Home", "End": "End", "PageUp": "Prior", "PageDown": "Next",
+    "ArrowUp": "Up", "ArrowDown": "Down", "ArrowLeft": "Left",
+    "ArrowRight": "Right",
+    "Minus": "minus", "Equal": "equal", "BracketLeft": "bracketleft",
+    "BracketRight": "bracketright", "Backslash": "backslash",
+    "Semicolon": "semicolon", "Quote": "apostrophe", "Backquote": "grave",
+    "Comma": "comma", "Period": "period", "Slash": "slash",
+    "NumpadAdd": "KP_Add", "NumpadSubtract": "KP_Subtract",
+    "NumpadMultiply": "KP_Multiply", "NumpadDivide": "KP_Divide",
+    "NumpadDecimal": "KP_Decimal",
+    "ShiftLeft": "Shift_L", "ShiftRight": "Shift_R",
+    "ControlLeft": "Control_L", "ControlRight": "Control_R",
+    "AltLeft": "Alt_L", "AltRight": "Alt_R",
+    # A Mac user's ⌘ is the natural "browser shortcut" key, and Chromium on
+    # Linux listens to Control — so Meta arrives as Control here.
+    "MetaLeft": "Control_L", "MetaRight": "Control_R",
+    "OSLeft": "Control_L", "OSRight": "Control_R",
+    "CapsLock": "Caps_Lock", "ContextMenu": "Menu",
+}
+
+
 def input_events(actions: list[dict]) -> list[dict]:
     """Expand what an agent means into what the input path replays.
 
@@ -278,6 +310,7 @@ class BrowserEngine:
         # which is plain damage.
         self._stage_fb: tuple[int, int] | None = None
         self._stage_min_fb: tuple[int, int] = (0, 0)
+        self._xdisplay = None  # X connection for key injection
 
     # ── the daemon loop ──────────────────────────────────────────────────
 
@@ -620,10 +653,16 @@ class BrowserEngine:
         """
         if session.cdp is None:
             return
-        await session.cdp.send("Emulation.setDeviceMetricsOverride", {
-            "width": int(w), "height": int(h),
-            "deviceScaleFactor": float(s), "mobile": False,
-        })
+        # NO Emulation.setDeviceMetricsOverride. It pinned the page's
+        # viewport to the size we last computed, so a window that had grown
+        # showed the page at its old width with bare white beside it —
+        # Chromium's own chrome spanned the new width, the page did not.
+        # The window IS the size now (stage/park place it); let the page
+        # follow its window the way it does in any browser.
+        try:
+            await session.cdp.send("Emulation.clearDeviceMetricsOverride")
+        except Exception as e:
+            logger.debug("browser: clearing metrics override failed: {}", e)
 
     async def _park_keeper(self) -> None:
         """Get the blank window that keeps Chromium alive off the display.
@@ -896,6 +935,67 @@ class BrowserEngine:
         await self._park_window(session, info["windowId"], w, outer_h)
 
     # ── xpra shadow (engine loop only) ───────────────────────────────────
+
+    # ── keyboard (engine loop only) ──────────────────────────────────────
+    # The xpra shadow receives the client's key-actions, resolves them to the
+    # right keycodes and calls XTest — and nothing arrives in Chromium. The
+    # same XTest calls from a plain X client on the same display, with the
+    # same focus, do arrive. Rather than keep guessing at someone else's
+    # keyboard stack, the viewer sends us its key events and we inject them
+    # here. Physical keys (event.code), so the display's own layout decides
+    # what a key means, exactly like a real keyboard.
+    def _x_display(self):
+        if self._xdisplay is None:
+            from Xlib import display as _xdisplay
+
+            self._xdisplay = _xdisplay.Display(self._xvfb_display or ":97")
+        return self._xdisplay
+
+    async def send_keys(self, events: list[dict]) -> int:
+        """Press/release keys on the display. Returns how many landed.
+
+        Runs on the engine loop, like everything else that touches the
+        display: an Xlib connection belongs to one thread, and two key
+        batches in flight would otherwise share it from two.
+        """
+        if self._xvfb_display is None:
+            return 0
+        from Xlib import X, XK
+        from Xlib.ext import xtest
+
+        d = self._x_display()
+        sent = 0
+        for ev in events or []:
+            name = KEYSYM_BY_CODE.get(str(ev.get("code") or ""))
+            if not name:
+                # Not a key we know by position: fall back to the character
+                # the viewer says it produced. Latin-1 codepoints ARE their
+                # own keysyms, which covers every printable ASCII key.
+                ch = str(ev.get("key") or "")
+                if len(ch) == 1 and 0x20 <= ord(ch) <= 0xFF:
+                    keysym = ord(ch)
+                else:
+                    continue
+            else:
+                keysym = XK.string_to_keysym(name)
+            if not keysym:
+                continue
+            keycode = d.keysym_to_keycode(keysym)
+            if not keycode:
+                continue
+            try:
+                xtest.fake_input(
+                    d, X.KeyPress if ev.get("down") else X.KeyRelease, keycode)
+                sent += 1
+            except Exception as e:
+                logger.info("browser: key inject failed: {}", e)
+                self._xdisplay = None
+                break
+        try:
+            d.sync()
+        except Exception:
+            self._xdisplay = None
+        return sent
 
     def _xpra_alive(self) -> bool:
         return self._xpra_proc is not None and self._xpra_proc.poll() is None
