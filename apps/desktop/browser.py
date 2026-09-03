@@ -1202,6 +1202,12 @@ class BrowserEngine:
         self._tiles.release(session.id)
         session.rect = None  # the X11 grab must not aim at a staged window
         await self.reshape(session, width, height, float(RASTER_SCALE))
+        # Undecorate the staged window. The html5 client adds its own frame
+        # around a decorated window; window+frame then exceeds the viewer's
+        # frame-sized viewport and the client CENTERS the overflow — the
+        # viewer sees the middle of the page (an all-white nothing for
+        # about:blank) instead of the window. No decorations, no overflow.
+        await asyncio.to_thread(self._strip_decorations)
         await self.focus_page(session)
         import getpass
 
@@ -1213,6 +1219,39 @@ class BrowserEngine:
             "fb_height": (max(2, int(height * RASTER_SCALE))
                           + WINDOW_CHROME_PX) & ~1,
         }
+
+    def _strip_decorations(self) -> None:
+        """Set _MOTIF_WM_HINTS decorations=0 on the window at the origin.
+
+        CDP window ids are not X ids, so the staged window is found by what
+        makes it unique: a Chrome window sitting at +0+0. Best-effort — a
+        miss only means the client draws its frame and the picture rides a
+        few dozen pixels low.
+        """
+        import re
+        import subprocess
+
+        display = self._xvfb_display or ":97"
+        try:
+            out = subprocess.run(
+                ["xwininfo", "-root", "-children", "-display", display],
+                capture_output=True, text=True, timeout=10, check=False,
+            ).stdout or ""
+            for line in out.splitlines():
+                if "Chrome" not in line:
+                    continue
+                m = re.search(r"^\s*(0x[0-9a-f]+).*\+0\+0\s*$", line)
+                if not m:
+                    continue
+                subprocess.run(
+                    ["xprop", "-display", display, "-id", m.group(1),
+                     "-f", "_MOTIF_WM_HINTS", "32c",
+                     "-set", "_MOTIF_WM_HINTS", "0x2, 0x0, 0x0, 0x0, 0x0"],
+                    capture_output=True, timeout=10, check=False,
+                )
+                logger.info("browser: stripped decorations from {}", m.group(1))
+        except Exception as e:
+            logger.info("browser: strip decorations failed: {}", e)
 
     async def unstage_page(self, page_id: str) -> None:
         """This page stops owning the display; restore the tiled world."""
