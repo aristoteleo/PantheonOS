@@ -21,6 +21,9 @@ from .config import EvolutionConfig
 from .program import CodebaseSnapshot, Program
 
 
+_RESULT_MARK = "__PANTHEON_EVAL_RESULT__"   # separates the program's stdout from the result JSON
+
+
 @dataclass
 class EvaluationResult:
     """Result of evaluating a program."""
@@ -303,13 +306,22 @@ os.chdir(r"{workspace_path}")
 
 {self.evaluator_code}
 
+def _emit(payload):
+    # The program under test may print anything to stdout; the result is the JSON after the
+    # LAST marker line, so its output cannot masquerade as (or corrupt) the measurement.
+    sys.stdout.flush()
+    print()
+    print("{_RESULT_MARK}")
+    print(json.dumps(payload))
+    sys.stdout.flush()
+
 try:
     result = evaluate(r"{workspace_path}")
     if not isinstance(result, dict):
         result = {{"function_score": float(result) if result else 0.0}}
-    print(json.dumps(result))
+    _emit(result)
 except Exception as e:
-    print(json.dumps({{"error": str(e), "function_score": 0.0}}))
+    _emit({{"error": str(e), "function_score": 0.0}})
 '''
 
         try:
@@ -326,8 +338,10 @@ except Exception as e:
             )
 
             if stdout:
+                text = stdout.decode(errors="replace")
+                payload = text.rsplit(_RESULT_MARK, 1)[-1] if _RESULT_MARK in text else text
                 try:
-                    return json.loads(stdout.decode())
+                    return json.loads(payload.strip())
                 except json.JSONDecodeError:
                     pass
 
