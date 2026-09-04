@@ -220,7 +220,25 @@ XPRA_PASSWORD_FILE = "/tmp/pantheon-xpra-pass"
 #
 # Seamless is where this is going; shadow is the path in production until it
 # has soaked. BROWSER_XPRA_MODE picks.
-XPRA_MODE = (os.environ.get("BROWSER_XPRA_MODE") or "shadow").strip().lower()
+#: A workspace can pick its own mode, and that beats the environment: one
+#: sandbox can try seamless without a hub-wide switch turning it on for
+#: everybody — which is exactly how a colleague's browser got broken once.
+XPRA_MODE_FILE = ".pantheon/xpra-mode"
+
+
+def xpra_mode() -> str:
+    """'shadow' or 'seamless', from the workspace file or the environment."""
+    for root in (os.environ.get("PANTHEON_WORKSPACE") or "", os.getcwd(),
+                 str(Path.home())):
+        if not root:
+            continue
+        try:
+            value = (Path(root) / XPRA_MODE_FILE).read_text().strip().lower()
+        except Exception:
+            continue
+        if value in ("shadow", "seamless"):
+            return value
+    return (os.environ.get("BROWSER_XPRA_MODE") or "shadow").strip().lower()
 #: WM_CLASS we stamp on a page's window so the viewer can tell which protocol
 #: window is which page (xpra forwards WM_CLASS as `class-instance`, and its
 #: metadata carries no X window id).
@@ -444,7 +462,7 @@ class BrowserEngine:
             logger.info("browser: no Xvfb on this image; staying headless")
             return None
         display = ":97"
-        if XPRA_MODE == "seamless":
+        if xpra_mode() == "seamless":
             # xpra brings the display AND the window manager; Chromium is
             # launched onto it afterwards, exactly as before.
             if await asyncio.to_thread(self._start_seamless, display):
@@ -711,7 +729,7 @@ class BrowserEngine:
         async with session.shape_lock:
             session.width, session.height = w, h
             session.dsf = s
-            if XPRA_MODE == "seamless":
+            if xpra_mode() == "seamless":
                 # The window manager owns geometry there, and the viewer
                 # resizes the window through the protocol; touching CDP
                 # window bounds under a WM hangs (see place_window).
@@ -1004,7 +1022,7 @@ class BrowserEngine:
         window, and the login it carries has to be visible and clickable, so
         it goes ON the stage, inset like a popup anywhere else.
         """
-        if XPRA_MODE == "seamless" or not session.windowed or session.cdp is None:
+        if xpra_mode() == "seamless" or not session.windowed or session.cdp is None:
             return
         w = max(2, int(session.width * session.dsf))
         h = max(2, int(session.height * session.dsf))
@@ -1280,7 +1298,7 @@ class BrowserEngine:
         return self._xpra_proc is not None and self._xpra_proc.poll() is None
 
     async def _ensure_xpra(self) -> bool:
-        if XPRA_MODE == "seamless":
+        if xpra_mode() == "seamless":
             return self._xvfb_display is not None and self._xpra_alive()
         return await self._ensure_shadow()
 
@@ -1481,7 +1499,7 @@ class BrowserEngine:
         transport is unavailable so the caller can say so.
         """
         session = self.get(page_id)
-        if XPRA_MODE == "seamless":
+        if xpra_mode() == "seamless":
             # No packing, no cropping: the window IS the object the viewer
             # adopts. Size the page, name its window after itself, done.
             await self._ensure_browser()
