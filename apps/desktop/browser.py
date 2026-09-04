@@ -207,6 +207,24 @@ WHEEL_MAX_DEBT_PX = 4000
 # staged page at a time; every other window is parked off the framebuffer.
 XPRA_PORT = 14500
 XPRA_PASSWORD_FILE = "/tmp/pantheon-xpra-pass"
+# How the display is served.
+#
+#   "shadow"   — xpra shadows an Xvfb we start; the whole display is ONE
+#                desktop window, so windows are laid out inside a framebuffer
+#                and each viewer crops its own out of it.
+#   "seamless" — xpra owns the display AND manages it (its own window
+#                manager), so every window is its own object in the protocol:
+#                the viewer adopts one per Browser window, dialogs and popups
+#                are placed by a real WM, and a resize is a window resize
+#                rather than a framebuffer rebuild.
+#
+# Seamless is where this is going; shadow is the path in production until it
+# has soaked. BROWSER_XPRA_MODE picks.
+XPRA_MODE = (os.environ.get("BROWSER_XPRA_MODE") or "shadow").strip().lower()
+#: WM_CLASS we stamp on a page's window so the viewer can tell which protocol
+#: window is which page (xpra forwards WM_CLASS as `class-instance`, and its
+#: metadata carries no X window id).
+PAGE_CLASS_PREFIX = "pantheon-page-"
 
 # Where a page with no URL of its own starts, and what the omnibox searches.
 # A sandbox browser opening on about:blank is a white void with nothing to do
@@ -425,6 +443,13 @@ class BrowserEngine:
             logger.info("browser: no Xvfb on this image; staying headless")
             return None
         display = ":97"
+        if XPRA_MODE == "seamless":
+            # xpra brings the display AND the window manager; Chromium is
+            # launched onto it afterwards, exactly as before.
+            if await asyncio.to_thread(self._start_seamless, display):
+                self._xvfb_display = display
+                return display
+            logger.warning("browser: seamless session failed; using Xvfb")
         try:
             # Room for several 2x windows side by side, since each streamed
             # page needs a DISJOINT tile (overlapping windows capture each
@@ -1076,10 +1101,101 @@ class BrowserEngine:
             self._xdisplay = None
         return sent
 
+    def _start_seamless(self, display: str) -> bool:
+        """Start an xpra session that owns and manages the display.
+
+        Same port and the same per-boot password as the shadow, so a viewer
+        connects the same way; what changes is what it receives — windows
+        instead of one desktop-sized picture.
+        """
+        import secrets
+        import shutil
+        import subprocess
+        import time as _t
+        import urllib.error
+        import urllib.request
+
+        if shutil.which("xpra") is None:
+            return False
+        self._xpra_password = self._xpra_password or secrets.token_urlsafe(18)
+        try:
+            self._xpra_proc = subprocess.Popen(
+                ["xpra", "start", display,
+                 f"--bind-ws=0.0.0.0:{XPRA_PORT}",
+                 "--html=on", "--daemon=no",
+                 f"--ws-auth=password:value={self._xpra_password}",
+                 "--sharing=yes",
+                 # Nothing here has a speaker, a printer, or a bus.
+                 "--notifications=no", "--pulseaudio=no", "--mdns=no",
+                 "--webcam=no", "--printing=no", "--dbus-launch=",
+                 # The session outlives any one child: Chromium is started
+                 # (and restarted) by us, not by xpra.
+                 "--exit-with-children=no", "--start-new-commands=no"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except Exception as e:
+            logger.warning("browser: seamless launch failed: {}", e)
+            return False
+        for _ in range(120):
+            try:
+                with urllib.request.urlopen(
+                        f"http://127.0.0.1:{XPRA_PORT}/", timeout=1):
+                    pass
+            except urllib.error.HTTPError:
+                pass
+            except Exception:
+                _t.sleep(0.5)
+                continue
+            probe = subprocess.run(["xdpyinfo", "-display", display],
+                                   stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL)
+            if probe.returncode == 0:
+                logger.info("browser: seamless xpra session on {} (:{})",
+                            display, XPRA_PORT)
+                return True
+            _t.sleep(0.5)
+        logger.warning("browser: seamless session never came up")
+        return False
+
+    def _tag_page_window(self, session: PageSession, rect) -> None:
+        """Name a page's X window after the page.
+
+        xpra's window metadata carries a title, a type and WM_CLASS — but no
+        X window id — so the viewer has nothing to match a protocol window to
+        the page it asked for. WM_CLASS is forwarded verbatim, so the page id
+        goes there: `pantheon-page-<id>`, on the window sitting where we just
+        put it.
+        """
+        try:
+            d = self._x_display()
+            root = d.screen().root
+            x, y, w, h = rect
+            for child in root.query_tree().children:
+                try:
+                    g = child.get_geometry()
+                    cls = child.get_wm_class()
+                except Exception:
+                    continue
+                if not cls or "Chromium" not in (cls[1] or ""):
+                    continue
+                if (g.x, g.y) != (x, y):
+                    continue
+                child.set_wm_class(f"{PAGE_CLASS_PREFIX}{session.id}", cls[1])
+                d.sync()
+                return
+        except Exception as e:
+            logger.info("browser: tagging {} failed: {}", session.id, e)
+            self._xdisplay = None
+
     def _xpra_alive(self) -> bool:
         return self._xpra_proc is not None and self._xpra_proc.poll() is None
 
     async def _ensure_xpra(self) -> bool:
+        if XPRA_MODE == "seamless":
+            return self._xvfb_display is not None and self._xpra_alive()
+        return await self._ensure_shadow()
+
+    async def _ensure_shadow(self) -> bool:
         """Start (or confirm) the xpra shadow of the Xvfb display.
 
         No binary on the image (or no display) means no stage, and the
@@ -1276,6 +1392,35 @@ class BrowserEngine:
         transport is unavailable so the caller can say so.
         """
         session = self.get(page_id)
+        if XPRA_MODE == "seamless":
+            # No packing, no cropping: the window IS the object the viewer
+            # adopts. Size the page, name its window after itself, done.
+            await self._ensure_browser()
+            await self.reshape(session, width, height, float(RASTER_SCALE))
+            rect = None
+            try:
+                info = await session.cdp.send("Browser.getWindowForTarget")
+                got = await session.cdp.send("Browser.getWindowBounds",
+                                             {"windowId": info["windowId"]})
+                b = got.get("bounds", {})
+                rect = (b.get("left", 0), b.get("top", 0),
+                        b.get("width", 0), b.get("height", 0))
+            except Exception as e:
+                logger.info("browser: reading {}'s window failed: {}",
+                            session.id, e)
+            if rect:
+                await asyncio.to_thread(self._tag_page_window, session, rect)
+            import getpass
+
+            return {
+                "mode": "seamless",
+                "password": self._xpra_password,
+                "username": getpass.getuser(),
+                "chrome_px": WINDOW_CHROME_PX,
+                # What the viewer matches its window on (WM_CLASS -> xpra's
+                # class-instance).
+                "window_class": f"{PAGE_CLASS_PREFIX}{session.id}",
+            }
         if not await self._ensure_xpra():
             raise RuntimeError("xpra transport unavailable")
         self._stage_min_fb = (
@@ -1310,6 +1455,7 @@ class BrowserEngine:
         import getpass
 
         return {
+            "mode": "shadow",
             "password": self._xpra_password,
             "username": getpass.getuser(),
             **self.stage_layout(),
