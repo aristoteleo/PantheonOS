@@ -318,6 +318,9 @@ class BrowserEngine:
         # shadow streams one framebuffer; these are the windows inside it,
         # one per Browser window, each cropped to by its own viewer.
         self._stages: dict[str, tuple[int, int, int, int]] = {}
+        # When each stage was last claimed or focused, so the display can be
+        # given back to the windows someone is actually using.
+        self._stage_touch: dict[str, float] = {}
         # The framebuffer, and the floor a viewer asked for (its whole
         # desktop). Every change makes the shadow tear its desktop window
         # down and build another, which reads as a stall, so it only grows.
@@ -1148,6 +1151,33 @@ class BrowserEngine:
         if f"current {w} x {h}" not in (probe.stdout or ""):
             raise RuntimeError(f"framebuffer did not take {w}x{h}")
 
+    #: How many Browser windows may hold the display at once. The framebuffer
+    #: is their union and the shadow has to encode all of it, so this is a
+    #: budget, not a limit of the design.
+    MAX_STAGES = 6
+
+    def _prune_stages(self) -> list[str]:
+        """Drop stages nothing is using, and return whose windows to park.
+
+        Two kinds go: a page that no longer exists (its window closed), and
+        the least recently used once there are more than the display can
+        carry — a viewer that went away without saying so (a reload, a
+        closed laptop) otherwise keeps its rectangle forever, and the
+        framebuffer grows until nothing fits.
+        """
+        dropped = [pid for pid in self._stages if pid not in self.pages]
+        for pid in dropped:
+            self._stages.pop(pid, None)
+            self._stage_touch.pop(pid, None)
+        while len(self._stages) > self.MAX_STAGES:
+            oldest = min(self._stages, key=lambda k: self._stage_touch.get(k, 0.0))
+            self._stages.pop(oldest, None)
+            self._stage_touch.pop(oldest, None)
+            dropped.append(oldest)
+            logger.info("browser: {} gave up the display (older than the "
+                        "{} windows using it)", oldest, self.MAX_STAGES)
+        return dropped
+
     def _repack(self) -> tuple[int, int]:
         """Lay the staged windows out in one column and size the display.
 
@@ -1173,8 +1203,10 @@ class BrowserEngine:
         need_w = max([r[2] for r in packed.values()] or [2])
         fb_w = min(SCREEN_W, max(need_w, self._stage_min_fb[0],
                                  (self._stage_fb or (0, 0))[0]))
-        fb_h = min(SCREEN_H, max(y, 2, self._stage_min_fb[1],
-                                 (self._stage_fb or (0, 0))[1]))
+        # PARK_Y is where unstaged windows wait; the framebuffer must stop
+        # short of it or a parked window would be back in the picture.
+        fb_h = min(PARK_Y - 2, max(y, 2, self._stage_min_fb[1],
+                                   (self._stage_fb or (0, 0))[1]))
         return fb_w, fb_h & ~1
 
     async def _place_one(self, session: PageSession, rect) -> None:
@@ -1254,6 +1286,14 @@ class BrowserEngine:
         outer_h = (max(2, int(height * RASTER_SCALE)) + WINDOW_CHROME_PX) & ~1
         first = page_id not in self._stages
         self._stages[page_id] = (0, 0, w, outer_h)
+        self._stage_touch[page_id] = time.monotonic()
+        for gone in self._prune_stages():
+            old = self.pages.get(gone)
+            if old is not None and old.windowed:
+                try:
+                    await self.place_window(old)   # off the framebuffer
+                except Exception as e:
+                    logger.info("browser: parking {} failed: {}", gone, e)
         if self._dialog_task is None:
             self._dialog_task = asyncio.ensure_future(self._dialog_keeper())
         self._tiles_release(page_id)
@@ -1292,6 +1332,7 @@ class BrowserEngine:
         await self.focus_page(session)
         rect = self._stages.get(page_id)
         if rect is not None:
+            self._stage_touch[page_id] = time.monotonic()
             await asyncio.to_thread(self._focus_x_window, rect)
         return {"ok": True}
 
@@ -1377,7 +1418,10 @@ class BrowserEngine:
                     continue
                 if not cls or "Chromium" not in (cls[1] or ""):
                     continue
-                if g.x == x and g.y == y:
+                # Match the whole rectangle: with several windows on the
+                # display (and parked ones sharing an origin off it), a
+                # position alone picks the wrong one.
+                if (g.x, g.y, g.width, g.height) == (x, y, rect[2], rect[3]):
                     d.set_input_focus(child, X.RevertToParent, X.CurrentTime)
                     d.sync()
                     return
