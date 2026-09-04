@@ -201,8 +201,7 @@ gpt-oss-120b with an 1100 s evaluation cap), so their numbers are context, not c
 harness score for $C_1$ is $1/C_1$; the table reports $C_1$ itself.
 
 \begin{table}[H]\centering\small
-\caption{Batch A: per-arm results in the papers' units, with the published values. Arms still
-running are marked $^\circ$; a dash is an arm that had not started when the table was made.}
+\caption{Batch A, all 36 arms finished: per-arm results in the papers' units, with the published values.}
 \label{tab:ae}
 \begin{tabular}{@{}lrrrrr@{}}
 \toprule
@@ -211,26 +210,26 @@ method & s0 & s1 & s2 & mean & tokens \\
 \midrule
 HypothesisBandit & 1.722894 & 2.751149 & 2.395420 & 2.289821 & 3.3 \\
 AgentMapElites & 2.515664 & 2.918279 & 2.474720 & 2.636221 & 3.8 \\
-SimpleTES & 2.939573 & 2.933651$^\circ$ & 2.939573 & 2.937599 & 3.3 \\
-LabNotebook & 2.939572$^\circ$ & 2.939573$^\circ$ & 2.939573 & 2.939573 & 2.5 \\
+SimpleTES & 2.939573 & 2.933651 & 2.939573 & 2.937599 & 3.6 \\
+\textbf{LabNotebook} & \textbf{2.939573} & \textbf{2.939573} & \textbf{2.939573} & \textbf{2.939573} & 3.5 \\
 \multicolumn{6}{@{}l}{\footnotesize published: best human 2.936 $\cdot$ AlphaEvolve v1 2.937944 $\cdot$ record 2.939572} \\
 \multicolumn{6}{@{}l}{\footnotesize \phantom{published: }(AlphaEvolve V2, TTT-Discover, SimpleTES)} \\
 \midrule
 \multicolumn{6}{@{}l}{\textbf{$C_1$, first autocorrelation inequality} --- upper bound, lower is better} \\
 \midrule
-HypothesisBandit & 1.51589 & 1.51589 & --- & 1.51589 & 2.7 \\
-AgentMapElites & 1.51450 & 1.51273 & --- & 1.51362 & 3.8 \\
-SimpleTES & \textbf{1.50941} & 1.51148 & 1.51248$^\circ$ & 1.51112 & 2.4 \\
-LabNotebook & 1.51063 & 1.51267 & 1.50947$^\circ$ & \textbf{1.51093} & 2.0 \\
+HypothesisBandit & 1.51453 & 1.51589 & 1.51589 & 1.51544 & 3.4 \\
+AgentMapElites & 1.51589 & 1.51450 & 1.51273 & 1.51437 & 3.7 \\
+\textbf{SimpleTES} & \textbf{1.50941} & 1.51148 & 1.51088 & \textbf{1.51059} & 2.6 \\
+LabNotebook & 1.51063 & 1.51267 & 1.50947 & 1.51093 & 2.2 \\
 \multicolumn{6}{@{}l}{\footnotesize published: best human 1.50973 $\cdot$ AlphaEvolve v1 1.5053 $\cdot$ ThetaEvolve 1.50314} \\
 \multicolumn{6}{@{}l}{\footnotesize \phantom{published: }AlphaEvolve V2 1.50317 $\cdot$ TTT-Discover 1.50287 (record)} \\
 \midrule
 \multicolumn{6}{@{}l}{\textbf{$C_2$, second autocorrelation inequality} --- lower bound, higher is better} \\
 \midrule
 HypothesisBandit & 0.9098 & 0.9057 & 0.9062 & 0.9072 & 3.9 \\
-AgentMapElites & 0.9127 & 0.9086 & --- & 0.9107 & 3.9 \\
-SimpleTES & 0.9101$^\circ$ & 0.9079 & 0.9139$^\circ$ & 0.9106 & 2.5 \\
-\textbf{LabNotebook} & \textbf{0.9248} & 0.9099$^\circ$ & 0.9185 & \textbf{0.9177} & 1.9 \\
+AgentMapElites & 0.9127 & 0.9086 & 0.9088 & 0.9100 & 4.1 \\
+SimpleTES & 0.9101 & 0.9079 & 0.9139 & 0.9106 & 3.1 \\
+\textbf{LabNotebook} & \textbf{0.9248} & 0.9106 & 0.9185 & \textbf{0.9180} & 2.2 \\
 \multicolumn{6}{@{}l}{\footnotesize published: best human 0.9015 $\cdot$ AlphaEvolve v1 0.8962 $\cdot$ ThetaEvolve 0.9469} \\
 \multicolumn{6}{@{}l}{\footnotesize \phantom{published: }TTT-Discover 0.9591 $\cdot$ AlphaEvolve V2 0.9610 $\cdot$ SimpleTES 0.9627 (record)} \\
 \bottomrule
@@ -239,9 +238,10 @@ SimpleTES & 0.9101$^\circ$ & 0.9079 & 0.9139$^\circ$ & 0.9106 & 2.5 \\
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{lab_notebook_figs/overview_ae_batchA.png}
-\caption{Batch A with every published bound drawn. Packing $n{=}32$: three arms sit on the record.
-$C_1$: our best arms fall between the human record and AlphaEvolve v1, with the 2026 systems a
-clear band above. $C_2$: above AlphaEvolve v1 and the human best, well below the 2026 band.}
+\caption{Batch A with every published bound drawn. Packing $n{=}32$: five arms sit on the record
+(LabNotebook 3/3, SimpleTES 2/3). $C_1$: the best arms fall between the human record and AlphaEvolve
+v1, with the 2026 systems a clear band above. $C_2$: above AlphaEvolve v1 and the human best, well
+below the 2026 band.}
 \end{figure}
 
 \subsection{Cost}
@@ -284,8 +284,9 @@ called LabNotebook the cheapest method; that was read from partial arms and is w
 \item \textbf{Where SimpleTES is better: exploiting an incumbent.} Under a warm start SimpleTES
   improves on every seed and LabNotebook gets worse on two of three. The fix is cheap
   ($p_{\text{best}}\to1$ and a smaller $K$ when a warm start is present) but has not been run.
-\item \textbf{AlphaEvolve suite.} Record on packing $n{=}32$; $C_2$ is LabNotebook's, $C_1$ a
-  tie; both behind the 2026 systems by margins their extra compute explains.
+\item \textbf{AlphaEvolve suite.} Packing $n{=}32$: LabNotebook on the record 3/3, SimpleTES 2/3.
+  $C_2$ is LabNotebook's on every replicate; $C_1$ is SimpleTES's by 0.0003 in the mean --- a tie.
+  Both are behind the 2026 systems by margins their extra compute explains.
 \item \textbf{Limits of the evidence.} Three arms per cell; model sampling unseeded; the SimpleTES
   AHC039 arms are lower bounds after preemptions; and the ablation that would attribute the effect
   --- LabNotebook with random ideas and no notebook, same budget --- has not been run.
