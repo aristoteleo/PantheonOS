@@ -311,16 +311,16 @@ class BrowserEngine:
         self._cold_start = True
         self._launch_lock = asyncio.Lock()
         self.pages: dict[str, PageSession] = {}
-        # xpra shadow state: one staged page owns the (shrunken) display.
         self._xpra_proc = None
         self._xpra_password: str | None = None
-        self._staged_page: str | None = None
-        # The framebuffer while a stage lasts, and the floor the viewer asked
-        # for it (its whole desktop, typically). Every framebuffer change
-        # makes the shadow tear its desktop window down and re-create it —
-        # seconds of stale picture in the corner of the frame — so within a
-        # stage it only ever grows; a resize then moves the Chromium window,
-        # which is plain damage.
+        # Every page holding a rectangle on the display, in the order they
+        # took one: page_id -> (x, y, w, outer_h) in physical pixels. The
+        # shadow streams one framebuffer; these are the windows inside it,
+        # one per Browser window, each cropped to by its own viewer.
+        self._stages: dict[str, tuple[int, int, int, int]] = {}
+        # The framebuffer, and the floor a viewer asked for (its whole
+        # desktop). Every change makes the shadow tear its desktop window
+        # down and build another, which reads as a stall, so it only grows.
         self._stage_fb: tuple[int, int] | None = None
         self._stage_min_fb: tuple[int, int] = (0, 0)
         self._xdisplay = None  # X connection for key injection
@@ -682,13 +682,12 @@ class BrowserEngine:
             session.width, session.height = w, h
             session.dsf = s
             await self.set_metrics(session, w, h, s)
-            if self._staged_page == session.id:
-                # Staged for xpra: the window lives at the origin and the
-                # framebuffer is cut to it — never back onto a tile.
+            if session.id in self._stages:
+                # On the display: its rectangle follows the new size, and
+                # the others shuffle down to stay disjoint.
                 await self._stage_place(session)
             elif session.windowed:
-                # The OS window must follow, or the X11 grab keeps aiming
-                # at the rectangle the window has left.
+                # Not on the display: park it, so it cannot cover one that is.
                 await self.place_window(session)
 
     async def focus_page(self, session: PageSession) -> None:
@@ -983,11 +982,15 @@ class BrowserEngine:
             session.rect = None
             return
         self._windows[info["windowId"]] = session.id
-        staged = self._staged_page
-        if staged and session.opener == staged and self._stage_fb:
+        opener_rect = self._stages.get(session.opener or "")
+        if opener_rect and self._stage_fb:
+            # A popup of a staged page belongs ON its opener's rectangle:
+            # it is its own Chromium window and the login it carries has to
+            # be visible and clickable.
             fb_w, fb_h = self._stage_fb
-            left = min(self.POPUP_INSET, max(0, fb_w - w))
-            top = min(self.POPUP_INSET, max(0, fb_h - outer_h))
+            ox, oy, ow, oh = opener_rect
+            left = max(0, min(ox + self.POPUP_INSET, fb_w - min(w, ow)))
+            top = max(0, min(oy + self.POPUP_INSET, fb_h - min(outer_h, oh)))
             try:
                 await session.cdp.send("Browser.setWindowBounds", {
                     "windowId": info["windowId"],
@@ -1144,42 +1147,100 @@ class BrowserEngine:
         if f"current {w} x {h}" not in (probe.stdout or ""):
             raise RuntimeError(f"framebuffer did not take {w}x{h}")
 
-    async def _stage_place(self, session: PageSession) -> None:
-        """Cut the framebuffer to this page's window and pin it at the origin.
+    def _repack(self) -> tuple[int, int]:
+        """Lay the staged windows out in one column and size the display.
 
-        The shadow serves the whole display as ONE desktop window, so the
-        display must BE the staged window: everything else (parked windows,
-        other pages' tiles) falls outside the framebuffer and out of frame.
+        The shadow streams ONE framebuffer, so this is how several Browser
+        windows are live at once: each staged page gets its own disjoint
+        rectangle inside it, and each viewer crops to its own. A column,
+        not a grid — windows are as wide as the viewer made them, and
+        stacking keeps the arithmetic something anyone can check.
+
+        The framebuffer is the union of those rectangles, floored at the
+        viewer's whole desktop so the ordinary case (one window, resized
+        by hand) never changes it: every change makes the shadow tear its
+        desktop window down and build another, which the viewer sees as a
+        stall.
         """
-        w = max(2, int(session.width * session.dsf))
-        h = max(2, int(session.height * session.dsf))
-        outer_h = (h + WINDOW_CHROME_PX) & ~1
-        cur = self._stage_fb or (0, 0)
-        fb_w = min(SCREEN_W, max(w, cur[0], self._stage_min_fb[0]))
-        fb_h = min(SCREEN_H, max(outer_h, cur[1], self._stage_min_fb[1] & ~1))
-        if (fb_w, fb_h) != cur:
-            await asyncio.to_thread(self._set_fb, fb_w, fb_h)
-            self._stage_fb = (fb_w, fb_h)
+        y = 0
+        packed: dict[str, tuple[int, int, int, int]] = {}
+        for pid, rect in self._stages.items():
+            w, h = rect[2], rect[3]
+            packed[pid] = (0, y, w, h)
+            y += h
+        self._stages = packed
+        need_w = max([r[2] for r in packed.values()] or [2])
+        fb_w = min(SCREEN_W, max(need_w, self._stage_min_fb[0],
+                                 (self._stage_fb or (0, 0))[0]))
+        fb_h = min(SCREEN_H, max(y, 2, self._stage_min_fb[1],
+                                 (self._stage_fb or (0, 0))[1]))
+        return fb_w, fb_h & ~1
+
+    async def _place_one(self, session: PageSession, rect) -> None:
+        """Put one window on its rectangle (physical px in, DIP out)."""
+        if session.cdp is None:
+            return
+        x, y, w, outer_h = rect
         info = await session.cdp.send("Browser.getWindowForTarget")
         await session.cdp.send("Browser.setWindowBounds", {
             "windowId": info["windowId"],
             "bounds": {
-                "left": 0, "top": 0,
+                "left": x // RASTER_SCALE, "top": y // RASTER_SCALE,
                 "width": w // RASTER_SCALE,
                 "height": outer_h // RASTER_SCALE,
                 "windowState": "normal",
             },
         })
+        session.rect = (x, y + WINDOW_CHROME_PX, w, outer_h - WINDOW_CHROME_PX)
+
+    async def _apply_stages(self) -> None:
+        """Resize the display to fit the staged windows, then place them."""
+        fb = self._repack()
+        if fb != self._stage_fb:
+            await asyncio.to_thread(self._set_fb, *fb)
+            self._stage_fb = fb
+        for pid, rect in list(self._stages.items()):
+            other = self.pages.get(pid)
+            if other is None:
+                self._stages.pop(pid, None)
+                continue
+            try:
+                await self._place_one(other, rect)
+            except Exception as e:
+                logger.info("browser: placing staged {} failed: {}", pid, e)
+
+    async def _stage_place(self, session: PageSession) -> None:
+        """Re-place this page's window after a resize (reshape's hook)."""
+        if session.id not in self._stages:
+            return
+        w = max(2, int(session.width * session.dsf))
+        h = max(2, int(session.height * session.dsf))
+        x, y, _, _ = self._stages[session.id]
+        self._stages[session.id] = (x, y, w, (h + WINDOW_CHROME_PX) & ~1)
+        await self._apply_stages()
+
+    def stage_layout(self) -> dict:
+        """What every viewer needs to crop its own window out of the stream."""
+        fb = self._stage_fb or (2, 2)
+        return {
+            "fb_width": fb[0],
+            "fb_height": fb[1],
+            "chrome_px": WINDOW_CHROME_PX,
+            "rects": {pid: list(r) for pid, r in self._stages.items()},
+        }
 
     async def stage_page(self, page_id: str, width: int, height: int,
                          fb_width: int = 0, fb_height: int = 0) -> dict:
-        """Make this page THE xpra-visible one (one stage; latecomer wins).
+        """Give this page a visible rectangle on the display, and keep it.
 
-        `fb_width`/`fb_height` is the floor for the framebuffer — the viewer's
-        whole desktop, so the window can grow up to it without the
-        framebuffer (and the shadow's window) ever changing. Returns what
-        the viewer needs to connect and crop; raises if the transport is
-        unavailable so the caller can fall back to JPEG paths.
+        Several pages can hold one at once — one per Browser window — so a
+        window the user is not looking at goes on living instead of freezing
+        into its last frame. `fb_width`/`fb_height` is the viewer's whole
+        desktop: the floor for the framebuffer, so a hand resize never
+        rebuilds the shadow's window.
+
+        Returns the connection material and the whole layout; raises if the
+        transport is unavailable so the caller can say so.
         """
         session = self.get(page_id)
         if not await self._ensure_xpra():
@@ -1188,56 +1249,72 @@ class BrowserEngine:
             max(self._stage_min_fb[0], max(0, int(fb_width or 0))),
             max(self._stage_min_fb[1], max(0, int(fb_height or 0))),
         )
-        previous = self._staged_page
-        self._staged_page = page_id
-        if previous and previous != page_id:
-            old = self.pages.get(previous)
-            if old is not None and old.windowed:
-                # The outgoing page's window sits AT THE ORIGIN — exactly
-                # where the incoming one goes. Park it off the framebuffer,
-                # or whichever is higher in the X stacking order is what the
-                # shadow shows, and that has been the wrong one.
-                old.rect = None
-                try:
-                    info_old = await old.cdp.send("Browser.getWindowForTarget")
-                    await self._park_window(
-                        old, info_old["windowId"],
-                        max(2, int(old.width * old.dsf)),
-                        max(2, int(old.height * old.dsf)) + WINDOW_CHROME_PX)
-                except Exception as e:
-                    logger.info("browser: parking staged-out {} failed: {}",
-                                previous, e)
-        session.rect = None
+        w = max(2, int(width * RASTER_SCALE))
+        outer_h = (max(2, int(height * RASTER_SCALE)) + WINDOW_CHROME_PX) & ~1
+        first = page_id not in self._stages
+        self._stages[page_id] = (0, 0, w, outer_h)
+        self._tiles_release(page_id)
         await self.reshape(session, width, height, float(RASTER_SCALE))
-        # Undecorate the staged window. The html5 client adds its own frame
-        # around a decorated window; window+frame then exceeds the viewer's
-        # frame-sized viewport and the client CENTERS the overflow — the
-        # viewer sees the middle of the page (an all-white nothing for
-        # about:blank) instead of the window. No decorations, no overflow.
+        # Undecorate: the html5 client draws its own frame around a decorated
+        # window, and window+frame then overflows the viewer's viewport.
         await asyncio.to_thread(self._strip_decorations)
-        if previous != page_id:
-            # Only when the stage CHANGES page. Page.bringToFront activates a
-            # tab, and the user's own tabs (opened inside the streamed
-            # Chromium, which this side never hears about) live in the same
-            # window — so doing it on every geometry re-stage yanked the view
-            # back to our first tab on each window resize.
+        if first:
+            # New to the stage: bring its tab to the front. NOT on a resize —
+            # Page.bringToFront activates a tab, and the user's own tabs live
+            # in the same window, so doing it every time yanked the view back
+            # to our first tab on every drag of the window's edge.
             await self.focus_page(session)
         import getpass
 
-        fb = self._stage_fb or (
-            max(2, int(width * RASTER_SCALE)),
-            (max(2, int(height * RASTER_SCALE)) + WINDOW_CHROME_PX) & ~1)
         return {
             "password": self._xpra_password,
             "username": getpass.getuser(),
-            "chrome_px": WINDOW_CHROME_PX,
-            "fb_width": fb[0],
-            "fb_height": fb[1],
-            # The window inside that framebuffer, for the viewer's crop.
-            "win_width": max(2, int(width * RASTER_SCALE)),
-            "win_height": (max(2, int(height * RASTER_SCALE))
-                           + WINDOW_CHROME_PX) & ~1,
+            **self.stage_layout(),
         }
+
+    def _tiles_release(self, page_id: str) -> None:
+        """Forget any pending placement for a page that is now staged."""
+        session = self.pages.get(page_id)
+        if session is not None:
+            session.rect = None
+
+    async def focus_stage(self, page_id: str) -> dict:
+        """Send the keyboard to this page's window.
+
+        With several windows on the display at once, "which one is typed
+        into" is the viewer's business, not the display's: the X input focus
+        follows the Browser window the user is working in.
+        """
+        session = self.get(page_id)
+        await self.focus_page(session)
+        rect = self._stages.get(page_id)
+        if rect is not None:
+            await asyncio.to_thread(self._focus_x_window, rect)
+        return {"ok": True}
+
+    def _focus_x_window(self, rect) -> None:
+        """Give X input focus to the window at `rect`'s origin."""
+        try:
+            from Xlib import X
+
+            d = self._x_display()
+            root = d.screen().root
+            x, y = rect[0], rect[1]
+            for child in root.query_tree().children:
+                try:
+                    g = child.get_geometry()
+                    cls = child.get_wm_class()
+                except Exception:
+                    continue
+                if not cls or "Chromium" not in (cls[1] or ""):
+                    continue
+                if g.x == x and g.y == y:
+                    d.set_input_focus(child, X.RevertToParent, X.CurrentTime)
+                    d.sync()
+                    return
+        except Exception as e:
+            logger.info("browser: X focus failed: {}", e)
+            self._xdisplay = None
 
     def _strip_decorations(self) -> None:
         """Set _MOTIF_WM_HINTS decorations=0 on the window at the origin.
@@ -1273,10 +1350,20 @@ class BrowserEngine:
             logger.info("browser: strip decorations failed: {}", e)
 
     async def unstage_page(self, page_id: str) -> None:
-        """This page stops owning the display; restore the tiled world."""
-        if self._staged_page != page_id:
+        """This page gives up its rectangle; the rest close ranks."""
+        if page_id not in self._stages:
             return
-        self._staged_page = None
+        self._stages.pop(page_id, None)
+        session = self.pages.get(page_id)
+        if session is not None and session.windowed:
+            try:
+                await self.place_window(session)   # off the framebuffer
+            except Exception as e:
+                logger.info("browser: parking after unstage failed: {}", e)
+        if self._stages:
+            # Others are still on: keep the display, re-pack around the gap.
+            await self._apply_stages()
+            return
         self._stage_fb = None
         self._stage_min_fb = (0, 0)
         try:
@@ -1327,16 +1414,21 @@ class BrowserEngine:
         session = self.pages.pop(page_id, None)
         if session is None:
             return
-        if self._staged_page == page_id:
-            # The staged page owned the (shrunken) display; give the tiled
-            # world its framebuffer back for whoever streams next.
-            self._staged_page = None
-            self._stage_fb = None
-            self._stage_min_fb = (0, 0)
-            try:
-                await asyncio.to_thread(self._set_fb, SCREEN_W, SCREEN_H)
-            except Exception as e:
-                logger.info("browser: framebuffer restore failed: {}", e)
+        if page_id in self._stages:
+            self._stages.pop(page_id, None)
+            if self._stages:
+                # Others are still showing: close ranks around the gap.
+                try:
+                    await self._apply_stages()
+                except Exception as e:
+                    logger.info("browser: re-packing after close failed: {}", e)
+            else:
+                self._stage_fb = None
+                self._stage_min_fb = (0, 0)
+                try:
+                    await asyncio.to_thread(self._set_fb, SCREEN_W, SCREEN_H)
+                except Exception as e:
+                    logger.info("browser: framebuffer restore failed: {}", e)
         for wid, owner in list(self._windows.items()):
             if owner == page_id:
                 self._windows.pop(wid, None)

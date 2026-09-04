@@ -1653,12 +1653,31 @@ class DesktopToolSet(ToolSet):
             info = await engine.call(engine.stage_page(
                 page_id, int(width) or VIEW_W, int(height) or VIEW_H,
                 int(fb_width or 0), int(fb_height or 0)))
+            # Every viewer crops its own window out of one framebuffer, so a
+            # layout change is everyone's business: the broadcast carries the
+            # whole layout, not just who moved.
             await self._publish_desktop({
                 "type": "desktop.broadcast",
                 "topic": "browser.stage",
-                "payload": {"page_id": page_id},
+                "payload": {"page_id": page_id,
+                            **{k: v for k, v in info.items()
+                               if k not in ("password", "username")}},
             })
             return {"success": True, **info}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool(exclude=True)
+    async def browser_ui_focus(self, page_id: str) -> dict:
+        """UI → backend: this Browser window has the user's attention.
+
+        Several windows are on the display at once, so which one the
+        keyboard goes to is the viewer's to say.
+        """
+        try:
+            engine = self._browser_engine()
+            await engine.call(engine.focus_stage(page_id))
+            return {"success": True}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

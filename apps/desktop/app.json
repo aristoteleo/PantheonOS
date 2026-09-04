@@ -245,6 +245,19 @@
         "hidden": true
       },
       {
+        "name": "browser_ui_focus",
+        "description": "UI → backend: this Browser window has the user's attention.\n\n        Several windows are on the display at once, so which one the\n        keyboard goes to is the viewer's to say.\n        ",
+        "params": [
+          {
+            "name": "page_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
         "name": "browser_ui_key",
         "description": "UI → backend: the viewer's keystrokes, injected on the display.\n\n        The xpra shadow carries the picture and the pointer; its own keyboard\n        injection never reaches Chromium on this image (the packets arrive,\n        the keycodes resolve, XTest is called, and nothing lands), so the\n        viewer sends key events here instead. `events` are\n        {code, key, down} in the browser's own vocabulary.\n        ",
         "params": [
