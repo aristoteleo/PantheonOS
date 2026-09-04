@@ -346,6 +346,7 @@ class BrowserEngine:
         self._stage_min_fb: tuple[int, int] = (0, 0)
         self._xdisplay = None  # X connection for key injection
         self._dialog_task = None  # keeps dialogs inside their own window
+        self._named: set[str] = set()  # pages whose X window carries their id
 
     # ── the daemon loop ──────────────────────────────────────────────────
 
@@ -710,6 +711,11 @@ class BrowserEngine:
         async with session.shape_lock:
             session.width, session.height = w, h
             session.dsf = s
+            if XPRA_MODE == "seamless":
+                # The window manager owns geometry there, and the viewer
+                # resizes the window through the protocol; touching CDP
+                # window bounds under a WM hangs (see place_window).
+                return
             await self.set_metrics(session, w, h, s)
             if session.id in self._stages:
                 # On the display: its rectangle follows the new size, and
@@ -984,6 +990,11 @@ class BrowserEngine:
     async def place_window(self, session: PageSession) -> None:
         """Put a non-staged window where it belongs: off the framebuffer.
 
+        Seamless has no framebuffer to keep clear and a window manager that
+        owns geometry — and Browser.setWindowBounds NEVER RETURNS there,
+        because Chromium waits for a WM acknowledgement that never comes for
+        a position off the screen. Every stage hung on it.
+
         The stage is the whole picture — the framebuffer is fitted to the
         staged window at the origin — so any other window either overlaps it
         (and the shadow shows the wrong one) or sits outside the framebuffer
@@ -993,7 +1004,7 @@ class BrowserEngine:
         window, and the login it carries has to be visible and clickable, so
         it goes ON the stage, inset like a popup anywhere else.
         """
-        if not session.windowed or session.cdp is None:
+        if XPRA_MODE == "seamless" or not session.windowed or session.cdp is None:
             return
         w = max(2, int(session.width * session.dsf))
         h = max(2, int(session.height * session.dsf))
@@ -1156,6 +1167,84 @@ class BrowserEngine:
             _t.sleep(0.5)
         logger.warning("browser: seamless session never came up")
         return False
+
+    async def _name_window(self, session: PageSession) -> bool:
+        """Name this page's X window after the page, so a viewer can find it.
+
+        xpra forwards WM_CLASS (as `class-instance`) and nothing that
+        identifies the X window, and its window manager reparents windows
+        into its own frames — so neither geometry nor the window tree's shape
+        will do. The page names ITSELF for a moment (its title is its X
+        window's name), we find the window carrying that name, stamp
+        WM_CLASS on it, and give the title back.
+        """
+        if session.id in self._named:
+            return True
+        token = f"pantheon-window-{session.id}"
+        try:
+            await session.page.evaluate(
+                "(t) => { window.__pantheon_title = document.title;"
+                " document.title = t; }", token)
+        except Exception as e:
+            logger.info("browser: could not name {}: {}", session.id, e)
+            return False
+        ok = False
+        try:
+            for _ in range(20):
+                await asyncio.sleep(0.15)
+                ok = await asyncio.to_thread(self._stamp_class, token, session.id)
+                if ok:
+                    break
+        finally:
+            try:
+                await session.page.evaluate(
+                    "() => { if (window.__pantheon_title !== undefined)"
+                    " document.title = window.__pantheon_title; }")
+            except Exception:
+                pass
+        if ok:
+            self._named.add(session.id)
+        else:
+            logger.info("browser: no X window answered to {}", token)
+        return ok
+
+    def _stamp_class(self, token: str, page_id: str) -> bool:
+        """Set WM_CLASS on the window whose name holds `token`."""
+        try:
+            d = self._x_display()
+
+            def walk(win, depth=0):
+                if depth > 4:
+                    return None
+                try:
+                    kids = win.query_tree().children
+                except Exception:
+                    return None
+                for child in kids:
+                    try:
+                        name = child.get_wm_name() or ""
+                    except Exception:
+                        name = ""
+                    if token in name:
+                        return child
+                    found = walk(child, depth + 1)
+                    if found is not None:
+                        return found
+                return None
+
+            target = walk(d.screen().root)
+            if target is None:
+                return False
+            target.set_wm_class(f"{PAGE_CLASS_PREFIX}{page_id}",
+                                "Chromium-browser")
+            d.sync()
+            logger.info("browser: named {}'s window {}", page_id,
+                        PAGE_CLASS_PREFIX + page_id)
+            return True
+        except Exception as e:
+            logger.info("browser: naming failed: {}", e)
+            self._xdisplay = None
+            return False
 
     def _tag_page_window(self, session: PageSession, rect) -> None:
         """Name a page's X window after the page.
@@ -1396,20 +1485,8 @@ class BrowserEngine:
             # No packing, no cropping: the window IS the object the viewer
             # adopts. Size the page, name its window after itself, done.
             await self._ensure_browser()
-            await self.reshape(session, width, height, float(RASTER_SCALE))
-            rect = None
-            try:
-                info = await session.cdp.send("Browser.getWindowForTarget")
-                got = await session.cdp.send("Browser.getWindowBounds",
-                                             {"windowId": info["windowId"]})
-                b = got.get("bounds", {})
-                rect = (b.get("left", 0), b.get("top", 0),
-                        b.get("width", 0), b.get("height", 0))
-            except Exception as e:
-                logger.info("browser: reading {}'s window failed: {}",
-                            session.id, e)
-            if rect:
-                await asyncio.to_thread(self._tag_page_window, session, rect)
+            session.width, session.height = width, height
+            await self._name_window(session)
             import getpass
 
             return {
