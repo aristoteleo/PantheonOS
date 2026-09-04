@@ -1226,6 +1226,29 @@ class BrowserEngine:
             logger.info("browser: no X window answered to {}", token)
         return ok
 
+    def _window_name(self, d, win) -> str:
+        """A window's title, from either place it can live.
+
+        Chromium — like everything modern — publishes `_NET_WM_NAME` (UTF-8)
+        and leaves the legacy `WM_NAME` empty, and python-xlib's
+        `get_wm_name()` reads only the legacy one. Reading just that found
+        every Chromium window nameless, so the page could never be matched
+        to its window.
+        """
+        try:
+            prop = win.get_full_property(d.intern_atom("_NET_WM_NAME"), 0)
+            if prop and prop.value:
+                value = prop.value
+                if isinstance(value, bytes):
+                    return value.decode("utf-8", "replace")
+                return str(value)
+        except Exception:
+            pass
+        try:
+            return win.get_wm_name() or ""
+        except Exception:
+            return ""
+
     def _stamp_class(self, token: str, page_id: str) -> bool:
         """Set WM_CLASS on the window whose name holds `token`."""
         try:
@@ -1239,11 +1262,7 @@ class BrowserEngine:
                 except Exception:
                     return None
                 for child in kids:
-                    try:
-                        name = child.get_wm_name() or ""
-                    except Exception:
-                        name = ""
-                    if token in name:
+                    if token in self._window_name(d, child):
                         return child
                     found = walk(child, depth + 1)
                     if found is not None:
