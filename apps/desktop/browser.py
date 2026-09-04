@@ -1571,6 +1571,13 @@ class BrowserEngine:
         """
         session = self.get(page_id)
         await self.focus_page(session)
+        if xpra_mode() == "seamless":
+            # No rectangles there: the window is found by the name we gave
+            # it. X focus still has to be ours to set, because the keys the
+            # viewer sends are injected on the display (browser_ui_key).
+            await self._name_window(session)
+            await asyncio.to_thread(self._focus_named_window, page_id)
+            return {"ok": True}
         rect = self._stages.get(page_id)
         if rect is not None:
             self._stage_touch[page_id] = time.monotonic()
@@ -1642,6 +1649,42 @@ class BrowserEngine:
                 return
             except Exception as e:
                 logger.debug("browser: dialog keeper: {}", e)
+
+    def _focus_named_window(self, page_id: str) -> None:
+        """Give X focus to the window carrying this page's WM_CLASS."""
+        want = f"{PAGE_CLASS_PREFIX}{page_id}"
+        try:
+            from Xlib import X
+
+            d = self._x_display()
+
+            def walk(win, depth=0):
+                if depth > 4:
+                    return None
+                try:
+                    kids = win.query_tree().children
+                except Exception:
+                    return None
+                for child in kids:
+                    try:
+                        cls = child.get_wm_class()
+                    except Exception:
+                        cls = None
+                    if cls and cls[0] == want:
+                        return child
+                    found = walk(child, depth + 1)
+                    if found is not None:
+                        return found
+                return None
+
+            target = walk(d.screen().root)
+            if target is None:
+                return
+            d.set_input_focus(target, X.RevertToParent, X.CurrentTime)
+            d.sync()
+        except Exception as e:
+            logger.info("browser: focusing {} failed: {}", page_id, e)
+            self._xdisplay = None
 
     def _focus_x_window(self, rect) -> None:
         """Give X input focus to the window at `rect`'s origin."""
