@@ -33,8 +33,9 @@ separate eval server.
 \label{sec:flash}
 
 \begin{table}[H]\centering\small
-\caption{deepseek-v4-flash. Best per arm (s0 / s1 / s2), method mean, and mean LLM tokens spent
-(millions). $^\circ$ = still running after a Modal preemption restarted the arm (lower bound).}
+\caption{deepseek-v4-flash, all 36 arms finished. Best per arm (s0 / s1 / s2), method mean, and mean
+LLM tokens spent (millions). SimpleTES's AHC039 s1/s2 and packing s1 were restarted after Modal
+preemptions and resumed from checkpoints; their token figures include the interrupted runs.}
 \label{tab:flash}
 \begin{tabular}{@{}lrrrrr@{}}
 \toprule
@@ -43,14 +44,14 @@ method & s0 & s1 & s2 & mean & tokens \\
 \midrule
 HypothesisBandit & 3724 & 3714 & 3730 & 3723 & 15.8 \\
 AgentMapElites & 3709 & 3726 & 3723 & 3719 & 16.5 \\
-SimpleTES & 3712 & 3700$^\circ$ & 3722$^\circ$ & 3711 & 15.7 \\
+SimpleTES & 3712 & 3700 & 3722 & 3711 & 25.8 \\
 \textbf{LabNotebook} & \textbf{3744} & 3722 & 3733 & \textbf{3733} & 17.4 \\
 \midrule
 \multicolumn{6}{@{}l}{\textbf{circle packing $n{=}26$} --- sum of radii, record 2.635983} \\
 \midrule
 HypothesisBandit & 2.635896 & 2.615307 & 2.622878 & 2.624694 & 3.3 \\
 AgentMapElites & 1.804524 & 1.804524 & 2.433600 & 2.014216 & 3.8 \\
-SimpleTES & 2.634292 & 2.634292$^\circ$ & 2.634293 & 2.634292 & 2.4 \\
+SimpleTES & 2.634292 & 2.635983 & 2.634293 & 2.634856 & 3.4 \\
 \textbf{LabNotebook} & \textbf{2.635983} & \textbf{2.635983} & \textbf{2.635983} & \textbf{2.635983} & 3.4 \\
 \midrule
 \multicolumn{6}{@{}l}{\textbf{Erd\H{o}s} --- $\Psi$, lower is better, record 0.380909} \\
@@ -65,9 +66,9 @@ SimpleTES & 0.381340 & 0.381359 & 0.381293 & 0.381331 & 3.6 \\
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{lab_notebook_figs/overview_flash.png}
-\caption{Flash campaign: one marker per arm, bar = method mean, dotted = record; the lower row is
-what each arm spent. LabNotebook holds the best mean on all three tasks, the record on 3/3
-packing arms, and the tightest replicate spread.}
+\caption{Flash campaign, all arms finished: one marker per arm, bar = method mean, dotted = record; the
+lower row is what each arm spent. LabNotebook holds the best mean on all three tasks, the record on
+3/3 packing arms (SimpleTES 1/3), and the tightest replicate spread.}
 \end{figure}
 
 \begin{figure}[H]\centering
@@ -279,15 +280,15 @@ called LabNotebook the cheapest method; that was read from partial arms and is w
   changes what gets explored.
 \item \textbf{Where it is a tie: known optima.} Circle packing and Erd\H{o}s reduce to finding a
   known local optimum; once the inner optimizer is right, every method lands on it. LabNotebook is
-  never worse and its replicates are tighter (3/3 record on flash packing; pro Erd\H{o}s within
-  0.00006), which in practice means fewer wasted runs.
+  never worse and its replicates are tighter (3/3 record on flash packing against SimpleTES's 1/3;
+  pro Erd\H{o}s within 0.00006), which in practice means fewer wasted runs.
 \item \textbf{Where SimpleTES is better: exploiting an incumbent.} Under a warm start SimpleTES
   improves on every seed and LabNotebook gets worse on two of three. The fix is cheap
   ($p_{\text{best}}\to1$ and a smaller $K$ when a warm start is present) but has not been run.
 \item \textbf{AlphaEvolve suite.} Packing $n{=}32$: LabNotebook on the record 3/3, SimpleTES 2/3.
   $C_2$ is LabNotebook's on every replicate; $C_1$ is SimpleTES's by 0.0003 in the mean --- a tie.
   Both are behind the 2026 systems by margins their extra compute explains.
-\item \textbf{Limits of the evidence.} Three arms per cell; model sampling unseeded; the SimpleTES
+\item \textbf{Limits of the evidence.} Three arms per cell; model sampling unseeded; the pro SimpleTES
   AHC039 arms are lower bounds after preemptions; and the ablation that would attribute the effect
   --- LabNotebook with random ideas and no notebook, same budget --- has not been run.
 \end{itemize}
