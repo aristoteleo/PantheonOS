@@ -324,6 +324,7 @@ class BrowserEngine:
         self._stage_fb: tuple[int, int] | None = None
         self._stage_min_fb: tuple[int, int] = (0, 0)
         self._xdisplay = None  # X connection for key injection
+        self._dialog_task = None  # keeps dialogs inside their own window
 
     # ── the daemon loop ──────────────────────────────────────────────────
 
@@ -1253,6 +1254,8 @@ class BrowserEngine:
         outer_h = (max(2, int(height * RASTER_SCALE)) + WINDOW_CHROME_PX) & ~1
         first = page_id not in self._stages
         self._stages[page_id] = (0, 0, w, outer_h)
+        if self._dialog_task is None:
+            self._dialog_task = asyncio.ensure_future(self._dialog_keeper())
         self._tiles_release(page_id)
         await self.reshape(session, width, height, float(RASTER_SCALE))
         # Undecorate: the html5 client draws its own frame around a decorated
@@ -1291,6 +1294,72 @@ class BrowserEngine:
         if rect is not None:
             await asyncio.to_thread(self._focus_x_window, rect)
         return {"ok": True}
+
+    def _fit_dialogs(self) -> int:
+        """Move Chromium's own dialogs onto the window they belong to.
+
+        A print or save dialog is a separate X window, and with no window
+        manager it opens centred on the DISPLAY — which is the union of
+        every Browser window, so the viewer saw a dialog running off the
+        edge of its own window, cut in half. WM_TRANSIENT_FOR says which
+        window it belongs to; put it inside that one's rectangle, shrunk to
+        fit if it has to be.
+        """
+        moved = 0
+        try:
+            d = self._x_display()
+            root = d.screen().root
+            transient = d.intern_atom("WM_TRANSIENT_FOR")
+            owners = {(r[0], r[1]): r for r in self._stages.values()}
+            if not owners:
+                return 0
+            for child in root.query_tree().children:
+                try:
+                    if child.get_attributes().map_state != 2:  # IsViewable
+                        continue
+                    g = child.get_geometry()
+                    prop = child.get_property(transient, 0, 0, 1)
+                except Exception:
+                    continue
+                if prop is None or not prop.value:
+                    continue   # not a dialog
+                parent_rect = None
+                try:
+                    parent = d.create_resource_object("window", prop.value[0])
+                    pg = parent.get_geometry()
+                    parent_rect = owners.get((pg.x, pg.y))
+                except Exception:
+                    parent_rect = None
+                if parent_rect is None:
+                    parent_rect = next(iter(self._stages.values()))
+                px, py, pw, ph = parent_rect
+                w = min(g.width, pw)
+                h = min(g.height, ph)
+                x = px + max(0, (pw - w) // 2)
+                y = py + max(0, (ph - h) // 2)
+                if (g.x, g.y, g.width, g.height) == (x, y, w, h):
+                    continue
+                child.configure(x=x, y=y, width=w, height=h)
+                moved += 1
+            if moved:
+                d.sync()
+        except Exception as e:
+            logger.info("browser: fitting dialogs failed: {}", e)
+            self._xdisplay = None
+        return moved
+
+    async def _dialog_keeper(self) -> None:
+        """Keep dialogs inside their window for as long as any window is on."""
+        while True:
+            try:
+                await asyncio.sleep(0.6)
+                if not self._stages:
+                    continue
+                await asyncio.to_thread(self._fit_dialogs)
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.debug("browser: dialog keeper: {}", e)
 
     def _focus_x_window(self, rect) -> None:
         """Give X input focus to the window at `rect`'s origin."""
