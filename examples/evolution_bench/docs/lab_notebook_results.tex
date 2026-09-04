@@ -83,17 +83,18 @@ steps --- each step is a cycle whose best trajectory beat the champion --- and k
 
 \begin{table}[H]\centering\small
 \caption{deepseek-v4-pro-0813, same budgets. AHC039 ran on its own eval server, so its points are
-comparable within this table, not with Table~\ref{tab:flash}. The three SimpleTES AHC039 arms
-and one HypothesisBandit arm were restarted after preemptions and are lower bounds.}
+comparable within this table, not with Table~\ref{tab:flash}. The three SimpleTES AHC039 arms are
+still running ($^\circ$, lower bounds); s2 was restarted from scratch by a Modal re-run under the
+pre-resume launcher and lost its first 197 calls.}
 \label{tab:pro}
 \begin{tabular}{@{}lrrrrr@{}}
 \toprule
 \multicolumn{6}{@{}l}{\textbf{AHC039}} \\
 method & s0 & s1 & s2 & mean & tokens \\
 \midrule
-HypothesisBandit & 3707 & 3720$^\circ$ & 3706 & 3711 & 10.5 \\
-AgentMapElites & 3721 & 3733 & 3703 & 3719 & 17.2 \\
-SimpleTES & 3701$^\circ$ & 3712$^\circ$ & 3574$^\circ$ & 3663 & 21.8 \\
+HypothesisBandit & 3707 & 3708 & 3706 & 3707 & 15.3 \\
+AgentMapElites & 3721 & 3724 & 3703 & 3716 & 17.6 \\
+SimpleTES & 3610$^\circ$ & 3712$^\circ$ & 3501$^\circ$ & 3608 & 18.1 \\
 \textbf{LabNotebook} & 3747 & 3759 & \textbf{3776} & \textbf{3761} & 20.4 \\
 \midrule
 \multicolumn{6}{@{}l}{\textbf{circle packing $n{=}26$}} \\
@@ -119,7 +120,7 @@ $10^{-12}$ tolerance; at zero tolerance it is 2.635983.
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{lab_notebook_figs/overview_pro.png}
 \caption{Pro campaign. On AHC039 every LabNotebook arm is above every finished arm of every
-other method; 3776 is the best score of both campaigns. Packing and Erd\H{o}s are ties within
+other method (next best: MAP-Elites 3724); 3776 is the best score of both campaigns. Packing and Erd\H{o}s are ties within
 replicate spread --- both are problems where the answer is a known local optimum that any good
 inner optimizer reaches.}
 \end{figure}
@@ -245,6 +246,50 @@ v1, with the 2026 systems a clear band above. $C_2$: above AlphaEvolve v1 and th
 below the 2026 band.}
 \end{figure}
 
+\paragraph{Batch B (in progress).} Third autocorrelation inequality ($C_3$, upper bound, lower is
+better; harness score $1.4556/C_3$), sums vs differences ($C(A)$, higher is better) and the
+Hadamard maximal determinant of order 29 (score $|\det|$ relative to a reference; no published
+value recorded). Published: $C_3$ --- AlphaEvolve 1.4556, TTT-Discover 1.454555, SimpleTES 1.453675
+(record); $C(A)$ --- SimpleTES 1.1449. Table~\ref{tab:aeb} is a snapshot with most LabNotebook and
+SimpleTES arms still running; the MAP-Elites $C_3$ value of 1.45363 would sit below the published
+record and is awaiting re-verification.
+
+\begin{table}[H]\centering\small
+\caption{Batch B snapshot (2026-09-04 06:30 PDT). $^\circ$ = still running (lower bound); a dash is
+an arm without data yet.}
+\label{tab:aeb}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\multicolumn{6}{@{}l}{\textbf{$C_3$, third autocorrelation inequality} --- upper bound, lower is better} \\
+method & s0 & s1 & s2 & mean & tokens \\
+\midrule
+HypothesisBandit & 1.47688 & 1.72827 & 1.46265 & 1.55594 & 3.7 \\
+AgentMapElites & 1.45363 & 3.15846 & 1.48264 & 2.03158 & 4.2 \\
+SimpleTES & 1.46605 & 1.46347$^\circ$ & 1.47281 & 1.46744 & 3.2 \\
+LabNotebook & 1.54943$^\circ$ & 1.48908$^\circ$ & 1.47280$^\circ$ & 1.50377 & 1.6 \\
+\midrule
+\multicolumn{6}{@{}l}{\textbf{sums vs differences} --- $C(A)$, higher is better} \\
+\midrule
+HypothesisBandit & 1.0787 & 1.0668 & 1.0598 & 1.0684 & 3.5 \\
+AgentMapElites & 1.0598$^\circ$ & 1.0625 & --- & 1.0612 & 4.0 \\
+SimpleTES & 1.0668$^\circ$ & 1.0677 & 1.0621$^\circ$ & 1.0655 & 2.7 \\
+LabNotebook & 1.0668$^\circ$ & \textbf{1.0865} & 1.0598$^\circ$ & 1.0710 & 2.0 \\
+\midrule
+\multicolumn{6}{@{}l}{\textbf{Hadamard, order 29} --- $|\det|$ / reference, higher is better} \\
+\midrule
+HypothesisBandit & 0.4791$^\circ$ & 0.4378 & 0.5558 & 0.4909 & 3.4 \\
+AgentMapElites & 0.1433 & 0.5037 & 0.1433 & 0.2634 & 4.0 \\
+SimpleTES & 0.8596$^\circ$ & 0.5695$^\circ$ & 0.8066$^\circ$ & 0.7452 & 1.3 \\
+LabNotebook & 0.5582$^\circ$ & 0.8596$^\circ$ & 0.4637$^\circ$ & 0.6272 & 1.7 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{lab_notebook_figs/overview_ae_batchB.png}
+\caption{Batch B snapshot. Hollow markers are arms still running.}
+\end{figure}
+
 \subsection{Cost}
 
 \begin{center}\small
@@ -254,16 +299,16 @@ below the 2026 band.}
 \cmidrule(lr){2-4}\cmidrule(lr){5-7}
 \$ per finished arm (arms) & AHC039 & packing & Erd\H{o}s & AHC039 & packing & Erd\H{o}s \\
 \midrule
-HypothesisBandit & \$0.79{\scriptsize\,(3)} & \$0.17{\scriptsize\,(3)} & \$0.16{\scriptsize\,(3)} & \$9.66{\scriptsize\,(2)} & \$2.07{\scriptsize\,(3)} & \$2.35{\scriptsize\,(3)} \\
-AgentMapElites & \$0.82{\scriptsize\,(3)} & \$0.19{\scriptsize\,(3)} & \$0.19{\scriptsize\,(3)} & \$11.36{\scriptsize\,(3)} & \$2.55{\scriptsize\,(3)} & \$2.41{\scriptsize\,(3)} \\
-SimpleTES & \$1.59{\scriptsize\,(1)} & \$0.28{\scriptsize\,(2)} & \$0.32{\scriptsize\,(3)} & --- & \$5.42{\scriptsize\,(3)} & \$5.97{\scriptsize\,(3)} \\
+HypothesisBandit & \$0.79{\scriptsize\,(3)} & \$0.17{\scriptsize\,(3)} & \$0.16{\scriptsize\,(3)} & \$10.17{\scriptsize\,(3)} & \$2.07{\scriptsize\,(3)} & \$2.35{\scriptsize\,(3)} \\
+AgentMapElites & \$0.82{\scriptsize\,(3)} & \$0.19{\scriptsize\,(3)} & \$0.19{\scriptsize\,(3)} & \$11.61{\scriptsize\,(3)} & \$2.55{\scriptsize\,(3)} & \$2.41{\scriptsize\,(3)} \\
+SimpleTES & \$1.80{\scriptsize\,(3)} & \$0.29{\scriptsize\,(3)} & \$0.32{\scriptsize\,(3)} & --- & \$5.42{\scriptsize\,(3)} & \$5.97{\scriptsize\,(3)} \\
 LabNotebook & \$1.26{\scriptsize\,(3)} & \$0.29{\scriptsize\,(3)} & \$0.31{\scriptsize\,(3)} & \$25.41{\scriptsize\,(3)} & \$5.20{\scriptsize\,(3)} & \$5.89{\scriptsize\,(3)} \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \noindent Token-priced at OpenRouter's rates (flash \$0.05/\$0.10 per M prompt/completion; pro
-\$0.66/\$1.98), finished arms only, so the pro SimpleTES AHC039 column is empty. LabNotebook is
+\$0.66/\$1.98), finished arms only, so the pro SimpleTES AHC039 cell is empty. LabNotebook is
 not cheaper than the others: on the small tasks all four methods spend to the same token ceiling,
 and on AHC039 --- where nothing but the call cap binds --- LabNotebook and SimpleTES are the two
 methods that keep spending to the end. The five notebook calls per cycle are a small share of
