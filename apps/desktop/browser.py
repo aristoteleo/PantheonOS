@@ -1207,8 +1207,9 @@ class BrowserEngine:
             logger.info("browser: could not name {}: {}", session.id, e)
             return False
         ok = False
+        deadline = time.monotonic() + 4.0
         try:
-            for _ in range(20):
+            while time.monotonic() < deadline:
                 await asyncio.sleep(0.15)
                 ok = await asyncio.to_thread(self._stamp_class, token, session.id)
                 if ok:
@@ -1250,7 +1251,12 @@ class BrowserEngine:
             return ""
 
     def _stamp_class(self, token: str, page_id: str) -> bool:
-        """Set WM_CLASS on the window whose name holds `token`."""
+        """Set WM_CLASS on the window whose name holds `token`.
+
+        Bounded on purpose: this runs while a viewer waits for its stage,
+        and a display with a dozen windows on it makes each pass over the
+        tree cost real time.
+        """
         try:
             d = self._x_display()
 
