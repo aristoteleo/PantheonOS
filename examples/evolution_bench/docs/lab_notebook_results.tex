@@ -293,6 +293,48 @@ LabNotebook & 0.7275 & 0.8596 & 0.8623 & 0.8165 & 3.5 \\
 LabNotebook; on $C_3$ the two are within replicate spread.}
 \end{figure}
 
+\paragraph{Batch C.} Three CodeEvolve-instance tasks --- kissing number in $d{=}11$, Heilbronn
+triangle $n{=}11$, Heilbronn convex $n{=}13$ --- scored as the ratio of the construction's value to
+AlphaEvolve's published one (1.0 = AlphaEvolve), with CodeEvolve's verifiers verbatim and their stub
+seeds (a valid but empty construction). All 36 arms finished.
+
+\begin{table}[H]\centering\small
+\caption{Batch C, all 36 arms finished: ratio to AlphaEvolve per arm (higher is better).}
+\label{tab:aec}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\multicolumn{6}{@{}l}{\textbf{kissing number, $d{=}11$}} \\
+method & s0 & s1 & s2 & mean & tokens \\
+\midrule
+HypothesisBandit & 0.5868 & 0.6998 & 0.3710 & 0.5526 & 3.3 \\
+AgentMapElites & 0.9174 & 0.0034 & 0.0034 & 0.3080 & 3.8 \\
+\textbf{SimpleTES} & 0.9815 & 0.9815 & 0.9815 & \textbf{0.9815} & 3.2 \\
+LabNotebook & 0.9680 & 0.9815 & 0.9815 & 0.9770 & 3.6 \\
+\midrule
+\multicolumn{6}{@{}l}{\textbf{Heilbronn triangle, $n{=}11$}} \\
+\midrule
+HypothesisBandit & 0.5986 & 0.2785 & 0.9180 & 0.5984 & 3.9 \\
+AgentMapElites & 0.8822 & 0.8275 & 0.8882 & 0.8660 & 3.7 \\
+SimpleTES & \textbf{0.9962} & 0.7543 & 0.9035 & 0.8847 & 1.7 \\
+LabNotebook & 0.8382 & 0.9583 & 0.8648 & \textbf{0.8871} & 3.6 \\
+\midrule
+\multicolumn{6}{@{}l}{\textbf{Heilbronn convex, $n{=}13$}} \\
+\midrule
+HypothesisBandit & 0.6624 & 0.7561 & 0.8798 & 0.7661 & 3.8 \\
+AgentMapElites & 0.7735 & 0.7928 & 0.8638 & 0.8100 & 3.9 \\
+SimpleTES & 0.9158 & 0.8676 & 0.8833 & 0.8889 & 3.6 \\
+\textbf{LabNotebook} & 0.8520 & \textbf{1.0000} & 0.8905 & \textbf{0.9142} & 3.6 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{lab_notebook_figs/overview_ae_batchC.png}
+\caption{Batch C. Kissing-11 and Heilbronn-triangle are ties within replicate spread (SimpleTES
+reaches 0.9815 on every kissing arm, LabNotebook on two); Heilbronn-convex goes to LabNotebook,
+whose s1 arm matches AlphaEvolve's value exactly.}
+\end{figure}
+
 \subsection{Cost}
 
 \begin{center}\small
@@ -336,9 +378,10 @@ called LabNotebook the cheapest method; that was read from partial arms and is w
 \item \textbf{AlphaEvolve suite.} Batch A: packing $n{=}32$ LabNotebook on the record 3/3, SimpleTES
   2/3; $C_2$ LabNotebook's on every replicate; $C_1$ a tie. Batch B: sums vs differences LabNotebook's
   (best single and mean); $C_3$ a tie (SimpleTES by 0.006 in the mean); Hadamard-29 SimpleTES's
-  (0.885 vs 0.817). Across the six tasks so far: LabNotebook ahead on three, SimpleTES on one, two
-  ties --- and both far ahead of the two agent-based methods. All are behind the 2026 systems by
-  margins their extra compute explains.
+  (0.885 vs 0.817). Batch C: kissing-11 and Heilbronn-triangle ties; Heilbronn-convex LabNotebook's
+  (0.914 vs 0.889, one arm at AlphaEvolve's value). Across nine tasks: LabNotebook ahead on four,
+  SimpleTES on one, four ties --- and both far ahead of the two agent-based methods. All are behind
+  the 2026 systems by margins their extra compute explains.
 \item \textbf{Limits of the evidence.} Three arms per cell; model sampling unseeded; the pro SimpleTES
   AHC039 arms are lower bounds after preemptions; and the ablation that would attribute the effect
   --- LabNotebook with random ideas and no notebook, same budget --- has not been run.
