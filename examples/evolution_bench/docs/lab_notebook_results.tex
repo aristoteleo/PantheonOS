@@ -82,10 +82,10 @@ steps --- each step is a cycle whose best trajectory beat the champion --- and k
 \label{sec:pro}
 
 \begin{table}[H]\centering\small
-\caption{deepseek-v4-pro-0813, same budgets. AHC039 ran on its own eval server, so its points are
-comparable within this table, not with Table~\ref{tab:flash}. The three SimpleTES AHC039 arms are
-still running ($^\circ$, lower bounds); s2 was restarted from scratch by a Modal re-run under the
-pre-resume launcher and lost its first 197 calls.}
+\caption{deepseek-v4-pro-0813, same budgets, all 36 arms finished. AHC039 ran on its own eval server,
+so its points are comparable within this table, not with Table~\ref{tab:flash}. The SimpleTES AHC039
+arms were preempted repeatedly and resumed; s2 was once restarted from scratch under the pre-resume
+launcher and lost 197 calls. Their token figures include the interrupted runs.}
 \label{tab:pro}
 \begin{tabular}{@{}lrrrrr@{}}
 \toprule
@@ -94,7 +94,7 @@ method & s0 & s1 & s2 & mean & tokens \\
 \midrule
 HypothesisBandit & 3707 & 3708 & 3706 & 3707 & 15.3 \\
 AgentMapElites & 3721 & 3724 & 3703 & 3716 & 17.6 \\
-SimpleTES & 3610$^\circ$ & 3712$^\circ$ & 3501$^\circ$ & 3608 & 18.1 \\
+SimpleTES & 3704 & 3712 & 3711 & 3709 & 35.0 \\
 \textbf{LabNotebook} & 3747 & 3759 & \textbf{3776} & \textbf{3761} & 20.4 \\
 \midrule
 \multicolumn{6}{@{}l}{\textbf{circle packing $n{=}26$}} \\
@@ -119,8 +119,8 @@ $10^{-12}$ tolerance; at zero tolerance it is 2.635983.
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{lab_notebook_figs/overview_pro.png}
-\caption{Pro campaign. On AHC039 every LabNotebook arm is above every finished arm of every
-other method (next best: MAP-Elites 3724); 3776 is the best score of both campaigns. Packing and Erd\H{o}s are ties within
+\caption{Pro campaign, all arms finished. On AHC039 every LabNotebook arm is above every arm of every
+other method (next best: MAP-Elites 3724; SimpleTES 3712); 3776 is the best score of both campaigns. Packing and Erd\H{o}s are ties within
 replicate spread --- both are problems where the answer is a known local optimum that any good
 inner optimizer reaches.}
 \end{figure}
@@ -346,17 +346,17 @@ whose s1 arm matches AlphaEvolve's value exactly.}
 \midrule
 HypothesisBandit & \$0.79{\scriptsize\,(3)} & \$0.17{\scriptsize\,(3)} & \$0.16{\scriptsize\,(3)} & \$10.17{\scriptsize\,(3)} & \$2.07{\scriptsize\,(3)} & \$2.35{\scriptsize\,(3)} \\
 AgentMapElites & \$0.82{\scriptsize\,(3)} & \$0.19{\scriptsize\,(3)} & \$0.19{\scriptsize\,(3)} & \$11.61{\scriptsize\,(3)} & \$2.55{\scriptsize\,(3)} & \$2.41{\scriptsize\,(3)} \\
-SimpleTES & \$1.80{\scriptsize\,(3)} & \$0.29{\scriptsize\,(3)} & \$0.32{\scriptsize\,(3)} & --- & \$5.42{\scriptsize\,(3)} & \$5.97{\scriptsize\,(3)} \\
+SimpleTES & \$1.80{\scriptsize\,(3)} & \$0.29{\scriptsize\,(3)} & \$0.32{\scriptsize\,(3)} & \$42.27{\scriptsize\,(3)} & \$5.42{\scriptsize\,(3)} & \$5.97{\scriptsize\,(3)} \\
 LabNotebook & \$1.26{\scriptsize\,(3)} & \$0.29{\scriptsize\,(3)} & \$0.31{\scriptsize\,(3)} & \$25.41{\scriptsize\,(3)} & \$5.20{\scriptsize\,(3)} & \$5.89{\scriptsize\,(3)} \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \noindent Token-priced at OpenRouter's rates (flash \$0.05/\$0.10 per M prompt/completion; pro
-\$0.66/\$1.98), finished arms only, so the pro SimpleTES AHC039 cell is empty. LabNotebook is
-not cheaper than the others: on the small tasks all four methods spend to the same token ceiling,
-and on AHC039 --- where nothing but the call cap binds --- LabNotebook and SimpleTES are the two
-methods that keep spending to the end. The five notebook calls per cycle are a small share of
+\$0.66/\$1.98), all arms finished. LabNotebook is not cheaper than the others: on the small tasks all four methods
+spend to the same token ceiling, and on AHC039 --- where nothing but the call cap binds ---
+LabNotebook and SimpleTES are the two methods that keep spending to the end (SimpleTES's pro AHC039
+figure also carries the tokens of its interrupted runs). The five notebook calls per cycle are a small share of
 that; the cost is the $K\,T\,k=16$ operator completions per cycle. An earlier note in this document
 called LabNotebook the cheapest method; that was read from partial arms and is withdrawn.
 
@@ -364,8 +364,8 @@ called LabNotebook the cheapest method; that was read from partial arms and is w
 
 \begin{itemize}
 \item \textbf{Where the idea loop pays: the open-ended task.} On AHC039 all six LabNotebook arms
-  beat every finished arm of every other method, with both models; the pro arms average 40 points
-  above the next method. This is the task whose search space is structured enough that scoring an
+  beat every arm of every other method, with both models; the pro arms average 45 points above the
+  next method. This is the task whose search space is structured enough that scoring an
   \emph{idea} by the best of a short local search, and keeping a notebook of what has been tried,
   changes what gets explored.
 \item \textbf{Where it is a tie: known optima.} Circle packing and Erd\H{o}s reduce to finding a
@@ -382,7 +382,6 @@ called LabNotebook the cheapest method; that was read from partial arms and is w
   (0.914 vs 0.889, one arm at AlphaEvolve's value). Across nine tasks: LabNotebook ahead on four,
   SimpleTES on one, four ties --- and both far ahead of the two agent-based methods. All are behind
   the 2026 systems by margins their extra compute explains.
-\item \textbf{Limits of the evidence.} Three arms per cell; model sampling unseeded; the pro SimpleTES
-  AHC039 arms are lower bounds after preemptions; and the ablation that would attribute the effect
+\item \textbf{Limits of the evidence.} Three arms per cell; model sampling unseeded; and the ablation that would attribute the effect
   --- LabNotebook with random ideas and no notebook, same budget --- has not been run.
 \end{itemize}
