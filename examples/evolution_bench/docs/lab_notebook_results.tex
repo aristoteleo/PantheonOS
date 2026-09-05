@@ -246,48 +246,51 @@ v1, with the 2026 systems a clear band above. $C_2$: above AlphaEvolve v1 and th
 below the 2026 band.}
 \end{figure}
 
-\paragraph{Batch B (in progress).} Third autocorrelation inequality ($C_3$, upper bound, lower is
+\paragraph{Batch B.} Third autocorrelation inequality ($C_3$, upper bound, lower is
 better; harness score $1.4556/C_3$), sums vs differences ($C(A)$, higher is better) and the
 Hadamard maximal determinant of order 29 (score $|\det|$ relative to a reference; no published
 value recorded). Published: $C_3$ --- AlphaEvolve 1.4556, TTT-Discover 1.454555, SimpleTES 1.453675
-(record); $C(A)$ --- SimpleTES 1.1449. Table~\ref{tab:aeb} is a snapshot with most LabNotebook and
-SimpleTES arms still running; the MAP-Elites $C_3$ value of 1.45363 would sit below the published
-record and is awaiting re-verification.
+(record); $C(A)$ --- SimpleTES 1.1449. All 36 arms finished. The MAP-Elites $C_3$ construction re-evaluates to exactly
+1.453675 --- SimpleTES's published value to six decimals --- so the model reproduced the known
+construction rather than finding a new one; it is reported but not claimed.
 
 \begin{table}[H]\centering\small
-\caption{Batch B snapshot (2026-09-04 06:30 PDT). $^\circ$ = still running (lower bound); a dash is
-an arm without data yet.}
+\caption{Batch B, all 36 arms finished: per-arm results in the papers' units.}
 \label{tab:aeb}
 \begin{tabular}{@{}lrrrrr@{}}
 \toprule
 \multicolumn{6}{@{}l}{\textbf{$C_3$, third autocorrelation inequality} --- upper bound, lower is better} \\
 method & s0 & s1 & s2 & mean & tokens \\
 \midrule
-HypothesisBandit & 1.47688 & 1.72827 & 1.46265 & 1.55594 & 3.7 \\
-AgentMapElites & 1.45363 & 3.15846 & 1.48264 & 2.03158 & 4.2 \\
-SimpleTES & 1.46605 & 1.46347$^\circ$ & 1.47281 & 1.46744 & 3.2 \\
-LabNotebook & 1.54943$^\circ$ & 1.48908$^\circ$ & 1.47280$^\circ$ & 1.50377 & 1.6 \\
+HypothesisBandit & 1.47693 & 1.72832 & 1.46270 & 1.55598 & 3.7 \\
+AgentMapElites & 1.45368$^\ddagger$ & 3.15855 & 1.48268 & 2.03164 & 4.2 \\
+\textbf{SimpleTES} & 1.46609 & \textbf{1.46352} & 1.47285 & \textbf{1.46749} & 3.5 \\
+LabNotebook & 1.46756 & 1.47967 & 1.47285 & 1.47336 & 3.6 \\
+\multicolumn{6}{@{}l}{\footnotesize published: AlphaEvolve 1.4556 $\cdot$ TTT-Discover 1.454555 $\cdot$ SimpleTES 1.453675 (record);
+  $^\ddagger$ reproduces the record value} \\
 \midrule
 \multicolumn{6}{@{}l}{\textbf{sums vs differences} --- $C(A)$, higher is better} \\
 \midrule
 HypothesisBandit & 1.0787 & 1.0668 & 1.0598 & 1.0684 & 3.5 \\
-AgentMapElites & 1.0598$^\circ$ & 1.0625 & --- & 1.0612 & 4.0 \\
-SimpleTES & 1.0668$^\circ$ & 1.0677 & 1.0621$^\circ$ & 1.0655 & 2.7 \\
-LabNotebook & 1.0668$^\circ$ & \textbf{1.0865} & 1.0598$^\circ$ & 1.0710 & 2.0 \\
+AgentMapElites & 1.0598 & 1.0625 & 1.0598 & 1.0607 & 4.1 \\
+SimpleTES & 1.0668 & 1.0677 & 1.0621 & 1.0655 & 3.6 \\
+\textbf{LabNotebook} & 1.0668 & \textbf{1.0865} & 1.0621 & \textbf{1.0718} & 3.6 \\
+\multicolumn{6}{@{}l}{\footnotesize published: SimpleTES 1.1449} \\
 \midrule
 \multicolumn{6}{@{}l}{\textbf{Hadamard, order 29} --- $|\det|$ / reference, higher is better} \\
 \midrule
-HypothesisBandit & 0.4791$^\circ$ & 0.4378 & 0.5558 & 0.4909 & 3.4 \\
+HypothesisBandit & 0.4791 & 0.4378 & 0.5558 & 0.4909 & 3.6 \\
 AgentMapElites & 0.1433 & 0.5037 & 0.1433 & 0.2634 & 4.0 \\
-SimpleTES & 0.8596$^\circ$ & 0.5695$^\circ$ & 0.8066$^\circ$ & 0.7452 & 1.3 \\
-LabNotebook & 0.5582$^\circ$ & 0.8596$^\circ$ & 0.4637$^\circ$ & 0.6272 & 1.7 \\
+\textbf{SimpleTES} & 0.8596 & 0.8596 & \textbf{0.9357} & \textbf{0.8850} & 3.4 \\
+LabNotebook & 0.7275 & 0.8596 & 0.8623 & 0.8165 & 3.5 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{lab_notebook_figs/overview_ae_batchB.png}
-\caption{Batch B snapshot. Hollow markers are arms still running.}
+\caption{Batch B, all arms finished. $C_3$ and Hadamard go to SimpleTES, sums vs differences to
+LabNotebook; on $C_3$ the two are within replicate spread.}
 \end{figure}
 
 \subsection{Cost}
@@ -330,9 +333,12 @@ called LabNotebook the cheapest method; that was read from partial arms and is w
 \item \textbf{Where SimpleTES is better: exploiting an incumbent.} Under a warm start SimpleTES
   improves on every seed and LabNotebook gets worse on two of three. The fix is cheap
   ($p_{\text{best}}\to1$ and a smaller $K$ when a warm start is present) but has not been run.
-\item \textbf{AlphaEvolve suite.} Packing $n{=}32$: LabNotebook on the record 3/3, SimpleTES 2/3.
-  $C_2$ is LabNotebook's on every replicate; $C_1$ is SimpleTES's by 0.0003 in the mean --- a tie.
-  Both are behind the 2026 systems by margins their extra compute explains.
+\item \textbf{AlphaEvolve suite.} Batch A: packing $n{=}32$ LabNotebook on the record 3/3, SimpleTES
+  2/3; $C_2$ LabNotebook's on every replicate; $C_1$ a tie. Batch B: sums vs differences LabNotebook's
+  (best single and mean); $C_3$ a tie (SimpleTES by 0.006 in the mean); Hadamard-29 SimpleTES's
+  (0.885 vs 0.817). Across the six tasks so far: LabNotebook ahead on three, SimpleTES on one, two
+  ties --- and both far ahead of the two agent-based methods. All are behind the 2026 systems by
+  margins their extra compute explains.
 \item \textbf{Limits of the evidence.} Three arms per cell; model sampling unseeded; the pro SimpleTES
   AHC039 arms are lower bounds after preemptions; and the ablation that would attribute the effect
   --- LabNotebook with random ideas and no notebook, same budget --- has not been run.

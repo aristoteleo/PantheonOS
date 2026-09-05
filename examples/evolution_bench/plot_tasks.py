@@ -60,7 +60,7 @@ PANELS = {
                          (0.9015, "best human 0.9015"),
                          (0.8962, "AlphaEvolve v1 0.8962")], "{:.4f}"),
     "autocorr_third": ("C3 upper bound (lower is better, axis inverted)",
-                       lambda b: 1.4556 / b if b else float("nan"), True,
+                       lambda b: 1.4556427953745406 / b if b else float("nan"), True,   # the evaluator's reference constant
                        [(1.453675, "record 1.45368 · SimpleTES"), (1.454555, "TTT-Discover 1.45456"),
                         (1.4556, "AlphaEvolve 1.4556")], "{:.5f}"),
     "sums_diffs": ("sums vs differences  C(A)", lambda b: b, False, [(1.1449, "SimpleTES 1.1449")], "{:.4f}"),
@@ -97,7 +97,9 @@ def load(pattern: str):
             m = infer_method(base)
         else:
             m = method_of(r)
-        done = bool(r.get("items_run", 0) > 0) and not r.get("partial")
+        # a summary.json is a finished arm even when items_run is 0 -- an arm resumed after a
+        # preemption may end at once on its restored budget; only partials are still running
+        done = not r.get("partial")
         # finished arms report the store-derived (first-read) best; live ones the history max
         best = r.get("best_combined_score") if done else None
         if best is None:

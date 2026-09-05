@@ -350,7 +350,9 @@ async def main(a) -> None:
                                                      timeline)
     json.dump({"task": a.task, "evolve": evolve_file, "method": method.name, "model": a.model, "seed": a.seed,
                "operator": operator, "search": search, "seed_sha": seed_sha,
-               "items_run": res.items_run, "failures": res.failures,
+               # rows restored on --resume count as run: a resumed arm that ends at once on its
+               # restored budget is finished, not empty
+               "items_run": res.items_run + len(prev_hist), "failures": res.failures,
                "best_combined_score": best_score, "seed_combined_score": seed_score,
                "best_child_combined_score": best_child_score,
                "seed_remeasures": max(0, len(seed_ms) - 1),
