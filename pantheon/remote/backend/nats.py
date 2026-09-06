@@ -731,8 +731,19 @@ class NATSRemoteWorker(RemoteWorker):
         self._running = True
 
         # KV registration and subject subscription are independent — run in parallel.
+        #
+        # A QUEUE subscription, so a request reaches exactly ONE instance of
+        # this service. A plain subscription is a broadcast: when two
+        # instances of the same service are alive — an old container still
+        # stopping while its replacement is up, a chatroom hosted in the
+        # sandbox beside one on the cluster — every request was handled
+        # twice, and the user got two windows from one click, two pages from
+        # one navigation. The queue is named after the subject, which is
+        # unique per service, so instances of one service share it and
+        # nothing else does.
         self._subscription, _ = await asyncio.gather(
-            self.nc.subscribe(self.service_subject, cb=self._handle_request),
+            self.nc.subscribe(self.service_subject, queue=self.service_subject,
+                              cb=self._handle_request),
             self._register_to_kv_store(),
         )
         logger.info(f"NATS worker: {self.service_subject} registered.")
