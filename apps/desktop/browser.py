@@ -365,6 +365,9 @@ class BrowserEngine:
         self._xdisplay = None  # X connection for key injection
         self._dialog_task = None  # keeps dialogs inside their own window
         self._named: set[str] = set()  # pages whose X window carries their id
+        #: Seamless: set by the toolset; called with a popup's PageSession so
+        #: the desktop opens a Browser window for it.
+        self.on_popup_page = None
 
     # ── the daemon loop ──────────────────────────────────────────────────
 
@@ -652,7 +655,12 @@ class BrowserEngine:
                 "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
             ),
             locale="en-US",
-            viewport={"width": VIEW_W, "height": VIEW_H},
+            # Seamless: the page follows its window, which the viewer sizes
+            # through the window manager. A fixed viewport pinned the page
+            # at 1280x800 while the window shrank around it, so the picture
+            # was a crop of a page that never changed size.
+            **({"no_viewport": True} if xpra_mode() == "seamless"
+               else {"viewport": {"width": VIEW_W, "height": VIEW_H}}),
             args=[
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
@@ -875,6 +883,16 @@ class BrowserEngine:
                     self.pages[child.id] = child
                     await self._attach(child)
                     await self.place_window(child)
+                    if xpra_mode() == "seamless":
+                        # Its own Chromium window, so its own Atrium window:
+                        # name it so a viewer can claim it, then ask the
+                        # desktop for a Browser window showing it.
+                        await self._name_window(child)
+                        if self.on_popup_page is not None:
+                            try:
+                                await self.on_popup_page(child)
+                            except Exception as e:
+                                logger.info("browser: popup window request failed: {}", e)
                 except Exception as e:
                     logger.warning("browser: popup adopt failed: {}", e)
 
@@ -1529,6 +1547,7 @@ class BrowserEngine:
             # adopts. Size the page, name its window after itself, done.
             await self._ensure_browser()
             session.width, session.height = width, height
+            await self.set_metrics(session, width, height, float(RASTER_SCALE))
             await self._name_window(session)
             import getpass
 
