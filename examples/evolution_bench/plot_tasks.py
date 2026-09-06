@@ -90,8 +90,8 @@ def load(pattern: str):
         h = [x for x in (r.get("history") or [])
              if x.get("score") is not None and x.get("fidelity", "full") == "full"
              and (x.get("valid", 1) or 0) > 0]
-        if not h:
-            continue
+        if not h and r.get("partial"):
+            continue           # a finished arm with no valid child still holds its seed
         m = r.get("method")
         if m is None:
             m = infer_method(base)

@@ -335,6 +335,51 @@ reaches 0.9815 on every kissing arm, LabNotebook on two); Heilbronn-convex goes 
 whose s1 arm matches AlphaEvolve's value exactly.}
 \end{figure}
 
+\paragraph{Batch D.} The last three CodeEvolve-instance tasks --- min/max distance ratio
+$n{=}16$, circles in a rectangle $n{=}21$, hexagons in a hexagon $n{=}11$ --- scored as the ratio to
+AlphaEvolve's value. All 36 arms finished (one LabNotebook arm hung after a preemption resume and
+was relaunched from its checkpoint). On hexagon-11 SimpleTES produced no program at all: the seed
+is long, and all 24 of its whole-program completions ended without a closing code fence, so its
+three arms report the seed value; MAP-Elites also never left the seed there and never found a
+valid rectangle packing.
+
+\begin{table}[H]\centering\small
+\caption{Batch D, all 36 arms finished: ratio to AlphaEvolve per arm (higher is better).}
+\label{tab:aed}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\multicolumn{6}{@{}l}{\textbf{min/max distance ratio, $n{=}16$}} \\
+method & s0 & s1 & s2 & mean & tokens \\
+\midrule
+HypothesisBandit & 0.9991 & 0.9958 & 0.8821 & 0.9590 & 3.6 \\
+AgentMapElites & 0.9957 & 0.9999 & 0.9915 & 0.9957 & 3.7 \\
+\textbf{SimpleTES} & 1.0000 & 1.0000 & 1.0000 & \textbf{1.0000} & 3.5 \\
+LabNotebook & 1.0000 & 0.9980 & 1.0000 & 0.9993 & 3.6 \\
+\midrule
+\multicolumn{6}{@{}l}{\textbf{circles in a rectangle, $n{=}21$}} \\
+\midrule
+HypothesisBandit & 0.9770 & 0.9949 & 1.0000 & 0.9906 & 3.7 \\
+AgentMapElites & 0.0000 & 0.0000 & 0.0000 & 0.0000 & 3.8 \\
+SimpleTES & 0.9979 & 0.9993 & 0.9869 & 0.9947 & 3.6 \\
+\textbf{LabNotebook} & 1.0000 & 0.9974 & 1.0000 & \textbf{0.9991} & 3.5 \\
+\midrule
+\multicolumn{6}{@{}l}{\textbf{hexagons in a hexagon, $n{=}11$}} \\
+\midrule
+\textbf{HypothesisBandit} & 0.9066 & \textbf{0.9825} & 0.9818 & \textbf{0.9570} & 3.9 \\
+AgentMapElites & 0.4913 & 0.4913 & 0.4913 & 0.4913 & 4.0 \\
+SimpleTES & 0.4913$^\S$ & 0.4913$^\S$ & 0.4913$^\S$ & 0.4913 & 3.7 \\
+LabNotebook & 0.9470 & 0.6271 & \textbf{0.9825} & 0.8522 & 3.6 \\
+\multicolumn{6}{@{}l}{\footnotesize $^\S$ seed value: every completion came back without a code block} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{lab_notebook_figs/overview_ae_batchD.png}
+\caption{Batch D. Min/max and rectangle packing are ties at AlphaEvolve's value; hexagon-11 is
+HypothesisBandit's, with LabNotebook second and SimpleTES unable to produce a program.}
+\end{figure}
+
 \subsection{Cost}
 
 \begin{center}\small
@@ -379,9 +424,13 @@ called LabNotebook the cheapest method; that was read from partial arms and is w
   2/3; $C_2$ LabNotebook's on every replicate; $C_1$ a tie. Batch B: sums vs differences LabNotebook's
   (best single and mean); $C_3$ a tie (SimpleTES by 0.006 in the mean); Hadamard-29 SimpleTES's
   (0.885 vs 0.817). Batch C: kissing-11 and Heilbronn-triangle ties; Heilbronn-convex LabNotebook's
-  (0.914 vs 0.889, one arm at AlphaEvolve's value). Across nine tasks: LabNotebook ahead on four,
-  SimpleTES on one, four ties --- and both far ahead of the two agent-based methods. All are behind
-  the 2026 systems by margins their extra compute explains.
+  (0.914 vs 0.889, one arm at AlphaEvolve's value). Batch D: min/max-16 and rectangle-packing-21
+  ties at AlphaEvolve's value; hexagon-11 HypothesisBandit's (0.957), LabNotebook second (0.852),
+  SimpleTES unable to produce a program --- its whole-program completion fails on a long seed, a
+  weakness LabNotebook shares only partially (it uses the same operator, but its ideas steer
+  shorter rewrites). Across all twelve tasks: LabNotebook ahead of SimpleTES on five, SimpleTES on
+  one, six ties --- and both far ahead of the two agent-based methods on all but hexagon-11. All
+  are behind the 2026 systems by margins their extra compute explains.
 \item \textbf{Limits of the evidence.} Three arms per cell; model sampling unseeded; and the ablation that would attribute the effect
   --- LabNotebook with random ideas and no notebook, same budget --- has not been run.
 \end{itemize}
