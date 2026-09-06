@@ -1263,7 +1263,19 @@ class DesktopToolSet(ToolSet):
     def _browser_engine(self):
         from .browser import BrowserEngine
 
-        return BrowserEngine.instance()
+        engine = BrowserEngine.instance()
+        if getattr(engine, "on_popup_page", None) is None:
+            # Seamless: a popup is its own Chromium window and gets its own
+            # Atrium window — the engine tells us, we ask the desktop.
+            engine.on_popup_page = self._show_popup_page
+        return engine
+
+    async def _show_popup_page(self, session) -> None:
+        """Give a popup's page a Browser window of its own."""
+        await self._desktop_request("desktop.open", {
+            "app": "browser", "path": "",
+            "state": {"page_id": session.id}, "window_id": "",
+        }, timeout=60.0)
 
     def _prewarm_browser(self) -> None:
         """Launch Chromium in the background, at most once."""
