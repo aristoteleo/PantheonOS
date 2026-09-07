@@ -322,6 +322,9 @@ RUN curl -fsSL https://xpra.org/xpra.asc -o /usr/share/keyrings/xpra.asc \
     xpra-server \
     xpra-x11 \
     xpra-codecs \
+    # The split codec package does not pull this in with --no-install-recommends.
+    # Without it, x264 fails to load and desktop streams silently lose H.264.
+    libx264-164 \
     xpra-html5 \
     xpra-client \
     xpra-client-gtk3 \
@@ -331,6 +334,7 @@ RUN curl -fsSL https://xpra.org/xpra.asc -o /usr/share/keyrings/xpra.asc \
     python3-gi \
     x11-xserver-utils \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+    && /usr/bin/python3 -c 'from xpra.codecs.x264 import encoder; encoder.selftest(full=False); assert any(s.encoding == "h264" for s in encoder.get_specs()); print("Xpra x264 codec ready")' \
     && printf "Content-Security-Policy: script-src 'self' 'unsafe-inline' ; font-src 'self' ; object-src 'none' ; child-src 'self' ; worker-src 'self' ; frame-ancestors * ; form-action 'self'\n" \
        > /etc/xpra/http-headers/10_content_security_policy.txt
 
