@@ -523,7 +523,9 @@ class BrowserEngine:
         self.pages.clear()
 
     async def _ensure_browser(self) -> None:
-        if self._context is not None:
+        if self._context is not None and (
+            self._xvfb_display is None or self._context.pages
+        ):
             return
         # One launch at a time. The prewarm at boot and a user's first page
         # open now race by design — the whole point is that one of them has
@@ -532,7 +534,16 @@ class BrowserEngine:
         # the ProcessSingleton lock exists to refuse.
         async with self._launch_lock:
             if self._context is not None:
-                return
+                if self._xvfb_display is None or self._context.pages:
+                    return
+                # Headful Chromium can remain connected after its last native
+                # window closes, but then refuse Target.createTarget. There is
+                # no context-close event to invalidate it. Recycle only this
+                # empty context; never close a context with a surviving page.
+                context = self._context
+                await context.close()
+                if self._context is context:
+                    self._context_died()
             await self._launch_browser()
 
     async def _launch_browser(self) -> None:
@@ -912,7 +923,7 @@ class BrowserEngine:
         from the display needs a window of its own. Tabs remain correct
         for the screencast path, hence the graceful None.
         """
-        if self._xvfb_display is None or self._context is None:
+        if self._xvfb_display is None:
             return None
         # SERIALIZED. Two opens racing here each snapshot the page list,
         # each see the other's new page, and one of them claims it — the
@@ -920,6 +931,12 @@ class BrowserEngine:
         # where Chromium put it, unmanaged and on top of a tile. That is
         # how a page ended up streaming someone else's blank window.
         async with self._open_lock:
+            # The last native tab can close after open_page's initial ensure,
+            # or while this request waits behind another open. Recheck while
+            # holding the same lock that protects native window creation.
+            await self._ensure_browser()
+            if self._xvfb_display is None or self._context is None:
+                return None
             page = await self._create_window_page(url)
             if page is None and xpra_mode() == "seamless":
                 raise RuntimeError("could not create a separate browser window")
