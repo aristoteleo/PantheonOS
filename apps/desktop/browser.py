@@ -1247,6 +1247,10 @@ class BrowserEngine:
                  # Nothing here has a speaker, a printer, or a bus.
                  "--notifications=no", "--pulseaudio=no", "--mdns=no",
                  "--webcam=no", "--printing=no", "--dbus-launch=",
+                 # dbus-launch only disables the session bus. Without these,
+                 # root Xpra still waits for/starts an unused system bus,
+                 # adding a five-second missing-socket probe on first start.
+                 "--dbus=no", "--dbus-control=no",
                  # The session outlives any one child: Chromium is started
                  # (and restarted) by us, not by xpra.
                  "--exit-with-children=no", "--start-new-commands=no"],

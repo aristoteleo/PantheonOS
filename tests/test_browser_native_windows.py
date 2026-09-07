@@ -4,11 +4,32 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
 from pantheon.apps.builtin.desktop.browser import BrowserEngine, INTERNAL_KEEPER_CLASS
+
+
+def test_seamless_start_disables_both_dbus_paths_and_keeps_ws_auth(monkeypatch):
+    import shutil
+    import subprocess
+    import urllib.request
+
+    engine = BrowserEngine()
+    engine._xpra_password = "test-password"
+    start = Mock(return_value=object())
+    monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/xpra")
+    monkeypatch.setattr(subprocess, "Popen", start)
+    monkeypatch.setattr(subprocess, "run", Mock(return_value=SimpleNamespace(returncode=0)))
+    monkeypatch.setattr(urllib.request, "urlopen", Mock(return_value=MagicMock()))
+
+    assert engine._start_seamless(":97")
+    args = start.call_args.args[0]
+    assert "--dbus-launch=" in args
+    assert "--dbus=no" in args
+    assert "--dbus-control=no" in args
+    assert "--ws-auth=password:value=test-password" in args
 
 
 @pytest.mark.asyncio
