@@ -243,6 +243,8 @@ def xpra_mode() -> str:
 #: window is which page (xpra forwards WM_CLASS as `class-instance`, and its
 #: metadata carries no X window id).
 PAGE_CLASS_PREFIX = "pantheon-page-"
+#: This blank page only keeps headful Chromium alive. It is not a desktop app.
+INTERNAL_KEEPER_CLASS = "pantheon-internal-keeper"
 
 # Where a page with no URL of its own starts, and what the omnibox searches.
 # A sandbox browser opening on about:blank is a white void with nothing to do
@@ -282,6 +284,7 @@ class PageSession:
         # behaves), not parked off the framebuffer with everything else.
         self.opener: str | None = None
         self.loading = False
+        self.navigation_task: asyncio.Task | None = None
         self.can_back = False
         self.can_forward = False
         self.favicon = ""
@@ -525,15 +528,13 @@ class BrowserEngine:
         self.pages.clear()
 
     async def _ensure_browser(self) -> None:
-        if self._context is not None and (
-            self._xvfb_display is None or self._context.pages
-        ):
-            return
         # One launch at a time. The prewarm at boot and a user's first page
         # open now race by design — the whole point is that one of them has
         # already paid for the launch — and without this both would start a
         # Chromium against the same profile, which is exactly the situation
         # the ProcessSingleton lock exists to refuse.
+        # Even an existing context must pass the lock: launch publishes it
+        # before init scripts and the keeper's window identity are ready.
         async with self._launch_lock:
             if self._context is not None:
                 if self._xvfb_display is None or self._context.pages:
@@ -632,8 +633,10 @@ class BrowserEngine:
     async def _launch_browser_once(self) -> None:
         from playwright.async_api import async_playwright
 
+        t_launch = time.monotonic()
         await asyncio.to_thread(self._write_policies)
         display = await self._ensure_xvfb()
+        t_display = time.monotonic()
         if self._pw is None:
             self._pw = await async_playwright().start()
         profile = Path.home() / ".pantheon" / "browser-profile"
@@ -647,6 +650,7 @@ class BrowserEngine:
         await asyncio.to_thread(self._evict_volume_caches, profile)
         cache_dir = Path("/tmp/pantheon-browser-cache")
         cache_dir.mkdir(parents=True, exist_ok=True)
+        t_profile = time.monotonic()
         self._context = await self._pw.chromium.launch_persistent_context(
             user_data_dir=str(profile),
             # Headful under Xvfb when the image carries one (the capture
@@ -705,6 +709,7 @@ class BrowserEngine:
                 f"--media-cache-dir={cache_dir / 'media'}",
             ],
         )
+        t_context = time.monotonic()
         ctx = self._context
         ctx.on("close",
                lambda: self._context_died() if self._context is ctx else None)
@@ -735,6 +740,12 @@ class BrowserEngine:
             await self._park_keeper()
         logger.info("browser: chromium up (profile {}, display {})",
                     profile, display or "headless")
+        logger.info("browser: startup phases display {:.0f} ms, profile {:.0f} ms, "
+                    "chromium {:.0f} ms, setup {:.0f} ms",
+                    (t_display - t_launch) * 1000,
+                    (t_profile - t_display) * 1000,
+                    (t_context - t_profile) * 1000,
+                    (time.monotonic() - t_context) * 1000)
 
     async def reshape(self, session: PageSession,
                       w: int, h: int, s: float) -> None:
@@ -808,21 +819,23 @@ class BrowserEngine:
             logger.debug("browser: clearing metrics override failed: {}", e)
 
     async def _park_keeper(self) -> None:
-        """Get the blank window that keeps Chromium alive off the display.
+        """Identify the internal blank page, and park it for shadow capture.
 
-        Chromium opens it at its own default position — +20+20, full
-        default size — which is exactly where tile 0 lives. An X11 grab
-        takes whatever is topmost in the rectangle it was given, so a page
-        tiled at the origin streamed the keeper's empty white window
-        instead of itself: 30 fps of a picture that never changed, tab
-        switches that appeared to do nothing, scrolling that appeared to do
-        nothing. Nothing in the pipeline was wrong; it was pointed at the
-        wrong window. Park it in the same off-screen row as any other
-        window that has no tile, and the overlap cannot happen at all.
+        Seamless viewers exclude its explicit WM_CLASS. Moving it offscreen
+        with CDP there can wait forever for the window manager (see
+        place_window), so only shadow mode needs physical parking. A restored
+        real page is never treated as an internal keeper.
         """
+        cdp = None
         try:
-            keeper = next(iter(self._context.pages), None)  # type: ignore[union-attr]
+            keeper = next((p for p in self._context.pages  # type: ignore[union-attr]
+                           if p.url == "about:blank"), None)
             if keeper is None:
+                return
+            if xpra_mode() == "seamless":
+                await self._name_native_window(
+                    keeper, "pantheon-window-keeper", INTERNAL_KEEPER_CLASS,
+                )
                 return
             # This session targets only the keeper. Never cache it as the
             # browser-wide command channel: closing that page invalidates it.
@@ -839,6 +852,12 @@ class BrowserEngine:
             # Worth saying out loud: if this fails, streams may show the
             # wrong window, and that is a confusing symptom to chase.
             logger.warning("browser: could not park the keeper window: {}", e)
+        finally:
+            if cdp is not None:
+                try:
+                    await cdp.detach()
+                except Exception:
+                    pass
 
     async def _attach(self, session: PageSession) -> None:
         """Wire navigation events for a page."""
@@ -995,12 +1014,15 @@ class BrowserEngine:
             logger.info("browser: windowed open failed ({})", e)
         return None
 
-    async def open_page(self, url: str = "") -> PageSession:
+    async def open_page(self, url: str = "", *,
+                        wait_for_load: bool = True) -> PageSession:
         t_open = time.monotonic()
         # A page with nowhere to go opens at home, not on a white void.
         url = url or HOME_URL
         await self._ensure_browser()
-        page = await self._open_windowed(url)
+        # Establish native identity on a blank page before navigation can
+        # change its title. The destination is loaded exactly once below.
+        page = await self._open_windowed("about:blank")
         windowed = page is not None
         if page is None:
             page = await self._context.new_page()  # type: ignore[union-attr]
@@ -1008,6 +1030,8 @@ class BrowserEngine:
         session.windowed = windowed
         self.pages[session.id] = session
         await self._attach(session)
+        if windowed and xpra_mode() == "seamless":
+            await self._name_window(session)
         # Window placement and the page load are independent, and the user
         # is waiting on this call: run them together rather than in series.
         async def _shape() -> None:
@@ -1015,16 +1039,25 @@ class BrowserEngine:
                                session.dsf)
 
         placing = asyncio.ensure_future(_shape()) if windowed else None
-        if url:
+        async def _navigate_initial() -> None:
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
             except Exception as e:
                 logger.warning("browser: initial goto {} failed: {}", url, e)
+            finally:
+                session.loading = False
+
+        session.loading = True
+        session.navigation_task = asyncio.create_task(_navigate_initial())
         if placing is not None:
             try:
                 await placing
             except Exception as e:
                 logger.info("browser: window placement failed: {}", e)
+        # UI mounts the native stream immediately so Chromium can display its
+        # own loading progress. Agent opens retain the DOM-ready contract.
+        if wait_for_load:
+            await session.navigation_task
         logger.info("browser: page {} open in {:.0f} ms ({})",
                     session.id, (time.monotonic() - t_open) * 1000,
                     "window" if windowed else "tab")
@@ -1256,31 +1289,41 @@ class BrowserEngine:
         if session.id in self._named:
             return True
         token = f"pantheon-window-{session.id}"
+        ok = await self._name_native_window(
+            session.page, token, f"{PAGE_CLASS_PREFIX}{session.id}",
+        )
+        if ok:
+            self._named.add(session.id)
+        return ok
+
+    async def _name_native_window(self, page: Any, token: str,
+                                  window_class: str) -> bool:
+        """Give one native window its identity before its URL starts loading."""
         try:
-            await session.page.evaluate(
+            await page.evaluate(
                 "(t) => { window.__pantheon_title = document.title;"
                 " document.title = t; }", token)
         except Exception as e:
-            logger.info("browser: could not name {}: {}", session.id, e)
+            logger.info("browser: could not name {}: {}", window_class, e)
             return False
         ok = False
         deadline = time.monotonic() + 4.0
         try:
             while time.monotonic() < deadline:
-                await asyncio.sleep(0.15)
-                ok = await asyncio.to_thread(self._stamp_class, token, session.id)
+                ok = await asyncio.to_thread(
+                    self._stamp_class, token, window_class=window_class,
+                )
                 if ok:
                     break
+                await asyncio.sleep(0.15)
         finally:
             try:
-                await session.page.evaluate(
+                await page.evaluate(
                     "() => { if (window.__pantheon_title !== undefined)"
                     " document.title = window.__pantheon_title; }")
             except Exception:
                 pass
-        if ok:
-            self._named.add(session.id)
-        else:
+        if not ok:
             logger.info("browser: no X window answered to {}", token)
         return ok
 
@@ -1307,7 +1350,8 @@ class BrowserEngine:
         except Exception:
             return ""
 
-    def _stamp_class(self, token: str, page_id: str) -> bool:
+    def _stamp_class(self, token: str, page_id: str = "", *,
+                     window_class: str = "") -> bool:
         """Set WM_CLASS on the window whose name holds `token`.
 
         Bounded on purpose: this runs while a viewer waits for its stage,
@@ -1335,11 +1379,10 @@ class BrowserEngine:
             target = walk(d.screen().root)
             if target is None:
                 return False
-            target.set_wm_class(f"{PAGE_CLASS_PREFIX}{page_id}",
-                                "Chromium-browser")
+            instance = window_class or f"{PAGE_CLASS_PREFIX}{page_id}"
+            target.set_wm_class(instance, "Chromium-browser")
             d.sync()
-            logger.info("browser: named {}'s window {}", page_id,
-                        PAGE_CLASS_PREFIX + page_id)
+            logger.info("browser: named native window {}", instance)
             return True
         except Exception as e:
             logger.info("browser: naming failed: {}", e)

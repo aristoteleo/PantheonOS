@@ -207,6 +207,44 @@ def test_agent_windows_outlive_a_reader_but_not_a_restart(tmp_path):
     assert [w["app_id"] for w in after_restart.windows.values()] == ["files"]
 
 
+def test_native_dialog_is_shared_only_for_its_container_lifetime(tmp_path):
+    """A native wid can be shared now, but cannot identify a restarted display.
+
+    Keep Browser and Files layouts across the restart; the native-window
+    watcher will recreate shells for dialogs that actually exist afterward.
+    """
+    store = DesktopSessionStore(work_dir=tmp_path)
+    files = store.apply("open", {"app_id": "files"})[1]["window_id"]
+    browser = store.apply("open", {
+        "app_id": "browser", "args": {"url": "https://example.com"},
+    })[1]["window_id"]
+    dialog = store.apply("open", {
+        "app_id": "xwindow", "title": "Print", "args": {"wid": 4194308},
+    })[1]["window_id"]
+
+    # Reads and writes in another process must retain the live shared dialog:
+    # the on-disk record is the document, not a restore-only backup.
+    peer = DesktopSessionStore(work_dir=tmp_path)
+    assert set(peer.current()["windows"]) == {files, browser, dialog}
+    peer.apply("move", {"window_id": dialog, "x": 400, "y": 200})
+    assert store.current()["windows"][dialog]["x"] == 400
+    assert store.current()["windows"][dialog]["args"] == {"wid": 4194308}
+
+    record_path = tmp_path / ".pantheon" / "desktop.json"
+    record = json.loads(record_path.read_text())
+    record["boot"] = "previous-container"
+    record_path.write_text(json.dumps(record))
+    restarted = DesktopSessionStore(work_dir=tmp_path)
+    restored = restarted.current()["windows"]
+    assert set(restored) == {files, browser}
+    assert restored[browser]["args"] == {"url": "https://example.com"}
+    # The next ordinary mutation writes the cleaned record back to disk.
+    restarted.apply("move", {"window_id": files, "x": 100, "y": 150})
+    assert {w["id"] for w in json.loads(record_path.read_text())["windows"]} == {
+        files, browser,
+    }
+
+
 def test_a_v1_browser_record_is_adopted_not_dropped(tmp_path):
     """Upgrading must not throw away the layout the user already had."""
     record = tmp_path / ".pantheon" / "desktop.json"
@@ -215,10 +253,11 @@ def test_a_v1_browser_record_is_adopted_not_dropped(tmp_path):
         {"appId": "files", "title": "Files", "x": 10, "y": 20,
          "width": 700, "height": 500, "space": 2},
         {"appId": "agent-view", "title": "ephemeral"},
+        {"appId": "xwindow", "title": "old dialog", "args": {"wid": 4194308}},
     ]}))
     s = DesktopSessionStore(work_dir=tmp_path)
     s.load()
-    assert len(s.session.windows) == 1        # agent-view is not restored
+    assert len(s.session.windows) == 1        # lifetime-bound windows are not restored
     only = next(iter(s.session.windows.values()))
     assert (only["x"], only["y"], only["space"]) == (10, 20, 2)
     assert s.session.spaces == 2

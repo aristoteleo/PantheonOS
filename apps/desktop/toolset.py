@@ -1609,7 +1609,9 @@ class DesktopToolSet(ToolSet):
             else:
                 from .browser import normalize_url
 
-                session = await engine.call(engine.open_page(normalize_url(url)))
+                session = await engine.call(engine.open_page(
+                    normalize_url(url), wait_for_load=False,
+                ))
             self._prewarm_browser()
             import shutil as _shutil
 

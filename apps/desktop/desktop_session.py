@@ -50,10 +50,10 @@ DESKTOP_STREAM = "desktop"
 
 RECORD = ".pantheon/desktop.json"
 
-# Windows the agent opens for its own purposes are not part of the desktop a
-# person comes back to: their module URLs are minted against a tunnel that
-# outlives nothing, and their sessions belong to the conversation.
-EPHEMERAL_APPS = {"agent-view"}
+# These windows belong to the current container: agent-view URLs point at its
+# tunnels, and xwindow args identify windows on its native display. Both may
+# be shared while live, but neither identity can be restored after a restart.
+EPHEMERAL_APPS = {"agent-view", "xwindow"}
 
 MAX_SPACES = 6
 
@@ -163,9 +163,9 @@ class DesktopSession:
             s._next_id = max(1, int(data.get("next_id") or 1))
             s.seq = max(0, int(data.get("seq") or 0))
             s.top_z = max(s.top_z, int(data.get("top_z") or 0))
-            # Written by a container that is gone: its agent views point at a
-            # tunnel that died with it, so they are not part of the desktop the
-            # user comes back to.
+            # Written by a container that is gone: its tunnels and native
+            # display window IDs died with it. Durable application layouts
+            # still belong to the desktop the user comes back to.
             same_life = data.get("boot") == boot_token()
             for w in data.get("windows") or []:
                 wid = str(w.get("id") or "")

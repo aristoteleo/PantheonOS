@@ -6,6 +6,8 @@ empty New Tab and an unknown id fail with directions, not a dead end.
 """
 
 import pytest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 from pantheon.apps.builtin.desktop.desktop_session import DesktopSessionStore
 from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
@@ -61,6 +63,32 @@ def test_new_tab_window_explains_the_way_forward(toolset, store):
     win = browser_window(store, [None], 0)
     with pytest.raises(KeyError, match="browser_open"):
         toolset._resolve_page(engine, win)
+
+
+@pytest.mark.asyncio
+async def test_ui_open_requests_stream_before_initial_navigation(monkeypatch, toolset):
+    session = SimpleNamespace(id="new-page", width=1280, height=800)
+
+    async def call(coro):
+        return await coro
+
+    engine = SimpleNamespace(
+        open_page=AsyncMock(return_value=session),
+        call=call,
+        _xvfb_display=":97",
+    )
+    monkeypatch.setattr(toolset, "_browser_engine", lambda: engine)
+    monkeypatch.setattr(toolset, "_browser_page_info", AsyncMock(return_value={
+        "page_id": session.id, "url": "about:blank", "title": "",
+    }))
+    monkeypatch.setattr(toolset, "_prewarm_browser", Mock())
+
+    result = await toolset.browser_ui_page(url="https://example.com/slow")
+
+    assert result["success"]
+    engine.open_page.assert_awaited_once_with(
+        "https://example.com/slow", wait_for_load=False,
+    )
 
 
 def test_unknown_id_lists_open_pages(toolset, store):

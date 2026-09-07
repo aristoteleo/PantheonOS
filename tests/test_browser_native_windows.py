@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from pantheon.apps.builtin.desktop.browser import BrowserEngine
+from pantheon.apps.builtin.desktop.browser import BrowserEngine, INTERNAL_KEEPER_CLASS
 
 
 @pytest.mark.asyncio
@@ -103,6 +103,110 @@ async def test_empty_headless_context_remains_usable_without_relaunch():
     await engine._ensure_browser()
     context.close.assert_not_called()
     engine._launch_browser.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_ensure_waits_for_context_initialization():
+    engine = BrowserEngine()
+    engine._xvfb_display = ":97"
+    context_created = asyncio.Event()
+    finish_initializing = asyncio.Event()
+
+    async def launch():
+        engine._context = SimpleNamespace(pages=[object()])
+        context_created.set()
+        await finish_initializing.wait()
+
+    engine._launch_browser = AsyncMock(side_effect=launch)
+    first = asyncio.create_task(engine._ensure_browser())
+    await context_created.wait()
+    second = asyncio.create_task(engine._ensure_browser())
+    await asyncio.sleep(0)
+    assert not second.done(), "a partially initialized context escaped the launch lock"
+    finish_initializing.set()
+    await asyncio.gather(first, second)
+    engine._launch_browser.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_seamless_keeper_is_named_without_cdp_window_bounds(monkeypatch):
+    monkeypatch.setenv("BROWSER_XPRA_MODE", "seamless")
+    restored = SimpleNamespace(url="https://example.com/restored", close=AsyncMock())
+    keeper = SimpleNamespace(url="about:blank", close=AsyncMock())
+    engine = BrowserEngine()
+    engine._context = SimpleNamespace(
+        pages=[restored, keeper], new_cdp_session=AsyncMock(),
+    )
+    engine._name_native_window = AsyncMock(return_value=True)
+
+    await engine._park_keeper()
+
+    engine._name_native_window.assert_awaited_once_with(
+        keeper, "pantheon-window-keeper", INTERNAL_KEEPER_CLASS,
+    )
+    engine._context.new_cdp_session.assert_not_called()
+    restored.close.assert_not_called()
+    keeper.close.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_real_startup_page_is_not_misclassified_as_keeper(monkeypatch):
+    monkeypatch.setenv("BROWSER_XPRA_MODE", "seamless")
+    restored = SimpleNamespace(url="https://example.com/restored", close=AsyncMock())
+    engine = BrowserEngine()
+    engine._context = SimpleNamespace(pages=[restored], new_cdp_session=AsyncMock())
+    engine._name_native_window = AsyncMock()
+
+    await engine._park_keeper()
+
+    engine._name_native_window.assert_not_called()
+    engine._context.new_cdp_session.assert_not_called()
+    restored.close.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wait_for_load", [False, True])
+async def test_initial_navigation_runs_once_after_window_identity(monkeypatch, wait_for_load):
+    monkeypatch.setenv("BROWSER_XPRA_MODE", "seamless")
+    engine = BrowserEngine()
+    navigation_started = asyncio.Event()
+    finish_navigation = asyncio.Event()
+    order = []
+
+    async def goto(url, **kwargs):
+        order.append("navigate")
+        navigation_started.set()
+        assert url == "https://example.com/slow"
+        assert kwargs == {"wait_until": "domcontentloaded", "timeout": 30_000}
+        await finish_navigation.wait()
+
+    async def name(_session):
+        order.append("name")
+        return True
+
+    page = SimpleNamespace(goto=AsyncMock(side_effect=goto))
+    engine._ensure_browser = AsyncMock()
+    engine._open_windowed = AsyncMock(return_value=page)
+    engine._attach = AsyncMock()
+    engine._name_window = AsyncMock(side_effect=name)
+    engine.reshape = AsyncMock()
+
+    opening = asyncio.create_task(engine.open_page(
+        "https://example.com/slow", wait_for_load=wait_for_load,
+    ))
+    await asyncio.wait_for(navigation_started.wait(), timeout=1)
+    assert order == ["name", "navigate"]
+    engine._open_windowed.assert_awaited_once_with("about:blank")
+    if wait_for_load:
+        assert not opening.done(), "agent open must still wait for navigation"
+    else:
+        session = await asyncio.wait_for(asyncio.shield(opening), timeout=1)
+        assert session.loading
+        assert session.id in engine.pages
+    finish_navigation.set()
+    session = await opening
+    await session.navigation_task
+    page.goto.assert_awaited_once()
 
 
 def test_concurrent_native_window_stamping_never_shares_an_xlib_socket(monkeypatch):
