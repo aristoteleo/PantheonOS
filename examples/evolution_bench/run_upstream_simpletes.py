@@ -90,28 +90,36 @@ def evaluate(filepath):
 
 
 USAGE_HOOK = '''\
-"""Book every litellm response's token usage to SIMPLETES_USAGE_LOG (rejected generations
-included -- the checkpoint keeps usage only for evaluated nodes). Imported from the engine's
-sitecustomize.py, so the spawned worker processes register it too."""
-import json, os, time
+"""Book every litellm completion's token usage to SIMPLETES_USAGE_LOG (rejected generations
+included -- the checkpoint keeps usage only for evaluated nodes). Installed through a .pth
+file so every process of this interpreter -- the engine's spawned LLM workers included --
+wraps `litellm.completion` before the engine binds it. Synchronous on purpose: litellm's own
+success callbacks run on a thread that a short-lived worker may not wait for."""
+import functools, json, os, time
 
 LOG = os.environ.get("SIMPLETES_USAGE_LOG")
 if LOG:
     try:
         import litellm
+        _orig = litellm.completion
 
-        def _book(kwargs, response, start, end):
+        @functools.wraps(_orig)
+        def completion(*args, **kwargs):
+            t0 = time.time()
+            resp = _orig(*args, **kwargs)
             try:
-                u = getattr(response, "usage", None)
-                rec = {"t": time.time(), "pid": os.getpid(),
+                u = getattr(resp, "usage", None)
+                rec = {"t": time.time(), "pid": os.getpid(), "seconds": round(time.time() - t0, 1),
                        "prompt_tokens": int(getattr(u, "prompt_tokens", 0) or 0),
-                       "completion_tokens": int(getattr(u, "completion_tokens", 0) or 0)}
+                       "completion_tokens": int(getattr(u, "completion_tokens", 0) or 0),
+                       "n": kwargs.get("n")}
                 with open(LOG, "a") as fh:
                     fh.write(json.dumps(rec) + "\\n")
             except Exception:
                 pass
+            return resp
 
-        litellm.success_callback = list(getattr(litellm, "success_callback", []) or []) + [_book]
+        litellm.completion = completion
     except Exception:
         pass
 '''
@@ -227,7 +235,9 @@ def main() -> None:
     meta = json.loads(metas[-1].read_text()) if metas else {}
     # prompts issued = attempts minus the ones cancelled at shutdown; rejected generations
     # (empty output, missing markers) still cost a prompt and are counted
-    usage["calls"] = int(meta.get("generation_attempts", 0) or 0) - int(meta.get("generation_cancellations", 0) or 0)
+    # the engine counts attempts per CANDIDATE (k per prompt): prompts = attempts / k when the
+    # request log is missing; the request log (below) is authoritative when present
+    usage["calls"] = (int(meta.get("generation_attempts", 0) or 0) - int(meta.get("generation_cancellations", 0) or 0)) // max(1, a.k_candidates)
     if nodesf and nodesf[-1].suffix == ".json":
         nodes = json.loads(nodesf[-1].read_text())
         for n in nodes:                       # per-node token usage, saved by --save-llm-io
