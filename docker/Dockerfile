@@ -485,6 +485,11 @@ RUN for f in /opt/pantheon/analysis-envs/*.yml; do \
     && find /opt/pantheon/envs -name '*.pyc' -delete \
     && rm -rf /opt/pantheon/envs/*/share/doc /opt/pantheon/envs/*/share/man
 
+# Native QuPath + bundled JVM. Keep the distribution separate from source
+# layers: opening the app must never download/install software at runtime.
+COPY docker/install-qupath.sh /opt/pantheon/install-qupath.sh
+RUN sh /opt/pantheon/install-qupath.sh
+
 COPY --from=builder /app /app
 
 # One 32-byte fingerprint of the packaged factory templates, computed at build

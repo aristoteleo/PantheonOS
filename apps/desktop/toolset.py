@@ -1594,6 +1594,39 @@ class DesktopToolSet(ToolSet):
     # ── UI plumbing (excluded from the agent) ─────────────────────────────
 
     @tool(exclude=True)
+    async def native_ui_launch(self, app_id: str = "qupath", native_session_id: str = "",
+                               path: str = "", width: int = 1200,
+                               height: int = 800) -> dict:
+        """UI: launch or reattach an owned native app on the shared display."""
+        try:
+            engine = self._browser_engine()
+            result = await engine.call(engine.native_apps().launch(
+                app_id, native_session_id, path, width, height))
+            return {"success": True, **result}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool(exclude=True)
+    async def native_ui_status(self, native_session_id: str) -> dict:
+        """UI: check a native app without starting or replacing its process."""
+        try:
+            engine = self._browser_engine()
+            return {"success": True,
+                    **await engine.call(engine.native_apps().status(native_session_id))}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool(exclude=True)
+    async def native_ui_close(self, native_session_id: str) -> dict:
+        """UI: request the app's normal close, allowing Save/Cancel dialogs."""
+        try:
+            engine = self._browser_engine()
+            return {"success": True,
+                    **await engine.call(engine.native_apps().close(native_session_id))}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool(exclude=True)
     async def browser_ui_page(self, url: str = "", page_id: str = "") -> dict:
         """UI → backend: create (or attach to) a page, and read its state.
 

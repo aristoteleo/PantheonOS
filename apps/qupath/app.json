@@ -1,0 +1,11 @@
+{
+  "id": "qupath",
+  "name": "QuPath",
+  "version": "0.6.4",
+  "apiVersion": 2,
+  "description": "Native QuPath for digital pathology and whole-slide image analysis.",
+  "surface": "dom",
+  "entry": {"frontend": "ui:qupath"},
+  "placement": {"requires": ["dom"]},
+  "notes": "Native QuPath runs on the shared Xpra display; the desktop frontend lives in pantheon-ui."
+}

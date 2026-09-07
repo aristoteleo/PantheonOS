@@ -661,6 +661,69 @@
         ]
       },
       {
+        "name": "native_ui_close",
+        "description": "UI: request the app's normal close, allowing Save/Cancel dialogs.",
+        "params": [
+          {
+            "name": "native_session_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "native_ui_launch",
+        "description": "UI: launch or reattach an owned native app on the shared display.",
+        "params": [
+          {
+            "name": "app_id",
+            "type": "str",
+            "required": false,
+            "default": "qupath"
+          },
+          {
+            "name": "native_session_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "path",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "width",
+            "type": "int",
+            "required": false,
+            "default": 1200
+          },
+          {
+            "name": "height",
+            "type": "int",
+            "required": false,
+            "default": 800
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "native_ui_status",
+        "description": "UI: check a native app without starting or replacing its process.",
+        "params": [
+          {
+            "name": "native_session_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          }
+        ],
+        "hidden": true
+      },
+      {
         "name": "report_desktop_result",
         "description": "UI-only: the desktop answers a desktop.* request.",
         "params": [

@@ -349,6 +349,9 @@ class BrowserEngine:
         # ones either come quickly or are not coming at all.
         self._cold_start = True
         self._launch_lock = asyncio.Lock()
+        # Native applications share this display without launching Chromium.
+        self._display_lock = asyncio.Lock()
+        self._native_apps = None
         self.pages: dict[str, PageSession] = {}
         self._xpra_proc = None
         self._xpra_password: str | None = None
@@ -451,6 +454,31 @@ class BrowserEngine:
                 logger.warning("browser: could not evict {}: {}", rel, e)
 
     async def _ensure_xvfb(self) -> str | None:
+        async with self._display_lock:
+            return await self._ensure_xvfb_once()
+
+    async def ensure_native_stage(self) -> dict:
+        """Connection material for native apps on the shared seamless display."""
+        if xpra_mode() != "seamless":
+            raise RuntimeError("Native apps require the seamless Xpra transport")
+        display = await self._ensure_xvfb()
+        if not display or not self._xpra_alive() or not self._xpra_password:
+            raise RuntimeError("Native display is unavailable")
+        import getpass
+
+        return {"mode": "seamless", "username": getpass.getuser(),
+                "password": self._xpra_password}
+
+    def native_apps(self):
+        """Native process ownership belongs to the display's daemon loop."""
+        with self._start_lock:
+            if self._native_apps is None:
+                from .native_apps import NativeAppManager
+
+                self._native_apps = NativeAppManager(self)
+            return self._native_apps
+
+    async def _ensure_xvfb_once(self) -> str | None:
         """Start a virtual X display and return DISPLAY, or None to stay
         headless.
 
