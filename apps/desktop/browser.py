@@ -362,7 +362,9 @@ class BrowserEngine:
         # down and build another, which reads as a stall, so it only grows.
         self._stage_fb: tuple[int, int] | None = None
         self._stage_min_fb: tuple[int, int] = (0, 0)
-        self._xdisplay = None  # X connection for key injection
+        # Xlib's default locks are no-ops. Window workers and the engine's
+        # input loop must never share a Display's request/reply socket.
+        self._xdisplay_local = threading.local()
         self._dialog_task = None  # keeps dialogs inside their own window
         self._named: set[str] = set()  # pages whose X window carries their id
         #: Seamless: set by the toolset; called with a popup's PageSession so
@@ -1121,11 +1123,23 @@ class BrowserEngine:
     # here. Physical keys (event.code), so the display's own layout decides
     # what a key means, exactly like a real keyboard.
     def _x_display(self):
-        if self._xdisplay is None:
+        connection = getattr(self._xdisplay_local, "connection", None)
+        if connection is None:
             from Xlib import display as _xdisplay
 
-            self._xdisplay = _xdisplay.Display(self._xvfb_display or ":97")
-        return self._xdisplay
+            connection = _xdisplay.Display(self._xvfb_display or ":97")
+            self._xdisplay_local.connection = connection
+        return connection
+
+    def _reset_x_display(self) -> None:
+        """Discard only this thread's connection after an X11 error."""
+        connection = getattr(self._xdisplay_local, "connection", None)
+        self._xdisplay_local.connection = None
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
 
     async def send_keys(self, events: list[dict]) -> int:
         """Press/release keys on the display. Returns how many landed.
@@ -1165,12 +1179,12 @@ class BrowserEngine:
                 sent += 1
             except Exception as e:
                 logger.info("browser: key inject failed: {}", e)
-                self._xdisplay = None
+                self._reset_x_display()
                 break
         try:
             d.sync()
         except Exception:
-            self._xdisplay = None
+            self._reset_x_display()
         return sent
 
     def _start_seamless(self, display: str) -> bool:
@@ -1329,7 +1343,7 @@ class BrowserEngine:
             return True
         except Exception as e:
             logger.info("browser: naming failed: {}", e)
-            self._xdisplay = None
+            self._reset_x_display()
             return False
 
     def _tag_page_window(self, session: PageSession, rect) -> None:
@@ -1360,7 +1374,7 @@ class BrowserEngine:
                 return
         except Exception as e:
             logger.info("browser: tagging {} failed: {}", session.id, e)
-            self._xdisplay = None
+            self._reset_x_display()
 
     def _xpra_alive(self) -> bool:
         return self._xpra_proc is not None and self._xpra_proc.poll() is None
@@ -1703,7 +1717,7 @@ class BrowserEngine:
                 d.sync()
         except Exception as e:
             logger.info("browser: fitting dialogs failed: {}", e)
-            self._xdisplay = None
+            self._reset_x_display()
         return moved
 
     async def _dialog_keeper(self) -> None:
@@ -1753,7 +1767,7 @@ class BrowserEngine:
             d.sync()
         except Exception as e:
             logger.info("browser: focusing {} failed: {}", page_id, e)
-            self._xdisplay = None
+            self._reset_x_display()
 
     def _focus_x_window(self, rect) -> None:
         """Give X input focus to the window at `rect`'s origin."""
@@ -1780,7 +1794,7 @@ class BrowserEngine:
                     return
         except Exception as e:
             logger.info("browser: X focus failed: {}", e)
-            self._xdisplay = None
+            self._reset_x_display()
 
     def _strip_decorations(self) -> None:
         """Set _MOTIF_WM_HINTS decorations=0 on the window at the origin.

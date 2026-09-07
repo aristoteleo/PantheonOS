@@ -1,7 +1,10 @@
 """Native Browser windows must not turn into tabs after the keeper closes."""
 import asyncio
+import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -100,3 +103,91 @@ async def test_empty_headless_context_remains_usable_without_relaunch():
     await engine._ensure_browser()
     context.close.assert_not_called()
     engine._launch_browser.assert_not_called()
+
+
+def test_concurrent_native_window_stamping_never_shares_an_xlib_socket(monkeypatch):
+    engine = BrowserEngine()
+    thread_state = threading.local()
+    connections = []
+    barrier = threading.Barrier(2, timeout=5)
+
+    class Display:
+        def __init__(self, _name):
+            self.owner = threading.get_ident()
+            self.window_class = None
+            self.token = getattr(thread_state, "token", "")
+            self.child = SimpleNamespace(
+                get_full_property=lambda *_: SimpleNamespace(value=self.token.encode()),
+                set_wm_class=self.set_class,
+            )
+            connections.append(self)
+
+        def check_owner(self):
+            assert threading.get_ident() == self.owner, "shared Xlib socket"
+
+        def screen(self):
+            self.check_owner()
+            return SimpleNamespace(root=SimpleNamespace(
+                query_tree=lambda: SimpleNamespace(children=[self.child]),
+            ))
+
+        def intern_atom(self, _name):
+            self.check_owner()
+            return 1
+
+        def set_class(self, instance, cls):
+            self.check_owner()
+            self.window_class = (instance, cls)
+
+        def sync(self):
+            self.check_owner()
+
+    monkeypatch.setitem(sys.modules, "Xlib", SimpleNamespace(
+        display=SimpleNamespace(Display=Display),
+    ))
+    main_connection = engine._x_display()
+
+    def stamp(page_id):
+        thread_state.token = f"pantheon-window-{page_id}"
+        barrier.wait()
+        assert engine._stamp_class(thread_state.token, page_id)
+        connection = engine._x_display()
+        assert engine._x_display() is connection  # same worker reuses its socket
+        assert connection.window_class == (f"pantheon-page-{page_id}", "Chromium-browser")
+        return connection
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(stamp, "first")
+        second = pool.submit(stamp, "second")
+        assert first.result(timeout=10) is not second.result(timeout=10)
+    assert len(connections) == 3
+    assert engine._x_display() is main_connection
+
+
+def test_reset_xlib_connection_leaves_other_threads_connected(monkeypatch):
+    engine = BrowserEngine()
+    barrier = threading.Barrier(2, timeout=5)
+    monkeypatch.setitem(sys.modules, "Xlib", SimpleNamespace(
+        display=SimpleNamespace(Display=lambda _: SimpleNamespace(close=Mock())),
+    ))
+    main_connection = engine._x_display()
+
+    def use_connection(reset):
+        before = engine._x_display()
+        barrier.wait()
+        if reset:
+            engine._reset_x_display()
+        barrier.wait()
+        return before, engine._x_display()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        reset = pool.submit(use_connection, True)
+        keep = pool.submit(use_connection, False)
+        old, replacement = reset.result(timeout=10)
+        kept, reused = keep.result(timeout=10)
+    assert old is not replacement
+    old.close.assert_called_once()
+    assert kept is reused
+    kept.close.assert_not_called()
+    assert engine._x_display() is main_connection
+    main_connection.close.assert_not_called()
