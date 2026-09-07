@@ -811,10 +811,11 @@ class BrowserEngine:
             keeper = next(iter(self._context.pages), None)  # type: ignore[union-attr]
             if keeper is None:
                 return
-            if self._browser_cdp is None:
-                self._browser_cdp = await self._context.new_cdp_session(keeper)
-            info = await self._browser_cdp.send("Browser.getWindowForTarget")
-            await self._browser_cdp.send("Browser.setWindowBounds", {
+            # This session targets only the keeper. Never cache it as the
+            # browser-wide command channel: closing that page invalidates it.
+            cdp = await self._context.new_cdp_session(keeper)
+            info = await cdp.send("Browser.getWindowForTarget")
+            await cdp.send("Browser.setWindowBounds", {
                 "windowId": info["windowId"],
                 "bounds": {  # DIP, not pixels — see RASTER_SCALE.
                     "left": 0, "top": PARK_Y // RASTER_SCALE,
@@ -869,6 +870,7 @@ class BrowserEngine:
         page.on("framenavigated", on_nav)
         page.on("load", on_load)
         page.on("domcontentloaded", on_load)
+        page.on("close", lambda: asyncio.ensure_future(self.close_page(session.id)))
 
         # A popup is adopted as a real page so the agent can address it, and
         # placed ON the stage rather than parked: it is its own Chromium
@@ -918,18 +920,23 @@ class BrowserEngine:
         # where Chromium put it, unmanaged and on top of a tile. That is
         # how a page ended up streaming someone else's blank window.
         async with self._open_lock:
-            return await self._create_window_page(url)
+            page = await self._create_window_page(url)
+            if page is None and xpra_mode() == "seamless":
+                raise RuntimeError("could not create a separate browser window")
+            return page
 
     async def _create_window_page(self, url: str):
         try:
             before = set(self._context.pages)
-            keeper = next(iter(before), None)
-            if keeper is None:
+            browser = self._context.browser
+            if browser is None:
                 return None
-            # One CDP session for the life of the browser: opening a fresh
-            # one per page costs a round trip on the path the user waits on.
+            # Browser commands must outlive any particular tab. The old
+            # channel was attached to the keeper page; closing that page
+            # made every later createTarget fail, then silently add a tab
+            # to somebody else's window through context.new_page().
             if self._browser_cdp is None:
-                self._browser_cdp = await self._context.new_cdp_session(keeper)
+                self._browser_cdp = await browser.new_browser_cdp_session()
             cdp = self._browser_cdp
             res = await cdp.send("Target.createTarget", {
                 "url": url or "about:blank", "newWindow": True,
@@ -963,9 +970,10 @@ class BrowserEngine:
                     await cdp.send("Target.closeTarget", {"targetId": target_id})
                 except Exception:
                     pass
-            logger.info("browser: windowed open did not surface a page; using a tab")
+            logger.info("browser: windowed open did not surface a page")
         except Exception as e:
-            logger.info("browser: windowed open failed ({}); using a tab", e)
+            self._browser_cdp = None
+            logger.info("browser: windowed open failed ({})", e)
         return None
 
     async def open_page(self, url: str = "") -> PageSession:
@@ -1855,6 +1863,7 @@ class BrowserEngine:
         session = self.pages.pop(page_id, None)
         if session is None:
             return
+        self._named.discard(page_id)
         if page_id in self._stages:
             self._stages.pop(page_id, None)
             if self._stages:
