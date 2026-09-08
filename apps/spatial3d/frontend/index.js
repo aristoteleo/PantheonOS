@@ -235,7 +235,7 @@ const CELLS_SVG = `<svg viewBox="0 0 24 24" fill="#eaf2ff"><circle cx="7" cy="8"
   <circle cx="5.5" cy="15.5" r="1.3"/></svg>`
 
 // ════════════════════════════ component ═══════════════════════════════════
-function __viewerSetup(lv, root) {
+async function __viewerSetup(lv, root) {
   root.innerHTML = ''
   const style = document.createElement('style'); style.textContent = CSS; root.appendChild(style)
   const el = document.createElement('div'); el.className = 'sp3-root'
@@ -735,7 +735,7 @@ function __viewerSetup(lv, root) {
   })
 
   // ── the one render path ──
-  lv.onState((state) => {
+  lv.onState(async (state) => {
     if (!state) return
     if (!state.url) {
       overlay.className = 'sp3-overlay'
@@ -743,10 +743,10 @@ function __viewerSetup(lv, root) {
       return
     }
     const prev = applied; applied = state; syncUI()
-    if (!prev || state.url !== prev.url || state.spatialKey !== prev.spatialKey) { reload(); return }
+    if (!prev || state.url !== prev.url || state.spatialKey !== prev.spatialKey) return reload()
     if (!deck) return
-    if (state.mode !== prev.mode) setViewMode(cur.mode())
-    if (state.colorBy !== prev.colorBy || state.clusterKey !== prev.clusterKey || state.gene !== prev.gene) applyColoring()
+    if (state.mode !== prev.mode) await setViewMode(cur.mode())
+    if (state.colorBy !== prev.colorBy || state.clusterKey !== prev.clusterKey || state.gene !== prev.gene) await applyColoring()
     else if (state.colormap !== prev.colormap && cur.colorBy() === 'gene') { recolorByExpression(); renderLegendGene(cur.gene(), geneExprMax) }
     if (String(state.cluster) !== String(prev.cluster)) { rebuildFilter(); if (cur.colorBy() === 'cluster') renderLegendCluster() }
     if (state.threshold !== prev.threshold) rebuildFilter()
@@ -756,6 +756,7 @@ function __viewerSetup(lv, root) {
     }
     if (state.pointSize !== prev.pointSize || state.opacity !== prev.opacity) refreshLayer()
     if (state.camera && camKey({ ...currentViewState, ...state.camera }) !== lastCamKey) setAgentCamera(state.camera)
+    deck.redraw(true)
   })
 
   // ── WebGL snapshot (deck canvas; preserveDrawingBuffer is on) ──
@@ -767,11 +768,15 @@ function __viewerSetup(lv, root) {
   })
 
   // ── boot: load the deck.gl bundle, then we're ready for state ──
-  loadDeck().then((d) => {
+  await loadDeck().then((d) => {
     Deck = d.Deck; OrbitView = d.OrbitView; OrthographicView = d.OrthographicView
     COORDINATE_SYSTEM = d.COORDINATE_SYSTEM; PointCloudLayer = d.PointCloudLayer; DataFilterExtension = d.DataFilterExtension
-    if (applied && applied.url && !deck) reload() // state arrived before deck finished loading
-  }).catch((e) => { showOverlay('deck.gl failed to load: ' + ((e && e.message) || e), true); lv.fail('spatial3d: deck.gl load failed') })
+    if (applied && applied.url && !deck) return reload() // state arrived before deck finished loading
+  }).catch((e) => {
+    const message = 'deck.gl failed to load: ' + ((e && e.message) || e)
+    showOverlay(message, true)
+    throw new Error('spatial3d: ' + message)
+  })
 
   // app-host calls lv.ready() once setup() resolves.
 }
@@ -794,6 +799,7 @@ async function __fromFile(state, lv) {
 }
 export async function setup(lv, root) {
   const __cbs = []
+  let __publishing = false
   let __lastFile = null
   let __cur = null
   const wrapped = Object.create(lv)
@@ -805,6 +811,7 @@ export async function setup(lv, root) {
   wrapped.onState = (cb) => {
     __cbs.push(cb)
     lv.onState((state, info) => {
+      if (__publishing) return
       // A file open is a file open. This used to also require that the state
       // carried NONE of the viewer's own keys — but those keys are exactly
       // what this app declares as `sync` state, so the first time anyone
@@ -815,9 +822,9 @@ export async function setup(lv, root) {
       // config. The mapping is also what re-mints served URLs, so skipping it
       // left those windows pointing at a dead tunnel after every restart.
       const fileShaped = !!(state && state.path && state.url)
-      if (!fileShaped) { __cur = state; cb(state, info); return }
+      if (!fileShaped) { __cur = state; return cb(state, info) }
       __lastFile = state
-      Promise.resolve(__fromFile(state, lv)).then((mapped) => {
+      return Promise.resolve(__fromFile(state, lv)).then((mapped) => {
         // Anything the caller asked for beyond the file itself — a layout, a
         // colour scheme, desktop_open(path=…, state={…}) — must survive the
         // mapping. Dropping it silently is why "open it radial" came out
@@ -830,7 +837,7 @@ export async function setup(lv, root) {
         for (const k of Object.keys(state)) {
           if (!__FILE_STATE_KEYS.includes(k) && !__FILE_KEYS.includes(k)) extra[k] = state[k]
         }
-        __emitToApp(Object.assign({}, mapped, extra), info)
+        return __emitToApp(Object.assign({}, mapped, extra), info)
       }).catch((e) =>
         lv.fail('Could not open ' + (state.name || state.path) + ': ' + ((e && e.message) || e)))
     })
@@ -839,16 +846,24 @@ export async function setup(lv, root) {
   // Adapters build their next state from lv.state (mode toggles, sliders); a
   // delivery that bypassed the store left it holding the bare init `{}`, and
   // the first toolbar click re-rendered from nothing ("Provide state.url").
-  const __emitToApp = (state, info) => {
+  const __emitToApp = async (state, info) => {
     __cur = state
-    if (typeof lv.setState === 'function') lv.setState(state)
-    for (const cb of __cbs) cb(state, info || { reason: 'set' })
+    for (const cb of __cbs) await cb(state, info || { reason: 'set' })
+    // Publish the canonical viewer state exactly once. A merge would keep
+    // the original file envelope and rerun prepare on the next UI change.
+    // SDK emitState calls onState synchronously; suppress that echo because
+    // the renderer above already completed. The SDK's fluent API is not a promise.
+    __publishing = true
+    try {
+      if (typeof lv.emitState === 'function') lv.emitState(state)
+      else if (typeof lv.setState === 'function') lv.setState(state)
+    } finally { __publishing = false }
   }
   // Menu actions patch the CURRENT viewer state — the adapter re-renders the
   // way it would for any set.
   const __patch = (p) => {
     if (!__cur) throw new Error('nothing is loaded yet')
-    __emitToApp(Object.assign({}, __cur, p))
+    return __emitToApp(Object.assign({}, __cur, p))
   }
   void __patch
   // ── dataset catalog menu ──────────────────────────────────────────────
@@ -871,13 +886,14 @@ export async function setup(lv, root) {
   }
   const __applyData = (config, id) => {
     __curData = id || null
-    __emitToApp(config)
+    const rendered = __emitToApp(config)
     __pushMenus()
+    return rendered
   }
   const __load = async (id) => {
     const r = await lv.call(id ? 'load_dataset' : 'example', id ? { id } : {}, { timeoutMs: 600000 })
     if (!r || !r.config) throw new Error((r && r.error) || 'no data returned')
-    __applyData(r.config, r.id)
+    await __applyData(r.config, r.id)
     return 'loaded'
   }
   if (typeof lv.call === 'function') {
@@ -890,10 +906,9 @@ export async function setup(lv, root) {
   wrapped.onState = (cb) => __base((state, info) => {
     if (!__autoRan && state && !state.url && !state.path && typeof lv.call === 'function') {
       __autoRan = true
-      __load(null).catch((e) => lv.fail('example: ' + ((e && e.message) || e)))
-      return
+      return __load(null).catch((e) => lv.fail('example: ' + ((e && e.message) || e)))
     }
-    cb(state, info)
+    return cb(state, info)
   })
   if (typeof lv.defineAction === 'function') {
     lv.defineAction('loadExample', () => __load(null))

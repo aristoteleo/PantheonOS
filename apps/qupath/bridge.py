@@ -82,7 +82,8 @@ class QuPathBridge:
         """Submit once and wait at most timeout seconds (0–120).
 
         script params: script (Groovy), thread ('worker' or 'fx'), args (strings),
-        optional expected_image (opaque state image_token, or null for no image).
+        optional expected_image (opaque state image_token, or null for no image),
+        update_hierarchy (bool, default true; false skips automatic notification).
         state params: annotation_limit (0–2000). Long scripts should use worker;
         JavaFX node mutations must explicitly use fx or Platform.runLater.
         """
@@ -102,6 +103,8 @@ class QuPathBridge:
                 isinstance(arg, str) for arg in params.get("args", [])
             ):
                 raise ValueError("args must be an array of strings")
+            if "update_hierarchy" in params and not isinstance(params["update_hierarchy"], bool):
+                raise ValueError("update_hierarchy must be a boolean")
             if "expected_image" in params and params["expected_image"] is not None:
                 expected = params["expected_image"]
                 if not isinstance(expected, str) or not _ID.fullmatch(expected):

@@ -21,5 +21,40 @@
         "fs@1"
       ]
     }
-  }
+  },
+  "actions": [
+    {
+      "name": "navigate",
+      "description": "Show a folder in this existing window.",
+      "params": {
+        "path": "absolute folder path"
+      }
+    },
+    {
+      "name": "refresh",
+      "description": "Re-read the current folder."
+    },
+    {
+      "name": "select",
+      "description": "Select an entry in the current folder.",
+      "params": {
+        "name": "entry name from desktop_read"
+      }
+    },
+    {
+      "name": "open",
+      "description": "Open an entry; folders navigate in this window and files open in their app.",
+      "params": {
+        "name": "entry name from desktop_read"
+      }
+    },
+    {
+      "name": "delete",
+      "description": "Delete the named entries in the current folder.",
+      "params": {
+        "name": "one entry name",
+        "names": "or an array of entry names"
+      }
+    }
+  ]
 }

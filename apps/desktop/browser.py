@@ -2494,8 +2494,19 @@ class BrowserEngine:
         return max(self.pages.values(), key=lambda s: s.created_at)
 
     async def close_page(self, page_id: str) -> None:
-        session = self.pages.pop(page_id, None)
+        session = self.pages.get(page_id)
         if session is None:
+            return
+        # Keep the live registration when Chromium rejects a close. Dropping
+        # it first would make a failed public close look successful and orphan
+        # a window that is still visible to the user.
+        if not session.page.is_closed():
+            await session.page.close()
+            if not session.page.is_closed():
+                raise RuntimeError("Chromium did not close the requested page")
+        # The page's close callback can have completed this cleanup while we
+        # awaited Chromium. Perform it exactly once.
+        if self.pages.pop(page_id, None) is None:
             return
         bound = page_id in self._window_bindings
         if not bound:
@@ -2519,11 +2530,6 @@ class BrowserEngine:
             for wid, owner in list(self._windows.items()):
                 if owner == page_id:
                     self._windows.pop(wid, None)
-        try:
-            if not session.page.is_closed():
-                await session.page.close()
-        except Exception:
-            pass
         # Each binding outlives any one of its tabs. An inspection failure is
         # not proof the native window disappeared; a subsequent read retries.
         for token, binding in list(self._window_bindings.items()):

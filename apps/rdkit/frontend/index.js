@@ -64,8 +64,7 @@ async function __viewerSetup(lv, root) {
     const init = await loadRDKit()
     RDKit = await init()
   } catch (e) {
-    lv.fail('RDKit: failed to load WASM — ' + ((e && e.message) || e))
-    return
+    throw new Error('RDKit: failed to load WASM — ' + ((e && e.message) || e))
   }
 
   let lastKey = null
@@ -188,6 +187,7 @@ async function __fromFile(state) {
 }
 export async function setup(lv, root) {
   const __cbs = []
+  let __publishing = false
   let __lastFile = null
   let __cur = null
   const wrapped = Object.create(lv)
@@ -199,6 +199,7 @@ export async function setup(lv, root) {
   wrapped.onState = (cb) => {
     __cbs.push(cb)
     lv.onState((state, info) => {
+      if (__publishing) return
       // A file open is a file open. This used to also require that the state
       // carried NONE of the viewer's own keys — but those keys are exactly
       // what this app declares as `sync` state, so the first time anyone
@@ -209,9 +210,9 @@ export async function setup(lv, root) {
       // config. The mapping is also what re-mints served URLs, so skipping it
       // left those windows pointing at a dead tunnel after every restart.
       const fileShaped = !!(state && state.path && state.url)
-      if (!fileShaped) { __cur = state; cb(state, info); return }
+      if (!fileShaped) { __cur = state; return cb(state, info) }
       __lastFile = state
-      Promise.resolve(__fromFile(state, lv)).then((mapped) => {
+      return Promise.resolve(__fromFile(state, lv)).then((mapped) => {
         // Anything the caller asked for beyond the file itself — a layout, a
         // colour scheme, desktop_open(path=…, state={…}) — must survive the
         // mapping. Dropping it silently is why "open it radial" came out
@@ -224,7 +225,7 @@ export async function setup(lv, root) {
         for (const k of Object.keys(state)) {
           if (!__FILE_STATE_KEYS.includes(k) && !__FILE_KEYS.includes(k)) extra[k] = state[k]
         }
-        __emitToApp(Object.assign({}, mapped, extra), info)
+        return __emitToApp(Object.assign({}, mapped, extra), info)
       }).catch((e) =>
         lv.fail('Could not open ' + (state.name || state.path) + ': ' + ((e && e.message) || e)))
     })
@@ -233,22 +234,30 @@ export async function setup(lv, root) {
   // Adapters build their next state from lv.state (mode toggles, sliders); a
   // delivery that bypassed the store left it holding the bare init `{}`, and
   // the first toolbar click re-rendered from nothing ("Provide state.url").
-  const __emitToApp = (state, info) => {
+  const __emitToApp = async (state, info) => {
     __cur = state
-    if (typeof lv.setState === 'function') lv.setState(state)
-    for (const cb of __cbs) cb(state, info || { reason: 'set' })
+    for (const cb of __cbs) await cb(state, info || { reason: 'set' })
+    // Publish the canonical viewer state exactly once. A merge would keep
+    // the original file envelope and rerun prepare on the next UI change.
+    // SDK emitState calls onState synchronously; suppress that echo because
+    // the renderer above already completed. The SDK's fluent API is not a promise.
+    __publishing = true
+    try {
+      if (typeof lv.emitState === 'function') lv.emitState(state)
+      else if (typeof lv.setState === 'function') lv.setState(state)
+    } finally { __publishing = false }
   }
   // Menu actions patch the CURRENT viewer state — the adapter re-renders the
   // way it would for any set.
   const __patch = (p) => {
     if (!__cur) throw new Error('nothing is loaded yet')
-    __emitToApp(Object.assign({}, __cur, p))
+    return __emitToApp(Object.assign({}, __cur, p))
   }
   void __patch
   if (typeof lv.defineAction === 'function') {
-    lv.defineAction('toggleIndices', () => {
+    lv.defineAction('toggleIndices', async () => {
       const d = (__cur && __cur.draw_options) || {}
-      __patch({ draw_options: Object.assign({}, d, { addAtomIndices: !d.addAtomIndices }) })
+      await __patch({ draw_options: Object.assign({}, d, { addAtomIndices: !d.addAtomIndices }) })
       return 'ok'
     })
   }

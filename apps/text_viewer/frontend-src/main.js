@@ -91,30 +91,39 @@ export function setup(app, root) {
     saveBtn.title = dirty ? 'Save (⌘S)' : 'No changes'
   }
 
+  const describe = () => ({ path, dirty, saving, length: view?.state.doc.length ?? 0,
+    lines: view?.state.doc.lines ?? 0, loaded: !!view })
+  const publish = () => app.setState(describe())
   async function save() {
-    if (!path || !view || !dirty || saving) return
+    if (!path || !view) throw new Error('No file is loaded')
+    if (saving) throw new Error('A save is already in progress')
+    if (!dirty) return describe()
     saving = true
     warnEl.hidden = true
     paintSave()
     try {
-      await app.fs.write(path, view.state.doc.toString())
-      dirty = false
-      savedEl.hidden = false
+      const savedText = view.state.doc.toString()
+      await app.fs.write(path, savedText)
+      dirty = view.state.doc.toString() !== savedText
+      savedEl.hidden = dirty
       setTimeout(() => { savedEl.hidden = true }, 1500)
     } catch (e) {
       warnEl.textContent = e instanceof Error ? e.message : String(e)
       warnEl.hidden = false
+      throw e
     } finally {
       saving = false
       paintSave()
+      publish()
     }
+    return describe()
   }
 
-  saveBtn.addEventListener('click', save)
+  saveBtn.addEventListener('click', () => { void save().catch(() => {}) })
   root.ownerDocument.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 's') {
       e.preventDefault()
-      void save()
+      void save().catch(() => {})
     }
   })
 
@@ -133,7 +142,7 @@ export function setup(app, root) {
         history(),
         keymap.of([...defaultKeymap, ...historyKeymap]),
         EditorView.updateListener.of((u) => {
-          if (u.docChanged && !dirty) { dirty = true; paintSave() }
+          if (u.docChanged) { dirty = true; paintSave(); linesEl.textContent = `${u.state.doc.lines.toLocaleString()} lines`; publish() }
         }),
         EditorView.lineWrapping,
         oneDark,
@@ -149,18 +158,39 @@ export function setup(app, root) {
       linesEl.textContent = `${view.state.doc.lines.toLocaleString()} lines`
       paintSave()
       show('editor')
+      loadedUrl = s.url
+      path = s.path || ''
+      publish()
       if (name) app.window.setTitle(name)
     } catch (e) {
       show('hint', e instanceof Error ? e.message : String(e), true)
+      throw e
     }
   }
 
-  app.onState(() => {
-    const s = app.state || {}
-    if (!s.url) { show('hint', 'No file open — use File ▸ Open…'); return }
-    if (s.url === loadedUrl) return
-    loadedUrl = s.url
-    path = s.path || ''
-    void load(s)
+  function replaceText({ text, expectedText } = {}) {
+    if (!view) throw new Error('No file is loaded')
+    if (typeof text !== 'string') throw new Error('replaceText requires a text string')
+    const before = view.state.doc.toString()
+    if (expectedText !== undefined && expectedText !== before) throw new Error('The document changed; read it again before replacing text')
+    if (text !== before) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } })
+    return describe()
+  }
+  app.defineAction('getText', ({ offset = 0, limit = 100000 } = {}) => {
+    if (!view) throw new Error('No file is loaded')
+    if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100000) throw new Error('offset must be nonnegative and limit between 1 and 100000')
+    const text = view.state.doc.sliceString(offset, offset + limit)
+    return { ...describe(), offset, text, truncated: offset + text.length < view.state.doc.length }
+  })
+  app.defineAction('replaceText', replaceText)
+  app.defineAction('save', save)
+  app.onState(async (s, info) => {
+    if (info?.reason === 'emit') return
+    if (Object.prototype.hasOwnProperty.call(s || {}, 'content')) {
+      throw new Error('Use replaceText to edit the document, then save to persist it')
+    }
+    if (!s?.url) { show('hint', 'No file open — use File ▸ Open…'); return }
+    if (s.url !== loadedUrl) await load(s)
+    else show('editor')
   })
 }

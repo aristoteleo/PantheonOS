@@ -62,9 +62,9 @@ async function __viewerSetup(lv, root) {
       state.pdbId, state.alphafold, state.url, state.format,
     ])
     if (key === loadedKey) return  // already showing this structure
-    loadedKey = key
 
     // Replace any previously loaded structure.
+    loadedKey = null
     try {
       if (viewer.plugin && typeof viewer.plugin.clear === 'function') {
         await viewer.plugin.clear()
@@ -79,6 +79,15 @@ async function __viewerSetup(lv, root) {
     } else if (state.url) {
       await viewer.loadStructureFromUrl(state.url, state.format || 'mmcif')
     }
+    // Mol* task failures can be recorded on data cells without rejecting the
+    // viewer promise. Verify that a structure was actually produced before
+    // acknowledging the agent's request or caching this source as loaded.
+    const failed = [...viewer.plugin.state.data.cells.values()].find((cell) => cell.status === 'error')
+    if (failed) throw new Error(failed.errorText || 'The structure could not be loaded.')
+    if (!viewer.plugin.managers.structure.hierarchy.current.structures.length) {
+      throw new Error('The source did not produce a molecular structure.')
+    }
+    loadedKey = key
   }
 
   lv.onState((state, info) => {
@@ -87,7 +96,7 @@ async function __viewerSetup(lv, root) {
       lv.fail('Mol*: state needs one of pdbId / alphafold / url.')
       return
     }
-    loadStructure(state).catch((e) =>
+    return loadStructure(state).catch((e) =>
       lv.fail('Mol* failed to load the structure: ' + ((e && e.message) || e)),
     )
   })
@@ -129,6 +138,7 @@ async function __fromFile(state) {
 }
 export async function setup(lv, root) {
   const __cbs = []
+  let __publishing = false
   let __lastFile = null
   let __cur = null
   const wrapped = Object.create(lv)
@@ -140,6 +150,7 @@ export async function setup(lv, root) {
   wrapped.onState = (cb) => {
     __cbs.push(cb)
     lv.onState((state, info) => {
+      if (__publishing) return
       // A file open is a file open. This used to also require that the state
       // carried NONE of the viewer's own keys — but those keys are exactly
       // what this app declares as `sync` state, so the first time anyone
@@ -150,9 +161,9 @@ export async function setup(lv, root) {
       // config. The mapping is also what re-mints served URLs, so skipping it
       // left those windows pointing at a dead tunnel after every restart.
       const fileShaped = !!(state && state.path && state.url)
-      if (!fileShaped) { __cur = state; cb(state, info); return }
+      if (!fileShaped) { __cur = state; return cb(state, info) }
       __lastFile = state
-      Promise.resolve(__fromFile(state, lv)).then((mapped) => {
+      return Promise.resolve(__fromFile(state, lv)).then((mapped) => {
         // Anything the caller asked for beyond the file itself — a layout, a
         // colour scheme, desktop_open(path=…, state={…}) — must survive the
         // mapping. Dropping it silently is why "open it radial" came out
@@ -165,7 +176,7 @@ export async function setup(lv, root) {
         for (const k of Object.keys(state)) {
           if (!__FILE_STATE_KEYS.includes(k) && !__FILE_KEYS.includes(k)) extra[k] = state[k]
         }
-        __emitToApp(Object.assign({}, mapped, extra), info)
+        return __emitToApp(Object.assign({}, mapped, extra), info)
       }).catch((e) =>
         lv.fail('Could not open ' + (state.name || state.path) + ': ' + ((e && e.message) || e)))
     })
@@ -174,16 +185,24 @@ export async function setup(lv, root) {
   // Adapters build their next state from lv.state (mode toggles, sliders); a
   // delivery that bypassed the store left it holding the bare init `{}`, and
   // the first toolbar click re-rendered from nothing ("Provide state.url").
-  const __emitToApp = (state, info) => {
+  const __emitToApp = async (state, info) => {
     __cur = state
-    if (typeof lv.setState === 'function') lv.setState(state)
-    for (const cb of __cbs) cb(state, info || { reason: 'set' })
+    for (const cb of __cbs) await cb(state, info || { reason: 'set' })
+    // Publish the canonical viewer state exactly once. A merge would keep
+    // the original file envelope and rerun prepare on the next UI change.
+    // SDK emitState calls onState synchronously; suppress that echo because
+    // the renderer above already completed. The SDK's fluent API is not a promise.
+    __publishing = true
+    try {
+      if (typeof lv.emitState === 'function') lv.emitState(state)
+      else if (typeof lv.setState === 'function') lv.setState(state)
+    } finally { __publishing = false }
   }
   // Menu actions patch the CURRENT viewer state — the adapter re-renders the
   // way it would for any set.
   const __patch = (p) => {
     if (!__cur) throw new Error('nothing is loaded yet')
-    __emitToApp(Object.assign({}, __cur, p))
+    return __emitToApp(Object.assign({}, __cur, p))
   }
   void __patch
   return __viewerSetup(wrapped, root)

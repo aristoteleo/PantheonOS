@@ -361,6 +361,8 @@ class NativeAppManager:
             }
             if "expected_image" in args:
                 params["expected_image"] = args["expected_image"]
+            if "update_hierarchy" in args:
+                params["update_hierarchy"] = args["update_hierarchy"]
             result = await bridge.call("script", params,
                                        request_id=args.get("request_id"), timeout=wait_s)
             return {**result, "native_session_id": session_id}

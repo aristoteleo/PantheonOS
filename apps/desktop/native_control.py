@@ -18,6 +18,7 @@ from typing import Any
 MAX_PIXELS = 16_777_216
 MAX_ACTIONS = 32
 MAX_TEXT = 2000
+CLIENT_ACK_TIMEOUT = 3.0
 _LOCK_CREATION = threading.Lock()
 
 
@@ -101,11 +102,14 @@ class NativeWindowController:
         xid, _ = self._allowed(xid, allowed_xids)
         return await asyncio.to_thread(self._screenshot, xid)
 
-    async def act(self, xid: int, actions: list[dict], *, allowed_xids=None) -> dict:
+    async def act(self, xid: int, actions: list[dict], *, allowed_xids=None, focus_parent_xids=()) -> dict:
         xid, allowed = self._allowed(xid, allowed_xids)
+        focus_parents = {_integer(value, "Native focus parent", 1, 0xFFFFFFFF) for value in focus_parent_xids}
+        if not focus_parents <= allowed - {xid}:
+            raise ValueError("Native focus parents must belong to the verified window set")
         batch = _actions(actions)
         # One thread-local Xlib connection for the entire input batch.
-        return await asyncio.to_thread(self._act, xid, batch, allowed)
+        return await asyncio.to_thread(self._act, xid, batch, allowed, focus_parents)
 
     @staticmethod
     def _window(d, xid):
@@ -253,7 +257,7 @@ class NativeWindowController:
         if not NativeWindowController._descendant(win, {xid}):
             raise RuntimeError("Pointer position is over another window; use its native child window_id if it belongs to this app")
 
-    def _focus(self, d, xid, allowed):
+    def _focus(self, d, xid, allowed, focus_parents=()):
         from Xlib import X
 
         win, geometry, position, _ = self._window(d, xid)
@@ -262,10 +266,18 @@ class NativeWindowController:
         focus = d.get_input_focus().focus
         if not self._descendant(focus, {xid}):
             focused_owner = self._ancestor_in(focus, allowed)
+            if focused_owner in focus_parents:
+                # Non-focusing native menus keep keyboard focus on their
+                # verified owner and handle keys through their menu grab.
+                # Forcing focus onto the menu makes the app restore it
+                # immediately (or dismiss the menu). Pointer checks still
+                # require the explicitly addressed menu's own pixel subtree.
+                return win, geometry, position
             # Explicitly addressing a child may focus it from its transient
             # parent (menus often leave focus there). The reverse would bypass
             # the dialog, and sibling windows must not receive each other's input.
-            if ((focused_owner is not None and not self._transient_descendant(win, focused_owner))
+            if ((focused_owner is not None and focused_owner not in focus_parents
+                 and not self._transient_descendant(win, focused_owner))
                     or (focused_owner is None and self._focused_owned_popup(focus, allowed))):
                 raise RuntimeError("Another owned native window is focused; use its native child window_id")
             d.set_input_focus(win, X.RevertToParent, X.CurrentTime)
@@ -274,11 +286,11 @@ class NativeWindowController:
                 raise RuntimeError("Could not focus the requested native window")
         return win, geometry, position
 
-    def _point(self, d, xid, allowed, x, y):
+    def _point(self, d, xid, allowed, x, y, focus_parents=()):
         from Xlib import X
         from Xlib.ext import xtest
 
-        _, g, position = self._focus(d, xid, allowed)
+        _, g, position = self._focus(d, xid, allowed, focus_parents)
         if not 0 <= x < g.width or not 0 <= y < g.height:
             raise ValueError("Coordinates are outside the current native window; capture it again")
         root_g = d.screen().root.get_geometry()
@@ -320,12 +332,89 @@ class NativeWindowController:
             raise ValueError("Invalid key chord; use modifier names followed by one key")
         return symbols
 
-    def _act(self, xid, actions, allowed):
+    @staticmethod
+    def _validate_text_for_window(d, xid, actions):
+        if not any(any(ord(c) > 0xFFFF for c in a.get("text", a.get("key", ""))) for a in actions):
+            return
+        # QuPath's JavaFX/GTK input path truncates supplementary Unicode X11
+        # keysyms to one UTF-16 code unit. Reject the complete batch before
+        # even its first click, rather than reporting success with wrong text.
+        win = d.create_resource_object('window', xid)
+        visited = set()
+        for _ in range(32):
+            if win.id in visited:
+                break
+            visited.add(win.id)
+            if {'QuPath', 'qupath.lib.gui.QuPathApp'}.intersection(win.get_wm_class() or ()):
+                raise ValueError(
+                    "This JavaFX window cannot receive non-BMP characters through native keys. "
+                    "Use desktop_call(window_id, action='run_script', args={'thread': 'fx', ...}) "
+                    "with the verified focused TextInputControl.replaceSelection; see the QuPath skill. "
+                    "No actions in this batch were sent."
+                )
+            parent = win.get_wm_transient_for() or win.query_tree().parent
+            if not parent or parent.id == win.id:
+                break
+            win = parent
+
+    @staticmethod
+    def _ping_target(d, xid):
+        ping = d.intern_atom('_NET_WM_PING')
+        win = d.create_resource_object('window', xid)
+        visited = set()
+        for _ in range(32):
+            if win.id in visited:
+                break
+            visited.add(win.id)
+            if ping in (win.get_wm_protocols() or ()):
+                return win
+            parent = win.get_wm_transient_for() or win.query_tree().parent
+            if not parent or parent.id == win.id:
+                break
+            win = parent
+        raise RuntimeError('This native app cannot acknowledge remapped Unicode keys; use its text or script interface')
+
+    @staticmethod
+    def _wait_client(d, target):
+        # XSync only waits for the X server. The application can still be
+        # processing an earlier MappingNotify when a temporary keymap is
+        # restored, dropping/replacing Unicode characters. A supported EWMH
+        # ping makes the application acknowledge its preceding X events.
+        import select
+        from Xlib import X
+        from Xlib.protocol.event import ClientMessage
+
+        root = d.screen().root
+        original_mask = root.get_attributes().your_event_mask
+        ping, protocols = d.intern_atom('_NET_WM_PING'), d.intern_atom('WM_PROTOCOLS')
+        nonce = time.monotonic_ns() & 0xFFFFFFFF
+        try:
+            root.change_attributes(event_mask=original_mask | X.SubstructureNotifyMask)
+            d.sync()
+            target.send_event(ClientMessage(window=target.id, client_type=protocols,
+                data=(32, [ping, nonce, target.id, 0, 0])), event_mask=0)
+            d.flush()
+            deadline = time.monotonic() + CLIENT_ACK_TIMEOUT
+            while time.monotonic() < deadline:
+                while d.pending_events():
+                    event = d.next_event()
+                    if event.type == X.ClientMessage and event.client_type == protocols:
+                        format, values = event.data
+                        if format == 32 and list(values[:3]) == [ping, nonce, target.id]:
+                            return
+                select.select([d.fileno()], [], [], min(0.05, max(0, deadline - time.monotonic())))
+            raise RuntimeError('Native app did not acknowledge Unicode input; inspect the field before retrying')
+        finally:
+            root.change_attributes(event_mask=original_mask)
+            d.sync()
+
+    def _act(self, xid, actions, allowed, focus_parents=()):
         from Xlib import X
         from Xlib.ext import xtest
 
         with self._lock:
             d = self.engine._x_display()
+            self._validate_text_for_window(d, xid, actions)
             held_keys, held_buttons = [], []
             completed = 0
 
@@ -357,7 +446,7 @@ class NativeWindowController:
                         raise ValueError("Shift is not present in the native keyboard map")
                     if shift[0] not in modifiers:
                         modifiers.append(shift[0])
-                self._focus(d, xid, allowed)
+                self._focus(d, xid, allowed, focus_parents)
                 for modifier in modifiers:
                     press(modifier)
                 press(code)
@@ -384,15 +473,16 @@ class NativeWindowController:
                 if spare is None:
                     raise ValueError("No unused native keycode is available for this character")
                 original = tuple(mapping[spare - first])
+                target = self._ping_target(d, xid)
                 try:
                     d.change_keyboard_mapping(spare, [(symbol,) + (0,) * (len(original) - 1)])
                     d.sync()
-                    # Let clients process MappingNotify before the key event.
-                    time.sleep(0.01)
-                    self._focus(d, xid, allowed)
+                    self._wait_client(d, target)
+                    self._focus(d, xid, allowed, focus_parents)
                     press(spare)
                     release(spare)
                     d.sync()
+                    self._wait_client(d, target)
                 finally:
                     # A failed event may leave the borrowed key held; release
                     # it before restoring the keymap to avoid a stuck key.
@@ -412,24 +502,24 @@ class NativeWindowController:
                 modifiers = {code for row in d.get_modifier_mapping() for code in row if code}
                 if any(pressed[code // 8] & (1 << (code % 8)) for code in modifiers):
                     raise RuntimeError("A modifier key is already held; release it before native input")
-                self._focus(d, xid, allowed)
+                self._focus(d, xid, allowed, focus_parents)
                 for a in actions:
                     kind = a["type"]
-                    self._focus(d, xid, allowed)
+                    self._focus(d, xid, allowed, focus_parents)
                     if "x" in a:
-                        self._point(d, xid, allowed, a["x"], a["y"])
+                        self._point(d, xid, allowed, a["x"], a["y"], focus_parents)
                     if kind in {"click", "rightclick", "dblclick"}:
                         number = 3 if kind == "rightclick" else {"left": 1, "middle": 2, "right": 3}[a.get("button", "left")]
                         for index in range(2 if kind == "dblclick" else 1):
                             if index:
                                 time.sleep(0.06)
-                                self._point(d, xid, allowed, a["x"], a["y"])
+                                self._point(d, xid, allowed, a["x"], a["y"], focus_parents)
                             button_down(number)
                             button_up(number)
                             d.sync()
                     elif kind == "drag":
                         # Check destination before pressing the button.
-                        _, g, _ = self._focus(d, xid, allowed)
+                        _, g, _ = self._focus(d, xid, allowed, focus_parents)
                         if a["to_x"] >= g.width or a["to_y"] >= g.height:
                             raise ValueError("Drag destination is outside the current native window")
                         number = {"left": 1, "middle": 2, "right": 3}[a.get("button", "left")]
@@ -438,14 +528,14 @@ class NativeWindowController:
                         for step in range(1, steps + 1):
                             self._point(d, xid, allowed,
                                         round(a["x"] + (a["to_x"] - a["x"]) * step / steps),
-                                        round(a["y"] + (a["to_y"] - a["y"]) * step / steps))
+                                        round(a["y"] + (a["to_y"] - a["y"]) * step / steps), focus_parents)
                             if a["duration_ms"]:
                                 time.sleep(a["duration_ms"] / 1000 / steps)
                         button_up(number)
                     elif kind == "wheel":
                         for value, negative, positive in ((a["delta_y"], 4, 5), (a["delta_x"], 6, 7)):
                             for _ in range(abs(value)):
-                                self._point(d, xid, allowed, a["x"], a["y"])
+                                self._point(d, xid, allowed, a["x"], a["y"], focus_parents)
                                 number = positive if value > 0 else negative
                                 button_down(number)
                                 button_up(number)

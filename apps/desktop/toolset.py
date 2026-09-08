@@ -29,7 +29,6 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass, field
-from functools import lru_cache
 from typing import Any
 
 from pantheon.toolset import ToolSet, tool
@@ -43,6 +42,14 @@ SNAPSHOT_TIMEOUT_SECONDS = 25
 
 # Cap on how many diagnostics (console errors / warnings) a session keeps.
 MAX_DIAGNOSTICS = 50
+
+
+class DesktopRequestError(RuntimeError):
+    """A failed frontend operation can still identify its existing window."""
+
+    def __init__(self, message: str, value: Any = None):
+        super().__init__(message)
+        self.value = value
 
 
 def _deep_merge(target: Any, patch: Any) -> Any:
@@ -742,6 +749,9 @@ class DesktopToolSet(ToolSet):
             return {"success": False,
                     "error": f"the desktop did not answer in {timeout:g}s "
                              f"(asked the viewport that {anchor.get('reason')})"}
+        except DesktopRequestError as e:
+            return {"success": False, "error": str(e),
+                    **({"result": e.value} if e.value is not None else {})}
         except Exception as e:
             return {"success": False, "error": str(e)}
         finally:
@@ -1006,10 +1016,17 @@ class DesktopToolSet(ToolSet):
         """
         reply = await self._desktop_request("desktop.apps", {})
         if reply.get("success"):
+            self._apps().scan()
             for app in (reply.get("result") or {}).get("apps", []):
-                metadata = self._builtin_app_metadata(app.get("app_id"))
+                app_id = app.get("app_id") or ""
+                entry = self._apps().entries.get(app_id.removeprefix("pkg:"))
+                frontend = ((entry.manifest.get("entry") or {}).get("frontend") or "") if entry else ""
+                metadata = self._desktop_app_metadata(
+                    "pkg:" + app_id.removeprefix("pkg:") if frontend and not frontend.startswith("ui:") else app_id,
+                )
                 if metadata:
                     app["actions"] = sorted(set(app.get("actions") or []) | set(metadata["actions"]))
+                    app["controllable"] = metadata["controllable"]
                     if metadata.get("skill"):
                         app["skill"] = metadata["skill"]
         return reply
@@ -1033,15 +1050,12 @@ class DesktopToolSet(ToolSet):
         here, then desktop_read / desktop_update / desktop_call it exactly
         like a view you opened yourself.
 
-        A TERMINAL WINDOW IS ALSO DRIVABLE, by a different route. It is a
-        view onto a pty session on this pod, so `pty_write(pty_session,
-        base64("echo hi\n"))` types into the terminal the user is looking
-        at — they see the command and its output in their own window. Prefer
-        that to running the command out of sight and pasting the result: it
-        is the difference between working in their terminal and describing
-        what you did somewhere else. (desktop_read/update/call will refuse
-        it — those are the packaged-app bridge, which a built-in app has no
-        part in. That refusal is not "the Terminal cannot be driven".)
+        A Terminal window exposes desktop_read and desktop_call actions
+        run, input, interrupt and clear. They reach the PTY shown in that
+        existing window. Direct pty_write(pty_session, base64(text)) is also
+        available. Files exposes its current folder and selection actions.
+        Controllable describes the app's supported interface; a window
+        that is still loading must finish mounting before UI calls answer.
         """
         # Answered from the pod's own document, so this works with no desktop
         # on screen at all — the window list is a property of the machine, and
@@ -1050,12 +1064,13 @@ class DesktopToolSet(ToolSet):
         store = self._desktop()
         store.current()          # read the record through before answering
         s = store.session
+        self._apps().scan()
         windows = [
             {
                 "window_id": wid,
-                "app_id": w.get("app_id"),
+                "app_id": (w.get("app_id") or "").removeprefix("pkg:"),
                 "name": w.get("app_id"),
-                **self._builtin_app_metadata(w.get("app_id")),
+                **self._desktop_app_metadata(w.get("app_id")),
                 "title": w.get("title"),
                 "path": w.get("path") or None,
                 "space": w.get("space", 1),
@@ -1114,7 +1129,9 @@ class DesktopToolSet(ToolSet):
             title: window title, used with `module`.
 
         Returns `window_id`, and `reused: true` when it landed in a window
-        that was already showing that file.
+        that was already showing that file. Cold-starting ImageJ can take
+        several minutes; a failed or still-loading reply identifies the
+        existing window to reuse instead of launching another instance.
         """
         if module:
             url = await self._serve_bespoke_module(module)
@@ -1134,7 +1151,9 @@ class DesktopToolSet(ToolSet):
         return await self._desktop_request(
             "desktop.open",
             {"app": app, "path": path, "state": state or {}, "window_id": window_id},
-            timeout=120.0)
+            # The UI waits up to 240s for a cold ImageJ JVM and initial image.
+            # Other apps report their own shorter startup deadline promptly.
+            timeout=270.0)
 
     async def _serve_bespoke_module(self, source: str) -> str | None:
         """Write an agent-authored frontend module to the workspace and serve
@@ -1204,19 +1223,37 @@ class DesktopToolSet(ToolSet):
             raise KeyError(f"No such desktop window: {window_id}")
         return window
 
-    @staticmethod
-    @lru_cache(maxsize=128)
-    def _builtin_app_metadata(app_id: str) -> dict:
+    def _desktop_app_metadata(self, app_id: str | None) -> dict:
+        """Describe the implementation the shell actually mounted.
+
+        Packaged ids use the install-scope catalog, including workspace
+        overrides. Their host supplies a state bridge without named actions.
+        Agent View mounts the same state bridge for user-authored modules.
+        Other shell placeholders require their own declared bridge actions.
+        """
         from pathlib import Path
         from pantheon.apps.registry import by_app_id
 
-        app = by_app_id().get(app_id)
-        if app is None:
-            return {}
-        manifest = app.manifest
-        skill = str(Path(app.dir) / manifest.skill) if manifest.skill and app.dir else None
-        return {"actions": [action["name"] for action in manifest.actions if "name" in action], "skill": skill,
-                "controllable": bool(manifest.actions) or app_id == "browser"}
+        app_id = app_id or ""
+        if app_id.startswith("pkg:"):
+            app = self._apps().entries.get(app_id[4:])
+            manifest = app.manifest if app else {}
+            directory = app.dir if app else None
+        else:
+            app = by_app_id().get(app_id)
+            manifest = app.manifest.model_dump() if app else {}
+            directory = app.dir if app else None
+        frontend = (manifest.get("entry") or {}).get("frontend") or ""
+        actions = [action["name"] for action in manifest.get("actions", []) if "name" in action]
+        skill = manifest.get("skill")
+        return {
+            "name": manifest.get("name") or app_id.removeprefix("pkg:"),
+            "actions": actions,
+            "skill": str(Path(directory) / skill) if skill and directory else None,
+            "controllable": bool(frontend) and (
+                not frontend.startswith("ui:") or frontend == "ui:agent-view" or bool(actions)
+            ),
+        }
 
     @staticmethod
     def _native_result_ok(result: dict) -> bool:
@@ -1226,7 +1263,7 @@ class DesktopToolSet(ToolSet):
 
     @staticmethod
     def _public_native_targets(targets: list[dict]) -> list[dict]:
-        return [{key: value for key, value in item.items() if key != "xid"} for item in targets]
+        return [{key: value for key, value in item.items() if key != "xid" and not key.startswith('_')} for item in targets]
 
     async def _native_target(self, window_id: str):
         from .native_targets import window_targets
@@ -1275,7 +1312,8 @@ class DesktopToolSet(ToolSet):
                 raise ValueError("Use desktop_call for this app's declared actions")
             engine, target, targets = native
             result = await engine.call(NativeWindowController(engine).act(
-                target["xid"], actions, allowed_xids={item["xid"] for item in targets}))
+                target["xid"], actions, allowed_xids={item["xid"] for item in targets},
+                focus_parent_xids=target.get('_focus_parent_xids', ())))
             return {**result, "window_id": window_id}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -1371,7 +1409,7 @@ class DesktopToolSet(ToolSet):
             if ok:
                 future.set_result(value)
             else:
-                future.set_exception(RuntimeError(error or "desktop request failed"))
+                future.set_exception(DesktopRequestError(error or "desktop request failed", value))
         return {"success": True}
 
     @tool(exclude=True)
@@ -1718,12 +1756,19 @@ class DesktopToolSet(ToolSet):
 
     @tool
     async def browser_close(self, page_id: str) -> dict:
-        """Close a browser page. The user's window for it (if any) goes blank
-        — prefer leaving pages open for the user unless they are truly done."""
+        """Close the explicitly addressed browser tab.
+
+        Accepts an exact page_id, or a desktop Browser window_id to close that
+        window's active tab. Other tabs remain open; closing the last tab also
+        closes its native window. Unknown or already-closed targets fail.
+        """
         try:
+            if not isinstance(page_id, str) or not page_id.strip():
+                raise ValueError("browser_close requires a page_id or Browser window_id")
             engine = self._browser_engine()
-            await engine.call(engine.close_page(page_id))
-            return {"success": True}
+            session = await self._resolve_control_page(engine, page_id)
+            await engine.call(engine.close_page(session.id))
+            return {"success": True, "page_id": session.id}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

@@ -34,6 +34,14 @@
     {
       "name": "computeUmap",
       "description": "Compute a UMAP embedding for the opened .h5ad (cached; the file itself is not modified)"
+    },
+    {
+      "name": "toggleView",
+      "description": "Toggle one scatterplot embedding or one panel in the current view.",
+      "params": {
+        "scatter": "embedding type, for example UMAP or PCA; use instead of component",
+        "component": "heatmap | obsSets | obsSetSizes | featureList | obsSetFeatureValueDistribution | featureValueHistogram | description | status; use instead of scatter"
+      }
     }
   ],
   "caps": {

@@ -246,6 +246,47 @@ async def test_invalid_explicit_window_never_creates_replacement(toolset, monkey
 
 
 @pytest.mark.asyncio
+async def test_close_window_resolves_its_current_tab_without_closing_other_pages(toolset, store, monkeypatch):
+    anchor, active = SimpleNamespace(id="pg-anchor"), SimpleNamespace(id="pg-active")
+    engine = FakeEngine({anchor.id: anchor, active.id: active})
+    engine.current_window_page = AsyncMock(return_value=active)
+    engine.close_page = AsyncMock()
+    async def call(coroutine): return await coroutine
+    engine.call = call
+    monkeypatch.setattr(toolset, "_browser_engine", lambda: engine)
+    window = browser_window(store, [anchor.id], 0)
+    result = await toolset.browser_close(window)
+    assert result == {"success": True, "page_id": active.id}
+    engine.close_page.assert_awaited_once_with(active.id)
+
+
+@pytest.mark.asyncio
+async def test_close_exact_page_id_does_not_resolve_window_active_tab(toolset, monkeypatch):
+    page = SimpleNamespace(id="pg-exact")
+    engine = FakeEngine({page.id: page})
+    engine.current_window_page = AsyncMock()
+    engine.close_page = AsyncMock()
+    async def call(coroutine): return await coroutine
+    engine.call = call
+    monkeypatch.setattr(toolset, "_browser_engine", lambda: engine)
+    result = await toolset.browser_close(page.id)
+    assert result["success"] and result["page_id"] == page.id
+    engine.close_page.assert_awaited_once_with(page.id)
+    engine.current_window_page.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", ["win-missing", "pg-closed", "", " "])
+async def test_close_unknown_or_empty_target_is_not_successful(toolset, monkeypatch, target):
+    engine = FakeEngine({"other": SimpleNamespace(id="other")})
+    engine.close_page = AsyncMock()
+    monkeypatch.setattr(toolset, "_browser_engine", lambda: engine)
+    result = await toolset.browser_close(target)
+    assert result["success"] is False
+    engine.close_page.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_retried_native_popup_creates_one_durable_host(toolset, store, monkeypatch):
     publish = AsyncMock()
     monkeypatch.setattr(toolset, "_publish_desktop", publish)

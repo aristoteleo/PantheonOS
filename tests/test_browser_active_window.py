@@ -210,6 +210,17 @@ async def test_closed_first_tab_keeps_window_binding_and_named_identity():
 
 
 @pytest.mark.asyncio
+async def test_failed_native_close_keeps_live_page_registration():
+    original = Page(10, "visible")
+    engine, anchor = await setup_engine([original])
+    original.close = AsyncMock(side_effect=RuntimeError("Chromium refused close"))
+    with pytest.raises(RuntimeError, match="refused close"):
+        await engine.close_page(anchor.id)
+    assert engine.get(anchor.id) is anchor
+    assert engine.window_binding(anchor.id).window_id == 10
+
+
+@pytest.mark.asyncio
 async def test_last_tab_close_drops_only_its_window_binding():
     original, remaining, elsewhere = Page(10), Page(10, "visible"), Page(20, "visible")
     engine, anchor = await setup_engine([original, remaining, elsewhere])

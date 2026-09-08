@@ -40,7 +40,8 @@
         "args": "string[]",
         "request_id": "optional unique string, retained for idempotency within this GUI session",
         "wait_s": "0\u201310 seconds (default 2); a timeout does not cancel execution",
-        "expected_image": "optional image_token from desktop_read/status; null requires no image to be open"
+        "expected_image": "optional image_token from desktop_read/status; null requires no image to be open",
+        "update_hierarchy": "optional boolean (default true); use false for read-only, export and save scripts to skip automatic hierarchy notification; never clears existing unsaved changes"
       }
     },
     {

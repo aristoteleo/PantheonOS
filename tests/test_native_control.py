@@ -4,6 +4,7 @@ import base64
 import io
 import time
 from types import SimpleNamespace as NS
+from unittest.mock import Mock
 
 import pytest
 from PIL import Image
@@ -19,6 +20,7 @@ class Window:
         self.parent = parent
         self.child = 0
         self.transient = None
+        self.classes = ()
         self.pointer_mask = 0
         self.geometry = NS(width=width, height=height, depth=24)
         self.x, self.y = x, y
@@ -45,6 +47,9 @@ class Window:
 
     def get_wm_transient_for(self):
         return self.transient
+
+    def get_wm_class(self):
+        return self.classes
 
     def get_image(self, x, y, width, height, format, mask):
         assert (x, y, width, height, format) == (0, 0, self.geometry.width, self.geometry.height, X.ZPixmap)
@@ -116,6 +121,8 @@ def native(monkeypatch):
         d.events.append((kind, detail, kwargs))
 
     monkeypatch.setattr(xtest, "fake_input", fake_input)
+    monkeypatch.setattr(controller, '_ping_target', lambda display, xid: display.create_resource_object('window', xid))
+    monkeypatch.setattr(controller, '_wait_client', lambda display, target: None)
     return controller, d
 
 
@@ -135,6 +142,32 @@ async def test_invalid_later_action_rejects_whole_batch_before_click(native):
     with pytest.raises(ValueError, match="Unknown"):
         await controller.act(5, [{"type": "click", "x": 2, "y": 3}, {"type": "execute", "code": "anything"}])
     assert d.events == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('as_child', [False, True])
+async def test_javafx_non_bmp_rejects_whole_batch_before_input_or_focus(native, as_child):
+    controller, d = native
+    d.window.classes = ('pantheon-native-qupath-owned', 'QuPath')
+    target = d.window
+    if as_child:
+        target = d.other
+        target.transient = d.window
+    original_focus = d.focus
+    with pytest.raises(ValueError, match='No actions in this batch were sent'):
+        await controller.act(target.id, [
+            {'type': 'click', 'x': 10, 'y': 10}, {'type': 'text', 'text': '细胞 🧬'},
+        ], allowed_xids={d.window.id, d.other.id})
+    assert not d.events and not d.maps and d.focus is original_focus
+
+
+@pytest.mark.asyncio
+async def test_other_native_clients_retain_supplementary_unicode_support(native):
+    controller, d = native
+    d.window.classes = ('pantheon-page-owned', 'Google-chrome')
+    result = await controller.act(d.window.id, [{'type': 'text', 'text': '🧬'}])
+    assert result['success'] is True and result['completed'] == 1
+    assert d.maps[0][1][0][0] == 0x0101F9EC
 
 
 @pytest.mark.asyncio
@@ -218,6 +251,25 @@ async def test_explicit_child_menu_click_uses_its_own_coordinates(native):
     assert result["success"]
     assert d.focus is d.other
     assert d.events[0] == (X.MotionNotify, 0, {"x": 110, "y": 140})
+
+
+@pytest.mark.asyncio
+async def test_verified_orphan_menu_can_focus_only_from_its_recorded_parent(native):
+    controller, d = native
+    parent_focus = d.focus
+    result = await controller.act(6, [{"type": "key", "key": "Return"}],
+                                  allowed_xids={5, 6}, focus_parent_xids={5})
+    assert result['success'] and d.focus is parent_focus
+    assert [event[:2] for event in d.events] == [(X.KeyPress, 36), (X.KeyRelease, 36)]
+
+
+@pytest.mark.asyncio
+async def test_menu_focus_proof_cannot_add_unowned_windows(native):
+    controller, d = native
+    with pytest.raises(ValueError, match='verified window set'):
+        await controller.act(6, [{"type": "key", "key": "Return"}],
+                             allowed_xids={6}, focus_parent_xids={5})
+    assert d.events == []
 
 
 @pytest.mark.asyncio
@@ -312,6 +364,66 @@ async def test_user_held_mouse_button_is_not_moved_or_released(native, button):
     result = await controller.act(5, [{"type": "click", "x": 10, "y": 10}])
     assert not result["success"] and "mouse button is already held" in result["error"]
     assert d.events == [] and d.focus is d.other
+
+
+@pytest.mark.asyncio
+async def test_unicode_mapping_survives_until_client_acknowledges_key(native, monkeypatch):
+    controller, display = native
+    acknowledgements = []
+
+    def acknowledge(d, target):
+        assert d.maps[-1][1][0][0] == 0x01004e2d
+        acknowledgements.append(list(d.events))
+
+    monkeypatch.setattr(controller, '_wait_client', acknowledge)
+    result = await controller.act(5, [{'type': 'text', 'text': '中'}])
+    assert result['success']
+    assert len(acknowledgements) == 2 and acknowledgements[0] == []
+    assert [event[0] for event in acknowledgements[1]] == [X.KeyPress, X.KeyRelease]
+    assert not any(display.maps[-1][1][0])
+
+
+@pytest.mark.asyncio
+async def test_missing_unicode_ack_fails_and_restores_keymap(native, monkeypatch):
+    controller, display = native
+    monkeypatch.setattr(controller, '_wait_client', Mock(side_effect=RuntimeError('No application acknowledgement')))
+    result = await controller.act(5, [{'type': 'text', 'text': '中'}])
+    assert not result['success'] and 'acknowledgement' in result['error']
+    assert display.events == []
+    assert not any(display.maps[-1][1][0])
+
+
+def client_ack_fixture():
+    display = Display()
+    display.root.attrs.your_event_mask = X.PropertyChangeMask
+    masks, events = [], []
+    display.root.change_attributes = lambda event_mask: masks.append(event_mask)
+    display.intern_atom = lambda name: {'_NET_WM_PING': 11, 'WM_PROTOCOLS': 12}[name]
+    display.flush = lambda: None
+    display.pending_events = lambda: len(events)
+    display.next_event = lambda: events.pop(0)
+    def receive_ping(event, event_mask):
+        format, values = event.data
+        unrelated = list(values); unrelated[1] ^= 1
+        events.append(NS(type=X.ClientMessage, client_type=12, data=(format, unrelated)))
+        events.append(NS(type=X.ClientMessage, client_type=12, data=(format, list(values))))
+    display.window.send_event = receive_ping
+    return display, masks
+
+
+def test_client_ack_matches_nonce_and_restores_root_event_selection():
+    display, masks = client_ack_fixture()
+    NativeWindowController._wait_client(display, display.window)
+    assert masks == [X.PropertyChangeMask | X.SubstructureNotifyMask, X.PropertyChangeMask]
+
+
+def test_client_ack_timeout_restores_root_event_selection(monkeypatch):
+    from pantheon.apps.builtin.desktop import native_control
+    display, masks = client_ack_fixture()
+    monkeypatch.setattr(native_control, 'CLIENT_ACK_TIMEOUT', 0)
+    with pytest.raises(RuntimeError, match='did not acknowledge'):
+        NativeWindowController._wait_client(display, display.window)
+    assert masks[-1] == X.PropertyChangeMask
 
 
 @pytest.mark.asyncio

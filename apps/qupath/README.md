@@ -46,6 +46,10 @@ operation fails if the user switches images before it starts. Use worker scripts
 short JavaFX scripts for view changes. Results contain a request id, lifecycle
 state, bounded output, and JSON-compatible return value. A wait timeout leaves
 the request running; query its id instead of submitting the mutation again.
+Read-only, export and save scripts should pass `update_hierarchy: false` to
+avoid marking the image as changed through an automatic hierarchy refresh.
+The default is `true` for annotation/analysis updates; opting out never clears
+pre-existing unsaved changes.
 The skill documents this contract and links to small
 [inspection, annotation, and export examples](references/scripting.md).
 
@@ -54,6 +58,9 @@ that every plugin or workflow has a dedicated wrapper. Models, extensions and
 analysis parameters still depend on the workspace installation and the data.
 Screenshots show the rendered view; quantitative analysis reads image data.
 Saving exports is separate from saving the image/project's working state.
+JavaFX's native key path cannot reliably enter non-BMP characters such as many
+emoji. Those batches fail before input; the skill provides an explicit script
+for entering Unicode into a verified focused text field in the same GUI.
 
 ## Runtime
 

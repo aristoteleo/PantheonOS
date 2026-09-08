@@ -182,6 +182,9 @@ class PantheonQuPathBridge {
             throw new IllegalArgumentException('script must be nonempty Groovy source')
         String thread = params.thread ?: 'worker'
         if (!(thread in ['worker', 'fx'])) throw new IllegalArgumentException('thread must be worker or fx')
+        if (params.containsKey('update_hierarchy') && !(params.update_hierarchy instanceof Boolean))
+            throw new IllegalArgumentException('update_hierarchy must be a boolean')
+        boolean updateHierarchy = !params.containsKey('update_hierarchy') || params.update_hierarchy
         def run = { context ->
             checkExpiry(expiresAt)
             def arguments = (params.args ?: []) as String[]
@@ -198,7 +201,10 @@ class PantheonQuPathBridge {
             } finally {
                 // Hierarchy notifications reach JavaFX from its own thread even
                 // when a long analysis script mutates objects on the worker.
-                if (context.image != null)
+                // Read-only/export/save scripts can skip this notification,
+                // which otherwise marks even a freshly saved image as changed.
+                // Skipping it never clears changes already present in the image.
+                if (updateHierarchy && context.image != null)
                     Platform.runLater { context.image.getHierarchy().fireHierarchyChangedEvent(this) }
             }
             return jsonValue(result)

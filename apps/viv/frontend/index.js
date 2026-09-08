@@ -22,6 +22,7 @@
  */
 import React from 'react'
 import { createRoot } from 'react-dom/client'
+import { flushSync } from 'react-dom'
 import {
   loadOmeTiff,
   loadOmeZarr,
@@ -105,7 +106,7 @@ const btnStyle = {
 }
 
 // ── Viewer + controls ───────────────────────────────────────────────────
-function VivApp({ pyramid, state, channels, domainMax, onChange, onView, size }) {
+function VivApp({ pyramid, state, channels, domainMax, onChange, onView, onLoaded, onError, size }) {
   return h('div', { style: { position: 'relative', width: '100%', height: '100%' } },
     h(PictureInPictureViewer, {
       loader: pyramid,
@@ -125,8 +126,9 @@ function VivApp({ pyramid, state, channels, domainMax, onChange, onView, size })
       overview: DEFAULT_OVERVIEW,
       overviewOn: state.overview !== false,
       extensions: [new LensExtension()],
+      onViewportLoad: onLoaded,
       // Keep the WebGL backbuffer readable so snapshots can capture it.
-      deckProps: { glOptions: { preserveDrawingBuffer: true } },
+      deckProps: { glOptions: { preserveDrawingBuffer: true }, onError },
     }),
     h(Controls, { key: state.panelSeq || 0, channels, domainMax, onChange }))
 }
@@ -135,6 +137,7 @@ export function setup(lv, root) {
   let pyramid = null
   let loadedUrl = null
   let reactRoot = null
+  let loadedSelectionKey = null
 
   function showStatus(msg) {
     if (reactRoot) {
@@ -209,7 +212,23 @@ export function setup(lv, root) {
       root.innerHTML = ''
       reactRoot = createRoot(root)
     }
-    reactRoot.render(
+    const selectionKey = JSON.stringify([loadedUrl, channels.map((c) => c.selection)])
+    let finish
+    const rendered = new Promise((resolve, reject) => {
+      let settled = false
+      const timer = setTimeout(() => finish(new Error('Viv image tiles are still loading after 25 seconds.')), 25000)
+      finish = (error) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        if (error) reject(error)
+        else {
+          loadedSelectionKey = selectionKey
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        }
+      }
+    })
+    try { flushSync(() => reactRoot.render(
       h(VivApp, {
         pyramid,
         state,
@@ -220,8 +239,13 @@ export function setup(lv, root) {
         // Straight into state, unthrottled: the shell coalesces `stream` keys
         // to ~10 Hz, so the app does not have to know the wire rate.
         onView: (viewState) => lv.setState({ viewState }),
+        onLoaded: () => finish(),
+        onError: (error) => finish(error instanceof Error ? error : new Error(String(error))),
       }),
-    )
+    )) } catch (error) { finish(error) }
+    // Colour, contrast and panel-only changes reuse already-loaded rasters.
+    if (loadedSelectionKey === selectionKey) finish()
+    return rendered
   }
 
   lv.onState(async (state) => {
@@ -250,7 +274,7 @@ export function setup(lv, root) {
         lv.setState({ channels }) // re-fires onState; render happens then
         return
       }
-      renderViewer(state, channels)
+      await renderViewer(state, channels)
     } catch (e) {
       showStatus('Failed to load image: ' + ((e && e.message) || e))
       lv.fail('Viv failed: ' + ((e && e.message) || e))
@@ -259,7 +283,7 @@ export function setup(lv, root) {
 
   window.addEventListener('resize', () => {
     const s = lv.state
-    if (pyramid && s && Array.isArray(s.channels)) renderViewer(s, s.channels)
+    if (pyramid && s && Array.isArray(s.channels)) renderViewer(s, s.channels).catch((e) => lv.fail(e.message))
   })
 
   // Snapshot provider — Viv renders to a WebGL canvas html2canvas cannot

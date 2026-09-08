@@ -55,6 +55,11 @@ desktop_act(window_id, actions=[{"type": "key", "key": "Ctrl+s"}])
 The tool also supports `click`, `dblclick`, `move`, `drag`, `wheel`, and `text`.
 Mouse coordinates are native window pixels, including QuPath menus/toolbars;
 ROI coordinates in scripts use full-resolution image pixels.
+JavaFX's native key path supports BMP text (including Chinese); non-BMP text
+such as many emoji is rejected before sending any action in the batch. For
+that text, explicitly use the [focused field script](references/scripting.md#enter-text-in-a-verified-focused-field)
+after verifying the intended field/window. This uses the existing GUI and
+does not replace the user's clipboard.
 
 ## Run scripts in the current GUI
 
@@ -73,6 +78,7 @@ desktop_call(window_id, action="run_script", args={
     "args": [],
     "request_id": request_id,
     "expected_image": image_token,
+    "update_hierarchy": False,
     "wait_s": 2
 })
 ```
@@ -84,6 +90,13 @@ strings in `args`; inside Groovy they are available as `args[0]`, etc.
 Return a small JSON-compatible map/list/value. Do not return `ImageData`,
 `PathObject`, image server or JavaFX objects; extract their IDs and properties.
 `println` output is captured with a size limit.
+
+Set `update_hierarchy=False` for read-only, export and save scripts. The default
+`True` refreshes the hierarchy after a script and marks the image as changed;
+use it for annotation/analysis mutations. `False` only skips that automatic
+notification and never clears existing unsaved changes. Save image data with
+`qupath.lib.io.PathIO.writeImageData(new File(args[0]), getCurrentImageData())`,
+then confirm `desktop_read` reports `image.changed=False` before closing.
 
 Use `thread="worker"` for analysis and exports. Use `thread="fx"` only for
 short JavaFX UI/view changes; expensive work there freezes the application.

@@ -18,15 +18,26 @@
  */
 import React from 'react'
 import { createRoot } from 'react-dom/client'
+import { flushSync } from 'react-dom'
 import { Vitessce } from 'https://unpkg.com/vitessce@latest'
 
 function __viewerSetup(lv, root) {
+  // Vitessce creates its DeckGL contexts internally and does not expose their
+  // context options. Preserve this app iframe's WebGL buffers so the generic
+  // desktop screenshot includes the plots as well as the surrounding panels.
+  // The iframe has its own canvas prototype; other desktop apps are unaffected.
+  const getContext = HTMLCanvasElement.prototype.getContext
+  HTMLCanvasElement.prototype.getContext = function (type, options, ...rest) {
+    if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') {
+      return getContext.call(this, type, { ...options, preserveDrawingBuffer: true }, ...rest)
+    }
+    return getContext.call(this, type, options, ...rest)
+  }
   let reactRoot = null
   // While we apply agent-driven state, Vitessce's onConfigChange fires for
   // our own write — suppress it so it isn't echoed back as a user edit.
   let applyingRemote = false
 
-  let errorCheckTimer = null
   // The uid is what tells Vitessce "this is a new config" (→ re-initialise &
   // re-fetch). We bump it only on a real state change, NEVER on a resize.
   let currentUid = null
@@ -37,9 +48,42 @@ function __viewerSetup(lv, root) {
   // that rendered warning and surface it as a hard failure to the agent.
   function checkForVitessceError() {
     const text = (root.textContent || '').trim()
-    if (/Config (validation|initialization) failed/i.test(text)) {
-      lv.fail('Vitessce rejected the config — ' + text.slice(0, 600))
+    if (/Config (?:validation|initialization)[^.]*failed/i.test(text)) {
+      throw new Error('Vitessce rejected the config — ' + text.slice(0, 600))
     }
+    if (root.querySelector('[aria-label="Open error info"]')) {
+      throw new Error('Vitessce could not load a dataset. Open the view’s error details for the failed resource.')
+    }
+  }
+
+  function waitForPanels(config) {
+    // Vitessce exposes each panel's data readiness as role=main/aria-busy.
+    // React committing a grid full of spinners is not a completed view.
+    return new Promise((resolve, reject) => {
+      let settled = false
+      let timer
+      const observer = new MutationObserver(check)
+      const finish = (error) => {
+        if (settled) return
+        settled = true
+        observer.disconnect()
+        clearTimeout(timer)
+        if (error) reject(error)
+        else requestAnimationFrame(() => requestAnimationFrame(() => {
+          // Config validation runs in a React effect. Check again after that
+          // commit, including configs with an intentionally empty layout.
+          try { checkForVitessceError(); resolve() } catch (error) { reject(error) }
+        }))
+      }
+      function check() {
+        try { checkForVitessceError() } catch (error) { finish(error); return }
+        const panels = [...root.querySelectorAll('[role="main"][aria-busy]')]
+        if ((!config.layout?.length || panels.length) && panels.every((p) => p.getAttribute('aria-busy') === 'false')) finish()
+      }
+      observer.observe(root, { childList: true, subtree: true, attributes: true, characterData: true })
+      timer = setTimeout(() => finish(new Error('Vitessce data is still loading after 25 seconds.')), 25000)
+      check()
+    })
   }
 
   function renderVitessce(config, bumpUid) {
@@ -50,7 +94,7 @@ function __viewerSetup(lv, root) {
     // re-fetch all data, which is the "reloads on window resize" bug.
     if (bumpUid || !currentUid) currentUid = `lv-${Date.now()}`
     const cfg = { ...config, uid: currentUid }
-    reactRoot.render(
+    flushSync(() => reactRoot.render(
       React.createElement(Vitessce, {
         config: cfg,
         theme: 'dark',
@@ -60,24 +104,22 @@ function __viewerSetup(lv, root) {
           lv.emitState(newConfig)         // user interaction → report out
         },
       }),
-    )
-    // Config validation runs synchronously on render; check shortly after.
-    if (errorCheckTimer) clearTimeout(errorCheckTimer)
-    errorCheckTimer = setTimeout(checkForVitessceError, 2500)
+    ))
+    return waitForPanels(config)
   }
 
   // The LiveView "state" is the Vitessce view config. init/patch/set arrive
   // here as the full merged config. `reason === 'emit'` is our own outgoing
   // change — Vitessce already rendered it, so skip the re-render.
-  lv.onState((config, info) => {
+  lv.onState(async (config, info) => {
     if (info && info.reason === 'emit') return
     applyingRemote = true
     try {
-      renderVitessce(config, true)   // real state change → new uid
+      await renderVitessce(config, true)   // real state change → wait for data
     } finally {
       // release after the render settles (Vitessce's onConfigChange for
       // our write fires on the next tick)
-      setTimeout(() => { applyingRemote = false }, 0)
+      applyingRemote = false
     }
   })
 
@@ -86,7 +128,9 @@ function __viewerSetup(lv, root) {
   let resizeTimer = null
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer)
-    resizeTimer = setTimeout(() => { if (lv.state) renderVitessce(lv.state, false) }, 200)
+    resizeTimer = setTimeout(() => {
+      if (lv.state) renderVitessce(lv.state, false).catch((e) => lv.fail(e.message))
+    }, 200)
   })
 
   // app-host calls lv.ready() once setup() resolves.
@@ -120,6 +164,7 @@ async function __fromFile(state, lv) {
 }
 export async function setup(lv, root) {
   const __cbs = []
+  let __publishing = false
   let __lastFile = null
   let __cur = null
   const wrapped = Object.create(lv)
@@ -131,6 +176,7 @@ export async function setup(lv, root) {
   wrapped.onState = (cb) => {
     __cbs.push(cb)
     lv.onState((state, info) => {
+      if (__publishing) return
       // A file open is a file open. This used to also require that the state
       // carried NONE of the viewer's own keys — but those keys are exactly
       // what this app declares as `sync` state, so the first time anyone
@@ -141,9 +187,9 @@ export async function setup(lv, root) {
       // config. The mapping is also what re-mints served URLs, so skipping it
       // left those windows pointing at a dead tunnel after every restart.
       const fileShaped = !!(state && state.path && state.url)
-      if (!fileShaped) { __cur = state; cb(state, info); return }
+      if (!fileShaped) { __cur = state; return cb(state, info) }
       __lastFile = state
-      Promise.resolve(__fromFile(state, lv)).then((mapped) => {
+      return Promise.resolve(__fromFile(state, lv)).then((mapped) => {
         // Anything the caller asked for beyond the file itself — a layout, a
         // colour scheme, desktop_open(path=…, state={…}) — must survive the
         // mapping. Dropping it silently is why "open it radial" came out
@@ -156,7 +202,7 @@ export async function setup(lv, root) {
         for (const k of Object.keys(state)) {
           if (!__FILE_STATE_KEYS.includes(k) && !__FILE_KEYS.includes(k)) extra[k] = state[k]
         }
-        __emitToApp(Object.assign({}, mapped, extra), info)
+        return __emitToApp(Object.assign({}, mapped, extra), info)
       }).catch((e) =>
         lv.fail('Could not open ' + (state.name || state.path) + ': ' + ((e && e.message) || e)))
     })
@@ -165,16 +211,24 @@ export async function setup(lv, root) {
   // Adapters build their next state from lv.state (mode toggles, sliders); a
   // delivery that bypassed the store left it holding the bare init `{}`, and
   // the first toolbar click re-rendered from nothing ("Provide state.url").
-  const __emitToApp = (state, info) => {
+  const __emitToApp = async (state, info) => {
     __cur = state
-    if (typeof lv.setState === 'function') lv.setState(state)
-    for (const cb of __cbs) cb(state, info || { reason: 'set' })
+    for (const cb of __cbs) await cb(state, info || { reason: 'set' })
+    // Publish the canonical viewer state exactly once. A merge would keep
+    // the original file envelope and rerun prepare on the next UI change.
+    // SDK emitState calls onState synchronously; suppress that echo because
+    // the renderer above already completed. The SDK's fluent API is not a promise.
+    __publishing = true
+    try {
+      if (typeof lv.emitState === 'function') lv.emitState(state)
+      else if (typeof lv.setState === 'function') lv.setState(state)
+    } finally { __publishing = false }
   }
   // Menu actions patch the CURRENT viewer state — the adapter re-renders the
   // way it would for any set.
   const __patch = (p) => {
     if (!__cur) throw new Error('nothing is loaded yet')
-    __emitToApp(Object.assign({}, __cur, p))
+    return __emitToApp(Object.assign({}, __cur, p))
   }
   void __patch
   // ── View-menu engine ──────────────────────────────────────────────────
@@ -282,15 +336,16 @@ export async function setup(lv, root) {
   const __apply = (config) => {
     __config = config
     __captureEmb(config)
-    __emitToApp(config)
+    const rendered = __emitToApp(config)
     __pushMenus()
+    return rendered
   }
   // Capture every state the adapter is handed (post-mapping), so the menu
   // mirrors demos, examples, agent patches and user edits alike.
   const __baseOnState = wrapped.onState
   wrapped.onState = (cb) => __baseOnState((state, info) => {
     if (__isConfig(state)) { __config = state; __captureEmb(state); __pushMenus() }
-    cb(state, info)
+    return cb(state, info)
   })
   if (typeof lv.defineAction === 'function') {
     lv.defineAction('toggleView', async (args) => {
@@ -335,20 +390,20 @@ export async function setup(lv, root) {
         }
       }
       __normalizeRows(cfg.layout || [])
-      __apply(cfg)
+      await __apply(cfg)
       return 'ok'
     })
     lv.defineAction('computeUmap', async () => {
       if (!__lastFile) throw new Error('Open an .h5ad file from the desktop first.')
       const r = await lv.call('compute_umap', { path: __lastFile.path }, { timeoutMs: 600000 })
       if (!r || !r.config) throw new Error((r && r.error) || 'compute_umap returned no config')
-      __apply(r.config)
+      await __apply(r.config)
       return 'UMAP ready'
     })
     lv.defineAction('loadExample', async () => {
       const r = await lv.call('example', {}, { timeoutMs: 120000 })
       if (!r || !r.config) throw new Error((r && r.error) || 'no example bundled')
-      __apply(r.config)
+      await __apply(r.config)
       return 'example loaded'
     })
   }

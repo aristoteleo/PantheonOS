@@ -54,6 +54,19 @@ async def validate(args, fixture, bridge):
     assert token and (await fixture.complete(bridge, "state"))["result"]["image_token"] == token
     checks["stable_image_identity"] = token
 
+    # Establish clean synthetic data, then prove a read-only script doesn't
+    # trigger the hierarchy event that used to re-dirty every read and save.
+    result = await fixture.complete(bridge, "script", {
+        "expected_image": token, "update_hierarchy": False, "thread": "fx",
+        "script": "getCurrentImageData().setChanged(false); return true",
+    })
+    assert result["state"] == "succeeded", result
+    read_params = {"expected_image": token, "update_hierarchy": False,
+                   "script": "return getAnnotationObjects().size()"}
+    assert (await fixture.complete(bridge, "script", read_params))["state"] == "succeeded"
+    assert (await fixture.complete(bridge, "state"))["result"]["image"]["changed"] is False
+    checks["readonly_preserves_clean_image"] = True
+
     roi_params = {"expected_image": token, "script": """
 def annotation = PathObjects.createAnnotationObject(ROIs.createRectangleROI(20, 30, 40, 50, ImagePlane.getDefaultPlane()))
 addObject(annotation)
@@ -65,6 +78,20 @@ return getAnnotationObjects().size()
     state = await fixture.complete(bridge, "state")
     assert state["result"]["objects"]["annotation_count"] == 1, state
     checks["guarded_roi_and_idempotent_retry"] = result
+
+    assert state["result"]["image"]["changed"] is True
+    assert (await fixture.complete(bridge, "script", read_params))["state"] == "succeeded"
+    assert (await fixture.complete(bridge, "state"))["result"]["image"]["changed"] is True
+    checks["readonly_preserves_existing_unsaved_changes"] = True
+    saved_path = args.directory / "saved-annotations.qpdata"
+    result = await fixture.complete(bridge, "script", {
+        "expected_image": token, "update_hierarchy": False, "args": [str(saved_path)],
+        "script": "qupath.lib.io.PathIO.writeImageData(new File(args[0]), getCurrentImageData()); return true",
+    })
+    assert result["state"] == "succeeded", result
+    assert saved_path.is_file() and saved_path.stat().st_size > 0
+    assert (await fixture.complete(bridge, "state"))["result"]["image"]["changed"] is False
+    checks["save_leaves_image_clean"] = True
 
     mismatch_marker = args.directory / "mismatched-mutation.txt"
     result = await fixture.complete(bridge, "script", {"script": "new File(args[0]).text = 'wrong'; return true",
@@ -187,7 +214,7 @@ async def cleanup(args, fixture, bridge, xvfb):
         runtime = json.loads(runtime_path.read_text())
         pid = runtime["pid"]
         if bridge:
-            await bridge.call("script", {"thread": "fx", "script": """
+            await bridge.call("script", {"thread": "fx", "update_hierarchy": False, "script": """
 def gui = getQuPath()
 gui.getImageData()?.setChanged(false)
 new ArrayList(javafx.stage.Window.getWindows()).findAll { it != gui.getStage() }.each { it.hide() }

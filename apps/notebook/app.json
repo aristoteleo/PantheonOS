@@ -5,7 +5,7 @@
   "description": "Notebook editing and execution with streaming.",
   "entry": {
     "backend": "pantheon.apps.builtin.notebook:IntegratedNotebookToolSet",
-    "frontend": "frontend/index.js"
+    "frontend": "frontend/control.js"
   },
   "provides": {
     "tools": [
@@ -114,7 +114,7 @@
       },
       {
         "name": "execute_cell",
-        "description": "\n        Execute a cell's existing content.\n\n        Supported syntax in code cells:\n        - Python code (default)\n        - R language: `%%R` (cell) or `%R` (line) magic\n          - Pass data: `%%R -i py_var` (Python→R), `%%R -o r_var` (R→Python)\n        - Shell commands: `%%bash` or `%%sh`\n        - Other magics: `%%time`, `%%html`, `%matplotlib inline`, etc.\n\n        Args:\n            notebook_path: Path to notebook file\n            cell_id: Cell identifier\n\n        Returns:\n            dict with:\n            - success: True if execution succeeded\n            - outputs: Execution results/outputs (list of nbformat output nodes)\n            - kernel_session_id: Kernel session ID\n        \n        Tips:\n            - Split long operations into multiple cells  (load → preprocess → compute)\n            - Use parallel computing when available (scanpy: n_jobs=-1 etc...)\n            - Use manage_kernel(action=\"interrupt\") to stop long-running cells\n            - IMPORTANT: To install R packages, use `%%R install.packages('pkg')`. Shell `Rscript` installs may not be visible.\n        \n        Note:\n            Only one execution can run at a time per kernel session. If you call\n            execute_cell, add_cell(execute=True), or update_cell(execute=True)\n            concurrently for the same notebook, subsequent calls will return a\n            \"Kernel is busy\" error. Wait for the current execution to complete\n            or use manage_kernel(action='interrupt') to stop it.\n        ",
+        "description": "\n        Execute a cell's existing content.\n\n        Supported syntax in code cells:\n        - Python code (default)\n        - R language: `%%R` (cell) or `%R` (line) magic\n          - Pass data: `%%R -i py_var` (Python\u2192R), `%%R -o r_var` (R\u2192Python)\n        - Shell commands: `%%bash` or `%%sh`\n        - Other magics: `%%time`, `%%html`, `%matplotlib inline`, etc.\n\n        Args:\n            notebook_path: Path to notebook file\n            cell_id: Cell identifier\n\n        Returns:\n            dict with:\n            - success: True if execution succeeded\n            - outputs: Execution results/outputs (list of nbformat output nodes)\n            - kernel_session_id: Kernel session ID\n        \n        Tips:\n            - Split long operations into multiple cells  (load \u2192 preprocess \u2192 compute)\n            - Use parallel computing when available (scanpy: n_jobs=-1 etc...)\n            - Use manage_kernel(action=\"interrupt\") to stop long-running cells\n            - IMPORTANT: To install R packages, use `%%R install.packages('pkg')`. Shell `Rscript` installs may not be visible.\n        \n        Note:\n            Only one execution can run at a time per kernel session. If you call\n            execute_cell, add_cell(execute=True), or update_cell(execute=True)\n            concurrently for the same notebook, subsequent calls will return a\n            \"Kernel is busy\" error. Wait for the current execution to complete\n            or use manage_kernel(action='interrupt') to stop it.\n        ",
         "params": [
           {
             "name": "notebook_path",
@@ -376,7 +376,7 @@
       },
       {
         "name": "read_notebook_output",
-        "description": "Fetch ONE full cell output on demand (Frontend only).\n\n        read_notebook returns a LEAN notebook — outputs above a size limit are\n        replaced with a marker + preview so the notebook crosses NATS fast. When\n        the user opens such an output, the frontend calls this to load the single\n        full output, addressed by its cell id and its index in that cell's outputs\n        list (both carried in the marker). Not exposed to LLM agents.\n        ",
+        "description": "Fetch ONE full cell output on demand (Frontend only).\n\n        read_notebook returns a LEAN notebook \u2014 outputs above a size limit are\n        replaced with a marker + preview so the notebook crosses NATS fast. When\n        the user opens such an output, the frontend calls this to load the single\n        full output, addressed by its cell id and its index in that cell's outputs\n        list (both carried in the marker). Not exposed to LLM agents.\n        ",
         "params": [
           {
             "name": "notebook_path",
@@ -466,5 +466,41 @@
   "defaultSize": {
     "width": 1080,
     "height": 760
-  }
+  },
+  "actions": [
+    {
+      "name": "read_cells",
+      "description": "Read cells and outputs from the notebook open in this window.",
+      "params": {
+        "include_details": "boolean",
+        "cell_ids": "string[]"
+      }
+    },
+    {
+      "name": "add_cell",
+      "description": "Add a cell to this notebook and optionally execute it; refresh the visible notebook.",
+      "params": {
+        "content": "string",
+        "cell_type": "string",
+        "execute": "boolean",
+        "position": "string"
+      }
+    },
+    {
+      "name": "update_cell",
+      "description": "Update a cell in this notebook and optionally execute it.",
+      "params": {
+        "cell_id": "string",
+        "content": "string",
+        "execute": "boolean"
+      }
+    },
+    {
+      "name": "execute_cell",
+      "description": "Execute a cell in this notebook and refresh its visible output.",
+      "params": {
+        "cell_id": "string"
+      }
+    }
+  ]
 }

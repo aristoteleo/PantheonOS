@@ -24,7 +24,7 @@ import re
 import shutil
 
 CACHE_DIR = ".pantheon/atrium-vitessce"
-CACHE_VERSION = "v1"
+CACHE_VERSION = "v2"
 # Densifying X is what Vitessce reads most reliably; cap the gene axis so a
 # 100k×30k sparse atlas cannot balloon into gigabytes of dense zarr.
 MAX_DENSE_CELLS_X_GENES = 60_000_000
@@ -49,6 +49,21 @@ def _embedding_type(key: str) -> str:
     if "spatial" in low:
         return "SPATIAL"
     return re.sub(r"^x[_\-]", "", low).upper() or key.upper()
+
+
+def _write_zarr(adata, destination: Path, chunks: tuple) -> None:
+    """Keep the browser dataset contract stable across AnnData upgrades.
+
+    New AnnData defaults to Zarr v3; these views and their cached configs
+    use the v2 anndata.zarr layout. Older AnnData already writes v2.
+    """
+    import anndata as ad
+    from contextlib import nullcontext
+
+    settings = getattr(ad, "settings", None)
+    options = settings.override(zarr_write_format=2) if hasattr(settings, "zarr_write_format") else nullcontext()
+    with options:
+        adata.write_zarr(str(destination), chunks=chunks)
 
 
 def _convert(src: Path, workspace: Path) -> dict:
@@ -134,7 +149,7 @@ def _convert(src: Path, workspace: Path) -> dict:
     slim = ad.AnnData(X=X, obs=adata.obs.copy(), var=adata.var.copy(), obsm=obsm_out)
     dest.parent.mkdir(parents=True, exist_ok=True)
     chunk = (min(slim.shape[0], 1000) or 1, min(slim.shape[1], 256) or 1)
-    slim.write_zarr(str(dest), chunks=chunk)
+    _write_zarr(slim, dest, chunk)
 
     skeleton = {
         "embeddings": embeddings,
@@ -243,7 +258,7 @@ def _compute_umap_into_cache(sk: dict) -> dict:
         if tmp.exists():
             shutil.rmtree(tmp)
         chunk = (min(a.shape[0], 1000) or 1, min(a.shape[1], 256) or 1)
-        a.write_zarr(str(tmp), chunks=chunk)
+        _write_zarr(a, tmp, chunk)
         shutil.rmtree(zarr_path)
         tmp.rename(zarr_path)
 

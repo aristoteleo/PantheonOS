@@ -105,12 +105,9 @@ def _write_spatial_zarr(adata, out_dir: Path, spatial_key=None, cluster_key=None
         root = zarr.open_group(store=LocalStore(str(out_dir)), mode="w", zarr_format=2)
 
     def put(name, data, chunks):
-        try:
-            return root.create_dataset(name, data=data, chunks=chunks)
-        except TypeError:
-            a = root.create_array(name, shape=data.shape, dtype=data.dtype, chunks=chunks)
-            a[...] = data
-            return a
+        if hasattr(root, "create_array"):
+            return root.create_array(name, data=data, chunks=chunks)
+        return root.create_dataset(name, data=data, chunks=chunks)
 
     put("obsm/spatial", coords, (n, ndim))
     ct = put("obs/cell_type", codes, (n,))

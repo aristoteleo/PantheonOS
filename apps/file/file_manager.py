@@ -407,6 +407,8 @@ class FileManagerToolSetBase(ToolSet):
 
         if not target_path.exists():
             return {"success": False, "error": "Directory does not exist"}
+        if not target_path.is_dir():
+            return {"success": False, "error": "Path is not a directory"}
 
         def _build_file_entry(path: Path) -> dict | None:
             """Safely build metadata for a directory entry.

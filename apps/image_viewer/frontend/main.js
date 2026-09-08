@@ -70,16 +70,24 @@ export function setup(app, root) {
 
   app.onTheme((t) => iv.setAttribute('data-theme', t))
 
-  app.onState(() => {
-    const s = app.state || {}
-    if (typeof s.zoomed === 'boolean' && s.zoomed !== zoomed) { zoomed = s.zoomed; paint() }
-    if (!s.url) { show('hint', 'No file open — use File ▸ Open…'); return }
-    if (img.src === s.url) return
+  let loadedUrl = ''
+  img.crossOrigin = 'anonymous'
+  app.onState(async (s) => {
+    if (typeof s?.zoomed === 'boolean' && s.zoomed !== zoomed) { zoomed = s.zoomed; paint() }
+    if (!s?.url) { show('hint', 'No file open — use File ▸ Open…'); return }
+    if (loadedUrl === s.url) { show('img'); paint(); return }
     show('hint', 'Loading…')
-    img.onload = () => { show('img'); paint() }
-    img.onerror = () => fail(`Could not load ${s.name || s.path || 'image'}`)
-    img.src = s.url
-    nameEl.textContent = s.name || ''
-    if (s.name) app.window.setTitle(s.name)
+    try {
+      await new Promise((resolve, reject) => {
+        img.onload = resolve
+        img.onerror = () => reject(new Error(`Could not load ${s.name || s.path || 'image'}`))
+        img.src = s.url
+      })
+      loadedUrl = s.url
+      show('img'); paint()
+      nameEl.textContent = s.name || ''
+      if (s.name) app.window.setTitle(s.name)
+      app.setState({ loaded: true, width: img.naturalWidth, height: img.naturalHeight })
+    } catch (e) { loadedUrl = ''; fail(e.message); throw e }
   })
 }

@@ -93,6 +93,8 @@ def test_request_id_cannot_escape_private_directory(bridge, request_id):
     ("script", {"script": "42", "expected_image": 123}),
     ("script", {"script": "42", "expected_image": "a" * 97}),
     ("script", {"script": "42", "expected_image": {"token": "image"}}),
+    *[("script", {"script": "42", "update_hierarchy": value})
+      for value in [None, 0, 1, "false", [], {}]],
 ])
 async def test_invalid_requests_are_never_published(bridge, method, params):
     with pytest.raises(ValueError):
@@ -131,3 +133,16 @@ async def test_expected_image_is_part_of_the_idempotent_request(bridge, expected
     with pytest.raises(ValueError, match="different request"):
         await bridge.call("script", {"script": "return 42", "expected_image": "different-image"},
                           request_id="guarded", timeout=0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("update", [True, False])
+async def test_hierarchy_notification_policy_is_retained_for_retries(bridge, update):
+    params = {"script": "return 42", "update_hierarchy": update}
+    await bridge.call("script", params, request_id="refresh-policy", timeout=0)
+    request = json.loads((bridge.directory / "refresh-policy.request.json").read_text())
+    assert request["params"]["update_hierarchy"] is update
+    await bridge.call("script", params, request_id="refresh-policy", timeout=0)
+    with pytest.raises(ValueError, match="different request"):
+        await bridge.call("script", {**params, "update_hierarchy": not update},
+                          request_id="refresh-policy", timeout=0)

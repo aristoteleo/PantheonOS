@@ -1,0 +1,62 @@
+/** Core apps, errors/recovery, exact targets and shell boundaries over real Desktop services. */
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { existsSync } from 'node:fs';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+import fs from 'node:fs/promises';
+const runtime=path.resolve(process.env.RUNTIME_REPO||fileURLToPath(new URL('../../',import.meta.url)));
+const ui=path.resolve(process.env.UI_REPO||path.join(path.dirname(runtime),'pantheon-ui-apps'));
+const api=process.env.AUDIT_API||'http://127.0.0.1:48180';
+const origin=new URL(process.env.UI_URL||'http://localhost:5173').origin;
+const meta=await fetch(api+'/meta').then(r=>r.json());
+assert.equal(meta.audit,true,'Use the isolated scripts/desktop_audit/server.py');
+assert.equal(meta.workspace,path.join(meta.root,'workspace'));
+const root=path.resolve(process.env.AUDIT_OUTPUT||path.join(meta.root,'llm-results'));
+await fs.mkdir(path.join(root,'evidence'),{recursive:true});
+const {chromium}=await import(pathToFileURL(path.join(ui,'node_modules/playwright/index.mjs')).href);
+const macChrome='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const executablePath=process.env.CHROME_EXECUTABLE||(existsSync(macChrome)?macChrome:undefined);
+const fixtureURL=origin+'/__all-apps-audit?api='+encodeURIComponent(api);
+const browser=await chromium.launch({headless:true,executablePath,args:['--no-first-run','--disable-features=LocalNetworkAccessChecks','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+const page=await browser.newPage({viewport:{width:1800,height:1100}});const errors=[];
+page.on('pageerror',e=>{errors.push(String(e));console.log('PAGEERR',String(e).slice(0,200))});
+page.on('console',m=>{if(m.type()==='error')console.log('ERROR',m.text().slice(0,200))});
+await page.route('**/@vite/client',r=>r.fulfill({contentType:'text/javascript',body:'export function createHotContext(){return {data:{},accept(){},dispose(){},on(){},invalidate(){},prune(){},send(){},acceptExports(){}}} export function injectQuery(url){return url} export function updateStyle(id,css){let el=document.querySelector(`style[data-audit-id="${CSS.escape(id)}"]`);if(!el){el=document.createElement("style");el.dataset.auditId=id;document.head.append(el)}el.textContent=css} export function removeStyle(){}'}));
+await page.route(fixtureURL,r=>r.fulfill({contentType:'text/html',body:'<!doctype html><div id="fixture"></div><script>window.__BUILD_ID__="audit"</script><script type="module" src="/scripts/desktop/fixtures/all-apps-live.ts"></script>'}));
+await page.goto(fixtureURL);
+await page.waitForFunction(()=>window.appAudit?.ready,{timeout:180000});
+console.log('READY: isolated real Desktop',meta.tag);
+const rpc=(method,args={})=>page.evaluate(({method,args})=>window.appAudit.rpc(method,args),{method,args});
+await fs.writeFile(`${root}/apps.json`,JSON.stringify(await rpc('desktop_apps'),null,2));
+const results=[];
+const note=(app,test,ok,detail)=>{results.push({app,test,ok,detail});console.log(ok?'PASS':'FAIL',app,test,JSON.stringify(detail??'').slice(0,300));return ok};
+const call=(wid,action,args={})=>rpc('desktop_call',{window_id:wid,action,args});
+const read=async wid=>(await rpc('desktop_read',{window_id:wid})).result?.state;
+const open=async(app,args={})=>{const r=await rpc('desktop_open',{app,...args});note(app,'open',r.success&&r.result?.status==='ready',r);return r.result?.window_id};
+const snapshot=async(app,wid,suffix='after')=>{const r=await rpc('desktop_screenshot',{window_id:wid});if(r.path)await fs.copyFile(r.path,`${root}/evidence/${app}-${suffix}-tool.png`);await page.locator(`[data-window-id="${wid}"]`).screenshot({path:`${root}/evidence/${app}-${suffix}-visible.png`});note(app,'screenshot',r.success,{path:r.path,error:r.error});return r};
+const until=async(fn,timeout=15000)=>{const end=Date.now()+timeout;while(Date.now()<end){const v=await fn();if(v)return v;await new Promise(r=>setTimeout(r,150))}return false};
+const frame=async wid=>await page.locator(`[data-window-id="${wid}"] iframe`).first().contentFrame();
+const work=meta.workspace;
+const close=async wid=>{if(wid)await call(wid,'$close')};
+for(const w of (await rpc('desktop_windows')).result?.windows??[])await close(w.window_id);
+await fs.rm(root+'/llm-done.json',{force:true});
+await fs.rm(root+'/llm-windows.json',{force:true});
+try{
+ const terminal=await open('terminal');await until(async()=> (await read(terminal))?.connected);
+ const text=await open('text-viewer',{path:work+'/audit.txt'});
+ const pdf=await open('pdf-viewer',{path:work+'/audit.pdf'});
+ const untouched=await open('text-viewer',{path:work+'/audit-untouched.txt'});
+ await fs.writeFile(root+'/llm-windows.json',JSON.stringify({terminal,text,pdf,untouched}));
+ console.log('LLM_VIEWPORT_READY; start llm.py with AUDIT_OUTPUT='+root);
+ const deadline=Date.now()+600000;
+ while(true){try{await fs.access(root+'/llm-done.json');break}catch{}if(Date.now()>deadline)throw new Error('Start llm.py with the same AUDIT_OUTPUT; timed out waiting for model');await new Promise(r=>setTimeout(r,1000))}
+ const terminalState=await read(terminal);const textState=await call(text,'getText');const pdfState=await read(pdf);
+ note('llm','terminal observed output',terminalState.output.split('AGENT_LLM_OK 42').length>=3,terminalState);
+ note('llm','text saved actual file',(await fs.readFile(work+'/audit.txt','utf8')).trim()==='Agent operated this exact editor.',textState);
+ note('llm','pdf current page',pdfState.page===2,pdfState);
+ note('llm','unrelated editor unchanged',(await fs.readFile(work+'/audit-untouched.txt','utf8')).trim()==='DO NOT CHANGE THIS EDITOR');
+ for(const [id,wid] of Object.entries({terminal,text,pdf,untouched}))await snapshot('llm-'+id,wid);
+ await fs.writeFile(root+'/llm-acceptance.json',JSON.stringify({results,errors},null,2));
+}finally{await browser.close()}
+
+if(results.some(r=>!r.ok)||errors.length)process.exitCode=1;

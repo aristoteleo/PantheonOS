@@ -331,6 +331,23 @@ async def test_script_expected_image_is_forwarded_without_losing_null_guard(nati
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("update", [True, False])
+async def test_script_forwards_explicit_hierarchy_notification_policy(native, update):
+    manager, _ = native
+    await manager.launch("qupath", "win-refresh")
+    bridge = Mock()
+    bridge.ready.return_value = {"capabilities": ["script"]}
+    bridge.call = AsyncMock(return_value={"state": "queued", "request_id": "refresh"})
+    manager.sessions["win-refresh"].bridge = bridge
+    await manager.call("win-refresh", "run_script", {
+        "script": "return 42", "update_hierarchy": update, "request_id": "refresh", "wait_s": 0,
+    })
+    bridge.call.assert_awaited_once_with("script", {
+        "script": "return 42", "thread": "worker", "args": [], "update_hierarchy": update,
+    }, request_id="refresh", timeout=0)
+
+
+@pytest.mark.asyncio
 async def test_status_heartbeat_never_queues_state_or_script(native):
     manager, _ = native
     await manager.launch("qupath", "win-bridge")

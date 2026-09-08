@@ -8,6 +8,9 @@ GUI state. Keep that token while preparing an operation; do not refresh it
 blindly after a mismatch. ROI changes and exports below require this guard.
 Use the `request_id` to retrieve a pending result. These examples operate on
 the selected window's live image, not a newly loaded copy from disk.
+Pass `update_hierarchy=False` for the inspection and export examples below;
+leave it `True` (the default) for the rectangle annotation mutation. Disabling
+the automatic notification preserves any unsaved changes already present.
 
 The methods below were checked against the QuPath 0.7.0 source. Official
 references: [scripting](https://qupath.readthedocs.io/en/stable/docs/scripting/overview.html),
@@ -114,3 +117,48 @@ GeoJSON preserves object properties as well as shape coordinates; exports use
 full-resolution image pixels with a top-left origin. A rendered screenshot
 has a different coordinate system. See the official
 [annotation export guide](https://qupath.readthedocs.io/en/stable/docs/advanced/exporting_annotations.html).
+
+## Save the current image data
+
+Pass a new absolute workspace `.qpdata` path as `args=[outputPath]`, the checked
+`expected_image`, and `update_hierarchy=False`. This saves annotations and
+other image data, not a copy of the source slide. Check the file and then
+`desktop_read`'s `image.changed` before requesting a normal close. For a
+project workflow, use the project's save operation instead of assuming that
+a standalone `.qpdata` export also updates the project entry.
+
+```groovy
+def image = getCurrentImageData()
+if (image == null) throw new IllegalStateException('No image is open')
+def target = new File(args[0])
+if (!target.isAbsolute() || target.exists() || !target.getParentFile().isDirectory())
+    throw new IllegalArgumentException('Provide a new absolute path in an existing directory')
+qupath.lib.io.PathIO.writeImageData(target, image)
+if (!target.isFile() || target.length() == 0)
+    throw new IOException('Image data was not saved')
+return [path: target.getPath(), bytes: target.length(), changed: image.isChanged()]
+```
+
+## Enter text in a verified focused field
+
+JavaFX's native X11 key path cannot represent non-BMP characters reliably.
+For such text, first focus the intended input through its native child
+`window_id` and inspect its screenshot. Run this on `thread="fx"` with
+`update_hierarchy=False`, the checked `expected_image`, and
+`args=[expectedWindowTitle, text]`. Supply the exact current title from
+`desktop_read`; a title/focus mismatch fails without typing. This changes the
+existing field's selection, without executing or submitting it. Confirm the
+returned text or screenshot before the next action.
+
+```groovy
+def windows = javafx.stage.Window.getWindows().findAll { it.isFocused() }
+if (windows.size() != 1 || !(windows[0] instanceof javafx.stage.Stage) ||
+    windows[0].getTitle() != args[0])
+    throw new IllegalStateException('The expected window is not focused')
+def field = windows[0].getScene().getFocusOwner()
+if (!(field instanceof javafx.scene.control.TextInputControl) ||
+    !field.isEditable() || field.isDisabled())
+    throw new IllegalStateException('The focused control is not an editable text field')
+field.replaceSelection(args[1])
+return [window: windows[0].getTitle(), fieldId: field.getId(), text: field.getText()]
+```

@@ -69,16 +69,13 @@ export async function setup(lv, root) {
 
   async function applyState(state) {
     if (!state || !state.genome) {
-      root.innerHTML =
-        '<div style="padding:24px;color:#666;font:13px system-ui">' +
-        'No genome — set state.genome (e.g. "hg38").</div>'
-      return
+      throw new Error('State must include a genome (e.g. "hg38").')
     }
     const key = configKey(state)
     // Same genome + tracks: only locus may differ — navigate in place.
     if (browser && key === lastConfigKey) {
       if (state.locus) {
-        try { await browser.search(state.locus) } catch (e) { /* unknown symbol → silent */ }
+        if (!await browser.search(state.locus)) throw new Error('Locus not found: ' + state.locus)
       }
       return
     }
@@ -89,16 +86,19 @@ export async function setup(lv, root) {
     }
     root.innerHTML = ''
     browser = await window.igv.createBrowser(root, {
-      genome: state.genome,
+      ...(typeof state.genome === 'object' ? { reference: state.genome } : { genome: state.genome }),
       locus: state.locus,
       tracks: state.tracks || [],
     })
+    // createBrowser can resolve after falling back from an unknown locus.
+    // The search API explicitly returns false rather than throwing for it.
+    if (state.locus && !await browser.search(state.locus)) throw new Error('Locus not found: ' + state.locus)
     lastConfigKey = key
   }
 
   lv.onState((state, info) => {
     if (info && info.reason === 'emit') return
-    applyState(state).catch((e) =>
+    return applyState(state).catch((e) =>
       lv.fail('IGV: ' + ((e && e.message) || e)),
     )
   })

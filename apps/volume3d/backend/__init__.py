@@ -71,11 +71,10 @@ def _write_synthetic_ngff(out_dir: Path) -> None:
     else:
         from zarr.storage import LocalStore
         root = zarr.open_group(store=LocalStore(str(out_dir)), mode="w", zarr_format=2)
-    try:
+    if hasattr(root, "create_array"):
+        root.create_array("0", data=vol, chunks=(48, 48, 48))
+    else:
         root.create_dataset("0", data=vol, chunks=(48, 48, 48))
-    except TypeError:
-        a = root.create_array("0", shape=vol.shape, dtype=vol.dtype, chunks=(48, 48, 48))
-        a[...] = vol
     root.attrs["multiscales"] = [{
         "version": "0.4",
         "name": "synthetic",
@@ -94,7 +93,9 @@ def _write_synthetic_ngff(out_dir: Path) -> None:
 def register(ctx):
     async def _synthetic_state() -> dict:
         out = ctx.workspace / CACHE_DIR / f"example-{CACHE_VERSION}" / "volume.ome.zarr"
-        if not (out / ".zgroup").exists():
+        # A failed writer may leave the group marker before any voxel data.
+        # Only reuse a complete pyramid; retrying must repair that cache.
+        if not all((out / name).is_file() for name in (".zgroup", ".zattrs", "0/.zarray")):
             out.parent.mkdir(parents=True, exist_ok=True)
             _write_synthetic_ngff(out)
         return {

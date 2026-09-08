@@ -13,7 +13,7 @@
       "dom"
     ]
   },
-  "notes": "Bundled headed App — the browser's own PDF engine renders the served URL; no backend.",
+  "notes": "Bundled PDF.js renderer with generic Desktop read, page/zoom actions, text extraction and actual canvas snapshots.",
   "opens": [
     ".pdf"
   ],
@@ -28,5 +28,32 @@
   "defaultSize": {
     "width": 820,
     "height": 700
-  }
+  },
+  "sharedState": [
+    "page",
+    "zoom"
+  ],
+  "actions": [
+    {
+      "name": "setPage",
+      "params": {
+        "page": "number"
+      },
+      "description": "Render a page in this PDF window (one-based)."
+    },
+    {
+      "name": "setZoom",
+      "params": {
+        "zoom": "number"
+      },
+      "description": "Render this PDF at a scale from 0.25 to 4."
+    },
+    {
+      "name": "getText",
+      "params": {
+        "page": "number"
+      },
+      "description": "Read text from a page of the currently opened PDF; defaults to the visible page."
+    }
+  ]
 }

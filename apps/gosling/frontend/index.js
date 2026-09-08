@@ -302,8 +302,6 @@ export async function setup(lv, root) {
     // the width, which would re-embed a shorter figure, which drops the scrollbar…
     // a flicker loop. The 24px threshold (> a scrollbar) breaks it.
     if (specKey === lastSpecKey && Math.abs(availW - lastRenderedW) < 24) return
-    lastSpecKey = specKey
-    lastRenderedW = availW
     const spec = clone(rawSpec)
     // Lift title/subtitle into our styled header and drop them from the spec so
     // Gosling doesn't render its own plain title (which leaves a big gap).
@@ -325,6 +323,8 @@ export async function setup(lv, root) {
     // asking for 'dark' unconditionally.
     const gosTheme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'
     api = await embed(mount, spec, { theme: gosTheme, padding: 6, margin: 0, ...(rawOptions || {}) })
+    lastSpecKey = specKey
+    lastRenderedW = availW
   }
 
   // Serialise renders — a state change and a resize must not interleave their
@@ -334,6 +334,7 @@ export async function setup(lv, root) {
     rendering = rendering
       .then(render)
       .catch((e) => lv.fail('Gosling: ' + ((e && e.message) || e)))
+    return rendering
   }
 
   // The figure is embedded once, so a theme change has to ask for it again.
@@ -354,7 +355,7 @@ export async function setup(lv, root) {
     }
     rawSpec = state.spec
     rawOptions = state.options
-    requestRender()
+    return requestRender()
   })
 
   // Re-fit when the panel is resized (debounced); the key check skips the

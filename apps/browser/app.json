@@ -13,5 +13,37 @@
       "dom"
     ]
   },
-  "notes": "Frontend implementation lives in pantheon-ui (src/desktop/apps) until the UI phase moves it here; this manifest is the definition."
+  "notes": "Frontend implementation lives in pantheon-ui (src/desktop/apps) until the UI phase moves it here; this manifest is the definition.",
+  "actions": [
+    {
+      "name": "navigate",
+      "description": "Navigate this browser window.",
+      "params": {
+        "url": "absolute URL"
+      }
+    },
+    {
+      "name": "back",
+      "description": "Go back one page."
+    },
+    {
+      "name": "forward",
+      "description": "Go forward one page."
+    },
+    {
+      "name": "reload",
+      "description": "Reload the current page."
+    },
+    {
+      "name": "newPage",
+      "description": "Show a fresh page in this window.",
+      "params": {
+        "url": "optional absolute URL"
+      }
+    },
+    {
+      "name": "close",
+      "description": "Close this browser window."
+    }
+  ]
 }

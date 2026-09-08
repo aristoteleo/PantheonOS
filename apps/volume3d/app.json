@@ -29,6 +29,13 @@
     {
       "name": "loadExample",
       "description": "Show a synthetic volume"
+    },
+    {
+      "name": "loadDataset",
+      "description": "Load a catalog dataset in this window; synthetic is a small local fixture.",
+      "params": {
+        "id": "dataset id from app_call(app_id, datasets), or synthetic"
+      }
     }
   ],
   "caps": {

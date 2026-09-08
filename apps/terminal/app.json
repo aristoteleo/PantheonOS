@@ -21,5 +21,29 @@
         "pty@1"
       ]
     }
-  }
+  },
+  "actions": [
+    {
+      "name": "run",
+      "description": "Type a command into this window’s PTY and press Enter.",
+      "params": {
+        "command": "command line without a trailing newline"
+      }
+    },
+    {
+      "name": "input",
+      "description": "Send raw input into this window’s PTY without appending Enter.",
+      "params": {
+        "data": "literal text or escape sequences"
+      }
+    },
+    {
+      "name": "interrupt",
+      "description": "Send Ctrl-C to this window’s PTY."
+    },
+    {
+      "name": "clear",
+      "description": "Clear the terminal display."
+    }
+  ]
 }
