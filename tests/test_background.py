@@ -616,7 +616,7 @@ class TestAgentBackgroundIntegration:
     """Agent-level tests: tool registration, _background param injection, schema correctness."""
 
     def _get_tools_sync(self, agent):
-        return asyncio.get_event_loop().run_until_complete(agent.get_tools_for_llm())
+        return asyncio.run(agent.get_tools_for_llm())
 
     def _make_agent_with_tool(self, **agent_kwargs):
         from pantheon.agent import Agent

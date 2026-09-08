@@ -1054,6 +1054,34 @@ class Agent:
 
         return self
 
+    async def _list_provider_tools(self):
+        """Discover remote App metadata concurrently, preserving provider order.
+
+        MCP clients can be task-bound; only ToolSetProvider gets a separate
+        task. Every started task is drained even if the caller is cancelled.
+        """
+        from .providers import ToolSetProvider
+
+        providers = list(self.providers.items())
+        remote_tasks = {
+            name: asyncio.create_task(provider.list_tools())
+            for name, provider in providers
+            if isinstance(provider, ToolSetProvider)
+        }
+        try:
+            for name, provider in providers:
+                try:
+                    tools = await remote_tasks[name] if name in remote_tasks else await provider.list_tools()
+                except Exception as e:
+                    logger.warning(f"Failed to list tools from provider '{name}': {e}")
+                    continue
+                yield name, provider, tools
+        finally:
+            for task in remote_tasks.values():
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*remote_tasks.values(), return_exceptions=True)
+
     async def get_tools_for_llm(self) -> list[dict]:
         """Get all tools for LLM - includes _base_functions and provider tools
 
@@ -1080,12 +1108,9 @@ class Agent:
         from .providers import MCPProvider
 
         mcp_tool_names: set[str] = set()
-        for provider_name, provider in self.providers.items():
+        async for provider_name, provider, tools in self._list_provider_tools():
             is_mcp_provider = isinstance(provider, MCPProvider)
             try:
-                # Get tools from provider (uses cached list if available)
-                tools = await provider.list_tools()
-
                 # All providers must provide inputSchema as the complete "function" part
                 for tool_info in tools:
                     # inputSchema must be present (design contract with providers)
@@ -1285,28 +1310,26 @@ class Agent:
         # print shrinked args
         short_args = f"{args}"[:100]
         logger.info(f"Calling tool {prefixed_name} | {short_args}")
-        # 1. Collect all available tool names
-        all_tools: dict[str, str] = {}  # tool_name -> source ("base" or provider_name)
-        for name in self._base_functions.keys():
-            all_tools[name] = "base"
-        for provider_name, provider in self.providers.items():
-            try:
-                tools = await provider.list_tools()
-                for tool_info in tools:
-                    full_name = f"{provider_name}__{tool_info.name}"
-                    all_tools[full_name] = provider_name
-            except Exception as e:
-                logger.warning(
-                    f"Failed to list tools from provider '{provider_name}': {e}"
-                )
-
-        # 2. Match tool name (exact match first, then suffix match)
+        # Exact routes never probe unrelated providers. Validate an explicitly
+        # qualified method against only its target's advertised whitelist; a
+        # missing method must not suffix-match a different provider.
+        all_tools: dict[str, str] = dict.fromkeys(self._base_functions, "base")
         resolved_name = None
-        if prefixed_name in all_tools:
+        if prefixed_name in self._base_functions:
+            resolved_name = prefixed_name
+        elif "__" in prefixed_name and prefixed_name.split("__", 1)[0] in self.providers:
+            provider_name, tool_name = prefixed_name.split("__", 1)
+            tools = await self.providers[provider_name].list_tools()
+            if not any(tool.name == tool_name for tool in tools):
+                raise ValueError(f"Tool '{tool_name}' not found in provider '{provider_name}'")
+            all_tools[prefixed_name] = provider_name
             resolved_name = prefixed_name
         else:
-            # Suffix matching: find tools ending with the given name
-            for name in all_tools.keys():
+            # Legacy unqualified/suffix names retain registration-order priority.
+            async for provider_name, _, tools in self._list_provider_tools():
+                for tool_info in tools:
+                    all_tools[f"{provider_name}__{tool_info.name}"] = provider_name
+            for name in all_tools:
                 if name.endswith(prefixed_name):
                     resolved_name = name
                     logger.warning(

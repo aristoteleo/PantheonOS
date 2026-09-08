@@ -9,6 +9,7 @@ This module provides implementations for different tool sources:
 import asyncio
 import json
 import os
+import time
 from threading import Lock
 from typing import Any, Callable, Optional
 
@@ -34,6 +35,15 @@ _SKIP_PARAMS = [_CTX_VARS_NAME, "_call_agent"]
 # surfaces a tool error instead of blocking. Both are env-tunable.
 _MCP_LIST_TOOLS_TIMEOUT = float(os.getenv("PANTHEON_MCP_LIST_TIMEOUT_S", "30"))
 _MCP_CALL_TOOL_TIMEOUT = float(os.getenv("PANTHEON_MCP_CALL_TIMEOUT_S", "120"))
+
+
+# Remote metadata only: never change real tool execution deadlines or retries.
+_TOOLSET_DISCOVERY_TIMEOUT = 15.0
+_TOOLSET_DISCOVERY_RETRY_DELAY = 30.0
+
+
+class _DiscoveryInvalidated(Exception):
+    """A schema response belongs to a retired cache generation."""
 
 
 class MCPProvider(ToolProvider):
@@ -532,6 +542,11 @@ class ToolSetProvider(ToolProvider):
         self._tool_descriptions: dict[
             str, dict
         ] = {}  # name -> tool_desc for parameter filtering
+        self._discovery_generation = 0
+        self._discovery_task: asyncio.Task | None = None
+        self._discovery_waiters: dict[asyncio.Task, int] = {}
+        self._discovery_error: Exception | None = None
+        self._discovery_retry_at = 0.0
 
     @property
     def toolset_name(self):
@@ -543,74 +558,94 @@ class ToolSetProvider(ToolProvider):
         # This avoids calling list_tools during Agent creation
         pass
 
+    def invalidate_cache(self):
+        """Refresh on next use, including during cooldown or an in-flight load.
+
+        Old responses cannot repopulate the cache or its failure cooldown.
+        Existing waiters follow the new generation once their old load settles.
+        """
+        self._discovery_generation += 1
+        self._tools_cache = None
+        self._tool_descriptions = {}
+        self._discovery_error = None
+        self._discovery_retry_at = 0.0
+        self._discovery_task = None
+
     async def _ensure_tool_descriptions(self):
-        """Lazily load tool descriptions for parameter filtering."""
-        if self._tool_descriptions:
-            return  # Already loaded
-        
-        try:
-            tools_response = await self.toolset_proxy.list_tools()
-            tools_list = tools_response.get("tools", [])
-            for tool in tools_list:
-                if isinstance(tool, dict):
-                    self._tool_descriptions[tool.get("name", "")] = tool
-        except Exception as e:
-            logger.warning(f"Failed to load tool descriptions: {e}")
+        # Empty success is cached too. Schemas and parameter descriptions must
+        # come from the same response, not two independent RPCs.
+        await self.list_tools()
 
     async def list_tools(self) -> list[ToolInfo]:
-        """List all available tools from the ToolSet"""
-        if self._tools_cache is not None:
-            return self._tools_cache
+        """Share one metadata load; retry failures after a bounded cooldown.
 
+        Cancellation is not failure. The last waiter cancels and drains its
+        load, leaving no unowned refresh after the calling agent task ends.
+        """
+        while True:
+            if self._tools_cache is not None:
+                return self._tools_cache
+            if self._discovery_error is not None and time.monotonic() < self._discovery_retry_at:
+                raise self._discovery_error
+            task = self._discovery_task
+            if task is None:
+                task = asyncio.create_task(self._load_tools(self._discovery_generation))
+                self._discovery_task = task
+            self._discovery_waiters[task] = self._discovery_waiters.get(task, 0) + 1
+            try:
+                return await asyncio.shield(task)
+            except _DiscoveryInvalidated:
+                continue
+            finally:
+                remaining = self._discovery_waiters[task] - 1
+                if remaining:
+                    self._discovery_waiters[task] = remaining
+                else:
+                    del self._discovery_waiters[task]
+                    if self._discovery_task is task:
+                        self._discovery_task = None
+                    if not task.done():
+                        task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+
+    async def _load_tools(self, generation: int) -> list[ToolInfo]:
         try:
-            import json
             from pantheon.funcdesc.desc import Description
             from .utils.misc import desc_to_openai_dict
 
-            # Get tools from the toolset proxy
-            # ToolSet.list_tools() returns: {"success": True, "tools": [...]}
-            tools_response = await self.toolset_proxy.list_tools()
+            async with asyncio.timeout(_TOOLSET_DISCOVERY_TIMEOUT):
+                tools_response = await self.toolset_proxy.list_tools()
             tools_list = tools_response.get("tools", [])
-
-            # Convert to ToolInfo objects with pre-generated OpenAI schema
             tool_infos = []
+            descriptions = {}
             for tool in tools_list:
                 try:
-                    # tool is already a dict serialized from Description.to_json()
-                    # Reconstruct Description object from the JSON dict
-                    tool_json = json.dumps(tool)
-                    desc = Description.from_json(tool_json)
-
-                    # Generate OpenAI format schema using desc_to_openai_dict
-                    oai_dict = desc_to_openai_dict(
-                        desc, skip_params=[], relaxed_schema=True
-                    )
-
-                    # Extract the "function" part (without "type": "function")
-                    function_schema = oai_dict.get("function", {})
-
-                    tool_info = ToolInfo(
-                        name=desc.name,
-                        description=desc.doc or "",
-                        inputSchema=function_schema,  # Store "function" part directly
-                    )
-                    tool_infos.append(tool_info)
+                    desc = Description.from_json(json.dumps(tool))
+                    oai_dict = desc_to_openai_dict(desc, skip_params=[], relaxed_schema=True)
+                    tool_infos.append(ToolInfo(
+                        name=desc.name, description=desc.doc or "",
+                        inputSchema=oai_dict.get("function", {}),
+                    ))
+                    descriptions[desc.name] = tool
                 except Exception as e:
                     logger.warning(
                         f"Failed to convert ToolSet tool '{tool.get('name', 'unknown')}': {e}"
                     )
-                    # Skip this tool instead of adding a fake ToolInfo
-
-            # Cache results
+            if generation != self._discovery_generation:
+                raise _DiscoveryInvalidated()
             self._tools_cache = tool_infos
-            logger.debug(
-                f"ToolSetProvider{self.toolset_name} listed {len(tool_infos)} tools: {[tool.name for tool in tool_infos]}"
-            )
-
+            self._tool_descriptions = descriptions
+            self._discovery_error = None
+            self._discovery_retry_at = 0.0
             return tool_infos
-
+        except _DiscoveryInvalidated:
+            raise
         except Exception as e:
-            logger.error(f"Failed to list tools from ToolSet: {e}")
+            if generation != self._discovery_generation:
+                raise _DiscoveryInvalidated() from e
+            self._discovery_error = e
+            self._discovery_retry_at = time.monotonic() + _TOOLSET_DISCOVERY_RETRY_DELAY
+            logger.warning(f"Failed to discover tools from ToolSet '{self.toolset_name}': {e}")
             raise
 
     async def call_tool(self, name: str, args: dict) -> Any:
@@ -643,5 +678,10 @@ class ToolSetProvider(ToolProvider):
 
     async def shutdown(self):
         """Clean up provider resources"""
-        # ToolSet proxy cleanup is handled by ChatRoom
-        logger.info(f"ToolSetProvider shut down")
+        self.invalidate_cache()
+        tasks = list(self._discovery_waiters)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        # ToolSet proxy cleanup is handled by ChatRoom.
+        logger.info("ToolSetProvider shut down")
