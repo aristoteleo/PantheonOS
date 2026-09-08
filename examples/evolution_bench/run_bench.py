@@ -59,13 +59,14 @@ def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=N
                                 seed=seed)
     if name == "simpletes":
         return SimpleTES(num_chains=2, k_candidates=2, num_inspirations=2,
-                         selector="rpucg", seed=seed)
+                         selector=(ln_opts or {}).get("tes_selector") or "rpucg", seed=seed)
     if name == "lab_notebook":
         # Inner steps use SimpleTES's k=2 / 2-inspiration settings above, so the two arms differ
         # only in the outer loop: K short trajectories per cycle instead of two long chains.
         ln = dict(ideas_per_cycle=4, steps_per_trajectory=2, k_candidates=2,
                   num_inspirations=2, seed=seed)
-        ln.update({k: v for k, v in (ln_opts or {}).items() if v is not None})   # ablation knobs
+        ln.update({k: v for k, v in (ln_opts or {}).items()
+                   if v is not None and k != "tes_selector"})   # ablation knobs
         return LabNotebook(**ln)
     raise SystemExit(f"unknown method {name!r}")
 
@@ -129,9 +130,9 @@ async def main(a) -> None:
             judge.load(a.judge_state)
     sched = {k: getattr(a, k) for k in ("t0", "t1", "beta0", "gamma")
              if getattr(a, k) is not None}
-    ln_opts = {"ideas": a.ln_ideas, "notebook": not a.ln_no_notebook, "digest": not a.ln_no_digest,
+    ln_opts = {"ideas": a.ln_ideas, "notebook": not a.ln_no_notebook, "digest": not a.ln_no_digest, "selector": a.ln_selector,
                "ideas_per_cycle": a.ln_ideas_per_cycle, "steps_per_trajectory": a.ln_steps,
-               "k_candidates": a.ln_k, "p_best_parent": a.ln_p_best}
+               "k_candidates": a.ln_k, "p_best_parent": a.ln_p_best, "tes_selector": a.tes_selector}
     method = build_method(a.method, a.seed, judge=judge, norm=a.norm, sched=sched, ln_opts=ln_opts,
                           low_fidelity=(a.inner_fidelity or cfg.get("inner_fidelity")) == "low")
 
@@ -412,6 +413,10 @@ if __name__ == "__main__":
     p.add_argument("--ln-steps", type=int, default=None, help="steps per trajectory (T)")
     p.add_argument("--ln-k", type=int, default=None, help="candidates per step (k)")
     p.add_argument("--ln-p-best", type=float, default=None)
+    p.add_argument("--ln-selector", choices=["balance", "puct", "rpucg"], default="balance",
+                   help="inspiration selector for LabNotebook's inner steps")
+    p.add_argument("--tes-selector", choices=["balance", "puct", "rpucg"], default=None,
+                   help="selector for --method simpletes (default rpucg)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--tool-budget", type=int, default=28)
     p.add_argument("--code-variator", default=None, choices=["agent", "completion"])

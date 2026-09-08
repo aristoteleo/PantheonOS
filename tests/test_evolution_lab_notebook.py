@@ -231,3 +231,25 @@ class TestAblationSwitches:
     def test_bad_ideas_mode_is_rejected(self):
         with pytest.raises(ValueError):
             LabNotebook(ideas="random")
+
+
+class TestSelectorKnob:
+    """The inner steps can use any of the port's selectors; the tree policy only matters once a
+    trajectory outgrows the inspiration count."""
+
+    def test_rpucg_runs_and_round_trips_when_chains_outgrow_inspirations(self):
+        m = LabNotebook(ideas_per_cycle=1, steps_per_trajectory=4, k_candidates=2,
+                        num_inspirations=2, seed=3, selector="rpucg")
+        assert m.selector.name == "rpucg"
+        res, fake, var = run_recording(m, budget=10)
+        assert res.items_run > 0
+        st = m.state_dict()
+        assert st["selector"] == "rpucg" and isinstance(st["selector_state"], dict)
+        m2 = LabNotebook(ideas_per_cycle=1, steps_per_trajectory=4, k_candidates=2,
+                         num_inspirations=2, seed=3, selector="rpucg")
+        m2.load_state_dict(st)
+        assert m2.selector.state_dict() == m.selector.state_dict()
+
+    def test_unknown_selector_is_rejected(self):
+        with pytest.raises(ValueError):
+            LabNotebook(selector="random")

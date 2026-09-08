@@ -54,7 +54,7 @@ from ..core.genome import CodeGenome, TextGenome
 from ..core.individual import Individual, Ranking
 from ..core.method import BaseMethod, EvolveContext
 from ..core.work import Create, Failure, Measurement, PromptContext
-from .simpletes import Selector, UpstreamCompletionVariator, score_of
+from .simpletes import Selector, UpstreamCompletionVariator, score_of, SELECTORS
 
 IDEA = "idea"
 CODE = "code"
@@ -183,6 +183,7 @@ class LabNotebook(BaseMethod):
         ideas: str = "model",
         notebook: bool = True,
         digest: bool = True,
+        selector: str = "balance",
     ):
         # Ablation switches. `ideas`: "model" (the Propose call), "none" (K parallel short
         # trajectories with no idea injected -- the structure without the steering), or
@@ -205,7 +206,12 @@ class LabNotebook(BaseMethod):
         self.score_key, self.valid_key = score_key, valid_key
         self.history_window = history_window
         self.rng = random.Random(seed)
-        self.selector = Selector()
+        # SimpleTES's inspiration selector for the inner steps. It only gets to choose when a
+        # trajectory's chain outgrows num_inspirations (T >= 3 with two inspirations); the tree
+        # policies (puct, rpucg) also need observe() per ask and on_commit() per resolved batch.
+        if selector not in SELECTORS:
+            raise ValueError(f"selector must be one of {sorted(SELECTORS)}, got {selector!r}")
+        self.selector = SELECTORS[selector]()
 
         self.understanding: str = ""
         self.history: List[Dict[str, Any]] = []
@@ -525,6 +531,7 @@ class LabNotebook(BaseMethod):
         items: List[Create] = []
         if not self.seed_id:
             return items
+        self.selector.observe(ctx, self.score_key)
         if not self._live() and not self.open:
             if not await self._open_cycle(ctx):
                 return items
@@ -600,6 +607,7 @@ class LabNotebook(BaseMethod):
         if scored:
             scored.sort(reverse=True)
             t.chain.append(scored[0][1])
+            self.selector.on_commit(b.traj_idx, b.parent_ids, scored[0][0])
         if t.steps_done >= self.T:
             t.finished = True
 
@@ -616,7 +624,7 @@ class LabNotebook(BaseMethod):
     # ---- persistence -----------------------------------------------------------
 
     def state_dict(self) -> Dict[str, Any]:
-        return {
+        return {"selector": self.selector.name, "selector_state": self.selector.state_dict(),
             "understanding": self.understanding, "history": list(self.history),
             "references": list(self.references), "ideas": dict(self.ideas),
             "cycle": self.cycle, "cycle_parent": self.cycle_parent,
@@ -629,6 +637,7 @@ class LabNotebook(BaseMethod):
         }
 
     def load_state_dict(self, state: Dict[str, Any]) -> None:
+        self.selector.load_state_dict(state.get("selector_state", {}))
         self.understanding = state.get("understanding", "")
         self.history = list(state.get("history", []))
         self.references = list(state.get("references", []))
