@@ -152,6 +152,8 @@ def main() -> None:
     ap.add_argument("--no-stream-k", action="store_true", help="upstream's --no-stream-k-candidates")
     ap.add_argument("--llm-timeout", type=int, default=900, help="per-request timeout passed to the engine (its default is 3000 s)")
     ap.add_argument("--llm-retry", type=int, default=1)
+    ap.add_argument("--checkpoint-interval", type=int, default=5,
+                    help="engine checkpoint every N evaluations (its --log-interval), so a preempted arm can resume")
     ap.add_argument("--engine-python", default=None,
                     help="interpreter to run the engine with (its own venv); skips the pip install")
     a = ap.parse_args()
@@ -212,8 +214,14 @@ def main() -> None:
     cmd += ["--timeout", str(a.llm_timeout), "--retry", str(a.llm_retry)]
     if a.no_stream_k:
         cmd.append("--no-stream-k-candidates")
+    cmd += ["--log-interval", str(a.checkpoint_interval)]
     if not a.reflection:
         cmd.append("--disable-reflection")
+    # Modal re-runs a preempted call from the top; resume from the latest checkpoint instead
+    prior = sorted((out / "checkpoints").glob("*/instance-*"), key=lambda d: d.stat().st_mtime)
+    if prior and any(prior[-1].rglob("nodes.json*")):
+        cmd += ["--resume", str(prior[-1])]
+        print(f"resuming from {prior[-1]}", flush=True)
     print("=" * 78)
     print(f"UPSTREAM SimpleTES @ {UPSTREAM_SHA[:8]} | task={a.task} | model={a.model} | "
           f"generations={a.generations}")
