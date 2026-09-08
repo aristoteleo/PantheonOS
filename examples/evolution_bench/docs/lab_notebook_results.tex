@@ -424,7 +424,7 @@ included, which the engine's own checkpoint does not keep).
 SimpleTES's search has five knobs, and the study runs the engine under two settings of them:
 
 \begin{center}\small
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{34mm}>{\raggedright\arraybackslash}p{30mm}>{\raggedright\arraybackslash}p{30mm}>{\raggedright\arraybackslash}p{58mm}@{}}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{28mm}>{\raggedright\arraybackslash}p{24mm}>{\raggedright\arraybackslash}p{26mm}>{\raggedright\arraybackslash}p{58mm}@{}}
 \toprule
 knob & \emph{port-mirror} & \emph{authors' defaults} & what it does \\
 \midrule
@@ -434,10 +434,10 @@ inspirations & 2 & 5 & reference programs shown in the prompt beside the parent 
 selector & rpucg & balance & the policy that picks those references from the database (rpucg is the engine's UCB-style rule; balance is its default exploitation/exploration mix) \\
 reflection & off & on & an extra model call that writes a short reflection on each batch-best program and feeds it into later prompts \\
 \midrule
-seed evaluation & \multicolumn{2}{l}{once (engine default: 16 repeats, max kept)} & \\
-candidates & \multicolumn{2}{l}{100 (60 on C1), each one request in the engine's streaming mode} & \\
-tokens & \multicolumn{2}{l}{64k output per request; 3.5\,M completion-token cap} & \\
-evaluation & \multicolumn{2}{l}{our evaluator, 300 s; AHC039 on the shared eval server} & \\
+seed evaluation & \multicolumn{3}{>{\raggedright\arraybackslash}p{112mm}}{both: once (the engine's default is 16 repeats, max kept)} \\
+candidates & \multicolumn{3}{>{\raggedright\arraybackslash}p{112mm}}{both: 100 (60 on C1), each one request in the engine's streaming mode} \\
+tokens & \multicolumn{3}{>{\raggedright\arraybackslash}p{112mm}}{both: 64k output per request; 3.5\,M completion-token cap} \\
+evaluation & \multicolumn{3}{>{\raggedright\arraybackslash}p{112mm}}{both: our evaluator, 300 s; AHC039 on the shared eval server} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -452,8 +452,8 @@ spread of each other, the comparison with LabNotebook stands as measured; if eit
 setting is clearly stronger, the honest baseline becomes that setting.
 
 Two accounting facts to keep in view when reading the tokens column: the engine's token cap counts
-completion tokens only, so its arms consume more total tokens than our 3.5\,M prompt+completion
-cap (3.1--6.7\,M on the finished arms); and the engine rejects a reply that drops the
+completion tokens only, so its arms consume more total tokens than our 3.5\,M cap on prompt
+and completion together (3.1--6.7\,M on the finished arms); and the engine rejects a reply that drops the
 \texttt{EVOLVE-BLOCK} markers or comes back empty --- with this model that is common (1--60
 rejections per arm so far) and it counts against the candidate budget, as the authors' contract
 intends.
@@ -468,7 +468,7 @@ notebook itself comes from one \call{Understand} call at the start. Each ablatio
 references --- unchanged:
 
 \begin{center}\small
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{26mm}>{\raggedright\arraybackslash}p{50mm}>{\raggedright\arraybackslash}p{30mm}>{\raggedright\arraybackslash}p{46mm}@{}}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{24mm}>{\raggedright\arraybackslash}p{46mm}>{\raggedright\arraybackslash}p{27mm}>{\raggedright\arraybackslash}p{44mm}@{}}
 \toprule
 variant & what changes & calls per cycle & what it tests \\
 \midrule
