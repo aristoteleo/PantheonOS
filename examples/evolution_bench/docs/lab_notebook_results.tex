@@ -405,6 +405,113 @@ figure also carries the tokens of its interrupted runs). The five notebook calls
 that; the cost is the $K\,T\,k=16$ operator completions per cycle. An earlier note in this document
 called LabNotebook the cheapest method; that was read from partial arms and is withdrawn.
 
+\subsection{Baseline fidelity and ablations (in progress)}
+\label{sec:parts}
+
+Two follow-up studies address the two objections to the comparison above: that our SimpleTES
+is a port, and that nothing yet attributes LabNotebook's results to its design.
+
+\paragraph{Part 1 --- the authors' engine.} The original SimpleTES engine (pinned commit
+\texttt{a19a54b}) runs on our tasks through an adapter: our evaluator, our model, the same
+candidate and token caps, the seed measured once, evaluations on the same eval server for AHC039,
+every request's tokens booked (rejected generations included). Two configurations: a
+\emph{port-mirror} (2 chains, $k{=}2$, 2 inspirations, rpucg, no reflection --- what our port
+ran) and the \emph{authors' defaults} (4 chains, $k{=}4$, 5 inspirations, balance selector,
+reflection on). Tasks: the ones where LabNotebook claimed a win (C2, sums vs differences,
+Heilbronn convex), C1 as a tie control, and AHC039 in the block below.
+
+\paragraph{Part 2 --- ablations.} Each switch removes exactly one model call of the method:
+\emph{no ideas} (the $K$ parallel short trajectories run with the plain objective --- the
+structure without the steering), \emph{one long trajectory} ($K{=}1$, $T{=}8$, same calls per
+cycle), \emph{no notebook} (no Understand/Update), \emph{no digest} (numbers only in the history).
+On AHC039 --- where the effect to explain is largest --- all of these run as one block of three
+waves, each wave one seed with every method (upstream, fresh LabNotebook, fresh port, four
+ablations) on its own eval server, so within a wave every method sees the same machine and the
+waves are blocked replicates; warm-up evaluation and a 20-minute seed drift probe calibrate the
+three servers.
+
+\begin{table}[H]\centering\small
+\caption{Part 1 snapshot (2026-09-08 16:30 PDT): best per arm (s0 / s1 / s2) and mean. Dashes are
+arms still running; the upstream engine keeps no partial results.}
+\label{tab:part1}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\multicolumn{5}{@{}l}{\textbf{$C_2$} (↑)} \\
+group & s0 & s1 & s2 & mean \\
+\midrule
+LabNotebook & 0.9248 & 0.9106 & 0.9185 & 0.9180 \\
+our SimpleTES port & 0.9101 & 0.9079 & 0.9139 & 0.9106 \\
+upstream, port-mirror & 0.9269 & --- & --- & 0.9269 \\
+upstream, authors' defaults & 0.9120 & --- & --- & 0.9120 \\
+\midrule
+\multicolumn{5}{@{}l}{\textbf{sums vs differences} (↑)} \\
+\midrule
+LabNotebook & 1.0668 & 1.0865 & 1.0621 & 1.0718 \\
+our SimpleTES port & 1.0668 & 1.0677 & 1.0621 & 1.0655 \\
+upstream, port-mirror & --- & --- & --- & --- \\
+upstream, authors' defaults & 1.0668 & --- & --- & 1.0668 \\
+\midrule
+\multicolumn{5}{@{}l}{\textbf{Heilbronn convex $n{=}13$} (ratio, ↑)} \\
+\midrule
+LabNotebook & 0.8520 & 1.0000 & 0.8905 & 0.9142 \\
+our SimpleTES port & 0.9158 & 0.8676 & 0.8833 & 0.8889 \\
+upstream, port-mirror & 0.8877 & --- & --- & 0.8877 \\
+upstream, authors' defaults & 0.8554 & --- & --- & 0.8554 \\
+\midrule
+\multicolumn{5}{@{}l}{\textbf{$C_1$ control} (↓)} \\
+\midrule
+LabNotebook & 1.51063 & 1.51267 & 1.50947 & 1.51093 \\
+our SimpleTES port & 1.50941 & 1.51148 & 1.51088 & 1.51059 \\
+upstream, port-mirror & 1.51467 & 1.51120 & --- & 1.51294 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{lab_notebook_figs/part1_upstream_vs_port.png}
+\caption{Part 1 snapshot. On every finished arm the authors' engine lands inside our port's
+replicate range (one C2 port-mirror arm above LabNotebook's mean); nothing so far indicates the
+port is a weaker baseline than the original.}
+\end{figure}
+
+\begin{table}[H]\centering\small
+\caption{Part 2 snapshot (same time). $^\circ$ = still running (best so far, a lower bound).
+AHC039 arms are a few hours into $\sim$14; their bests are not yet informative.}
+\label{tab:part2}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\multicolumn{5}{@{}l}{\textbf{$C_2$} (↑)} \\
+group & s0 & s1 & s2 & mean \\
+\midrule
+LabNotebook (full) & 0.9248 & 0.9106 & 0.9185 & 0.9180 \\
+no ideas & 0.9064$^\circ$ & 0.9096 & 0.9103 & 0.9087 \\
+one long trajectory & 0.9065$^\circ$ & 0.9163$^\circ$ & 0.9172$^\circ$ & 0.9133 \\
+\midrule
+\multicolumn{5}{@{}l}{\textbf{sums vs differences} (↑)} \\
+\midrule
+LabNotebook (full) & 1.0668 & 1.0865 & 1.0621 & 1.0718 \\
+no ideas & 1.0668 & 1.0754$^\circ$ & 1.0865$^\circ$ & 1.0762 \\
+one long trajectory & 1.0773$^\circ$ & 1.0960$^\circ$ & 1.0744$^\circ$ & 1.0825 \\
+\midrule
+\multicolumn{5}{@{}l}{\textbf{AHC039 block} (official points; all arms running)} \\
+\midrule
+LabNotebook (full) & 3684$^\circ$ & 3736$^\circ$ & 3702$^\circ$ & 3707 \\
+our port & 3694$^\circ$ & 3301$^\circ$ & --- & --- \\
+no ideas & 3697$^\circ$ & --- & --- & --- \\
+one long trajectory & 3689$^\circ$ & 3710$^\circ$ & --- & --- \\
+no notebook & 3708$^\circ$ & 3695$^\circ$ & 3705$^\circ$ & 3703 \\
+no digest & 3702$^\circ$ & 3697$^\circ$ & 3675$^\circ$ & 3691 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{lab_notebook_figs/part2_ablations.png}
+\caption{Part 2 snapshot. Removing the ideas holds C2 at the seed where the full method moved;
+on sums vs differences it does not hurt, and the single long trajectory is the best variant so
+far. The AHC039 block, where the effect to explain is largest, is a few hours in.}
+\end{figure}
+
 \subsection{Reading the results}
 
 \begin{itemize}
