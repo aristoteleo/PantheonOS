@@ -24,6 +24,12 @@ class FakeEngine:
             raise KeyError("no browser pages are open")
         return list(self.pages.values())[-1]
 
+    def window_binding(self, token):
+        return self.get(token)
+
+    async def current_window_page(self, anchor):
+        return anchor
+
     def get(self, page_id):
         if page_id not in self.pages:
             raise KeyError(f"no such page: {page_id}")
@@ -61,7 +67,7 @@ def test_window_id_resolves_to_its_active_page(toolset, store):
 def test_new_tab_window_explains_the_way_forward(toolset, store):
     engine = FakeEngine({})
     win = browser_window(store, [None], 0)
-    with pytest.raises(KeyError, match="browser_open"):
+    with pytest.raises(KeyError, match="no live page"):
         toolset._resolve_page(engine, win)
 
 
@@ -95,28 +101,6 @@ def test_unknown_id_lists_open_pages(toolset, store):
     engine = FakeEngine({"pg-9": "P9"})
     with pytest.raises(KeyError, match="pg-9"):
         toolset._resolve_page(engine, "nope")
-
-
-def test_adopt_takes_over_the_empty_new_tab_slot(toolset, store):
-    win = browser_window(store, [None], 0)
-    toolset._adopt_page_into_window(win, "pg-7")
-    shared = store.session.windows[win]["args"]["shared"]["v"]
-    assert shared["pages"] == ["pg-7"]
-    assert shared["active"] == 0
-
-
-def test_adopt_appends_when_every_tab_is_real(toolset, store):
-    win = browser_window(store, ["pg-1"], 0)
-    toolset._adopt_page_into_window(win, "pg-7")
-    shared = store.session.windows[win]["args"]["shared"]["v"]
-    assert shared["pages"] == ["pg-1", "pg-7"]
-    assert shared["active"] == 1
-
-
-def test_adopt_refuses_a_non_browser_window(toolset, store):
-    win = store.apply("open", {"app_id": "files"})[1]["window_id"]
-    with pytest.raises(ValueError, match="not a Browser"):
-        toolset._adopt_page_into_window(win, "pg-7")
 
 
 def test_volume_caches_are_evicted_but_the_login_state_is_not():
@@ -216,3 +200,59 @@ def test_an_action_that_cannot_be_carried_out_says_so():
                 {"t": "key"}, {"t": "teleport", "x": 1, "y": 1}):
         with pytest.raises(ValueError):
             input_events([bad])
+
+
+def test_seamless_page_binding_wins_over_legacy_state(toolset, store):
+    win = browser_window(store, ["stale-page"], 0)
+    store.apply("set", {"window_id": win, "patch": {"args": {"shared": {"v": {"page": "visible-page"}}}}})
+    engine = FakeEngine({"stale-page": "WRONG", "visible-page": "VISIBLE"})
+    assert toolset._resolve_page(engine, win) == "VISIBLE"
+
+
+def test_window_resolution_refreshes_shared_document(toolset, store, tmp_path):
+    win = browser_window(store, ["stale-page"], 0)
+    other = DesktopSessionStore(work_dir=tmp_path)
+    other.load()
+    other.apply("set", {"window_id": win, "patch": {"args": {"shared": {"v": {"page": "visible-page"}}}}})
+    assert toolset._resolve_page(FakeEngine({"visible-page": "VISIBLE"}), win) == "VISIBLE"
+
+
+@pytest.mark.asyncio
+async def test_open_in_explicit_window_reuses_existing_native_page(toolset, store, monkeypatch):
+    page = SimpleNamespace(id="pg-shared", url="https://example.com", title=AsyncMock(return_value="Shared"))
+    engine = FakeEngine({page.id: page})
+    engine.open_page = AsyncMock()
+    engine.navigate = AsyncMock()
+    async def call(coro): return await coro
+    engine.call = call
+    monkeypatch.setattr(toolset, "_browser_engine", lambda: engine)
+    win = browser_window(store, [], 0)
+    store.apply("set", {"window_id": win, "patch": {"args": {"shared": {"v": {"page": page.id}}}}})
+    result = await toolset.browser_open("https://example.com/search", window_id=win)
+    assert result["success"] and result["reused"]
+    assert result["page_id"] == page.id and result["window_id"] == win
+    engine.navigate.assert_awaited_once_with(page.id, "goto", "https://example.com/search")
+    engine.open_page.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_invalid_explicit_window_never_creates_replacement(toolset, monkeypatch):
+    engine = FakeEngine({"other": "UNRELATED"})
+    engine.open_page = AsyncMock()
+    monkeypatch.setattr(toolset, "_browser_engine", lambda: engine)
+    reply = await toolset.browser_open("https://example.com", window_id="win-missing")
+    assert not reply["success"]
+    engine.open_page.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_retried_native_popup_creates_one_durable_host(toolset, store, monkeypatch):
+    publish = AsyncMock()
+    monkeypatch.setattr(toolset, "_publish_desktop", publish)
+    child = SimpleNamespace(id="stable-popup-binding")
+    await toolset._show_popup_page(child)
+    await toolset._show_popup_page(child)
+    assert len(store.session.windows) == 1
+    window = next(iter(store.session.windows.values()))
+    assert window["args"]["shared"]["v"]["page"] == child.id
+    publish.assert_awaited_once()

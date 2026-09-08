@@ -442,6 +442,13 @@ class AppInstanceResolver:
         in that project — per-project isolation by separate processes rather
         than per-call cwd steering.
         """
+        # The desktop owns one display, Chromium profile and native-app
+        # registry per workspace. Agent binding defaults to scope="app",
+        # while the UI supplies a project scope; neither may mint a second
+        # desktop process against the same display/profile.
+        if service_type == "desktop":
+            workdir = self._workdir
+            scope = "app"
         key = (service_type, scope)
         if key in self._started:
             return self._started[key]
@@ -464,7 +471,8 @@ class AppInstanceResolver:
                         f"subject (creds/scope?)"
                     )
             spec_env = {k: v for k, v in os.environ.items()
-                        if k.startswith("NATS_") or k in ("PYTHONPATH", "PATH")}
+                        if k.startswith("NATS_") or k in (
+                            "PYTHONPATH", "PATH", "PANTHEON_BROWSER_PROFILE_RECOVERY")}
             # Cross-node placement: this process may reach NATS by an
             # address other nodes cannot (a cluster-internal service, say).
             # The deployment hands the instance-facing address separately;

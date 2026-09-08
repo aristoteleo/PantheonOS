@@ -5,7 +5,50 @@
   "apiVersion": 2,
   "description": "Native QuPath for digital pathology and whole-slide image analysis.",
   "surface": "dom",
-  "entry": {"frontend": "ui:qupath"},
-  "placement": {"requires": ["dom"]},
-  "notes": "Native QuPath runs on the shared Xpra display; the desktop frontend lives in pantheon-ui."
+  "entry": {
+    "frontend": "ui:qupath"
+  },
+  "placement": {
+    "requires": [
+      "dom"
+    ]
+  },
+  "notes": "Native QuPath runs on the shared Xpra display; the desktop frontend lives in pantheon-ui.",
+  "skill": "SKILL.md",
+  "actions": [
+    {
+      "name": "status",
+      "description": "Read this QuPath session and its current GUI image, project, viewer and object summary.",
+      "params": {
+        "annotation_limit": "integer, 0\u20132000 (default 200)"
+      }
+    },
+    {
+      "name": "focus",
+      "description": "Focus this QuPath window."
+    },
+    {
+      "name": "close",
+      "description": "Request normal close; preserve QuPath Save/Cancel dialogs."
+    },
+    {
+      "name": "run_script",
+      "description": "Run Groovy against this open QuPath GUI, including unsaved image state. Returns a request id; use script_status after a wait timeout.",
+      "params": {
+        "script": "Groovy source",
+        "thread": "worker (default) | fx",
+        "args": "string[]",
+        "request_id": "optional unique string, retained for idempotency within this GUI session",
+        "wait_s": "0\u201310 seconds (default 2); a timeout does not cancel execution",
+        "expected_image": "optional image_token from desktop_read/status; null requires no image to be open"
+      }
+    },
+    {
+      "name": "script_status",
+      "description": "Read the result of an existing script request without executing it again.",
+      "params": {
+        "request_id": "string"
+      }
+    }
+  ]
 }

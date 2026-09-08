@@ -280,6 +280,99 @@ async def test_close_waits_for_startup_and_status_does_not_report_false_exit(nat
 
 
 @pytest.mark.asyncio
+async def test_bridge_launch_is_private_and_restart_rotates_credentials(native):
+    manager, spawn = native
+    first = await manager.launch("qupath", "win-bridge")
+    first_env = spawn.call_args.kwargs["env"]
+    assert "qupath.startup.script=" in first_env["JAVA_TOOL_OPTIONS"]
+    token = first_env["PANTHEON_QUPATH_BRIDGE_TOKEN"]
+    assert token not in str(first) and token not in first_env["JAVA_TOOL_OPTIONS"]
+    assert manager.sessions["win-bridge"].bridge is not None
+    manager.sessions["win-bridge"].process.returncode = 0
+    await manager.launch("qupath", "win-bridge")
+    new_env = spawn.call_args.kwargs["env"]
+    assert new_env["PANTHEON_QUPATH_BRIDGE_TOKEN"] != token
+    assert new_env["PANTHEON_QUPATH_BRIDGE_DIR"] != first_env["PANTHEON_QUPATH_BRIDGE_DIR"]
+
+
+@pytest.mark.asyncio
+async def test_live_bridge_actions_keep_pending_request_identity(native):
+    manager, _ = native
+    await manager.launch("qupath", "win-bridge")
+    bridge = Mock()
+    bridge.ready.return_value = {"capabilities": ["state", "script", "script_status"], "qupath_version": "0.7.0"}
+    bridge.call = AsyncMock(return_value={"request_id": "owned-request", "state": "running", "wait_timed_out": True})
+    bridge.request_status.return_value = {"request_id": "owned-request", "state": "succeeded", "result": 42}
+    manager.sessions["win-bridge"].bridge = bridge
+    result = await manager.call("win-bridge", "run_script", {"script": "42", "request_id": "owned-request"})
+    assert result["state"] == "running" and result["request_id"] == "owned-request"
+    bridge.call.assert_awaited_once_with("script", {"script": "42", "thread": "worker", "args": []}, request_id="owned-request", timeout=2)
+    poll = await manager.call("win-bridge", "script_status", {"request_id": "owned-request"})
+    assert poll["state"] == "succeeded" and poll["result"] == 42
+    assert bridge.call.await_count == 1
+    bridge.request_status.assert_called_once_with("owned-request")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expected", [None, "image-identity-token"])
+async def test_script_expected_image_is_forwarded_without_losing_null_guard(native, expected):
+    manager, _ = native
+    await manager.launch("qupath", "win-guarded")
+    bridge = Mock()
+    bridge.ready.return_value = {"capabilities": ["script"]}
+    bridge.call = AsyncMock(return_value={"state": "queued", "request_id": "guarded"})
+    manager.sessions["win-guarded"].bridge = bridge
+    await manager.call("win-guarded", "run_script", {
+        "script": "return 42", "expected_image": expected, "request_id": "guarded", "wait_s": 0,
+    })
+    bridge.call.assert_awaited_once_with("script", {
+        "script": "return 42", "thread": "worker", "args": [], "expected_image": expected,
+    }, request_id="guarded", timeout=0)
+
+
+@pytest.mark.asyncio
+async def test_status_heartbeat_never_queues_state_or_script(native):
+    manager, _ = native
+    await manager.launch("qupath", "win-bridge")
+    bridge = Mock()
+    bridge.ready.return_value = {"capabilities": ["state", "script", "script_status"], "qupath_version": "0.7.0"}
+    bridge.call = AsyncMock(return_value={"state": "running", "request_id": "read-request"})
+    manager.sessions["win-bridge"].bridge = bridge
+    result = await manager.status("win-bridge")
+    assert result["bridge_ready"] and result["qupath_version"] == "0.7.0"
+    bridge.call.assert_not_called()
+    await manager.read("win-bridge", annotation_limit=50)
+    bridge.call.assert_awaited_once_with("state", {"annotation_limit": 50}, timeout=2)
+    await manager.call("win-bridge", "status", {"annotation_limit": 10})
+    bridge.call.assert_awaited_with("state", {"annotation_limit": 10}, timeout=2)
+
+
+@pytest.mark.asyncio
+async def test_bridge_actions_fail_explicitly_before_ready_or_after_exit(native):
+    manager, _ = native
+    await manager.launch("qupath", "win-bridge")
+    with pytest.raises(RuntimeError, match="still starting"):
+        await manager.call("win-bridge", "run_script", {"script": "42"})
+    manager.sessions["win-bridge"].process.returncode = 0
+    with pytest.raises(ValueError, match="not running"):
+        await manager.read("win-bridge")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wait_s", [-1, 11, True, "2"])
+async def test_public_script_wait_is_bounded(native, wait_s):
+    manager, _ = native
+    await manager.launch("qupath", "win-bridge")
+    bridge = Mock()
+    bridge.ready.return_value = {"capabilities": ["script"]}
+    bridge.call = AsyncMock()
+    manager.sessions["win-bridge"].bridge = bridge
+    with pytest.raises(ValueError, match="wait_s"):
+        await manager.call("win-bridge", "run_script", {"script": "42", "wait_s": wait_s})
+    bridge.call.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_cancelled_launch_cleans_owned_process(native, monkeypatch):
     manager, spawn = native
     manager._find_main_window.return_value = None

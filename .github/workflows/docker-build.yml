@@ -107,6 +107,7 @@ jobs:
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: ${{ env.BUILD_CONTEXT }}
@@ -166,14 +167,14 @@ jobs:
           echo "Testing image basic functionality..."
           docker run --rm \
             --entrypoint python \
-            ${{ env.DOCKER_IMAGE }}:latest \
-            -c "import pantheon; print(f'✓ Pantheon version: {pantheon.__version__}')"
+            "${{ env.DOCKER_IMAGE }}:sha-${GITHUB_SHA::7}" \
+            -c "import pantheon; from pathlib import Path; from pantheon.apps.registry import by_app_id; from pantheon.apps.builtin.desktop.native_control import NativeWindowController; app = by_app_id()['qupath']; assert (Path(app.dir) / 'bridge/startup.groovy').is_file(); assert (Path(app.dir) / app.manifest.skill).is_file(); print(f'✓ Pantheon version: {pantheon.__version__}; native controls and QuPath bridge packaged')"
 
       - name: Image scan with Trivy
         if: github.event_name != 'pull_request'
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.DOCKER_IMAGE }}:latest
+          image-ref: ${{ env.DOCKER_IMAGE }}@${{ steps.build.outputs.digest }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'

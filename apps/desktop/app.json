@@ -115,7 +115,7 @@
       },
       {
         "name": "browser_open",
-        "description": "Open a real browser page (Chromium in this sandbox) and, by default,\n        show it to the user as a Browser window on their desktop.\n\n        THE PAGE IS SHARED. The user sees it live and can click, type and log\n        in; you drive the SAME page with browser_goto / browser_click /\n        browser_type / browser_read. When a site needs a login, open it, ask\n        the user to sign in, then continue — the profile (cookies, sessions)\n        persists in the sandbox.\n\n        Args:\n            url: address to load (https:// is assumed when the scheme is\n                missing). Empty opens a blank page.\n            show: also open the desktop Browser window (needs an Atrium\n                desktop on this chat). Pass False to browse headlessly.\n            window_id: an EXISTING Browser window to open the page in — the\n                page appears there as a tab (taking over an empty New Tab)\n                instead of a new window. This is how \"search in THIS browser\n                window\" is done.\n\n        Returns `page_id` for the other browser_* tools, plus url/title, and\n        `window_id` when a desktop window was opened or reused.\n        ",
+        "description": "Open a real browser page (Chromium in this sandbox) and, by default,\n        show it to the user as a Browser window on their desktop.\n\n        THE PAGE IS SHARED. The user sees it live and can click, type and log\n        in; you drive the SAME page with browser_goto / browser_click /\n        browser_type / browser_read. When a site needs a login, open it, ask\n        the user to sign in, then continue — the profile (cookies, sessions)\n        persists in the sandbox.\n\n        Args:\n            url: address to load (https:// is assumed when the scheme is\n                missing). Empty opens a blank page.\n            show: also open the desktop Browser window (needs an Atrium\n                desktop on this chat). Pass False to browse headlessly.\n            window_id: an EXISTING Browser window to reuse. Navigates its\n                current shared page, preserving its native window. An unknown\n                or closed target fails without creating a replacement.\n\n        Returns `page_id` for the other browser_* tools, plus url/title, and\n        `window_id` when a desktop window was opened or reused.\n        ",
         "params": [
           {
             "name": "url",
@@ -362,6 +362,24 @@
           }
         ],
         "hidden": true
+      },
+      {
+        "name": "desktop_act",
+        "description": "Operate an existing native desktop window, including browser chrome.\n\n        First use desktop_screenshot for native_window pixel coordinates.\n        Each action has type: click/rightclick/dblclick/move (x,y), drag\n        (x,y,to_x,to_y,duration_ms<=2000), wheel (x,y,delta_x/delta_y integer\n        steps), key (key='Ctrl+s'), or text (text, at most 2000 characters).\n        Up to 32 actions, validated before input. Native dialog window_ids\n        come from native_windows in desktop_read or desktop_screenshot.\n        Re-read/screenshot afterward to verify the actual effect. A failed\n        batch can have completed earlier actions; never retry blindly.\n        ",
+        "params": [
+          {
+            "name": "window_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "actions",
+            "type": "list[dict]",
+            "required": false,
+            "default": "not_defined"
+          }
+        ]
       },
       {
         "name": "desktop_anchor",
@@ -659,6 +677,31 @@
             "required": false
           }
         ]
+      },
+      {
+        "name": "native_ui_call",
+        "description": "UI: invoke the owned native session's same action adapter.",
+        "params": [
+          {
+            "name": "native_session_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "args",
+            "type": "dict",
+            "required": false,
+            "default": {}
+          }
+        ],
+        "hidden": true
       },
       {
         "name": "native_ui_close",

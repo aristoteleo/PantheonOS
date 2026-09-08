@@ -209,6 +209,7 @@ async def test_initial_navigation_runs_once_after_window_identity(monkeypatch, w
     engine._ensure_browser = AsyncMock()
     engine._open_windowed = AsyncMock(return_value=page)
     engine._attach = AsyncMock()
+    engine._bind_window = AsyncMock()
     engine._name_window = AsyncMock(side_effect=name)
     engine.reshape = AsyncMock()
 

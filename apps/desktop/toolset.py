@@ -29,6 +29,7 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any
 
 from pantheon.toolset import ToolSet, tool
@@ -285,8 +286,7 @@ class DesktopToolSet(ToolSet):
 
     def _package_screenshot(self, data_url: str, stem: str) -> dict:
         """Save a captured data URL and hand it back, inline when the model
-        can see images in tool results — shared by desktop_screenshot and
-        desktop_screenshot."""
+        can see images in tool results."""
         try:
             import base64
             from pathlib import Path
@@ -296,7 +296,7 @@ class DesktopToolSet(ToolSet):
             ext = "jpg" if "jpeg" in header else "png"
             snap_dir = get_settings().pantheon_dir / "live_view_snapshots"
             snap_dir.mkdir(parents=True, exist_ok=True)
-            path = snap_dir / f"{stem}-{int(time.time())}.{ext}"
+            path = snap_dir / f"{stem}-{int(time.time())}-{uuid.uuid4().hex[:12]}.{ext}"
             Path(path).write_bytes(base64.b64decode(b64))
         except Exception as e:  # noqa: BLE001
             return {"success": False, "error": f"failed to save snapshot: {e}"}
@@ -334,6 +334,18 @@ class DesktopToolSet(ToolSet):
         `path`. Use it to VERIFY after desktop_open / desktop_update: state
         alone does not prove the view looks right.
         """
+        try:
+            native = await self._native_target(window_id)
+            if native is not None:
+                from .native_control import NativeWindowController
+
+                engine, target, targets = native
+                shot = await engine.call(NativeWindowController(engine).screenshot(target["xid"]))
+                data_url = shot.pop("data_url")
+                return {**self._package_screenshot(data_url, "native-window"), **shot,
+                        "window_id": window_id, "native_windows": self._public_native_targets(targets)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
         anchor = self._presence().anchor_for(self._chat_id() or "")
         viewport_id = anchor.get("viewport_id")
         if not viewport_id:
@@ -992,7 +1004,15 @@ class DesktopToolSet(ToolSet):
         Call this when you need to name an app explicitly, or to see what
         can open a given file type.
         """
-        return await self._desktop_request("desktop.apps", {})
+        reply = await self._desktop_request("desktop.apps", {})
+        if reply.get("success"):
+            for app in (reply.get("result") or {}).get("apps", []):
+                metadata = self._builtin_app_metadata(app.get("app_id"))
+                if metadata:
+                    app["actions"] = sorted(set(app.get("actions") or []) | set(metadata["actions"]))
+                    if metadata.get("skill"):
+                        app["skill"] = metadata["skill"]
+        return reply
 
     @tool
     async def desktop_windows(self) -> dict:
@@ -1035,6 +1055,7 @@ class DesktopToolSet(ToolSet):
                 "window_id": wid,
                 "app_id": w.get("app_id"),
                 "name": w.get("app_id"),
+                **self._builtin_app_metadata(w.get("app_id")),
                 "title": w.get("title"),
                 "path": w.get("path") or None,
                 "space": w.get("space", 1),
@@ -1156,7 +1177,108 @@ class DesktopToolSet(ToolSet):
 
         Works on any packaged-app window, including ones the user opened.
         """
+        try:
+            w = self._desktop_window(window_id.split("::native:", 1)[0])
+            if w.get("app_id") == "qupath":
+                engine = self._browser_engine()
+                state = await engine.call(engine.native_apps().read(window_id.split("::native:", 1)[0]))
+                native = await self._native_target(window_id)
+                return {"success": self._native_result_ok(state), "result": {**state, "window_id": window_id,
+                        "native_windows": self._public_native_targets(native[2])}}
+            if w.get("app_id") == "browser":
+                engine = self._browser_engine()
+                session = await self._resolve_control_page(engine, window_id.split("::native:", 1)[0])
+                native = await self._native_target(window_id)
+                return {"success": True, "result": {"window_id": window_id,
+                        **await self._browser_page_info(session),
+                        "native_windows": self._public_native_targets(native[2])}}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
         return await self._desktop_request("desktop.read", {"window_id": window_id})
+
+    def _desktop_window(self, window_id: str) -> dict:
+        store = self._desktop()
+        store.current()
+        window = (store.session.windows or {}).get(window_id)
+        if not window:
+            raise KeyError(f"No such desktop window: {window_id}")
+        return window
+
+    @staticmethod
+    @lru_cache(maxsize=128)
+    def _builtin_app_metadata(app_id: str) -> dict:
+        from pathlib import Path
+        from pantheon.apps.registry import by_app_id
+
+        app = by_app_id().get(app_id)
+        if app is None:
+            return {}
+        manifest = app.manifest
+        skill = str(Path(app.dir) / manifest.skill) if manifest.skill and app.dir else None
+        return {"actions": [action["name"] for action in manifest.actions if "name" in action], "skill": skill,
+                "controllable": bool(manifest.actions) or app_id == "browser"}
+
+    @staticmethod
+    def _native_result_ok(result: dict) -> bool:
+        return result.get("success", True) is not False and result.get("state") not in {
+            "failed", "expired", "cancelled", "unknown",
+        }
+
+    @staticmethod
+    def _public_native_targets(targets: list[dict]) -> list[dict]:
+        return [{key: value for key, value in item.items() if key != "xid"} for item in targets]
+
+    async def _native_target(self, window_id: str):
+        from .native_targets import window_targets
+
+        parent_id = window_id.split("::native:", 1)[0]
+        w = self._desktop_window(parent_id)
+        if w.get("app_id") not in {"qupath", "browser"}:
+            if parent_id != window_id:
+                raise ValueError("This app has no native child windows")
+            return None
+        engine = self._browser_engine()
+        if w["app_id"] == "qupath":
+            status = await engine.call(engine.native_apps().status(parent_id))
+            if not status.get("running"):
+                raise RuntimeError("The requested native app session is not running")
+            window_class = status["window_class"]
+        else:
+            from .browser import PAGE_CLASS_PREFIX
+
+            binding = self._resolve_page(engine, parent_id)
+            window_class = getattr(binding, "window_class", PAGE_CLASS_PREFIX + binding.id)
+        targets = await asyncio.to_thread(window_targets, engine, parent_id, window_class)
+        target = next((item for item in targets if item["window_id"] == window_id), None)
+        if target is None:
+            raise ValueError("The requested native child window is no longer owned by this app")
+        return engine, target, targets
+
+    @tool
+    async def desktop_act(self, window_id: str, actions: list[dict]) -> dict:
+        """Operate an existing native desktop window, including browser chrome.
+
+        First use desktop_screenshot for native_window pixel coordinates.
+        Each action has type: click/rightclick/dblclick/move (x,y), drag
+        (x,y,to_x,to_y,duration_ms<=2000), wheel (x,y,delta_x/delta_y integer
+        steps), key (key='Ctrl+s'), or text (text, at most 2000 characters).
+        Up to 32 actions, validated before input. Native dialog window_ids
+        come from native_windows in desktop_read or desktop_screenshot.
+        Re-read/screenshot afterward to verify the actual effect. A failed
+        batch can have completed earlier actions; never retry blindly.
+        """
+        try:
+            from .native_control import NativeWindowController
+
+            native = await self._native_target(window_id)
+            if native is None:
+                raise ValueError("Use desktop_call for this app's declared actions")
+            engine, target, targets = native
+            result = await engine.call(NativeWindowController(engine).act(
+                target["xid"], actions, allowed_xids={item["xid"] for item in targets}))
+            return {**result, "window_id": window_id}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     @tool
     async def desktop_update(self, window_id: str, patch: dict) -> dict:
@@ -1223,6 +1345,16 @@ class DesktopToolSet(ToolSet):
             return {"success": False,
                     "error": "desktop_call needs an action name — desktop_windows() lists each "
                              "window's actions"}
+        try:
+            w = self._desktop_window(window_id)
+            if w.get("app_id") == "qupath":
+                engine = self._browser_engine()
+                native_action = "close" if action == "$close" else action
+                value = await engine.call(engine.native_apps().call(window_id, native_action, args or {}))
+                return {"success": self._native_result_ok(value), "result": value,
+                        "window_id": window_id, "action": action}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
         return await self._desktop_request(
             "desktop.call", {"window_id": window_id, "action": action, "args": args or {}},
             timeout=60.0)
@@ -1271,11 +1403,23 @@ class DesktopToolSet(ToolSet):
         return engine
 
     async def _show_popup_page(self, session) -> None:
-        """Give a popup's page a Browser window of its own."""
-        await self._desktop_request("desktop.open", {
-            "app": "browser", "path": "",
-            "state": {"page_id": session.id}, "window_id": "",
-        }, timeout=60.0)
+        """Persist one host per native popup binding, even after RPC retries."""
+        store = self._desktop()
+        store.current()
+        for window in (store.session.windows or {}).values():
+            args = window.get("args") or {}
+            token = ((args.get("shared") or {}).get("v") or {}).get("page") or args.get("page_id")
+            if window.get("app_id") == "browser" and token == session.id:
+                return
+        # The machine already owns this real native window. Publishing its
+        # durable host directly avoids an uncertain frontend request creating
+        # duplicate shells when a callback is retried after a timeout.
+        ops, _ = store.apply("open", {
+            "app_id": "browser", "title": "Browser", "width": 1100, "height": 800,
+            "args": {"page_id": session.id,
+                     "shared": {"by": "browser", "v": {"page": session.id}}},
+        })
+        await self._publish_desktop({"type": "desktop.delta", "seq": store.session.seq, "ops": ops})
 
     def _prewarm_browser(self) -> None:
         """Launch Chromium in the background, at most once."""
@@ -1305,9 +1449,18 @@ class DesktopToolSet(ToolSet):
             return engine.latest(page_id)
         except KeyError:
             if page_id:
-                w = (self._desktop().session.windows or {}).get(page_id)
+                store = self._desktop()
+                store.current()
+                w = (store.session.windows or {}).get(page_id)
                 if w and w.get("app_id") == "browser":
                     shared = ((w.get("args") or {}).get("shared") or {}).get("v") or {}
+                    # Seamless Browser hosts one native window. Its durable
+                    # page lives at `page`; pages/active is the legacy host.
+                    if "page" in shared:
+                        pid = shared.get("page")
+                        if pid:
+                            return engine.window_binding(pid)
+                        raise KeyError(f"Browser window '{page_id}' has no live page yet")
                     pages = list(shared.get("pages") or [])
                     idx = shared.get("active", 0)
                     pid = None
@@ -1318,42 +1471,26 @@ class DesktopToolSet(ToolSet):
                         return engine.get(pid)
                     raise KeyError(
                         f"'{page_id}' is a desktop Browser WINDOW whose active tab is an "
-                        f"empty New Tab — there is no page to drive yet. Call "
-                        f"browser_open(url, window_id='{page_id}') to open the page as a "
-                        "tab IN that window, then drive it by the returned page_id.")
+                        "empty New Tab with no live page. Wait for this window to finish "
+                        "opening and retry; do not create a replacement for an explicitly requested window.")
             known = sorted(getattr(engine, "pages", {}).keys())
             raise KeyError(
                 f"no such page: {page_id!r} — page ids come from browser_open "
                 f"(currently open: {known if known else 'none'}). A desktop window id "
                 "only resolves for Browser windows.")
 
-    def _adopt_page_into_window(self, window_id: str, page_id: str) -> dict:
-        """Show an engine page as a tab of an EXISTING Browser window.
-
-        The window's tab set lives in its shared app state (pages + active);
-        writing it through the session makes every viewport converge on the
-        new tab. An empty New Tab slot is taken over rather than left behind.
-        """
-        store = self._desktop()
-        w = (store.session.windows or {}).get(window_id)
-        if not w:
-            raise KeyError(f"no such window: {window_id}")
-        if w.get("app_id") != "browser":
-            raise ValueError(f"window {window_id} is {w.get('app_id')!r}, not a Browser window")
-        shared = ((w.get("args") or {}).get("shared") or {}).get("v") or {}
-        pages = list(shared.get("pages") or [])
-        idx = shared.get("active", 0)
-        if pages and isinstance(idx, int) and 0 <= idx < len(pages) and pages[idx] is None:
-            pages[idx] = page_id
-            active = idx
-        else:
-            pages.append(page_id)
-            active = len(pages) - 1
-        ops, _ = store.apply("set", {
-            "window_id": window_id,
-            "patch": {"args": {"shared": {"by": "agent", "v": {"pages": pages, "active": active}}}},
-        })
-        return {"ops": ops, "seq": store.session.seq}
+    async def _resolve_control_page(self, engine, reference: str = ""):
+        anchor = self._resolve_page(engine, reference)
+        if reference:
+            store = self._desktop()
+            store.current()
+            window = (store.session.windows or {}).get(reference)
+            if window and window.get("app_id") == "browser":
+                # A stable native window can contain user-created tabs which
+                # were never opened through browser_open. Resolve its visible
+                # tab without switching another window or changing WM_CLASS.
+                return await engine.call(engine.current_window_page(anchor))
+        return anchor
 
     async def _browser_page_info(self, session) -> dict:
         engine = self._browser_engine()
@@ -1380,10 +1517,9 @@ class DesktopToolSet(ToolSet):
                 missing). Empty opens a blank page.
             show: also open the desktop Browser window (needs an Atrium
                 desktop on this chat). Pass False to browse headlessly.
-            window_id: an EXISTING Browser window to open the page in — the
-                page appears there as a tab (taking over an empty New Tab)
-                instead of a new window. This is how "search in THIS browser
-                window" is done.
+            window_id: an EXISTING Browser window to reuse. Navigates its
+                current shared page, preserving its native window. An unknown
+                or closed target fails without creating a replacement.
 
         Returns `page_id` for the other browser_* tools, plus url/title, and
         `window_id` when a desktop window was opened or reused.
@@ -1392,19 +1528,19 @@ class DesktopToolSet(ToolSet):
             from .browser import normalize_url
 
             engine = self._browser_engine()
+            # "Use this window" navigates its existing page. Creating a new
+            # native Chromium window first both loses the user's target and
+            # can leave an unadopted window behind when resolution fails.
+            if window_id:
+                session = await self._resolve_control_page(engine, window_id)
+                if url:
+                    await engine.call(engine.navigate(session.id, "goto", normalize_url(url)))
+                return {"success": True, **await self._browser_page_info(session),
+                        "window_id": window_id, "reused": True}
             session = await engine.call(engine.open_page(normalize_url(url)))
             info = await self._browser_page_info(session)
             result: dict = {"success": True, **info}
-            if window_id:
-                adopted = self._adopt_page_into_window(window_id, session.id)
-                if adopted.get("ops"):
-                    await self._publish_desktop({
-                        "type": "desktop.delta",
-                        "seq": adopted["seq"],
-                        "ops": adopted["ops"],
-                    })
-                result["window_id"] = window_id
-            elif show:
+            if show:
                 shown = await self._desktop_request("desktop.open", {
                     "app": "browser", "path": "",
                     "state": {"page_id": session.id}, "window_id": "",
@@ -1424,7 +1560,7 @@ class DesktopToolSet(ToolSet):
         otherwise). The user watching the window sees the navigation live."""
         try:
             engine = self._browser_engine()
-            session = self._resolve_page(engine, page_id)
+            session = await self._resolve_control_page(engine, page_id)
             await engine.call(engine.navigate(session.id, "goto", url))
             return {"success": True, **await self._browser_page_info(session)}
         except Exception as e:
@@ -1439,7 +1575,7 @@ class DesktopToolSet(ToolSet):
             from .browser import READ_LIMIT
 
             engine = self._browser_engine()
-            session = self._resolve_page(engine, page_id)
+            session = await self._resolve_control_page(engine, page_id)
             text = await engine.call(session.page.evaluate(
                 "() => document.body ? document.body.innerText : ''"))
             if len(text) > READ_LIMIT:
@@ -1455,7 +1591,7 @@ class DesktopToolSet(ToolSet):
         role=... — any Playwright selector). 5s timeout when nothing matches."""
         try:
             engine = self._browser_engine()
-            session = self._resolve_page(engine, page_id)
+            session = await self._resolve_control_page(engine, page_id)
             await engine.call(session.page.click(selector, timeout=5000))
             return {"success": True, **await self._browser_page_info(session)}
         except Exception as e:
@@ -1469,7 +1605,7 @@ class DesktopToolSet(ToolSet):
         presses Enter afterwards."""
         try:
             engine = self._browser_engine()
-            session = self._resolve_page(engine, page_id)
+            session = await self._resolve_control_page(engine, page_id)
             await engine.call(session.page.fill(selector, text, timeout=5000))
             if submit:
                 await engine.call(session.page.press(selector, "Enter"))
@@ -1506,7 +1642,7 @@ class DesktopToolSet(ToolSet):
 
         try:
             engine = self._browser_engine()
-            session = self._resolve_page(engine, page_id)
+            session = await self._resolve_control_page(engine, page_id)
             events = input_events(list(actions or []))
             if not events:
                 return {"success": False, "error": "no actions"}
@@ -1527,7 +1663,7 @@ class DesktopToolSet(ToolSet):
         """
         try:
             engine = self._browser_engine()
-            session = self._resolve_page(engine, page_id)
+            session = await self._resolve_control_page(engine, page_id)
             where = str(to or "").strip().lower()
             if where in ("top", "bottom"):
                 y = 0 if where == "top" else 10 ** 7
@@ -1552,7 +1688,7 @@ class DesktopToolSet(ToolSet):
             from pathlib import Path as _Path
 
             engine = self._browser_engine()
-            session = self._resolve_page(engine, page_id)
+            session = await self._resolve_control_page(engine, page_id)
             rel = path or f"browser-shot-{int(_time.time())}.jpg"
             out = _Path(rel)
             if not out.is_absolute():
@@ -1607,6 +1743,16 @@ class DesktopToolSet(ToolSet):
             return {"success": False, "error": str(e)}
 
     @tool(exclude=True)
+    async def native_ui_call(self, native_session_id: str, action: str, args: dict = {}) -> dict:
+        """UI: invoke the owned native session's same action adapter."""
+        try:
+            engine = self._browser_engine()
+            value = await engine.call(engine.native_apps().call(native_session_id, action, args or {}))
+            return {"success": self._native_result_ok(value), "result": value}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @tool(exclude=True)
     async def native_ui_status(self, native_session_id: str) -> dict:
         """UI: check a native app without starting or replacing its process."""
         try:
@@ -1638,7 +1784,7 @@ class DesktopToolSet(ToolSet):
         try:
             engine = self._browser_engine()
             if page_id:
-                session = engine.get(page_id)
+                session = await engine.call(engine.window_page(page_id, require_visible=False))
             else:
                 from .browser import normalize_url
 
@@ -1651,6 +1797,8 @@ class DesktopToolSet(ToolSet):
             return {
                 "success": True,
                 **await self._browser_page_info(session),
+                "page_id": page_id or session.id,
+                "active_page_id": session.id,
                 "width": session.width,
                 "height": session.height,
                 # The stage needs the xpra binary AND a real display. Without
@@ -1666,9 +1814,10 @@ class DesktopToolSet(ToolSet):
         """UI → backend: toolbar navigation (goto/back/forward/reload/stop)."""
         try:
             engine = self._browser_engine()
-            await engine.call(engine.navigate(page_id, op, url))
-            return {"success": True,
-                    **await self._browser_page_info(engine.get(page_id))}
+            session = await engine.call(engine.window_page(page_id))
+            await engine.call(engine.navigate(session.id, op, url))
+            return {"success": True, **await self._browser_page_info(session),
+                    "page_id": page_id, "active_page_id": session.id}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -1677,7 +1826,7 @@ class DesktopToolSet(ToolSet):
         """UI → backend: the Browser window closed; drop its page."""
         try:
             engine = self._browser_engine()
-            await engine.call(engine.close_page(page_id))
+            await engine.call(engine.close_window(page_id))
             return {"success": True}
         except Exception as e:
             return {"success": False, "error": str(e)}

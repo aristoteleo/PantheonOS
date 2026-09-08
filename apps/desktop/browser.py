@@ -31,12 +31,46 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Any
 
 from pantheon.utils.log import logger
 
 # Schemes that carry their payload without "//": leave them untouched.
 _SCHEME_NO_SLASH = re.compile(r"^(data|about|blob|view-source|file):", re.I)
+
+# Public extension identity, not an authentication key. Chromium hashes this
+# DER public key to give the bundled, local-only tab observer a stable origin.
+_NATIVE_TABS_KEY = (
+    "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCtwLPyoPHrg0TvFeWQNZovXNnH9jwmlxUg"
+    "414N7sQbxjJQPAIwwA0QswQWV/0tLBlua7wqMJfwWjPebzut2aQWGCRwJ5rCdbBHnTw7"
+    "JE47JlWpOi5I7VjhxpxUFcvHkaBnktvJajnd8ssMXRXv+TF9Uq/pmfs5e6G0KIAQJIgvSwIDAQAB"
+)
+_NATIVE_TABS_SCRIPT = """
+// No content scripts, host permissions, external messages, or network calls.
+// These events wake the worker after Chromium suspends it.
+const wake = () => {};
+chrome.runtime.onStartup.addListener(wake);
+chrome.tabs.onActivated.addListener(wake);
+chrome.tabs.onCreated.addListener(wake);
+chrome.tabs.onRemoved.addListener(wake);
+chrome.tabs.onAttached.addListener(wake);
+chrome.tabs.onDetached.addListener(wake);
+globalThis.pantheonNativeTabs = async () => {
+    const tabs = await chrome.tabs.query({});
+    // getTargets only reads identities. Never attach an extension debugger:
+    // Playwright already owns the debugging connection.
+    const targets = await chrome.debugger.getTargets();
+    return tabs.map(tab => ({
+        windowId: tab.windowId, tabId: tab.id, active: tab.active,
+        targetIds: targets.filter(t => t.type === 'page' && t.tabId === tab.id).map(t => t.id)
+    }));
+};
+"""
+
+
+class BrowserProfileInUse(RuntimeError):
+    """Another owner, or an owner we cannot safely exclude, holds a profile."""
 
 
 #: Browser `KeyboardEvent.code` -> X keysym name. Position, not meaning: the
@@ -318,6 +352,16 @@ class PageSession:
             return ""
 
 
+@dataclass
+class BrowserWindowBinding:
+    """Stable native window identity; tab identities never replace this token."""
+
+    id: str
+    window_id: int
+    window_class: str
+    active_page_id: str | None = None
+
+
 class BrowserEngine:
     """The process-wide Chromium, on its own daemon loop."""
 
@@ -349,6 +393,13 @@ class BrowserEngine:
         # ones either come quickly or are not coming at all.
         self._cold_start = True
         self._launch_lock = asyncio.Lock()
+        self._page_adoption_lock = asyncio.Lock()
+        self._window_bindings: dict[str, BrowserWindowBinding] = {}
+        self._pending_popups: dict[Any, PageSession] = {}
+        self._popup_announced: set[str] = set()
+        self._popup_announcing: dict[str, asyncio.Task] = {}
+        self._native_extension_dir = None
+        self._native_tabs_worker_url: str | None = None
         # Native applications share this display without launching Chromium.
         self._display_lock = asyncio.Lock()
         self._native_apps = None
@@ -371,6 +422,11 @@ class BrowserEngine:
         # Xlib's default locks are no-ops. Window workers and the engine's
         # input loop must never share a Display's request/reply socket.
         self._xdisplay_local = threading.local()
+        self._native_input_lock = threading.RLock()
+        # Kept until this process exits, including Chromium relaunches. Never
+        # unlink the flock file: a second inode would create a second owner.
+        self._profile_lock_fd: int | None = None
+        self._profile_lock_path: Path | None = None
         self._dialog_task = None  # keeps dialogs inside their own window
         self._named: set[str] = set()  # pages whose X window carries their id
         #: Seamless: set by the toolset; called with a popup's PageSession so
@@ -408,16 +464,136 @@ class BrowserEngine:
     # ── Chromium lifecycle (engine loop only) ────────────────────────────
 
     @staticmethod
-    def _clear_stale_locks(profile: Path) -> None:
-        """Drop the previous sandbox's ProcessSingleton files.
+    def _profile_process_owners(profile: Path) -> list[int]:
+        """Detect a pre-guard Chromium with this exact user-data-dir."""
+        import psutil
 
-        The profile lives on a volume that OUTLIVES the sandbox, so a pod
-        that dies without shutting Chromium down leaves its lock behind and
-        the next pod's Chromium refuses to start at all ("Failed to create
-        a ProcessSingleton for your profile directory"). Any lock we find
-        here is stale by construction: this process is the only one that
-        launches Chromium in this container, and it has not yet.
+        expected = profile.resolve()
+        owners = []
+        for process in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                info = process.info
+                command = info.get("cmdline")
+                name = str(info.get("name") or "").lower()
+                executable = Path(command[0]).name.lower() if command else ""
+                if not any(value in name or value in executable for value in ("chrome", "chromium")):
+                    continue
+                if not command:
+                    # Zombies have no executable and cannot own a live
+                    # profile. An unreadable live Chrome is not stale proof.
+                    if process.status() == psutil.STATUS_ZOMBIE:
+                        continue
+                    raise BrowserProfileInUse("Cannot inspect a running Chromium to establish profile ownership")
+                values = []
+                for index, arg in enumerate(command):
+                    if arg.startswith("--user-data-dir="):
+                        values.append(arg.split("=", 1)[1])
+                    elif arg == "--user-data-dir" and index + 1 < len(command):
+                        values.append(command[index + 1])
+                for value in values:
+                    path = Path(value)
+                    if not path.is_absolute():
+                        path = Path(process.cwd()) / path
+                    if path.resolve() == expected:
+                        owners.append(int(info["pid"]))
+                        break
+            except (psutil.NoSuchProcess, psutil.ZombieProcess):
+                continue
+            except psutil.AccessDenied as error:
+                raise BrowserProfileInUse("Cannot inspect a Chromium profile owner") from error
+        return owners
+
+    def _acquire_profile_lock(self, profile: Path) -> None:
+        """Claim a profile before policies, Xpra, cache cleanup or Chromium."""
+        import fcntl
+
+        profile = profile.resolve()
+        if self._profile_lock_fd is not None:
+            if self._profile_lock_path != profile:
+                raise BrowserProfileInUse("This browser engine already owns a different profile")
+            return
+        profile.mkdir(parents=True, exist_ok=True)
+        fd = os.open(profile / ".pantheon-owner.lock", os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0), 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            os.close(fd)
+            raise BrowserProfileInUse("The browser profile is already owned by another Desktop process") from error
+        except BaseException:
+            os.close(fd)
+            raise
+        self._profile_lock_fd = fd
+        self._profile_lock_path = profile
+
+    @classmethod
+    def _clear_stale_locks(cls, profile: Path) -> None:
+        """Remove only singleton artifacts whose old owner is demonstrably gone.
+
+        A mounted profile may be shared during a restart or by an old Desktop
+        process which predates our flock. Neither "my context is empty" nor a
+        PID absent from *this* container proves a foreign hostname is dead.
         """
+        import socket
+        import psutil
+
+        owners = cls._profile_process_owners(profile)
+        if owners:
+            raise BrowserProfileInUse("The browser profile is in use by a running Chromium")
+        lock = profile / "SingletonLock"
+        if lock.exists() or lock.is_symlink():
+            if not lock.is_symlink():
+                raise BrowserProfileInUse("Cannot establish whether the existing browser SingletonLock is stale")
+            target = os.readlink(lock)
+            try:
+                hostname, raw_pid = target.rsplit("-", 1)
+                pid = int(raw_pid)
+                if pid <= 0:
+                    raise ValueError
+            except (ValueError, TypeError) as error:
+                raise BrowserProfileInUse("Cannot interpret the existing browser SingletonLock owner") from error
+            exclusive_recovery = os.environ.get("PANTHEON_BROWSER_PROFILE_RECOVERY") == "exclusive-modal-sandbox-v1"
+            if hostname != socket.gethostname() and not exclusive_recovery:
+                raise BrowserProfileInUse(
+                    "The browser SingletonLock belongs to another host; its owner must be confirmed stopped before cleanup")
+            if hostname == socket.gethostname():
+                try:
+                    process = psutil.Process(pid)
+                    if process.is_running() and process.status() != psutil.STATUS_ZOMBIE:
+                        # A reused PID with a readable nonmatching command is not
+                        # the old Chromium. Verify its identity instead of simply
+                        # treating every extant PID as a browser owner.
+                        command = process.cmdline()
+                        name = process.name().lower()
+                        if any("chrome" in value.lower() or "chromium" in value.lower()
+                               for value in [name, Path(command[0]).name if command else ""]):
+                            raise BrowserProfileInUse("The browser SingletonLock still names a running Chromium")
+                except (psutil.NoSuchProcess, psutil.ZombieProcess):
+                    pass
+                except psutil.AccessDenied as error:
+                    raise BrowserProfileInUse("Cannot confirm the old browser process has exited") from error
+            # A foreign-host lock may be reclaimed only when the sandbox
+            # launcher established exclusive volume ownership. This attested
+            # mode never bypasses local process or singleton-socket checks.
+
+        # A live local singleton socket is additional ownership evidence even
+        # if SingletonLock was absent or damaged. Do not delete it.
+        singleton_socket = profile / "SingletonSocket"
+        if singleton_socket.exists() or singleton_socket.is_symlink():
+            client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                client.settimeout(0.1)
+                # Chromium uses a short /tmp socket target; the persistent
+                # profile path itself can exceed AF_UNIX's pathname limit.
+                client.connect(str(singleton_socket.resolve()))
+            except (FileNotFoundError, ConnectionRefusedError):
+                pass
+            except OSError as error:
+                raise BrowserProfileInUse("Cannot confirm the browser singleton socket is stale") from error
+            else:
+                raise BrowserProfileInUse("The browser singleton socket still has a live owner")
+            finally:
+                client.close()
+
         for name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
             path = profile / name
             try:
@@ -554,6 +730,14 @@ class BrowserEngine:
         self._browser_cdp = None
         self._cold_start = True
         self.pages.clear()
+        self._window_bindings.clear()
+        self._pending_popups.clear()
+        self._popup_announced.clear()
+        for task in self._popup_announcing.values():
+            task.cancel()
+        self._popup_announcing.clear()
+        self._named.clear()
+        self._windows.clear()
 
     async def _ensure_browser(self) -> None:
         # One launch at a time. The prewarm at boot and a user's first page
@@ -583,6 +767,10 @@ class BrowserEngine:
         try:
             await self._launch_browser_once()
             return
+        except BrowserProfileInUse:
+            # A competing owner is not a broken installation and may exit;
+            # do not make this a sticky error or retry by deleting its locks.
+            raise
         except Exception as e:
             # Restart overlap: the OLD sandbox's Chromium can still hold the
             # volume profile's ProcessSingleton while this one boots. That is
@@ -597,6 +785,8 @@ class BrowserEngine:
         await asyncio.sleep(3.0)
         try:
             await self._launch_browser_once()
+        except BrowserProfileInUse:
+            raise
         except Exception as e:
             if any(k in str(e) for k in ("ProcessSingleton", "SingletonLock")):
                 # NOT sticky: the old holder dies within seconds of its
@@ -662,14 +852,14 @@ class BrowserEngine:
         from playwright.async_api import async_playwright
 
         t_launch = time.monotonic()
+        profile = Path.home() / ".pantheon" / "browser-profile"
+        await asyncio.to_thread(self._acquire_profile_lock, profile)
+        await asyncio.to_thread(self._clear_stale_locks, profile)
         await asyncio.to_thread(self._write_policies)
         display = await self._ensure_xvfb()
         t_display = time.monotonic()
         if self._pw is None:
             self._pw = await async_playwright().start()
-        profile = Path.home() / ".pantheon" / "browser-profile"
-        profile.mkdir(parents=True, exist_ok=True)
-        self._clear_stale_locks(profile)
         # Off the loop: this deletes thousands of files on a NETWORK
         # volume, and a loop that stops answering for long enough is a
         # pod the hub's health check declares dead and destroys — which
@@ -679,6 +869,7 @@ class BrowserEngine:
         cache_dir = Path("/tmp/pantheon-browser-cache")
         cache_dir.mkdir(parents=True, exist_ok=True)
         t_profile = time.monotonic()
+        extension = self._prepare_native_tabs_extension() if display else None
         self._context = await self._pw.chromium.launch_persistent_context(
             user_data_dir=str(profile),
             # Headful under Xvfb when the image carries one (the capture
@@ -695,6 +886,10 @@ class BrowserEngine:
             # playwright's default 30s.
             timeout=120_000,
             channel="chromium",
+            # Playwright's default disables extensions. Our local observer
+            # reads Chromium's selected tab without relying on emulated DOM
+            # visibility; retain the remaining Playwright defaults.
+            ignore_default_args=["--disable-extensions"] if extension else None,
             user_agent=(
                 "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
@@ -707,6 +902,7 @@ class BrowserEngine:
             **({"no_viewport": True} if xpra_mode() == "seamless"
                else {"viewport": {"width": VIEW_W, "height": VIEW_H}}),
             args=[
+                *([f"--load-extension={extension}"] if extension else []),
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
@@ -741,6 +937,8 @@ class BrowserEngine:
         ctx = self._context
         ctx.on("close",
                lambda: self._context_died() if self._context is ctx else None)
+        if extension:
+            await self._native_tabs_worker()
         # Warm the xpra shadow so the first stage_page doesn't wait on
         # its startup; a missing binary makes this a cheap no-op.
         asyncio.ensure_future(self._ensure_xpra())
@@ -774,6 +972,133 @@ class BrowserEngine:
                     (t_profile - t_display) * 1000,
                     (t_context - t_profile) * 1000,
                     (time.monotonic() - t_context) * 1000)
+
+    def _prepare_native_tabs_extension(self) -> Path:
+        import base64
+        import hashlib
+        import json
+        import tempfile
+
+        if self._native_extension_dir is None:
+            self._native_extension_dir = tempfile.TemporaryDirectory(prefix="pantheon-native-tabs-")
+        directory = Path(self._native_extension_dir.name)
+        manifest = {
+            "manifest_version": 3, "name": "Pantheon Native Tab Identity", "version": "1.0",
+            "key": _NATIVE_TABS_KEY,
+            # tabs.query's id/active/windowId fields need no tabs permission.
+            "permissions": ["debugger"],
+            "background": {"service_worker": "native-tabs.js"},
+        }
+        for filename, content in (("manifest.json", json.dumps(manifest)), ("native-tabs.js", _NATIVE_TABS_SCRIPT)):
+            path = directory / filename
+            path.write_text(content)
+            path.chmod(0o600)
+        digest = hashlib.sha256(base64.b64decode(_NATIVE_TABS_KEY)).hexdigest()[:32]
+        extension_id = "".join(chr(ord("a") + int(char, 16)) for char in digest)
+        self._native_tabs_worker_url = f"chrome-extension://{extension_id}/native-tabs.js"
+        return directory
+
+    async def _native_tabs_worker(self, *, wait: bool = True):
+        if self._context is None or not self._native_tabs_worker_url:
+            raise RuntimeError("The native browser tab observer is unavailable")
+        expected = self._native_tabs_worker_url
+        workers = [worker for worker in self._context.service_workers if worker.url == expected]
+        if len(workers) > 1:
+            raise RuntimeError("The native browser tab observer is ambiguous")
+        if workers:
+            return workers[0]
+        if not wait:
+            raise RuntimeError("The native browser tab observer is unavailable")
+        try:
+            return await self._context.wait_for_event(
+                "serviceworker", predicate=lambda worker: worker.url == expected, timeout=5000)
+        except Exception as error:
+            raise RuntimeError("The native browser tab observer is unavailable") from error
+
+    async def _native_active_target(self, window_id: int) -> str | None:
+        """Read the browser's selected tab, even when its omnibox has focus.
+
+        Playwright enables focus emulation on its CDP connection. Chromium
+        holds that connection's capturer handle, making every page report
+        visibility='visible'; another CDP session cannot undo it. Native tabs
+        identify selection independently of page JS, focus, URL, and title.
+        """
+        try:
+            tabs = await asyncio.wait_for(self._native_tab_snapshot(), timeout=3)
+        except Exception as error:
+            raise RuntimeError("Could not read the native browser selected tab") from error
+        if not isinstance(tabs, list):
+            raise RuntimeError("The native browser tab observer returned invalid state")
+        selected = [tab for tab in tabs if isinstance(tab, dict) and tab.get("windowId") == window_id and tab.get("active") is True]
+        if not selected:
+            return None
+        targets = selected[0].get("targetIds")
+        if len(selected) != 1 or not isinstance(targets, list) or len(targets) != 1 or not isinstance(targets[0], str):
+            raise RuntimeError("The requested browser window has no unique selected tab identity")
+        return targets[0]
+
+    async def _native_tab_snapshot(self) -> list[dict]:
+        """Wake only our observer, then read it through a fresh CDP session.
+
+        After MV3 suspension Playwright can retain a Worker whose execution
+        context never resolves. A short-lived CDP attachment avoids that stale
+        handle, and lets the worker sleep normally between requests.
+        """
+        import json
+
+        context = self._context
+        expected = self._native_tabs_worker_url
+        if context is None or not expected or context.browser is None:
+            raise RuntimeError("The native browser tab observer is unavailable")
+        page = next((page for page in context.pages if not page.is_closed()), None)
+        if page is None:
+            raise RuntimeError("The native browser tab observer is unavailable")
+        # ServiceWorker is a page CDP domain, not a browser CDP domain. This
+        # command starts an exact extension scope without navigating or
+        # focusing the page that carries the command.
+        wake = await context.new_cdp_session(page)
+        try:
+            await wake.send("ServiceWorker.enable")
+            await wake.send("ServiceWorker.startWorker", {"scopeURL": expected.rsplit("/", 1)[0] + "/"})
+        finally:
+            await wake.detach()
+
+        cdp = await context.browser.new_browser_cdp_session()
+        session_id = None
+        try:
+            targets = (await cdp.send("Target.getTargets"))["targetInfos"]
+            matches = [target for target in targets if target.get("type") == "service_worker" and target.get("url") == expected]
+            if len(matches) != 1:
+                raise RuntimeError("The native browser tab observer is unavailable or ambiguous")
+            session_id = (await cdp.send("Target.attachToTarget", {
+                "targetId": matches[0]["targetId"], "flatten": False,
+            }))["sessionId"]
+            reply = asyncio.get_running_loop().create_future()
+
+            def on_message(event):
+                if event.get("sessionId") != session_id or reply.done():
+                    return
+                response = json.loads(event["message"])
+                if response.get("id") == 1:
+                    reply.set_result(response)
+
+            cdp.on("Target.receivedMessageFromTarget", on_message)
+            await cdp.send("Target.sendMessageToTarget", {"sessionId": session_id, "message": json.dumps({
+                "id": 1, "method": "Runtime.evaluate", "params": {
+                    "expression": "globalThis.pantheonNativeTabs()", "awaitPromise": True, "returnByValue": True,
+                },
+            })})
+            response = await reply
+            result = response.get("result", {})
+            if response.get("error") or result.get("exceptionDetails"):
+                raise RuntimeError("The native browser tab observer could not read identities")
+            return result.get("result", {}).get("value")
+        finally:
+            try:
+                if session_id is not None:
+                    await cdp.send("Target.detachFromTarget", {"sessionId": session_id})
+            finally:
+                await cdp.detach()
 
     async def reshape(self, session: PageSession,
                       w: int, h: int, s: float) -> None:
@@ -939,28 +1264,206 @@ class BrowserEngine:
         # shared browser, sees the result.
         def on_popup(popup: Any) -> None:
             async def _adopt() -> None:
-                try:
-                    child = PageSession(uuid.uuid4().hex[:12], popup)
-                    child.opener = session.id
-                    self.pages[child.id] = child
-                    await self._attach(child)
-                    await self.place_window(child)
-                    if xpra_mode() == "seamless":
-                        # Its own Chromium window, so its own Atrium window:
-                        # name it so a viewer can claim it, then ask the
-                        # desktop for a Browser window showing it.
-                        await self._name_window(child)
-                        if self.on_popup_page is not None:
-                            try:
-                                await self.on_popup_page(child)
-                            except Exception as e:
-                                logger.info("browser: popup window request failed: {}", e)
-                except Exception as e:
-                    logger.warning("browser: popup adopt failed: {}", e)
+                for attempt in range(3):
+                    try:
+                        await self._adopt_popup(session, popup)
+                        return
+                    except Exception as e:
+                        logger.warning("browser: popup adopt failed (attempt {}): {}", attempt + 1, e)
+                        if popup.is_closed():
+                            return
+                        await asyncio.sleep(0.2 * (attempt + 1))
 
             asyncio.ensure_future(_adopt())
 
         page.on("popup", on_popup)
+
+    def window_binding(self, token: str) -> BrowserWindowBinding:
+        binding = self._window_bindings.get(token)
+        if binding is None:
+            raise KeyError(f"No such native browser window: {token}")
+        return binding
+
+    async def _bind_window(self, session: PageSession, window_id: int | None = None) -> BrowserWindowBinding:
+        existing = self._window_bindings.get(session.id)
+        if existing is not None:
+            return existing
+        if window_id is None:
+            if session.cdp is None:
+                raise RuntimeError("A native window needs a live CDP target before binding")
+            info = await asyncio.wait_for(session.cdp.send("Browser.getWindowForTarget"), timeout=2)
+            window_id = info.get("windowId")
+        if not isinstance(window_id, int) or isinstance(window_id, bool):
+            raise RuntimeError("The browser page has no native window identity")
+        owner = next((b for b in self._window_bindings.values() if b.window_id == window_id), None)
+        if owner is not None:
+            return owner
+        binding = BrowserWindowBinding(session.id, window_id, PAGE_CLASS_PREFIX + session.id, session.id)
+        self._window_bindings[binding.id] = binding
+        return binding
+
+    async def _window_members(self, binding: BrowserWindowBinding) -> list[tuple[Any, bool]]:
+        if self._context is None:
+            raise RuntimeError("The browser context is unavailable")
+        selected_target = await self._native_active_target(binding.window_id)
+
+        async def inspect(page):
+            if page.is_closed():
+                return None
+            known = next((s for s in self.pages.values() if s.page is page), None)
+            cdp = known.cdp if known is not None else None
+            temporary = cdp is None
+            try:
+                if temporary:
+                    cdp = await self._context.new_cdp_session(page)
+                info = await cdp.send("Browser.getWindowForTarget")
+                if info.get("windowId") != binding.window_id:
+                    return None
+                target = await cdp.send("Target.getTargetInfo")
+                return page, target.get("targetInfo", {}).get("targetId") == selected_target
+            except Exception:
+                if not page.is_closed():
+                    raise
+                return None
+            finally:
+                if temporary and cdp is not None:
+                    try:
+                        await cdp.detach()
+                    except Exception:
+                        pass
+
+        try:
+            inspected = await asyncio.wait_for(asyncio.gather(
+                *(inspect(page) for page in list(self._context.pages)), return_exceptions=True), timeout=5)
+            failure = next((value for value in inspected if isinstance(value, BaseException)), None)
+            if failure is not None:
+                raise RuntimeError("A browser page could not be inspected") from failure
+        except Exception as error:
+            raise RuntimeError("Could not determine the tabs in the requested browser window") from error
+        members = [member for member in inspected if member is not None]
+        if selected_target and not members:
+            raise RuntimeError("The native browser tab is not yet available to the controller")
+        return members
+
+    def _drop_window_binding(self, token: str) -> None:
+        self._window_bindings.pop(token, None)
+        self._named.discard(token)
+        self._popup_announced.discard(token)
+        self._stages.pop(token, None)
+        self._stage_touch.pop(token, None)
+        for window_id, owner in list(self._windows.items()):
+            if owner == token:
+                self._windows.pop(window_id, None)
+
+    async def window_page(self, token: str, *, require_visible: bool = True) -> PageSession:
+        """The current tab of the originally bound physical native window.
+
+        Metadata/focus may use the last same-window tab during a transition.
+        Agent actions require one natively selected tab and never select a
+        different window, even if the original anchor tab was moved there.
+        """
+        async with self._page_adoption_lock:
+            binding = self.window_binding(token)
+            members = await self._window_members(binding)
+            if not members:
+                self._drop_window_binding(token)
+                raise RuntimeError("The requested browser window has no remaining tabs")
+            visible = [page for page, shown in members if shown]
+            if len(visible) > 1 or (require_visible and not visible):
+                raise RuntimeError("The requested browser window has no uniquely selected tab")
+            if visible:
+                page = visible[0]
+            else:
+                previous = self.pages.get(binding.active_page_id or "")
+                page = next((page for page, _ in members if previous is not None and page is previous.page), members[0][0])
+            existing = next((s for s in self.pages.values() if s.page is page), None)
+            if existing is None:
+                existing = self._pending_popups.pop(page, None) or PageSession(uuid.uuid4().hex[:12], page)
+                existing.opener = binding.id
+                if existing.cdp is None:
+                    await asyncio.wait_for(self._attach(existing), timeout=5)
+                self.pages[existing.id] = existing
+            binding.active_page_id = existing.id
+            return existing
+
+    async def current_window_page(self, anchor: PageSession | BrowserWindowBinding) -> PageSession:
+        return await self.window_page(anchor.id)
+
+    async def _adopt_popup(self, opener: PageSession, page: Any) -> PageSession:
+        """Retain incomplete adoption for retry; publish only after classification."""
+        async with self._page_adoption_lock:
+            if page.is_closed():
+                self._pending_popups.pop(page, None)
+                raise RuntimeError("The browser popup closed before it could be adopted")
+            child = next((s for s in self.pages.values() if s.page is page), None)
+            if child is None:
+                child = self._pending_popups.get(page)
+            if child is None:
+                child = PageSession(uuid.uuid4().hex[:12], page)
+                child.opener = opener.id
+                self._pending_popups[page] = child
+            if child.cdp is None:
+                await asyncio.wait_for(self._attach(child), timeout=5)
+            if self._xvfb_display is None:
+                self.pages[child.id] = child
+                self._pending_popups.pop(page, None)
+                return child
+            info = await asyncio.wait_for(child.cdp.send("Browser.getWindowForTarget"), timeout=2)
+            window_id = info.get("windowId")
+            if not isinstance(window_id, int) or isinstance(window_id, bool):
+                raise RuntimeError("Cannot determine the browser popup's native window")
+            binding = next((b for b in self._window_bindings.values() if b.window_id == window_id), None)
+            if binding is None:
+                child.windowed = True
+                binding = await self._bind_window(child, window_id)
+            else:
+                child.windowed = binding.id == child.id
+            self.pages[child.id] = child
+            self._pending_popups.pop(page, None)
+            if not child.windowed:
+                return child
+            await self.place_window(child)
+            if xpra_mode() == "seamless":
+                if not await self._name_window(child):
+                    raise RuntimeError("The browser popup's native window could not be named")
+        # A desktop callback may take a network round-trip. Never hold the
+        # tab-discovery lock while waiting for a frontend to acknowledge it.
+        if xpra_mode() == "seamless" and child.id not in self._popup_announced and self.on_popup_page is not None:
+            task = self._popup_announcing.get(child.id)
+            if task is None:
+                async def announce():
+                    try:
+                        await self.on_popup_page(child)
+                        self._popup_announced.add(child.id)
+                    finally:
+                        self._popup_announcing.pop(child.id, None)
+                task = asyncio.create_task(announce())
+                self._popup_announcing[child.id] = task
+            await asyncio.shield(task)
+        return child
+
+    async def close_window(self, token: str) -> None:
+        """Close tabs still in this physical window, retaining tabs dragged out."""
+        binding = self._window_bindings.get(token)
+        if binding is None:
+            return
+        members = await self._window_members(binding)
+        for page, _ in members:
+            if page.is_closed():
+                continue
+            # Membership may change while a beforeunload handler is open.
+            cdp = await self._context.new_cdp_session(page)
+            try:
+                info = await asyncio.wait_for(cdp.send("Browser.getWindowForTarget"), timeout=2)
+                if info.get("windowId") == binding.window_id:
+                    await page.close()
+            finally:
+                try:
+                    await cdp.detach()
+                except Exception:
+                    pass
+        if self._context is not None and not await self._window_members(binding):
+            self._drop_window_binding(token)
 
     # ── public surface (call through .call from any loop) ────────────────
 
@@ -1058,6 +1561,8 @@ class BrowserEngine:
         session.windowed = windowed
         self.pages[session.id] = session
         await self._attach(session)
+        if windowed:
+            await self._bind_window(session)
         if windowed and xpra_mode() == "seamless":
             await self._name_window(session)
         # Window placement and the page load are independent, and the user
@@ -1205,10 +1710,18 @@ class BrowserEngine:
     async def send_keys(self, events: list[dict]) -> int:
         """Press/release keys on the display. Returns how many landed.
 
-        Runs on the engine loop, like everything else that touches the
-        display: an Xlib connection belongs to one thread, and two key
-        batches in flight would otherwise share it from two.
+        Xlib uses a thread-local connection. The same input lock as generic
+        desktop_act keeps a browser shortcut from interleaving its modifiers
+        with an agent's drag or text. Waiting for that lock must not block the
+        engine loop and its Playwright/Xpra control messages.
         """
+        return await asyncio.to_thread(self._send_keys_locked, events)
+
+    def _send_keys_locked(self, events: list[dict]) -> int:
+        with self._native_input_lock:
+            return self._send_keys_sync(events)
+
+    def _send_keys_sync(self, events: list[dict]) -> int:
         if self._xvfb_display is None:
             return 0
         from Xlib import X, XK
@@ -1318,14 +1831,19 @@ class BrowserEngine:
         window's name), we find the window carrying that name, stamp
         WM_CLASS on it, and give the title back.
         """
-        if session.id in self._named:
+        return await self._name_binding(await self._bind_window(session), session)
+
+    async def _name_binding(self, binding: BrowserWindowBinding, session: PageSession) -> bool:
+        if binding.id in self._named:
             return True
-        token = f"pantheon-window-{session.id}"
-        ok = await self._name_native_window(
-            session.page, token, f"{PAGE_CLASS_PREFIX}{session.id}",
-        )
+        # Do not name a moved anchor's new window with its former identity.
+        info = await asyncio.wait_for(session.cdp.send("Browser.getWindowForTarget"), timeout=2)
+        if info.get("windowId") != binding.window_id:
+            raise RuntimeError("The browser tab moved before its window could be named")
+        token = f"pantheon-window-{binding.id}"
+        ok = await self._name_native_window(session.page, token, binding.window_class)
         if ok:
-            self._named.add(session.id)
+            self._named.add(binding.id)
         return ok
 
     async def _name_native_window(self, page: Any, token: str,
@@ -1655,14 +2173,18 @@ class BrowserEngine:
         Returns the connection material and the whole layout; raises if the
         transport is unavailable so the caller can say so.
         """
-        session = self.get(page_id)
+        binding = self._window_bindings.get(page_id)
+        session = await self.window_page(page_id, require_visible=False) if binding is not None else self.get(page_id)
         if xpra_mode() == "seamless":
             # No packing, no cropping: the window IS the object the viewer
             # adopts. Size the page, name its window after itself, done.
             await self._ensure_browser()
             session.width, session.height = width, height
             await self.set_metrics(session, width, height, float(RASTER_SCALE))
-            await self._name_window(session)
+            if binding is None:
+                binding = await self._bind_window(session)
+            if not await self._name_binding(binding, session):
+                raise RuntimeError("The browser native window could not be named")
             import getpass
 
             return {
@@ -1672,7 +2194,9 @@ class BrowserEngine:
                 "chrome_px": WINDOW_CHROME_PX,
                 # What the viewer matches its window on (WM_CLASS -> xpra's
                 # class-instance).
-                "window_class": f"{PAGE_CLASS_PREFIX}{session.id}",
+                "window_class": binding.window_class,
+                "page_id": binding.id,
+                "active_page_id": session.id,
             }
         if not await self._ensure_xpra():
             raise RuntimeError("xpra transport unavailable")
@@ -1727,15 +2251,19 @@ class BrowserEngine:
         into" is the viewer's business, not the display's: the X input focus
         follows the Browser window the user is working in.
         """
-        session = self.get(page_id)
-        await self.focus_page(session)
+        binding = self._window_bindings.get(page_id)
+        session = await self.window_page(page_id, require_visible=False) if binding is not None else self.get(page_id)
         if xpra_mode() == "seamless":
             # No rectangles there: the window is found by the name we gave
             # it. X focus still has to be ours to set, because the keys the
             # viewer sends are injected on the display (browser_ui_key).
-            await self._name_window(session)
+            if binding is None:
+                binding = await self._bind_window(session)
+            if not await self._name_binding(binding, session):
+                raise RuntimeError("The browser native window could not be named")
             await asyncio.to_thread(self._focus_named_window, page_id)
             return {"ok": True}
+        await self.focus_page(session)
         rect = self._stages.get(page_id)
         if rect is not None:
             self._stage_touch[page_id] = time.monotonic()
@@ -1969,8 +2497,10 @@ class BrowserEngine:
         session = self.pages.pop(page_id, None)
         if session is None:
             return
-        self._named.discard(page_id)
-        if page_id in self._stages:
+        bound = page_id in self._window_bindings
+        if not bound:
+            self._named.discard(page_id)
+        if page_id in self._stages and not bound:
             self._stages.pop(page_id, None)
             if self._stages:
                 # Others are still showing: close ranks around the gap.
@@ -1985,13 +2515,23 @@ class BrowserEngine:
                     await asyncio.to_thread(self._set_fb, SCREEN_W, SCREEN_H)
                 except Exception as e:
                     logger.info("browser: framebuffer restore failed: {}", e)
-        for wid, owner in list(self._windows.items()):
-            if owner == page_id:
-                self._windows.pop(wid, None)
+        if not bound:
+            for wid, owner in list(self._windows.items()):
+                if owner == page_id:
+                    self._windows.pop(wid, None)
         try:
-            await session.page.close()
+            if not session.page.is_closed():
+                await session.page.close()
         except Exception:
             pass
+        # Each binding outlives any one of its tabs. An inspection failure is
+        # not proof the native window disappeared; a subsequent read retries.
+        for token, binding in list(self._window_bindings.items()):
+            try:
+                if self._context is not None and not await self._window_members(binding):
+                    self._drop_window_binding(token)
+            except Exception:
+                pass
 
     async def navigate(self, page_id: str, op: str, url: str = "") -> None:
         session = self.get(page_id)

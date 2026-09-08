@@ -14,7 +14,7 @@ tags: [desktop, apps, visualization, interactive, atrium]
 The user works on a desktop of windows. Apps are installed packages; each
 claims file types, exposes actions, may run its own Python backend, and
 ships a skill documenting its **state contract**. You drive all of it with
-five tools — the SAME windows the user sees and clicks.
+the desktop tools — the SAME windows the user sees and clicks.
 
 ## The tools
 
@@ -62,6 +62,31 @@ page. The profile (cookies, sessions) persists in the sandbox. Use
 `browser_read` (text) or `browser_screenshot` + observe_image (pixels) as
 your eyes; prefer leaving pages open for the user over closing them.
 
+When the user names an existing window (for example `#app:win-76`), find
+that exact `window_id` with `desktop_windows()`. Pass it to
+`browser_open(url, window_id=...)` to navigate its current tab, or as
+`page_id` to the other `browser_*` tools. A returned `page_id` identifies
+one tab; the desktop `window_id` follows the current tab in that same
+native window. If that window is missing or closed, report the failure;
+do not silently open a replacement. After acting, read the URL/content
+and take `desktop_screenshot` of the requested window before claiming the
+result is displayed there. Tool success alone does not establish that.
+
+For browser chrome, native menus and dialogs, use `desktop_screenshot`
+and `desktop_act` with native-window pixel coordinates. Browser DOM tools
+and `browser_screenshot` use page coordinates instead.
+
+## Native apps, including QuPath
+
+QuPath uses these same `desktop_*` tools. Read the `skill` path returned
+by `desktop_windows()` or `desktop_apps()` for its action contract.
+`desktop_read` reads the live GUI, `desktop_call` runs declared actions
+such as `run_script`, and `desktop_act` operates native controls. Use
+`native_windows` from a read/screenshot to target an owned dialog by its
+child `window_id`. Check pending/failed states and verify the actual
+result before reporting completion; changing launch state does not
+modify the open image or its unsaved annotations.
+
 ## Fix the window you have
 
 Windows are long-lived and they are the USER's. When a view is wrong —
@@ -97,10 +122,11 @@ gives you the exact ids.
 
 ## Each app's contract
 
-Every installed app ships its skill in the workspace:
-`.pantheon/apps/<app_id>/skill/SKILL.md` — read it (read_file) before
+Read the app's returned `skill` path (read_file) before
 driving an app with non-trivial state. It documents the state fields,
-actions, backend methods, and worked examples. `viv` is the reference
+actions, backend methods, and worked examples. Workspace-installed apps
+typically use `.pantheon/apps/<app_id>/skill/SKILL.md`; bundled apps can
+use an installation path. `viv` is the reference
 example of the format.
 
 ## Example — steer a window the user opened

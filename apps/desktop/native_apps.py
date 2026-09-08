@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..qupath.bridge import QuPathBridge
+
 
 @dataclass
 class NativeSession:
@@ -27,6 +29,7 @@ class NativeSession:
     log_path: Path
     xid: int | None = None
     starting: bool = True
+    bridge: QuPathBridge | None = None
 
 
 class NativeAppManager:
@@ -76,8 +79,11 @@ class NativeAppManager:
         # The JDK creates .java/.userPrefs beneath java.util.prefs.userRoot.
         prefs = Path(settings.workspace).resolve() / ".pantheon" / "qupath"
         prefs.mkdir(parents=True, exist_ok=True)
-        local = Path(tempfile.gettempdir()) / "pantheon-qupath" / session_id
-        local.mkdir(parents=True, exist_ok=True)
+        local_root = Path(tempfile.gettempdir()) / "pantheon-qupath"
+        local_root.mkdir(parents=True, exist_ok=True)
+        # A restarted window gets fresh credentials and IPC records, even when
+        # its stable Atrium session_id is reused.
+        local = Path(tempfile.mkdtemp(prefix=f"{session_id}-", dir=local_root))
         env = dict(os.environ)
         env["DISPLAY"] = self.engine._xvfb_display
         env["TMPDIR"] = str(local)
@@ -256,6 +262,9 @@ class NativeAppManager:
                 flag = "--project" if Path(path).suffix.lower() == ".qpproj" else "--image"
                 argv.append(f"{flag}={path}")
             env = self._environment(key, width, height)
+            bridge = QuPathBridge(Path(env["TMPDIR"]) / "bridge", key)
+            env.update(bridge.launch_environment())
+            env["JAVA_TOOL_OPTIONS"] += " " + bridge.startup_option()
             log_path = Path(env["TMPDIR"]) / "qupath.log"
             with log_path.open("ab") as output:
                 process = subprocess.Popen(
@@ -264,7 +273,7 @@ class NativeAppManager:
                     start_new_session=True,
                 )
             session = NativeSession(session_id, app_id, path,
-                                    f"pantheon-native-qupath-{key}", process, log_path)
+                                    f"pantheon-native-qupath-{key}", process, log_path, bridge=bridge)
             self.sessions[session_id] = session
             try:
                 deadline = asyncio.get_running_loop().time() + self.START_TIMEOUT
@@ -289,10 +298,73 @@ class NativeAppManager:
 
     @staticmethod
     def _info(session: NativeSession, running: bool) -> dict:
+        bridge_ready = session.bridge.ready() if running and session.bridge else None
         return {"session_id": session.id, "app_id": session.app_id,
                 "path": session.path, "window_class": session.window_class,
                 "running": running,
+                "bridge_ready": bridge_ready is not None,
+                "capabilities": bridge_ready.get("capabilities", []) if bridge_ready else [],
+                "qupath_version": bridge_ready.get("qupath_version") if bridge_ready else None,
                 "state": "starting" if running and session.starting else "running" if running else "stopped"}
+
+    def _live_session(self, session_id: str) -> NativeSession:
+        session = self.sessions.get(session_id)
+        if session is None or session.process.poll() is not None:
+            raise ValueError("This native desktop session is not running")
+        return session
+
+    def _live_bridge(self, session: NativeSession) -> QuPathBridge:
+        if session.bridge is None or session.bridge.ready() is None:
+            raise RuntimeError("The QuPath script bridge is still starting; retry after it becomes ready")
+        return session.bridge
+
+    async def read(self, session_id: str, *, annotation_limit: int = 200) -> dict:
+        """Current GUI state, with a bounded wait even when JavaFX is busy."""
+        session = self._live_session(session_id)
+        bridge = self._live_bridge(session)
+        result = await bridge.call("state", {"annotation_limit": annotation_limit}, timeout=2)
+        return {**result, "native_session_id": session_id}
+
+    def _focus(self, session: NativeSession) -> bool:
+        if not self._window_exists(session):
+            return False
+        from .native_control import NativeWindowController, native_input_lock
+
+        controller = NativeWindowController(self.engine)
+        with native_input_lock(self.engine):
+            controller._focus(self.engine._x_display(), session.xid, {session.xid})
+        return True
+
+    async def call(self, session_id: str, action: str, args: dict | None = None) -> dict:
+        """App-specific actions behind the shared desktop_call interface."""
+        args = dict(args or {})
+        if action == "status":
+            return await self.read(session_id, annotation_limit=args.get("annotation_limit", 200))
+        if action == "close":
+            return await self.close(session_id)
+        session = self._live_session(session_id)
+        if action == "focus":
+            return {"native_session_id": session_id,
+                    "focused": await asyncio.to_thread(self._focus, session)}
+        bridge = self._live_bridge(session)
+        if action == "get_state":
+            return await self.read(session_id, annotation_limit=args.get("annotation_limit", 200))
+        if action == "script_status":
+            return {**bridge.request_status(args.get("request_id")), "native_session_id": session_id}
+        if action == "run_script":
+            wait_s = args.get("wait_s", 2)
+            if isinstance(wait_s, bool) or not isinstance(wait_s, (int, float)) or not 0 <= wait_s <= 10:
+                raise ValueError("wait_s must be between 0 and 10 seconds")
+            params = {
+                "script": args.get("script"), "thread": args.get("thread", "worker"),
+                "args": args.get("args", []),
+            }
+            if "expected_image" in args:
+                params["expected_image"] = args["expected_image"]
+            result = await bridge.call("script", params,
+                                       request_id=args.get("request_id"), timeout=wait_s)
+            return {**result, "native_session_id": session_id}
+        raise ValueError(f"Unsupported native desktop action: {action}")
 
     async def status(self, session_id: str) -> dict:
         session = self.sessions.get(session_id)
