@@ -260,6 +260,8 @@ async def test_ui_stage_and_focus_keep_window_token_and_current_tab(monkeypatch)
     monkeypatch.setenv("BROWSER_XPRA_MODE", "seamless")
     original, remaining = Page(10), Page(10, "visible")
     engine, anchor = await setup_engine([original, remaining])
+    engine._xpra_proc = NS(poll=lambda: None)
+    engine._xpra_password = "test-stage-password"
     engine._named.add(anchor.id)
     engine._ensure_browser = AsyncMock()
     engine.set_metrics = AsyncMock()

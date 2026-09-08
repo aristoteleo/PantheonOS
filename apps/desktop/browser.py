@@ -2173,9 +2173,16 @@ class BrowserEngine:
         Returns the connection material and the whole layout; raises if the
         transport is unavailable so the caller can say so.
         """
+        seamless = xpra_mode() == "seamless"
+        if seamless and (not self._xvfb_display or not self._xpra_alive()
+                         or not self._xpra_password):
+            # A cached display name/password does not mean its Xpra server
+            # survived. Reconnecting must not restart Chromium or replace
+            # retained native windows just to manufacture a working stage.
+            raise RuntimeError("Native display is unavailable")
         binding = self._window_bindings.get(page_id)
         session = await self.window_page(page_id, require_visible=False) if binding is not None else self.get(page_id)
-        if xpra_mode() == "seamless":
+        if seamless:
             # No packing, no cropping: the window IS the object the viewer
             # adopts. Size the page, name its window after itself, done.
             await self._ensure_browser()
