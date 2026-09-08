@@ -18,7 +18,7 @@ async def _resolve_toolset_proxy(toolset_name: str) -> ToolsetProxy:
     if not resolver.resolves(toolset_name):
         raise RuntimeError(f"'{toolset_name}' is not a known App in the catalog")
     service_id = await resolver.ensure_instance(toolset_name)
-    return ToolsetProxy.from_toolset(service_id)
+    return ToolsetProxy.from_toolset(service_id).bind_instance(resolver, toolset_name)
 from .template_manager import get_template_manager
 from .models import TeamConfig, AgentConfig
 from pantheon.settings import get_settings

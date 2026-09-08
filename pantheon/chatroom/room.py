@@ -1288,11 +1288,13 @@ class ChatRoom(ToolSet):
             from nats.errors import NoRespondersError
 
             sid = await _ensure()
+            proxy = ToolsetProxy.from_toolset(sid)
             try:
-                return await ToolsetProxy.from_toolset(sid).invoke(
-                    method_name, args or {}
-                )
+                return await proxy.invoke(method_name, args or {})
             except NoRespondersError:
+                if proxy.has_instance_binding:
+                    # The pooled proxy already tried its one exact recovery.
+                    raise
                 # The cached instance is gone — its process died, or its
                 # runner did. Forget it, ensure a fresh one (the runner
                 # restarts or recreates it), and dial once more.

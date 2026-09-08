@@ -17,7 +17,7 @@ from fastmcp import Client
 from fastmcp.client.messages import MessageHandler
 
 from .agent import ToolInfo, ToolProvider
-from .apps.proxy import ToolsetProxy
+from .apps.proxy import TOOLSET_DISCOVERY_TIMEOUT, ToolsetProxy
 from .utils.log import logger
 
 
@@ -37,8 +37,10 @@ _MCP_LIST_TOOLS_TIMEOUT = float(os.getenv("PANTHEON_MCP_LIST_TIMEOUT_S", "30"))
 _MCP_CALL_TOOL_TIMEOUT = float(os.getenv("PANTHEON_MCP_CALL_TIMEOUT_S", "120"))
 
 
-# Remote metadata only: never change real tool execution deadlines or retries.
-_TOOLSET_DISCOVERY_TIMEOUT = 15.0
+# Overall metadata guard: two bounded reads plus a separate App recovery.
+# Healthy reads still have their own 15s budget inside ToolsetProxy. Neither
+# limit changes actual tool execution deadlines or startup retry semantics.
+_TOOLSET_DISCOVERY_TIMEOUT = TOOLSET_DISCOVERY_TIMEOUT
 _TOOLSET_DISCOVERY_RETRY_DELAY = 30.0
 
 
