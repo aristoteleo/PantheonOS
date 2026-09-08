@@ -218,10 +218,14 @@ def main() -> None:
     if not a.reflection:
         cmd.append("--disable-reflection")
     # Modal re-runs a preempted call from the top; resume from the latest checkpoint instead
-    prior = sorted((out / "checkpoints").glob("*/instance-*"), key=lambda d: d.stat().st_mtime)
-    if prior and any(prior[-1].rglob("nodes.json*")):
-        cmd += ["--resume", str(prior[-1])]
-        print(f"resuming from {prior[-1]}", flush=True)
+    # the engine resumes from the directory that holds nodes.json (a db_state_* snapshot),
+    # not from the instance directory above it
+    snaps = [d for d in (out / "checkpoints").glob("*/instance-*/db_state_*")
+             if any(d.glob("nodes.json*"))]
+    if snaps:
+        latest = max(snaps, key=lambda d: d.stat().st_mtime)
+        cmd += ["--resume", str(latest)]
+        print(f"resuming from {latest}", flush=True)
     print("=" * 78)
     print(f"UPSTREAM SimpleTES @ {UPSTREAM_SHA[:8]} | task={a.task} | model={a.model} | "
           f"generations={a.generations}")
@@ -273,6 +277,8 @@ def main() -> None:
         if best is None and history:
             best = max(h["score"] for h in history)
 
+    # a failed engine run must not look finished: its summary goes to summary_failed.json
+    summary_name = "summary.json" if rc == 0 else "summary_failed.json"
     json.dump({"task": a.task, "evolve": evolve_file, "method": "simpletes_upstream",
                "model": a.model, "seed": a.seed,
                "operator": {"class": "UpstreamSimpleTES", "sha": UPSTREAM_SHA},
@@ -290,8 +296,8 @@ def main() -> None:
                "best_combined_score": best if best is not None else 0.0,
                "seed_combined_score": history[0]["score"] if history else 0.0,
                "seconds": time.time() - t0, "history": history},
-              open(out / "summary.json", "w"), indent=1)
-    print(f"-> {out}/summary.json  best={best}  nodes={len(history)}  rc={rc}")
+              open(out / summary_name, "w"), indent=1)
+    print(f"-> {out}/{summary_name}  best={best}  nodes={len(history)}  rc={rc}")
     sys.exit(0 if rc == 0 else rc)
 
 
