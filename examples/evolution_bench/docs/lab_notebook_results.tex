@@ -490,6 +490,30 @@ no digest & \call{Digest} is skipped; history rows keep the numbers (idea, predi
 \end{tabular}
 \end{center}
 
+The inner step of every variant is SimpleTES's operator; the table below lists its knobs as run,
+beside the port and the authors' engine. Note that the selector, though nominally different, never
+chooses in LabNotebook: a trajectory of $T{=}2$ steps holds at most the parent and one committed
+child, and with two inspirations requested the selector returns the whole chain. So the inner steps
+are plain SimpleTES steps; what LabNotebook changes is the chains' length and count ($4 \times 2$,
+restarted from a chosen parent, against two long chains), the idea injected into the instruction,
+and the parent choice between cycles.
+
+\begin{center}\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{30mm}>{\raggedright\arraybackslash}p{50mm}>{\raggedright\arraybackslash}p{30mm}>{\raggedright\arraybackslash}p{30mm}@{}}
+\toprule
+knob & LabNotebook inner loop & our port (bench) & upstream, port-mirror \\
+\midrule
+operator / prompt & SimpleTES's completion prompt verbatim, with the idea block appended & same prompt, no idea & the engine's own \\
+candidates per step ($k$) & 2: one request with $n{=}2$, best of two committed & 2 & 2 \\
+inspirations per step & 2, from the trajectory's own chain & 2, from the chain & 2 \\
+chains & $K{=}4$ trajectories per cycle, each restarted from the cycle's parent, $T{=}2$ steps & 2, continuous & 2 \\
+selector & balance (never invoked at $T{=}2$, see text) & rpucg & rpucg \\
+output cap / temperature / reflection & 64k tokens, 1.0, none & same & same \\
+parent of a new chain & champion w.p.\ 0.7, else a reference from another idea lineage & its own chain head & its own chain head \\
+\bottomrule
+\end{tabular}
+\end{center}
+
 Two further variants are implemented but not yet run: \emph{generic ideas} (a fixed list sampled
 per cycle, no model call --- diversity without judgement) and $k$-vs-$T$ trade-offs.
 
