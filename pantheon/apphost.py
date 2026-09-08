@@ -26,11 +26,11 @@ def _construct_kwargs(app_id: str, requires: list[str], workdir: str) -> dict:
 
     Mirrors (and will eventually replace) the endpoint's
     `_prepare_toolset_args` special cases: workspace-bound toolsets take a
-    working directory; the file manager calls it `path`.
+    working directory; file management and transfer call it `path`.
     """
     kwargs: dict = {}
     if "fs:workspace" in requires or "proc" in requires:
-        if app_id == "file-manager":
+        if app_id in {"file-manager", "file-transfer"}:
             kwargs["path"] = workdir
         else:
             kwargs["workdir"] = workdir
