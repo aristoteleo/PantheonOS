@@ -5,6 +5,7 @@ clock rather than a sleep — a TTL you have to wait out is a test nobody runs.
 """
 
 import json
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -162,3 +163,114 @@ def test_a_registry_from_a_dead_container_describes_nobody(tmp_path):
     record = json.loads((tmp_path / ".pantheon" / "desktop-presence.json").read_text())
     record["boot"] = "a-previous-container"
     assert Presence.from_record(record).viewports == {}
+
+
+def test_new_lease_survives_old_leave_and_old_beat_delivered_after_reconnect(store):
+    client = {"client_id": "c", "chat_id": "old-chat", "host_viewport_id": "v"}
+    store.announce(presence_id="v", sequence=1, viewport_id="v", clients=[client], now=1000)
+    # A -> B -> C replaces the connection twice. Both B's beat and its leave
+    # remain on the wire while C registers the same page/client identities.
+    client["chat_id"] = "current-chat"
+    current, _ = store.announce(presence_id="v", sequence=5, viewport_id="v",
+                                clients=[client], visible=True, active=True, now=1005)
+    for sequence in (2, 4):
+        live, changed = store.leave(presence_id="v", sequence=sequence,
+                                    viewport_id="v", client_ids=["c"], now=1010)
+        assert changed is False and live["applied"] is False
+    for sequence in (1, 3, 5):
+        live, changed = store.announce(presence_id="v", sequence=sequence, viewport_id="v",
+                                       clients=[], visible=False, active=True, now=1020)
+        assert changed is False and live["applied"] is False
+        assert live["viewports"] == current["viewports"]
+        assert live["clients"] == current["clients"]
+    assert store.anchor_for("current-chat", now=1020)["viewport_id"] == "v"
+
+
+def test_leave_fence_survives_reload_and_lease_expiry(tmp_path):
+    store = PresenceStore(work_dir=tmp_path)
+    store.announce(presence_id="v", sequence=1, viewport_id="v",
+                   clients=[{"client_id": "c"}], now=1000)
+    store.leave(presence_id="v", sequence=2, viewport_id="v", client_ids=["c"], now=1001)
+    fresh = PresenceStore(work_dir=tmp_path)
+    for now in (1002, 1000 + TTL_S * 10):
+        live, changed = fresh.announce(presence_id="v", sequence=1, viewport_id="v",
+                                       clients=[{"client_id": "c"}], now=now)
+        assert changed is False and live["applied"] is False
+        assert live["viewports"] == {} and live["clients"] == {}
+    record = json.loads((tmp_path / ".pantheon" / "desktop-presence.json").read_text())
+    assert Presence.from_record(record).sequences == {"v": 2}
+    record["boot"] = "dead-runtime"
+    assert Presence.from_record(record).sequences == {}
+
+
+def test_expired_lease_cannot_be_renewed_by_duplicate_delivery(store):
+    store.announce(presence_id="v", sequence=1, viewport_id="v", now=1000)
+    live, _ = store.announce(presence_id="v", sequence=1, viewport_id="v", now=1000 + TTL_S + 1)
+    assert live["applied"] is False and live["viewports"] == {}
+    live, changed = store.announce(presence_id="v", sequence=2, viewport_id="v", now=1100)
+    assert changed is True and "v" in live["viewports"]
+
+
+def test_newer_full_beat_retires_client_even_if_it_overtakes_drop_leave(store):
+    clients = [{"client_id": "removed"}, {"client_id": "kept"}]
+    store.announce(presence_id="page", sequence=1, viewport_id="page", clients=clients, now=1000)
+    live, changed = store.announce(presence_id="page", sequence=3, viewport_id="page",
+                                   clients=clients[1:], now=1001)
+    assert changed is True and list(live["clients"]) == ["kept"]
+    live, _ = store.leave(presence_id="page", sequence=2, client_ids=["removed"], now=1002)
+    assert live["applied"] is False and list(live["clients"]) == ["kept"]
+    assert "page" in live["viewports"]
+
+
+def test_standalone_chat_owner_does_not_create_a_desktop(store):
+    store.announce(presence_id="other", sequence=1, viewport_id="other", now=1000)
+    store.announce(presence_id="page", sequence=1, viewport_id="page", now=1000)
+    live, _ = store.announce(presence_id="page", sequence=3,
+                             clients=[{"client_id": "chat", "chat_id": "standalone"}], now=1001)
+    assert list(live["viewports"]) == ["other"]
+    assert live["clients"]["chat"]["host_viewport_id"] == ""
+    store.leave(presence_id="page", sequence=2, viewport_id="page", client_ids=["chat"], now=1002)
+    assert store.anchor_for("standalone", now=1002)["viewport_id"] == "other"
+
+
+def test_legacy_clients_work_but_cannot_downgrade_versioned_entities(store):
+    store.announce(presence_id="v", sequence=1, viewport_id="v", clients=[{"client_id": "c"}], now=1000)
+    live, _ = store.leave(viewport_id="v", client_ids=["c"], now=1001)
+    assert live["applied"] is False and "v" in live["viewports"]
+    store.leave(presence_id="v", sequence=2, viewport_id="v", client_ids=["c"], now=1002)
+    # Including no viewport must not let a legacy beat resurrect a deleted client.
+    live, _ = store.announce(clients=[{"client_id": "c"}], now=1003)
+    assert live["applied"] is False and live["clients"] == {}
+    live, changed = store.announce(viewport_id="legacy", clients=[{"client_id": "legacy-chat"}], now=1004)
+    assert changed is True and "legacy" in live["viewports"]
+    live, changed = store.leave(viewport_id="legacy", client_ids=["legacy-chat"], now=1005)
+    assert changed is True and live["viewports"] == {} and live["clients"] == {}
+
+
+@pytest.mark.parametrize("presence_id,sequence", [("v", None), ("", 1), ("v", 0), ("v", True)])
+def test_partial_or_invalid_ordering_cannot_silently_disable_fencing(store, presence_id, sequence):
+    with pytest.raises(ValueError, match="required together"):
+        store.announce(presence_id=presence_id, sequence=sequence, viewport_id="v", now=1000)
+    assert store.current(now=1000)["viewports"] == {}
+
+
+@pytest.mark.asyncio
+async def test_tool_methods_forward_fences_and_stale_ready_does_not_prewarm(store):
+    from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
+
+    desktop = DesktopToolSet()
+    desktop._presence = lambda: store
+    desktop._prewarm_browser = Mock()
+    desktop._publish_desktop = AsyncMock()
+    await desktop.desktop_presence(viewport_id="v", presence_id="v", sequence=1, ready=True)
+    desktop._prewarm_browser.assert_called_once()
+    await desktop.desktop_presence_leave(viewport_id="v", presence_id="v", sequence=2)
+    desktop._publish_desktop.reset_mock()
+    late = await desktop.desktop_presence(viewport_id="v", presence_id="v", sequence=1, ready=True)
+    assert late["success"] is True and late["applied"] is False
+    assert late["viewports"] == {}
+    desktop._prewarm_browser.assert_called_once()
+    desktop._publish_desktop.assert_not_called()
+    await desktop.desktop_presence(presence_id="chat-page", sequence=1, ready=True,
+                                    clients=[{"client_id": "c"}])
+    desktop._prewarm_browser.assert_called_once()

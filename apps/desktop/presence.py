@@ -69,6 +69,11 @@ class Presence:
 
     viewports: dict[str, dict[str, Any]] = field(default_factory=dict)
     clients: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Keep fences after leases leave/expire: an already timed-out RPC may still
+    # execute later. Page ids are never reused, and the boot token clears this
+    # compact history when its runtime can no longer deliver old requests.
+    sequences: dict[str, int] = field(default_factory=dict)
+    entity_owners: dict[str, str] = field(default_factory=dict)
 
     def to_record(self) -> dict[str, Any]:
         return {
@@ -79,6 +84,8 @@ class Presence:
             "boot": boot_token(),
             "viewports": self.viewports,
             "clients": self.clients,
+            "sequences": self.sequences,
+            "entity_owners": self.entity_owners,
         }
 
     @classmethod
@@ -88,6 +95,8 @@ class Presence:
         p = cls()
         p.viewports = dict(data.get("viewports") or {})
         p.clients = dict(data.get("clients") or {})
+        p.sequences = dict(data.get("sequences") or {})
+        p.entity_owners = dict(data.get("entity_owners") or {})
         return p
 
 
@@ -170,6 +179,8 @@ class PresenceStore:
         clients: list[dict[str, Any]] | None = None,
         visible: bool = True,
         active: bool = False,
+        presence_id: str = "",
+        sequence: int | None = None,
         now: float | None = None,
     ) -> tuple[dict[str, Any], bool]:
         """Renew this page's leases. Returns (registry, membership_changed).
@@ -188,8 +199,23 @@ class PresenceStore:
             # Read-modify-write, like the session document: several pages beat
             # at once, and each must land on what the others already wrote.
             self.load()
+            if not self._accept_sequence(presence_id, sequence, viewport_id,
+                                         [str(c.get("client_id") or "") for c in clients or []]):
+                return {**self.snapshot(now), "applied": False}, False
             p = self.presence
             before = self._members(now)
+            if presence_id:
+                # Versioned beats contain this page's complete lease set. A
+                # newer beat may overtake a leave for an unmounted chat client,
+                # so excluding that client must retire it too.
+                wanted_clients = {str(c.get("client_id") or "") for c in clients or []}
+                for kind, table, wanted in (
+                    ("viewport", p.viewports, {viewport_id} if viewport_id else set()),
+                    ("client", p.clients, wanted_clients),
+                ):
+                    for key in list(table):
+                        if key not in wanted and p.entity_owners.get(f"{kind}:{key}") == presence_id:
+                            del table[key]
             self._announce_into(p, viewport_id, clients, visible, active, now, expires)
             self._sweep(now)
             self._write()
@@ -220,12 +246,15 @@ class PresenceStore:
 
     def leave(
         self, *, viewport_id: str = "", client_ids: list[str] | None = None,
+        presence_id: str = "", sequence: int | None = None,
         now: float | None = None,
     ) -> tuple[dict[str, Any], bool]:
         """Give up leases now rather than at expiry. Best-effort by nature."""
         now = time.time() if now is None else now
         with self._locked():
             self.load()
+            if not self._accept_sequence(presence_id, sequence, viewport_id, client_ids or []):
+                return {**self.snapshot(now), "applied": False}, False
             before = self._members(now)
             self.presence.viewports.pop(viewport_id, None)
             for cid in client_ids or []:
@@ -233,6 +262,29 @@ class PresenceStore:
             self._sweep(now)
             self._write()
             return self.snapshot(now), self._members(now) != before
+
+    def _accept_sequence(self, presence_id: str, sequence: int | None,
+                         viewport_id: str, client_ids: list[str]) -> bool:
+        """Fence delayed mutations from one page without requiring a viewport.
+
+        Standalone chats also have an owner but must never be advertised as a
+        desktop. Legacy callers omit both fields and retain their lease API.
+        """
+        entities = ([f"viewport:{viewport_id}"] if viewport_id else [])
+        entities.extend(f"client:{cid}" for cid in client_ids if cid)
+        if not presence_id and sequence is None:
+            # Other legacy pages keep working, but a delayed unversioned
+            # request cannot downgrade ids already owned by a versioned page.
+            return not any(entity in self.presence.entity_owners for entity in entities)
+        if not presence_id or type(sequence) is not int or sequence < 1:
+            raise ValueError("presence_id and a positive sequence are required together")
+        previous = self.presence.sequences.get(presence_id, 0)
+        if sequence <= previous:
+            return False
+        self.presence.sequences[presence_id] = sequence
+        for entity in entities:
+            self.presence.entity_owners[entity] = presence_id
+        return True
 
     def current(self, now: float | None = None) -> dict[str, Any]:
         """The registry as whoever wrote it last has it."""

@@ -37,6 +37,11 @@ from pantheon.utils.log import logger
 # How long desktop_call waits for a window to return an action result.
 ACTION_TIMEOUT_SECONDS = 30
 
+# A Browser action may first recreate a missing native page (150s), attach
+# its stream (30s, plus a compatibility retry), claim it (40s), and navigate
+# (40s). Keep the outer request alive while those bounded steps run.
+BROWSER_WINDOW_TIMEOUT_SECONDS = 300.0
+
 # How long desktop_screenshot waits for the UI to render and return a frame.
 SNAPSHOT_TIMEOUT_SECONDS = 25
 
@@ -109,7 +114,7 @@ class DesktopToolSet(ToolSet):
 
         return get_store()
 
-    async def _publish_desktop(self, event: dict[str, Any]) -> None:
+    async def _publish_desktop(self, event: dict[str, Any]) -> bool:
         """Announce a change to every viewport of this pod.
 
         Pod-scoped, not per chat: a desktop belongs to the machine, and every
@@ -123,9 +128,11 @@ class DesktopToolSet(ToolSet):
 
             self._nats = NATSStreamAdapter()
         try:
-            await self._nats.publish_stream(DESKTOP_STREAM, event)
+            published = await self._nats.publish_stream(DESKTOP_STREAM, event)
+            return published is not False
         except Exception as e:  # noqa: BLE001  streaming is best-effort
             logger.error("desktop: publish failed: {}", e)
+            return False
 
     @tool(exclude=True)
     async def desktop_session_get(self) -> dict:
@@ -177,15 +184,10 @@ class DesktopToolSet(ToolSet):
         # ship this already); accepted so a newer page never turns every
         # heartbeat into a TypeError against an older pod.
         ready: bool = False,
+        presence_id: str = "",
+        sequence: int | None = None,
         **_future: object,
     ) -> dict:
-        if ready:
-            # The heartbeat is the one delivery that always arrives (the
-            # set_data_endpoint hook can land before this app exists and is
-            # never retried) — so it is what reliably starts Chromium ahead
-            # of the first page open, which otherwise pays the whole cold
-            # launch and times out the UI's RPC. Idempotent: at most once.
-            self._prewarm_browser()
         """UI-only: renew this page's leases, and read back who else is here.
 
         One call per page, on a heartbeat — a page has at most one viewport and
@@ -200,7 +202,12 @@ class DesktopToolSet(ToolSet):
         """
         registry, changed = self._presence().announce(
             viewport_id=viewport_id, clients=clients,
-            visible=visible, active=active)
+            visible=visible, active=active,
+            presence_id=presence_id, sequence=sequence)
+        if ready and viewport_id and registry.get("applied", True):
+            # An expired connection must not trigger work after a newer leave
+            # or lease. Only an accepted, ready desktop starts its prewarm.
+            self._prewarm_browser()
         # Only membership is worth telling anyone about. Broadcasting renewals
         # would wake every viewport on this pod every few seconds per open tab.
         if changed:
@@ -210,6 +217,7 @@ class DesktopToolSet(ToolSet):
     @tool(exclude=True)
     async def desktop_presence_leave(
         self, viewport_id: str = "", client_ids: list | None = None,
+        presence_id: str = "", sequence: int | None = None,
     ) -> dict:
         """UI-only: give up leases on the way out (pagehide).
 
@@ -218,7 +226,8 @@ class DesktopToolSet(ToolSet):
         This only saves the TTL in the common case.
         """
         registry, changed = self._presence().leave(
-            viewport_id=viewport_id, client_ids=client_ids)
+            viewport_id=viewport_id, client_ids=client_ids,
+            presence_id=presence_id, sequence=sequence)
         if changed:
             await self._publish_desktop({"type": "desktop.presence", **registry})
         return {"success": True, **registry}
@@ -736,19 +745,26 @@ class DesktopToolSet(ToolSet):
         self._pending_desktop[request_id] = future
         # Pod-scoped, not the chat stream: the addressed viewport may be
         # showing a different conversation, or none.
-        await self._publish_desktop({
-            "type": event_type,
-            "request_id": request_id,
-            "viewport_id": viewport_id,
-            **payload,
-        })
         try:
+            published = await self._publish_desktop({
+                "type": event_type,
+                "request_id": request_id,
+                "viewport_id": viewport_id,
+                **payload,
+            })
+            if published is False:
+                return {"success": False, "error": "The Desktop request could not be delivered. Reconnect the desktop before retrying."}
             value = await asyncio.wait_for(future, timeout=timeout)
             return {"success": True, "result": value}
         except asyncio.TimeoutError:
-            return {"success": False,
+            return {"success": False, "request_id": request_id,
+                    "completion": "unknown",
+                    "window_id": payload.get("window_id", ""),
+                    "action": payload.get("action", ""),
                     "error": f"the desktop did not answer in {timeout:g}s "
-                             f"(asked the viewport that {anchor.get('reason')})"}
+                             f"(asked the viewport that {anchor.get('reason')}). "
+                             "The operation may still finish; read the existing window "
+                             "before retrying. Do not open another window or repeat the action blindly."}
         except DesktopRequestError as e:
             return {"success": False, "error": str(e),
                     **({"result": e.value} if e.value is not None else {})}
@@ -1188,7 +1204,17 @@ class DesktopToolSet(ToolSet):
         whole corrected one here instead of opening another window.
         """
         return await self._desktop_request(
-            "desktop.set", {"window_id": window_id, "state": state or {}})
+            "desktop.set", {"window_id": window_id, "state": state or {}},
+            timeout=self._state_request_timeout(window_id, state))
+
+    def _state_request_timeout(self, window_id: str, state: dict | None) -> float:
+        if isinstance((state or {}).get("url"), str):
+            try:
+                if self._desktop_window(window_id).get("app_id") == "browser":
+                    return BROWSER_WINDOW_TIMEOUT_SECONDS
+            except (KeyError, ValueError):
+                pass  # The frontend will report the missing window.
+        return 30.0
 
     @tool
     async def desktop_read(self, window_id: str) -> dict:
@@ -1354,7 +1380,8 @@ class DesktopToolSet(ToolSet):
                     "ops": ops,
                 })
         return await self._desktop_request(
-            "desktop.update", {"window_id": window_id, "patch": patch})
+            "desktop.update", {"window_id": window_id, "patch": patch},
+            timeout=self._state_request_timeout(window_id, patch))
 
     @tool
     async def desktop_call(
@@ -1395,7 +1422,9 @@ class DesktopToolSet(ToolSet):
             return {"success": False, "error": str(e)}
         return await self._desktop_request(
             "desktop.call", {"window_id": window_id, "action": action, "args": args or {}},
-            timeout=60.0)
+            timeout=(BROWSER_WINDOW_TIMEOUT_SECONDS
+                     if w.get("app_id") == "browser" and action in {"newPage", "navigate"}
+                     else 60.0))
 
     @tool(exclude=True)
     async def report_desktop_result(
@@ -1403,7 +1432,7 @@ class DesktopToolSet(ToolSet):
     ) -> dict:
         """UI-only: the desktop answers a desktop.* request."""
         future = self._pending_desktop.get(request_id)
-        if future is None:
+        if future is None or future.done():
             return {"success": False, "error": "unknown or expired request"}
         if not future.done():
             if ok:
@@ -1582,12 +1611,19 @@ class DesktopToolSet(ToolSet):
                 shown = await self._desktop_request("desktop.open", {
                     "app": "browser", "path": "",
                     "state": {"page_id": session.id}, "window_id": "",
-                }, timeout=60.0)
+                }, timeout=270.0)
                 if shown.get("success"):
                     result["window_id"] = (shown.get("result") or {}).get("window_id")
                 else:
-                    result["shown"] = False
+                    result["success"] = False
+                    result["shown"] = None if shown.get("completion") == "unknown" else False
+                    result["error"] = shown.get("error") or "The browser page could not be shown on the desktop"
                     result["show_error"] = shown.get("error")
+                    for key in ("request_id", "completion"):
+                        if key in shown:
+                            result[key] = shown[key]
+                    if (shown.get("result") or {}).get("window_id"):
+                        result["window_id"] = shown["result"]["window_id"]
             return result
         except Exception as e:
             return {"success": False, "error": str(e)}
