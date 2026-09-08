@@ -34,6 +34,13 @@ class ExecutionContext(dict):
     Automatically created and set to contextvars in the @tool decorator.
     """
 
+    def caller_model(self) -> str | None:
+        """The caller's selected model, carried as plain context across RPC."""
+        models = self.get("caller_models")
+        if isinstance(models, (list, tuple)):
+            return next((item for item in models if isinstance(item, str) and item.strip()), None)
+        return None
+
     async def call_agent(
         self,
         messages: list,
@@ -52,13 +59,39 @@ class ExecutionContext(dict):
                 - _metadata: dict - metadata including current_cost (if success=True)
         """
 
-        if not self.get("_call_agent"):
-            logger.warning(f"No call_agent callback available in context: {self}")
-            raise RuntimeError("No call_agent callback available in context")
+        callback = self.get("_call_agent")
+        if not callable(callback):
+            # Remote App calls deliberately strip live Agent closures. Sample
+            # on this tool service using its normal configured providers; do
+            # not pickle a parent Agent, copy credentials, or invent a reverse
+            # callback endpoint. Caller model preference is already wire-safe.
+            from .agent import (
+                _call_agent, _resolve_model_spec_with_current_provider,
+                get_current_run_model,
+            )
+
+            preferred_model = self.caller_model() or get_current_run_model()
+            result = await _call_agent(
+                messages=messages,
+                system_prompt=system_prompt,
+                model=_resolve_model_spec_with_current_provider(
+                    model or preferred_model, current_model=preferred_model,
+                ),
+                memory=None,
+            )
+            # No parent history crosses the process boundary. Keep usage
+            # metadata intact and make this distinction observable to callers.
+            result = dict(result)
+            result["_metadata"] = {
+                **(result.get("_metadata") or {}),
+                "sampling": {"execution": "tool_service",
+                             "memory_requested": bool(use_memory), "memory_used": False},
+            }
+            return result
 
         try:
             # Call the agent callback with the sampling request
-            result = await self["_call_agent"](
+            result = await callback(
                 messages=messages,
                 system_prompt=system_prompt,
                 model=model,
@@ -182,7 +215,10 @@ def tool(func: Callable | None = None, *, exclude: bool = False, **kwargs):
             context_variables = {}
 
         # 2. Convert to ExecutionContext (dict subclass for compatibility)
-        ctx = get_current_context_variables()
+        # ContextVars isolate bindings, not mutable dictionaries. Updating the
+        # shared parent/default in place leaked another concurrent tool's
+        # caller model and even its live callback into unrelated requests.
+        ctx = ExecutionContext(get_current_context_variables() or {})
         ctx.update(context_variables)
 
         # 3. If function declares a context parameter, re-inject it with appropriate name

@@ -1673,27 +1673,36 @@ class DesktopToolSet(ToolSet):
 
     @tool
     async def browser_read(self, page_id: str = "") -> dict:
-        """Read the visible text of a browser page (title, url, body text
-        truncated to ~8k chars). Your eyes on the shared page — use it after
-        navigating, or after asking the user to do something there."""
+        """Read a shared browser page: title, URL, text (~8k chars), and up to
+        100 interactive elements with names and exact CSS selectors. Use the
+        returned element selector with browser_click/browser_type instead of
+        guessing from text. Read again after navigation or DOM changes; these
+        selectors describe the current main document. For canvas, iframe or
+        shadow content not listed here, use browser_screenshot/browser_act."""
         try:
             from .browser import READ_LIMIT
+            from .browser_snapshot import BROWSER_SNAPSHOT_JS, ELEMENT_LIMIT
 
             engine = self._browser_engine()
             session = await self._resolve_control_page(engine, page_id)
-            text = await engine.call(session.page.evaluate(
-                "() => document.body ? document.body.innerText : ''"))
+            snapshot = await engine.call(session.page.evaluate(
+                BROWSER_SNAPSHOT_JS,
+                {"textLimit": READ_LIMIT, "elementLimit": ELEMENT_LIMIT},
+            ))
+            text = snapshot.pop("text")
             if len(text) > READ_LIMIT:
                 text = text[:READ_LIMIT] + "\n… (truncated)"
             return {"success": True, **await self._browser_page_info(session),
-                    "text": text}
+                    "text": text, **snapshot}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
     @tool
     async def browser_click(self, selector: str, page_id: str = "") -> dict:
         """Click an element on a browser page by CSS selector (or text=...,
-        role=... — any Playwright selector). 5s timeout when nothing matches."""
+        role=... — any Playwright selector). Prefer an exact selector returned
+        by browser_read; text may also match explanatory paragraphs.
+        5s timeout when nothing matches."""
         try:
             engine = self._browser_engine()
             session = await self._resolve_control_page(engine, page_id)
@@ -1706,8 +1715,8 @@ class DesktopToolSet(ToolSet):
     async def browser_type(
         self, selector: str, text: str, submit: bool = False, page_id: str = "",
     ) -> dict:
-        """Fill a field on a browser page (replaces its value). `submit`
-        presses Enter afterwards."""
+        """Fill a field using its selector from browser_read (replaces its
+        value). `submit` presses Enter afterwards."""
         try:
             engine = self._browser_engine()
             session = await self._resolve_control_page(engine, page_id)

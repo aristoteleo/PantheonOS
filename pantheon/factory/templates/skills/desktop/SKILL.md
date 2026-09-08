@@ -59,8 +59,16 @@ and can click, type, and log in; you drive the same page with
 `browser_screenshot`. When a site needs credentials, open it, ask the user
 to sign in in the Browser window, then continue on the now-authenticated
 page. The profile (cookies, sessions) persists in the sandbox. Use
-`browser_read` (text) or `browser_screenshot` + observe_image (pixels) as
+`browser_read` (text and interactive elements) or `browser_screenshot` +
+`observe_images` (pixels) as
 your eyes; prefer leaving pages open for the user over closing them.
+
+After reading a page, use the exact `elements[].selector` for the intended
+button or input with `browser_click` / `browser_type`. A text selector may
+hit an explanation that mentions "Submit" instead of the Submit button;
+do not invent an input's `name` from its label. Re-read after navigation or
+DOM changes. The element list covers the main document; use screenshot
+observation and coordinate actions for unlisted canvas or embedded content.
 
 When the user names an existing window (for example `#app:win-76`), find
 that exact `window_id` with `desktop_windows()`. Pass it to

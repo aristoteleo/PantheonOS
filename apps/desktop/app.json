@@ -67,7 +67,7 @@
       },
       {
         "name": "browser_click",
-        "description": "Click an element on a browser page by CSS selector (or text=...,\n        role=... — any Playwright selector). 5s timeout when nothing matches.",
+        "description": "Click an element on a browser page by CSS selector (or text=...,\n        role=... — any Playwright selector). Prefer an exact selector returned\n        by browser_read; text may also match explanatory paragraphs.\n        5s timeout when nothing matches.",
         "params": [
           {
             "name": "selector",
@@ -143,7 +143,7 @@
       },
       {
         "name": "browser_read",
-        "description": "Read the visible text of a browser page (title, url, body text\n        truncated to ~8k chars). Your eyes on the shared page — use it after\n        navigating, or after asking the user to do something there.",
+        "description": "Read a shared browser page: title, URL, text (~8k chars), and up to\n        100 interactive elements with names and exact CSS selectors. Use the\n        returned element selector with browser_click/browser_type instead of\n        guessing from text. Read again after navigation or DOM changes; these\n        selectors describe the current main document. For canvas, iframe or\n        shadow content not listed here, use browser_screenshot/browser_act.",
         "params": [
           {
             "name": "page_id",
@@ -203,7 +203,7 @@
       },
       {
         "name": "browser_type",
-        "description": "Fill a field on a browser page (replaces its value). `submit`\n        presses Enter afterwards.",
+        "description": "Fill a field using its selector from browser_read (replaces its\n        value). `submit` presses Enter afterwards.",
         "params": [
           {
             "name": "selector",

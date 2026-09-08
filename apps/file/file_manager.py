@@ -1262,6 +1262,10 @@ class FileManagerToolSet(FileManagerToolSetBase):
         from pantheon.utils.vision_capability import supports_tool_result_image
 
         active_model = get_current_run_model()
+        if not active_model:
+            # An out-of-process App has no parent Agent run ContextVar. The
+            # actual selected model is carried in the plain execution context.
+            active_model = context.caller_model()
         if supports_tool_result_image(active_model):
             blocks: list[dict] = []
             for ipath in resolved_paths:
