@@ -101,6 +101,18 @@ UPDATE_SYSTEM = (
 )
 
 
+GENERIC_IDEAS = [
+    ("tune the main parameters", "Adjust the program's key numeric parameters (step sizes, iteration counts, thresholds) toward better scores."),
+    ("add a local refinement pass", "After the main procedure, add a local search or polishing pass on the current best solution."),
+    ("change the initialisation", "Start from a different or better-constructed initial state instead of the current one."),
+    ("restart from several starts", "Run the core procedure from several random starts and keep the best."),
+    ("simplify the objective handling", "Recompute the objective more precisely or more cheaply so more iterations fit the budget."),
+    ("exploit problem structure", "Use a symmetry, decomposition or invariant of the problem to constrain the search."),
+    ("perturb and re-optimise", "Perturb the best solution and re-optimise to escape a local optimum."),
+    ("reallocate the time budget", "Shift compute from the cheap phase to the phase that produces the score gains."),
+]
+
+
 @dataclass
 class _Trajectory:
     """One idea's short SimpleTES chain, from one parent."""
@@ -168,7 +180,20 @@ class LabNotebook(BaseMethod):
         valid_key: str = "validity",
         history_window: int = 24,
         seed: int = 0,
+        ideas: str = "model",
+        notebook: bool = True,
+        digest: bool = True,
     ):
+        # Ablation switches. `ideas`: "model" (the Propose call), "none" (K parallel short
+        # trajectories with no idea injected -- the structure without the steering), or
+        # "generic" (a fixed list sampled per cycle: diversity without the model's judgement).
+        # `notebook=False` drops Understand/Update (Propose sees only the history table);
+        # `digest=False` drops the Digest call (history rows keep the numbers, no prose).
+        if ideas not in ("model", "none", "generic"):
+            raise ValueError(f"ideas must be model|none|generic, got {ideas!r}")
+        self.ideas_mode = ideas
+        self.use_notebook = notebook
+        self.use_digest = digest
         self.K = ideas_per_cycle
         self.T = steps_per_trajectory
         self.k = k_candidates
@@ -292,7 +317,10 @@ class LabNotebook(BaseMethod):
         self.references = [s.id for s in code]
         if isinstance(code[0].genome, CodeGenome) and not self.evolve_file:
             self.evolve_file = next(iter(code[0].genome.files), None)
-        await self._initial_understanding(ctx, code[0])
+        if self.use_notebook:
+            await self._initial_understanding(ctx, code[0])
+        else:
+            self.understanding = "(notebook disabled)"
 
     async def _initial_understanding(self, ctx: EvolveContext, seed: Individual) -> None:
         prompt = (f"# Problem\n{ctx.objective}\n\n"
@@ -359,8 +387,15 @@ class LabNotebook(BaseMethod):
         return True
 
     async def _gen_ideas(self, ctx: EvolveContext, parent: Individual) -> List[Dict[str, Any]]:
+        if self.ideas_mode == "none":
+            return [{"title": f"trajectory {i + 1}", "idea": "", "predicted_gain": 0.0}
+                    for i in range(self.K)]
+        if self.ideas_mode == "generic":
+            picks = self.rng.sample(GENERIC_IDEAS, min(self.K, len(GENERIC_IDEAS)))
+            return [{"title": t, "idea": text, "predicted_gain": 0.0} for t, text in picks]
         prompt = (f"# Problem\n{ctx.objective}\n\n"
-                  f"# Lab notebook\n{self.understanding}\n\n"
+                  + (f"# Lab notebook\n{self.understanding}\n\n" if self.use_notebook else "")
+                  + 
                   f"# Record of ideas tried\n{self._history_text()}\n\n"
                   f"# Parent program for this cycle (score {self._score(parent)}; metrics: "
                   f"{self._metrics_text(parent)})\n```\n{self._code(parent)}\n```\n\n"
@@ -408,7 +443,7 @@ class LabNotebook(BaseMethod):
                   f"{parent_score})\n{new}\n\n"
                   f"# Best score so far: {best_ref[0]}\n\n"
                   "Rewrite the notebook.")
-        text = await self._llm_safe(UPDATE_SYSTEM, prompt, "update")
+        text = await self._llm_safe(UPDATE_SYSTEM, prompt, "update") if self.use_notebook else ""
         if text.strip():
             self.understanding = text.strip()
         self.events.append({"kind": "update", "cycle": self.cycle,
@@ -465,7 +500,7 @@ class LabNotebook(BaseMethod):
                      if t.failures else "")
                   + "Write the digest as JSON.")
         parsed: Dict[str, Any] = {}
-        for _attempt in range(2):
+        for _attempt in range(2 if self.use_digest else 0):
             # one retry: the digest is the outer loop's evidence, and in the smoke run one of
             # four came back as prose the parser could not use
             text = await self._llm_safe(DIGEST_SYSTEM, prompt, "digest")
@@ -509,14 +544,17 @@ class LabNotebook(BaseMethod):
             if not picked:
                 continue
             idea = self.ideas.get(t.idea_id, {})
-            instruction = (
-                f"{ctx.objective}\n\n"
-                f"## The ONE idea this trajectory tests: {idea.get('title', '')}\n"
-                f"{idea.get('text', '')}\n\n"
-                "Every candidate you write must implement or advance THIS idea on the reference "
-                "program(s) below. Keep everything the idea does not touch intact; do not "
-                "switch to an unrelated improvement."
-            )
+            if idea.get("text"):
+                instruction = (
+                    f"{ctx.objective}\n\n"
+                    f"## The ONE idea this trajectory tests: {idea.get('title', '')}\n"
+                    f"{idea.get('text', '')}\n\n"
+                    "Every candidate you write must implement or advance THIS idea on the reference "
+                    "program(s) below. Keep everything the idea does not touch intact; do not "
+                    "switch to an unrelated improvement."
+                )
+            else:   # ideas="none": a plain SimpleTES step
+                instruction = ctx.objective
             item = Create(
                 kind=CODE, parent_ids=[p.id for p in picked], anchor_id=t.idea_id, k=self.k,
                 context=PromptContext(instruction=instruction, parents=list(picked),

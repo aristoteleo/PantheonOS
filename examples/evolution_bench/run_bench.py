@@ -34,7 +34,7 @@ TASKS = HERE / "tasks"
 
 
 def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=None,
-                 low_fidelity: bool = False):
+                 low_fidelity: bool = False, ln_opts=None):
     from pantheon.evolution.methods import (
         AnnealedIdeaCode, HypothesisBandit, IdeaCodeAlternating, AgentMapElites,
         LabNotebook, SimpleTES)
@@ -63,8 +63,10 @@ def build_method(name: str, seed: int, judge=None, norm: str = "minmax", sched=N
     if name == "lab_notebook":
         # Inner steps use SimpleTES's k=2 / 2-inspiration settings above, so the two arms differ
         # only in the outer loop: K short trajectories per cycle instead of two long chains.
-        return LabNotebook(ideas_per_cycle=4, steps_per_trajectory=2, k_candidates=2,
-                           num_inspirations=2, seed=seed)
+        ln = dict(ideas_per_cycle=4, steps_per_trajectory=2, k_candidates=2,
+                  num_inspirations=2, seed=seed)
+        ln.update({k: v for k, v in (ln_opts or {}).items() if v is not None})   # ablation knobs
+        return LabNotebook(**ln)
     raise SystemExit(f"unknown method {name!r}")
 
 
@@ -127,7 +129,10 @@ async def main(a) -> None:
             judge.load(a.judge_state)
     sched = {k: getattr(a, k) for k in ("t0", "t1", "beta0", "gamma")
              if getattr(a, k) is not None}
-    method = build_method(a.method, a.seed, judge=judge, norm=a.norm, sched=sched,
+    ln_opts = {"ideas": a.ln_ideas, "notebook": not a.ln_no_notebook, "digest": not a.ln_no_digest,
+               "ideas_per_cycle": a.ln_ideas_per_cycle, "steps_per_trajectory": a.ln_steps,
+               "k_candidates": a.ln_k, "p_best_parent": a.ln_p_best}
+    method = build_method(a.method, a.seed, judge=judge, norm=a.norm, sched=sched, ln_opts=ln_opts,
                           low_fidelity=(a.inner_fidelity or cfg.get("inner_fidelity")) == "low")
 
     variator = method.default_variator(
@@ -399,6 +404,14 @@ if __name__ == "__main__":
                         "Set it (uniformly) when comparing methods, or the agent operators get "
                         "an unbounded hidden evaluation budget the completion operators lack.")
     p.add_argument("--workers", type=int, default=2)
+    # LabNotebook ablation knobs (only read by --method lab_notebook)
+    p.add_argument("--ln-ideas", choices=["model", "none", "generic"], default="model")
+    p.add_argument("--ln-no-notebook", action="store_true")
+    p.add_argument("--ln-no-digest", action="store_true")
+    p.add_argument("--ln-ideas-per-cycle", type=int, default=None)
+    p.add_argument("--ln-steps", type=int, default=None, help="steps per trajectory (T)")
+    p.add_argument("--ln-k", type=int, default=None, help="candidates per step (k)")
+    p.add_argument("--ln-p-best", type=float, default=None)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--tool-budget", type=int, default=28)
     p.add_argument("--code-variator", default=None, choices=["agent", "completion"])

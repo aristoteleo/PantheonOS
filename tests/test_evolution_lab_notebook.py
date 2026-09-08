@@ -160,3 +160,74 @@ class TestLabNotebook:
         v = m.default_variator(model="m", target_file="solution.py", max_output_tokens=1000)
         assert isinstance(v, UpstreamCompletionVariator)
         assert m.model == "m" and m.max_tokens == 1000 and m.evolve_file == "solution.py"
+
+
+class RecordingLLM(FakeLLM):
+    """FakeLLM that keeps the full system prompt of every call."""
+
+    def __init__(self):
+        super().__init__()
+        self.systems: List[str] = []
+
+    async def __call__(self, system: str, prompt: str) -> str:
+        self.systems.append(system)
+        return await super().__call__(system, prompt)
+
+
+def run_recording(method: LabNotebook, budget: int = 12, workers: int = 4):
+    fake = RecordingLLM()
+    method._llm = fake  # type: ignore[assignment]
+    var = FakeVariator()
+    res = asyncio.run(evolve(
+        method=method, variator=var, evaluators={CODE: FakeEvaluator()},
+        seeds=[CodeGenome(files={"solution.py": "# seed value=1.0\n"})],
+        objective="maximise value", budget=Budget(max_items=budget), concurrency=workers))
+    return res, fake, var
+
+
+class TestAblationSwitches:
+    """Each switch removes exactly its own model call and nothing else."""
+
+    def test_no_ideas_runs_plain_parallel_trajectories(self):
+        m = LabNotebook(ideas_per_cycle=2, steps_per_trajectory=1, k_candidates=2, seed=1,
+                        ideas="none")
+        _, fake, var = run_recording(m)
+        assert not any("proposing the next experiments" in s for s in fake.systems)
+        assert var.instructions and all("ONE idea" not in i for i in var.instructions)
+        assert m.history and all(r["title"].startswith("trajectory") for r in m.history)
+        # the digest still ran: the notebook keeps learning even without steering
+        assert any("writing up one experiment" in s for s in fake.systems)
+
+    def test_generic_ideas_come_from_the_fixed_list_without_a_model_call(self):
+        from pantheon.evolution.methods.lab_notebook import GENERIC_IDEAS
+        m = LabNotebook(ideas_per_cycle=2, steps_per_trajectory=1, k_candidates=2, seed=1,
+                        ideas="generic")
+        _, fake, var = run_recording(m)
+        assert not any("proposing the next experiments" in s for s in fake.systems)
+        titles = {t for t, _ in GENERIC_IDEAS}
+        assert m.history and all(r["title"] in titles for r in m.history)
+        assert all("ONE idea" in i for i in var.instructions)
+
+    def test_no_notebook_skips_understand_and_update(self):
+        m = LabNotebook(ideas_per_cycle=2, steps_per_trajectory=1, k_candidates=2, seed=1,
+                        notebook=False)
+        _, fake, _ = run_recording(m)
+        assert m.understanding == "(notebook disabled)"
+        assert not any("revising your lab notebook" in s for s in fake.systems)
+        assert any("proposing the next experiments" in s for s in fake.systems)
+        assert any("writing up one experiment" in s for s in fake.systems)
+
+    def test_no_digest_keeps_the_numbers_and_drops_the_prose(self):
+        m = LabNotebook(ideas_per_cycle=2, steps_per_trajectory=1, k_candidates=2, seed=1,
+                        digest=False)
+        _, fake, _ = run_recording(m)
+        assert not any("writing up one experiment" in s for s in fake.systems)
+        assert m.history
+        for r in m.history:
+            assert r["outcome"] == "" and r["lesson"] == ""
+            assert isinstance(r["delta"], float) and r["n_candidates"] >= 1
+        assert any("revising your lab notebook" in s for s in fake.systems)
+
+    def test_bad_ideas_mode_is_rejected(self):
+        with pytest.raises(ValueError):
+            LabNotebook(ideas="random")
