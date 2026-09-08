@@ -408,35 +408,108 @@ called LabNotebook the cheapest method; that was read from partial arms and is w
 \subsection{Baseline fidelity and ablations (in progress)}
 \label{sec:parts}
 
-Two follow-up studies address the two objections to the comparison above: that our SimpleTES
-is a port, and that nothing yet attributes LabNotebook's results to its design.
+Two follow-up studies address the two objections to the comparison above: that our SimpleTES is
+a port, and that nothing yet attributes LabNotebook's results to its design. Both run in the same
+harness, on the same tasks and budgets as the main campaigns, with \texttt{deepseek-v4-flash}.
 
-\paragraph{Part 1 --- the authors' engine.} The original SimpleTES engine (pinned commit
-\texttt{a19a54b}) runs on our tasks through an adapter: our evaluator, our model, the same
-candidate and token caps, the seed measured once, evaluations on the same eval server for AHC039,
-every request's tokens booked (rejected generations included). Two configurations: a
-\emph{port-mirror} (2 chains, $k{=}2$, 2 inspirations, rpucg, no reflection --- what our port
-ran) and the \emph{authors' defaults} (4 chains, $k{=}4$, 5 inspirations, balance selector,
-reflection on). Tasks: the ones where LabNotebook claimed a win (C2, sums vs differences,
-Heilbronn convex), C1 as a tie control, and AHC039 in the block below.
+\subsubsection*{Part 1 --- is the port a fair SimpleTES?}
 
-\paragraph{Part 2 --- ablations.} Each switch removes exactly one model call of the method:
-\emph{no ideas} (the $K$ parallel short trajectories run with the plain objective --- the
-structure without the steering), \emph{one long trajectory} ($K{=}1$, $T{=}8$, same calls per
-cycle), \emph{no notebook} (no Understand/Update), \emph{no digest} (numbers only in the history).
-On AHC039 --- where the effect to explain is largest --- all of these run as one block of three
-waves, each wave one seed with every method (upstream, fresh LabNotebook, fresh port, four
-ablations) on its own eval server, so within a wave every method sees the same machine and the
-waves are blocked replicates; warm-up evaluation and a 20-minute seed drift probe calibrate the
-three servers.
+The original SimpleTES engine (github.com/wq-will/SimpleTES, pinned at commit \texttt{a19a54b})
+is run unmodified through an adapter that gives it our task's seed program, objective and
+evaluator, our model through the same gateway, and --- for AHC039 --- the same eval server as
+every other arm. Its checkpoint is converted into our summary format, and every request's tokens
+are booked through a hook the adapter installs in the engine's interpreter (rejected generations
+included, which the engine's own checkpoint does not keep).
+
+SimpleTES's search has five knobs, and the study runs the engine under two settings of them:
+
+\begin{center}\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{34mm}>{\raggedright\arraybackslash}p{30mm}>{\raggedright\arraybackslash}p{30mm}>{\raggedright\arraybackslash}p{58mm}@{}}
+\toprule
+knob & \emph{port-mirror} & \emph{authors' defaults} & what it does \\
+\midrule
+chains & 2 & 4 & independent lineages evolved side by side; each keeps its own incumbent \\
+$k$ candidates & 2 & 4 & completions per prompt; the best of the $k$ is committed to the chain \\
+inspirations & 2 & 5 & reference programs shown in the prompt beside the parent \\
+selector & rpucg & balance & the policy that picks those references from the database (rpucg is the engine's UCB-style rule; balance is its default exploitation/exploration mix) \\
+reflection & off & on & an extra model call that writes a short reflection on each batch-best program and feeds it into later prompts \\
+\midrule
+seed evaluation & \multicolumn{2}{l}{once (engine default: 16 repeats, max kept)} & \\
+candidates & \multicolumn{2}{l}{100 (60 on C1), each one request in the engine's streaming mode} & \\
+tokens & \multicolumn{2}{l}{64k output per request; 3.5\,M completion-token cap} & \\
+evaluation & \multicolumn{2}{l}{our evaluator, 300 s; AHC039 on the shared eval server} & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\emph{Port-mirror} is the configuration our port ran in the main campaigns (\S\ref{sec:flash}),
+so an upstream arm in this setting differs from a port arm only in the code that implements the
+search: it measures implementation fidelity. \emph{Authors' defaults} is the engine as shipped
+--- wider (4 chains, $k{=}4$), more context (5 inspirations), its default selector, and the
+reflection call our port deliberately omits: it measures whether the settings we chose for the
+port handicapped SimpleTES. If the two upstream settings and the port all land within replicate
+spread of each other, the comparison with LabNotebook stands as measured; if either upstream
+setting is clearly stronger, the honest baseline becomes that setting.
+
+Two accounting facts to keep in view when reading the tokens column: the engine's token cap counts
+completion tokens only, so its arms consume more total tokens than our 3.5\,M prompt+completion
+cap (3.1--6.7\,M on the finished arms); and the engine rejects a reply that drops the
+\texttt{EVOLVE-BLOCK} markers or comes back empty --- with this model that is common (1--60
+rejections per arm so far) and it counts against the candidate budget, as the authors' contract
+intends.
+
+\subsubsection*{Part 2 --- which parts of LabNotebook do the work?}
+
+A full LabNotebook cycle makes these model calls: \call{Propose} ($K{=}4$ ideas), then $K \times
+T = 8$ operator steps (each one request returning $k{=}2$ candidates; the idea rides in every
+step's instruction), then $K = 4$ \call{Digest} calls and one \call{Update} of the notebook; the
+notebook itself comes from one \call{Understand} call at the start. Each ablation removes
+\emph{exactly one} of these and leaves everything else --- budgets, operator, parent selection,
+references --- unchanged:
+
+\begin{center}\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{26mm}>{\raggedright\arraybackslash}p{50mm}>{\raggedright\arraybackslash}p{30mm}>{\raggedright\arraybackslash}p{46mm}@{}}
+\toprule
+variant & what changes & calls per cycle & what it tests \\
+\midrule
+full & --- & 1 + 8 + 4 + 1 & the reference \\
+no ideas & \call{Propose} is skipped; the $K$ trajectories run with the plain objective as
+  instruction (exactly what the port sends); digests and notebook still run & 0 + 8 + 4 + 1 &
+  whether the gain comes from steering by explicit ideas, or merely from the parallel-short-trajectory
+  structure \\
+one long trajectory & $K{=}1$, $T{=}8$: one idea, one trajectory of eight chained steps, still
+  16 candidates per cycle; fewer outer calls, so $\sim$40\% more cycles per budget & 1 + 8 + 1 + 1 &
+  breadth (four shallow probes) against depth (one deep pursuit) --- the trajectory-length hypothesis \\
+no notebook & \call{Understand} and \call{Update} are skipped; \call{Propose} sees the problem, the
+  history table (numbers and digests) and the parent program, but no accumulated prose understanding &
+  1 + 8 + 4 + 0 & whether the rewritten understanding improves idea quality beyond the raw record \\
+no digest & \call{Digest} is skipped; history rows keep the numbers (idea, predicted and measured
+  gain, candidates) but no outcome/why/lesson; the notebook update sees numbers only & 1 + 8 + 0 + 1 &
+  whether the model's written interpretation of each experiment matters, or the numbers suffice \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Two further variants are implemented but not yet run: \emph{generic ideas} (a fixed list sampled
+per cycle, no model call --- diversity without judgement) and $k$-vs-$T$ trade-offs.
+
+The ablations run on the two cheap tasks where LabNotebook led (C2, sums vs differences) and on
+AHC039, where the effect to explain is largest (40 points in the pro campaign). On AHC039 all
+variants run as one block of three waves, each wave one seed with every method --- the authors'
+engine, a fresh LabNotebook, a fresh port, and the four ablations --- on its own eval server, so
+within a wave every method sees the same machine and load, and the waves are blocked replicates;
+warm-up evaluation and a 20-minute seed drift probe calibrate the three servers. Reading rule: a
+variant's effect is its difference from the full method on the same task; on the cheap tasks
+differences inside the replicate spread ($\sim$0.01) are inconclusive, on AHC039 the bar is
+$\sim$20 points, the seed's own machine noise.
 
 \begin{table}[H]\centering\small
-\caption{Part 1 snapshot (2026-09-08 16:30 PDT): best per arm (s0 / s1 / s2) and mean. Dashes are
+\caption{Part 1 snapshot (2026-09-08 16:20 PDT): best per arm (s0 / s1 / s2) and mean. Dashes are
 arms still running; the upstream engine keeps no partial results.}
 \label{tab:part1}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
-\multicolumn{5}{@{}l}{\textbf{$C_2$} (↑)} \\
+\multicolumn{5}{@{}l}{\textbf{$C_2$} (higher is better)} \\
 group & s0 & s1 & s2 & mean \\
 \midrule
 LabNotebook & 0.9248 & 0.9106 & 0.9185 & 0.9180 \\
@@ -444,21 +517,21 @@ our SimpleTES port & 0.9101 & 0.9079 & 0.9139 & 0.9106 \\
 upstream, port-mirror & 0.9269 & --- & --- & 0.9269 \\
 upstream, authors' defaults & 0.9120 & --- & --- & 0.9120 \\
 \midrule
-\multicolumn{5}{@{}l}{\textbf{sums vs differences} (↑)} \\
+\multicolumn{5}{@{}l}{\textbf{sums vs differences} (higher is better)} \\
 \midrule
 LabNotebook & 1.0668 & 1.0865 & 1.0621 & 1.0718 \\
 our SimpleTES port & 1.0668 & 1.0677 & 1.0621 & 1.0655 \\
 upstream, port-mirror & --- & --- & --- & --- \\
 upstream, authors' defaults & 1.0668 & --- & --- & 1.0668 \\
 \midrule
-\multicolumn{5}{@{}l}{\textbf{Heilbronn convex $n{=}13$} (ratio, ↑)} \\
+\multicolumn{5}{@{}l}{\textbf{Heilbronn convex $n{=}13$} (ratio, higher is better)} \\
 \midrule
 LabNotebook & 0.8520 & 1.0000 & 0.8905 & 0.9142 \\
 our SimpleTES port & 0.9158 & 0.8676 & 0.8833 & 0.8889 \\
 upstream, port-mirror & 0.8877 & --- & --- & 0.8877 \\
 upstream, authors' defaults & 0.8554 & --- & --- & 0.8554 \\
 \midrule
-\multicolumn{5}{@{}l}{\textbf{$C_1$ control} (↓)} \\
+\multicolumn{5}{@{}l}{\textbf{$C_1$ control} (lower is better)} \\
 \midrule
 LabNotebook & 1.51063 & 1.51267 & 1.50947 & 1.51093 \\
 our SimpleTES port & 1.50941 & 1.51148 & 1.51088 & 1.51059 \\
@@ -480,25 +553,29 @@ AHC039 arms are a few hours into $\sim$14; their bests are not yet informative.}
 \label{tab:part2}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
-\multicolumn{5}{@{}l}{\textbf{$C_2$} (↑)} \\
+\multicolumn{5}{@{}l}{\textbf{$C_2$} (higher is better)} \\
 group & s0 & s1 & s2 & mean \\
 \midrule
 LabNotebook (full) & 0.9248 & 0.9106 & 0.9185 & 0.9180 \\
 no ideas & 0.9064$^\circ$ & 0.9096 & 0.9103 & 0.9087 \\
 one long trajectory & 0.9065$^\circ$ & 0.9163$^\circ$ & 0.9172$^\circ$ & 0.9133 \\
+no notebook & 0.9124$^\circ$ & --- & --- & 0.9124 \\
+no digest & 0.9098$^\circ$ & --- & --- & 0.9098 \\
 \midrule
-\multicolumn{5}{@{}l}{\textbf{sums vs differences} (↑)} \\
+\multicolumn{5}{@{}l}{\textbf{sums vs differences} (higher is better)} \\
 \midrule
 LabNotebook (full) & 1.0668 & 1.0865 & 1.0621 & 1.0718 \\
 no ideas & 1.0668 & 1.0754$^\circ$ & 1.0865$^\circ$ & 1.0762 \\
 one long trajectory & 1.0773$^\circ$ & 1.0960$^\circ$ & 1.0744$^\circ$ & 1.0825 \\
+no notebook & --- & --- & --- & --- \\
+no digest & --- & --- & --- & --- \\
 \midrule
 \multicolumn{5}{@{}l}{\textbf{AHC039 block} (official points; all arms running)} \\
 \midrule
 LabNotebook (full) & 3684$^\circ$ & 3736$^\circ$ & 3702$^\circ$ & 3707 \\
 our port & 3694$^\circ$ & 3301$^\circ$ & --- & --- \\
-no ideas & 3697$^\circ$ & --- & --- & --- \\
-one long trajectory & 3689$^\circ$ & 3710$^\circ$ & --- & --- \\
+no ideas & 3693$^\circ$ & 3697$^\circ$ & --- & 3695 \\
+one long trajectory & 3689$^\circ$ & 3716$^\circ$ & --- & 3702 \\
 no notebook & 3708$^\circ$ & 3695$^\circ$ & 3705$^\circ$ & 3703 \\
 no digest & 3702$^\circ$ & 3697$^\circ$ & 3675$^\circ$ & 3691 \\
 \bottomrule
@@ -509,7 +586,8 @@ no digest & 3702$^\circ$ & 3697$^\circ$ & 3675$^\circ$ & 3691 \\
 \includegraphics[width=\textwidth]{lab_notebook_figs/part2_ablations.png}
 \caption{Part 2 snapshot. Removing the ideas holds C2 at the seed where the full method moved;
 on sums vs differences it does not hurt, and the single long trajectory is the best variant so
-far. The AHC039 block, where the effect to explain is largest, is a few hours in.}
+far. The no-notebook and no-digest arms on the cheap tasks have just started; the AHC039 block,
+where the effect to explain is largest, is a few hours in.}
 \end{figure}
 
 \subsection{Reading the results}
