@@ -81,7 +81,9 @@ def evaluate(filepath):
     tmp = tempfile.mkdtemp(prefix="upstream_eval_")
     try:
         shutil.copyfile(filepath, os.path.join(tmp, EVOLVE_FILE))
-        m = _mod.evaluate(tmp, "full")
+        import inspect
+        params = inspect.signature(_mod.evaluate).parameters
+        m = _mod.evaluate(tmp, "full") if len(params) >= 2 else _mod.evaluate(tmp)   # fidelity only where accepted
         m["combined_score"] = float(m.get("combined_score", 0.0))
         return m
     finally:
