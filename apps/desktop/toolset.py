@@ -49,6 +49,14 @@ SNAPSHOT_TIMEOUT_SECONDS = 25
 MAX_DIAGNOSTICS = 50
 
 
+def normalize_window_reference(reference: str) -> str:
+    """Accept the exact #app mention spelling without changing page/app ids."""
+    for prefix in ("#app:", "app:"):
+        if reference.startswith(prefix) and reference[len(prefix):].startswith("win-"):
+            return reference[len(prefix):]
+    return reference
+
+
 class DesktopRequestError(RuntimeError):
     """A failed frontend operation can still identify its existing window."""
 
@@ -87,6 +95,7 @@ class DesktopToolSet(ToolSet):
         self._nats = None  # lazy NATSStreamAdapter
         self._data_server = None  # lazy LiveViewDataServer
         self._apps_supervisor = None  # lazy AppSupervisor (packaged backends)
+        self._browser_creation_locks: dict[str, asyncio.Lock] = {}
 
     # ── internals ─────────────────────────────────────────────────────────
 
@@ -731,6 +740,8 @@ class DesktopToolSet(ToolSet):
         to the pod's most recently active viewport, so the standalone desktop
         stops being a place where `desktop_open` answers "no chat context".
         """
+        if isinstance(payload.get("window_id"), str):
+            payload = {**payload, "window_id": normalize_window_reference(payload["window_id"])}
         chat_id = self._chat_id() or ""
         anchor = self._presence().anchor_for(chat_id)
         viewport_id = anchor.get("viewport_id")
@@ -1072,6 +1083,8 @@ class DesktopToolSet(ToolSet):
         available. Files exposes its current folder and selection actions.
         Controllable describes the app's supported interface; a window
         that is still loading must finish mounting before UI calls answer.
+        Status "open" describes the window's existence, not a loading
+        verdict. Read its current state with desktop_read before waiting.
         """
         # Answered from the pod's own document, so this works with no desktop
         # on screen at all — the window list is a property of the machine, and
@@ -1091,7 +1104,10 @@ class DesktopToolSet(ToolSet):
                 "path": w.get("path") or None,
                 "space": w.get("space", 1),
                 "minimized": bool(w.get("minimized")),
-                "status": w.get("status", "ready"),
+                # The session's old 'opening' value is a lifecycle marker,
+                # not live frontend readiness. Do not make an agent wait on
+                # a value that never changes after a Browser has rendered.
+                "status": "open",
                 "opened_by": w.get("opened_by") or None,
                 # A Terminal window is a VIEW onto a pty session running on
                 # this pod — so it is drivable, just not through the packaged-
@@ -1222,6 +1238,7 @@ class DesktopToolSet(ToolSet):
 
         Works on any packaged-app window, including ones the user opened.
         """
+        window_id = normalize_window_reference(window_id)
         try:
             w = self._desktop_window(window_id.split("::native:", 1)[0])
             if w.get("app_id") == "qupath":
@@ -1242,6 +1259,7 @@ class DesktopToolSet(ToolSet):
         return await self._desktop_request("desktop.read", {"window_id": window_id})
 
     def _desktop_window(self, window_id: str) -> dict:
+        window_id = normalize_window_reference(window_id)
         store = self._desktop()
         store.current()
         window = (store.session.windows or {}).get(window_id)
@@ -1292,6 +1310,7 @@ class DesktopToolSet(ToolSet):
         return [{key: value for key, value in item.items() if key != "xid" and not key.startswith('_')} for item in targets]
 
     async def _native_target(self, window_id: str):
+        window_id = normalize_window_reference(window_id)
         from .native_targets import window_targets
 
         parent_id = window_id.split("::native:", 1)[0]
@@ -1359,6 +1378,7 @@ class DesktopToolSet(ToolSet):
         State patched WITHOUT a path — a raw ``url``, say — only changes the
         live views and is gone after a reload.
         """
+        window_id = normalize_window_reference(window_id)
         patch = patch or {}
         path = patch.get("path")
         if isinstance(path, str) and path:
@@ -1390,6 +1410,7 @@ class DesktopToolSet(ToolSet):
         """Invoke a named action on a window — the same handlers its menus
         trigger (defineAction). List a window's actions via desktop_windows.
         Also accepts window ops: action "$close" closes the window."""
+        window_id = normalize_window_reference(window_id)
         # Underscore-prefixed kwargs happen: the framework passes _background,
         # and a model that has seen it sometimes writes _action / _args too.
         # Three consecutive calls once died on "missing 1 required positional
@@ -1512,6 +1533,7 @@ class DesktopToolSet(ToolSet):
         natural guess resolves instead of dead-ending. Failures explain the
         namespaces and the way forward.
         """
+        page_id = normalize_window_reference(page_id)
         try:
             return engine.latest(page_id)
         except KeyError:
@@ -1520,6 +1542,13 @@ class DesktopToolSet(ToolSet):
                 store.current()
                 w = (store.session.windows or {}).get(page_id)
                 if w and w.get("app_id") == "browser":
+                    from .desktop_session import browser_page_reference
+
+                    if (w.get("args") or {}).get("browser_binding"):
+                        bound = browser_page_reference(w)
+                        if bound:
+                            return engine.window_binding(bound)
+                        raise KeyError(f"Browser window '{page_id}' has no live page yet")
                     shared = ((w.get("args") or {}).get("shared") or {}).get("v") or {}
                     # Seamless Browser hosts one native window. Its durable
                     # page lives at `page`; pages/active is the legacy host.
@@ -1547,6 +1576,7 @@ class DesktopToolSet(ToolSet):
                 "only resolves for Browser windows.")
 
     async def _resolve_control_page(self, engine, reference: str = ""):
+        reference = normalize_window_reference(reference)
         anchor = self._resolve_page(engine, reference)
         if reference:
             store = self._desktop()
@@ -1598,6 +1628,7 @@ class DesktopToolSet(ToolSet):
             # "Use this window" navigates its existing page. Creating a new
             # native Chromium window first both loses the user's target and
             # can leave an unadopted window behind when resolution fails.
+            window_id = normalize_window_reference(window_id)
             if window_id:
                 session = await self._resolve_control_page(engine, window_id)
                 if url:
@@ -1853,19 +1884,78 @@ class DesktopToolSet(ToolSet):
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    async def _browser_ui_window_page(self, engine, window_id: str, url: str,
+                                      operation_id: str, expected_page_id: str):
+        """Ensure one initial page per shell, or perform one explicit replacement.
+
+        The canonical Desktop service serializes callers from every viewport.
+        A document CAS also protects against writers outside this process.
+        """
+        from .browser import normalize_url
+        from .desktop_session import browser_page_reference
+
+        lock = self._browser_creation_locks.setdefault(window_id, asyncio.Lock())
+        async with lock:
+            window = self._desktop_window(window_id)
+            if window.get("app_id") != "browser":
+                raise ValueError("The requested desktop window is not a Browser")
+            current = browser_page_reference(window)
+            binding = (window.get("args") or {}).get("browser_binding") or {}
+            if not operation_id or operation_id == binding.get("operation_id"):
+                if current:
+                    session = await engine.call(engine.window_page(current, require_visible=False))
+                    return session, current, binding or None
+            elif current != expected_page_id:
+                raise ValueError("The Browser page binding changed; read the existing window before retrying")
+
+            # A retry of an explicit creation must carry the same operation id.
+            # Ordinary boot/refresh uses one stable initial operation per shell.
+            operation_id = operation_id or "initial"
+            session = await engine.call(engine.open_page(normalize_url(url), wait_for_load=False))
+            try:
+                store = self._desktop()
+                ops, result = store.apply("bind_browser", {
+                    "window_id": window_id, "expected_page_id": current,
+                    "page_id": session.id, "operation_id": operation_id,
+                    "url": session.url,
+                })
+                if store._dirty:
+                    raise RuntimeError("The Browser page binding could not be saved")
+            except Exception:
+                # Never close the previous/unknown page: only the page this
+                # attempt just created belongs to its failed commit.
+                await engine.call(engine.close_page(session.id))
+                if operation_id == "initial":
+                    winner = browser_page_reference(self._desktop_window(window_id))
+                    if winner:
+                        session = await engine.call(engine.window_page(winner, require_visible=False))
+                        current_window = self._desktop_window(window_id)
+                        return session, winner, (current_window.get("args") or {}).get("browser_binding")
+                raise
+            await self._publish_desktop({"type": "desktop.delta", "seq": store.session.seq, "ops": ops})
+            return session, session.id, result["binding"]
+
     @tool(exclude=True)
-    async def browser_ui_page(self, url: str = "", page_id: str = "") -> dict:
+    async def browser_ui_page(self, url: str = "", page_id: str = "", window_id: str = "",
+                              operation_id: str = "", expected_page_id: str = "") -> dict:
         """UI → backend: create (or attach to) a page, and read its state.
 
         The Atrium Browser window calls this on mount: with `page_id` when the
         agent already opened the page (desktop.open state), without to start a
-        fresh page. The picture itself comes from the xpra stage, not from
-        here — this is the page's identity and where it has got to.
+        fresh page. New clients provide window_id for initial creation so all
+        viewports ensure the same native page. Explicit newPage/recovery sends
+        operation_id and expected_page_id; retries reuse that operation id.
+        Legacy clients without window_id keep their existing create behavior.
+        The picture itself comes from the xpra stage, not from here.
         """
         try:
             engine = self._browser_engine()
+            binding = None
             if page_id:
                 session = await engine.call(engine.window_page(page_id, require_visible=False))
+            elif window_id:
+                session, page_id, binding = await self._browser_ui_window_page(
+                    engine, window_id, url, operation_id, expected_page_id)
             else:
                 from .browser import normalize_url
 
@@ -1880,6 +1970,7 @@ class DesktopToolSet(ToolSet):
                 **await self._browser_page_info(session),
                 "page_id": page_id or session.id,
                 "active_page_id": session.id,
+                **({"binding": binding} if binding else {}),
                 "width": session.width,
                 "height": session.height,
                 # The stage needs the xpra binary AND a real display. Without

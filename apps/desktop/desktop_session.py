@@ -57,6 +57,23 @@ EPHEMERAL_APPS = {"agent-view", "xwindow"}
 
 MAX_SPACES = 6
 
+
+def browser_page_reference(window: dict[str, Any]) -> str:
+    """The authoritative native identity, with old window records supported."""
+    args = window.get("args") or {}
+    binding = args.get("browser_binding") or {}
+    if "page_id" in binding:
+        return str(binding.get("page_id") or "")
+    shared = (args.get("shared") or {}).get("v") or {}
+    if "page" in shared:
+        return str(shared.get("page") or "")
+    if args.get("page_id"):
+        return str(args["page_id"])
+    pages = list(shared.get("pages") or [])
+    active = shared.get("active", 0)
+    page = pages[active] if isinstance(active, int) and 0 <= active < len(pages) else None
+    return str(page or next((p for p in pages if p), ""))
+
 # A token every process in this container agrees on, and that no other
 # container can produce. It marks the record with the LIFETIME that wrote it,
 # which is what tells a reload "these agent views are still live" apart from
@@ -429,6 +446,31 @@ class DesktopSessionStore:
             return [], {"closed": False}
         self.session.windows.pop(wid)
         return [{"op": "remove", "id": wid}], {"closed": True}
+
+    def _do_bind_browser(self, a: dict) -> tuple[list[dict], dict]:
+        """Commit a created page only while its original shell/binding exists.
+
+        Runs under the document lock. The creator owns only the new page;
+        failure never reopens a closed shell or overwrites another operation.
+        """
+        wid = str(a.get("window_id") or "")
+        window = self.session.windows.get(wid)
+        if not window or window.get("app_id") != "browser":
+            raise KeyError(f"No such desktop Browser window: {wid}")
+        current = browser_page_reference(window)
+        if current != str(a.get("expected_page_id") or ""):
+            raise ValueError("The Browser page binding changed while a page was opening")
+        page_id = str(a.get("page_id") or "")
+        operation_id = str(a.get("operation_id") or "")
+        if not page_id or not operation_id:
+            raise ValueError("A Browser binding requires page_id and operation_id")
+        binding = {"page_id": page_id, "operation_id": operation_id,
+                   "revision": self.session.seq + 1}
+        args = {**(window.get("args") or {}),
+                "browser_binding": binding, "page_id": page_id,
+                "shared": {"by": "browser", "v": {"page": page_id, "url": str(a.get("url") or "")}}}
+        self._touch(wid)["args"] = args
+        return [self._upsert(wid)], {"binding": binding}
 
     def _do_move(self, a: dict) -> tuple[list[dict], dict]:
         w = self._touch(str(a.get("window_id") or ""))
