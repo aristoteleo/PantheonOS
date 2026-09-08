@@ -60,7 +60,7 @@ async def test_observed_selectors_complete_form_despite_ambiguous_text(live_page
     assert read["success"] and read["page_id"] == "owned-native-page"
     assert await live_page.content() == before  # observation must not inject attributes
     by_name = {element["name"]: element for element in read["elements"]}
-    assert by_name["Confirmation text"]["selector"] == "#confirmation"
+    assert by_name["Confirmation text"]["selector"] == "css:light=#confirmation"
     for name in ("Begin", "Submit"):
         assert await live_page.locator(by_name[name]["selector"]).count() == 1
         assert await live_page.locator(by_name[name]["selector"]).evaluate("e => e.tagName") == "BUTTON"
@@ -122,3 +122,38 @@ async def test_empty_page_has_explicit_empty_observation(live_page, monkeypatch)
     assert result["success"]
     assert result["text"] == "" and result["elements"] == []
     assert result["elements_truncated"] is False
+
+
+async def test_long_attributes_and_large_forms_cannot_bypass_output_budget(live_page):
+    await live_page.set_content('<button>Action</button><form></form>')
+    await live_page.evaluate("""() => {
+        const button = document.querySelector('button');
+        button.id = 'x'.repeat(100000); button.setAttribute('role', 'r'.repeat(100000));
+        for (let i = 0; i < 99; i++) {
+            const input = document.createElement('input');
+            input.setAttribute('aria-label', 'label'.repeat(40)); input.value = 'value'.repeat(40);
+            document.querySelector('form').append(input);
+        }
+    }""")
+    result = await live_page.evaluate(BROWSER_SNAPSHOT_JS, {"textLimit": 8000, "elementLimit": 100})
+    import json
+    assert len(json.dumps(result["elements"], separators=(',', ':'))) <= 24001
+    assert result["elements_truncated"]
+    action = next(item for item in result["elements"] if item["name"] == "Action")
+    assert len(action["selector"]) < 100 and len(action["role"]) == 200
+    assert await live_page.locator(action["selector"]).count() == 1
+
+
+async def test_main_document_selectors_do_not_match_shadow_controls(live_page):
+    await live_page.set_content('<div id="host"></div><button id="duplicate">Main action</button>')
+    await live_page.evaluate("""() => {
+        document.querySelector('#host').attachShadow({mode: 'open'}).innerHTML =
+            '<button id="duplicate">Unrelated shadow action</button>';
+        document.querySelector('button').onclick = () => document.body.dataset.clicked = 'main';
+    }""")
+    result = await live_page.evaluate(BROWSER_SNAPSHOT_JS, {"textLimit": 8000, "elementLimit": 100})
+    assert len(result["elements"]) == 1
+    selector = result["elements"][0]["selector"]
+    assert await live_page.locator(selector).count() == 1
+    await live_page.click(selector)
+    assert await live_page.get_attribute('body', 'data-clicked') == 'main'

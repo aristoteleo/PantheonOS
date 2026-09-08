@@ -3,12 +3,12 @@
 # Keep the snapshot in the same evaluation as its text: selectors describe this
 # page at observation time, not a separately fetched or reconstructed document.
 # No synthetic IDs/listeners are injected into the user's page.
-BROWSER_SNAPSHOT_JS = r"""({textLimit, elementLimit}) => {
+BROWSER_SNAPSHOT_JS = r"""({textLimit, elementLimit, elementTextLimit = 24000}) => {
     const clean = value => String(value || '').replace(/\s+/g, ' ').trim().slice(0, 200);
     const selectorFor = element => {
-        if (element.id) {
+        if (element.id && element.id.length <= 128) {
             const selector = '#' + CSS.escape(element.id);
-            if (document.querySelectorAll(selector).length === 1) return selector;
+            if (selector.length <= 512 && document.querySelectorAll(selector).length === 1) return 'css:light=' + selector;
         }
         const parts = [];
         for (let node = element; node && node.nodeType === 1; node = node.parentElement) {
@@ -16,9 +16,10 @@ BROWSER_SNAPSHOT_JS = r"""({textLimit, elementLimit}) => {
             const siblings = node.parentElement ? Array.from(node.parentElement.children) : [node];
             parts.unshift(tag + ':nth-child(' + (siblings.indexOf(node) + 1) + ')');
             const selector = parts.join(' > ');
-            if (document.querySelectorAll(selector).length === 1) return selector;
+            if (selector.length > 512) return null;
+            if (document.querySelectorAll(selector).length === 1) return 'css:light=' + selector;
         }
-        return parts.join(' > ');
+        return null;
     };
     const nameFor = element => {
         const labelled = (element.getAttribute('aria-labelledby') || '').split(/\s+/)
@@ -48,12 +49,15 @@ BROWSER_SNAPSHOT_JS = r"""({textLimit, elementLimit}) => {
     // Visible controls come first; offscreen controls remain usable because
     // Playwright can scroll them into view before acting.
     visible.sort((a, b) => Number(b.inViewport) - Number(a.inViewport));
-    const elements = visible.slice(0, elementLimit).map(({element, inViewport}) => {
-        const item = {selector: selectorFor(element), tag: element.localName,
+    let truncated = visible.length > elementLimit;
+    const described = visible.slice(0, elementLimit).map(({element, inViewport}) => {
+        const selector = selectorFor(element);
+        if (!selector) { truncated = true; return null; }
+        const item = {selector, tag: element.localName,
             name: nameFor(element), in_viewport: inViewport,
             disabled: element.matches(':disabled') || element.getAttribute('aria-disabled') === 'true'};
         const role = element.getAttribute('role');
-        if (role) item.role = role;
+        if (role) item.role = clean(role);
         if (element.localName === 'a' && element.href.length <= 2048) item.href = element.href;
         if (element.type) item.type = element.type;
         // Do not expose password values or local upload paths in observations.
@@ -63,8 +67,17 @@ BROWSER_SNAPSHOT_JS = r"""({textLimit, elementLimit}) => {
             .map(option => ({label: clean(option.label), value: clean(option.value), selected: option.selected}));
         return item;
     });
+    const elements = [];
+    let remaining = elementTextLimit;
+    for (const item of described) {
+        if (!item) continue;
+        const size = JSON.stringify(item).length + 1;
+        if (size > remaining) { truncated = true; continue; }
+        elements.push(item);
+        remaining -= size;
+    }
     return {text: (document.body?.innerText || '').slice(0, textLimit + 1), elements,
-        elements_truncated: visible.length > elementLimit, elements_scope: 'main_document'};
+        elements_truncated: truncated, elements_scope: 'main_document'};
 }"""
 
 ELEMENT_LIMIT = 100
