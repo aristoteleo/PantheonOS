@@ -848,16 +848,16 @@ export async function setup(lv, root) {
   // the first toolbar click re-rendered from nothing ("Provide state.url").
   const __emitToApp = async (state, info) => {
     __cur = state
-    for (const cb of __cbs) await cb(state, info || { reason: 'set' })
-    // Publish the canonical viewer state exactly once. A merge would keep
-    // the original file envelope and rerun prepare on the next UI change.
-    // SDK emitState calls onState synchronously; suppress that echo because
-    // the renderer above already completed. The SDK's fluent API is not a promise.
+    // Publish BEFORE rendering. deck.gl can report a camera change while
+    // reload() is awaiting data; that update must merge into this dataset,
+    // not the URL-less init envelope. Publishing afterwards also overwrote
+    // camera changes and left the missing-URL overlay over the loaded scene.
     __publishing = true
     try {
       if (typeof lv.emitState === 'function') lv.emitState(state)
       else if (typeof lv.setState === 'function') lv.setState(state)
     } finally { __publishing = false }
+    for (const cb of __cbs) await cb(state, info || { reason: 'set' })
   }
   // Menu actions patch the CURRENT viewer state — the adapter re-renders the
   // way it would for any set.
@@ -884,16 +884,19 @@ export async function setup(lv, root) {
     })
     lv.window.setMenus([{ label: 'Data', items }])
   }
-  const __applyData = (config, id) => {
+  const __viewKeys = ['mode', 'colorBy', 'gene', 'clusterKey', 'colormap',
+    'threshold', 'cluster', 'pointSize', 'opacity', 'slice', 'camera']
+  const __applyData = (config, id, restored = {}) => {
     __curData = id || null
-    const rendered = __emitToApp(config)
+    const view = Object.fromEntries(__viewKeys.filter(k => restored[k] !== undefined).map(k => [k, restored[k]]))
+    const rendered = __emitToApp({ ...config, ...view, datasetId: __curData })
     __pushMenus()
     return rendered
   }
-  const __load = async (id) => {
+  const __load = async (id, restored = {}) => {
     const r = await lv.call(id ? 'load_dataset' : 'example', id ? { id } : {}, { timeoutMs: 600000 })
     if (!r || !r.config) throw new Error((r && r.error) || 'no data returned')
-    await __applyData(r.config, r.id)
+    await __applyData(r.config, r.id, restored)
     return 'loaded'
   }
   if (typeof lv.call === 'function') {
@@ -904,9 +907,16 @@ export async function setup(lv, root) {
   let __autoRan = false
   const __base = wrapped.onState
   wrapped.onState = (cb) => __base((state, info) => {
+    // Persist the catalog identity, not a tunnel URL. Resolve it anew when
+    // joining/reloading a window or following another viewport's selection.
+    if (state && state.datasetId && typeof lv.call === 'function'
+      && (!state.url || state.datasetId !== __curData)) {
+      __autoRan = true
+      return __load(state.datasetId, state).catch((e) => lv.fail('dataset: ' + ((e && e.message) || e)))
+    }
     if (!__autoRan && state && !state.url && !state.path && typeof lv.call === 'function') {
       __autoRan = true
-      return __load(null).catch((e) => lv.fail('example: ' + ((e && e.message) || e)))
+      return __load(null, state).catch((e) => lv.fail('example: ' + ((e && e.message) || e)))
     }
     return cb(state, info)
   })

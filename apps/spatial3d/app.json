@@ -1,7 +1,7 @@
 {
   "id": "spatial3d",
   "name": "Spatial 3D",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "apiVersion": 2,
   "description": "3D spatial transcriptomics point clouds — cluster and gene colouring at 1M+ cells (deck.gl).",
   "kind": "service",
@@ -45,6 +45,7 @@
     }
   },
   "persistState": [
+    "datasetId",
     "mode",
     "colorBy",
     "gene",
@@ -71,6 +72,10 @@
   "skill": "skill/SKILL.md",
   "notes": "Path-form backend (atrium stdio process) — runner supervision and placement.requires for the backend land in R2.",
   "sync": {
+    "datasetId": {
+      "mode": "shared",
+      "rate": "commit"
+    },
     "colorBy": {
       "mode": "shared",
       "rate": "commit"
