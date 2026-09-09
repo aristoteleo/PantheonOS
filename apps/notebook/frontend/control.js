@@ -18,8 +18,10 @@ export function setup(app, root) {
     return result
   }
   async function waitForViewer(after = 0) {
+    const expectedPath = path
     const deadline = Date.now() + 20000
     while (Date.now() < deadline) {
+      if (path !== expectedPath) throw new Error('The notebook in this window changed while the operation was running')
       if (observed && observedSequence >= after) {
         if (observed.success === false) throw new Error(observed.error || 'Notebook load failed')
         if (loaded()) {
@@ -35,8 +37,10 @@ export function setup(app, root) {
     throw new Error('The visible notebook has not refreshed; read this same window again')
   }
   wrapped.onState = cb => app.onState(async (state, info) => {
-    if (info?.reason === 'emit') return
     const next = state?.path || ''
+    // The launcher uses setState to open/create a document. Forward those
+    // user changes too; only skip our own same-path status publication.
+    if (info?.reason === 'emit' && next === path) return
     if (next !== path) { path = next; observed = null; observedSequence = 0 }
     await cb(state, info)
     if (path) await waitForViewer()

@@ -39,8 +39,8 @@ async function harness() {
   await controller.evaluate()
   controller.namespace.setup(app, { querySelector: () => ({}) })
 
-  function poll() {
-    const result = wrapped.call('read_notebook', { notebook_path: '/audit.ipynb' })
+  function poll(path = '/audit.ipynb') {
+    const result = wrapped.call('read_notebook', { notebook_path: path })
       .then(reply => { visible = reply; return reply })
     const resolve = pendingReads.shift()
     assert.ok(resolve)
@@ -51,7 +51,7 @@ async function harness() {
   initial.resolve(snapshot('initial'))
   await initial.result
   await initializing
-  return { actions, poll, writes, visible: () => visible }
+  return { actions, poll, writes, onState, visible: () => visible }
 }
 
 test('a poll started before a write cannot acknowledge that write', async () => {
@@ -89,4 +89,17 @@ test('a late older response cannot overwrite the new visible snapshot', async ()
   stale.resolve(snapshot('old'))
   assert.equal(await stale.result, latest, 'return the newer snapshot to the viewer store')
   assert.equal(h.visible().notebook.cells[0].source, 'new')
+})
+
+test('opening from the launcher updates the document controlled by Desktop', async () => {
+  const h = await harness()
+  const opening = h.onState({ path: '/created.ipynb' }, { reason: 'emit' })
+  const read = h.poll('/created.ipynb')
+  read.resolve(snapshot('new notebook'))
+  await read.result
+  await opening
+  await h.actions.get('read_cells')({ notebook_path: '/wrong.ipynb' })
+  assert.equal(h.writes.at(-1).args.notebook_path, '/created.ipynb')
+  await h.onState({ path: '' }, { reason: 'emit' })
+  await assert.rejects(h.actions.get('read_cells')({}), /No notebook is open/)
 })

@@ -1,7 +1,7 @@
 {
   "id": "integrated-notebook",
   "name": "Jupyter",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Notebook editing and execution with streaming.",
   "entry": {
     "backend": "pantheon.apps.builtin.notebook:IntegratedNotebookToolSet",
@@ -460,7 +460,9 @@
     "tint": "#f37726"
   },
   "caps": {
-    "fs": [],
+    "fs": [
+      "read"
+    ],
     "net": false
   },
   "defaultSize": {
@@ -502,5 +504,9 @@
         "cell_id": "string"
       }
     }
+  ],
+  "persistState": [
+    "path",
+    "directory"
   ]
 }
