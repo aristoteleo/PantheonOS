@@ -299,6 +299,8 @@ class DesktopToolSet(ToolSet):
         from pantheon.apps.registry import BUILTIN_ROOT
 
         roots.append(BUILTIN_ROOT)
+        # Store installs are user-owned, shared across this user's workspaces.
+        roots.extend(root for root, scope in self._app_scope_roots() if scope == "user")
         return roots
 
     async def _ensure_data_server(self):
@@ -839,17 +841,15 @@ class DesktopToolSet(ToolSet):
         state survives — so this makes the honest thing cheap rather than
         replacing it with a guess.
         """
-        import shutil
         from pathlib import Path
 
         from pantheon.settings import get_settings
 
         root = Path(get_settings().workspace) / ".pantheon" / "apps"
-        base = str(root.resolve())
 
         def _safe(rel: str) -> Path | None:
             target = (root / rel).resolve()
-            return target if str(target).startswith(base) else None
+            return target if target.is_relative_to(root.resolve()) else None
 
         def _write() -> dict:
             written, refused = 0, []
@@ -878,14 +878,8 @@ class DesktopToolSet(ToolSet):
                         pruned += 1
                 record.parent.mkdir(parents=True, exist_ok=True)
                 record.write_text(json.dumps(sorted(keep)))
-                # An earlier build wrote packages to the HOME scope, outside
-                # the served roots, where user-scope resolution still finds
-                # them. Take back what that code left behind.
-                home_apps = Path.home() / ".pantheon" / "apps"
-                for app_id in {r.split("/")[0] for r in keep if "/" in r}:
-                    victim = home_apps / app_id
-                    if victim.is_dir():
-                        shutil.rmtree(victim, ignore_errors=True)
+                # User-space Apps are owned by the user. A development sync
+                # must never delete those repositories or their local changes.
             return {"written": written, "pruned": pruned, "refused": refused}
 
         try:
@@ -943,6 +937,88 @@ class DesktopToolSet(ToolSet):
                 serve=_serve,
             )
         return self._apps_supervisor
+
+    @tool(exclude=True)
+    async def desktop_store_apps(self) -> dict:
+        """Store inventory, including headless, built-in and shadowed App copies."""
+        from .store_manager import AppStoreManager
+        try:
+            result = await asyncio.to_thread(AppStoreManager(self._app_scope_roots()).inventory)
+            supervisor = self._apps_supervisor
+            async def add_icon(app):
+                from pathlib import Path
+                icon = app["manifest"].get("icon")
+                relative = icon.get("path") if isinstance(icon, dict) else None
+                if not isinstance(relative, str) or not relative:
+                    return
+                root = Path(app["dir"]).resolve()
+                path = (root / relative).resolve()
+                if not path.is_relative_to(root) or not path.is_file():
+                    return
+                try:
+                    served = await self.serve_local_data(str(path))
+                    if served.get("success"):
+                        app["icon_url"] = served.get("url")
+                except Exception:
+                    pass  # An unavailable icon must not hide an installed App.
+            for app in result["apps"]:
+                entry = supervisor.entries.get(app["id"]) if supervisor else None
+                app["backend_state"] = entry.state if entry and str(entry.dir) == app["dir"] else None
+            await asyncio.gather(*(add_icon(app) for app in result["apps"]))
+            return result
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    @tool(exclude=True)
+    async def desktop_store_manage(self, action: str, app_id: str = "", scope: str = "user", download: dict | None = None, version: str = "") -> dict:
+        """Manage this user's App repositories on the Desktop node, not the chat pod."""
+        from .store_manager import AppStoreManager
+        try:
+            manager = AppStoreManager(self._app_scope_roots())
+            if action == "install":
+                payload = download or {}
+                declared = (payload.get("app_release") or {}).get("app_id")
+                if not declared:
+                    for path, content in (payload.get("files") or {}).items():
+                        if path in ("app.json", "atrium.json", f"{payload.get('name')}/app.json", f"{payload.get('name')}/atrium.json"):
+                            declared = json.loads(content).get("id")
+                            break
+                if not declared:
+                    raise ValueError("App download has no manifest identity; refresh the Store release")
+                app_id = declared
+            operations = {
+                "install": lambda: manager.install(download or {}, app_id),
+                "copy": lambda: manager.copy_to_user(app_id, scope),
+                "remove": lambda: manager.remove(app_id),
+                "prepare": lambda: manager.prepare(app_id),
+                "tag": lambda: manager.tag(app_id, version),
+            }
+            if action not in operations:
+                raise ValueError(f"Unknown App Store action: {action}")
+            if action == "prepare":
+                return await asyncio.to_thread(operations[action])
+            supervisor = self._apps()
+            # Share the spawn lock: an App cannot start halfway through its
+            # installation changing. Never interrupt an existing backend.
+            lock = supervisor._locks.setdefault(app_id, asyncio.Lock())
+            async with lock:
+                process = supervisor.procs.get(app_id)
+                if process and process.proc.returncode is None:
+                    raise ValueError("Stop the running App backend before changing its installation")
+                result = await asyncio.to_thread(operations[action])
+                supervisor.scan()
+            return result
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    @tool(exclude=True)
+    async def desktop_store_git(self, app_id: str, scope: str = "user", limit: int = 100) -> dict:
+        """Read an App's Git DAG, including branches, tags and merge parents."""
+        from .store_manager import AppStoreManager
+        try:
+            return await asyncio.to_thread(AppStoreManager(self._app_scope_roots()).history, app_id, scope, limit)
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
 
     async def cleanup(self):
         if self._apps_supervisor is not None:

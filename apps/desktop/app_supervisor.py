@@ -364,6 +364,11 @@ class AppSupervisor:
 
         lock = self._locks.setdefault(app_id, asyncio.Lock())
         async with lock:
+            # Store updates share this lock and may have changed the winning
+            # scope while this call waited. Resolve the current entry again.
+            entry = self.entries.get(app_id)
+            if entry is None or not _backend_path(entry.manifest):
+                raise RuntimeError(f"app '{app_id}' no longer has an installed backend")
             ap = self.procs.get(app_id)
             # Hot reload: the code on disk moved past what this process runs —
             # a dev sync or an upgrade landed. Retire it (not a crash: no

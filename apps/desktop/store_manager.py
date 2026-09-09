@@ -1,0 +1,248 @@
+"""User-owned App repositories and Store installs, on the Desktop's filesystem."""
+from __future__ import annotations
+
+import fcntl
+import json
+import shutil
+import tempfile
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+
+from pantheon.apps.store_release import git, git_history, prepare_release, unpack_release, validate_manifest
+from pantheon.apps.versioning import fork, publish
+from pantheon.apps.versioning import _match_range
+
+
+class AppStoreManager:
+    def __init__(self, roots: list[tuple[Path, str]]):
+        self.roots = roots
+        self.user_root = next(root for root, scope in roots if scope == "user")
+        self.records = self.user_root.parent / "app-store"
+
+    @contextmanager
+    def lock(self):
+        self.records.mkdir(parents=True, exist_ok=True)
+        with (self.records / "lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            yield
+
+    def _record(self, app_id: str) -> dict:
+        path = self.records / f"{app_id}.json"
+        return json.loads(path.read_text()) if path.exists() else {}
+
+    def _save(self, app_id: str, record: dict):
+        path = self.records / f"{app_id}.json"
+        temp = path.with_suffix(".tmp")
+        temp.write_text(json.dumps(record, indent=2))
+        temp.replace(path)
+
+    def inventory(self) -> dict:
+        apps, warnings, seen = [], [], set()
+        for root, scope in self.roots:
+            try:
+                directories = sorted(root.iterdir()) if root.exists() else []
+            except OSError as exc:
+                warnings.append(f"Cannot read {scope} apps: {exc}")
+                continue
+            for directory in directories:
+                if directory.name.startswith(".") or not directory.is_dir():
+                    continue
+                path = next((directory / n for n in ("app.json", "atrium.json") if (directory / n).is_file()), None)
+                if path is None:
+                    continue
+                try:
+                    manifest = json.loads(path.read_text())
+                    app_id = manifest["id"]
+                    # ids are also record filenames; malformed packages stay visible as warnings.
+                    import re
+                    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", str(app_id)):
+                        raise ValueError("invalid App id")
+                    record = self._record(app_id) if scope == "user" else {}
+                    repo = self._git_info(directory, record)
+                    apps.append({"id": app_id, "manifest": manifest, "scope": scope,
+                                 "dir": str(directory), "effective": app_id not in seen,
+                                 "git": repo, "install": record or None})
+                    seen.add(app_id)
+                except (ValueError, KeyError, OSError) as exc:
+                    warnings.append(f"Cannot inspect {scope}/{directory.name}: {exc}")
+        return {"success": True, "apps": apps, "warnings": warnings, "user_root": str(self.user_root)}
+
+    @staticmethod
+    def _git_info(directory: Path, record: dict) -> dict:
+        if not (directory / ".git").exists():
+            return {"independent": False, "modified": False}
+        try:
+            commit = git(directory, "rev-parse", "HEAD").strip()
+            changes = git(directory, "status", "--porcelain").splitlines()
+            baseline = record.get("installed_commit")
+            extra_commits = bool(git(directory, "rev-list", "--all", "--not", baseline).strip()) if baseline else False
+            try:
+                remote = git(directory, "remote", "get-url", "origin").strip()
+                # Never expose credentials embedded in a remote URL.
+                from urllib.parse import urlsplit, urlunsplit
+                parsed = urlsplit(remote)
+                if parsed.scheme:
+                    remote = urlunsplit((parsed.scheme, parsed.hostname or "", parsed.path, "", ""))
+            except ValueError:
+                remote = ""
+            return {"independent": True, "commit": commit, "remote": remote,
+                    "changes": changes, "tags": git(directory, "tag", "--list", "--sort=-version:refname").splitlines(),
+                    "modified": bool(changes) or extra_commits or bool(baseline and baseline != commit)}
+        except ValueError as exc:
+            return {"independent": True, "modified": True, "error": str(exc)}
+
+    def find(self, app_id: str, scope: str | None = None) -> dict:
+        return next((a for a in self.inventory()["apps"] if a["id"] == app_id and (scope is None or a["scope"] == scope)), None) or self._missing(app_id)
+
+    @staticmethod
+    def _missing(app_id):
+        raise ValueError(f"App {app_id} is not installed in this scope")
+
+    def copy_to_user(self, app_id: str, scope: str) -> dict:
+        with self.lock():
+            app = self.find(app_id, scope)
+            if scope == "user":
+                raise ValueError("This App is already in user space")
+            self.user_root.mkdir(parents=True, exist_ok=True)
+            destination = self.user_root / app_id
+            if destination.exists():
+                current = self.find(app_id, "user")
+                if not current.get("install") or not current["git"].get("independent") or current["git"].get("modified"):
+                    raise ValueError("User copy has local changes; official updates cannot overwrite them")
+            with tempfile.TemporaryDirectory(prefix="official-update-", dir=self.records) as temp:
+                stage = fork(Path(app["dir"]), Path(temp) / "stage")
+                if destination.exists():
+                    # An official update advances the user's existing graph,
+                    # rather than replacing it with another unrelated root.
+                    shutil.rmtree(stage / ".git")
+                    shutil.copytree(destination / ".git", stage / ".git")
+                    if git(stage, "status", "--porcelain").strip():
+                        tag = f"v{app['manifest']['version']}"
+                        if git(stage, "tag", "--list", tag).strip():
+                            raise ValueError("Official files changed without a new version; the existing tag cannot be replaced")
+                        git(stage, "add", "-A")
+                        git(stage, "-c", "user.name=Pantheon Store", "-c", "user.email=store@pantheon",
+                            "commit", "-qm", f"Update official {app_id} to {tag}")
+                        git(stage, "tag", tag)
+                backup = Path(temp) / "previous"
+                if destination.exists():
+                    destination.rename(backup)
+                try:
+                    stage.rename(destination)
+                    self._save(app_id, {"official_version": app["manifest"].get("version"),
+                                       "installed_commit": git(destination, "rev-parse", "HEAD").strip(),
+                                       "origin": scope, "installed_at": datetime.now(timezone.utc).isoformat()})
+                except Exception:
+                    shutil.rmtree(destination, ignore_errors=True)
+                    if backup.exists():
+                        backup.rename(destination)
+                    raise
+            return {"success": True, "app_id": app_id}
+
+    def install(self, download: dict, expected_id: str | None = None) -> dict:
+        if download.get("type") != "app":
+            raise ValueError("Only App packages can be installed by the Desktop App manager")
+        with self.lock(), tempfile.TemporaryDirectory(prefix="app-store-", dir=self.user_root.parent) as temp:
+            stage = Path(temp) / "app"
+            version = str(download.get("version", ""))
+            release = download.get("app_release")
+            if release:
+                manifest = unpack_release(release, stage, version)
+            else:
+                # Legacy Store packages used text files. Import into a real per-App repo.
+                files = download.get("files") or {}
+                if not files:
+                    raise ValueError("App package has no release or files")
+                stage.mkdir()
+                for relative, content in files.items():
+                    if relative.startswith(f"{download.get('name')}/"):
+                        relative = relative.split("/", 1)[1]
+                    target = stage / relative
+                    if not target.resolve().is_relative_to(stage.resolve()) or ".git" in Path(relative).parts:
+                        raise ValueError("App file escapes its directory")
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(content)
+                path = next((stage / n for n in ("app.json", "atrium.json") if (stage / n).is_file()), None)
+                if path is None:
+                    raise ValueError("App manifest missing")
+                manifest = validate_manifest(json.loads(path.read_text()), version)
+                git(stage, "init", "-q")
+                git(stage, "add", "-A")
+                git(stage, "-c", "user.name=Pantheon Store", "-c", "user.email=store@pantheon", "commit", "-qm", f"Import {version}")
+                git(stage, "tag", f"v{version}")
+            app_id = manifest["id"]
+            if expected_id and expected_id != app_id:
+                raise ValueError("Release manifest identity does not match the requested App")
+            effective = {a["id"]: a["manifest"] for a in self.inventory()["apps"] if a["effective"]}
+            effective[app_id] = manifest
+            for owner_id, owner in effective.items():
+                for dep_id, spec in (owner.get("dependencies") or {}).items():
+                    if owner_id != app_id and dep_id != app_id:
+                        continue
+                    required = spec.get("range", "*") if isinstance(spec, dict) else str(spec)
+                    dependency = effective.get(dep_id)
+                    if not dependency or not _match_range(dependency.get("version", "0.0.0"), required):
+                        raise ValueError(f"{owner_id} requires {dep_id} {required}; install a compatible dependency first")
+            target = self.user_root / app_id
+            previous = next((a for a in self.inventory()["apps"] if a["id"] == app_id and a["scope"] == "user"), None)
+            if previous and (not previous.get("install") or not previous["git"].get("independent") or previous["git"].get("modified")):
+                raise ValueError("Your App has local changes. Preserve them in a separate copy before replacing this version")
+            record = self._record(app_id)
+            if target.exists() and record.get("package_id") not in (None, download.get("package_id")):
+                raise ValueError("Another Store package owns this App id")
+            self.user_root.mkdir(parents=True, exist_ok=True)
+            backup = Path(temp) / "previous"
+            if target.exists():
+                target.rename(backup)
+            try:
+                stage.rename(target)
+                self._save(app_id, {"package_id": download["package_id"], "version": version,
+                                   "origin": "store", "installed_commit": git(target, "rev-parse", "HEAD").strip(),
+                                   "installed_at": datetime.now(timezone.utc).isoformat()})
+            except Exception:
+                shutil.rmtree(target, ignore_errors=True)
+                if backup.exists():
+                    backup.rename(target)
+                raise
+            return {"success": True, "app_id": app_id, "version": version, "scope": "user"}
+
+    def remove(self, app_id: str) -> dict:
+        with self.lock():
+            app = self.find(app_id, "user")
+            if app["git"].get("modified"):
+                raise ValueError("App has local changes; preserve your work before removing it")
+            shutil.rmtree(app["dir"])
+            (self.records / f"{app_id}.json").unlink(missing_ok=True)
+            return {"success": True}
+
+    def prepare(self, app_id: str) -> dict:
+        with self.lock():
+            app = self.find(app_id, "user")
+            return {"success": True, **prepare_release(Path(app["dir"]))}
+
+    def history(self, app_id: str, scope: str, limit: int = 100) -> dict:
+        app = self.find(app_id, scope)
+        root = Path(app["dir"])
+        if not app["git"].get("independent"):
+            return {"success": True, "commits": [], "refs": [], "has_more": False,
+                    "message": "This App has no independent Git repository yet. Create a user copy to manage its history."}
+        return git_history(root, limit)
+
+    def tag(self, app_id: str, version: str) -> dict:
+        with self.lock():
+            app = self.find(app_id, "user")
+            root = Path(app["dir"])
+            manifest = {**app["manifest"], "version": version}
+            validate_manifest(manifest)
+            if f"v{version}" in app["git"].get("tags", []):
+                raise ValueError("This tag already exists. Choose a new version")
+            path = next(root / n for n in ("app.json", "atrium.json") if (root / n).is_file())
+            original = path.read_text()
+            path.write_text(json.dumps(manifest, indent=2) + "\n")
+            try:
+                tag = publish(root)
+            except Exception:
+                path.write_text(original)
+                raise
+            return {"success": True, "tag": tag}

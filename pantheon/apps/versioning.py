@@ -122,7 +122,7 @@ def fork(src_dir: Path, dst_root: Path, new_id: str | None = None) -> Path:
     dst = dst_root / app_id
     if dst.exists():
         raise VersioningError(f"{dst} already exists")
-    shutil.copytree(src_dir, dst, ignore=shutil.ignore_patterns(
+    shutil.copytree(src_dir, dst, symlinks=True, ignore=shutil.ignore_patterns(
         "__pycache__", ".git", "*.pyc"))
     if new_id:
         p = dst / "app.json"

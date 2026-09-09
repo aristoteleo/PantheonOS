@@ -1,7 +1,7 @@
 {
   "id": "desktop",
   "name": "Desktop",
-  "version": "0.6.5",
+  "version": "0.7.0",
   "description": "The user's desktop: windows, apps, browser, data server.",
   "entry": {
     "backend": "pantheon.apps.builtin.desktop:DesktopToolSet"
@@ -621,6 +621,72 @@
             "default": "not_defined"
           }
         ]
+      },
+      {
+        "name": "desktop_store_apps",
+        "description": "Store inventory, including headless, built-in and shadowed App copies.",
+        "hidden": true
+      },
+      {
+        "name": "desktop_store_git",
+        "description": "Read an App's Git DAG, including branches, tags and merge parents.",
+        "params": [
+          {
+            "name": "app_id",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "scope",
+            "type": "str",
+            "required": false,
+            "default": "user"
+          },
+          {
+            "name": "limit",
+            "type": "int",
+            "required": false,
+            "default": 100
+          }
+        ],
+        "hidden": true
+      },
+      {
+        "name": "desktop_store_manage",
+        "description": "Manage this user's App repositories on the Desktop node, not the chat pod.",
+        "params": [
+          {
+            "name": "action",
+            "type": "str",
+            "required": false,
+            "default": "not_defined"
+          },
+          {
+            "name": "app_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "scope",
+            "type": "str",
+            "required": false,
+            "default": "user"
+          },
+          {
+            "name": "download",
+            "type": "dict | None",
+            "required": false
+          },
+          {
+            "name": "version",
+            "type": "str",
+            "required": false,
+            "default": ""
+          }
+        ],
+        "hidden": true
       },
       {
         "name": "desktop_sync_apps",
