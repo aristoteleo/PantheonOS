@@ -15,6 +15,11 @@ async function stream(load) {
   return StreamLanguage.define(Object.values(modes)[0])
 }
 
+async function markdown() {
+  const [md, yaml] = await Promise.all([import('@codemirror/lang-markdown'), import('@codemirror/lang-yaml')])
+  return yaml.yamlFrontmatter({ content: md.markdown() })
+}
+
 const LOADERS = {
   '.py': async () => (await import('@codemirror/lang-python')).python(),
   '.pyi': async () => (await import('@codemirror/lang-python')).python(),
@@ -28,8 +33,8 @@ const LOADERS = {
     (await import('@codemirror/lang-javascript')).javascript({ typescript: true, jsx: true }),
 
   '.json': async () => (await import('@codemirror/lang-json')).json(),
-  '.md': async () => (await import('@codemirror/lang-markdown')).markdown(),
-  '.markdown': async () => (await import('@codemirror/lang-markdown')).markdown(),
+  '.md': markdown,
+  '.markdown': markdown,
   '.html': async () => (await import('@codemirror/lang-html')).html(),
   '.vue': async () => (await import('@codemirror/lang-html')).html(),
   '.css': async () => (await import('@codemirror/lang-css')).css(),

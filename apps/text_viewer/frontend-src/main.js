@@ -26,12 +26,8 @@ const button = (name, label, title = label) => `<button type="button" data-actio
 export function setup(app, root) {
   root.innerHTML = `<style>${styles}</style>
     <section class="tv" aria-label="Text Viewer" tabindex="-1">
-      <header class="tv-header">
-        <span class="tv-file-icon">${icon('file')}</span>
-        <div class="tv-file-info"><div class="tv-title">Text Viewer</div><div class="tv-path">Open a text or Markdown file to begin</div></div>
-        <span class="tv-status" role="status"></span>
-      </header>
       <nav class="tv-toolbar" aria-label="Document controls" hidden>
+        <div class="tv-file-info">${icon('file')}<span class="tv-title">Text Viewer</span></div>
         <div class="tv-modes" role="group" aria-label="Markdown view" hidden>${button('preview', 'Preview')}${button('edit', 'Edit')}</div>
         <span class="tv-format"></span>
         <div class="tv-actions">${button('find', 'Find', 'Find in source (⌘/Ctrl F)')}${button('wrap', 'Wrap', 'Toggle line wrapping')}${button('copy', 'Copy', 'Copy source text')}
@@ -44,7 +40,7 @@ export function setup(app, root) {
         <div class="tv-editor" hidden></div>
         <div class="tv-preview" aria-label="Markdown preview" tabindex="0" hidden></div>
       </div>
-      <footer class="tv-footer" hidden><span class="tv-kind"></span><span class="tv-lines"></span><span class="tv-words"></span><span class="tv-cursor"></span><span>UTF-8</span></footer>
+      <footer class="tv-footer" hidden><span class="tv-kind"></span><span class="tv-lines"></span><span class="tv-words"></span><span class="tv-cursor"></span><span class="tv-status" role="status"></span><span>UTF-8</span></footer>
     </section>`
   const $ = selector => root.querySelector(selector)
   const tv = $('.tv'), editorEl = $('.tv-editor'), previewEl = $('.tv-preview'), hint = $('.tv-hint')
@@ -162,7 +158,7 @@ export function setup(app, root) {
       ] }) })
       savedDoc = view.state.doc; updateWords()
       $('.tv-title').textContent = name || 'Untitled'; $('.tv-title').title = name
-      $('.tv-path').textContent = s.path || name; $('.tv-path').title = s.path || name
+      $('.tv-file-info').title = s.path || name
       $('.tv-format').textContent = $('.tv-kind').textContent = markdown ? 'Markdown' : extensionOf(name).slice(1).toUpperCase() || 'Plain text'
       if (name) app.window.setTitle(name)
       loading = false; hint.hidden = true; toolbar.hidden = footer.hidden = false
