@@ -1,7 +1,7 @@
 {
   "id": "desktop",
   "name": "Desktop",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "The user's desktop: windows, apps, browser, data server.",
   "entry": {
     "backend": "pantheon.apps.builtin.desktop:DesktopToolSet"
@@ -365,7 +365,7 @@
       },
       {
         "name": "desktop_act",
-        "description": "Operate an existing native desktop window, including browser chrome.\n\n        First use desktop_screenshot for native_window pixel coordinates.\n        Each action has type: click/rightclick/dblclick/move (x,y), drag\n        (x,y,to_x,to_y,duration_ms<=2000), wheel (x,y,delta_x/delta_y integer\n        steps), key (key='Ctrl+s'), or text (text, at most 2000 characters).\n        Up to 32 actions, validated before input. Native dialog window_ids\n        come from native_windows in desktop_read or desktop_screenshot.\n        Re-read/screenshot afterward to verify the actual effect. A failed\n        batch can have completed earlier actions; never retry blindly.\n        ",
+        "description": "Operate an existing native desktop window, including browser chrome.\n\nFirst use desktop_screenshot for native_window pixel coordinates.\nEach action has type: click/rightclick/dblclick/move (x,y), drag\n(x,y,to_x,to_y,duration_ms<=2000), wheel (x,y,delta_x/delta_y integer\nsteps), key (key='Ctrl+s'), or text (text, at most 2000 characters).\nUp to 32 actions, validated before input. Native dialog window_ids\ncome from native_windows in desktop_read or desktop_screenshot.\nCoordinates are native-window pixels, NOT the default browser-frame\nscreenshot. Use desktop_screenshot(source=\"native\") to plan pixel\ninput, and source=\"screen\" to verify what the user actually sees.\nRe-read/screenshot afterward to verify the actual effect. A failed\nbatch can have completed earlier actions; never retry blindly.",
         "params": [
           {
             "name": "window_id",
@@ -583,13 +583,19 @@
       },
       {
         "name": "desktop_screenshot",
-        "description": "See what a desktop window currently shows, as an image.\n\n        Works on any packaged-app window — including ones the user opened.\n        Returns the screenshot inline (vision-capable models) and saves it to\n        `path`. Use it to VERIFY after desktop_open / desktop_update: state\n        alone does not prove the view looks right.\n        ",
+        "description": "See what a desktop window currently shows, as an image.\n\nCaptures the user's current Atrium tab, cropped to this window,\nincluding its chrome and web content. The first request waits for the\nuser to share this tab; later requests reuse that sharing session.\nIf sharing is declined or unsupported, no image is captured: do not\nretry without the user's intent to share. No app-export fallback.\nReturns the screenshot inline (vision-capable models) and saves it to\n`path`. Use it to verify visible results; state alone is not proof.\nBrowser-frame pixels are not native input coordinates. Only when\nplanning desktop_act pixel input, explicitly pass source=\"native\"\nto export the owned native application's image in its input coordinate\nsystem. That export omits Atrium chrome/occlusion and is never used as\na fallback when the user declines browser sharing.",
         "params": [
           {
             "name": "window_id",
             "type": "str",
             "required": false,
             "default": "not_defined"
+          },
+          {
+            "name": "source",
+            "type": "str",
+            "required": false,
+            "default": "screen"
           }
         ]
       },
@@ -819,6 +825,11 @@
           },
           {
             "name": "error",
+            "type": "str | None",
+            "required": false
+          },
+          {
+            "name": "source",
             "type": "str | None",
             "required": false
           }

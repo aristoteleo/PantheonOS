@@ -42,8 +42,9 @@ ACTION_TIMEOUT_SECONDS = 30
 # (40s). Keep the outer request alive while those bounded steps run.
 BROWSER_WINDOW_TIMEOUT_SECONDS = 300.0
 
-# How long desktop_screenshot waits for the UI to render and return a frame.
-SNAPSHOT_TIMEOUT_SECONDS = 25
+# The first browser capture needs a user gesture and a surface picker.
+# Subsequent requests reuse the authorized stream; the UI bounds frame reads.
+SNAPSHOT_TIMEOUT_SECONDS = 180
 
 # Cap on how many diagnostics (console errors / warnings) a session keeps.
 MAX_DIAGNOSTICS = 50
@@ -309,7 +310,7 @@ class DesktopToolSet(ToolSet):
         await self._data_server.ensure_started(self._data_roots())
         return self._data_server
 
-    def _package_screenshot(self, data_url: str, stem: str) -> dict:
+    def _package_screenshot(self, data_url: str, stem: str, *, native: bool = False) -> dict:
         """Save a captured data URL and hand it back, inline when the model
         can see images in tool results."""
         try:
@@ -330,9 +331,12 @@ class DesktopToolSet(ToolSet):
             "success": True,
             "path": str(path),
             "note": (
-                "Screenshot of the window. WebGL/canvas surfaces are captured "
-                "when the app provides its own snapshot; if THIS image is blank, "
-                "fall back to reading state + asking the user."
+                "Native application export for native-input coordinates. This excludes Atrium chrome and overlays; "
+                "it is NOT a screenshot of the user's visible browser. "
+            ) if native else (
+                "Browser-composited screenshot of the visible window region, including "
+                "web controls, iframes and canvas content. Occluding windows remain "
+                "visible, as they are to the user; hidden content is not reconstructed."
             ),
         }
         try:
@@ -351,26 +355,39 @@ class DesktopToolSet(ToolSet):
         return result
 
     @tool
-    async def desktop_screenshot(self, window_id: str) -> dict:
+    async def desktop_screenshot(self, window_id: str, source: str = "screen") -> dict:
         """See what a desktop window currently shows, as an image.
 
-        Works on any packaged-app window — including ones the user opened.
+        Captures the user's current Atrium tab, cropped to this window,
+        including its chrome and web content. The first request waits for the
+        user to share this tab; later requests reuse that sharing session.
+        If sharing is declined or unsupported, no image is captured: do not
+        retry without the user's intent to share. No app-export fallback.
         Returns the screenshot inline (vision-capable models) and saves it to
-        `path`. Use it to VERIFY after desktop_open / desktop_update: state
-        alone does not prove the view looks right.
+        `path`. Use it to verify visible results; state alone is not proof.
+        Browser-frame pixels are not native input coordinates. Only when
+        planning desktop_act pixel input, explicitly pass source="native"
+        to export the owned native application's image in its input coordinate
+        system. That export omits Atrium chrome/occlusion and is never used as
+        a fallback when the user declines browser sharing.
         """
-        try:
-            native = await self._native_target(window_id)
-            if native is not None:
+        window_id = normalize_window_reference(window_id)
+        if source not in {"screen", "native"}:
+            return {"success": False, "error": "source must be 'screen' or 'native'"}
+        if source == "native":
+            try:
                 from .native_control import NativeWindowController
-
+                native = await self._native_target(window_id)
+                if native is None:
+                    raise ValueError("This window has no native input surface; use source='screen'.")
                 engine, target, targets = native
                 shot = await engine.call(NativeWindowController(engine).screenshot(target["xid"]))
                 data_url = shot.pop("data_url")
-                return {**self._package_screenshot(data_url, "native-window"), **shot,
+                return {**self._package_screenshot(data_url, "native-window", native=True), **shot,
+                        "source": "native-application-export", "coordinate_space": "native-window-pixels",
                         "window_id": window_id, "native_windows": self._public_native_targets(targets)}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
         anchor = self._presence().anchor_for(self._chat_id() or "")
         viewport_id = anchor.get("viewport_id")
         if not viewport_id:
@@ -379,21 +396,36 @@ class DesktopToolSet(ToolSet):
         loop = asyncio.get_event_loop()
         future: asyncio.Future = loop.create_future()
         self._pending_snapshots[request_id] = future
-        await self._publish_desktop({
+        event = {
             "type": "desktop.snapshot",
+            "capture_mode": "browser-region-capture",
             "window_id": window_id,
             "request_id": request_id,
             "viewport_id": viewport_id,
-        })
+            "timeout_ms": max(1, int((SNAPSHOT_TIMEOUT_SECONDS - 10) * 1000)),
+        }
+        completed = False
         try:
+            if not await self._publish_desktop(event):
+                return {"success": False, "error": "screenshot request could not be delivered"}
             data_url = await asyncio.wait_for(future, timeout=SNAPSHOT_TIMEOUT_SECONDS)
+            completed = True
+            return {**self._package_screenshot(data_url, window_id),
+                    "source": "browser-region-capture", "viewport_id": viewport_id,
+                    "coordinate_space": "browser-capture-pixels-not-native-input",
+                    "window_id": window_id}
         except asyncio.TimeoutError:
-            return {"success": False, "error": "screenshot timed out — is the window still open?"}
+            return {"success": False, "error": "screenshot authorization or capture timed out; no image was received"}
         except Exception as e:
             return {"success": False, "error": str(e)}
         finally:
             self._pending_snapshots.pop(request_id, None)
-        return self._package_screenshot(data_url, window_id)
+            if not future.done():
+                future.cancel()
+            if not completed:
+                # Dismiss pending consent/capture when Stop cancels the tool,
+                # or when its deadline expires, rather than leaving a stale CTA.
+                await self._publish_desktop({**event, "type": "desktop.snapshot.cancel"})
 
     @tool
     async def serve_local_data(self, path: str) -> dict:
@@ -1349,6 +1381,9 @@ class DesktopToolSet(ToolSet):
         steps), key (key='Ctrl+s'), or text (text, at most 2000 characters).
         Up to 32 actions, validated before input. Native dialog window_ids
         come from native_windows in desktop_read or desktop_screenshot.
+        Coordinates are native-window pixels, NOT the default browser-frame
+        screenshot. Use desktop_screenshot(source="native") to plan pixel
+        input, and source="screen" to verify what the user actually sees.
         Re-read/screenshot afterward to verify the actual effect. A failed
         batch can have completed earlier actions; never retry blindly.
         """
@@ -1482,15 +1517,19 @@ class DesktopToolSet(ToolSet):
         ok: bool,
         data_url: str | None = None,
         error: str | None = None,
+        source: str | None = None,
     ) -> dict:
         """UI → backend: deliver a captured snapshot, resolving the pending
         desktop_screenshot."""
         future = self._pending_snapshots.get(request_id)
-        if future is not None and not future.done():
-            if ok and data_url:
-                future.set_result(data_url)
-            else:
-                future.set_exception(RuntimeError(error or "snapshot failed"))
+        if future is None or future.done():
+            return {"success": False, "error": "unknown or expired screenshot request"}
+        if ok and source != "browser-region-capture":
+            future.set_exception(RuntimeError("This desktop needs a frontend refresh to use browser screen capture. No app-exported image was accepted."))
+        elif ok and data_url:
+            future.set_result(data_url)
+        else:
+            future.set_exception(RuntimeError(error or "snapshot failed"))
         return {"success": True}
 
     def _browser_engine(self):
