@@ -234,3 +234,41 @@ def test_a_markerless_program_keeps_whole_file_mode():
 
     eb = EvolveBlock("print('no markers here')\n")
     assert not eb.has_markers
+
+
+from pantheon.evolution.variators.completion import EvolveBlock  # noqa: E402
+
+SEED_CPP = (
+    "#include <bits/stdc++.h>\nusing namespace std;\nconst int MAX_V = 1000;\nstruct Point { int x, y; };\n"
+    "static int helper() { return 1; }\n// EVOLVE-BLOCK-START\nint solve() { return helper(); }\n"
+    "// EVOLVE-BLOCK-END\nint main() { return solve(); }\n"
+)
+
+
+def test_evolve_block_drops_nested_fence_lines():
+    eb = EvolveBlock(SEED_CPP)
+    reply = "Here:\n```cpp\n// EVOLVE-BLOCK-START\n```cpp\nint solve() { return 2; }\n// EVOLVE-BLOCK-END\n```\n"
+    out = eb.merge(reply)
+    assert "```" not in out
+    assert out.startswith("#include <bits/stdc++.h>") and out.rstrip().endswith("int main() { return solve(); }")
+    assert out.count("int solve()") == 1 and "return 2;" in out
+
+
+def test_evolve_block_whole_file_reply_without_markers_is_not_spliced():
+    eb = EvolveBlock(SEED_CPP)
+    whole = SEED_CPP.replace("// EVOLVE-BLOCK-START\n", "").replace("// EVOLVE-BLOCK-END\n", "").replace("return helper();", "return 7;")
+    out = eb.merge(f"```cpp\n{whole}```")
+    assert out.count("struct Point") == 1 and out.count("int main()") == 1 and "return 7;" in out
+
+
+def test_evolve_block_whole_file_reply_inside_markers_is_not_spliced():
+    eb = EvolveBlock(SEED_CPP)
+    whole = SEED_CPP.replace("return helper();", "return 9;")
+    out = eb.merge(f"```cpp\n// EVOLVE-BLOCK-START\n{whole}// EVOLVE-BLOCK-END\n```")
+    assert out.count("const int MAX_V") == 1 and out.count("int main()") == 1 and "return 9;" in out
+
+
+def test_evolve_block_bare_block_reply_still_splices():
+    eb = EvolveBlock(SEED_CPP)
+    out = eb.merge("```cpp\nint solve() { return 3; }\n```")
+    assert out.count("struct Point") == 1 and "return 3;" in out and out.rstrip().endswith("int main() { return solve(); }")

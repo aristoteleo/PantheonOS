@@ -95,20 +95,46 @@ class EvolveBlock:
         The evolved block is the text between the marker lines of the reply's code (fenced or
         bare); a reply that dropped the markers is treated as being the bare block, which keeps
         an otherwise-good completion usable.
+
+        Two reply shapes used to produce programs that could not compile, and on AHC039 they
+        were half of all evaluations: a reply that carries the WHOLE file (with or without the
+        markers) was spliced between prefix and suffix, declaring everything twice; and a
+        fence line nested inside the block survived into the source. Now fence lines are
+        dropped, the innermost marker pair wins, and a body that repeats the prefix is taken as
+        the whole program the model evidently wrote.
         """
-        code = extract_code(reply) or (reply or "").strip()
-        if not code:
-            return None
-        s = code.find("EVOLVE-BLOCK-START")
-        e = code.find("EVOLVE-BLOCK-END")
+        raw = reply or ""
+        # markers first, fences second: a fence line nested inside the block used to cut the
+        # reply at the wrong place, so look for the marker pair on the fence-less text
+        flat = "\n".join(ln for ln in raw.splitlines() if not ln.strip().startswith("```"))
+        s = flat.rfind("EVOLVE-BLOCK-START")
+        e = flat.find("EVOLVE-BLOCK-END", s + 1) if s != -1 else -1
         if s != -1 and e != -1 and e > s:
-            body = code[code.index("\n", s) + 1: code.rfind("\n", 0, e) + 1]
+            body = flat[flat.index("\n", s) + 1: flat.rfind("\n", 0, e) + 1]
         else:
-            body = code
+            code = extract_code(raw) or raw.strip()
+            body = "\n".join(ln for ln in code.splitlines() if not ln.strip().startswith("```"))
         body = body.strip("\n")
         if not body:
             return None
+        if self._repeats_prefix(body):
+            return body + "\n"
         return f"{self.prefix}\n{body}\n{self.suffix}"
+
+    def _repeats_prefix(self, body: str) -> bool:
+        """True when `body` contains the prefix's opening lines in order -- a whole-file reply."""
+        sig = [ln.strip() for ln in self.prefix.splitlines()
+               if ln.strip() and "EVOLVE-BLOCK" not in ln][:6]
+        if len(sig) < 3:
+            return False
+        pos = 0
+        hits = 0
+        for ln in sig:
+            i = body.find(ln, pos)
+            if i != -1:
+                hits += 1
+                pos = i + len(ln)
+        return hits >= min(3, len(sig))
 
 
 class CompletionVariator:
