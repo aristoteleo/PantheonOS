@@ -17,6 +17,7 @@ Frontend-only tools (not for agents):
 """
 
 import json
+from contextlib import contextmanager
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -209,6 +210,7 @@ class IntegratedNotebookToolSet(ToolSet):
         # Notebook file locks to prevent concurrent edit operations
         import asyncio
         self._notebook_locks: Dict[str, asyncio.Lock] = {}
+        self._active_notebook_executions: Dict[str, int] = {}
 
         # Context creation lock to prevent duplicate kernel creation on concurrent calls
         self._context_creation_locks: Dict[tuple, asyncio.Lock] = {}
@@ -323,8 +325,16 @@ class IntegratedNotebookToolSet(ToolSet):
                 "last_updated": datetime.now().isoformat(),
             }
 
-            with open(self.persistence_file, "w", encoding="utf-8") as f:
+            # Rename updates the file/context pair together from the reader's
+            # perspective: never expose a truncated JSON context document.
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.persistence_dir, delete=False) as f:
+                pending = Path(f.name)
                 json.dump(data, f, indent=2)
+            try:
+                os.replace(pending, self.persistence_file)
+            finally:
+                pending.unlink(missing_ok=True)
 
             logger.debug(f"Saved {len(self.notebook_contexts)} context(s)")
         except Exception as e:
@@ -737,7 +747,24 @@ class IntegratedNotebookToolSet(ToolSet):
     # Internal Execute Logic (shared by execute_cell, add_cell, update_cell)
     # ═══════════════════════════════════════════════════════════
 
-    async def _execute_cell_internal(
+    @contextmanager
+    def _notebook_execution(self, notebook_path: str):
+        path = str(self.notebook_contents._resolve_path(notebook_path).resolve())
+        self._active_notebook_executions[path] = self._active_notebook_executions.get(path, 0) + 1
+        try:
+            yield
+        finally:
+            remaining = self._active_notebook_executions[path] - 1
+            if remaining:
+                self._active_notebook_executions[path] = remaining
+            else:
+                del self._active_notebook_executions[path]
+
+    async def _execute_cell_internal(self, notebook_path: str, cell_id: str, session_id: str) -> dict:
+        with self._notebook_execution(notebook_path):
+            return await self._execute_cell_internal_impl(notebook_path, cell_id, session_id)
+
+    async def _execute_cell_internal_impl(
         self,
         notebook_path: str,
         cell_id: str,
@@ -1616,6 +1643,68 @@ class IntegratedNotebookToolSet(ToolSet):
         return {"success": True, "notebooks": notebooks, "count": len(notebooks)}
 
     @tool(exclude=True)
+    async def rename_notebook(self, notebook_path: str, name: str) -> dict:
+        """Rename a notebook within its folder, preserving idle kernel sessions.
+
+        Existing files are never replaced. Running or starting kernels must
+        finish first so their output cannot be written back to the old path.
+        """
+        from contextlib import AsyncExitStack
+
+        name = name.strip()
+        if not name or any(c in name for c in ('/', '\\', '\x00', '..')) or any(ord(c) < 32 for c in name):
+            return {"success": False, "error": "Enter a notebook name without slashes or '..'."}
+        if not name.lower().endswith('.ipynb'):
+            name += '.ipynb'
+        target_path = str(Path(notebook_path).with_name(name))
+        valid, error, source = self.notebook_contents._validate_path(notebook_path)
+        if not valid:
+            return {"success": False, "error": error}
+        valid, error, target = self.notebook_contents._validate_path(target_path)
+        if not valid:
+            return {"success": False, "error": error}
+        if source == target:
+            return {"success": True, "notebook_path": target_path}
+        try:
+            async with AsyncExitStack() as stack:
+                for path in sorted({notebook_path, target_path}):
+                    await stack.enter_async_context(self._get_notebook_lock(path))
+                if not source.is_file() or source.suffix.lower() != '.ipynb':
+                    return {"success": False, "error": "Notebook file was not found."}
+                if self._active_notebook_executions.get(str(source.resolve())):
+                    return {"success": False, "error": "Wait for the running cell to finish before renaming."}
+                matches = [(key, context) for key, context in self.notebook_contexts.items()
+                           if self.notebook_contents._resolve_path(key[0]).resolve() == source.resolve()]
+                for key, lock in self._context_creation_locks.items():
+                    if lock.locked() and self.notebook_contents._resolve_path(key[0]).resolve() == source.resolve():
+                        return {"success": False, "error": "Wait for the notebook kernel to finish starting before renaming."}
+                for _, context in matches:
+                    sid = context.kernel_session_id
+                    session = self.kernel_toolset.sessions.get(sid)
+                    if self.kernel_toolset._get_execution_lock(sid).locked() or (session and session.status.value in ('busy', 'starting', 'restarting')):
+                        return {"success": False, "error": "Wait for the running cell to finish before renaming."}
+                # link fails with EEXIST atomically, including concurrent saves
+                # by another process. Both paths are in the same directory.
+                os.link(source, target)
+                try:
+                    source.unlink()
+                except OSError:
+                    target.unlink()
+                    raise
+                for key, context in matches:
+                    new_path = str(Path(key[0]).with_name(name))
+                    del self.notebook_contexts[key]
+                    context.notebook_path = new_path
+                    context.notebook_title = name
+                    self.notebook_contexts[(new_path, key[1])] = context
+                await self._save_contexts()
+                return {"success": True, "notebook_path": target_path, "name": name}
+        except FileExistsError:
+            return {"success": False, "error": f"A file named '{name}' already exists. Choose another name."}
+        except OSError as exc:
+            return {"success": False, "error": str(exc)}
+
+    @tool(exclude=True)
     async def manage_kernel(
         self,
         notebook_path: str,
@@ -1896,7 +1985,11 @@ class IntegratedNotebookToolSet(ToolSet):
             logger.debug(f"Memory check error: {e}")
             return None
 
-    async def _execute_and_update(
+    async def _execute_and_update(self, kernel_session_id: str, notebook_path: str, cell_id: str, code: str) -> dict:
+        with self._notebook_execution(notebook_path):
+            return await self._execute_and_update_impl(kernel_session_id, notebook_path, cell_id, code)
+
+    async def _execute_and_update_impl(
         self, kernel_session_id: str, notebook_path: str, cell_id: str, code: str
     ) -> dict:
         """Execute code and update notebook using cell_id"""
