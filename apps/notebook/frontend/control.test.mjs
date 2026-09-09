@@ -4,102 +4,112 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import vm from 'node:vm'
 
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
-const snapshot = text => ({ success: true, notebook: { cells: [{ source: text }] } })
-
-async function harness() {
-  const actions = new Map(), pendingReads = [], writes = []
-  let wrapped, onState, visible
+async function harness({ mismatch = false, refreshError = '', executionError = false } = {}) {
+  const actions = new Map(), writes = [], reads = []
+  let wrapped, onState, visible, cell = { id: 'new-cell', source: 'initial', cell_type: 'code' }
   const app = {
-    call(method, args) {
-      if (method === 'read_notebook') {
-        return new Promise(resolve => pendingReads.push(resolve))
-      }
+    async call(method, args) {
+      if (method === 'read_notebook') return { success: true, notebook: { cells: [{ ...cell }] } }
       writes.push({ method, args })
-      return Promise.resolve({ success: true })
+      // Match the real backend contract: it accepts content, NOT source.
+      if (method === 'add_cell' || method === 'update_cell') cell.source = args.content ?? ''
+      if (args.cell_type) cell.cell_type = args.cell_type
+      return { success: true, cell_id: cell.id, ...(executionError ? { execution: { success: false, error: 'NameError' } } : {}) }
     },
-    onState(fn) { onState = fn; return this },
-    setState() { return this },
+    onState(fn) { onState = fn; return this }, setState() { return this },
     defineAction(name, fn) { actions.set(name, fn) },
   }
-  // Stub only the large Vue viewer dependency. The controller under test is
-  // loaded unchanged; replies update `visible` exactly where the viewer's
-  // notebookDocumentStore applies the result of its transport call.
   const context = vm.createContext({ setTimeout, clearTimeout })
   const viewer = new vm.SyntheticModule(['setup'], function () {
-    this.setExport('setup', lv => { wrapped = lv; lv.onState(() => {}) })
+    this.setExport('setup', lv => {
+      wrapped = lv
+      lv.onState(async state => { await lv.call('read_notebook', { notebook_path: state.path }) })
+      return { async refresh(path, cellId) {
+        reads.push({ path, cellId })
+        if (refreshError) throw new Error(refreshError)
+        visible = (await lv.call('read_notebook', { notebook_path: path })).notebook.cells[0]
+        return { cell_id: visible.id, source: mismatch ? 'local edit' : visible.source, cell_count: 1, cell_type: visible.cell_type }
+      } }
+    })
   }, { context })
-  const controller = new vm.SourceTextModule(
-    await readFile(new URL('./control.js', import.meta.url), 'utf8'), { context },
-  )
-  await controller.link(specifier => {
-    assert.equal(specifier, './index.js')
-    return viewer
-  })
-  await controller.evaluate()
+  const controller = new vm.SourceTextModule(await readFile(new URL('./control.js', import.meta.url), 'utf8'), { context })
+  await controller.link(() => viewer); await controller.evaluate()
   controller.namespace.setup(app, { querySelector: () => ({}) })
-
-  function poll(path = '/audit.ipynb') {
-    const result = wrapped.call('read_notebook', { notebook_path: path })
-      .then(reply => { visible = reply; return reply })
-    const resolve = pendingReads.shift()
-    assert.ok(resolve)
-    return { result, resolve }
-  }
-  const initializing = onState({ path: '/audit.ipynb' }, {})
-  const initial = poll()
-  initial.resolve(snapshot('initial'))
-  await initial.result
-  await initializing
-  return { actions, poll, writes, onState, visible: () => visible }
+  await onState({ path: '/audit.ipynb' }, {})
+  return { actions, writes, reads, onState, visible: () => visible, wrapped, app }
 }
 
-test('a poll started before a write cannot acknowledge that write', async () => {
+test('the reported source payload writes code and refreshes the same window immediately', async () => {
   const h = await harness()
-  const stale = h.poll()
-  let completed = false
-  const action = h.actions.get('update_cell')({ cell_id: 'cell', source: 'new' })
-    .then(value => { completed = true; return value })
-  await pause(5) // let the backend write finish before delivering the old poll
-  stale.resolve(snapshot('old'))
-  await stale.result
-  await pause(120) // longer than the controller's render/commit delay
-  assert.equal(completed, false, 'old contents must not report the write as visible')
+  const source = 'from sklearn.datasets import load_iris\niris = load_iris()'
+  const result = await h.actions.get('add_cell')({ source, cell_type: 'code', notebook_path: '/wrong.ipynb' })
+  assert.equal(result.success, true)
+  assert.equal(result.visible, true)
+  assert.equal(result.cell_id, 'new-cell')
+  assert.equal(result.source_length, source.length)
+  assert.equal(h.writes[0].args.content, source)
+  assert.equal(h.writes[0].args.source, undefined)
   assert.equal(h.writes[0].args.notebook_path, '/audit.ipynb')
-
-  const fresh = h.poll()
-  fresh.resolve(snapshot('new'))
-  await fresh.result
-  assert.equal((await action).success, true)
-  assert.equal(h.visible().notebook.cells[0].source, 'new')
+  assert.equal(h.visible().source, source)
+  assert.deepEqual(h.reads, [{ path: '/audit.ipynb', cellId: 'new-cell' }])
 })
 
-test('a late older response cannot overwrite the new visible snapshot', async () => {
+test('bad parameters fail before creating or executing anything', async () => {
   const h = await harness()
-  const stale = h.poll()
-  const action = h.actions.get('add_cell')({ source: 'new', notebook_path: '/other.ipynb' })
-  await pause(5)
-  const fresh = h.poll()
-  const latest = snapshot('new')
-  fresh.resolve(latest)
-  await fresh.result
-  assert.equal((await action).success, true)
-  assert.equal(h.writes[0].args.notebook_path, '/audit.ipynb', 'actions must stay in their own window')
-
-  stale.resolve(snapshot('old'))
-  assert.equal(await stale.result, latest, 'return the newer snapshot to the viewer store')
-  assert.equal(h.visible().notebook.cells[0].source, 'new')
+  for (const [method, args] of [
+    ['add_cell', {}], ['add_cell', { contnet: 'lost code' }],
+    ['add_cell', { source: 'one', content: 'two' }], ['execute_cell', {}],
+    ['update_cell', { cell_id: 'cell' }], ['add_cell', { content: '42', execute: 'false' }],
+  ]) await assert.rejects(h.actions.get(method)(args))
+  assert.equal(h.writes.length, 0)
+  assert.equal((await h.actions.get('add_cell')({ content: '' })).success, true, 'explicit empty cells remain supported')
 })
 
-test('opening from the launcher updates the document controlled by Desktop', async () => {
+for (const options of [{ mismatch: true }, { refreshError: 'Not rendered' }]) {
+  test(`an unconfirmed render is not success and retains the already changed cell: ${JSON.stringify(options)}`, async () => {
+    const h = await harness(options)
+    const result = await h.actions.get('add_cell')({ content: '42' })
+    assert.equal(result.success, false)
+    assert.equal(result.applied, true)
+    assert.equal(result.visible, false)
+    assert.equal(result.cell_id, 'new-cell')
+    assert.match(result.error, /already changed.*read_cells/)
+    assert.equal(h.writes.length, 1)
+  })
+}
+
+test('execute=true preserves execution failures while rendering the error output', async () => {
+  const h = await harness({ executionError: true })
+  const result = await h.actions.get('add_cell')({ content: 'missing_name', execute: true })
+  assert.equal(result.success, false)
+  assert.equal(result.visible, true)
+  assert.equal(result.error, 'NameError')
+})
+
+test('launcher changes and late reads never move actions to another notebook', async () => {
   const h = await harness()
-  const opening = h.onState({ path: '/created.ipynb' }, { reason: 'emit' })
-  const read = h.poll('/created.ipynb')
-  read.resolve(snapshot('new notebook'))
-  await read.result
-  await opening
-  await h.actions.get('read_cells')({ notebook_path: '/wrong.ipynb' })
+  let resolveOld
+  const realCall = h.app.call
+  h.app.call = (method, args) => method === 'read_notebook' && args.notebook_path === '/audit.ipynb'
+    ? new Promise(resolve => { resolveOld = resolve }) : realCall(method, args)
+  const old = h.wrapped.call('read_notebook', { notebook_path: '/audit.ipynb' })
+  await h.onState({ path: '/created.ipynb' }, { reason: 'emit' })
+  await h.actions.get('read_cells')({})
   assert.equal(h.writes.at(-1).args.notebook_path, '/created.ipynb')
+  resolveOld({ success: true, notebook: { cells: [] } }); await old
   await h.onState({ path: '' }, { reason: 'emit' })
   await assert.rejects(h.actions.get('read_cells')({}), /No notebook is open/)
+})
+
+test('a late older poll cannot replace the current viewer snapshot', async () => {
+  const h = await harness()
+  const pending = []
+  h.app.call = () => new Promise(resolve => pending.push(resolve))
+  const old = h.wrapped.call('read_notebook', { notebook_path: '/audit.ipynb' })
+  const fresh = h.wrapped.call('read_notebook', { notebook_path: '/audit.ipynb' })
+  const latest = { success: true, notebook: { cells: [{ source: 'new' }] } }
+  pending[1](latest)
+  await fresh
+  pending[0]({ success: true, notebook: { cells: [{ source: 'old' }] } })
+  assert.equal(await old, latest)
 })

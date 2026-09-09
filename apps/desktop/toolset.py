@@ -1070,7 +1070,8 @@ class DesktopToolSet(ToolSet):
         Each entry: `window_id`, `app_id` (manifest id for packaged apps),
         `name`, `title`, `path` (the file it shows, when opened on one),
         `controllable` (whether desktop_read/update/call can drive it — true
-        for packaged-app windows), `actions` it exposes, and `pty_session`
+        for packaged-app windows), `actions` and `action_specs` (parameter names
+        and descriptions; pass these parameters in desktop_call args), and `pty_session`
         for a Terminal window.
 
         This is how you reach windows the USER opened: find its window_id
@@ -1288,11 +1289,13 @@ class DesktopToolSet(ToolSet):
             manifest = app.manifest.model_dump() if app else {}
             directory = app.dir if app else None
         frontend = (manifest.get("entry") or {}).get("frontend") or ""
-        actions = [action["name"] for action in manifest.get("actions", []) if "name" in action]
+        specs = [action for action in manifest.get("actions", []) if "name" in action]
+        actions = [action["name"] for action in specs]
         skill = manifest.get("skill")
         return {
             "name": manifest.get("name") or app_id.removeprefix("pkg:"),
             "actions": actions,
+            "action_specs": specs,
             "skill": str(Path(directory) / skill) if skill and directory else None,
             "controllable": bool(frontend) and (
                 not frontend.startswith("ui:") or frontend == "ui:agent-view" or bool(actions)
@@ -1405,28 +1408,38 @@ class DesktopToolSet(ToolSet):
 
     @tool
     async def desktop_call(
-        self, window_id: str, action: str = "", args: dict = {}, **kwargs,
+        self, window_id: str, action: str = "", args: dict | None = None,
+        kwargs: dict | None = None, _action: str = "", _args: dict | None = None,
     ) -> dict:
-        """Invoke a named action on a window — the same handlers its menus
-        trigger (defineAction). List a window's actions via desktop_windows.
-        Also accepts window ops: action "$close" closes the window."""
+        """Invoke a window action. desktop_windows returns action_specs with parameters.
+
+        Pass action parameters together in args, for example:
+        desktop_call(window_id="win-1", action="add_cell",
+                     args={"content": "1 + 1", "execute": True}).
+        kwargs is a compatibility alias for args. Conflicting values are rejected
+        before dispatch. Also accepts action "$close" to close the window.
+        """
         window_id = normalize_window_reference(window_id)
-        # Underscore-prefixed kwargs happen: the framework passes _background,
-        # and a model that has seen it sometimes writes _action / _args too.
-        # Three consecutive calls once died on "missing 1 required positional
-        # argument: \'action\'" for exactly that. Accept both spellings.
         if not action:
-            action = str(kwargs.get("_action") or "")
-        if not args:
-            raw = kwargs.get("_args")
-            if isinstance(raw, str):
+            action = str(_action or "")
+        # Older schemas exposed **kwargs as a literal object. Never discard it:
+        # add_cell with a dropped payload created an empty cell and said success.
+        merged = {}
+        for label, payload in (("args", args), ("kwargs", kwargs), ("_args", _args)):
+            if payload is None:
+                continue
+            if isinstance(payload, str):
                 try:
-                    import json as _json
-                    raw = _json.loads(raw)
-                except Exception:
-                    raw = None
-            if isinstance(raw, dict):
-                args = raw
+                    payload = json.loads(payload)
+                except (TypeError, ValueError):
+                    return {"success": False, "error": f"{label} must be an object"}
+            if not isinstance(payload, dict):
+                return {"success": False, "error": f"{label} must be an object"}
+            for key, value in payload.items():
+                if key in merged and merged[key] != value:
+                    return {"success": False, "error": f"Conflicting action parameter '{key}' in args/kwargs"}
+                merged[key] = value
+        args = merged
         if not action:
             return {"success": False,
                     "error": "desktop_call needs an action name — desktop_windows() lists each "

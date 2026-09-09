@@ -45,17 +45,58 @@ export function setup(app, root) {
     await cb(state, info)
     if (path) await waitForViewer()
   })
-  for (const method of ['read_cells', 'add_cell', 'update_cell', 'execute_cell']) {
-    app.defineAction(method, async (args = {}) => {
+  const viewer = setupViewer(wrapped, root)
+  const parameters = {
+    read_cells: ['include_details', 'cell_ids'],
+    add_cell: ['content', 'cell_type', 'cell_id', 'position', 'execute'],
+    update_cell: ['cell_id', 'content', 'old_content', 'execute'],
+    execute_cell: ['cell_id'],
+  }
+  for (const method of Object.keys(parameters)) {
+    app.defineAction(method, async (input = {}) => {
       if (!path) throw new Error('No notebook is open in this window')
-      const result = await app.call(method, { ...args, notebook_path: path }, { timeoutMs: 120000 })
+      if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Action arguments must be an object')
+      const args = { ...input }
+      delete args.notebook_path // this action always belongs to its own window
+      if ('source' in args && ['add_cell', 'update_cell'].includes(method)) {
+        if ('content' in args && args.content !== args.source) throw new Error('Conflicting content and source')
+        args.content = args.source
+        delete args.source
+      }
+      const unknown = Object.keys(args).filter(key => !parameters[method].includes(key))
+      if (unknown.length) throw new Error(`Unknown ${method} parameter(s): ${unknown.join(', ')}. Use: ${parameters[method].join(', ')}`)
+      if (['add_cell', 'update_cell'].includes(method) && typeof args.content !== 'string') {
+        throw new Error(`${method} requires content (string); use content: "" only for an intentionally empty cell`)
+      }
+      if (['update_cell', 'execute_cell'].includes(method) && (typeof args.cell_id !== 'string' || !args.cell_id)) {
+        throw new Error(`${method} requires cell_id from read_cells or add_cell`)
+      }
+      if ('execute' in args && typeof args.execute !== 'boolean') throw new Error('execute must be a boolean')
+      if ('cell_type' in args && !['code', 'markdown', 'raw'].includes(args.cell_type)) throw new Error('cell_type must be code, markdown or raw')
+      const expectedPath = path
+      const result = await app.call(method, { ...args, notebook_path: expectedPath }, { timeoutMs: 120000 })
       if (result?.success === false) throw new Error(result.error || `${method} failed`)
-      // Its normal poll updates the existing Vue document; do not remount it
-      // or replace the kernel merely to make an agent's edit visible.
-      if (method !== 'read_cells') await waitForViewer(readSequence + 1)
-      if (result.execution?.success === false) throw new Error(result.execution.error || 'Cell execution failed; read_cells includes its error output')
-      return result
+      if (method === 'read_cells') return result
+      const cellId = result.cell_id || args.cell_id
+      // Mutation succeeded. A refresh failure must never invite an add retry
+      // that duplicates the cell: return its identity and an explicit outcome.
+      try {
+        if (path !== expectedPath) throw new Error('The notebook in this window changed during the operation')
+        const visible = await viewer.refresh(expectedPath, cellId)
+        if ('content' in args && !args.old_content && visible.source !== args.content) {
+          throw new Error('The visible cell content differs from the requested content; it may have a local edit')
+        }
+        if ('cell_type' in args && visible.cell_type !== args.cell_type) throw new Error('The visible cell type differs from the requested type')
+        app.setState(describe())
+        return { ...result, success: result.execution?.success !== false,
+          ...(result.execution?.success === false ? { error: result.execution.error || 'Cell execution failed' } : {}),
+          applied: true, visible: true, cell_id: cellId, cell_count: visible.cell_count,
+          source_preview: visible.source.slice(0, 160), source_length: visible.source.length }
+      } catch (error) {
+        return { ...result, success: false, applied: true, visible: false, cell_id: cellId,
+          error: `${error.message}. The cell was already changed; use read_cells with this cell_id before retrying.` }
+      }
     })
   }
-  return setupViewer(wrapped, root)
+  return viewer
 }

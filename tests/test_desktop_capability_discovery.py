@@ -101,3 +101,14 @@ async def test_scientific_menu_actions_are_agent_discoverable(rig):
     assert 'loadDataset' in entries['spatial3d']['actions']
     assert 'loadDataset' in entries['volume3d']['actions']
     assert 'toggleView' in entries['vitessce']['actions']
+
+
+@pytest.mark.asyncio
+async def test_notebook_discovery_includes_content_parameter_and_execution_option(rig):
+    toolset, store, _ = rig
+    store.apply('open', {'app_id': 'pkg:integrated-notebook'})
+    window = (await toolset.desktop_windows())['result']['windows'][0]
+    specs = {action['name']: action for action in window['action_specs']}
+    assert specs['add_cell']['params']['content'] == 'string'
+    assert specs['add_cell']['params']['execute'] == 'boolean'
+    assert specs['execute_cell']['params']['cell_id'] == 'string'

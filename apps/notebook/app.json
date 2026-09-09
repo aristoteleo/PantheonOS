@@ -1,7 +1,7 @@
 {
   "id": "integrated-notebook",
   "name": "Jupyter",
-  "version": "0.6.10",
+  "version": "0.6.11",
   "description": "Notebook editing and execution with streaming.",
   "entry": {
     "backend": "pantheon.apps.builtin.notebook:IntegratedNotebookToolSet",
@@ -505,7 +505,7 @@
     },
     {
       "name": "add_cell",
-      "description": "Add a cell to this notebook and optionally execute it; refresh the visible notebook.",
+      "description": "Add a cell using content (required string; empty only when intentional). Set execute=true to run code in the same call. Returns cell_id and confirms the visible content.",
       "params": {
         "content": "string",
         "cell_type": "string",
@@ -515,7 +515,7 @@
     },
     {
       "name": "update_cell",
-      "description": "Update a cell in this notebook and optionally execute it.",
+      "description": "Update cell_id with content (required string). Set execute=true to run after updating. Confirms the visible content.",
       "params": {
         "cell_id": "string",
         "content": "string",
