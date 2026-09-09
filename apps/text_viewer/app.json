@@ -1,9 +1,9 @@
 {
   "id": "text-viewer",
   "name": "Text Viewer",
-  "version": "0.6.4",
+  "version": "0.7.0",
   "apiVersion": 2,
-  "description": "View text and code files.",
+  "description": "Read Markdown with a formatted preview, or edit text and code with syntax highlighting.",
   "surface": "dom",
   "entry": {
     "frontend": "frontend/main.js"
@@ -13,7 +13,7 @@
       "dom"
     ]
   },
-  "notes": "Bundled headed App (CodeMirror, esbuild-built from frontend-src/ \u2014 see build.sh). Reads via the served URL, saves through the bridge fs broker.",
+  "notes": "Bundled headed App (CodeMirror, marked and DOMPurify; esbuild-built from frontend-src/ — see build.sh). Markdown opens in Preview; source edits and saves use the same document and bridge fs broker.",
   "opens": [
     ".txt",
     ".md",
@@ -45,7 +45,10 @@
     ".java",
     ".gitignore",
     ".env",
-    ".lock"
+    ".lock",
+    ".markdown",
+    ".mdown",
+    ".mkd"
   ],
   "defaultFor": [],
   "launcher": false,
@@ -66,7 +69,7 @@
   "actions": [
     {
       "name": "getText",
-      "description": "Read the text currently visible/editable in this window, including unsaved edits. Supports offset and limit (1\u2013100000).",
+      "description": "Read the text currently visible/editable in this window, including unsaved edits. Supports offset and limit (1–100000).",
       "params": {
         "offset": "number",
         "limit": "number"
@@ -84,5 +87,9 @@
       "name": "save",
       "description": "Save the current editor contents to its workspace file and report actual write failures."
     }
+  ],
+  "persistState": [
+    "mode",
+    "wrap"
   ]
 }
