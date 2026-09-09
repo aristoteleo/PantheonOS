@@ -7,7 +7,18 @@ Provides clean completion and inspection using pure Jedi approach
 from jedi.api import Script
 from typing import Dict, List, Any, Tuple
 import time
+import asyncio
+import threading
+
 from pantheon.utils.log import logger
+
+# Jedi shares interpreter caches; serialize analysis in workers, never on the RPC loop.
+_JEDI_ANALYSIS_LOCK = threading.Lock()
+
+
+def _analyze_in_worker(fn, *args):
+    with _JEDI_ANALYSIS_LOCK:
+        return fn(*args)
 
 
 class SessionContextManager:
@@ -130,11 +141,11 @@ class JediCodeIntelligence:
             jedi_completions = script.complete(line=line, column=column)
 
             completions = []
-            for completion in jedi_completions:
+            for completion in jedi_completions[:50]:
                 # Get clean signature for functions/methods
                 signature = ""
                 try:
-                    signatures = completion.get_signatures()
+                    signatures = completion.get_signatures() if completion.type in ('function', 'method') else []
                     if signatures:
                         sig = signatures[0]
                         # Construct proper signature from Jedi signature object
@@ -289,7 +300,10 @@ class EnhancedCompletionService:
         start_time = time.time()
 
         try:
-            jedi_completions = self.jedi_intelligence.get_completions(code, cursor_pos, session_id, context_code)
+            jedi_completions = await asyncio.to_thread(
+                _analyze_in_worker, self.jedi_intelligence.get_completions,
+                code, cursor_pos, session_id, context_code,
+            )
 
             return {
                 "success": True,
@@ -316,7 +330,10 @@ class EnhancedCompletionService:
         start_time = time.time()
 
         try:
-            jedi_result = self.jedi_intelligence.get_inspection(code, cursor_pos, session_id, context_code)
+            jedi_result = await asyncio.to_thread(
+                _analyze_in_worker, self.jedi_intelligence.get_inspection,
+                code, cursor_pos, session_id, context_code,
+            )
 
             return {
                 "success": True,
@@ -339,4 +356,3 @@ class EnhancedCompletionService:
     def clear_session_context(self, session_id: str):
         """Clear context for a session (e.g., on kernel restart)"""
         self.jedi_intelligence.clear_context(session_id)
-
