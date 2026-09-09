@@ -1,9 +1,9 @@
 {
   "id": "image-viewer",
   "name": "Image Viewer",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "apiVersion": 2,
-  "description": "View images from the workspace.",
+  "description": "View images in desktop windows with zoom, pan, rotation, original-size inspection and downloads.",
   "surface": "dom",
   "entry": {
     "frontend": "frontend/main.js"
@@ -13,7 +13,6 @@
       "dom"
     ]
   },
-  "notes": "First shell builtin rebuilt as a packaged-app bundle — loaded by the app-host iframe from this directory, no shell compile.",
   "opens": [
     ".png",
     ".jpg",
@@ -34,10 +33,53 @@
   ],
   "launcher": false,
   "sharedState": [
-    "zoomed"
+    "zoom",
+    "fit",
+    "rotation"
   ],
   "icon": {
     "monochrome": true,
     "tint": "#7aa5cc"
-  }
+  },
+  "persistState": [
+    "zoom",
+    "fit",
+    "rotation"
+  ],
+  "defaultSize": {
+    "width": 900,
+    "height": 640
+  },
+  "actions": [
+    {
+      "name": "zoom_in",
+      "description": "Increase image magnification.",
+      "params": {}
+    },
+    {
+      "name": "zoom_out",
+      "description": "Decrease image magnification.",
+      "params": {}
+    },
+    {
+      "name": "fit",
+      "description": "Fit the image inside this window.",
+      "params": {}
+    },
+    {
+      "name": "actual",
+      "description": "Display one image pixel per CSS pixel (100%).",
+      "params": {}
+    },
+    {
+      "name": "rotate",
+      "description": "Rotate the view clockwise by 90 degrees. The original file is unchanged.",
+      "params": {}
+    },
+    {
+      "name": "reset",
+      "description": "Reset rotation and fit the image to the window.",
+      "params": {}
+    }
+  ]
 }
