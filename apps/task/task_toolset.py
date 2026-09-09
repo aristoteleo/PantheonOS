@@ -4,6 +4,7 @@ Provides task_boundary and notify_user tools for managing
 workflow modes (PLANNING/EXECUTION/VERIFICATION or RESEARCH/ANALYSIS/INTERPRETATION).
 """
 
+import copy
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,7 @@ class TaskToolSet(ToolSet):
         self.state = ConversationState()
         self._last: dict[str, Optional[str]] = {}  # task_name, mode, status, summary
         self._loaded = False
+        self._loaded_dir: str | None = None
 
     def _save(self, brain_dir: str):
         """Persist state to disk."""
@@ -34,10 +36,15 @@ class TaskToolSet(ToolSet):
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _load(self, brain_dir: str):
-        """Lazy load state from disk (only once)."""
-        if self._loaded:
+        """Load once per active conversation; reset when an agent changes conversations."""
+        canonical = str(Path(brain_dir).resolve())
+        if self._loaded and self._loaded_dir == canonical:
             return
+        if self._loaded_dir is not None and self._loaded_dir != canonical:
+            self.state = ConversationState()
+            self._last = {}
         self._loaded = True
+        self._loaded_dir = canonical
         path = Path(brain_dir) / self.STATE_FILE
         if not path.exists():
             return
@@ -259,7 +266,7 @@ class TaskToolSet(ToolSet):
                 - options (list[dict], required for choice types): List of options, each with:
                     - label (str): Display text for the option
                     - description (str): Explanation of what this option means
-                    - value (str): Internal value to return when selected
+                    - value (str, optional): Value returned when selected; defaults to label
                 - placeholder (str, optional for text_input): Placeholder text
                 - required (bool, optional): Whether this question must be answered (default: True)
 
@@ -339,6 +346,7 @@ class TaskToolSet(ToolSet):
             # No limit on number of questions - removed the 4-question restriction
             # Frontend can handle any number of questions with tab navigation
 
+            questions = copy.deepcopy(questions)
             for i, q in enumerate(questions):
                 if not isinstance(q, dict):
                     return {
@@ -374,17 +382,24 @@ class TaskToolSet(ToolSet):
                             "error": f"Question {i+1} must have at least 1 option",
                         }
 
+                    option_values = set()
                     for j, opt in enumerate(q["options"]):
                         if not isinstance(opt, dict):
                             return {
                                 "success": False,
                                 "error": f"Question {i+1} option {j+1} must be a dict",
                             }
-                        if "label" not in opt or "description" not in opt or "value" not in opt:
-                            return {
-                                "success": False,
-                                "error": f"Question {i+1} option {j+1} missing required fields (label, description, value)",
-                            }
+                        if not isinstance(opt.get("label"), str) or not opt["label"].strip():
+                            return {"success": False, "error": f"Question {i+1} option {j+1} needs a non-empty label"}
+                        # The visible label is a safe default when a model omits
+                        # the transport value. Do not force a second user prompt.
+                        if not opt.get("value"):
+                            opt["value"] = opt["label"]
+                        opt.setdefault("description", "")
+                        value = opt["value"]
+                        if not isinstance(value, str) or not value.strip() or value == "__other__" or value in option_values:
+                            return {"success": False, "error": f"Question {i+1} options need unique, non-empty values"}
+                        option_values.add(value)
 
         if isinstance(paths_to_review, str):  # a lone path string would iterate char-by-char
             paths_to_review = [paths_to_review]
@@ -572,6 +587,7 @@ class TaskToolSet(ToolSet):
             context_variables: Agent context variables
         """
         brain_dir = self._get_brain_dir(context_variables)
+        self._load(brain_dir)
 
         # 先检测 think tool 使用，并分离非 think 工具
         has_think = False
@@ -615,7 +631,7 @@ class TaskToolSet(ToolSet):
                 file_path = args.get("file_path", "")
 
                 # Check if path is in brain_dir (artifact file)
-                if brain_dir in file_path:
+                if file_path and Path(file_path).resolve().is_relative_to(Path(brain_dir).resolve()):
                     self.state.on_artifact_modified(file_path, brain_dir)
 
                     # Also register as created if new

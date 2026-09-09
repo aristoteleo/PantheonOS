@@ -117,11 +117,13 @@ def start(
                 "name": mem.name,
                 "last_activity_date": mem.extra_data.get("last_activity_date"),
             })
-        chats.sort(
-            key=lambda x: dt.fromisoformat(x["last_activity_date"])
-            if x["last_activity_date"] else dt.min,
-            reverse=True,
-        )
+        def activity_order(chat):
+            try:
+                return dt.fromisoformat(chat["last_activity_date"]).timestamp()
+            except (TypeError, ValueError, OverflowError):
+                return float("-inf")
+
+        chats.sort(key=activity_order, reverse=True)
         if resume is True:
             # --resume without value: pick the most recent chat
             chat_id = chats[0]["id"]

@@ -85,7 +85,9 @@ def format_relative_time(iso_time: str | datetime | None) -> str:
         else:
             dt = iso_time
             
-        now = datetime.now()
+        # New chat dates include UTC offsets; legacy dates are server-local.
+        dt = dt.astimezone()
+        now = datetime.now().astimezone()
         diff = now - dt
 
         # Sub-minute fidelity for very recent items

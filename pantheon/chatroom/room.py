@@ -10,7 +10,7 @@ try:
 except ImportError:
     _psutil = None  # type: ignore
     _psutil_process = None
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 from typing import TYPE_CHECKING
@@ -34,6 +34,21 @@ from .thread import Thread
 
 if TYPE_CHECKING:
     from pantheon.team import PantheonTeam
+
+
+def _activity_date(value):
+    """Serialize legacy server-local timestamps with an explicit offset.
+
+    Reading metadata must not make a conversation look active again. Invalid
+    dates stay unknown instead of becoming today or breaking the entire list.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed.astimezone(timezone.utc).isoformat()
+    except (ValueError, OverflowError):
+        return None
 
 
 DEFAULT_TOOLSETS = []
@@ -1519,7 +1534,7 @@ class ChatRoom(ToolSet):
             memory = await run_func(self.memory_manager.new_memory_in, _target_dir, chat_name)
         else:
             memory = await run_func(self.memory_manager.new_memory, chat_name)
-        memory.set_metadata("last_activity_date", datetime.now().isoformat())
+        memory.set_metadata("last_activity_date", datetime.now(timezone.utc).isoformat())
 
         project = copy.deepcopy(project_metadata) if project_metadata else {}
         if project_name is not None:
@@ -1672,7 +1687,7 @@ class ChatRoom(ToolSet):
             for key in ("project", "chat_config", "team_template"):
                 if key in source.extra_data:
                     memory.set_metadata(key, _copy.deepcopy(source.extra_data[key]))
-            memory.set_metadata("last_activity_date", datetime.now().isoformat())
+            memory.set_metadata("last_activity_date", datetime.now(timezone.utc).isoformat())
 
             if sliced:
                 memory.add_messages(sliced)
@@ -1862,9 +1877,7 @@ class ChatRoom(ToolSet):
                         "name": item["name"],
                         "running": main_running or bg_running,
                         "has_background_tasks": bg_running,
-                        "last_activity_date": extra_data.get(
-                            "last_activity_date", None
-                        ),
+                        "last_activity_date": _activity_date(extra_data.get("last_activity_date")),
                         "project": project,
                         "workspace_mode": workspace_mode,
                         "workspace_path": workspace_path,
@@ -1877,9 +1890,9 @@ class ChatRoom(ToolSet):
                 )
 
             chats.sort(
-                key=lambda x: datetime.fromisoformat(x["last_activity_date"])
+                key=lambda x: datetime.fromisoformat(x["last_activity_date"]).timestamp()
                 if x["last_activity_date"]
-                else datetime.min,
+                else float("-inf"),
                 reverse=True,
             )
 
@@ -2104,7 +2117,7 @@ class ChatRoom(ToolSet):
         """
         try:
             memory = await run_func(self.memory_manager.get_memory, chat_id, True)
-            memory.set_metadata("last_activity_date", datetime.now().isoformat())
+            memory.set_metadata("last_activity_date", datetime.now(timezone.utc).isoformat())
             await run_func(self.memory_manager.save_one, chat_id)
             return {"success": True, "message": "Chat activity refreshed"}
         except KeyError:
@@ -3154,7 +3167,7 @@ class ChatRoom(ToolSet):
             return {"success": False, "message": f"Chat '{chat_id}' not found"}
         memory.update_metadata({
             "running": True,
-            "last_activity_date": datetime.now().isoformat(),
+            "last_activity_date": datetime.now(timezone.utc).isoformat(),
         })
 
         async def team_getter():
@@ -3348,7 +3361,7 @@ class ChatRoom(ToolSet):
             async def _cleanup_persistent_state():
                 memory.update_metadata({
                     "running": False,
-                    "last_activity_date": datetime.now().isoformat(),
+                    "last_activity_date": datetime.now(timezone.utc).isoformat(),
                 })
                 try:
                     await run_func(self.memory_manager.save_one, chat_id)
