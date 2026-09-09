@@ -53,10 +53,13 @@ _spec.loader.exec_module(_mod)
 
 def _evaluate_remote(filepath):
     import json, sys, time
+    import hashlib, os
     import httpx
-    sys.path.insert(0, BENCH_DIR)
-    from remote_eval import server_token
-    payload = {{"token": server_token(), "task": TASK_NAME,
+    # same derivation as remote_eval.server_token(), inlined: importing remote_eval pulls in the
+    # whole pantheon package, which the engine's lean venv does not carry
+    key = os.environ.get("OPENROUTER_API_KEY", "")
+    token = hashlib.sha256(f"evolve-eval:{{key}}".encode()).hexdigest()[:32]
+    payload = {{"token": token, "task": TASK_NAME,
                "files": {{EVOLVE_FILE: open(filepath).read()}}, "fidelity": "full"}}
     body, last = None, None
     for attempt in range(3):
