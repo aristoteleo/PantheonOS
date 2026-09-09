@@ -1292,7 +1292,7 @@ class FileManagerToolSet(FileManagerToolSetBase):
         # Build the sub-agent fallback chain, honouring the `vision.vision_model`
         # setting:
         #   "auto"        → active model (if vision-capable) then a cross-provider
-        #                   chain, "normal" quality tier preferred.
+        #                   chain, active model's quality tier preferred.
         #   "high/normal/low" → same, but force that quality tier first.
         #   a model id    → pin that model first, auto chain as fallback.
         # Iterate the chain at call time so a 429 / auth failure on one
@@ -1308,25 +1308,13 @@ class FileManagerToolSet(FileManagerToolSetBase):
             active_supports_vision = False
 
         vision_cfg = get_settings().get_vision_model()
-        _QUALITY_TIERS = {"high", "normal", "low"}
         selector = get_model_selector()
-
-        pinned_model: str | None = None
+        pinned_model = (
+            vision_cfg if vision_cfg and vision_cfg not in {"auto", "high", "normal", "low"}
+            else None
+        )
         try:
-            if vision_cfg in _QUALITY_TIERS:
-                # Force the configured tier first, then the rest as fallback.
-                tier_order = [vision_cfg] + [
-                    t for t in ("normal", "high", "low") if t != vision_cfg
-                ]
-                cross_chain = selector.find_capable_models_across_providers(
-                    "vision", tier_order=tier_order
-                )
-            elif vision_cfg and vision_cfg != "auto":
-                # Specific model id — pin it, keep the auto chain as fallback.
-                pinned_model = vision_cfg
-                cross_chain = selector.find_capable_models_across_providers("vision")
-            else:
-                cross_chain = selector.find_capable_models_across_providers("vision")
+            cross_chain = selector.find_vision_models(active_model, vision_cfg)
         except Exception as e:
             logger.warning(f"observe_images: vision fallback search failed: {e}")
             cross_chain = []

@@ -112,6 +112,15 @@
     // ===== Model Selection Configuration =====
     // Smart model selection based on available API keys
     "models": {
+        // Optional vision companions per provider and quality tier. These are
+        // used by observe_images and chat attachments when the main model is
+        // text-only; vision.vision_model can still pin a specific model.
+        // "provider_vision_models": {
+        //     "openrouter": {
+        //         "normal": ["openrouter/~z-ai/glm-flash-latest"],
+        //         "low": ["openrouter/deepseek/deepseek-v4-flash-vision-exp"]
+        //     }
+        // },
         // Provider priority order (first available provider with API key is used)
         // "provider_priority": ["openai", "anthropic", "gemini", "zai", "deepseek"],
         // Saved model names for UI selectors. These do not affect high/normal/low routing.
@@ -333,7 +342,9 @@
     // cannot natively see images (non-Anthropic/Gemini/OpenAI providers).
     "vision": {
         // "auto"  : pick a vision-capable model across configured providers,
-        //           preferring the "normal" quality tier, then high, then low.
+        //           following the active chat model's tier (normal if unknown).
+        // Platform normal: GLM 5.3 + GLM Flash Latest for vision.
+        // Platform low: DeepSeek V4 Flash Latest + Flash Vision Exp.
         // tier    : "high" / "normal" / "low" — force a quality tier.
         // model id: e.g. "gemini-cli/gemini-3-flash-preview" — pin a model;
         //           the auto chain is still used as fallback if it fails.

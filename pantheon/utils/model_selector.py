@@ -286,14 +286,18 @@ DEFAULT_PROVIDER_MODELS = {
 
 # Platform-OpenRouter quality tiers. In PLATFORM_MODEL_MODE=openrouter, tags (high/normal/low)
 # + the default resolve to THESE ids (routed via OpenRouter for unified billing) rather than
-# featured_by_tier()'s newest-first picks. Cost-tuned: normal/low use cheaper non-Claude models
-# (glm-5.2 ~$0.93/$3, deepseek-v4-flash ~$0.09/$0.18 vs sonnet-5 ~$2/$10); high stays Claude
-# (sonnet-5). Each tier keeps a same-family fallback + a reliable Claude last resort so a single
-# vendor outage doesn't break the default. OpenRouter uses dot naming (claude-sonnet-4.6).
+# featured_by_tier()'s newest-first picks. Text and vision have separate defaults;
+# observation uses the active text model's tier. Keep outage fallbacks after the
+# preferred model. OpenRouter's latest aliases include a literal '~' prefix.
 PLATFORM_OPENROUTER_TIERS = {
     "high": ["openrouter/anthropic/claude-sonnet-5", "openrouter/anthropic/claude-sonnet-4.6"],
-    "normal": ["openrouter/z-ai/glm-5.2", "openrouter/z-ai/glm-5", "openrouter/anthropic/claude-sonnet-4.6"],
-    "low": ["openrouter/deepseek/deepseek-v4-flash", "openrouter/deepseek/deepseek-v4-pro", "openrouter/anthropic/claude-haiku-4.5"],
+    "normal": ["openrouter/z-ai/glm-5.3", "openrouter/z-ai/glm-5.2", "openrouter/anthropic/claude-sonnet-4.6"],
+    "low": ["openrouter/~deepseek/deepseek-v4-flash-latest", "openrouter/deepseek/deepseek-v4-flash", "openrouter/anthropic/claude-haiku-4.5"],
+}
+
+PLATFORM_OPENROUTER_VISION_TIERS = {
+    "normal": ["openrouter/~z-ai/glm-flash-latest"],
+    "low": ["openrouter/deepseek/deepseek-v4-flash-vision-exp"],
 }
 
 # Capability tags map to catalog supports_* fields
@@ -514,7 +518,7 @@ class ModelSelector:
         # static DEFAULT_PROVIDER_MODELS until the first fetch. User config still
         # overrides.
         if provider == "openrouter":
-            # Platform-OpenRouter mode: quality tiers + default resolve to the Claude-centric
+            # Platform-OpenRouter mode: quality tiers + default resolve to
             # PLATFORM_OPENROUTER_TIERS (the platform's tuned default, via OpenRouter), NOT
             # the picker's diverse featured list. (The platform picker uses by_vendor, not
             # this, so it's unaffected.) BYOK openrouter keeps the featured tiers below.
@@ -611,6 +615,52 @@ class ModelSelector:
         logger.info(f"Auto-generated config for '{provider}': {config}")
         return config
 
+    def _vision_models_for_tier(self, provider: str, tier: str) -> list[str]:
+        """Dedicated vision companions; BYOK providers retain their own defaults."""
+        import os
+
+        defaults = (
+            PLATFORM_OPENROUTER_VISION_TIERS
+            if provider == "openrouter"
+            and os.getenv("PLATFORM_MODEL_MODE", "").strip().lower() == "openrouter"
+            else {}
+        )
+        configured = self.settings.get(f"models.provider_vision_models.{provider}", {})
+        models = configured.get(tier, defaults.get(tier, []))
+        return [models] if isinstance(models, str) else list(models)
+
+    def find_vision_models(
+        self, active_model: str | None = None, vision_model: str = "auto"
+    ) -> list[str]:
+        """Use the active model's vision tier unless the user explicitly pins one.
+
+        The actual model travels with remote tool calls, so this also works in
+        file-service processes without a live parent Agent or shared UI state.
+        """
+        tier = vision_model if vision_model in QUALITY_TAGS else None
+        provider = active_model.split("/", 1)[0] if active_model and "/" in active_model else None
+        if vision_model == "auto" and provider:
+            configured = self._get_provider_models(provider)
+            # Match primary models before fallbacks that may occur in many tiers.
+            for primary_only in (True, False):
+                for candidate in ("normal", "low", "high"):
+                    models = configured.get(candidate, [])
+                    models = [models] if isinstance(models, str) else models
+                    if active_model in (models[:1] if primary_only else models):
+                        tier = candidate
+                        break
+                if tier:
+                    break
+        kwargs = {}
+        if tier:
+            kwargs["tier_order"] = [tier] + [t for t in ("normal", "high", "low") if t != tier]
+        if provider and vision_model == "auto":
+            kwargs["prefer_provider"] = provider
+        chain = self.find_capable_models_across_providers("vision", **kwargs)
+        if vision_model and vision_model != "auto" and vision_model not in QUALITY_TAGS:
+            chain = [vision_model, *chain]
+        return list(dict.fromkeys(chain))
+
     def _check_model_capability(self, model: str, capability: str) -> bool:
         """Check if a model supports a specific capability.
 
@@ -681,7 +731,8 @@ class ModelSelector:
 
         # Filter models by capability requirements
         result: list[str] = []
-        for model in models:
+        companions = self._vision_models_for_tier(provider, quality_tag) if "vision" in capability_tags else []
+        for model in [*companions, *models]:
             if all(
                 self._check_model_capability(model, cap) for cap in capability_tags
             ):
@@ -821,6 +872,8 @@ class ModelSelector:
                 models = provider_models.get(tier, [])
                 if isinstance(models, str):
                     models = [models]
+                if capability == "vision":
+                    models = [*self._vision_models_for_tier(provider, tier), *models]
                 for model in models:
                     if model in seen:
                         continue
@@ -859,7 +912,8 @@ class ModelSelector:
             return list(models)
 
         result: list[str] = []
-        for model in models:
+        companions = self._vision_models_for_tier(provider, quality_tag) if "vision" in capability_tags else []
+        for model in [*companions, *models]:
             if all(
                 self._check_model_capability(model, cap) for cap in capability_tags
             ):

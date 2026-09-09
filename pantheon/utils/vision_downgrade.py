@@ -22,7 +22,8 @@ from typing import Any
 
 from loguru import logger
 
-# (image-url + question) hash → description. Per-process LRU; re-describes once
+# (active model + image-url + question) hash → description. Per-process LRU;
+# switching model tiers uses the newly selected vision companion. Re-describes once
 # after a restart, which is fine.
 _DESC_CACHE: "OrderedDict[str, str]" = OrderedDict()
 _DESC_CACHE_MAX = 256
@@ -107,26 +108,11 @@ def _vision_candidates(active_model: str | None) -> list[str]:
         vision_cfg = "auto"
 
     selector = get_model_selector()
-    tiers = {"high", "normal", "low"}
-    pinned: list[str] = []
     try:
-        if vision_cfg in tiers:
-            order = [vision_cfg] + [t for t in ("normal", "high", "low") if t != vision_cfg]
-            chain = selector.find_capable_models_across_providers("vision", tier_order=order)
-        elif vision_cfg and vision_cfg != "auto":
-            pinned = [vision_cfg]
-            chain = selector.find_capable_models_across_providers("vision")
-        else:
-            chain = selector.find_capable_models_across_providers("vision")
+        return selector.find_vision_models(active_model, vision_cfg)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[vision_downgrade] candidate search failed: {e}")
-        chain = []
-
-    out: list[str] = []
-    for m in [*pinned, *chain]:
-        if m and m not in out:
-            out.append(m)
-    return out
+        return []
 
 
 async def _describe(question: str, image_url: str, active_model: str | None) -> str | None:
@@ -189,7 +175,7 @@ async def downgrade_blind_user_images(history: list[dict], model: str | None) ->
                 continue
             url = block["image_url"]["url"]
             key = hashlib.sha256(
-                (question + "\x00" + url).encode("utf-8", "ignore")
+                ((model or "") + "\x00" + question + "\x00" + url).encode("utf-8", "ignore")
             ).hexdigest()
             desc = _cache_get(key)
             if desc is None:
