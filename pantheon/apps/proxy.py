@@ -160,6 +160,11 @@ class ToolsetProxy:
     async def _invoke(self, method_name: str, args: Optional[Dict], *,
                       read_timeout: float | None = None) -> Dict:
         safe_args = wire_safe_tool_args(args or {})
+        if self._instance_binding and self._instance_binding[1] == "file_manager":
+            from pantheon.internal.memory_system.file_routing import route_memory_file
+            local = await route_memory_file(method_name, safe_args, workdir=self._instance_binding[3])
+            if local is not None:
+                return local
         generation = self._recovery_generation
         for round_index in range(2):
             try:

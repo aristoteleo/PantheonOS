@@ -1247,6 +1247,18 @@ class ChatRoom(ToolSet):
             from pantheon.apps.proxy import ToolsetProxy
             from pantheon.apps.resolver import get_shared_resolver
 
+            # The topology Agent owns durable memory locally. Sending these
+            # paths to the workspace app reads a different filesystem (the
+            # viewer and the agent's own read_file both failed this way).
+            if toolset_name in ("file_manager", "desktop"):
+                from pantheon.internal.memory_system.file_routing import is_memory_file_request, route_memory_file
+                if is_memory_file_request(method_name, args or {}):
+                    session_id = (args or {}).get("session_id")
+                    workdir = await self._project_dir_for_chat(None if session_id == "__global__" else session_id)
+                    local = await route_memory_file(method_name, args or {}, workdir=workdir)
+                    if local is not None:
+                        return local
+
             resolver = get_shared_resolver()
             if resolver is None:
                 return {"success": False, "error": "App resolver not wired"}
