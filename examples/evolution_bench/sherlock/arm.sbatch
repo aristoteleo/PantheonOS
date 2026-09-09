@@ -33,6 +33,7 @@ mkdir -p "$RESULTS/$OUT"
 RESUME=""; [ -f "$RESULTS/$OUT/store.json" ] && [[ "$SCRIPT" == *run_bench.py ]] && RESUME="--resume"
 echo "[$(date)] host=$(hostname) job=$SLURM_JOB_ID arm=$OUT script=$SCRIPT resume=${RESUME:-no}" | tee -a "$RESULTS/$OUT/run.log"
 # glibc 2.17 on the host: run inside the python:3.12-slim image whose venv holds the deps
-# (see setup_env.sh); the repo itself is on PYTHONPATH, so a resync is all an update needs.
-eval apptainer exec --bind /scratch "$EVO/py312.sif" "$EVO/venv/bin/python" "$SCRIPT" $ARGV --output "$RESULTS/$OUT" $RESUME >> "$RESULTS/$OUT/run.log" 2>&1
+# (see setup_env.sh); the repo itself is on PYTHONPATH -- passed with --env because Sherlock's
+# Apptainer drops PYTHONPATH from the host environment -- so a resync is all an update needs.
+eval apptainer exec --bind /scratch --env PYTHONPATH="$REPO",UPSTREAM_ENGINE_DIR="$EVO/upstream_simpletes" "$EVO/py312.sif" "$EVO/venv/bin/python" "$SCRIPT" $ARGV --output "$RESULTS/$OUT" $RESUME >> "$RESULTS/$OUT/run.log" 2>&1
 RC=$?; echo "[$(date)] exit $RC" >> "$RESULTS/$OUT/run.log"; exit $RC
