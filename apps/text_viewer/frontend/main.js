@@ -49,7 +49,7 @@ import{A as $t,B as y,C as Vt,D as Ut,E as Gt,F as nt,G as Ht,H as jt,I as Jt,J 
 .tv-editor .cm-scroller { font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; line-height:1.65; }
 .tv-editor .cm-content { padding:16px 0; }
 .tv-editor .cm-line { padding:0 18px 0 12px; }
-.tv-editor .cm-gutters { padding:16px 4px 0 8px; }
+.tv-editor .cm-gutters { padding:0 4px 0 8px; }
 .tv-editor .cm-search { display:flex; flex-wrap:wrap; gap:4px; padding:8px 12px; font-size:12px; }
 .tv-editor .cm-search input { max-width:180px; }
 .tv-editor .cm-textfield { color:var(--fg); background:var(--paper); border:1px solid var(--line); border-radius:4px; }
