@@ -13,16 +13,22 @@ SPEC=$1
 REPO=${REPO:-$SCRATCH/evolve/PantheonOS}
 RESULTS=${RESULTS:-$SCRATCH/evolve/results}
 EVO=$SCRATCH/evolve
-export PYTHONPATH=$REPO PYTHONUNBUFFERED=1
+export PYTHONPATH=$REPO PYTHONUNBUFFERED=1 UPSTREAM_ENGINE_DIR=$EVO/upstream_simpletes
 ulimit -n $(ulimit -Hn)   # login nodes cap at 256; compute nodes allow 131072
 set -a; . "$HOME/.evolve_env"; set +a
 cd "$REPO"
-read -r OUT SCRIPT ARGV < <($HOME/miniconda3/bin/python3 - "$SPEC" "$SLURM_ARRAY_TASK_ID" <<'PY'
+read -r OUT SCRIPT URLFILE ARGV < <($HOME/miniconda3/bin/python3 - "$SPEC" "$SLURM_ARRAY_TASK_ID" <<'PY'
 import json, shlex, sys
 a = json.load(open(sys.argv[1]))[int(sys.argv[2])]
-print(a["out"], a.get("script", "examples/evolution_bench/run_bench.py"), " ".join(shlex.quote(str(x)) for x in a["argv"]))
+print(a["out"], a.get("script", "examples/evolution_bench/run_bench.py"), a.get("eval_server_file", "-"),
+      " ".join(shlex.quote(str(x)) for x in a["argv"]))
 PY
 )
+# AHC039 arms measure on a wave's eval server (eval_server.sbatch); wait for its URL file and health.
+if [ "$URLFILE" != "-" ]; then
+  until [ -f "$URLFILE" ] && curl -sf -m 10 "$(sed "s|/evaluate$|/health|" "$URLFILE")" >/dev/null; do sleep 30; done
+  ARGV="$ARGV --eval-server $(cat "$URLFILE")"
+fi
 mkdir -p "$RESULTS/$OUT"
 RESUME=""; [ -f "$RESULTS/$OUT/store.json" ] && [[ "$SCRIPT" == *run_bench.py ]] && RESUME="--resume"
 echo "[$(date)] host=$(hostname) job=$SLURM_JOB_ID arm=$OUT script=$SCRIPT resume=${RESUME:-no}" | tee -a "$RESULTS/$OUT/run.log"

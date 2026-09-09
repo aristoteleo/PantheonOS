@@ -167,7 +167,7 @@ def main() -> None:
     # ---- the engine, pinned ------------------------------------------------
     # /tmp, not the output volume: a git clone is thousands of small files and network-volume
     # writes make it crawl. Only the checkpoints and summary live on the volume.
-    eng = Path("/tmp/upstream_simpletes")
+    eng = Path(os.environ.get("UPSTREAM_ENGINE_DIR", "/tmp/upstream_simpletes"))
     if not (eng / "main.py").exists():
         subprocess.run(["git", "clone", UPSTREAM_REPO, str(eng)], check=True)
         subprocess.run(["git", "-C", str(eng), "checkout", UPSTREAM_SHA], check=True)

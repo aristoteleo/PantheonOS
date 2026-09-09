@@ -528,8 +528,9 @@ differences inside the replicate spread ($\sim$0.01) are inconclusive, on AHC039
 $\sim$20 points, the seed's own machine noise.
 
 \begin{table}[H]\centering\small
-\caption{Part 1 snapshot (2026-09-08 21:45 PDT): best per arm (s0 / s1 / s2) and mean. Dashes are
-arms still running; the upstream engine keeps no partial results.}
+\caption{Part 1 snapshot (2026-09-09 08:30 PDT): best per arm (s0 / s1 / s2) and mean. Dashes are the five
+engine arms still running (now on Sherlock, resumed from the engine's own checkpoints); the upstream
+engine keeps no partial results.}
 \label{tab:part1}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
@@ -538,22 +539,22 @@ group & s0 & s1 & s2 & mean \\
 \midrule
 LabNotebook & 0.9248 & 0.9106 & 0.9185 & 0.9180 \\
 our SimpleTES port & 0.9101 & 0.9079 & 0.9139 & 0.9106 \\
-upstream, port-mirror & 0.9269 & --- & --- & 0.9269 \\
-upstream, authors' defaults & 0.9120 & 0.9094 & --- & 0.9107 \\
+upstream, port-mirror & 0.9112 & 0.9133 & 0.9269 & 0.9172 \\
+upstream, authors' defaults & 0.9120 & 0.9094 & 0.9093 & 0.9102 \\
 \midrule
 \multicolumn{5}{@{}l}{\textbf{sums vs differences} (higher is better)} \\
 \midrule
 LabNotebook & 1.0668 & 1.0865 & 1.0621 & 1.0718 \\
 our SimpleTES port & 1.0668 & 1.0677 & 1.0621 & 1.0655 \\
 upstream, port-mirror & --- & --- & --- & --- \\
-upstream, authors' defaults & 1.0668 & 1.0668 & --- & 1.0668 \\
+upstream, authors' defaults & --- & 1.0668 & 1.0668 & 1.0668 \\
 \midrule
 \multicolumn{5}{@{}l}{\textbf{Heilbronn convex $n{=}13$} (ratio, higher is better)} \\
 \midrule
 LabNotebook & 0.8520 & 1.0000 & 0.8905 & 0.9142 \\
 our SimpleTES port & 0.9158 & 0.8676 & 0.8833 & 0.8889 \\
-upstream, port-mirror & 0.8877 & --- & --- & 0.8877 \\
-upstream, authors' defaults & 0.8554 & 0.7126 & --- & 0.7840 \\
+upstream, port-mirror & --- & 0.8877 & 0.9163 & 0.9020 \\
+upstream, authors' defaults & 0.7127 & 0.8554 & 0.7126 & 0.7602 \\
 \midrule
 \multicolumn{5}{@{}l}{\textbf{$C_1$ control} (lower is better)} \\
 \midrule
@@ -572,8 +573,9 @@ port is a weaker baseline than the original.}
 \end{figure}
 
 \begin{table}[H]\centering\small
-\caption{Part 2 snapshot (2026-09-08 21:45 PDT). $^\circ$ = still running (best so far, a lower bound).
-AHC039 arms are nine hours into $\sim$14; their bests are not yet informative.}
+\caption{Part 2 snapshot (2026-09-09 08:30 PDT). $^\circ$ = still running (best so far, a lower bound). The
+AHC039 arms are frozen at their Modal checkpoints (35--155 rows of $\sim$180) until the Sherlock
+eval servers are up; the one finished arm is the upstream engine, seed 1.}
 \label{tab:part2}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
@@ -582,26 +584,27 @@ group & s0 & s1 & s2 & mean \\
 \midrule
 LabNotebook (full) & 0.9248 & 0.9106 & 0.9185 & 0.9180 \\
 no ideas & 0.9064 & 0.9096 & 0.9103 & 0.9087 \\
-one long trajectory & 0.9065$^\circ$ & 0.9163$^\circ$ & 0.9172$^\circ$ & 0.9133 \\
-no notebook & 0.9017$^\circ$ & 0.9108 & 0.9251 & 0.9125 \\
-no digest & 0.8824$^\circ$ & 0.9304 & 0.9273 & 0.9134 \\
+one long trajectory & 0.9112$^\circ$ & 0.9244 & 0.9172$^\circ$ & 0.9176 \\
+no notebook & 0.9048 & 0.9108 & 0.9251 & 0.9136 \\
+no digest & 0.9036 & 0.9304 & 0.9273 & 0.9204 \\
 \midrule
 \multicolumn{5}{@{}l}{\textbf{sums vs differences} (higher is better)} \\
 \midrule
 LabNotebook (full) & 1.0668 & 1.0865 & 1.0621 & 1.0718 \\
 no ideas & 1.0668 & 1.0754 & 1.0865 & 1.0762 \\
-one long trajectory & 1.0827 & 1.0960$^\circ$ & 1.0744$^\circ$ & 1.0844 \\
-no notebook & 1.0674$^\circ$ & 1.0662$^\circ$ & 1.0773$^\circ$ & 1.0703 \\
-no digest & 1.0936$^\circ$ & 1.0674$^\circ$ & 1.0666$^\circ$ & 1.0759 \\
+one long trajectory & 1.0827 & 1.0960$^\circ$ & 1.0763$^\circ$ & 1.0850 \\
+no notebook & 1.0674$^\circ$ & 1.0754 & 1.0927 & 1.0785 \\
+no digest & 1.0936$^\circ$ & 1.0674 & 1.0668 & 1.0759 \\
 \midrule
-\multicolumn{5}{@{}l}{\textbf{AHC039 block} (official points; all arms running)} \\
+\multicolumn{5}{@{}l}{\textbf{AHC039 block} (official points)} \\
 \midrule
-LabNotebook (full) & 3698$^\circ$ & 3757$^\circ$ & 3727$^\circ$ & 3727 \\
-our port & 3677$^\circ$ & 3524$^\circ$ & 3685$^\circ$ & 3629 \\
-no ideas & 3179$^\circ$ & 3661$^\circ$ & --- & --- \\
-one long trajectory & 3700$^\circ$ & 3722$^\circ$ & --- & --- \\
-no notebook & 3708$^\circ$ & 3709$^\circ$ & 3737$^\circ$ & 3718 \\
-no digest & 3702$^\circ$ & 3744$^\circ$ & 3675$^\circ$ & 3707 \\
+upstream SimpleTES & --- & 3742 & --- & 3742 \\
+our port & 3677$^\circ$ & 3524$^\circ$ & 3702$^\circ$ & 3634 \\
+LabNotebook (full) & 3720$^\circ$ & 3757$^\circ$ & 3727$^\circ$ & 3735 \\
+no ideas & 3395$^\circ$ & 3661$^\circ$ & --- & 3528 \\
+one long trajectory & 3573$^\circ$ & 3700$^\circ$ & 3722$^\circ$ & 3665 \\
+no notebook & 3708$^\circ$ & 3713$^\circ$ & 3737$^\circ$ & 3719 \\
+no digest & 3702$^\circ$ & 3752$^\circ$ & 3700$^\circ$ & 3718 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -609,11 +612,23 @@ no digest & 3702$^\circ$ & 3744$^\circ$ & 3675$^\circ$ & 3707 \\
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{lab_notebook_figs/part2_ablations.png}
 \caption{Part 2 snapshot. Removing the ideas holds C2 at the seed where the full method moved;
-on sums vs differences it does not hurt. Removing the digest does not hurt C2 either --- two arms
-finished above every full-method arm --- and the single long trajectory is strong on both. The
-AHC039 block, where the effect to explain is largest, is nine hours in.}
+on sums vs differences it does not hurt. Removing the digest does not hurt C2 (finished mean
+0.9204 against 0.9180 for the full method), removing the notebook does not either, and the single
+long trajectory is strong on both. The AHC039 block, where the effect to explain is largest, is
+paused at its Modal checkpoints pending the Sherlock eval servers.}
 \end{figure}
 
+
+\paragraph{Compute move (2026-09-09).} The Modal credit ran out on the morning of 2026-09-09. Every
+arm still running there was cancelled at about 07:35 PDT and moved to Stanford's Sherlock cluster,
+where it resumes from its last checkpoint (the bench checkpoints every two items, the upstream engine
+every five evaluations; at most that much work was repeated). Moved: the whole selector study (24
+arms, moved the evening before), the six unfinished ablation arms, the five unfinished Part 1 engine
+arms, and the twenty unfinished AHC039 arms. Scores on the Python-evaluated tasks are machine
+independent, so those arms continue unchanged. AHC039 is wall-clock limited: its arms will resume on
+a Sherlock eval server, which is a different ruler from the Modal one, and the 20-minute seed probes
+on both sides of the seam plus the server boot ids in every arm's log make the seam visible in the
+analysis rather than averaged over. Finished arms are unaffected.
 
 \paragraph{Trajectory length and the inspiration selector.} Because the selector never chooses at
 $T{=}2$, a selector study has to lengthen the trajectories. Three arms per cell: $K{=}2$, $T{=}4$
@@ -622,7 +637,8 @@ balance twin is the one-long ablation); and the port itself with balance (its rp
 main-campaign port). Table~\ref{tab:sel} and Figure~\ref{fig:sel} carry the snapshot.
 
 \begin{table}[H]\centering\small
-\caption{Selector study snapshot (2026-09-08 21:45 PDT, all arms $\le 5$ h in). $^\circ$ = still running.}
+\caption{Selector study snapshot (2026-09-09 08:30 PDT; running on Sherlock, 4 of 24 arms finished).
+$^\circ$ = still running.}
 \label{tab:sel}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
@@ -630,30 +646,31 @@ main-campaign port). Table~\ref{tab:sel} and Figure~\ref{fig:sel} carry the snap
 group & s0 & s1 & s2 & mean \\
 \midrule
 LabNotebook $K{=}4$, $T{=}2$, balance (full) & 0.9248 & 0.9106 & 0.9185 & 0.9180 \\
-$K{=}2$, $T{=}4$, balance & 0.9224$^\circ$ & 0.9329$^\circ$ & 0.9102$^\circ$ & 0.9219 \\
-$K{=}2$, $T{=}4$, rpucg & 0.9154$^\circ$ & 0.9247$^\circ$ & 0.9267$^\circ$ & 0.9222 \\
-$K{=}1$, $T{=}8$, balance & 0.9065$^\circ$ & 0.9163$^\circ$ & 0.9172$^\circ$ & 0.9133 \\
-$K{=}1$, $T{=}8$, rpucg & 0.9066$^\circ$ & 0.9053$^\circ$ & --- & 0.9060 \\
+$K{=}2$, $T{=}4$, balance & 0.9224$^\circ$ & 0.9329 & 0.9227$^\circ$ & 0.9260 \\
+$K{=}2$, $T{=}4$, rpucg & 0.9154$^\circ$ & 0.9284$^\circ$ & 0.9267 & 0.9235 \\
+$K{=}1$, $T{=}8$, balance & 0.9112$^\circ$ & 0.9244 & 0.9172$^\circ$ & 0.9176 \\
+$K{=}1$, $T{=}8$, rpucg & 0.9066$^\circ$ & 0.9218$^\circ$ & 0.8773$^\circ$ & 0.9019 \\
 port, rpucg & 0.9101 & 0.9079 & 0.9139 & 0.9106 \\
-port, balance & 0.8780$^\circ$ & 0.9055$^\circ$ & --- & 0.8918 \\
+port, balance & 0.9009$^\circ$ & 0.8900$^\circ$ & 0.9378$^\circ$ & 0.9096 \\
 \midrule
 \multicolumn{5}{@{}l}{\textbf{sums vs differences} (higher is better)} \\
 \midrule
 LabNotebook $K{=}4$, $T{=}2$, balance (full) & 1.0668 & 1.0865 & 1.0621 & 1.0718 \\
-$K{=}2$, $T{=}4$, balance & 1.0620$^\circ$ & 1.0598$^\circ$ & --- & 1.0609 \\
-$K{=}2$, $T{=}4$, rpucg & 1.0598$^\circ$ & 1.0598$^\circ$ & --- & 1.0598 \\
-$K{=}1$, $T{=}8$, balance & 1.0827 & 1.0960$^\circ$ & 1.0744$^\circ$ & 1.0844 \\
-$K{=}1$, $T{=}8$, rpucg & 1.0598$^\circ$ & --- & --- & 1.0598 \\
+$K{=}2$, $T{=}4$, balance & 1.0668$^\circ$ & 1.0922$^\circ$ & 1.0674$^\circ$ & 1.0755 \\
+$K{=}2$, $T{=}4$, rpucg & 1.0633$^\circ$ & 1.0987$^\circ$ & 1.0668$^\circ$ & 1.0762 \\
+$K{=}1$, $T{=}8$, balance & 1.0827 & 1.0960$^\circ$ & 1.0763$^\circ$ & 1.0850 \\
+$K{=}1$, $T{=}8$, rpucg & 1.0748$^\circ$ & 1.0668$^\circ$ & 1.0621$^\circ$ & 1.0679 \\
 port, rpucg & 1.0668 & 1.0677 & 1.0621 & 1.0655 \\
-port, balance & 1.0667$^\circ$ & --- & --- & 1.0667 \\
+port, balance & 1.0757 & 1.0668$^\circ$ & 1.0773$^\circ$ & 1.0733 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{lab_notebook_figs/part3_selector.png}
-\caption{Selector study snapshot. Too early to separate the selectors; the $K{=}2$, $T{=}4$ arms
-are already at or above the full method on C2 under both.}
+\caption{Selector study snapshot. The $K{=}2$, $T{=}4$ arms are at or above the full method on C2
+under both selectors, with no separation between balance and rpucg so far; $K{=}1$, $T{=}8$ with
+rpucg is the weakest cell on both tasks.}
 \label{fig:sel}
 \end{figure}
 
