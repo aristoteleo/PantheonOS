@@ -202,6 +202,13 @@ class JupyterKernelToolSet(ToolSet):
                 kernel_python if os.path.isabs(kernel_python)
                 else (which(kernel_python) or kernel_python)
             )
+            # Two venvs often symlink to the same base executable. Their package
+            # environments are still different and must not share PYTHONPATH.
+            prefix = os.path.dirname(os.path.dirname(os.path.abspath(resolved)))
+            if os.path.isfile(os.path.join(prefix, 'pyvenv.cfg')):
+                return os.path.abspath(prefix) == os.path.abspath(sys.prefix)
+            if sys.prefix != sys.base_prefix and os.path.abspath(resolved) != os.path.abspath(sys.executable):
+                return False
             return os.path.realpath(resolved) == os.path.realpath(sys.executable)
         except Exception:
             return True

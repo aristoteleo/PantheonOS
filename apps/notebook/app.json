@@ -1,7 +1,7 @@
 {
   "id": "integrated-notebook",
   "name": "Jupyter",
-  "version": "0.6.8",
+  "version": "0.6.9",
   "description": "Notebook editing and execution with streaming.",
   "entry": {
     "backend": "pantheon.apps.builtin.notebook:IntegratedNotebookToolSet",
@@ -267,7 +267,7 @@
       },
       {
         "name": "notebook_execute",
-        "description": "\n        Execute cells and manage kernel lifecycle.\n\n        Args:\n            notebook_path: Path to notebook file (not required for list_kernels/setup_kernel)\n            action: Operation to perform:\n                - \"execute\": Execute a cell (requires cell_id)\n                - \"restart\": Restart kernel (clears all state)\n                - \"interrupt\": Interrupt running execution\n                - \"shutdown\": Shutdown kernel session\n                - \"list_kernels\": List all available Jupyter kernels and conda/venv environments\n                - \"setup_kernel\": Register a Python environment as a Jupyter kernel\n                                  (requires python_path; optional kernel_name, display_name)\n            cell_id: Cell identifier (required for \"execute\" action)\n            kernel_name: For setup_kernel: name for the new kernelspec (default: derived from path)\n            python_path: For setup_kernel: absolute path to the Python executable\n            display_name: For setup_kernel: display name for the kernel\n\n        Returns:\n            dict with execution results, kernel status, or kernel listing\n\n        Examples:\n            # Execute a cell\n            notebook_execute(\"analysis.ipynb\", action=\"execute\", cell_id=\"abc123\")\n\n            # List available kernels and environments\n            notebook_execute(action=\"list_kernels\")\n\n            # Register a conda env as a Jupyter kernel\n            notebook_execute(action=\"setup_kernel\",\n                python_path=\"/Users/me/micromamba/envs/my_env/bin/python\",\n                kernel_name=\"my_env\",\n                display_name=\"My Analysis Env\")\n\n            # Restart kernel (clears all variables)\n            notebook_execute(\"analysis.ipynb\", action=\"restart\")\n        ",
+        "description": "\n        Execute cells and manage kernel lifecycle.\n\n        Args:\n            notebook_path: Path to notebook file (not required for list_kernels/setup_kernel)\n            action: Operation to perform:\n                - \"execute\": Execute a cell (requires cell_id)\n                - \"restart\": Restart kernel (clears all state)\n                - \"interrupt\": Interrupt running execution\n                - \"shutdown\": Shutdown kernel session\n                - \"list_kernels\": List all available Jupyter kernels and conda/venv environments\n                - \"setup_kernel\": Register a Python environment as a Jupyter kernel\n                                  (requires python_path; optional kernel_name, display_name)\n                - \"select_kernel\": Select a Python interpreter for this notebook. Starts the new\n                                   kernel before replacing the old one; existing variables reset.\n            install_ipykernel: For select_kernel: explicitly allow installing missing ipykernel.\n            cell_id: Cell identifier (required for \"execute\" action)\n            kernel_name: For setup_kernel: name for the new kernelspec (default: derived from path)\n            python_path: For setup_kernel/select_kernel: absolute path to the Python executable\n            display_name: For setup_kernel: display name for the kernel\n\n        Returns:\n            dict with execution results, kernel status, or kernel listing\n\n        Examples:\n            # Execute a cell\n            notebook_execute(\"analysis.ipynb\", action=\"execute\", cell_id=\"abc123\")\n\n            # List available kernels and environments\n            notebook_execute(action=\"list_kernels\")\n\n            # Register a conda env as a Jupyter kernel\n            notebook_execute(action=\"setup_kernel\",\n                python_path=\"/Users/me/micromamba/envs/my_env/bin/python\",\n                kernel_name=\"my_env\",\n                display_name=\"My Analysis Env\")\n\n            # Restart kernel (clears all variables)\n            notebook_execute(\"analysis.ipynb\", action=\"restart\")\n        ",
         "params": [
           {
             "name": "notebook_path",
@@ -300,6 +300,12 @@
             "name": "display_name",
             "type": "typing.Optional[str]",
             "required": false
+          },
+          {
+            "name": "install_ipykernel",
+            "type": "bool",
+            "required": false,
+            "default": false
           }
         ]
       },

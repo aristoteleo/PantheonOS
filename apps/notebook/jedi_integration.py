@@ -107,7 +107,7 @@ class JediCodeIntelligence:
         target_pos = func_name_end + 1
         return self._convert_cursor_position(code, target_pos)
 
-    def _get_jedi_script(self, code: str, cursor_pos: int, session_id: str, context_code: str = "") -> Tuple[Script, int, int]:
+    def _get_jedi_script(self, code: str, cursor_pos: int, session_id: str, context_code: str = "", python_path: str | None = None) -> Tuple[Script, int, int]:
         """Create Jedi script with proper context and cursor position"""
         # Ensure cursor_pos is within code bounds
         cursor_pos = min(cursor_pos, len(code))
@@ -119,7 +119,9 @@ class JediCodeIntelligence:
         context_lines = full_context.count("\n") + 1  # +1 for the extra newline we added
         line, column = self._convert_cursor_position(code, cursor_pos)
 
-        return Script(code=full_code, path="notebook.py"), context_lines + line, column
+        from jedi import create_environment
+        environment = create_environment(python_path, safe=False) if python_path else None
+        return Script(code=full_code, path="notebook.py", environment=environment), context_lines + line, column
 
     def _format_documentation(self, obj, truncate: int = 0) -> str:
         """Unified documentation formatting"""
@@ -134,10 +136,10 @@ class JediCodeIntelligence:
         except:
             return "No documentation available"
 
-    def get_completions(self, code: str, cursor_pos: int, session_id: str, context_code: str = "") -> List[Dict[str, Any]]:
+    def get_completions(self, code: str, cursor_pos: int, session_id: str, context_code: str = "", python_path: str | None = None) -> List[Dict[str, Any]]:
         """Get Jedi completions with rich metadata"""
         try:
-            script, line, column = self._get_jedi_script(code, cursor_pos, session_id, context_code)
+            script, line, column = self._get_jedi_script(code, cursor_pos, session_id, context_code, python_path)
             jedi_completions = script.complete(line=line, column=column)
 
             completions = []
@@ -180,14 +182,14 @@ class JediCodeIntelligence:
             logger.error(f"Jedi completion failed: {e}")
             return []
 
-    def get_inspection(self, code: str, cursor_pos: int, session_id: str, context_code: str = "") -> Dict[str, Any]:
+    def get_inspection(self, code: str, cursor_pos: int, session_id: str, context_code: str = "", python_path: str | None = None) -> Dict[str, Any]:
         """Get Jedi inspection information using simple strategy:
         1. Try get_signatures() first
         2. If signatures found, backtrack column by 1 for help() docstring
         3. If no signatures, use help() directly
         """
         try:
-            script, line, column = self._get_jedi_script(code, cursor_pos, session_id, context_code)
+            script, line, column = self._get_jedi_script(code, cursor_pos, session_id, context_code, python_path)
 
             # Step 1: Try to get signatures first
             jedi_signatures = script.get_signatures(line=line, column=column)
@@ -295,14 +297,14 @@ class EnhancedCompletionService:
     def __init__(self):
         self.jedi_intelligence = JediCodeIntelligence()
 
-    async def get_completions(self, code: str, cursor_pos: int, session_id: str, context_code: str = "") -> Dict[str, Any]:
+    async def get_completions(self, code: str, cursor_pos: int, session_id: str, context_code: str = "", python_path: str | None = None) -> Dict[str, Any]:
         """Get completions using pure Jedi approach"""
         start_time = time.time()
 
         try:
             jedi_completions = await asyncio.to_thread(
                 _analyze_in_worker, self.jedi_intelligence.get_completions,
-                code, cursor_pos, session_id, context_code,
+                code, cursor_pos, session_id, context_code, python_path,
             )
 
             return {
@@ -325,14 +327,14 @@ class EnhancedCompletionService:
                 "metadata": {"timing": time.time() - start_time},
             }
 
-    async def get_inspection(self, code: str, cursor_pos: int, session_id: str, context_code: str = "") -> Dict[str, Any]:
+    async def get_inspection(self, code: str, cursor_pos: int, session_id: str, context_code: str = "", python_path: str | None = None) -> Dict[str, Any]:
         """Get inspection info using pure Jedi approach"""
         start_time = time.time()
 
         try:
             jedi_result = await asyncio.to_thread(
                 _analyze_in_worker, self.jedi_intelligence.get_inspection,
-                code, cursor_pos, session_id, context_code,
+                code, cursor_pos, session_id, context_code, python_path,
             )
 
             return {

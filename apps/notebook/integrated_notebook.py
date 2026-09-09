@@ -211,6 +211,7 @@ class IntegratedNotebookToolSet(ToolSet):
         import asyncio
         self._notebook_locks: Dict[str, asyncio.Lock] = {}
         self._active_notebook_executions: Dict[str, int] = {}
+        self._switching_notebooks: set[str] = set()
 
         # Context creation lock to prevent duplicate kernel creation on concurrent calls
         self._context_creation_locks: Dict[tuple, asyncio.Lock] = {}
@@ -341,123 +342,37 @@ class IntegratedNotebookToolSet(ToolSet):
             logger.error(f"Failed to save contexts: {e}")
 
     async def _list_available_kernels(self) -> dict:
-        """List all available Jupyter kernelspecs and discoverable Python environments."""
-        import shutil
-        import subprocess
-
+        from jupyter_client.kernelspec import KernelSpecManager
+        from .python_environments import discover_python_environments
         import asyncio
-
-        # Probe each kernel's Python for version + key-package versions. Use
-        # importlib.metadata (reads dist metadata — milliseconds) instead of
-        # actually importing the packages: importing scanpy/scvi-tools/cellrank
-        # costs seconds EACH, and doing it for every registered kernelspec
-        # sequentially made list_kernels take a minute+. (Bonus: metadata uses the
-        # distribution name, so 'scvi-tools' is detected correctly — the old
-        # __import__('scvi_tools') silently failed.)
-        _probe_script = (
-            "import sys\n"
-            "print('%d.%d.%d' % sys.version_info[:3])\n"
-            "try:\n"
-            "    from importlib.metadata import version\n"
-            "except Exception:\n"
-            "    from importlib_metadata import version\n"
-            "for _p in ['scanpy','pertpy','anndata','numpy','pandas','scipy',"
-            "'matplotlib','scvi-tools','cellrank']:\n"
-            "    try:\n"
-            "        print(_p, version(_p))\n"
-            "    except Exception:\n"
-            "        pass\n"
-        )
-
-        async def _probe_kernel(name, info):
-            spec = info.get("spec", {})
-            argv = spec.get("argv", [])
-            python_path = argv[0] if argv else "unknown"
-            is_abs = os.path.isabs(python_path)
-            actual_python = python_path if is_abs else (shutil.which(python_path) or python_path)
-            python_version = None
-            key_packages: list = []
-            if os.path.isfile(actual_python):
-                try:
-                    result = await asyncio.to_thread(
-                        subprocess.run,
-                        [actual_python, "-c", _probe_script],
-                        capture_output=True, text=True, timeout=10,
-                    )
-                    lines = [ln for ln in result.stdout.strip().split("\n") if ln]
-                    if lines:
-                        python_version = lines[0]
-                        key_packages = lines[1:]
-                except Exception:
-                    pass
-            return {
-                "name": name,
-                "display_name": spec.get("display_name", name),
-                "python": actual_python,
-                "python_version": python_version,
-                "is_absolute_path": is_abs,
-                "key_packages": key_packages,
-            }
-
+        specs = await asyncio.to_thread(KernelSpecManager().get_all_specs)
+        environments = await discover_python_environments(self._get_effective_workdir() or self.workdir, specs)
         kernels = []
-        try:
-            from jupyter_client.kernelspec import KernelSpecManager
-            specs = KernelSpecManager().get_all_specs()
-            # Probe every kernel concurrently — wall-clock ≈ the slowest single
-            # probe, not the sum.
-            kernels = list(await asyncio.gather(
-                *(_probe_kernel(name, info) for name, info in specs.items())
-            ))
-        except Exception as e:
-            logger.warning(f"Failed to list kernelspecs: {e}")
-
-        # Discover conda/micromamba environments
-        conda_envs = []
-        for conda_cmd in ["conda", "micromamba", "mamba"]:
-            exe = shutil.which(conda_cmd)
-            if not exe:
-                continue
-            try:
-                result = subprocess.run(
-                    [exe, "env", "list", "--json"],
-                    capture_output=True, text=True, timeout=10,
-                )
-                data = json.loads(result.stdout)
-                for env_path in data.get("envs", []):
-                    env_name = os.path.basename(env_path)
-                    python_bin = os.path.join(env_path, "bin", "python")
-                    if not os.path.isfile(python_bin):
-                        python_bin = os.path.join(env_path, "Scripts", "python.exe")
-                    # Check if already registered as a kernel
-                    already_registered = any(
-                        k["python"].startswith(env_path) for k in kernels
-                    )
-                    conda_envs.append({
-                        "name": env_name,
-                        "path": env_path,
-                        "python": python_bin if os.path.isfile(python_bin) else None,
-                        "already_registered": already_registered,
-                    })
-                break  # Use first available conda tool
-            except Exception:
-                continue
-
-        return {
-            "success": True,
-            "kernels": kernels,
-            "conda_envs": conda_envs,
-            "hint": "Use setup_kernel to register an environment as a Jupyter kernel. "
-                    "Then use notebook_edit(action='create', kernel_spec='<name>') to create a notebook with that kernel.",
-        }
+        for name, info in specs.items():
+            spec = info.get('spec', {})
+            python = self._kernel_details(name)['kernel_python']
+            detected = next((e for e in environments if e['python'] == python), {})
+            kernels.append({'name': name, 'display_name': spec.get('display_name', name),
+                            'language': spec.get('language'), 'python': python,
+                            'python_version': detected.get('python_version'),
+                            'is_absolute_path': os.path.isabs(python), 'key_packages': detected.get('key_packages', [])})
+        return {'success': True, 'kernels': kernels, 'environments': environments,
+                'conda_envs': [{'name': e['display_name'], 'path': e['prefix'], 'python': e['python'],
+                               'already_registered': any(k['python'] == e['python'] for k in kernels)}
+                              for e in environments if e['source'] == 'conda'],
+                'hint': "Use notebook_execute(action='select_kernel', notebook_path=..., python_path=...) to select an interpreter."}
 
     async def _setup_kernel(
         self,
         python_path: str,
         kernel_name: Optional[str] = None,
         display_name: Optional[str] = None,
+        install_ipykernel: bool = True,
     ) -> dict:
         """Register a Python environment as a Jupyter kernelspec."""
         import subprocess
+        import asyncio
+        from .python_environments import clean_python_env
 
         python_path = os.path.expanduser(python_path)
         if not os.path.isabs(python_path):
@@ -465,31 +380,31 @@ class IntegratedNotebookToolSet(ToolSet):
         if not os.path.isfile(python_path):
             return {"success": False, "error": f"Python executable not found: {python_path}"}
 
-        # Derive kernel_name from path if not provided
+        # A stable path hash avoids two projects' .venv interpreters overwriting
+        # one another's kernelspec (and never resolve the executable symlink).
         if not kernel_name:
-            # e.g. /Users/me/micromamba/envs/my_env/bin/python → my_env
-            parts = python_path.split(os.sep)
-            for i, part in enumerate(parts):
-                if part in ("envs", ".venv", "venv") and i + 1 < len(parts):
-                    kernel_name = parts[i + 1]
-                    break
-            if not kernel_name:
-                kernel_name = "custom_kernel"
-
+            import hashlib
+            kernel_name = 'pantheon-' + hashlib.sha256(os.path.abspath(python_path).encode()).hexdigest()[:16]
         if not display_name:
             display_name = kernel_name
 
         # Step 1: Ensure ipykernel is installed
         try:
-            result = subprocess.run(
+            result = await asyncio.to_thread(subprocess.run,
                 [python_path, "-c", "import ipykernel"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True, text=True, env=clean_python_env(), timeout=10,
             )
             if result.returncode != 0:
+                if not install_ipykernel:
+                    return {'success': False, 'code': 'missing_ipykernel', 'error': 'This environment needs ipykernel to run notebooks.'}
                 logger.info(f"Installing ipykernel into {python_path}")
-                install_result = subprocess.run(
-                    [python_path, "-m", "pip", "install", "ipykernel", "-q"],
-                    capture_output=True, text=True, timeout=120,
+                import shutil
+                uv = shutil.which('uv')
+                command = ([uv, 'pip', 'install', '--python', python_path, 'ipykernel', '-q'] if uv
+                           else [python_path, '-m', 'pip', 'install', 'ipykernel', '-q'])
+                install_result = await asyncio.to_thread(subprocess.run,
+                    command,
+                    capture_output=True, text=True, env=clean_python_env(), timeout=120,
                 )
                 if install_result.returncode != 0:
                     return {
@@ -501,10 +416,10 @@ class IntegratedNotebookToolSet(ToolSet):
 
         # Step 2: Register kernelspec with absolute path
         try:
-            result = subprocess.run(
+            result = await asyncio.to_thread(subprocess.run,
                 [python_path, "-m", "ipykernel", "install",
                  "--user", "--name", kernel_name, "--display-name", display_name],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, env=clean_python_env(), timeout=30,
             )
             if result.returncode != 0:
                 return {
@@ -522,6 +437,98 @@ class IntegratedNotebookToolSet(ToolSet):
             "message": f"Kernel '{kernel_name}' registered. Use kernel_spec='{kernel_name}' when creating notebooks.",
         }
 
+    def _kernel_details(self, kernel_spec):
+        from jupyter_client.kernelspec import KernelSpecManager
+        import shutil
+        import sys
+        try:
+            spec = KernelSpecManager().get_kernel_spec(kernel_spec)
+            python = spec.argv[0]
+            # Jupyter resolves its generic Python commands to the host interpreter.
+            if python in ('python', 'python3', f'python{sys.version_info.major}.{sys.version_info.minor}'):
+                python = sys.executable
+            return {'kernel_spec': kernel_spec, 'kernel_display_name': spec.display_name,
+                    'kernel_python': python if os.path.isabs(python) else shutil.which(python) or python}
+        except Exception:
+            return {'kernel_spec': kernel_spec, 'kernel_display_name': kernel_spec, 'kernel_python': ''}
+
+    async def _select_python_environment(self, notebook_path, python_path, install_ipykernel=False):
+        import asyncio
+        from .python_environments import probe_python
+        session_id = self.get_session_id()
+        if not session_id:
+            return {'success': False, 'error': 'No session_id provided'}
+        if not os.path.isabs(os.path.expanduser(python_path)):
+            return {'success': False, 'error': 'Enter an absolute Python interpreter path.'}
+        valid, error, path = self.notebook_contents._validate_path(notebook_path)
+        if not valid or not path.is_file():
+            return {'success': False, 'error': error or 'Notebook file not found.'}
+        key = (notebook_path, session_id)
+        lock = self._context_creation_locks.setdefault(key, asyncio.Lock())
+        if lock.locked():
+            return {'success': False, 'error': 'Wait for the kernel to finish starting.'}
+        async with lock:
+            old = self._get_context(notebook_path, session_id)
+            old_id = old.kernel_session_id if old else None
+            canonical = str(path.resolve())
+            if canonical in self._switching_notebooks or self._active_notebook_executions.get(canonical) or (
+                old_id and self.kernel_toolset._get_execution_lock(old_id).locked()
+            ):
+                return {'success': False, 'error': 'Wait for the running cell to finish before switching environments.'}
+            self._switching_notebooks.add(canonical)
+            new_id = None
+            committed = False
+            try:
+                info = await probe_python(python_path)
+                if not info['success']:
+                    return info
+                if not info['ipykernel'] and not install_ipykernel:
+                    return {'success': False, 'code': 'missing_ipykernel', 'error': 'This environment needs ipykernel to run notebooks.'}
+                prefix = Path(info['prefix'])
+                environment_name = f'{prefix.parent.name}/{prefix.name}' if prefix.name in ('.venv', 'venv', 'env') else prefix.name
+                label = f"Python {info['python_version']} ({environment_name})"
+                setup = await self._setup_kernel(info['python'], display_name=label, install_ipykernel=install_ipykernel)
+                if not setup.get('success'):
+                    return setup
+                spec = setup['kernel_name']
+                if old and old.kernel_spec == spec and old_id in self.kernel_toolset.sessions:
+                    return {'success': True, 'kernel_session_id': old_id, 'status': 'idle', **self._kernel_details(spec)}
+                # A broken candidate must leave the working kernel and its variables intact.
+                started = await self.kernel_toolset.create_session(spec, cwd=self._notebook_dir(notebook_path))
+                if not started.get('success'):
+                    return started
+                new_id = started['session_id']
+                async with self._get_notebook_lock(notebook_path):
+                    ok, error, notebook = self.notebook_contents._load_notebook(path, validate=False)
+                    if not ok:
+                        return {'success': False, 'error': error}
+                    notebook.metadata.kernelspec = {'name': spec, 'display_name': label, 'language': 'python'}
+                    saved = await self.notebook_contents._save_notebook(path, notebook)
+                    if not saved.get('success'):
+                        return saved
+                    self.notebook_contexts[key] = NotebookContext(
+                        notebook_path=notebook_path, session_id=session_id, kernel_session_id=new_id,
+                        created_at=datetime.now().isoformat(), notebook_title=path.name, kernel_spec=spec,
+                    )
+                    await self._save_contexts()
+                    committed = True
+                if old_id:
+                    try:
+                        await self.kernel_toolset.shutdown_session(old_id)
+                    except Exception as error:
+                        logger.warning(f'Previous notebook kernel cleanup failed: {error}')
+                    self.completion_service.clear_session_context(old_id)
+                return {'success': True, 'kernel_session_id': new_id, 'status': 'idle',
+                        'python_version': info['python_version'], **self._kernel_details(spec)}
+            except Exception as error:
+                return {'success': False, 'error': str(error)}
+            finally:
+                try:
+                    if new_id and not committed:
+                        await self.kernel_toolset.shutdown_session(new_id)
+                finally:
+                    self._switching_notebooks.discard(canonical)
+
     def _notebook_dir(self, notebook_path: str) -> str | None:
         """Absolute directory containing the notebook file, so its kernel starts
         there and relative paths inside the notebook (e.g. savefig("figures/x.png"))
@@ -538,7 +545,7 @@ class IntegratedNotebookToolSet(ToolSet):
             return None
 
     async def _get_or_create_context(
-        self, notebook_path: str, session_id: str, kernel_spec: str = "python3"
+        self, notebook_path: str, session_id: str, kernel_spec: str | None = None
     ) -> NotebookContext:
         """
         Get or create notebook context for (notebook_path, session_id)
@@ -573,6 +580,9 @@ class IntegratedNotebookToolSet(ToolSet):
                             f"Failed to create notebook: {create_result['error']}"
                         )
                     notebook_file_is_new = True
+
+                if not kernel_spec:
+                    kernel_spec = (read_result.get('notebook', {}).get('metadata', {}).get('kernelspec', {}).get('name') or 'python3')
 
                 # 2. Create kernel session (internal). Start it in the notebook's
                 # OWN directory so relative paths inside the notebook resolve next
@@ -750,6 +760,8 @@ class IntegratedNotebookToolSet(ToolSet):
     @contextmanager
     def _notebook_execution(self, notebook_path: str):
         path = str(self.notebook_contents._resolve_path(notebook_path).resolve())
+        if path in self._switching_notebooks:
+            raise RuntimeError("Wait for the Python environment switch to finish.")
         self._active_notebook_executions[path] = self._active_notebook_executions.get(path, 0) + 1
         try:
             yield
@@ -1737,6 +1749,13 @@ class IntegratedNotebookToolSet(ToolSet):
         if not session_id:
             return {"success": False, "error": "No session_id provided"}
 
+        if action == 'status' and not self._get_context(notebook_path, session_id):
+            read = await self.notebook_contents.read_notebook(notebook_path, validate=False)
+            if not read.get('success'):
+                return read
+            spec = read['notebook'].get('metadata', {}).get('kernelspec', {}).get('name') or 'python3'
+            return {'success': True, 'status': 'dead', 'kernel_status': 'dead', **self._kernel_details(spec)}
+
         # For restart, auto-create context if needed
         # For other actions, require context to already exist
         if action == "restart":
@@ -1762,6 +1781,7 @@ class IntegratedNotebookToolSet(ToolSet):
                 return {
                     "success": result["success"],
                     "action": "restart",
+                    **self._kernel_details(context.kernel_spec),
                     "notebook_path": notebook_path,
                     "kernel_session_id": context.kernel_session_id,
                 }
@@ -1791,13 +1811,16 @@ class IntegratedNotebookToolSet(ToolSet):
                         "notebook_path": notebook_path,
                         "kernel_session_id": context.kernel_session_id,
                         "kernel_status": kernel_session.status.value,
+                        "status": kernel_session.status.value,
+                        **self._kernel_details(context.kernel_spec),
                         "execution_count": kernel_session.execution_count,
                         "kernel_spec": context.kernel_spec,
                     }
                 else:
                     return {
-                        "success": False,
-                        "error": "Kernel session not found",
+                        "success": True,
+                        "status": "dead", "kernel_status": "dead",
+                        **self._kernel_details(context.kernel_spec),
                         "action": "status",
                     }
 
@@ -1899,11 +1922,13 @@ class IntegratedNotebookToolSet(ToolSet):
                 self._get_context(notebook_path, session_id) if session_id else None
             )
             effective_session_id = context.kernel_session_id if context else "default"
+            kernel_python = self._kernel_details(context.kernel_spec).get('kernel_python') if context else None
 
             return await self.completion_service.get_completions(
                 code=code,
                 cursor_pos=cursor_pos,
                 session_id=effective_session_id,
+                python_path=kernel_python,
                 context_code="",  # Jedi service uses its internal session context
             )
 
@@ -1937,11 +1962,13 @@ class IntegratedNotebookToolSet(ToolSet):
                 self._get_context(notebook_path, session_id) if session_id else None
             )
             effective_session_id = context.kernel_session_id if context else "default"
+            kernel_python = self._kernel_details(context.kernel_spec).get('kernel_python') if context else None
 
             return await self.completion_service.get_inspection(
                 code=code,
                 cursor_pos=cursor_pos,
                 session_id=effective_session_id,
+                python_path=kernel_python,
                 context_code="",  # Jedi service uses its internal session context
             )
 
@@ -2230,6 +2257,7 @@ class IntegratedNotebookToolSet(ToolSet):
         kernel_name: Optional[str] = None,
         python_path: Optional[str] = None,
         display_name: Optional[str] = None,
+        install_ipykernel: bool = False,
     ) -> dict:
         """
         Execute cells and manage kernel lifecycle.
@@ -2244,9 +2272,12 @@ class IntegratedNotebookToolSet(ToolSet):
                 - "list_kernels": List all available Jupyter kernels and conda/venv environments
                 - "setup_kernel": Register a Python environment as a Jupyter kernel
                                   (requires python_path; optional kernel_name, display_name)
+                - "select_kernel": Select a Python interpreter for this notebook. Starts the new
+                                   kernel before replacing the old one; existing variables reset.
+            install_ipykernel: For select_kernel: explicitly allow installing missing ipykernel.
             cell_id: Cell identifier (required for "execute" action)
             kernel_name: For setup_kernel: name for the new kernelspec (default: derived from path)
-            python_path: For setup_kernel: absolute path to the Python executable
+            python_path: For setup_kernel/select_kernel: absolute path to the Python executable
             display_name: For setup_kernel: display name for the kernel
 
         Returns:
@@ -2285,6 +2316,11 @@ class IntegratedNotebookToolSet(ToolSet):
         elif action == "list_kernels":
             return await self._list_available_kernels()
 
+        elif action == 'select_kernel':
+            if not notebook_path or not python_path:
+                return {'success': False, 'error': 'notebook_path and python_path are required.'}
+            return await self._select_python_environment(notebook_path, python_path, install_ipykernel)
+
         elif action == "setup_kernel":
             if not python_path:
                 return {"success": False, "error": "python_path is required for setup_kernel action"}
@@ -2293,7 +2329,7 @@ class IntegratedNotebookToolSet(ToolSet):
         else:
             return {
                 "success": False,
-                "error": f"Unknown action '{action}'. Must be one of: execute, restart, interrupt, shutdown, list_kernels, setup_kernel",
+                "error": f"Unknown action '{action}'. Must be one of: execute, restart, interrupt, shutdown, list_kernels, setup_kernel, select_kernel",
             }
 
     @tool
