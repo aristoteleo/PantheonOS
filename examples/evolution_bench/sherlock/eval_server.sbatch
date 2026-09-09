@@ -1,11 +1,12 @@
 #!/bin/bash
 # One AHC039 eval server = one wave's ruler.   sbatch eval_server.sbatch <wave> <port>
-# 64 dedicated cores inside the ale-bench image (g++-12 toolchain); the URL lands in
+# A whole 32-core `normal` node to itself (--exclusive) inside the ale-bench image (g++-12); the URL lands in
 # $EVO/eval_server_<wave>.url for the arms of that wave.
 #SBATCH --job-name=evolve-evalsrv
-#SBATCH --partition=xiaojie,normal
-#SBATCH --cpus-per-task=64
-#SBATCH --mem=32G
+#SBATCH --partition=normal
+#SBATCH --exclusive
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=0
 #SBATCH --time=24:00:00
 #SBATCH --output=logs/%x-%j.out
 set -uo pipefail

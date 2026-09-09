@@ -44,7 +44,7 @@ def run_single_case(args):
         TIME_LIMIT_TOLERANCE = 0.5  # seconds
 
         # Build run command:
-        #   timeout {ceil+1.5} bash -c 'prlimit --cpu={ceil+0.1} /usr/bin/time -f "..." ./a.out < input > output; sync'
+        #   timeout {ceil+1.5} bash -c 'prlimit --cpu={ceil+0.1} /usr/bin/time -f "..." ./a.out < input > output; sync -f {output_file}'
         # sync is inside the bash subshell so timeout kills it too — prevents sync zombie processes on TLE
         # prlimit --cpu guarantees CPU time budget regardless of wall-time contention
         time_format = (
@@ -56,7 +56,7 @@ def run_single_case(args):
             f"timeout {time_limit_ceil + TIMEOUT_MARGIN} "
             f"bash -c 'prlimit --cpu={time_limit_ceil + 0.1} "
             f"/usr/bin/time -f \"{time_format}\" -o {profiles_file} "
-            f"{binary_path} {time_limit} < {input_file} > {output_file}; sync'"
+            f"{binary_path} {time_limit} < {input_file} > {output_file}; sync -f {output_file}'"
         )
 
         # --- Run solution ---
