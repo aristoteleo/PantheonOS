@@ -1,15 +1,19 @@
 """Agent and Store use the same public repository/release contract."""
 import asyncio
 import os
+import shutil
+import tempfile
 from pathlib import Path
 from urllib.parse import quote, urljoin
 
 import httpx
 
-from pantheon.apps.store_release import git
+from pantheon.apps.store_release import git, unpack_release
 
 
-async def store_action(manager, action, app_id, repository_id, scope, version, name, query, changelog, expected_commit):
+async def store_action(manager, action, app_id, repository_id, scope, version, name, query, changelog, expected_commit, *,
+                       target_repository_id="", expected_base="", request_id="", title="", description="",
+                       decision="", inbox="all"):
     from pantheon.store.auth import StoreAuth
     auth = StoreAuth()
     base = (os.environ.get('PANTHEON_HUB_URL') or auth.hub_url or 'https://app.pantheonos.stanford.edu').rstrip('/')
@@ -30,6 +34,54 @@ async def store_action(manager, action, app_id, repository_id, scope, version, n
                 return await request('GET', 'packages', params={'type': 'app', 'q': query, 'limit': 20})
             if action == 'inspect':
                 return await request('GET', 'packages/' + quote(repository_id, safe=''))
+            if action == 'community':
+                if not app_id:
+                    raise ValueError('Provide app_id to find its public repositories')
+                return await request('GET', f'apps/{quote(app_id, safe="")}/community')
+            if action == 'contributions':
+                return await request('GET', 'app-contributions', params={
+                    'app_id': app_id, 'repository_id': repository_id, 'inbox': inbox})
+            if action == 'submit':
+                if not all((repository_id, version, target_repository_id, expected_commit, expected_base, title.strip())):
+                    raise ValueError('Inspect source and upstream first; provide repository_id, version, target_repository_id, expected_commit, expected_base and title')
+                return await request('POST', 'app-contributions', json={
+                    'source_id': repository_id, 'source_version': version, 'target_id': target_repository_id,
+                    'expected_source': expected_commit, 'expected_base': expected_base,
+                    'title': title, 'description': description})
+            if action in ('inspect_contribution', 'prepare_merge', 'review', 'merge', 'close_contribution', 'checkout_review'):
+                if not request_id:
+                    raise ValueError('Provide request_id from the contribution inbox')
+                endpoint = 'app-contributions/' + quote(request_id, safe='')
+                if action == 'inspect_contribution':
+                    return await request('GET', endpoint)
+                if action == 'checkout_review':
+                    if not expected_commit:
+                        raise ValueError('Inspect the candidate and provide its expected_commit')
+                    result = await request('GET', endpoint + '/candidate', params={'expected_commit': expected_commit})
+                    release = result['app_release']
+                    if release['commit'] != expected_commit:
+                        raise ValueError('Candidate changed before checkout')
+                    def checkout():
+                        reviews = manager.records / 'reviews'
+                        reviews.mkdir(parents=True, exist_ok=True)
+                        parent = Path(tempfile.mkdtemp(prefix='candidate-', dir=reviews))
+                        destination = parent / 'repository'
+                        try:
+                            manifest = unpack_release(release, destination, result['manifest']['version'])
+                            return {'success': True, 'directory': str(destination), 'commit': expected_commit,
+                                    'manifest': manifest, 'request_id': request_id,
+                                    'message': 'Private review checkout on this Desktop node. Inspect and run tests here before approving; no App instance or default was changed.'}
+                        except Exception:
+                            shutil.rmtree(parent, ignore_errors=True)
+                            raise
+                    return await asyncio.to_thread(checkout)
+                suffix, payload = {
+                    'prepare_merge': ('prepare', {'version': version}),
+                    'review': ('review', {'decision': decision, 'expected_commit': expected_commit, 'comment': description}),
+                    'merge': ('merge', {'expected_commit': expected_commit}),
+                    'close_contribution': ('close', {}),
+                }[action]
+                return await request('POST', endpoint + '/' + suffix, json=payload)
             if action == 'fork':
                 if not version:
                     raise ValueError('Choose a released version before forking')
@@ -57,7 +109,7 @@ async def store_action(manager, action, app_id, repository_id, scope, version, n
                 return {'success': True, 'repository_id': app['repository_id'],
                         'message': 'Upstream fetched. Inspect the Git graph and merge a chosen upstream ref explicitly.'}
             if action != 'publish':
-                raise ValueError('Actions: search, inspect, fork, fetch, publish')
+                raise ValueError('Actions: search, inspect, fork, fetch, publish, community, contributions, submit, inspect_contribution, prepare_merge, checkout_review, review, merge, close_contribution')
             if not token:
                 raise ValueError('Sign in to Store before publishing')
             release = await asyncio.to_thread(manager.prepare, app_id, scope, repository_id)

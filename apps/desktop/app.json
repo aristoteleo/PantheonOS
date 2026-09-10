@@ -1,7 +1,7 @@
 {
   "id": "desktop",
   "name": "Desktop",
-  "version": "0.10.3",
+  "version": "0.11.0",
   "description": "The user's desktop: windows, apps, browser, data server.",
   "entry": {
     "backend": "pantheon.apps.builtin.desktop:DesktopToolSet"
@@ -488,7 +488,7 @@
       },
       {
         "name": "desktop_app_store",
-        "description": "Use public App Git repositories in Store with the user's identity.\n\n        search(query); inspect(repository_id); fork(repository_id, version)\n        creates a PRIVATE local Git fork without changing defaults; publish\n        uploads a prepared tag and its history to this user's public repository.\n        Publish only when the user asked to share/release publicly. First call\n        desktop_store_manage('prepare') to review, then pass expected_commit.\n        name is a unique Store slug on first publication. Subsequent releases\n        use the same repository_id; existing tags cannot be changed.\n        fetch imports upstream release refs without merging or changing files.\n        ",
+        "description": "Use public App Git repositories in Store with the user's identity.\n\nsearch(query); inspect(repository_id); fork(repository_id, version)\ncreates a PRIVATE local Git fork without changing defaults; publish\nuploads a prepared tag and its history to this user's public repository.\nPublish only when the user asked to share/release publicly. First call\ndesktop_store_manage('prepare') to review, then pass expected_commit.\nname is a unique Store slug on first publication. Subsequent releases\nuse the same repository_id; existing tags cannot be changed.\nfetch imports upstream release refs without merging or changing files.\n\ncommunity(app_id) lists public repositories and the designated Official\nupstream. contributions(app_id?, repository_id?, inbox='all'|'mine'|'review')\nlists requests; inspect_contribution(request_id) returns pinned diffs.\nsubmit(repository_id, version, target_repository_id, expected_commit,\nexpected_base, title, description) proposes an already-public release.\nSubmit only when asked to contribute upstream.\nMaintainers: prepare_merge(request_id, version) creates a candidate;\ncheckout_review(request_id, expected_commit) puts its verified Git tree\nin a PRIVATE directory on this node, without running code or changing\ninstallations. Inspect and test it, then review(request_id,\ndecision='approve'|'reject', expected_commit, description=review_notes).\nmerge(request_id, expected_commit) explicitly PUBLISHES the approved\nmerge. Only do this when authorized to merge and release upstream.\nChanged upstream/candidate commits require a fresh review.\nclose_contribution(request_id) withdraws an unmerged request.",
         "params": [
           {
             "name": "action",
@@ -543,6 +543,48 @@
             "type": "str",
             "required": false,
             "default": ""
+          },
+          {
+            "name": "target_repository_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "expected_base",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "request_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "title",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "description",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "decision",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "inbox",
+            "type": "str",
+            "required": false,
+            "default": "all"
           }
         ]
       },

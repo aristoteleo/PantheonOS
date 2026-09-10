@@ -183,3 +183,55 @@ def test_targeted_repository_lookup_does_not_inspect_unrelated_git_trees(manager
     inspected.clear()
     assert manager.find('demo', 'user', app['repository_id'])['effective']
     assert inspected == [Path(app['dir'])]
+
+
+@pytest.mark.asyncio
+async def test_agent_contribution_calls_preserve_pins_and_candidate_checkout_is_private(manager, monkeypatch):
+    import httpx
+    from apps.desktop.app_store_client import store_action
+    app = new_app(manager)
+    manager.tag('demo', '0.1.0', 'user', app['repository_id'])
+    release = manager.prepare('demo', 'user', app['repository_id'])
+    candidate = release['app_release']['commit']
+    calls = []
+    def handler(request):
+        calls.append(request)
+        if request.url.path.endswith('/candidate'):
+            return httpx.Response(200, json=release)
+        return httpx.Response(200, json={'id': 'request', 'candidate_commit': candidate})
+    client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs))
+    monkeypatch.setenv('PANTHEON_HUB_URL', 'https://store.test')
+    monkeypatch.setenv('PANTHEON_STORE_TOKEN', 'fixture-token')
+    async def call(action, **kwargs):
+        return await store_action(manager, action, 'demo', 'source', 'user', '0.1.0', '', '', '', candidate, **kwargs)
+    await call('submit', target_repository_id='upstream', expected_base='base-sha', title='Improve UI', description='Tested')
+    assert json.loads(calls[-1].content) == {'source_id': 'source', 'source_version': '0.1.0',
+        'target_id': 'upstream', 'expected_source': candidate, 'expected_base': 'base-sha', 'title': 'Improve UI', 'description': 'Tested'}
+    await call('prepare_merge', request_id='request')
+    assert calls[-1].url.path.endswith('/request/prepare')
+    before = [a['repository_id'] for a in manager.inventory()['apps']]
+    checked = await call('checkout_review', request_id='request')
+    assert checked['commit'] == candidate
+    assert git(Path(checked['directory']), 'rev-parse', 'HEAD').strip() == candidate
+    assert [a['repository_id'] for a in manager.inventory()['apps']] == before
+    assert manager.versions.default('demo') is None
+    assert not any(r.url.path.endswith('/merge') for r in calls)
+    await call('review', request_id='request', decision='approve', description='Reviewed')
+    assert json.loads(calls[-1].content)['expected_commit'] == candidate
+    await call('merge', request_id='request')
+    assert json.loads(calls[-1].content) == {'expected_commit': candidate}
+    assert calls[-1].headers['authorization'] == 'Bearer fixture-token'
+    with pytest.raises(ValueError, match='Inspect source and upstream'):
+        await call('submit')
+
+
+def test_store_manifest_exposes_contribution_parameters():
+    import inspect
+    manifest = json.loads(Path('apps/desktop/app.json').read_text())
+    entry = next(tool for tool in manifest['provides']['tools'] if tool['name'] == 'desktop_app_store')
+    names = {param['name'] for param in entry['params']}
+    expected = {'target_repository_id', 'expected_base', 'request_id', 'title', 'description', 'decision', 'inbox'}
+    assert expected <= names
+    assert expected <= set(inspect.signature(DesktopToolSet.desktop_app_store).parameters)
+    assert 'checkout_review' in entry['description']

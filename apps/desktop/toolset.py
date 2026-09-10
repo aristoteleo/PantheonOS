@@ -1105,7 +1105,9 @@ class DesktopToolSet(ToolSet):
     @tool
     async def desktop_app_store(self, action: str, app_id: str = "", repository_id: str = "", scope: str = "user",
                                 version: str = "", name: str = "", query: str = "", changelog: str = "",
-                                expected_commit: str = "") -> dict:
+                                expected_commit: str = "", target_repository_id: str = "", expected_base: str = "",
+                                request_id: str = "", title: str = "", description: str = "",
+                                decision: str = "", inbox: str = "all") -> dict:
         """Use public App Git repositories in Store with the user's identity.
 
         search(query); inspect(repository_id); fork(repository_id, version)
@@ -1116,12 +1118,30 @@ class DesktopToolSet(ToolSet):
         name is a unique Store slug on first publication. Subsequent releases
         use the same repository_id; existing tags cannot be changed.
         fetch imports upstream release refs without merging or changing files.
+
+        community(app_id) lists public repositories and the designated Official
+        upstream. contributions(app_id?, repository_id?, inbox='all'|'mine'|'review')
+        lists requests; inspect_contribution(request_id) returns pinned diffs.
+        submit(repository_id, version, target_repository_id, expected_commit,
+        expected_base, title, description) proposes an already-public release.
+        Submit only when asked to contribute upstream.
+        Maintainers: prepare_merge(request_id, version) creates a candidate;
+        checkout_review(request_id, expected_commit) puts its verified Git tree
+        in a PRIVATE directory on this node, without running code or changing
+        installations. Inspect and test it, then review(request_id,
+        decision='approve'|'reject', expected_commit, description=review_notes).
+        merge(request_id, expected_commit) explicitly PUBLISHES the approved
+        merge. Only do this when authorized to merge and release upstream.
+        Changed upstream/candidate commits require a fresh review.
+        close_contribution(request_id) withdraws an unmerged request.
         """
         from .app_store_client import store_action
         from .store_manager import AppStoreManager
         try:
             return await store_action(AppStoreManager(self._app_scope_roots()), action, app_id,
-                                      repository_id, scope, version, name, query, changelog, expected_commit)
+                                      repository_id, scope, version, name, query, changelog, expected_commit,
+                                      target_repository_id=target_repository_id, expected_base=expected_base,
+                                      request_id=request_id, title=title, description=description, decision=decision, inbox=inbox)
         except (ValueError, OSError) as exc:
             return {"success": False, "error": str(exc)}
 

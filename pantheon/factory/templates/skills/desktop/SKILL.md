@@ -266,3 +266,34 @@ forked before editing. Never silently change a user's default version.
 Independent DOM Apps and file-based Python backends support pinned versions.
 If Store reports a Desktop/Fleet-managed runtime restriction, use that runtime's
 upgrade route rather than claiming a manifest fork changed the live runtime.
+
+### Community and upstream contributions
+
+`desktop_app_store(action="community", app_id=...)` lists public repositories
+for an App, including its administrator-designated Official upstream if one
+exists. Others can install or privately fork a chosen released version.
+
+To contribute when requested: publish a release of the private fork first,
+inspect both source and upstream, then `submit(repository_id=source_id,
+version=source_version, target_repository_id=upstream_id,
+expected_commit=source_sha, expected_base=upstream_sha, title=...,
+description=changes_and_tests)`. The review is pinned to both commits.
+`contributions(inbox="mine"|"review"|"all", app_id=...)` and
+`inspect_contribution(request_id=...)` show state and diffs. Unrelated legacy
+repositories must fork the public upstream and apply their edits there first;
+do not merge unrelated histories or force-move release tags.
+
+Maintainer workflow: `prepare_merge(request_id=..., version=...)`, inspect the
+final candidate diff, and `checkout_review(request_id=...,
+expected_commit=candidate_sha)` to obtain a verified private Git checkout on
+this Desktop node. Read and test there using that node's file/terminal tools.
+No App code is executed by Store validation, and this does not change installed
+Apps or defaults. `review(request_id=..., decision="approve"|"reject",
+expected_commit=candidate_sha, description=review_and_test_notes)` records the
+review. Only with authorization to release upstream, `merge(request_id=...,
+expected_commit=candidate_sha)` publishes that exact merge as a new immutable
+upstream release. A changed upstream or candidate requires a new review.
+`close_contribution(request_id=...)` withdraws an unmerged request.
+
+Official Store releases do not automatically rebuild the PantheonOS bundled
+Apps; shipping bundled runtime changes still follows the OS deployment route.
