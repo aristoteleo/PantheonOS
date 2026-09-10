@@ -315,7 +315,7 @@ class DesktopToolSet(ToolSet):
         # Store installs are user-owned, shared across this user's workspaces.
         for root, scope in self._app_scope_roots():
             if scope == "user":
-                roots.extend([root, root.parent / "app-store" / "snapshots"])
+                roots.extend([root, root.parent / "app-store" / "snapshots", root.parent / "app-store" / "forks"])
         return roots
 
     async def _ensure_data_server(self):
@@ -988,7 +988,7 @@ class DesktopToolSet(ToolSet):
             return {"success": False, "error": str(exc)}
 
     @tool(exclude=True)
-    async def desktop_store_manage(self, action: str, app_id: str = "", scope: str = "user", download: dict | None = None, version: str = "") -> dict:
+    async def desktop_store_manage(self, action: str, app_id: str = "", scope: str = "user", download: dict | None = None, version: str = "", archive_id: str = "") -> dict:
         """Manage this user's App repositories on the Desktop node, not the chat pod."""
         from .store_manager import AppStoreManager
         try:
@@ -1006,9 +1006,12 @@ class DesktopToolSet(ToolSet):
                 app_id = declared
             operations = {
                 "install": lambda: manager.install(download or {}, app_id),
-                "copy": lambda: manager.copy_to_user(app_id, scope),
-                "remove": lambda: manager.remove(app_id),
-                "prepare": lambda: manager.prepare(app_id),
+                "copy": lambda: manager.branches.fork_app(app_id, scope, version),
+                "fork": lambda: manager.branches.fork_app(app_id, scope, version),
+                "trash": manager.branches.list_trash,
+                "restore": lambda: manager.branches.restore(archive_id),
+                "remove": lambda: manager.remove(app_id, scope),
+                "prepare": lambda: manager.prepare(app_id, scope),
                 "tag": lambda: manager.tag(app_id, version, scope),
                 "initialize": manager.versions.ensure,
                 "versions": lambda: manager.versions.versions(app_id, scope),
@@ -1021,7 +1024,7 @@ class DesktopToolSet(ToolSet):
                 return {"success": True, "instance": result}
             if action not in operations:
                 raise ValueError(f"Unknown App Store action: {action}")
-            if action in ("prepare", "initialize", "versions", "default", "resolve"):
+            if action in ("prepare", "initialize", "versions", "default", "resolve", "fork", "copy", "trash", "restore") or (action == "remove" and scope == "fork"):
                 return await asyncio.to_thread(operations[action])
             supervisor = self._apps()
             # Share the spawn lock: an App cannot start halfway through its

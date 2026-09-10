@@ -129,7 +129,7 @@ class AppVersions:
         selected = self.default(app_id) if not scope and not version else None
         scope = scope or (selected or {}).get('scope', '')
         version = version or (selected or {}).get('commit', '')
-        if scope and scope not in ('builtin', 'workspace', 'user'):
+        if scope and scope not in ('builtin', 'workspace', 'user', 'fork'):
             raise ValueError('Invalid App scope')
         # Existing windows remain restorable even if the source was upgraded.
         if scope and re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}', version):

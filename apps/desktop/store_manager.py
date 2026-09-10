@@ -21,6 +21,8 @@ class AppStoreManager:
         self.records = self.user_root.parent / "app-store"
         from .app_versions import AppVersions
         self.versions = AppVersions(self)
+        from .app_branches import AppBranches
+        self.branches = AppBranches(self)
 
     @contextmanager
     def lock(self):
@@ -29,19 +31,24 @@ class AppStoreManager:
             fcntl.flock(lock, fcntl.LOCK_EX)
             yield
 
-    def _record(self, app_id: str) -> dict:
-        path = self.records / f"{app_id}.json"
+    def _record_path(self, app_id: str, scope: str = 'user') -> Path:
+        self.versions._default_path(app_id)
+        return (self.records / 'fork-records' if scope == 'fork' else self.records) / f'{app_id}.json'
+
+    def _record(self, app_id: str, scope: str = 'user') -> dict:
+        path = self._record_path(app_id, scope)
         return json.loads(path.read_text()) if path.exists() else {}
 
-    def _save(self, app_id: str, record: dict):
-        path = self.records / f"{app_id}.json"
+    def _save(self, app_id: str, record: dict, scope: str = 'user'):
+        path = self._record_path(app_id, scope)
+        path.parent.mkdir(parents=True, exist_ok=True)
         temp = path.with_suffix(".tmp")
         temp.write_text(json.dumps(record, indent=2))
         temp.replace(path)
 
     def inventory(self) -> dict:
         apps, warnings, seen = [], [], set()
-        for root, scope in self.roots:
+        for root, scope in [*self.roots, (self.branches.root, 'fork')]:
             try:
                 directories = sorted(root.iterdir()) if root.exists() else []
             except OSError as exc:
@@ -60,12 +67,13 @@ class AppStoreManager:
                     import re
                     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", str(app_id)):
                         raise ValueError("invalid App id")
-                    record = self._record(app_id) if scope == "user" else {}
+                    record = self._record(app_id, scope) if scope in ("user", "fork") else {}
                     repository = self.versions.repository(directory, scope, app_id)
                     repo = self._git_info(repository, record)
                     repo["path"] = str(repository) if repo.get("independent") else None
                     apps.append({"id": app_id, "manifest": manifest, "scope": scope,
-                                 "dir": str(directory), "effective": app_id not in seen,
+                                 "dir": str(directory), "effective": scope != "fork" and app_id not in seen,
+                                 "default": self.versions.default(app_id),
                                  "git": repo, "install": record or None})
                     seen.add(app_id)
                 except (ValueError, KeyError, OSError) as exc:
@@ -92,6 +100,8 @@ class AppStoreManager:
                 remote = ""
             return {"independent": True, "commit": commit, "remote": remote,
                     "changes": changes, "tags": git(directory, "tag", "--list", "--sort=-version:refname").splitlines(),
+                    "branch": git(directory, "branch", "--show-current").strip(),
+                    "updated_at": git(directory, "log", "-1", "--format=%cI").strip(),
                     "modified": bool(changes) or extra_commits or bool(baseline and baseline != commit)}
         except ValueError as exc:
             return {"independent": True, "modified": True, "error": str(exc)}
@@ -220,20 +230,14 @@ class AppStoreManager:
                 raise
             return {"success": True, "app_id": app_id, "version": version, "scope": "user"}
 
-    def remove(self, app_id: str) -> dict:
-        with self.lock():
-            app = self.find(app_id, "user")
-            if app["git"].get("modified"):
-                raise ValueError("App has local changes; preserve your work before removing it")
-            shutil.rmtree(app["dir"])
-            (self.records / f"{app_id}.json").unlink(missing_ok=True)
-            if (self.versions.default(app_id) or {}).get("scope") == "user":
-                self.versions._default_path(app_id).unlink(missing_ok=True)
-            return {"success": True}
+    def remove(self, app_id: str, scope: str = 'user') -> dict:
+        return self.branches.remove(app_id, scope)
 
-    def prepare(self, app_id: str) -> dict:
+    def prepare(self, app_id: str, scope: str = 'user') -> dict:
+        if scope not in ('user', 'fork', 'workspace'):
+            raise ValueError('Fork the official App before publishing changes')
         with self.lock():
-            app = self.find(app_id, "user")
+            app = self.find(app_id, scope)
             return {"success": True, **prepare_release(Path(app["dir"]))}
 
     def history(self, app_id: str, scope: str, limit: int = 100) -> dict:
@@ -248,8 +252,8 @@ class AppStoreManager:
 
     def tag(self, app_id: str, version: str, scope: str = "user") -> dict:
         with self.lock():
-            if scope not in ("workspace", "user"):
-                raise ValueError("Create a user copy before editing official releases")
+            if scope not in ("workspace", "user", "fork"):
+                raise ValueError("Fork the App before editing official releases")
             app = self.find(app_id, scope)
             root = Path(app["dir"])
             manifest = {**app["manifest"], "version": version}
