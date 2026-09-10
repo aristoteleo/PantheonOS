@@ -313,7 +313,9 @@ class DesktopToolSet(ToolSet):
 
         roots.append(BUILTIN_ROOT)
         # Store installs are user-owned, shared across this user's workspaces.
-        roots.extend(root for root, scope in self._app_scope_roots() if scope == "user")
+        for root, scope in self._app_scope_roots():
+            if scope == "user":
+                roots.extend([root, root.parent / "app-store" / "snapshots"])
         return roots
 
     async def _ensure_data_server(self):

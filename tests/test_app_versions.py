@@ -138,3 +138,22 @@ async def test_window_intent_pins_default_and_preserves_it_on_reload(manager, tm
     restored = DesktopSessionStore(work_dir=tmp_path / 'session')
     restored.load()
     assert restored.session.windows[wid]['args']['appRevision'] == first
+
+
+@pytest.mark.asyncio
+async def test_snapshot_frontend_is_served_outside_workspace(manager):
+    import httpx
+    from apps.desktop.toolset import DesktopToolSet
+    from apps.desktop.data_server import LiveViewDataServer
+    manager.versions.ensure()
+    resolved = manager.versions.resolve('counter', 'workspace', 'v1.0.0')
+    desktop = object.__new__(DesktopToolSet)
+    desktop._app_scope_roots = lambda: manager.roots
+    server = LiveViewDataServer()
+    await server.ensure_started(desktop._data_roots())
+    server.set_tunnel_base(server._base_url)
+    url = server.url_for(Path(resolved['dir']) / 'index.js')
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+    assert response.status_code == 200
+    assert '1.0.0' in response.text
