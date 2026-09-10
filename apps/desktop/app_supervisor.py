@@ -72,15 +72,21 @@ class AppEntry:
     dir: Path
     scope: str  # workspace | user | builtin
     manifest: dict
+    revision: str = ""
     state: str = "registered"  # registered|spawning|ready|failed
     methods: list[str] = field(default_factory=list)
     methods_info: list[dict] = field(default_factory=list)
     crashes: int = 0
     last_error: str = ""
 
+    @property
+    def process_key(self) -> str:
+        return f"{self.app_id}@{self.scope}:{self.revision}" if self.revision else self.app_id
+
     def describe(self) -> dict:
         return {
             "id": self.app_id,
+            "revision": self.revision or None,
             "version": self.manifest.get("version", "0"),
             "scope": self.scope,
             "state": self.state,
@@ -131,6 +137,7 @@ class AppSupervisor:
         self._serve = serve
         self.entries: dict[str, AppEntry] = {}
         self.procs: dict[str, _AppProcess] = {}
+        self.pinned_entries: dict[str, AppEntry] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._reaper: asyncio.Task | None = None
 
@@ -214,6 +221,8 @@ class AppSupervisor:
     async def _spawn(self, entry: AppEntry) -> _AppProcess:
         runtime = Path(__file__).with_name("app_runtime.py")
         state_dir = self.workspace / ".pantheon" / "app-state" / entry.app_id
+        if entry.revision:
+            state_dir = state_dir / "versions" / f"{entry.scope}-{entry.revision}"
         state_dir.mkdir(parents=True, exist_ok=True)
         entry.state = "spawning"
         proc = await asyncio.create_subprocess_exec(
@@ -253,7 +262,7 @@ class AppSupervisor:
         entry.state = "ready"
         entry.last_error = ""
         ap.reader_task = asyncio.create_task(self._read_loop(ap))
-        self.procs[entry.app_id] = ap
+        self.procs[entry.process_key] = ap
         self._ensure_reaper()
         logger.info(f"app backend up: {entry.app_id} ({len(entry.methods)} methods)")
         return ap
@@ -303,8 +312,8 @@ class AppSupervisor:
                     f"backend for '{entry.app_id}' exited (code {code}); stderr: {ap.stderr_tail[-800:]}"
                 ))
         ap.pending.clear()
-        if self.procs.get(entry.app_id) is ap:
-            del self.procs[entry.app_id]
+        if self.procs.get(entry.process_key) is ap:
+            del self.procs[entry.process_key]
         if entry.state == "reaped":
             entry.state = "registered"
             return
@@ -341,15 +350,21 @@ class AppSupervisor:
 
     # ── dispatch ────────────────────────────────────────────────────────
 
-    async def call(self, app_id: str, method: str, args: dict | None, timeout_s: float) -> Any:
+    async def call(self, app_id: str, method: str | None, args: dict | None, timeout_s: float, *, pinned: dict | None = None) -> Any:
         if not self.entries:
             self.scan()
-        entry = self.entries.get(app_id)
+        if pinned:
+            revision = pinned['revision']['commit']
+            key = f"{app_id}@{pinned['scope']}:{revision}"
+            entry = self.pinned_entries.setdefault(key, AppEntry(app_id, Path(pinned['dir']), pinned['scope'], pinned['manifest'], revision=revision))
+        else:
+            key = app_id
+            entry = self.entries.get(app_id)
         # Rescan for an unknown id — and equally for a known entry that
         # declares no backend: an install or upgrade may have grown one since
         # the last scan, and without the rescan that stale entry errors on
         # every call until something else happens to poke app_registry.
-        if entry is None or not _backend_path(entry.manifest):
+        if not pinned and (entry is None or not _backend_path(entry.manifest)):
             self.scan()
             entry = self.entries.get(app_id)
         if entry is None:
@@ -362,14 +377,14 @@ class AppSupervisor:
                 f"last error: {entry.last_error}"
             )
 
-        lock = self._locks.setdefault(app_id, asyncio.Lock())
+        lock = self._locks.setdefault(key, asyncio.Lock())
         async with lock:
             # Store updates share this lock and may have changed the winning
             # scope while this call waited. Resolve the current entry again.
-            entry = self.entries.get(app_id)
+            entry = self.pinned_entries.get(key) if pinned else self.entries.get(app_id)
             if entry is None or not _backend_path(entry.manifest):
                 raise RuntimeError(f"app '{app_id}' no longer has an installed backend")
-            ap = self.procs.get(app_id)
+            ap = self.procs.get(key)
             # Hot reload: the code on disk moved past what this process runs —
             # a dev sync or an upgrade landed. Retire it (not a crash: no
             # backoff, no counter) and let the spawn below run the new code.
@@ -378,6 +393,7 @@ class AppSupervisor:
                 ap is not None
                 and ap.proc.returncode is None
                 and not ap.pending
+                and not entry.revision
                 and self._code_stamp(entry) > ap.code_stamp
             ):
                 logger.info("app {}: source changed — restarting its backend", app_id)
@@ -386,13 +402,16 @@ class AppSupervisor:
                     await asyncio.wait_for(ap.proc.wait(), 5)
                 except asyncio.TimeoutError:
                     ap.proc.kill()
-                self.procs.pop(app_id, None)
+                self.procs.pop(key, None)
                 ap = None
             if ap is None or ap.proc.returncode is not None:
                 if entry.crashes:
                     delay = _BACKOFF_S[min(entry.crashes, len(_BACKOFF_S)) - 1]
                     await asyncio.sleep(delay)
                 ap = await self._spawn(entry)
+
+        if method is None:
+            return {**entry.describe(), "process_key": entry.process_key}
 
         # The handshake's method list is the dispatch table: an unknown method
         # is refused here, from the registration, not discovered by timeout.

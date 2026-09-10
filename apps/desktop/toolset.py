@@ -164,7 +164,20 @@ class DesktopToolSet(ToolSet):
         """
         store = self._desktop()
         try:
-            ops, result = store.apply(kind, args or {})
+            args = dict(args or {})
+            if kind == "open" and not args.get("window_id") and str(args.get("app_id", "")).startswith("pkg:"):
+                from .store_manager import AppStoreManager
+                manager = AppStoreManager(self._app_scope_roots())
+                app_id = args["app_id"].removeprefix("pkg:")
+                current = manager.find(app_id)
+                if not manager.versions.restriction(current['manifest']):
+                    window_args = dict(args.get("args") or {})
+                    revision = window_args.get('appRevision') or {}
+                    resolved = await asyncio.to_thread(manager.versions.resolve, app_id,
+                                                       revision.get('scope', ''), revision.get('commit', ''))
+                    window_args['appRevision'] = resolved['revision']
+                    args['args'] = window_args
+            ops, result = store.apply(kind, args)
         except (KeyError, ValueError) as e:
             return {"success": False, "error": str(e)}
         if ops:
@@ -943,7 +956,10 @@ class DesktopToolSet(ToolSet):
         """Store inventory, including headless, built-in and shadowed App copies."""
         from .store_manager import AppStoreManager
         try:
-            result = await asyncio.to_thread(AppStoreManager(self._app_scope_roots()).inventory)
+            manager = AppStoreManager(self._app_scope_roots())
+            migration = await asyncio.to_thread(manager.versions.ensure)
+            result = await asyncio.to_thread(manager.inventory)
+            result["warnings"].extend(migration["warnings"])
             supervisor = self._apps_supervisor
             async def add_icon(app):
                 from pathlib import Path
@@ -991,11 +1007,19 @@ class DesktopToolSet(ToolSet):
                 "copy": lambda: manager.copy_to_user(app_id, scope),
                 "remove": lambda: manager.remove(app_id),
                 "prepare": lambda: manager.prepare(app_id),
-                "tag": lambda: manager.tag(app_id, version),
+                "tag": lambda: manager.tag(app_id, version, scope),
+                "initialize": manager.versions.ensure,
+                "versions": lambda: manager.versions.versions(app_id, scope),
+                "default": lambda: manager.versions.set_default(app_id, scope, version),
+                "resolve": lambda: manager.versions.resolve(app_id, scope, version),
             }
+            if action == "start":
+                resolved = await asyncio.to_thread(manager.versions.resolve, app_id, scope, version)
+                result = await self._apps().call(app_id, None, {}, 60, pinned=resolved)
+                return {"success": True, "instance": result}
             if action not in operations:
                 raise ValueError(f"Unknown App Store action: {action}")
-            if action == "prepare":
+            if action in ("prepare", "initialize", "versions", "default", "resolve"):
                 return await asyncio.to_thread(operations[action])
             supervisor = self._apps()
             # Share the spawn lock: an App cannot start halfway through its
@@ -1032,6 +1056,7 @@ class DesktopToolSet(ToolSet):
         method: str,
         args: dict | None = None,
         timeout_s: float = 60.0,
+        revision: dict | None = None,
     ) -> dict:
         """Call a method on a packaged app's backend process.
 
@@ -1043,7 +1068,15 @@ class DesktopToolSet(ToolSet):
         backend reports its stderr tail rather than a timeout.
         """
         try:
-            result = await self._apps().call(app_id, method, args, timeout_s)
+            pinned = None
+            from .store_manager import AppStoreManager
+            manager = AppStoreManager(self._app_scope_roots())
+            revision = revision or manager.versions.default(app_id)
+            if revision:
+                from .store_manager import AppStoreManager
+                pinned = await asyncio.to_thread(manager.versions.resolve,
+                                                 app_id, revision.get('scope', ''), revision.get('commit', ''))
+            result = await self._apps().call(app_id, method, args, timeout_s, pinned=pinned)
             return {"success": True, "result": result}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -1208,7 +1241,7 @@ class DesktopToolSet(ToolSet):
                 "window_id": wid,
                 "app_id": (w.get("app_id") or "").removeprefix("pkg:"),
                 "name": w.get("app_id"),
-                **self._desktop_app_metadata(w.get("app_id")),
+                **self._desktop_app_metadata(w.get("app_id"), (w.get("args") or {}).get("appRevision")),
                 "title": w.get("title"),
                 "path": w.get("path") or None,
                 "space": w.get("space", 1),
@@ -1376,7 +1409,7 @@ class DesktopToolSet(ToolSet):
             raise KeyError(f"No such desktop window: {window_id}")
         return window
 
-    def _desktop_app_metadata(self, app_id: str | None) -> dict:
+    def _desktop_app_metadata(self, app_id: str | None, revision: dict | None = None) -> dict:
         """Describe the implementation the shell actually mounted.
 
         Packaged ids use the install-scope catalog, including workspace
@@ -1388,7 +1421,13 @@ class DesktopToolSet(ToolSet):
         from pantheon.apps.registry import by_app_id
 
         app_id = app_id or ""
-        if app_id.startswith("pkg:"):
+        if revision and app_id.startswith('pkg:'):
+            from .store_manager import AppStoreManager
+            resolved = AppStoreManager(self._app_scope_roots()).versions.resolve(
+                app_id[4:], revision.get('scope', ''), revision.get('commit', ''))
+            manifest = resolved['manifest']
+            directory = resolved['dir']
+        elif app_id.startswith("pkg:"):
             app = self._apps().entries.get(app_id[4:])
             manifest = app.manifest if app else {}
             directory = app.dir if app else None

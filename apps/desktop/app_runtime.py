@@ -123,13 +123,21 @@ def _load_backend(app_dir: Path):
     the app's pins win inside the app's own process — there is nothing else in
     this process for them to conflict with.
     """
-    backend_dir = app_dir / "backend"
+    manifest_path = next(app_dir / name for name in ('app.json', 'atrium.json') if (app_dir / name).is_file())
+    manifest = json.loads(manifest_path.read_text())
+    relative = (manifest.get('entry') or {}).get('backend') or 'backend/__init__.py'
+    backend_file = (app_dir / relative).resolve()
+    if backend_file.is_dir():
+        backend_file = backend_file / '__init__.py'
+    if not backend_file.is_relative_to(app_dir.resolve()):
+        raise ValueError('Backend entry escapes the App directory')
+    backend_dir = backend_file.parent
     vendor = backend_dir / "_vendor"
     if vendor.is_dir():
         sys.path.insert(0, str(vendor))
     spec = importlib.util.spec_from_file_location(
-        f"atrium_app_{app_dir.name}_backend", backend_dir / "__init__.py",
-        submodule_search_locations=[str(backend_dir)],
+        f"atrium_app_{app_dir.name}_backend", backend_file,
+        submodule_search_locations=[str(backend_dir)] if backend_file.name == "__init__.py" else None,
     )
     mod = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = mod

@@ -19,6 +19,8 @@ class AppStoreManager:
         self.roots = roots
         self.user_root = next(root for root, scope in roots if scope == "user")
         self.records = self.user_root.parent / "app-store"
+        from .app_versions import AppVersions
+        self.versions = AppVersions(self)
 
     @contextmanager
     def lock(self):
@@ -59,7 +61,9 @@ class AppStoreManager:
                     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", str(app_id)):
                         raise ValueError("invalid App id")
                     record = self._record(app_id) if scope == "user" else {}
-                    repo = self._git_info(directory, record)
+                    repository = self.versions.repository(directory, scope, app_id)
+                    repo = self._git_info(repository, record)
+                    repo["path"] = str(repository) if repo.get("independent") else None
                     apps.append({"id": app_id, "manifest": manifest, "scope": scope,
                                  "dir": str(directory), "effective": app_id not in seen,
                                  "git": repo, "install": record or None})
@@ -76,7 +80,7 @@ class AppStoreManager:
             commit = git(directory, "rev-parse", "HEAD").strip()
             changes = git(directory, "status", "--porcelain").splitlines()
             baseline = record.get("installed_commit")
-            extra_commits = bool(git(directory, "rev-list", "--all", "--not", baseline).strip()) if baseline else False
+            extra_commits = bool(git(directory, "rev-list", "--branches", "--not", baseline).strip()) if baseline else False
             try:
                 remote = git(directory, "remote", "get-url", "origin").strip()
                 # Never expose credentials embedded in a remote URL.
@@ -192,6 +196,15 @@ class AppStoreManager:
             if target.exists() and record.get("package_id") not in (None, download.get("package_id")):
                 raise ValueError("Another Store package owns this App id")
             self.user_root.mkdir(parents=True, exist_ok=True)
+            if target.exists() and (target / '.git').exists():
+                # Keep earlier releases when upgrading or rolling back. Never move tags.
+                for tag in git(target, 'tag', '--list').splitlines():
+                    old = git(target, 'rev-parse', f'refs/tags/{tag}^{{commit}}').strip()
+                    if git(stage, 'tag', '--list', tag).strip():
+                        if git(stage, 'rev-parse', f'refs/tags/{tag}^{{commit}}').strip() != old:
+                            raise ValueError(f'Immutable tag conflict: {tag}')
+                    else:
+                        git(stage, 'fetch', '-q', str(target), f'refs/tags/{tag}:refs/tags/{tag}')
             backup = Path(temp) / "previous"
             if target.exists():
                 target.rename(backup)
@@ -214,6 +227,8 @@ class AppStoreManager:
                 raise ValueError("App has local changes; preserve your work before removing it")
             shutil.rmtree(app["dir"])
             (self.records / f"{app_id}.json").unlink(missing_ok=True)
+            if (self.versions.default(app_id) or {}).get("scope") == "user":
+                self.versions._default_path(app_id).unlink(missing_ok=True)
             return {"success": True}
 
     def prepare(self, app_id: str) -> dict:
@@ -223,15 +238,19 @@ class AppStoreManager:
 
     def history(self, app_id: str, scope: str, limit: int = 100) -> dict:
         app = self.find(app_id, scope)
-        root = Path(app["dir"])
         if not app["git"].get("independent"):
+            self.versions.ensure()
+        root = self.versions.repository(Path(app["dir"]), scope, app_id)
+        if not (root / ".git").exists():
             return {"success": True, "commits": [], "refs": [], "has_more": False,
-                    "message": "This App has no independent Git repository yet. Create a user copy to manage its history."}
+                    "message": "The App repository could not be initialized. Refresh the installed list for details."}
         return git_history(root, limit)
 
-    def tag(self, app_id: str, version: str) -> dict:
+    def tag(self, app_id: str, version: str, scope: str = "user") -> dict:
         with self.lock():
-            app = self.find(app_id, "user")
+            if scope not in ("workspace", "user"):
+                raise ValueError("Create a user copy before editing official releases")
+            app = self.find(app_id, scope)
             root = Path(app["dir"])
             manifest = {**app["manifest"], "version": version}
             validate_manifest(manifest)
