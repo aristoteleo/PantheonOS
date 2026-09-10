@@ -128,3 +128,19 @@ def test_fleet_is_registered_as_a_builtin_app():
     assert manifest.kind.value == 'service'
     assert manifest.entry.frontend == 'ui:fleet'
     assert manifest.entry.backend
+
+
+@pytest.mark.asyncio
+async def test_output_panel_reads_agent_owned_state_with_source_node(tmp_path):
+    import json
+    from pantheon.chatroom.room import ChatRoom
+    room = ChatRoom.__new__(ChatRoom)
+    room.memory_manager = SimpleNamespace(get_memory=lambda chat_id: {"id": chat_id})
+    room._project_dir_for_chat = AsyncMock(return_value=str(tmp_path))
+    state = tmp_path / '.pantheon' / 'brain' / 'chat-1' / 'task_state.json'
+    state.parent.mkdir(parents=True)
+    output = {'path': 'report.md', 'source': {'node_id': 'Node-B', 'path': '/reports/report.md'}}
+    state.write_text(json.dumps({'state': {'outputs': [output], 'task_dirs': {'Report': 'reports'}}}))
+    result = await room.get_chat_outputs('chat-1')
+    assert result == {'success': True, 'outputs': [output], 'task_dirs': {'Report': 'reports'}}
+    assert (await room.get_chat_outputs('../other-chat'))['success'] is False

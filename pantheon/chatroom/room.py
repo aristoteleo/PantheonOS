@@ -2039,6 +2039,7 @@ class ChatRoom(ToolSet):
     @tool
     async def get_chat_outputs(self, chat_id: str) -> dict:
         """Read output registrations from this conversation's Agent-owned state."""
+        import json
         import re
         memory = await run_func(self.memory_manager.get_memory, chat_id)
         if not memory:
