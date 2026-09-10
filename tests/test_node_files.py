@@ -120,3 +120,11 @@ async def test_desktop_http_rejects_other_nodes_before_resolving_path(monkeypatc
     monkeypatch.setenv('PANTHEON_FLEET_NODE_ID', 'A')
     reply = await DesktopToolSet('desktop').serve_local_data('/exists/on/another/node', node_id='B')
     assert not reply['success'] and reply['error_code'] == 'different_file_node'
+
+
+def test_fleet_is_registered_as_a_builtin_app():
+    from pantheon.apps.registry import builtin_apps
+    manifest = next(app.manifest for app in builtin_apps() if app.manifest.id == 'fleet')
+    assert manifest.kind.value == 'service'
+    assert manifest.entry.frontend == 'ui:fleet'
+    assert manifest.entry.backend

@@ -54,7 +54,7 @@
       },
       {
         "name": "fleet_list_nodes",
-        "description": "List every Node currently in your Fleet (from the Registry).\n\n        Returns a compact summary per Node — id, name, labels, online status,\n        OS/arch, CPU/GPU/RAM/free-disk, live load, and data-plane reachability —\n        so you can decide where to run code or move data.\n\n        One node may be marked ``\"is_self\": true`` — that is THIS machine (the one\n        you are running on). Use it only as a data-transfer endpoint (e.g.\n        transfer dst_node=\"local\"); to run commands here use the `shell` toolset,\n        NOT run_on_node against yourself.\n\n        Returns:\n            dict: {\"success\": bool, \"count\": int, \"nodes\": list[dict],\n                   \"self_node_id\": str | None}\n        "
+        "description": "List every Node currently in your Fleet (from the Registry).\n\n        Returns a compact summary per Node \u2014 id, name, labels, online status,\n        OS/arch, CPU/GPU/RAM/free-disk, live load, and data-plane reachability \u2014\n        so you can decide where to run code or move data.\n\n        One node may be marked ``\"is_self\": true`` \u2014 that is THIS machine (the one\n        you are running on). Use it only as a data-transfer endpoint (e.g.\n        transfer dst_node=\"local\"); to run commands here use the `shell` toolset,\n        NOT run_on_node against yourself.\n\n        Returns:\n            dict: {\"success\": bool, \"count\": int, \"nodes\": list[dict],\n                   \"self_node_id\": str | None}\n        "
       },
       {
         "name": "fleet_node_info",
@@ -70,7 +70,7 @@
       },
       {
         "name": "fleet_pick_node",
-        "description": "Pick the best online Node matching requirements (for placement).\n\n        Filters by capability, then ranks. Use this to let the Fleet choose where\n        to run a Task or land a Transfer instead of hard-coding a node.\n\n        Args:\n            min_cpu: Minimum CPU cores required.\n            min_ram_gb: Minimum RAM in GB required.\n            need_gpu: If True, only Nodes with a GPU qualify.\n            label: If set, only Nodes carrying this label qualify.\n            prefer: Tie-breaker — \"idle\" (lowest CPU load, default),\n                \"most_cpu\", or \"most_ram\".\n\n        Returns:\n            dict: {\"success\", \"node_id\", \"name\", \"candidates\", \"reason\"} or\n            {\"success\": False, \"error\": ...} if nothing qualifies.\n        ",
+        "description": "Pick the best online Node matching requirements (for placement).\n\n        Filters by capability, then ranks. Use this to let the Fleet choose where\n        to run a Task or land a Transfer instead of hard-coding a node.\n\n        Args:\n            min_cpu: Minimum CPU cores required.\n            min_ram_gb: Minimum RAM in GB required.\n            need_gpu: If True, only Nodes with a GPU qualify.\n            label: If set, only Nodes carrying this label qualify.\n            prefer: Tie-breaker \u2014 \"idle\" (lowest CPU load, default),\n                \"most_cpu\", or \"most_ram\".\n\n        Returns:\n            dict: {\"success\", \"node_id\", \"name\", \"candidates\", \"reason\"} or\n            {\"success\": False, \"error\": ...} if nothing qualifies.\n        ",
         "params": [
           {
             "name": "min_cpu",
@@ -157,7 +157,7 @@
       },
       {
         "name": "run_on_label",
-        "description": "Run the same code on every Node carrying a given label (e.g. \"gpu\").\n\n        For kind=\"shell\" the code runs in each Node's native shell (PowerShell on\n        Windows, POSIX shell elsewhere) — so only fan out to a label whose Nodes\n        share an OS, or use kind=\"python\" for a cross-OS command.\n\n        Args:\n            label: The label to match (a Node matches if it's in its labels list).\n            code: The shell command or Python source to run on each match.\n            kind: \"shell\" (default) or \"python\".\n            timeout: Per-Node timeout in seconds. Default 60.\n\n        Returns:\n            dict: {\"success\", \"label\", \"nodes\": [...], \"results\": {node_id: result}}.\n            success is True only if every matched Node succeeded.\n        ",
+        "description": "Run the same code on every Node carrying a given label (e.g. \"gpu\").\n\n        For kind=\"shell\" the code runs in each Node's native shell (PowerShell on\n        Windows, POSIX shell elsewhere) \u2014 so only fan out to a label whose Nodes\n        share an OS, or use kind=\"python\" for a cross-OS command.\n\n        Args:\n            label: The label to match (a Node matches if it's in its labels list).\n            code: The shell command or Python source to run on each match.\n            kind: \"shell\" (default) or \"python\".\n            timeout: Per-Node timeout in seconds. Default 60.\n\n        Returns:\n            dict: {\"success\", \"label\", \"nodes\": [...], \"results\": {node_id: result}}.\n            success is True only if every matched Node succeeded.\n        ",
         "params": [
           {
             "name": "label",
@@ -187,7 +187,7 @@
       },
       {
         "name": "run_on_node",
-        "description": "Run code on a specific Node and return its result.\n\n        For kind=\"shell\" the Node runs ``code`` in its NATIVE shell, so write it\n        in that Node's dialect — every fleet_list_nodes summary reports which one\n        as ``shell``: \"powershell\" for a Windows Node (use ``Get-ChildItem`` not\n        ``ls``, ``$env:VAR`` not ``$VAR``, ``Remove-Item`` not ``rm``) or \"posix\"\n        for a Linux/macOS Node (bash/sh). Sending bash to a \"powershell\" Node (or\n        vice-versa) will error or misbehave. kind=\"python\" runs the same source\n        on any OS — prefer it for cross-platform work.\n\n        Args:\n            node_id: Target Node id (from fleet_list_nodes).\n            code: The shell command or Python source to run on the Node. For\n                kind=\"shell\", write it in the target Node's shell dialect — match\n                the Node's ``shell`` field (\"powershell\" vs. \"posix\", see above).\n            kind: \"shell\" (default) or \"python\".\n            timeout: Seconds before the Node aborts the task. Default 60.\n\n        Returns:\n            dict: {\"success\", \"exit_code\", \"stdout\", \"stderr\", \"error\"} as\n            reported by the Node.\n        ",
+        "description": "Run code on a specific Node and return its result.\n\n        For kind=\"shell\" the Node runs ``code`` in its NATIVE shell, so write it\n        in that Node's dialect \u2014 every fleet_list_nodes summary reports which one\n        as ``shell``: \"powershell\" for a Windows Node (use ``Get-ChildItem`` not\n        ``ls``, ``$env:VAR`` not ``$VAR``, ``Remove-Item`` not ``rm``) or \"posix\"\n        for a Linux/macOS Node (bash/sh). Sending bash to a \"powershell\" Node (or\n        vice-versa) will error or misbehave. kind=\"python\" runs the same source\n        on any OS \u2014 prefer it for cross-platform work.\n\n        Args:\n            node_id: Target Node id (from fleet_list_nodes).\n            code: The shell command or Python source to run on the Node. For\n                kind=\"shell\", write it in the target Node's shell dialect \u2014 match\n                the Node's ``shell`` field (\"powershell\" vs. \"posix\", see above).\n            kind: \"shell\" (default) or \"python\".\n            timeout: Seconds before the Node aborts the task. Default 60.\n\n        Returns:\n            dict: {\"success\", \"exit_code\", \"stdout\", \"stderr\", \"error\"} as\n            reported by the Node.\n        ",
         "params": [
           {
             "name": "node_id",
@@ -217,7 +217,7 @@
       },
       {
         "name": "transfer",
-        "description": "Move a file directly Node->Node over the data plane (libp2p).\n\n        Non-blocking by default: returns a transfer_id immediately; poll\n        transfer_status(transfer_id) for progress. The source Node streams the\n        file to the destination over a direct (hole-punched) connection, falling\n        back to a relay when the two can't connect directly. sha256 is verified\n        end-to-end.\n\n        Args:\n            src_node: Node that has the file.\n            src_path: Path of the file on src_node.\n            dst_node: Node that should receive the file.\n            dst_path: Destination path on dst_node.\n            verify: \"sha256\" (default) or \"none\".\n            compress: \"none\" (default) or \"zstd\" — zstd compresses on the wire\n                (a win for compressible data like text/csv/h5ad; skip it for\n                already-compressed data). sha256 still covers the original bytes.\n            resume: If True and dst_node already holds a prefix of the file, only\n                the remaining bytes are sent (handy to retry an interrupted move).\n            wait: If True, block until the transfer finishes and return the final\n                record (incl. sha256 and whether it went \"direct\" or via \"relay\").\n            timeout: Max seconds for completion. Default 600.\n\n        Returns:\n            dict: {\"success\", \"transfer_id\", \"state\", ...}; the final record when\n            wait=True, otherwise an immediate {\"state\": \"started\"}.\n        ",
+        "description": "Move a file directly Node->Node over the data plane (libp2p).\n\n        Non-blocking by default: returns a transfer_id immediately; poll\n        transfer_status(transfer_id) for progress. The source Node streams the\n        file to the destination over a direct (hole-punched) connection, falling\n        back to a relay when the two can't connect directly. sha256 is verified\n        end-to-end.\n\n        Args:\n            src_node: Node that has the file.\n            src_path: Path of the file on src_node.\n            dst_node: Node that should receive the file.\n            dst_path: Destination path on dst_node.\n            verify: \"sha256\" (default) or \"none\".\n            compress: \"none\" (default) or \"zstd\" \u2014 zstd compresses on the wire\n                (a win for compressible data like text/csv/h5ad; skip it for\n                already-compressed data). sha256 still covers the original bytes.\n            resume: If True and dst_node already holds a prefix of the file, only\n                the remaining bytes are sent (handy to retry an interrupted move).\n            wait: If True, block until the transfer finishes and return the final\n                record (incl. sha256 and whether it went \"direct\" or via \"relay\").\n            timeout: Max seconds for completion. Default 600.\n\n        Returns:\n            dict: {\"success\", \"transfer_id\", \"state\", ...}; the final record when\n            wait=True, otherwise an immediate {\"state\": \"started\"}.\n        ",
         "params": [
           {
             "name": "src_node",
@@ -277,7 +277,7 @@
       },
       {
         "name": "transfer_status",
-        "description": "Get the latest status of a transfer started by `transfer`.\n\n        Args:\n            transfer_id: The id returned by transfer().\n\n        Returns:\n            dict: latest progress — state (pending|connecting|transferring|done|\n            failed), bytes_done/total, rate_bps, path (direct|relay), sha256.\n        ",
+        "description": "Get the latest status of a transfer started by `transfer`.\n\n        Args:\n            transfer_id: The id returned by transfer().\n\n        Returns:\n            dict: latest progress \u2014 state (pending|connecting|transferring|done|\n            failed), bytes_done/total, rate_bps, path (direct|relay), sha256.\n        ",
         "params": [
           {
             "name": "transfer_id",
@@ -306,9 +306,8 @@
     ]
   },
   "apiVersion": 2,
-  "kind": "app",
-  "absorbInto": "fleet-runner builtins",
-  "notes": "brain keeps an embedded client; node-side tools become runner builtins",
+  "kind": "service",
+  "notes": "Embedded Fleet client and built-in desktop manager.",
   "surface": "dom",
   "actions": [
     {
