@@ -47,6 +47,7 @@ def load(pattern):
 
 def panel(ax, spec):
     title, disp, invert, refs, fmt = PANELS[spec["task"]]
+    title = spec.get("title") or title   # a config may name a panel (two runs of one task)
     groups = [(g[0], load(g[1]), g[2]) for g in spec["groups"]]
     all_y = [disp(r["best"]) for _, rows, _ in groups for r in rows if np.isfinite(disp(r["best"]))]
     for i, (label, rows, color) in enumerate(groups):
