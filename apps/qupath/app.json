@@ -1,19 +1,21 @@
 {
   "id": "qupath",
   "name": "QuPath",
-  "version": "0.6.4",
+  "version": "0.7.0",
   "apiVersion": 2,
   "description": "Native QuPath for digital pathology and whole-slide image analysis.",
-  "surface": "dom",
+  "surface": "stream",
   "entry": {
-    "frontend": "ui:qupath"
+    "frontend": "frontend/stream.json",
+    "frontendType": "native-stream",
+    "nativeDriver": "pantheon.apps.builtin.qupath.native:NativeAppManager"
   },
   "placement": {
     "requires": [
       "dom"
     ]
   },
-  "notes": "Native QuPath runs on the shared Xpra display; the desktop frontend lives in pantheon-ui.",
+  "notes": "Independent App package using the Desktop native-stream host. Native process ownership and Groovy bridge live in this package; the node supplies QuPath and Xpra.",
   "skill": "SKILL.md",
   "actions": [
     {
@@ -51,5 +53,34 @@
         "request_id": "string"
       }
     }
+  ],
+  "launcher": true,
+  "icon": {
+    "path": "assets/icon.png",
+    "tint": "#eef1f7"
+  },
+  "defaultSize": {
+    "width": 1200,
+    "height": 800
+  },
+  "opens": [
+    ".qpproj",
+    ".tif",
+    ".tiff",
+    ".ome.tif",
+    ".ome.tiff",
+    ".svs",
+    ".ndpi",
+    ".mrxs",
+    ".scn",
+    ".vms",
+    ".vmu",
+    ".bif",
+    ".png",
+    ".jpg",
+    ".jpeg"
+  ],
+  "defaultFor": [
+    ".qpproj"
   ]
 }

@@ -1350,7 +1350,7 @@ class DesktopToolSet(ToolSet):
         window_id = normalize_window_reference(window_id)
         try:
             w = self._desktop_window(window_id.split("::native:", 1)[0])
-            if w.get("app_id") == "qupath":
+            if w.get("app_id") in {"qupath", "pkg:qupath"}:
                 engine = self._browser_engine()
                 state = await engine.call(engine.native_apps().read(window_id.split("::native:", 1)[0]))
                 native = await self._native_target(window_id)
@@ -1426,12 +1426,12 @@ class DesktopToolSet(ToolSet):
 
         parent_id = window_id.split("::native:", 1)[0]
         w = self._desktop_window(parent_id)
-        if w.get("app_id") not in {"qupath", "browser"}:
+        if w.get("app_id") not in {"qupath", "pkg:qupath", "browser"}:
             if parent_id != window_id:
                 raise ValueError("This app has no native child windows")
             return None
         engine = self._browser_engine()
-        if w["app_id"] == "qupath":
+        if w["app_id"] in {"qupath", "pkg:qupath"}:
             status = await engine.call(engine.native_apps().status(parent_id))
             if not status.get("running"):
                 raise RuntimeError("The requested native app session is not running")
@@ -1557,7 +1557,7 @@ class DesktopToolSet(ToolSet):
                              "window's actions"}
         try:
             w = self._desktop_window(window_id)
-            if w.get("app_id") == "qupath":
+            if w.get("app_id") in {"qupath", "pkg:qupath"}:
                 engine = self._browser_engine()
                 native_action = "close" if action == "$close" else action
                 value = await engine.call(engine.native_apps().call(window_id, native_action, args or {}))

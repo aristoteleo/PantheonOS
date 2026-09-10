@@ -8,11 +8,11 @@ from pantheon.apps.builtin.desktop.toolset import DesktopToolSet
 from pantheon.apps.builtin.desktop.desktop_session import DesktopSessionStore
 
 
-@pytest.fixture
-def rig(tmp_path, monkeypatch):
+@pytest.fixture(params=['qupath', 'pkg:qupath'])
+def rig(tmp_path, monkeypatch, request):
     store = DesktopSessionStore(work_dir=tmp_path)
     store.load()
-    win = store.apply('open', {'app_id': 'qupath'})[1]['window_id']
+    win = store.apply('open', {'app_id': request.param})[1]['window_id']
     ts = DesktopToolSet()
     monkeypatch.setattr(ts, '_desktop', lambda: store)
     manager = SimpleNamespace(call=AsyncMock(), read=AsyncMock())

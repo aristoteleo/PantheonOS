@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from pantheon.apps.builtin.desktop.browser import BrowserEngine
-from pantheon.apps.builtin.desktop.native_apps import NativeAppManager, NativeSession
+from pantheon.apps.builtin.qupath.native import NativeAppManager, NativeSession
 
 
 class Process:

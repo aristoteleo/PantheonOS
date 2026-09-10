@@ -123,7 +123,7 @@ def fork(src_dir: Path, dst_root: Path, new_id: str | None = None) -> Path:
     if dst.exists():
         raise VersioningError(f"{dst} already exists")
     shutil.copytree(src_dir, dst, symlinks=True, ignore=shutil.ignore_patterns(
-        "__pycache__", ".git", "*.pyc"))
+        "__pycache__", ".git", "*.pyc", "node_modules", ".build"))
     if new_id:
         p = dst / "app.json"
         data = json.loads(p.read_text()) if p.is_file() else json.loads(

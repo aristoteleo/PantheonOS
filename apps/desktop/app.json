@@ -1,7 +1,7 @@
 {
   "id": "desktop",
   "name": "Desktop",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "The user's desktop: windows, apps, browser, data server.",
   "entry": {
     "backend": "pantheon.apps.builtin.desktop:DesktopToolSet"
@@ -296,7 +296,7 @@
       },
       {
         "name": "browser_ui_page",
-        "description": "UI → backend: create (or attach to) a page, and read its state.\n\n        The Atrium Browser window calls this on mount: with `page_id` when the\n        agent already opened the page (desktop.open state), without to start a\n        fresh page. The picture itself comes from the xpra stage, not from\n        here — this is the page's identity and where it has got to.\n        ",
+        "description": "UI → backend: create (or attach to) a page, and read its state.\n\n        The Atrium Browser window calls this on mount: with `page_id` when the\n        agent already opened the page (desktop.open state), without to start a\n        fresh page. New clients provide window_id for initial creation so all\n        viewports ensure the same native page. Explicit newPage/recovery sends\n        operation_id and expected_page_id; retries reuse that operation id.\n        Legacy clients without window_id keep their existing create behavior.\n        The picture itself comes from the xpra stage, not from here.\n        ",
         "params": [
           {
             "name": "url",
@@ -306,6 +306,24 @@
           },
           {
             "name": "page_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "window_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "operation_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "expected_page_id",
             "type": "str",
             "required": false,
             "default": ""
@@ -365,7 +383,7 @@
       },
       {
         "name": "desktop_act",
-        "description": "Operate an existing native desktop window, including browser chrome.\n\nFirst use desktop_screenshot for native_window pixel coordinates.\nEach action has type: click/rightclick/dblclick/move (x,y), drag\n(x,y,to_x,to_y,duration_ms<=2000), wheel (x,y,delta_x/delta_y integer\nsteps), key (key='Ctrl+s'), or text (text, at most 2000 characters).\nUp to 32 actions, validated before input. Native dialog window_ids\ncome from native_windows in desktop_read or desktop_screenshot.\nCoordinates are native-window pixels, NOT the default browser-frame\nscreenshot. Use desktop_screenshot(source=\"native\") to plan pixel\ninput, and source=\"screen\" to verify what the user actually sees.\nRe-read/screenshot afterward to verify the actual effect. A failed\nbatch can have completed earlier actions; never retry blindly.",
+        "description": "Operate an existing native desktop window, including browser chrome.\n\n        First use desktop_screenshot for native_window pixel coordinates.\n        Each action has type: click/rightclick/dblclick/move (x,y), drag\n        (x,y,to_x,to_y,duration_ms<=2000), wheel (x,y,delta_x/delta_y integer\n        steps), key (key='Ctrl+s'), or text (text, at most 2000 characters).\n        Up to 32 actions, validated before input. Native dialog window_ids\n        come from native_windows in desktop_read or desktop_screenshot.\n        Coordinates are native-window pixels, NOT the default browser-frame\n        screenshot. Use desktop_screenshot(source=\"native\") to plan pixel\n        input, and source=\"screen\" to verify what the user actually sees.\n        Re-read/screenshot afterward to verify the actual effect. A failed\n        batch can have completed earlier actions; never retry blindly.\n        ",
         "params": [
           {
             "name": "window_id",
@@ -423,7 +441,7 @@
       },
       {
         "name": "desktop_call",
-        "description": "Invoke a named action on a window — the same handlers its menus\n        trigger (defineAction). List a window's actions via desktop_windows.\n        Also accepts window ops: action \"$close\" closes the window.",
+        "description": "Invoke a window action. desktop_windows returns action_specs with parameters.\n\n        Pass action parameters together in args, for example:\n        desktop_call(window_id=\"win-1\", action=\"add_cell\",\n                     args={\"content\": \"1 + 1\", \"execute\": True}).\n        kwargs is a compatibility alias for args. Conflicting values are rejected\n        before dispatch. Also accepts action \"$close\" to close the window.\n        ",
         "params": [
           {
             "name": "window_id",
@@ -439,14 +457,24 @@
           },
           {
             "name": "args",
-            "type": "dict",
-            "required": false,
-            "default": {}
+            "type": "dict | None",
+            "required": false
           },
           {
             "name": "kwargs",
+            "type": "dict | None",
+            "required": false
+          },
+          {
+            "name": "_action",
+            "type": "str",
             "required": false,
-            "default": "not_defined"
+            "default": ""
+          },
+          {
+            "name": "_args",
+            "type": "dict | None",
+            "required": false
           }
         ]
       },
@@ -470,7 +498,7 @@
       },
       {
         "name": "desktop_open",
-        "description": "Open an app window on the desktop, the way a double-click would.\n\n        WINDOWS ARE LONG-LIVED. If something is wrong with what a window\n        shows, CORRECT IT IN PLACE — desktop_update (patch), desktop_set\n        (replace), desktop_call (an action), or this tool with `window_id`\n        to show a different file in that same window. Opening again is for a\n        genuinely new thing; the desktop is the user's, and a pile of\n        near-identical windows is a mess they have to clean up.\n\n        Args:\n            app: app id (e.g. \"molstar\", \"vitessce\"); desktop_apps() lists\n                them. Omit with `path` to route by file type, as a\n                double-click does.\n            path: file to open. The app's own open pipeline runs (backend\n                prepare, format conversion) — you do NOT need serve_local_data.\n            state: initial state instead of / merged over a file, for apps\n                driven by state (the contract each app's skill documents).\n            window_id: show it in THIS existing window instead of a new one.\n            module: a frontend ES-module SOURCE you wrote —\n                `export function setup(app, root) { … }` — to open as a BESPOKE\n                window with no install and no manifest. The app gets the full\n                bridge (app.onState / setState / defineAction / onSnapshot /\n                fs) and is drivable with desktop_read / update / set / call\n                exactly like a packaged app. This is the fast path for a\n                one-off UI. For something reusable, write a package under\n                `.pantheon/apps/<id>/` and open it by `app` id instead.\n            title: window title, used with `module`.\n\n        Returns `window_id`, and `reused: true` when it landed in a window\n        that was already showing that file.\n        ",
+        "description": "Open an app window on the desktop, the way a double-click would.\n\n        WINDOWS ARE LONG-LIVED. If something is wrong with what a window\n        shows, CORRECT IT IN PLACE — desktop_update (patch), desktop_set\n        (replace), desktop_call (an action), or this tool with `window_id`\n        to show a different file in that same window. Opening again is for a\n        genuinely new thing; the desktop is the user's, and a pile of\n        near-identical windows is a mess they have to clean up.\n\n        Args:\n            app: app id (e.g. \"molstar\", \"vitessce\"); desktop_apps() lists\n                them. Omit with `path` to route by file type, as a\n                double-click does.\n            path: file to open. The app's own open pipeline runs (backend\n                prepare, format conversion) — you do NOT need serve_local_data.\n            state: initial state instead of / merged over a file, for apps\n                driven by state (the contract each app's skill documents).\n            window_id: show it in THIS existing window instead of a new one.\n            module: a frontend ES-module SOURCE you wrote —\n                `export function setup(app, root) { … }` — to open as a BESPOKE\n                window with no install and no manifest. The app gets the full\n                bridge (app.onState / setState / defineAction / onSnapshot /\n                fs) and is drivable with desktop_read / update / set / call\n                exactly like a packaged app. This is the fast path for a\n                one-off UI. For something reusable, write a package under\n                `.pantheon/apps/<id>/` and open it by `app` id instead.\n            title: window title, used with `module`.\n\n        Returns `window_id`, and `reused: true` when it landed in a window\n        that was already showing that file. Cold-starting ImageJ can take\n        several minutes; a failed or still-loading reply identifies the\n        existing window to reuse instead of launching another instance.\n        ",
         "params": [
           {
             "name": "app",
@@ -512,6 +540,7 @@
       },
       {
         "name": "desktop_presence",
+        "description": "UI-only: renew this page's leases, and read back who else is here.\n\n        One call per page, on a heartbeat — a page has at most one viewport and\n        any number of chat clients, so sending them together keeps this to one\n        message rather than one per entity. The reply carries the whole live\n        registry, so a viewport that wants to draw other people's cursors does\n        not need a second round trip.\n\n        `active` means real user input since the last beat, not that the beat\n        happened: a background tab must not out-rank the window someone is\n        typing in when the anchor is resolved.\n        ",
         "params": [
           {
             "name": "viewport_id",
@@ -543,6 +572,17 @@
             "default": false
           },
           {
+            "name": "presence_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "sequence",
+            "type": "int | None",
+            "required": false
+          },
+          {
             "name": "_future",
             "type": "object",
             "required": false,
@@ -565,6 +605,17 @@
             "name": "client_ids",
             "type": "list | None",
             "required": false
+          },
+          {
+            "name": "presence_id",
+            "type": "str",
+            "required": false,
+            "default": ""
+          },
+          {
+            "name": "sequence",
+            "type": "int | None",
+            "required": false
           }
         ],
         "hidden": true
@@ -583,7 +634,7 @@
       },
       {
         "name": "desktop_screenshot",
-        "description": "See what a desktop window currently shows, as an image.\n\nCaptures the user's current Atrium tab, cropped to this window,\nincluding its chrome and web content. The first request waits for the\nuser to share this tab; later requests reuse that sharing session.\nIf sharing is declined or unsupported, no image is captured: do not\nretry without the user's intent to share. No app-export fallback.\nReturns the screenshot inline (vision-capable models) and saves it to\n`path`. Use it to verify visible results; state alone is not proof.\nBrowser-frame pixels are not native input coordinates. Only when\nplanning desktop_act pixel input, explicitly pass source=\"native\"\nto export the owned native application's image in its input coordinate\nsystem. That export omits Atrium chrome/occlusion and is never used as\na fallback when the user declines browser sharing.",
+        "description": "See what a desktop window currently shows, as an image.\n\n        Captures the user's current Atrium tab, cropped to this window,\n        including its chrome and web content. The first request waits for the\n        user to share this tab; later requests reuse that sharing session.\n        If sharing is declined or unsupported, no image is captured: do not\n        retry without the user's intent to share. No app-export fallback.\n        Returns the screenshot inline (vision-capable models) and saves it to\n        `path`. Use it to verify visible results; state alone is not proof.\n        Browser-frame pixels are not native input coordinates. Only when\n        planning desktop_act pixel input, explicitly pass source=\"native\"\n        to export the owned native application's image in its input coordinate\n        system. That export omits Atrium chrome/occlusion and is never used as\n        a fallback when the user declines browser sharing.\n        ",
         "params": [
           {
             "name": "window_id",
@@ -726,7 +777,7 @@
       },
       {
         "name": "desktop_windows",
-        "description": "List every window on the user's desktop — whoever opened it.\n\n        The desktop has virtual spaces (mac-style, numbered from 1): the\n        top-level `active_space` / `space_count` describe them, and each\n        window carries its `space`. Focusing or opening a window on another\n        space carries the user there.\n\n        Each entry: `window_id`, `app_id` (manifest id for packaged apps),\n        `name`, `title`, `path` (the file it shows, when opened on one),\n        `controllable` (whether desktop_read/update/call can drive it — true\n        for packaged-app windows), `actions` it exposes, and `pty_session`\n        for a Terminal window.\n\n        This is how you reach windows the USER opened: find its window_id\n        here, then desktop_read / desktop_update / desktop_call it exactly\n        like a view you opened yourself.\n\n        A Terminal window exposes desktop_read and desktop_call actions\n        run, input, interrupt and clear. They reach the PTY shown in that\n        existing window. Direct pty_write(pty_session, base64(text)) is also\n        available. Files exposes its current folder and selection actions.\n        Controllable describes the app's supported interface; a window\n        that is still loading must finish mounting before UI calls answer.\n        "
+        "description": "List every window on the user's desktop — whoever opened it.\n\n        The desktop has virtual spaces (mac-style, numbered from 1): the\n        top-level `active_space` / `space_count` describe them, and each\n        window carries its `space`. Focusing or opening a window on another\n        space carries the user there.\n\n        Each entry: `window_id`, `app_id` (manifest id for packaged apps),\n        `name`, `title`, `path` (the file it shows, when opened on one),\n        `controllable` (whether desktop_read/update/call can drive it — true\n        for packaged-app windows), `actions` and `action_specs` (parameter names\n        and descriptions; pass these parameters in desktop_call args), and `pty_session`\n        for a Terminal window.\n\n        This is how you reach windows the USER opened: find its window_id\n        here, then desktop_read / desktop_update / desktop_call it exactly\n        like a view you opened yourself.\n\n        A Terminal window exposes desktop_read and desktop_call actions\n        run, input, interrupt and clear. They reach the PTY shown in that\n        existing window. Direct pty_write(pty_session, base64(text)) is also\n        available. Files exposes its current folder and selection actions.\n        Controllable describes the app's supported interface; a window\n        that is still loading must finish mounting before UI calls answer.\n        Status \"open\" describes the window's existence, not a loading\n        verdict. Read its current state with desktop_read before waiting.\n        "
       },
       {
         "name": "list_tools",

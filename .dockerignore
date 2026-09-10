@@ -88,3 +88,7 @@ __pycache__/
 # ====================
 *.ipynb
 .ipynb_checkpoints/
+
+# Independent App frontend development dependencies
+**/node_modules
+**/.build

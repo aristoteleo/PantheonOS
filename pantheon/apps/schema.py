@@ -45,6 +45,9 @@ class Runtime(str, Enum):
 
 class Entry(BaseModel):
     frontend: Optional[str] = None
+    host: Optional[str] = None
+    frontendType: str = Field(default="module", pattern="^(module|native-stream)$")
+    nativeDriver: Optional[str] = None
     backend: Optional[str] = None
     backendInstance: str = Field(default="app", pattern="^(app|window|node)$")
 
@@ -154,6 +157,7 @@ class AppManifest(BaseModel):
     #: Preferred window size, `{"width": …, "height": …}`; the shell has a
     #: default for apps that don't care.
     defaultSize: Optional[dict[str, int]] = None
+    startupTimeoutMs: Optional[int] = Field(default=None, ge=1000, le=600000)
     actions: list[dict[str, Any]] = Field(default_factory=list)
     caps: Optional[dict[str, Any]] = None
     persistState: list[str] = Field(default_factory=list)

@@ -5,6 +5,14 @@ Atrium adopts its main X11 window through the same seamless Xpra session used
 by Browser. QuPath can start without launching Chromium. Menus and dialogs are
 native QuPath windows, and files remain in the workspace.
 
+This is an independent `surface: stream` App package, with its own icon,
+version, file associations, stream entry and native driver. Store can create
+a user Git repository and publish its frontend/configuration as an immutable
+release. The shared Desktop host reads `frontend/stream.json`; it contains no
+QuPath UI implementation. QuPath binaries and the official native driver are
+node-managed, like other module-form service bindings; changing a user copy
+does not replace a running native process or load user code in the display daemon.
+
 ## Using the app
 
 - Open **QuPath** from the desktop or launcher. Clicking its launcher again
@@ -78,14 +86,14 @@ options](https://qupath.readthedocs.io/en/stable/docs/advanced/command_line.html
 Quiet launch skips first-run/update prompts. Installation happens at image
 build time, never when the user opens the app.
 
-`apps/desktop/native_apps.py` owns the process and stamps only its main window
+`apps/qupath/native.py` owns the process and stamps only its main window
 with `pantheon-native-qupath-<session hash>`. The stable Atrium window id is
 the session key; transient Xpra window ids are not persisted as process
 identities. File arguments are restricted to workspace roots and passed as
 argv, never through a shell. Startup failure cleanup terminates only the
 process group it created. A running app is closed with `WM_DELETE_WINDOW`.
 
-The frontend host is `src/desktop/apps/qupath/QuPathApp.vue` in pantheon-ui.
+The generic frontend host is `src/desktop/apps/stream/NativeStreamApp.vue` in pantheon-ui.
 It shares `xpraLib`, reserves the managed native window class, and leaves
 ordinary dialogs to `XWindowApp`. Native close handling is deferred so QuPath
 can confirm saving without losing its Atrium host.
