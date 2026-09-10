@@ -24,6 +24,9 @@ def node_inventory(records: list[dict]) -> dict:
                     disk_free_gb=cap.get('disk_free_gb'), gpu=cap.get('gpu'),
                     load=state.get('load') or {}, caps=cap.get('caps') or [],
                     file_roots=cap.get('file_roots') or [])
+        node['has_pty'] = any(app.get('app_id') == 'pty' and app.get('health') == 'healthy'
+                              for app in apps)
+        node['can_start_pty'] = 'proc' in node['caps'] and node['os'] in ('linux', 'darwin')
         nodes.append(node)
         for app in apps:
             item = {key: app.get(key) for key in ('app_id', 'scope', 'version', 'service_id', 'health')}

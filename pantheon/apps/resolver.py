@@ -345,6 +345,10 @@ class AppInstanceResolver:
         behave exactly as before this existed.
         """
         requires = list(app.manifest.placement.requires)
+        # Unqualified Terminal calls still mean the workspace. Explicit node
+        # requests bypass placement and can use any eligible Go Runner.
+        if app.manifest.id == 'pty' and 'fs:workspace' not in requires:
+            requires.append('fs:workspace')
         prefer = list(app.manifest.placement.prefer)
         if not requires:
             return self._node
@@ -406,7 +410,12 @@ class AppInstanceResolver:
             f"(requires {requires}; local node lacks them)")
         return chosen
 
-    def invalidate(self, service_type: str, *, scope: str | None = None) -> None:
+    @staticmethod
+    def node_scope(node_id: str, scope: str = 'app') -> str:
+        import hashlib
+        return f"node{hashlib.sha256(node_id.encode()).hexdigest()[:16]}-{scope}"
+
+    def invalidate(self, service_type: str, *, scope: str | None = None, node_id: str | None = None) -> None:
         """Forget cached instances of one type — the dead-body eraser.
 
         The ensure cache maps a toolset to a service_id forever; if the
@@ -418,6 +427,8 @@ class AppInstanceResolver:
         """
         if service_type == "desktop" and scope is not None:
             scope = "app"
+        if node_id:
+            scope = self.node_scope(node_id, scope or 'app')
         for key in [k for k in self._started
                     if k[0] == service_type and (scope is None or k[1] == scope)]:
             del self._started[key]
@@ -454,30 +465,35 @@ class AppInstanceResolver:
         # while the UI supplies a project scope; neither may mint a second
         # desktop process against the same display/profile.
         if node_id:
-            if service_type not in ('file_manager', 'file_transfer'):
-                raise ValueError('Explicit file-node routing only supports file services')
+            if service_type not in ('file_manager', 'file_transfer', 'pty'):
+                raise ValueError('Explicit node routing supports Files and PTY services')
             await self._ensure_client()
             from pantheon.apps.builtin.fleet.inventory import node_inventory
             records = await self._list_nodes()
             inventory = node_inventory(records)
             node = next((n for n in inventory['nodes'] if n['node_id'] == node_id), None)
             if node is None:
-                raise ValueError('File node is not a member of this user’s fleet')
+                raise ValueError('Node is not a member of this user’s fleet')
             if node['status'] not in ('online', 'busy'):
-                raise RuntimeError('The file node is offline; reconnect it before accessing its files')
-            candidates = [app for app in inventory['instances'] if app['node_id'] == node_id
-                          and app['app_id'] in ('file-manager', 'node-files')
-                          and app['health'] in ('healthy', 'starting', 'degraded') and app['service_id']]
-            if candidates:
-                candidates.sort(key=lambda app: (app['scope'] != 'app', app['scope'] or ''))
-                return candidates[0]['service_id']
-            if not {'fs:workspace', 'fs:local'} & set(node['caps']):
-                raise RuntimeError('This node has no file backend. Enable shared folders in Fleet on this machine.')
+                raise RuntimeError('The node is offline; reconnect it before accessing its services')
+            if service_type == 'pty':
+                if 'proc' not in node['caps']:
+                    raise RuntimeError('This node does not allow process execution (proc capability required)')
+                if node['os'] not in ('linux', 'darwin'):
+                    raise RuntimeError('The Go PTY backend currently supports macOS and Linux; Windows ConPTY is not available yet')
+            else:
+                candidates = [app for app in inventory['instances'] if app['node_id'] == node_id
+                              and app['app_id'] in ('file-manager', 'node-files')
+                              and app['health'] in ('healthy', 'starting', 'degraded') and app['service_id']]
+                if candidates:
+                    candidates.sort(key=lambda app: (app['scope'] != 'app', app['scope'] or ''))
+                    return candidates[0]['service_id']
+                if not {'fs:workspace', 'fs:local'} & set(node['caps']):
+                    raise RuntimeError('This node has no file backend. Enable shared folders in Fleet on this machine.')
             # Workspace nodes use the Python backend; fs:local nodes use the
             # Go builtin with roots enforced by their local Runner config.
             workdir = workdir or '/'
-            import hashlib
-            scope = f"node{hashlib.sha256(node_id.encode()).hexdigest()[:16]}-{scope}"
+            scope = self.node_scope(node_id, scope)
         if service_type == "desktop":
             workdir = self._workdir
             scope = "app"
@@ -490,7 +506,7 @@ class AppInstanceResolver:
             from pantheon.apps.registry import by_service_type
             from pantheon.apps.spec import apphost_spec
 
-            app = by_service_type()['node_files' if node_id and 'fs:local' in node['caps'] else service_type]
+            app = by_service_type()['node_files' if node_id and service_type != 'pty' and 'fs:local' in node['caps'] else service_type]
             client = await self._ensure_client()
             if node_id:
                 nodes = await self._list_nodes()
@@ -519,7 +535,7 @@ class AppInstanceResolver:
             instance_nats = os.environ.get("PANTHEON_INSTANCE_NATS_SERVERS")
             if instance_nats:
                 spec_env["NATS_SERVERS"] = instance_nats
-            if app.manifest.id == "node-files":
+            if app.manifest.id == "node-files" or (node_id and service_type == 'pty'):
                 spec_env = {k: v for k, v in spec_env.items() if k.startswith("NATS_")}
             spec_env.update(PANTHEON_FLEET_NODE_ID=target, PANTHEON_FLEET_ID=self._fleet,
                             PANTHEON_USER_SEED=self._seed)

@@ -1,9 +1,9 @@
 {
   "id": "terminal",
   "name": "Terminal",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "apiVersion": 2,
-  "description": "A pseudo-terminal on the sandbox (pty-backed).",
+  "description": "PTY terminals on Workspace and Fleet computers, with independent sessions per node.",
   "surface": "dom",
   "entry": {
     "frontend": "ui:terminal"
@@ -23,6 +23,11 @@
     }
   },
   "actions": [
+    {
+      "name": "select_node",
+      "description": "Switch to a Fleet computer and connect its Go PTY backend, preserving sessions on other nodes.",
+      "params": { "node_id": "Fleet node id; omit to return to Workspace" }
+    },
     {
       "name": "run",
       "description": "Type a command into this window’s PTY and press Enter.",

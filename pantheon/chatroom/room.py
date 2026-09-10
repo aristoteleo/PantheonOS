@@ -1248,18 +1248,32 @@ class ChatRoom(ToolSet):
             from pantheon.apps.resolver import get_shared_resolver
 
             args = dict(args or {})
-            file_node = args.pop('_node_id', None)
-            if file_node:
-                if toolset_name not in ('file_manager', 'file_transfer'):
-                    return {'success': False, 'error': 'Explicit node routing only supports file services'}
+            target_node = args.pop('_node_id', None)
+            if target_node is not None and not isinstance(target_node, str):
+                return {'success': False, 'error': 'node_id must be a string'}
+            if target_node:
+                if toolset_name not in ('file_manager', 'file_transfer', 'pty'):
+                    return {'success': False, 'error': 'Explicit node routing supports Files and PTY services'}
                 resolver = get_shared_resolver()
                 if resolver is None:
                     return {'success': False, 'error': 'Fleet is not connected'}
                 if toolset_name == 'file_transfer':
                     args = {'method': method_name, 'args': args}
                     method_name = 'file_transfer'
-                sid = await resolver.ensure_instance('file_manager', node_id=file_node)
-                return await ToolsetProxy.from_toolset(sid).invoke(method_name, args)
+                service = 'pty' if toolset_name == 'pty' else 'file_manager'
+                sid = await resolver.ensure_instance(service, node_id=target_node)
+                from nats.errors import NoRespondersError
+                try:
+                    result = await ToolsetProxy.from_toolset(sid).invoke(method_name, args)
+                except NoRespondersError:
+                    if service != 'pty':
+                        raise
+                    resolver.invalidate(service, node_id=target_node)
+                    sid = await resolver.ensure_instance(service, node_id=target_node)
+                    result = await ToolsetProxy.from_toolset(sid).invoke(method_name, args)
+                if service == 'pty':
+                    result = {**result, 'node_id': target_node}
+                return result
 
             # The topology Agent owns durable memory locally. Sending these
             # paths to the workspace app reads a different filesystem (the
