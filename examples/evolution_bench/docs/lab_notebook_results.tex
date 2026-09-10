@@ -669,16 +669,18 @@ comparable one-to-one with the flash/pro campaign's, which ran on the old merge.
 \paragraph{What starved the port and no-ideas arms, and the rerun.} The refined merge had a
 second defect (it took the last marker pair in the reply, so a closing sentence naming both markers
 yielded an empty block; corrected), but that is not what starved the arms. The rejected replies were
-captured and every one is empty: the provider caps completion at 32\,768 tokens whatever we ask,
-and for prompts without an idea to anchor on the model spends the whole budget reasoning and returns
-no content (no-ideas arm: 100\% of replies empty; port: 62\%; the full method $\sim$30\%, against
-22--27\% for the same arms on Modal two days earlier). The model version was unchanged (the floating
-alias still resolved to \texttt{deepseek-v4-flash-0731}); the routing between providers is not
-ours to fix. The rerun therefore pins the model id, bounds reasoning to 16k tokens on all six of
-our arms (the upstream engine has no such knob and copes by rejecting empty replies), and runs on
-the corrected merge; a two-arm smoke of the worst cases produced 3--4 items in 13 minutes where the
-starved run managed 1--6 in ten hours. The reasoning bound is a change of LLM configuration relative
-to the flash/pro campaigns and is stated as such; it is identical for every arm of the block.
+captured and every one is empty. The cause is a missing flag: every AHC039 spec, from the flash and
+pro campaigns through this block, omitted \texttt{--max-output-tokens}, so our methods ran at their
+32\,768-token default while the upstream-engine arms in the same specs and every cheap-task arm ran
+at 64\,000. DeepSeek spends about 26k tokens thinking on this task before it writes, so at 32k it
+often had nothing left, most of all on prompts without an idea to anchor on (no-ideas arm: 100\% of
+replies empty; port: 62\%; the full method $\sim$30\%, against 22--27\% for the same arms on Modal,
+where provider routing happened to be kinder). Bounding the reasoning to 16k restored the item rate
+but not the quality (75\% of compilable candidates scored below 0.5 against 2\% unbounded), so the
+rerun uses the corrected merge, the pinned model id, and a 64\,000-token output limit for every arm,
+which is what the engine arms and the cheap tasks always had. The block's AHC039 numbers are therefore
+not comparable one-to-one with the flash/pro campaign's, which ran our methods at 32k on the old
+merge; within the block every arm shares the same configuration.
 
 \paragraph{Trajectory length and the inspiration selector.} Because the selector never chooses at
 $T{=}2$, a selector study has to lengthen the trajectories. Three arms per cell: $K{=}2$, $T{=}4$
