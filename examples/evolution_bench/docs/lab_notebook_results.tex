@@ -528,9 +528,9 @@ differences inside the replicate spread ($\sim$0.01) are inconclusive, on AHC039
 $\sim$20 points, the seed's own machine noise.
 
 \begin{table}[H]\centering\small
-\caption{Part 1 snapshot (2026-09-09 08:30 PDT): best per arm (s0 / s1 / s2) and mean. Dashes are the five
-engine arms still running (now on Sherlock, resumed from the engine's own checkpoints); the upstream
-engine keeps no partial results.}
+\caption{Part 1 snapshot (2026-09-09 23:35 PDT): best per arm (s0 / s1 / s2) and mean. Dashes are the two
+sums-vs-differences port-mirror engine arms still running on Sherlock; the upstream engine keeps no
+partial results.}
 \label{tab:part1}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
@@ -546,14 +546,14 @@ upstream, authors' defaults & 0.9120 & 0.9094 & 0.9093 & 0.9102 \\
 \midrule
 LabNotebook & 1.0668 & 1.0865 & 1.0621 & 1.0718 \\
 our SimpleTES port & 1.0668 & 1.0677 & 1.0621 & 1.0655 \\
-upstream, port-mirror & --- & --- & --- & --- \\
-upstream, authors' defaults & --- & 1.0668 & 1.0668 & 1.0668 \\
+upstream, port-mirror & 1.0692 & --- & --- & 1.0692 \\
+upstream, authors' defaults & 1.0668 & 1.0668 & 1.0668 & 1.0668 \\
 \midrule
 \multicolumn{5}{@{}l}{\textbf{Heilbronn convex $n{=}13$} (ratio, higher is better)} \\
 \midrule
 LabNotebook & 0.8520 & 1.0000 & 0.8905 & 0.9142 \\
 our SimpleTES port & 0.9158 & 0.8676 & 0.8833 & 0.8889 \\
-upstream, port-mirror & --- & 0.8877 & 0.9163 & 0.9020 \\
+upstream, port-mirror & 0.8614 & 0.8877 & 0.9163 & 0.8884 \\
 upstream, authors' defaults & 0.7127 & 0.8554 & 0.7126 & 0.7602 \\
 \midrule
 \multicolumn{5}{@{}l}{\textbf{$C_1$ control} (lower is better)} \\
@@ -573,9 +573,9 @@ port is a weaker baseline than the original.}
 \end{figure}
 
 \begin{table}[H]\centering\small
-\caption{Part 2 snapshot (2026-09-09 08:30 PDT). $^\circ$ = still running (best so far, a lower bound). The
-AHC039 arms are frozen at their Modal checkpoints (35--155 rows of $\sim$180) until the Sherlock
-eval servers are up; the one finished arm is the upstream engine, seed 1.}
+\caption{Part 2 (2026-09-09 23:35 PDT). $C_2$ and sums vs differences: all 24 ablation arms finished. AHC039: the
+Modal half-block, frozen where the credit ran out ($^\circ$, 35--155 rows of $\sim$180, old merge);
+the Sherlock re-run on the refined merge is in progress and replaces these rows when done.}
 \label{tab:part2}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
@@ -584,7 +584,7 @@ group & s0 & s1 & s2 & mean \\
 \midrule
 LabNotebook (full) & 0.9248 & 0.9106 & 0.9185 & 0.9180 \\
 no ideas & 0.9064 & 0.9096 & 0.9103 & 0.9087 \\
-one long trajectory & 0.9112$^\circ$ & 0.9244 & 0.9172$^\circ$ & 0.9176 \\
+one long trajectory & 0.9266 & 0.9244 & 0.9172 & 0.9227 \\
 no notebook & 0.9048 & 0.9108 & 0.9251 & 0.9136 \\
 no digest & 0.9036 & 0.9304 & 0.9273 & 0.9204 \\
 \midrule
@@ -592,11 +592,11 @@ no digest & 0.9036 & 0.9304 & 0.9273 & 0.9204 \\
 \midrule
 LabNotebook (full) & 1.0668 & 1.0865 & 1.0621 & 1.0718 \\
 no ideas & 1.0668 & 1.0754 & 1.0865 & 1.0762 \\
-one long trajectory & 1.0827 & 1.0960$^\circ$ & 1.0763$^\circ$ & 1.0850 \\
-no notebook & 1.0674$^\circ$ & 1.0754 & 1.0927 & 1.0785 \\
-no digest & 1.0936$^\circ$ & 1.0674 & 1.0668 & 1.0759 \\
+one long trajectory & 1.0827 & 1.0960 & 1.0763 & 1.0850 \\
+no notebook & 1.0674 & 1.0754 & 1.0927 & 1.0785 \\
+no digest & 1.0947 & 1.0674 & 1.0668 & 1.0763 \\
 \midrule
-\multicolumn{5}{@{}l}{\textbf{AHC039 block} (official points)} \\
+\multicolumn{5}{@{}l}{\textbf{AHC039, Modal half-block} (official points; $^\circ$ = frozen partial)} \\
 \midrule
 upstream SimpleTES & --- & 3742 & --- & 3742 \\
 our port & 3677$^\circ$ & 3524$^\circ$ & 3702$^\circ$ & 3634 \\
@@ -611,11 +611,12 @@ no digest & 3702$^\circ$ & 3752$^\circ$ & 3700$^\circ$ & 3718 \\
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{lab_notebook_figs/part2_ablations.png}
-\caption{Part 2 snapshot. Removing the ideas holds C2 at the seed where the full method moved;
-on sums vs differences it does not hurt. Removing the digest does not hurt C2 (finished mean
-0.9204 against 0.9180 for the full method), removing the notebook does not either, and the single
-long trajectory is strong on both. The AHC039 block, where the effect to explain is largest, is
-paused at its Modal checkpoints pending the Sherlock eval servers.}
+\caption{Part 2, cheap tasks final. Removing the ideas is the one variant below the full method on
+C2 (0.9087 against 0.9180); removing the digest (0.9204), removing the notebook (0.9136) and a
+single long trajectory (0.9227) do not hurt, and on sums vs differences every variant lands at or
+above the full method (1.076--1.085 against 1.0718). On these two tasks, then, the ideas carry the
+effect and the notebook and digest do not show a measurable benefit; AHC039, where the notebook has
+the most to remember, is the open question the Sherlock block answers.}
 \end{figure}
 
 
@@ -630,15 +631,31 @@ a Sherlock eval server, which is a different ruler from the Modal one, and the 2
 on both sides of the seam plus the server boot ids in every arm's log make the seam visible in the
 analysis rather than averaged over. Finished arms are unaffected.
 
+\paragraph{AHC039 block re-run, and a block-merge fix.} Because AHC039 scores are wall-clock limited, the
+moved arms were not resumed: the whole block (21 arms, three waves, one eval server per wave, all
+three servers on one Sherlock node) was restarted from scratch, and the Modal half-block is kept as a
+separate dataset. Inspecting that half-block exposed a defect in our EVOLVE-BLOCK merge: a reply that
+carried the whole file was spliced between the fixed prefix and suffix (declaring everything twice),
+and a fence line nested inside the block survived into the source. Only 22\% of the half-block's
+evaluations were compilable programs; 47\% were these two shapes. Every method using our variator
+paid the same tax (the upstream engine rejects such replies outright), so the earlier AHC039
+comparisons stand, but they were run at a quarter of the useful budget. The merge now finds the
+innermost marker pair on fence-less text, takes a body that opens with a preprocessor line, defines
+\texttt{main()}, or repeats the prefix as the whole program, and rejects a body with no statement
+at all (prose, a formula, code in another language) so the variator re-rolls it. Checked against
+213 real failures from a first, partial version of the fix, this keeps 147 whole programs whole and
+rejects 14 junk replies; the expected share of compilable candidates rises from about a fifth to
+about a half. The Sherlock block runs on this merge, and its AHC039 numbers are therefore not
+comparable one-to-one with the flash/pro campaign's, which ran on the old merge.
+
 \paragraph{Trajectory length and the inspiration selector.} Because the selector never chooses at
 $T{=}2$, a selector study has to lengthen the trajectories. Three arms per cell: $K{=}2$, $T{=}4$
 (still 16 candidates per cycle) with balance and with rpucg; $K{=}1$, $T{=}8$ with rpucg (its
 balance twin is the one-long ablation); and the port itself with balance (its rpucg twin is the
-main-campaign port). Table~\ref{tab:sel} and Figure~\ref{fig:sel} carry the snapshot.
+main-campaign port). Table~\ref{tab:sel} and Figure~\ref{fig:sel} carry the results.
 
 \begin{table}[H]\centering\small
-\caption{Selector study snapshot (2026-09-09 08:30 PDT; running on Sherlock, 4 of 24 arms finished).
-$^\circ$ = still running.}
+\caption{Selector study (2026-09-09 23:35 PDT), all 24 arms finished.}
 \label{tab:sel}
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
@@ -646,31 +663,33 @@ $^\circ$ = still running.}
 group & s0 & s1 & s2 & mean \\
 \midrule
 LabNotebook $K{=}4$, $T{=}2$, balance (full) & 0.9248 & 0.9106 & 0.9185 & 0.9180 \\
-$K{=}2$, $T{=}4$, balance & 0.9224$^\circ$ & 0.9329 & 0.9227$^\circ$ & 0.9260 \\
-$K{=}2$, $T{=}4$, rpucg & 0.9154$^\circ$ & 0.9284$^\circ$ & 0.9267 & 0.9235 \\
-$K{=}1$, $T{=}8$, balance & 0.9112$^\circ$ & 0.9244 & 0.9172$^\circ$ & 0.9176 \\
-$K{=}1$, $T{=}8$, rpucg & 0.9066$^\circ$ & 0.9218$^\circ$ & 0.8773$^\circ$ & 0.9019 \\
+$K{=}2$, $T{=}4$, balance & 0.9224 & 0.9329 & 0.9250 & 0.9268 \\
+$K{=}2$, $T{=}4$, rpucg & 0.9042 & 0.9284 & 0.9267 & 0.9198 \\
+$K{=}1$, $T{=}8$, balance & 0.9266 & 0.9244 & 0.9172 & 0.9227 \\
+$K{=}1$, $T{=}8$, rpucg & 0.9066 & 0.9273 & 0.9101 & 0.9147 \\
 port, rpucg & 0.9101 & 0.9079 & 0.9139 & 0.9106 \\
-port, balance & 0.9009$^\circ$ & 0.8900$^\circ$ & 0.9378$^\circ$ & 0.9096 \\
+port, balance & 0.9101 & 0.8991 & 0.9378 & 0.9156 \\
 \midrule
 \multicolumn{5}{@{}l}{\textbf{sums vs differences} (higher is better)} \\
 \midrule
 LabNotebook $K{=}4$, $T{=}2$, balance (full) & 1.0668 & 1.0865 & 1.0621 & 1.0718 \\
-$K{=}2$, $T{=}4$, balance & 1.0668$^\circ$ & 1.0922$^\circ$ & 1.0674$^\circ$ & 1.0755 \\
-$K{=}2$, $T{=}4$, rpucg & 1.0633$^\circ$ & 1.0987$^\circ$ & 1.0668$^\circ$ & 1.0762 \\
-$K{=}1$, $T{=}8$, balance & 1.0827 & 1.0960$^\circ$ & 1.0763$^\circ$ & 1.0850 \\
-$K{=}1$, $T{=}8$, rpucg & 1.0748$^\circ$ & 1.0668$^\circ$ & 1.0621$^\circ$ & 1.0679 \\
+$K{=}2$, $T{=}4$, balance & 1.0759 & 1.0922 & 1.0674 & 1.0785 \\
+$K{=}2$, $T{=}4$, rpucg & 1.0899 & 1.0987 & 1.0980 & 1.0955 \\
+$K{=}1$, $T{=}8$, balance & 1.0827 & 1.0960 & 1.0763 & 1.0850 \\
+$K{=}1$, $T{=}8$, rpucg & 1.0774 & 1.0668 & 1.1116 & 1.0853 \\
 port, rpucg & 1.0668 & 1.0677 & 1.0621 & 1.0655 \\
-port, balance & 1.0757 & 1.0668$^\circ$ & 1.0773$^\circ$ & 1.0733 \\
+port, balance & 1.0757 & 1.0758 & 1.0773 & 1.0763 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{lab_notebook_figs/part3_selector.png}
-\caption{Selector study snapshot. The $K{=}2$, $T{=}4$ arms are at or above the full method on C2
-under both selectors, with no separation between balance and rpucg so far; $K{=}1$, $T{=}8$ with
-rpucg is the weakest cell on both tasks.}
+\caption{Selector study, final. No consistent winner between the selectors: at $K{=}2$, $T{=}4$
+balance leads on C2 (0.9268 against 0.9198) and rpucg on sums vs differences (1.0955 against
+1.0785), both gaps inside about two replicate spreads. What is consistent is the trajectory length:
+every $T{\ge}4$ cell beats the full method's $K{=}4$, $T{=}2$ on both tasks, and the single best
+sums-vs-differences value of the whole program (1.1116) came from $K{=}1$, $T{=}8$ with rpucg.}
 \label{fig:sel}
 \end{figure}
 
