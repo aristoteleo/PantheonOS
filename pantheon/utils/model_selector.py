@@ -291,12 +291,12 @@ DEFAULT_PROVIDER_MODELS = {
 # preferred model. OpenRouter's latest aliases include a literal '~' prefix.
 PLATFORM_OPENROUTER_TIERS = {
     "high": ["openrouter/anthropic/claude-sonnet-5", "openrouter/anthropic/claude-sonnet-4.6"],
-    "normal": ["openrouter/z-ai/glm-5.3", "openrouter/z-ai/glm-5.2", "openrouter/anthropic/claude-sonnet-4.6"],
+    "normal": ["openrouter/deepseek/deepseek-v4.1-flash", "openrouter/z-ai/glm-5.3", "openrouter/z-ai/glm-5.2", "openrouter/anthropic/claude-sonnet-4.6"],
     "low": ["openrouter/~deepseek/deepseek-v4-flash-latest", "openrouter/deepseek/deepseek-v4-flash", "openrouter/anthropic/claude-haiku-4.5"],
 }
 
 PLATFORM_OPENROUTER_VISION_TIERS = {
-    "normal": ["openrouter/~z-ai/glm-flash-latest"],
+    "normal": ["openrouter/deepseek/deepseek-v4.1-flash", "openrouter/~z-ai/glm-flash-latest"],
     "low": ["openrouter/deepseek/deepseek-v4-flash-vision-exp"],
 }
 

@@ -117,7 +117,7 @@
         // text-only; vision.vision_model can still pin a specific model.
         // "provider_vision_models": {
         //     "openrouter": {
-        //         "normal": ["openrouter/~z-ai/glm-flash-latest"],
+        //         "normal": ["openrouter/deepseek/deepseek-v4.1-flash"],
         //         "low": ["openrouter/deepseek/deepseek-v4-flash-vision-exp"]
         //     }
         // },
@@ -343,7 +343,7 @@
     "vision": {
         // "auto"  : pick a vision-capable model across configured providers,
         //           following the active chat model's tier (normal if unknown).
-        // Platform normal: GLM 5.3 + GLM Flash Latest for vision.
+        // Platform normal: DeepSeek V4.1 Flash (native text and vision).
         // Platform low: DeepSeek V4 Flash Latest + Flash Vision Exp.
         // tier    : "high" / "normal" / "low" — force a quality tier.
         // model id: e.g. "gemini-cli/gemini-3-flash-preview" — pin a model;

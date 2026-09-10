@@ -9,7 +9,7 @@ from pantheon.utils.model_selector import ModelSelector
 from pantheon.utils import openrouter_catalog, vision_downgrade
 
 PAIRS = [
-    ('normal', 'openrouter/z-ai/glm-5.3', 'openrouter/~z-ai/glm-flash-latest'),
+    ('normal', 'openrouter/deepseek/deepseek-v4.1-flash', 'openrouter/deepseek/deepseek-v4.1-flash'),
     ('low', 'openrouter/~deepseek/deepseek-v4-flash-latest', 'openrouter/deepseek/deepseek-v4-flash-vision-exp'),
 ]
 
@@ -40,7 +40,7 @@ def test_tier_has_separate_text_and_vision_routes(platform_selector, tier, text,
     assert selector.resolve_model_for_provider(tier + ',vision', 'openrouter')[0] == vision
     assert selector.find_vision_models(text)[0] == vision
     assert vision_downgrade._vision_candidates(text)[0] == vision
-    assert selector._check_model_capability(text, 'vision') is False
+    assert selector._check_model_capability(text, 'vision') is (tier == 'normal')
     assert selector._check_model_capability(vision, 'vision') is True
 
 
@@ -65,17 +65,17 @@ def test_custom_pair_override_and_provider_preference(platform_selector):
     assert selector.find_vision_models(PAIRS[1][1])[0] == PAIRS[0][2]
 
 
-async def test_switching_tiers_does_not_reuse_other_vision_description(platform_selector, monkeypatch):
-    describe = AsyncMock(side_effect=['normal description', 'low description'])
+async def test_normal_keeps_native_images_and_low_uses_its_companion(platform_selector, monkeypatch):
+    describe = AsyncMock(return_value='low description')
     monkeypatch.setattr(vision_downgrade, '_describe', describe)
     monkeypatch.setattr(vision_downgrade, '_DESC_CACHE', OrderedDict())
     def history():
         return [{'role': 'user', 'content': [{'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,test'}}]}]
     normal = await vision_downgrade.downgrade_blind_user_images(history(), PAIRS[0][1])
     low = await vision_downgrade.downgrade_blind_user_images(history(), PAIRS[1][1])
-    assert 'normal description' in normal[0]['content'][0]['text']
+    assert normal[0]['content'][0]['type'] == 'image_url'
     assert 'low description' in low[0]['content'][0]['text']
-    assert describe.await_count == 2
+    assert describe.await_count == 1
 
 
 @pytest.mark.parametrize('tier,text,vision', PAIRS)
