@@ -126,16 +126,28 @@ class LiveViewDataServer:
     async def ensure_started(self, roots: list[Path]) -> str:
         """Start the server (once) serving `roots`; return its base URL.
 
-        The first call fixes the served roots. Started on a dedicated daemon
-        thread; this coroutine waits (off the calling loop) for it to come up.
+        Accept newly available authorized roots without restarting the server
+        or invalidating existing URLs. App repositories can be created after
+        the first viewer starts the data server.
         """
+        resolved = [Path(r).resolve() for r in roots if Path(r).is_dir()]
         if self._base_url is not None:
+            self._refresh_roots(resolved)
             return self._base_url
-        resolved = [Path(r).resolve() for r in roots if Path(r).exists()]
         await asyncio.get_event_loop().run_in_executor(
             None, self._start_blocking, resolved,
         )
+        self._refresh_roots(resolved)
         return self._base_url  # type: ignore[return-value]
+
+    def _refresh_roots(self, roots: list[Path]) -> None:
+        # Publish a new mapping atomically; HTTP readers may be iterating the
+        # old one on the server thread. Roots come from Desktop's allowlist,
+        # never from a requested file's parent directory.
+        with self._lock:
+            additions = {_prefix_for(root): root for root in roots}
+            if any(self._roots.get(key) != root for key, root in additions.items()):
+                self._roots = {**self._roots, **additions}
 
     def _start_blocking(self, roots: list[Path]) -> None:
         with self._lock:
@@ -155,14 +167,6 @@ class LiveViewDataServer:
                         if prefix in mounts:
                             continue
                         mounts[prefix] = root
-                        # Local mode mounts each root as a static route; server
-                        # mode serves everything through one token-gated handler
-                        # (registered once, below).
-                        if not self._server_mode:
-                            app.router.add_static(
-                                f"/{prefix}/", str(root),
-                                show_index=False, follow_symlinks=False,
-                            )
                     self._roots = mounts
                     app.router.add_route("*", "/api/{name}", self._serve_endpoint)
                     app.router.add_route(
@@ -172,6 +176,10 @@ class LiveViewDataServer:
                         # /d/<token>/<prefix>/<rel> — constant-time token check,
                         # then FileResponse (Range-aware) from the mounted root.
                         app.router.add_get("/d/{token}/{tail:.*}", self._serve_token_gated)
+                    else:
+                        # Like server mode, resolve roots at request time so
+                        # later Store installs work without rebuilding routes.
+                        app.router.add_get("/{prefix}/{rel:.*}", self._serve_local)
                     runner = web.AppRunner(app)
                     loop.run_until_complete(runner.setup())
                     if self._server_mode:
@@ -341,6 +349,12 @@ class LiveViewDataServer:
             return web.Response(status=403, text="forbidden")
         tail = request.match_info.get("tail", "")
         prefix, _, rel = tail.partition("/")
+        return self._serve_file(prefix, rel)
+
+    async def _serve_local(self, request: web.Request) -> web.StreamResponse:
+        return self._serve_file(request.match_info["prefix"], request.match_info["rel"])
+
+    def _serve_file(self, prefix: str, rel: str) -> web.StreamResponse:
         root = self._roots.get(prefix)
         if root is None:
             return web.Response(status=404, text="unknown prefix")

@@ -315,7 +315,13 @@ class DesktopToolSet(ToolSet):
         # Store installs are user-owned, shared across this user's workspaces.
         for root, scope in self._app_scope_roots():
             if scope == "user":
-                roots.extend([root, root.parent / "app-store" / "snapshots", root.parent / "app-store" / "forks"])
+                store = root.parent / "app-store"
+                # Editable Git working trees are distinct from immutable
+                # launch snapshots and private forks. Store's Source button
+                # opens these repositories through the normal file viewers.
+                roots.extend([
+                    root, store / "snapshots", store / "forks", store / "repositories",
+                ])
         return roots
 
     async def _ensure_data_server(self):
