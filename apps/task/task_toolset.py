@@ -473,6 +473,7 @@ class TaskToolSet(ToolSet):
         title: Optional[str] = None,
         description: Optional[str] = None,
         kind: Optional[str] = None,
+        node_id: Optional[str] = None,
     ) -> dict:
         """Register a user-facing deliverable so the user can find and browse it
         in the Output panel. Call this whenever you produce something the user
@@ -502,23 +503,37 @@ class TaskToolSet(ToolSet):
             kind: Category for grouping/display: 'report' | 'figure' | 'data' |
                 'table' | 'dir' | 'other'. Defaults to 'dir' for directories,
                 else 'other'.
+            node_id: Optional Fleet node owning the file. Use an absolute path
+                on that node. Omit to use the current workspace file service.
+                Registration keeps the source node so files on different machines
+                with the same path remain distinct and open on the correct node.
         """
         context = self.get_context() or {}
-        _abs, exists, is_dir, store_path = self._resolve_output_path(path, context)
-        if not exists:
+        from .output_paths import output_metadata
+        try:
+            metadata = await output_metadata(path, context, node_id)
+        except Exception as exc:
+            logger.warning(f"Output verification failed on workspace: {exc}")
+            return {"success": False, "error": "Could not verify the output on the workspace file service. "
+                    "The file may exist; do not recreate it. Retry when the workspace is connected.",
+                    "code": "output_verification_unavailable"}
+        if not metadata.get('exists'):
             return {
                 "success": False,
-                "error": f"Path does not exist: {path}. Create/produce it before registering.",
+                "error": f"Path does not exist on the workspace: {path}. Create/produce it before registering.",
             }
+        is_dir = metadata['is_dir']
+        store_path = metadata['store_path']
 
         # Lazy-load so we accumulate onto any previously persisted outputs.
         brain_dir = self._get_brain_dir(context)
         self._load(brain_dir)
         self.state.on_register_output(
-            path=store_path, title=title, description=description, kind=kind, is_dir=is_dir
+            path=store_path, title=title, description=description, kind=kind, is_dir=is_dir,
+            source=metadata.get('source'),
         )
         self._save(brain_dir)
-        return {"success": True, "path": store_path, "is_dir": is_dir}
+        return {"success": True, "path": store_path, "is_dir": is_dir, "source": metadata.get('source')}
 
     @tool
     async def list_outputs(self) -> dict:

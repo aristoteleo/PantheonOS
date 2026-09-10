@@ -1,7 +1,7 @@
 {
   "id": "desktop",
   "name": "Desktop",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "description": "The user's desktop: windows, apps, browser, data server.",
   "entry": {
     "backend": "pantheon.apps.builtin.desktop:DesktopToolSet"
@@ -1140,6 +1140,12 @@
             "type": "str",
             "required": false,
             "default": "not_defined"
+          },
+          {
+            "name": "node_id",
+            "type": "str | None",
+            "required": false,
+            "default": null
           }
         ]
       },
@@ -1154,6 +1160,11 @@
             "default": "not_defined"
           }
         ],
+        "hidden": true
+      },
+      {
+        "name": "fleet_instances",
+        "description": "Windows and packaged backends owned by this Desktop node.",
         "hidden": true
       }
     ]

@@ -363,6 +363,7 @@ class FleetToolSet(ToolSet):
             nodes = await self._read_nodes()
         except Exception as e:  # noqa: BLE001
             return {"success": False, "error": str(e)}
+
         online = [n for n in nodes if n.get("state", {}).get("status") == "online"]
         total_cores = sum(int(n.get("capability", {}).get("cpu_cores", 0) or 0) for n in nodes)
         total_ram = sum(float(n.get("capability", {}).get("ram_gb", 0) or 0) for n in nodes)
@@ -378,6 +379,23 @@ class FleetToolSet(ToolSet):
             "active_transfers": len(active),
         }
 
+    @tool
+    async def fleet_list_apps(self, node_id: str | None = None) -> dict:
+        """List registered App instances, optionally on one of your Fleet nodes.
+
+        Returns node ownership, App id, scope, version and health for each
+        instance, including last reported instances on offline nodes.
+        """
+        from .inventory import inventory_from_records
+        try:
+            result = await inventory_from_records(await self._read_nodes())
+            if node_id:
+                if not any(n['node_id'] == node_id for n in result['nodes']):
+                    return {'success': False, 'error': 'Unknown Fleet node'}
+                result['instances'] = [a for a in result['instances'] if a['node_id'] == node_id]
+            return result
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
     @tool
     async def fleet_pick_node(
         self,

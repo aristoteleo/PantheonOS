@@ -1,7 +1,7 @@
 {
   "id": "task",
   "name": "Task",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Modal-workflow (PLANNING/EXECUTION/VERIFICATION) boundaries and prompt shaping. In-process agent pipeline hooks.",
   "runtime": "embedded",
   "entry": {
@@ -62,7 +62,7 @@
       },
       {
         "name": "register_output",
-        "description": "Register a user-facing deliverable so the user can find and browse it\n        in the Output panel. Call this whenever you produce something the user\n        should see.\n\n        IMPORTANT: This is the ONLY way outputs become visible in the Output\n        panel. In particular, files produced by RUNNING CODE (e.g. a plot saved\n        by a script, a generated CSV) are NOT tracked anywhere else — you must\n        register them here. Files you create with write_file should also be\n        registered if they are deliverables (not scratch/intermediate files).\n\n        Prefer organizing related deliverables into a folder and registering the\n        FOLDER (its live contents are shown as a browsable tree) — then you don't\n        have to register every file individually. You can also register single\n        important files with a title/description.\n\n        The output is automatically attributed to the task you are currently in\n        (your most recent task_boundary), so the user sees which task produced\n        what.\n\n        Args:\n            path: Path to the output file or directory (relative to your\n                workspace, or absolute). MUST already exist — create/produce it\n                first.\n            title: Short human-readable title, e.g. \"Hi-C contact matrix report\".\n            description: One-line description of what it is.\n            kind: Category for grouping/display: 'report' | 'figure' | 'data' |\n                'table' | 'dir' | 'other'. Defaults to 'dir' for directories,\n                else 'other'.\n        ",
+        "description": "Register a user-facing deliverable so the user can find and browse it\n        in the Output panel. Call this whenever you produce something the user\n        should see.\n\n        IMPORTANT: This is the ONLY way outputs become visible in the Output\n        panel. In particular, files produced by RUNNING CODE (e.g. a plot saved\n        by a script, a generated CSV) are NOT tracked anywhere else — you must\n        register them here. Files you create with write_file should also be\n        registered if they are deliverables (not scratch/intermediate files).\n\n        Prefer organizing related deliverables into a folder and registering the\n        FOLDER (its live contents are shown as a browsable tree) — then you don't\n        have to register every file individually. You can also register single\n        important files with a title/description.\n\n        The output is automatically attributed to the task you are currently in\n        (your most recent task_boundary), so the user sees which task produced\n        what.\n\n        Args:\n            path: Path to the output file or directory (relative to your\n                workspace, or absolute). MUST already exist — create/produce it\n                first.\n            title: Short human-readable title, e.g. \"Hi-C contact matrix report\".\n            description: One-line description of what it is.\n            kind: Category for grouping/display: 'report' | 'figure' | 'data' |\n                'table' | 'dir' | 'other'. Defaults to 'dir' for directories,\n                else 'other'.\n        \nFor files on another Fleet node, pass node_id and an absolute path. Without node_id, the workspace file backend validates the file. The output keeps its source node for preview and download.",
         "params": [
           {
             "name": "path",
@@ -83,6 +83,11 @@
           {
             "name": "kind",
             "type": "typing.Optional[str]",
+            "required": false
+          },
+          {
+            "name": "node_id",
+            "type": "str | None",
             "required": false
           }
         ]

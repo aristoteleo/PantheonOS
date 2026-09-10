@@ -1,9 +1,9 @@
 {
   "id": "files",
   "name": "Files",
-  "version": "0.6.4",
+  "version": "0.7.0",
   "apiVersion": 2,
-  "description": "The workspace file browser.",
+  "description": "Browse and manage files on every Fleet node with a file backend.",
   "surface": "dom",
   "entry": {
     "frontend": "ui:files"
@@ -27,7 +27,8 @@
       "name": "navigate",
       "description": "Show a folder in this existing window.",
       "params": {
-        "path": "absolute folder path"
+        "path": "absolute folder path",
+        "node_id": "optional Fleet node id"
       }
     },
     {

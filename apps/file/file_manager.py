@@ -304,6 +304,19 @@ class FileManagerToolSetBase(ToolSet):
         return self._get_root() / file_path
 
     @tool(exclude=True)
+    async def stat_path(self, file_path: str) -> dict:
+        """Resolve output metadata on the workspace node without reading its contents."""
+        try:
+            path = self._resolve_path(file_path).resolve()
+            root = self._get_root().resolve()
+            from pantheon.apps.builtin.fleet.local_node import local_node_id
+            node_id = local_node_id()
+            return {"success": True, "exists": path.exists(), "is_dir": path.is_dir(), "node_id": node_id,
+                    "path": str(path), "store_path": str(path.relative_to(root)) if path.is_relative_to(root) else str(path)}
+        except OSError as exc:
+            return {"success": False, "error": str(exc)}
+
+    @tool(exclude=True)
     async def get_cwd(self) -> dict:
         """Get current working directory."""
         return {"success": True, "cwd": str(self._get_root())}
@@ -686,6 +699,18 @@ class FileManagerToolSet(FileManagerToolSetBase):
         black_list: The list of files to ignore.
         **kwargs: Additional keyword arguments.
     """
+
+    @tool(exclude=True)
+    async def file_transfer(self, method: str, args: dict) -> dict:
+        """Serve bounded file-transfer RPCs on this exact file backend's node."""
+        allowed = {'open_file_for_read', 'open_file_for_write', 'read_chunk', 'read_chunk_at',
+                   'write_chunk', 'close_file', 'transfer_activity', 'read_file'}
+        if method not in allowed:
+            return {'success': False, 'error': 'Unsupported file transfer method'}
+        from pantheon.apps.builtin.file_transfer.worker import FileTransferToolSet
+        if not hasattr(self, '_node_transfer'):
+            self._node_transfer = FileTransferToolSet('node_files', self._get_root())
+        return await getattr(self._node_transfer, method)(**args)
 
     @tool(exclude=True)
     async def fetch_resources_batch(

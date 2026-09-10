@@ -440,6 +440,7 @@ class AppInstanceResolver:
         *,
         scope: str = "app",
         workdir: str | None = None,
+        node_id: str | None = None,
     ) -> str:
         """Start (idempotently) and return the instance's service_id.
 
@@ -452,6 +453,32 @@ class AppInstanceResolver:
         # registry per workspace. Agent binding defaults to scope="app",
         # while the UI supplies a project scope; neither may mint a second
         # desktop process against the same display/profile.
+        if node_id:
+            if service_type not in ('file_manager', 'file_transfer'):
+                raise ValueError('Explicit file-node routing only supports file services')
+            await self._ensure_client()
+            from pantheon.apps.builtin.fleet.inventory import node_inventory
+            records = await self._list_nodes()
+            inventory = node_inventory(records)
+            node = next((n for n in inventory['nodes'] if n['node_id'] == node_id), None)
+            if node is None:
+                raise ValueError('File node is not a member of this user’s fleet')
+            if node['status'] not in ('online', 'busy'):
+                raise RuntimeError('The file node is offline; reconnect it before accessing its files')
+            candidates = [app for app in inventory['instances'] if app['node_id'] == node_id
+                          and app['app_id'] == service_type.replace('_', '-')
+                          and app['health'] in ('healthy', 'starting', 'degraded') and app['service_id']]
+            if candidates:
+                candidates.sort(key=lambda app: (app['scope'] != 'app', app['scope'] or ''))
+                return candidates[0]['service_id']
+            if 'fs:workspace' not in node['caps']:
+                raise RuntimeError('This node has no available file backend')
+            # A workspace node runs the Pantheon image. Other machines must
+            # advertise an actual file backend; never send our Python path or
+            # working directory to an arbitrary user's laptop.
+            workdir = workdir or '/'
+            import hashlib
+            scope = f"node{hashlib.sha256(node_id.encode()).hexdigest()[:16]}-{scope}"
         if service_type == "desktop":
             workdir = self._workdir
             scope = "app"
@@ -466,7 +493,14 @@ class AppInstanceResolver:
 
             app = by_service_type()[service_type]
             client = await self._ensure_client()
-            target = await self._place(app)
+            if node_id:
+                nodes = await self._list_nodes()
+                node = next((n for n in nodes if n.get('node_id') == node_id), None)
+                if node is None:
+                    raise ValueError('Output node is not a member of this user’s fleet')
+                target = node_id
+            else:
+                target = await self._place(app)
             if not self._started:
                 # First ensure: prove the node's cmd subject actually answers
                 # before paying the longer app_start timeout — the fast "the
@@ -486,12 +520,15 @@ class AppInstanceResolver:
             instance_nats = os.environ.get("PANTHEON_INSTANCE_NATS_SERVERS")
             if instance_nats:
                 spec_env["NATS_SERVERS"] = instance_nats
+            spec_env.update(PANTHEON_FLEET_NODE_ID=target, PANTHEON_FLEET_ID=self._fleet,
+                            PANTHEON_USER_SEED=self._seed)
             spec = apphost_spec(
                 app.manifest.id,
                 user_seed=self._seed,
                 workdir=workdir or self._workdir,
                 scope=scope,
                 env=spec_env,
+                version=app.manifest.version,
             )
             resp = await client.start(target, spec)
             if not resp.get("ok"):

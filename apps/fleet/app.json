@@ -1,11 +1,12 @@
 {
   "id": "fleet",
   "name": "Fleet",
-  "version": "0.6.4",
-  "description": "Observe and drive the user's fleet of compute nodes.",
+  "version": "0.7.0",
+  "description": "Nodes, resource usage and App instances across your Fleet.",
   "runtime": "embedded",
   "entry": {
-    "backend": "pantheon.apps.builtin.fleet:FleetToolSet"
+    "backend": "pantheon.apps.builtin.fleet:FleetToolSet",
+    "frontend": "ui:fleet"
   },
   "provides": {
     "tools": [
@@ -285,6 +286,17 @@
             "default": "not_defined"
           }
         ]
+      },
+      {
+        "name": "fleet_list_apps",
+        "description": "List App instances with node ownership, version and health.",
+        "params": [
+          {
+            "name": "node_id",
+            "type": "str | None",
+            "required": false
+          }
+        ]
       }
     ]
   },
@@ -294,7 +306,32 @@
     ]
   },
   "apiVersion": 2,
-  "kind": "service",
+  "kind": "app",
   "absorbInto": "fleet-runner builtins",
-  "notes": "brain keeps an embedded client; node-side tools become runner builtins"
+  "notes": "brain keeps an embedded client; node-side tools become runner builtins",
+  "surface": "dom",
+  "actions": [
+    {
+      "name": "refresh"
+    },
+    {
+      "name": "show_nodes"
+    },
+    {
+      "name": "show_instances",
+      "params": {
+        "node_id": "optional Fleet node id"
+      }
+    },
+    {
+      "name": "open_files",
+      "params": {
+        "node_id": "Fleet node with a file backend"
+      }
+    }
+  ],
+  "icon": {
+    "path": "assets/icon.svg"
+  },
+  "readme": "README.md"
 }

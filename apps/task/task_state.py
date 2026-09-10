@@ -264,10 +264,11 @@ class ConversationState:
         description: Optional[str] = None,
         kind: Optional[str] = None,
         is_dir: bool = False,
+        source: Optional[dict] = None,
     ):
         """Register a user-facing output, tagged with the current active task.
 
-        Deduped by path (a re-register updates the existing entry). The task
+        Deduped by node and path (a re-register updates the existing entry). The task
         attribution comes from active_task at call time — i.e. whatever task the
         agent is in when it reports the deliverable.
         """
@@ -283,8 +284,12 @@ class ConversationState:
             "step": self.current_step,
             "ts": time.time(),
         }
-        # Dedupe by path: drop any prior entry for the same path, keep the newest.
-        self.outputs = [o for o in self.outputs if o.get("path") != path]
+        if source:
+            entry['source'] = source
+        # Keep same-name files from different machines separate.
+        identity = ((source or {}).get('node_id'), (source or {}).get('path') or path)
+        self.outputs = [o for o in self.outputs if
+                        ((o.get('source') or {}).get('node_id'), (o.get('source') or {}).get('path') or o.get('path')) != identity]
         self.outputs.append(entry)
 
     def on_artifact_created(self, path: str):

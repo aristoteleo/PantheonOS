@@ -1247,6 +1247,20 @@ class ChatRoom(ToolSet):
             from pantheon.apps.proxy import ToolsetProxy
             from pantheon.apps.resolver import get_shared_resolver
 
+            args = dict(args or {})
+            file_node = args.pop('_node_id', None)
+            if file_node:
+                if toolset_name not in ('file_manager', 'file_transfer'):
+                    return {'success': False, 'error': 'Explicit node routing only supports file services'}
+                resolver = get_shared_resolver()
+                if resolver is None:
+                    return {'success': False, 'error': 'Fleet is not connected'}
+                if toolset_name == 'file_transfer':
+                    args = {'method': method_name, 'args': args}
+                    method_name = 'file_transfer'
+                sid = await resolver.ensure_instance('file_manager', node_id=file_node)
+                return await ToolsetProxy.from_toolset(sid).invoke(method_name, args)
+
             # The topology Agent owns durable memory locally. Sending these
             # paths to the workspace app reads a different filesystem (the
             # viewer and the agent's own read_file both failed this way).
@@ -2011,6 +2025,30 @@ class ChatRoom(ToolSet):
             push_bytes_stream(nc, payload, reply_to, ack_subject, int(chunk_size), int(window))
         )
         return {"success": True, "total_size": len(payload)}
+
+    @tool
+    async def fleet_inventory(self) -> dict:
+        """Nodes and supervised App instances in the authenticated user's Fleet."""
+        from pantheon.apps.resolver import get_shared_resolver
+        from pantheon.apps.builtin.fleet.inventory import fleet_inventory
+        try:
+            return await fleet_inventory(get_shared_resolver())
+        except Exception as exc:
+            return {'success': False, 'error': str(exc)}
+
+    @tool
+    async def get_chat_outputs(self, chat_id: str) -> dict:
+        """Read output registrations from this conversation's Agent-owned state."""
+        import re
+        memory = await run_func(self.memory_manager.get_memory, chat_id)
+        if not memory:
+            return {'success': False, 'error': 'Conversation not found'}
+        root = await self._project_dir_for_chat(chat_id)
+        if not root or not re.fullmatch(r'[A-Za-z0-9_-]+', chat_id):
+            return {'success': False, 'error': 'Invalid conversation workspace'}
+        path = Path(root) / '.pantheon' / 'brain' / chat_id / 'task_state.json'
+        state = json.loads(path.read_text()).get('state', {}) if path.exists() else {}
+        return {'success': True, 'outputs': state.get('outputs', []), 'task_dirs': state.get('task_dirs', {})}
 
     @tool
     async def get_chat_messages(

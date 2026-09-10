@@ -1,7 +1,7 @@
 {
   "id": "file-manager",
   "name": "FileManager",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Workspace file operations, outlines and symbol reads.",
   "entry": {
     "backend": "pantheon.apps.builtin.file:FileManagerToolSet"
@@ -511,6 +511,35 @@
             "type": "bool",
             "required": false,
             "default": false
+          }
+        ]
+      },
+      {
+        "name": "stat_path",
+        "description": "Resolve file metadata on the file backend node.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "file_path",
+            "type": "str",
+            "required": true
+          }
+        ]
+      },
+      {
+        "name": "file_transfer",
+        "description": "Chunked transfers on this file backend.",
+        "hidden": true,
+        "params": [
+          {
+            "name": "method",
+            "type": "str",
+            "required": true
+          },
+          {
+            "name": "args",
+            "type": "dict",
+            "required": true
           }
         ]
       }

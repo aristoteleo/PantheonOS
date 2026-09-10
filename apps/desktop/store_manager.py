@@ -298,7 +298,10 @@ class AppStoreManager:
         if not (root / ".git").exists():
             return {"success": True, "commits": [], "refs": [], "has_more": False,
                     "message": "The App repository could not be initialized. Refresh the installed list for details."}
-        return git_history(root, limit)
+        from .app_git import working_tree
+        return {**git_history(root, limit), 'working_tree': working_tree(root),
+                'repository': {'id': app['repository_id'], 'scope': scope, 'path': str(root),
+                               'label': app.get('repository', {}).get('label')}}
 
     def tag(self, app_id: str, version: str, scope: str = "user", repository_id: str = "") -> dict:
         with self.lock():

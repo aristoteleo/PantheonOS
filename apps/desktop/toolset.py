@@ -451,7 +451,7 @@ class DesktopToolSet(ToolSet):
                 await self._publish_desktop({**event, "type": "desktop.snapshot.cancel"})
 
     @tool
-    async def serve_local_data(self, path: str) -> dict:
+    async def serve_local_data(self, path: str, node_id: str | None = None) -> dict:
         """Expose a local workspace file or directory over HTTP (CORS).
 
         LiveView components run in the browser and fetch their data — and, for
@@ -471,6 +471,12 @@ class DesktopToolSet(ToolSet):
             dict with success, base_url, and url (the URL for `path`).
         """
         from pathlib import Path
+
+        if node_id:
+            from pantheon.apps.builtin.fleet.local_node import local_node_id
+            if local_node_id() != node_id:
+                return {'success': False, 'error_code': 'different_file_node',
+                        'error': 'This Desktop does not own the requested file node'}
 
         p = Path(path)
         if not p.is_absolute():
@@ -1345,6 +1351,25 @@ class DesktopToolSet(ToolSet):
             # for compatibility as the space the topmost window sits on.
             "active_space": windows[-1]["space"] if windows else 1,
         }}
+
+    @tool(exclude=True)
+    async def fleet_instances(self) -> dict:
+        """App windows and packaged backends owned by this Desktop node."""
+        store = self._desktop()
+        store.current()
+        instances = []
+        for wid, window in store.session.windows.items():
+            revision = (window.get('args') or {}).get('appRevision') or {}
+            if not isinstance(revision, dict):
+                revision = {}
+            instances.append({'app_id': (window.get('app_id') or '').removeprefix('pkg:'),
+                              'scope': wid, 'title': window.get('title'), 'kind': 'window',
+                              'version': revision.get('version'), 'health': 'open'})
+        for instance in self._apps().instances():
+            instances.append({'app_id': instance['id'], 'scope': instance['instance_id'],
+                              'version': instance.get('version'), 'kind': 'backend',
+                              'health': 'healthy', 'pid': instance.get('pid')})
+        return {'success': True, 'instances': instances}
 
     @tool
     async def desktop_open(
