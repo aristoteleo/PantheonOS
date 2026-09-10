@@ -6,8 +6,8 @@
     <key>CFBundleName</key><string>Pantheon Fleet</string>
     <key>CFBundleExecutable</key><string>fleet</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleVersion</key><string>0.1.0</string>
-    <key>CFBundleShortVersionString</key><string>0.1.0</string>
+    <key>CFBundleVersion</key><string>0.3.0</string>
+    <key>CFBundleShortVersionString</key><string>0.3.0</string>
     <!-- Background agent: no Dock icon. Launched via LaunchServices (`open`) so the
          native folder-access prompt appears on first file access — a bare CLI
          binary can't trigger it; only a registered .app can. -->
